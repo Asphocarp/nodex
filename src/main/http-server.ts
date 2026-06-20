@@ -590,9 +590,6 @@ app.put("/api/project-sessions/:sessionId", async (c) => {
     const sessionId = c.req.param("sessionId");
     const existing = projectSessionService.getProjectSession(sessionId);
     if (!existing) return c.json({ error: "Not found" }, 404);
-    if (typeof body.title === "string" && existing.thread) {
-      await codexService.setThreadName(existing.thread.threadId, body.title);
-    }
     const session = projectSessionService.updateProjectSession(sessionId, body);
     if (!session) return c.json({ error: "Not found" }, 404);
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "update", session.id);

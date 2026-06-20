@@ -23,7 +23,8 @@ const project: Project = {
 const session: ProjectSession = {
   id: "session-files-story",
   projectId: project.id,
-  title: "Files story",
+  noThreadFallbackTitle: "Files story",
+  displayTitle: "Files story",
   isOverview: false,
   order: 0,
   pinned: false,

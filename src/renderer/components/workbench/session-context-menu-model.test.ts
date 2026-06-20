@@ -11,7 +11,8 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   return {
     id: "session-1",
     projectId: "project-1",
-    title: "Session one",
+    noThreadFallbackTitle: "Session one",
+    displayTitle: "Session one",
     isOverview: false,
     order: 1,
     pinned: false,

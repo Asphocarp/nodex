@@ -727,6 +727,7 @@ export function CodexThreadRow({
   const showSessionActions = !session.isOverview && Boolean(onOpenContextMenu);
   const showPinSlot = !session.isOverview && Boolean(onTogglePinned);
   const pinButtonLabel = session.pinned ? "Unpin chat" : "Pin chat";
+  const title = session.displayTitle;
 
   return (
     <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
@@ -738,7 +739,7 @@ export function CodexThreadRow({
         data-app-action-sidebar-thread-pinned={String(session.pinned)}
         data-app-action-sidebar-thread-unread={String(session.unread)}
         data-app-action-sidebar-thread-row=""
-        data-app-action-sidebar-thread-title={session.title}
+        data-app-action-sidebar-thread-title={title}
         className={cn(
           CODEX_SIDEBAR_THREAD_ROW_CLASS,
           active && "bg-token-list-hover-background",
@@ -785,7 +786,7 @@ export function CodexThreadRow({
                   data-thread-title="true"
                   draggable={false}
                 >
-                  {session.title}
+                  {title}
                 </span>
               </div>
             </div>
@@ -830,7 +831,7 @@ export function CodexThreadRow({
             {showSessionActions ? (
               <button
                 type="button"
-                aria-label={`Session actions for ${session.title}`}
+                aria-label={`Session actions for ${title}`}
                 className={cn(
                   CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS,
                   "ml-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",

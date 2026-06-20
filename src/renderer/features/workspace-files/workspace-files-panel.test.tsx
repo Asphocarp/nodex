@@ -218,7 +218,8 @@ const project: Project = {
 const activeSession: ProjectSession = {
   id: "session-1",
   projectId: project.id,
-  title: "Session",
+  noThreadFallbackTitle: "Session",
+  displayTitle: "Session",
   isOverview: false,
   order: 0,
   pinned: false,

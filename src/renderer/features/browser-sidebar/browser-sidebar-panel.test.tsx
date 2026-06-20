@@ -243,7 +243,8 @@ const browserTab: ProjectSessionTab & { preview: true } = {
 const activeSession: ProjectSession = {
   id: "session-1",
   projectId: "alpha",
-  title: "Session",
+  noThreadFallbackTitle: "Session",
+  displayTitle: "Session",
   isOverview: false,
   order: 0,
   pinned: false,

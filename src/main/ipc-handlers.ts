@@ -372,13 +372,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return session;
   });
 
-  registerHandle("project-sessions:update", async (_, sessionId: string, input) => {
+  registerHandle("project-sessions:update", (_, sessionId: string, input) => {
     const existing = projectSessionService.getProjectSession(sessionId);
     if (!existing) return null;
-    const nextTitle = typeof input?.title === "string" ? input.title : null;
-    if (nextTitle !== null && existing.thread) {
-      await codexService.setThreadName(existing.thread.threadId, nextTitle);
-    }
     const session = projectSessionService.updateProjectSession(sessionId, input);
     if (session) {
       dbNotifier.notifyProjectSessionsChanged(session.projectId, "update", session.id);

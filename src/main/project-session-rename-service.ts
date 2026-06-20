@@ -29,9 +29,10 @@ export async function renameProjectSessionChat(
   if (existing.thread) {
     const renamedThread = await deps.setThreadName(existing.thread.threadId, parsed.title);
     if (!renamedThread) return existing;
+    return deps.getProjectSession(sessionId) ?? existing;
   }
 
-  const updated = deps.updateProjectSession(sessionId, { title: normalizedTitle });
+  const updated = deps.updateProjectSession(sessionId, { noThreadFallbackTitle: normalizedTitle });
   if (updated) {
     deps.notifyProjectSessionsChanged(updated.projectId, "update", updated.id);
   }

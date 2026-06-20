@@ -635,7 +635,8 @@ export interface ProjectSessionThreadLink {
 export interface ProjectSession {
   id: string;
   projectId: string;
-  title: string;
+  noThreadFallbackTitle: string;
+  displayTitle: string;
   isOverview: boolean;
   order: number;
   pinned: boolean;
@@ -653,7 +654,7 @@ export interface ProjectSession {
 
 export interface ProjectSessionCreateInput {
   projectId: string;
-  title: string;
+  noThreadFallbackTitle: string;
 }
 
 export interface ProjectSessionListOptions {
@@ -661,7 +662,7 @@ export interface ProjectSessionListOptions {
 }
 
 export interface ProjectSessionUpdateInput {
-  title?: string;
+  noThreadFallbackTitle?: string;
   leftPaneCollapsed?: boolean;
   panels?: Partial<Record<PanelId, Partial<ProjectSessionPanelState>>>;
 }

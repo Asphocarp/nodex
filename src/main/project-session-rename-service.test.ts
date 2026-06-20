@@ -6,7 +6,8 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   return {
     id: "session-1",
     projectId: "project-1",
-    title: "Current title",
+    noThreadFallbackTitle: "Current title",
+    displayTitle: "Current title",
     isOverview: false,
     order: 1,
     pinned: false,
@@ -31,8 +32,13 @@ function makeDeps(session: ProjectSession, events: string[] = []): ProjectSessio
       return session;
     },
     updateProjectSession: (_sessionId: string, input: ProjectSessionUpdateInput) => {
-      events.push(`update:${input.title ?? ""}`);
-      return { ...session, title: input.title ?? session.title };
+      events.push(`update:${input.noThreadFallbackTitle ?? ""}`);
+      const noThreadFallbackTitle = input.noThreadFallbackTitle ?? session.noThreadFallbackTitle;
+      return {
+        ...session,
+        noThreadFallbackTitle,
+        displayTitle: noThreadFallbackTitle,
+      };
     },
     setThreadName: async (_threadId: string, rawTitle: string) => {
       events.push(`thread:${rawTitle}`);
@@ -66,11 +72,11 @@ describe("renameProjectSessionChat", () => {
     const renamed = await renameProjectSessionChat("session-1", { title: " \n\t " }, makeDeps(session, events));
 
     expect(renamed?.id).toBe("session-1");
-    expect(renamed?.title).toBe("Current title");
+    expect(renamed?.displayTitle).toBe("Current title");
     expect(events.join("|")).toBe("get");
   });
 
-  test("updates an unbound session title with the sanitized title", async () => {
+  test("updates an unbound session fallback title with the sanitized title", async () => {
     const events: string[] = [];
     const renamed = await renameProjectSessionChat(
       "session-1",
@@ -78,11 +84,11 @@ describe("renameProjectSessionChat", () => {
       makeDeps(makeSession(), events),
     );
 
-    expect(renamed?.title).toBe("hello world");
+    expect(renamed?.displayTitle).toBe("hello world");
     expect(events.join("|")).toBe("get|update:hello world|notify:update:session-1");
   });
 
-  test("renames a bound thread before updating the session", async () => {
+  test("renames a bound thread without updating the session fallback title", async () => {
     const events: string[] = [];
     const session = makeSession({
       thread: {
@@ -106,7 +112,7 @@ describe("renameProjectSessionChat", () => {
       makeDeps(session, events),
     );
 
-    expect(renamed?.title).toBe("hello world");
-    expect(events.join("|")).toBe("get|thread:  hello   world  |update:hello world|notify:update:session-1");
+    expect(renamed?.displayTitle).toBe("Current title");
+    expect(events.join("|")).toBe("get|thread:  hello   world  |get");
   });
 });

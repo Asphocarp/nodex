@@ -83,7 +83,7 @@ const DEFAULT_BOTTOM_PANEL_HEIGHT = 280;
 interface DbProjectSession {
   id: string;
   project_id: string;
-  title: string;
+  no_thread_fallback_title: string;
   is_overview: number;
   order: number;
   pinned: number;
@@ -128,6 +128,11 @@ interface DbProjectSessionThread {
   created_at: number;
   updated_at: number;
   linked_at: string;
+}
+
+export interface ProjectSessionThreadOwner {
+  sessionId: string;
+  projectId: string;
 }
 
 function parseJson(value: string): unknown {
@@ -282,6 +287,25 @@ function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
   };
 }
 
+function firstNonEmptyTitle(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+export function resolveProjectSessionDisplayTitle(input: {
+  noThreadFallbackTitle: string;
+  thread: ProjectSessionThreadLink | null;
+}): string {
+  return firstNonEmptyTitle(
+    input.thread?.threadName,
+    input.thread?.threadPreview,
+    input.noThreadFallbackTitle,
+  ) ?? "New thread";
+}
+
 function buildSession(row: DbProjectSession): ProjectSession {
   const database = getDb();
   const tabRows = database
@@ -318,10 +342,17 @@ function buildSession(row: DbProjectSession): ProjectSession {
     `)
     .get(row.id) as DbProjectSessionThread | undefined;
 
+  const thread = threadRow ? rowToThread(threadRow) : null;
+  const noThreadFallbackTitle = row.no_thread_fallback_title;
+
   return {
     id: row.id,
     projectId: row.project_id,
-    title: row.title,
+    noThreadFallbackTitle,
+    displayTitle: resolveProjectSessionDisplayTitle({
+      noThreadFallbackTitle,
+      thread,
+    }),
     isOverview: row.is_overview === 1,
     order: row.order,
     pinned: row.pinned === 1,
@@ -331,7 +362,7 @@ function buildSession(row: DbProjectSession): ProjectSession {
     unread: row.unread === 1,
     leftPaneCollapsed: row.left_pane_collapsed === 1,
     panels: parsePanelStates(row, tabs),
-    thread: threadRow ? rowToThread(threadRow) : null,
+    thread,
     tabs,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -364,7 +395,7 @@ function ensureOverviewSession(projectId: string): void {
     } satisfies Record<PanelId, ProjectSessionPanelState>;
     database.prepare(`
       INSERT OR IGNORE INTO project_sessions (
-        id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
         panel_state_json, created_at, updated_at
       ) VALUES (?, ?, 'Overview', 1, 0, 0, NULL, 0, NULL, 0, 1, ?, ?, ?)
     `).run(
@@ -454,6 +485,20 @@ export function getProjectSessionThreadLink(threadId: string): ProjectSessionThr
   return row ? rowToThread(row) : null;
 }
 
+export function listProjectSessionThreadOwners(threadId: string): ProjectSessionThreadOwner[] {
+  return getDb()
+    .prepare(`
+      SELECT
+        pst.session_id AS sessionId,
+        ps.project_id AS projectId
+      FROM project_session_threads pst
+      JOIN project_sessions ps ON ps.id = pst.session_id
+      WHERE pst.thread_id = ?
+      ORDER BY pst.linked_at ASC, pst.session_id ASC
+    `)
+    .all(threadId) as ProjectSessionThreadOwner[];
+}
+
 export function createProjectSession(input: ProjectSessionCreateInput): ProjectSession {
   const parsed = ProjectSessionCreateInputSchema.parse(input);
   const projectId = ensureProjectExists(parsed.projectId);
@@ -471,13 +516,13 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
 
   database.prepare(`
     INSERT INTO project_sessions (
-      id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+      id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
       panel_state_json, created_at, updated_at
     ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
   `).run(
     id,
     projectId,
-    parsed.title,
+    parsed.noThreadFallbackTitle,
     (maxOrder?.maxOrder ?? -1) + 1,
     stringifyPanels(panels),
     now,
@@ -496,9 +541,9 @@ export function updateProjectSession(sessionId: string, input: ProjectSessionUpd
 
   const fields: string[] = [];
   const values: Array<string | number> = [];
-  if (parsed.title !== undefined) {
-    fields.push("title = ?");
-    values.push(parsed.title);
+  if (parsed.noThreadFallbackTitle !== undefined) {
+    fields.push("no_thread_fallback_title = ?");
+    values.push(parsed.noThreadFallbackTitle);
   }
   if (parsed.leftPaneCollapsed !== undefined) {
     fields.push("left_pane_collapsed = ?");

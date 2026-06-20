@@ -65,8 +65,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
 - Desktop single-instance behavior is scoped per resolved server profile (`KANBAN_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
 - Packaged macOS launches from outside `/Applications` show a native prompt to move Nodex into Applications, continue from the current location, or quit before the app runtime starts.
-- Project-local session pins, archived state, unread state, durable tab state, right/bottom panel collapse/size/split layout, active leaf, active tab, and derived flat tab ordering are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, transient focus history, and temporary side-chat tabs. Overview sessions stay first, are non-pinnable and non-archivable, and are excluded from the session row context menu.
-- Codex thread metadata lives in `codex_threads`, where `project_id` is nullable. Durable local chat ownership lives in `project_session_threads`; cards can reference or mention threads but do not own them.
+- Project-local session pins, archived state, unread state, durable tab state, no-thread fallback labels, right/bottom panel collapse/size/split layout, active leaf, active tab, and derived flat tab ordering are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, transient focus history, and temporary side-chat tabs. Overview sessions stay first, are non-pinnable and non-archivable, and are excluded from the session row context menu.
+- Codex thread metadata lives in `codex_threads`, where `project_id` is nullable. Durable local chat ownership lives in `project_session_threads`; cards can reference or mention threads but do not own them. Attached session row titles use `threadName || threadPreview || noThreadFallbackTitle || "New thread"`; blank sessions use `noThreadFallbackTitle || "New thread"`. `noThreadFallbackTitle` is not a thread title authority.
 - Sidebar rows use compact project folder and session row chrome, including top actions for New chat, Search, Plugins, and Automations. The Search row opens the global command palette in default card-search mode and shows `Cmd/Ctrl+K`; view-local task search remains inside DB view toolbars. Sessions are nested under project folders; pinned sessions sort above unpinned sessions within their project, unread sessions show a left dot, read non-Overview sessions expose a Codex-style trailing `Pin chat` / `Unpin chat` button whose pinned state uses the filled pin glyph, and non-Overview session rows open an Electron-native context menu from right-click or the hover overflow button without selecting the session.
 - Active non-Overview session rows open `Rename chat` when the row receives a title-target double-click. The same dialog is reachable from the session context menu, the active thread header actions menu, the command palette command `renameThread`, the macOS application menu item `Rename chat`, and `Cmd/Ctrl+Alt+R`. The dialog uses `Rename chat`, `Keep it short and recognizable`, placeholder `Add a title…`, `Chat title`, `Cancel`, and `Save`; it submits the raw input value. Manual session/thread rename sanitization trims outer whitespace, folds internal whitespace, treats empty results as no-op, and truncates over 60 characters to 59 characters plus `…`.
 - The session row context menu order is `Pin/Unpin`, `Rename`, `Archive`, `Mark as unread`, `Reveal in Finder/File Explorer/File Manager`, `Copy` (`working directory`, `session ID`, `deeplink`), `Fork` (`local`, `new worktree`), and `Open in new window`. Archiving is non-destructive, hides the session from normal lists, clears pin/unread state, and archives the linked Codex thread when one exists. `Copy deeplink` uses `nodex://sessions/<session-id>`. `Open in new window` seeds the requesting layout with the exact `activeProjectSessionId`.
@@ -411,6 +411,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread creation requires the first user prompt and immediately starts the first turn.
 - New threads auto-generate a concise title from the first user prompt through the main-process `generate-thread-title` host capability unless an explicit thread name or `skipAutoTitleGeneration` is provided.
 - Auto-generated titles are only trimmed before optimistic display and `thread/name/set`; manual rename still trims/folds whitespace and truncates to 60 characters. Auto-title generation and persistence failures are log-only and do not surface as user-visible host errors.
+- Auto-title, manual rename, and app-server `thread/name/updated` notifications update `codex_threads.thread_name` and notify linked project sessions to refetch their derived `displayTitle`. `project_sessions.no_thread_fallback_title` is only used before a thread is attached or as the final display fallback.
 - Empty project sessions show the new-chat composer for the first prompt; Card Stage does not create card-owned thread tabs.
 - `Work locally` uses the selected project's primary source when available, otherwise a generated per-thread local workspace.
 - `New worktree` run target creates a managed Git worktree under `${serverDir}/worktrees/<rand4>/<project-id>` and links thread cwd to that worktree.
@@ -661,10 +662,10 @@ nodex/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/projects/[projectId]/sessions` | Fetch a project's ordered session tree with tabs and optional attached thread metadata (`?includeArchived=true` includes archived sessions) |
-| POST | `/api/projects/[projectId]/sessions` | Create a project-owned session (body: `{title}`) |
+| POST | `/api/projects/[projectId]/sessions` | Create a project-owned session (body: `{noThreadFallbackTitle}`) |
 | PUT | `/api/projects/[projectId]/sessions/reorder` | Reorder sessions (body: `{orderedSessionIds}`) |
 | PUT | `/api/projects/[projectId]/sessions/pinned-order` | Reorder pinned sessions inside the project (body: `{orderedSessionIds}`) |
-| PUT | `/api/project-sessions/[sessionId]` | Update session title or left-pane state |
+| PUT | `/api/project-sessions/[sessionId]` | Update no-thread fallback label, left-pane state, or panel state |
 | PUT | `/api/project-sessions/[sessionId]/rename` | Rename a non-Overview session using manual chat-title sanitization (body: `{title}`); whitespace-only input is a no-op |
 | PUT | `/api/project-sessions/[sessionId]/pinned` | Pin or unpin a non-Overview session (body: `{pinned}`) |
 | PUT | `/api/project-sessions/[sessionId]/archive` | Archive a non-Overview session and linked Codex thread when attached |
@@ -763,7 +764,7 @@ CREATE TABLE pinned_project_order (
 CREATE TABLE project_sessions (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,              -- max 2,000 chars
+  no_thread_fallback_title TEXT NOT NULL, -- max 2,000 chars; not thread title authority
   is_overview INTEGER NOT NULL DEFAULT 0,
   "order" INTEGER NOT NULL,
   pinned INTEGER NOT NULL DEFAULT 0,

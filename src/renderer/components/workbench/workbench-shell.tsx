@@ -3456,7 +3456,7 @@ export function WorkbenchShell({
 
     const session = (await invoke("project-sessions:create", {
       projectId,
-      title: "New thread",
+      noThreadFallbackTitle: "New thread",
     })) as ProjectSession;
     await refreshProjectSessions(projectId);
     if (shouldSelect) selectSession(session);
@@ -5295,7 +5295,7 @@ export function WorkbenchShell({
   const renameSessionDialog = (
     <RenameChatDialog
       open={Boolean(renameSession)}
-      initialValue={renameSession?.title ?? ""}
+      initialValue={renameSession?.displayTitle ?? ""}
       busy={renamingSession}
       onOpenChange={(open) => {
         if (open) return;

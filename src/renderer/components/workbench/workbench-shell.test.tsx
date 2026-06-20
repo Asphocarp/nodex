@@ -777,6 +777,7 @@ function makePanels(options: {
 
 type SessionTabFixture = Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">;
 type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
+  title?: string;
   tabs?: SessionTabFixture[];
   rightCollapsed?: boolean;
   rightLayout?: ProjectSession["panels"]["right"]["layout"];
@@ -801,11 +802,19 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
     rightCollapsed,
     rightLayout,
     tabs: rawTabs,
+    title,
     ...sessionOverrides
   } = overrides;
   const projectId = overrides.projectId ?? "alpha";
   const sessionId = overrides.id ?? "overview:alpha";
   const isOverview = overrides.isOverview ?? true;
+  const thread = sessionOverrides.thread ?? null;
+  const noThreadFallbackTitle = sessionOverrides.noThreadFallbackTitle ?? title ?? "Overview";
+  const displayTitle = sessionOverrides.displayTitle
+    ?? title
+    ?? thread?.threadName
+    ?? thread?.threadPreview
+    ?? noThreadFallbackTitle;
   const tabId = `${sessionId}:db`;
   const tabs = (rawTabs ?? [
     makeSessionTab({
@@ -839,12 +848,13 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   return {
     id: sessionId,
     projectId,
-    title: "Overview",
+    noThreadFallbackTitle,
+    displayTitle,
     isOverview,
     order: 0,
     leftPaneCollapsed: true,
     panels,
-    thread: null,
+    thread,
     tabs,
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
@@ -1198,7 +1208,20 @@ function renderWorkbench({
       if (!session) return null;
       const nextTitle = normalizeCodexManualThreadTitle(input.title ?? "");
       if (!nextTitle) return session;
-      const updated = { ...session, title: nextTitle };
+      const updated = session.thread
+        ? {
+            ...session,
+            displayTitle: nextTitle,
+            thread: {
+              ...session.thread,
+              threadName: nextTitle,
+            },
+          }
+        : {
+            ...session,
+            noThreadFallbackTitle: nextTitle,
+            displayTitle: nextTitle,
+          };
       sessionState = replaceSession(sessionState, updated);
       return updated;
     }
@@ -1272,11 +1295,12 @@ function renderWorkbench({
       return updated;
     }
     if (channel === "project-sessions:create") {
-      const input = (args[0] ?? {}) as { projectId: string; title?: string };
+      const input = (args[0] ?? {}) as { projectId: string; noThreadFallbackTitle?: string };
       const session = makeSession({
         id: `session:${input.projectId}:created`,
         projectId: input.projectId,
-        title: input.title ?? "New thread",
+        noThreadFallbackTitle: input.noThreadFallbackTitle ?? "New thread",
+        displayTitle: input.noThreadFallbackTitle ?? "New thread",
         isOverview: false,
         order: sessionState[input.projectId]?.length ?? 0,
         thread: null,
@@ -2262,7 +2286,7 @@ describe("workbench session shell", () => {
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(invokeCalls.some((call) =>
       call[0] === "project-sessions:create"
-      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", title: "New thread" })
+      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", noThreadFallbackTitle: "New thread" })
     )).toBeTrue();
     expect(props?.isNewThreadTab).toBeTrue();
     expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:created"')).toBeTrue();
@@ -2283,7 +2307,7 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-sessions:create"
-      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", title: "New thread" })
+      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", noThreadFallbackTitle: "New thread" })
     )).toBeTrue();
   });
 
@@ -2327,7 +2351,7 @@ describe("workbench session shell", () => {
       expect(promptCalls.length).toBe(0);
       expect(invokeCalls.some((call) =>
         call[0] === "project-sessions:create"
-        && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", title: "New thread" })
+        && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", noThreadFallbackTitle: "New thread" })
       )).toBeTrue();
       expect(JSON.stringify(props?.newThreadTarget).includes('"projectId":"beta"')).toBeTrue();
       expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:beta:created"')).toBeTrue();
@@ -2849,7 +2873,7 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-sessions:create"
-      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", title: "New thread" })
+      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", noThreadFallbackTitle: "New thread" })
     )).toBeTrue();
     expect(startThreadForSessionCalls.length).toBe(1);
     expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
@@ -6858,7 +6882,7 @@ describe("workbench session shell", () => {
 
       expect(invokeCalls.some((call) =>
         call[0] === "project-sessions:create"
-        && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", title: "New thread" })
+        && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", noThreadFallbackTitle: "New thread" })
       )).toBeTrue();
       expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
     } finally {

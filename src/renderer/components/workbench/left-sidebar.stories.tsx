@@ -565,7 +565,8 @@ function makeStorySession(input: {
   return {
     id: input.id,
     projectId: "nodex",
-    title: input.title,
+    noThreadFallbackTitle: input.title,
+    displayTitle: input.title,
     isOverview: input.isOverview ?? false,
     order: 0,
     pinned: input.pinned ?? false,

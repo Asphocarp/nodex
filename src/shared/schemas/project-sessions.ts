@@ -148,7 +148,7 @@ const ProjectSessionPanelStateUpdateSchema = z.object({
 
 export const ProjectSessionCreateInputSchema = z.object({
   projectId: z.string().min(1),
-  title: titleSchema,
+  noThreadFallbackTitle: titleSchema,
 }) satisfies z.ZodType<ProjectSessionCreateInput>;
 
 export const ProjectSessionListOptionsSchema = z.object({
@@ -156,7 +156,7 @@ export const ProjectSessionListOptionsSchema = z.object({
 }).optional() satisfies z.ZodType<ProjectSessionListOptions | undefined>;
 
 export const ProjectSessionUpdateInputSchema = z.object({
-  title: titleSchema.optional(),
+  noThreadFallbackTitle: titleSchema.optional(),
   leftPaneCollapsed: z.boolean().optional(),
   panels: z.object({
     right: ProjectSessionPanelStateUpdateSchema.optional(),

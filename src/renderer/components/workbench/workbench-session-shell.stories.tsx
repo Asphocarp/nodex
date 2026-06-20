@@ -276,10 +276,12 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       rightFullWidth: args.rightPanel === "full",
       bottomCollapsed: args.bottomPanel !== "empty",
     });
+    const title = "Overview";
     return {
       id: "session:overview",
       projectId: "nodex",
-      title: "Overview",
+      noThreadFallbackTitle: title,
+      displayTitle: title,
       isOverview: true,
       order: 0,
       pinned: false,
@@ -382,12 +384,33 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     };
   }
 
+  const thread = args.thread === "attached"
+    ? {
+        sessionId: "session:overview",
+        projectId: "nodex",
+        threadId: "thread-story",
+        parentThreadId: undefined,
+        threadName: "Codex shell parity",
+        threadPreview: "Reviewing shell layout and tab persistence",
+        modelProvider: "openai",
+        cwd: "/Users/asc/repo/nodex",
+        statusType: "notLoaded",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1_780_800_000_000,
+        updatedAt: 1_780_800_000_000,
+        linkedAt: CREATED_AT,
+      }
+    : null;
+  const title = args.longNames
+    ? "Overview and implementation notes for a Codex-style project session shell"
+    : "Overview";
+
   return {
     id: "session:overview",
     projectId: "nodex",
-    title: args.longNames
-      ? "Overview and implementation notes for a Codex-style project session shell"
-      : "Overview",
+    noThreadFallbackTitle: title,
+    displayTitle: thread?.threadName ?? title,
     isOverview: true,
     order: 0,
     pinned: false,
@@ -397,24 +420,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     unread: false,
     leftPaneCollapsed: true,
     panels,
-    thread: args.thread === "attached"
-      ? {
-          sessionId: "session:overview",
-          projectId: "nodex",
-          threadId: "thread-story",
-          parentThreadId: undefined,
-          threadName: "Codex shell parity",
-          threadPreview: "Reviewing shell layout and tab persistence",
-          modelProvider: "openai",
-          cwd: "/Users/asc/repo/nodex",
-          statusType: "notLoaded",
-          statusActiveFlags: [],
-          archived: false,
-          createdAt: 1_780_800_000_000,
-          updatedAt: 1_780_800_000_000,
-          linkedAt: CREATED_AT,
-        }
-      : null,
+    thread,
     tabs,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
@@ -445,7 +451,8 @@ function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
   return {
     ...makeSession({ ...args, activeTab: "terminal", thread: "empty" }),
     id: "session:release",
-    title: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
+    noThreadFallbackTitle: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
+    displayTitle: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
     isOverview: false,
     order: 1,
     tabs,
@@ -511,7 +518,8 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
           ...makeSession({ ...args, activeTab: "browser", thread: "empty" }),
           id: "session:codex-overview",
           projectId: "codex-readable",
-          title: "Overview",
+          noThreadFallbackTitle: "Overview",
+          displayTitle: "Overview",
           tabs: [
             makeTab({
               id: "tab:codex-browser",

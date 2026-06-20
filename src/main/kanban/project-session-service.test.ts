@@ -17,6 +17,7 @@ import {
   deleteProjectSessionTab,
   detachProjectSessionThread,
   getProjectSession,
+  listProjectSessionThreadOwners,
   activateProjectSessionPanelGroup,
   listProjectSessions,
   archiveProjectSession,
@@ -92,7 +93,8 @@ describe("project session service", () => {
       const defaultSessions = listProjectSessions(defaultProject.id);
       expect(defaultSessions.length).toBe(1);
       expect(defaultSessions[0]?.id).toBe(`overview:${defaultProject.id}`);
-      expect(defaultSessions[0]?.title).toBe("Overview");
+      expect(defaultSessions[0]?.noThreadFallbackTitle).toBe("Overview");
+      expect(defaultSessions[0]?.displayTitle).toBe("Overview");
       expect(defaultSessions[0]?.isOverview).toBeTrue();
       expect(defaultSessions[0]?.leftPaneCollapsed).toBeTrue();
       expect(defaultSessions[0]?.panels.right.collapsed).toBeFalse();
@@ -119,8 +121,9 @@ describe("project session service", () => {
   test("accepts 2000 character session and tab titles", async () => {
     const ran = await withTempDatabase(async () => {
       const longTitle = "x".repeat(MAX_PROJECT_SESSION_TITLE_LENGTH);
-      const session = createProjectSession({ projectId: projectId, title: longTitle });
-      expect(session.title.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: longTitle });
+      expect(session.noThreadFallbackTitle.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
+      expect(session.displayTitle.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
 
       const tab = createProjectSessionTab({
         sessionId: session.id,
@@ -140,11 +143,11 @@ describe("project session service", () => {
     const ran = await withTempDatabase(async () => {
       const tooLongTitle = "x".repeat(MAX_PROJECT_SESSION_TITLE_LENGTH + 1);
       const sessionError = runValidation(() => {
-        createProjectSession({ projectId: projectId, title: tooLongTitle });
+        createProjectSession({ projectId: projectId, noThreadFallbackTitle: tooLongTitle });
       });
       expect(sessionError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBeTrue();
 
-      const session = createProjectSession({ projectId: projectId, title: "Valid session" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Valid session" });
       const tabError = runValidation(() => {
         createProjectSessionTab({
           sessionId: session.id,
@@ -163,7 +166,7 @@ describe("project session service", () => {
 
   test("creates tabs with a supplied client tab id", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Client id session" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Client id session" });
       const tab = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -185,7 +188,7 @@ describe("project session service", () => {
 
   test("rejects invalid or duplicate client tab ids", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Client id validation" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Client id validation" });
       createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -228,7 +231,7 @@ describe("project session service", () => {
 
   test("loads a stored v1 panel layout as a fresh v2 layout from tab rows", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Legacy layout" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Legacy layout" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -292,7 +295,7 @@ describe("project session service", () => {
 
   test("creates and reorders sessions and tabs with validated tab config", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Build" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Build" });
       expect(session.isOverview).toBeFalse();
       expect(session.panels.right.collapsed).toBeTrue();
       expect(session.panels.bottom.collapsed).toBeTrue();
@@ -384,7 +387,7 @@ describe("project session service", () => {
 
   test("preserves cross-project card-stage tab content project", async () => {
     const ran = await withTempDatabase(async () => {
-      const alphaSession = createProjectSession({ projectId: projectId, title: "Alpha work" });
+      const alphaSession = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Alpha work" });
       const betaProject = createProject({ name: "Beta", sources: ["/tmp/beta"] });
       const betaCard = await createCard(betaProject.id, "in_progress", {
         title: "Beta card",
@@ -423,9 +426,9 @@ describe("project session service", () => {
 
   test("pins, reorders pinned sessions, and archives without deleting sessions", async () => {
     const ran = await withTempDatabase(async () => {
-      const alpha = createProjectSession({ projectId: projectId, title: "Alpha" });
-      const beta = createProjectSession({ projectId: projectId, title: "Beta" });
-      const gamma = createProjectSession({ projectId: projectId, title: "Gamma" });
+      const alpha = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Alpha" });
+      const beta = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Beta" });
+      const gamma = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Gamma" });
 
       const pinnedAlpha = setProjectSessionPinned(alpha.id, { pinned: true });
       const pinnedGamma = setProjectSessionPinned(gamma.id, { pinned: true });
@@ -465,7 +468,7 @@ describe("project session service", () => {
 
   test("returns existing fixed tabs instead of creating duplicate singleton tabs", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Fixed tabs" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Fixed tabs" });
 
       const dbView = createProjectSessionTab({
         sessionId: session.id,
@@ -554,7 +557,7 @@ describe("project session service", () => {
 
   test("attaches and detaches session-owned thread metadata", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Agent run" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Agent run" });
       const attached = upsertProjectSessionThreadLink({
         sessionId: session.id,
         projectId: projectId,
@@ -575,6 +578,7 @@ describe("project session service", () => {
       expect(attached.parentThreadId).toBe("parent-1");
       expect(attached.threadName).toBe("Thread One");
       expect(JSON.stringify(attached.statusActiveFlags)).toBe(JSON.stringify(["streaming"]));
+      expect(getProjectSession(session.id)?.displayTitle).toBe("Thread One");
 
       const updated = upsertProjectSessionThreadLink({
         sessionId: session.id,
@@ -585,9 +589,15 @@ describe("project session service", () => {
       expect(updated.threadId).toBe("thread-2");
       expect(updated.parentThreadId ?? null).toBe(null);
       expect(updated.threadPreview).toBe("Follow-up");
+      expect(getProjectSession(session.id)?.displayTitle).toBe("Follow-up");
+      const owners = listProjectSessionThreadOwners("thread-2");
+      expect(owners.length).toBe(1);
+      expect(owners[0]?.sessionId).toBe(session.id);
+      expect(owners[0]?.projectId).toBe(projectId);
 
       expect(detachProjectSessionThread(session.id)).toBeTrue();
       expect(getProjectSession(session.id)?.thread === null).toBeTrue();
+      expect(getProjectSession(session.id)?.displayTitle).toBe("Agent run");
       expect(detachProjectSessionThread(session.id)).toBeFalse();
     });
 
@@ -620,7 +630,7 @@ describe("project session service", () => {
 
   test("updates panel state and moves tabs between panels while preserving state", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Panels" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Panels" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -673,7 +683,7 @@ describe("project session service", () => {
 
   test("persists split group membership and leaf-scoped tab movement", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Split panels" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Split panels" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -737,7 +747,7 @@ describe("project session service", () => {
 
   test("creates a new tab in the requested target leaf", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Target leaf" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Target leaf" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -789,7 +799,7 @@ describe("project session service", () => {
 
   test("edge-dropping a tab to the right of its own multi-tab group creates a sibling group", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Edge split" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Edge split" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -827,7 +837,7 @@ describe("project session service", () => {
 
   test("deleting the last durable tab in a split group removes the empty group", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Prune delete" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Prune delete" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -871,7 +881,7 @@ describe("project session service", () => {
 
   test("deleting an active tab persists the preferred replacement tab", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Delete replacement" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Delete replacement" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -921,7 +931,7 @@ describe("project session service", () => {
 
   test("activating panel tabs persists leaf tab MRU order", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Panel MRU" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Panel MRU" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -974,7 +984,7 @@ describe("project session service", () => {
 
   test("moving the last durable tab out of a group removes the empty source group", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Prune move" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Prune move" });
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,
@@ -1021,7 +1031,7 @@ describe("project session service", () => {
 
   test("preserveEmptyLeafIds keeps an otherwise empty source group for renderer-local tabs", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: projectId, title: "Preserve local" });
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Preserve local" });
       createProjectSessionTab({
         sessionId: session.id,
         projectId: projectId,

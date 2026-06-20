@@ -3900,7 +3900,7 @@ describe("codex-service setThreadName", () => {
 describe("codex-service startThreadForSession", () => {
   test("starts a session thread in the project workspace and persists the project session link", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: defaultProjectId, title: "Session composer" });
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session composer" });
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -3967,7 +3967,7 @@ describe("codex-service startThreadForSession", () => {
 
   test("forks a session thread from a selected turn and attaches the branch to a new project session", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: defaultProjectId, title: "Session branch" });
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session branch" });
       upsertProjectSessionThreadLink({
         sessionId: session.id,
         projectId: defaultProjectId,
@@ -4148,7 +4148,7 @@ describe("codex-service startThreadForSession", () => {
       const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-worktree-repo-"));
       initializeGitRepository(repoPath);
       const project = createProject({ name: "Session Worktree", sources: [repoPath] });
-      const session = createProjectSession({ projectId: project.id, title: "Session worktree" });
+      const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "Session worktree" });
 
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
@@ -4267,7 +4267,7 @@ describe("codex-service startThreadForSession", () => {
         ].join("\n"),
         "utf8",
       );
-      const session = createProjectSession({ projectId: project.id, title: "Failing setup" });
+      const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "Failing setup" });
 
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
@@ -4320,7 +4320,7 @@ describe("codex-service startThreadForSession", () => {
 
   test("rejects unsupported cloud session starts", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: defaultProjectId, title: "Cloud selector" });
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Cloud selector" });
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -4352,7 +4352,7 @@ describe("codex-service startThreadForSession", () => {
 
   test("preserves session prompt attachments and selected model, reasoning, permission, and collaboration inputs", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: defaultProjectId, title: "Attachment composer" });
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Attachment composer" });
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -4440,7 +4440,7 @@ describe("codex-service startThreadForSession", () => {
   test("fails session thread start with a clear error when the project has no source root", async () => {
     const ran = await withTempDatabase(async () => {
       const project = createProject({ name: "Missing Workspace" });
-      const session = createProjectSession({ projectId: project.id, title: "No workspace" });
+      const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "No workspace" });
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;

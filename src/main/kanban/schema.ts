@@ -14,7 +14,7 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 41;
+export const CURRENT_SCHEMA_VERSION = 42;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -54,18 +54,19 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41];
-  if (currentVersion === 37) return [38, 39, 40, 41];
-  if (currentVersion === 38) return [39, 40, 41];
-  if (currentVersion === 39) return [40, 41];
-  if (currentVersion === 40) return [41];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42];
+  if (currentVersion === 37) return [38, 39, 40, 41, 42];
+  if (currentVersion === 38) return [39, 40, 41, 42];
+  if (currentVersion === 39) return [40, 41, 42];
+  if (currentVersion === 40) return [41, 42];
+  if (currentVersion === 41) return [42];
   return null;
 }
 
@@ -196,7 +197,7 @@ function createLatestSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS project_sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
+      no_thread_fallback_title TEXT NOT NULL,
       is_overview INTEGER NOT NULL DEFAULT 0,
       "order" INTEGER NOT NULL,
       pinned INTEGER NOT NULL DEFAULT 0,
@@ -400,7 +401,7 @@ function seedOverviewSessionsForAllProjects(db: Database.Database): void {
   const projects = db.prepare("SELECT id FROM projects ORDER BY created ASC").all() as Array<{ id: string }>;
   const insertSession = db.prepare(`
     INSERT OR IGNORE INTO project_sessions (
-      id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+      id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
       panel_state_json, created_at, updated_at
     ) VALUES (?, ?, ?, 1, 0, 0, NULL, 0, NULL, 0, 1, ?, ?, ?)
   `);
@@ -549,7 +550,7 @@ function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void
   const maxOrder = db.prepare('SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?');
   const insertSession = db.prepare(`
     INSERT INTO project_sessions (
-      id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+      id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
       panel_state_json, created_at, updated_at
     ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
   `);
@@ -1406,6 +1407,68 @@ function migrateSchema40To41(db: Database.Database): void {
   setUserVersion(db, 41);
 }
 
+function migrateSchema41To42(db: Database.Database): void {
+  if (!tableHasColumn(db, "project_sessions", "title")) {
+    setUserVersion(db, 42);
+    return;
+  }
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS project_sessions_next;
+
+      CREATE TABLE project_sessions_next (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        no_thread_fallback_title TEXT NOT NULL,
+        is_overview INTEGER NOT NULL DEFAULT 0,
+        "order" INTEGER NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        pinned_order INTEGER,
+        archived INTEGER NOT NULL DEFAULT 0,
+        archived_at TEXT,
+        unread INTEGER NOT NULL DEFAULT 0,
+        left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+        panel_state_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (is_overview IN (0, 1)),
+        CHECK (pinned IN (0, 1)),
+        CHECK (archived IN (0, 1)),
+        CHECK (unread IN (0, 1)),
+        CHECK (left_pane_collapsed IN (0, 1))
+      );
+
+      INSERT INTO project_sessions_next (
+        id, project_id, no_thread_fallback_title, is_overview, "order",
+        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        panel_state_json, created_at, updated_at
+      )
+      SELECT
+        id, project_id, title, is_overview, "order",
+        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        panel_state_json, created_at, updated_at
+      FROM project_sessions;
+
+      DROP TABLE project_sessions;
+      ALTER TABLE project_sessions_next RENAME TO project_sessions;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
+        ON project_sessions(project_id)
+        WHERE is_overview = 1;
+      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
+        ON project_sessions(project_id, "order", created_at);
+      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
+        ON project_sessions(project_id, archived, pinned, pinned_order, "order");
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 42);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1498,6 +1561,14 @@ function runMigrations(
       }
       migrateSchema40To41(db);
       fromVersion = 41;
+      continue;
+    }
+    if (target === 42) {
+      if (fromVersion !== 41) {
+        throw new Error(`Unsupported Nodex database migration target 42 from ${fromVersion}`);
+      }
+      migrateSchema41To42(db);
+      fromVersion = 42;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

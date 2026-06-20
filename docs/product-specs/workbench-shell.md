@@ -31,9 +31,10 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 
 ## Storage Ownership
 - SQLite owns shared project session data:
-  - `project_sessions`: project id, title, overview marker, order, left-pane collapse, and `panel_state_json` for right/bottom collapse, layout, size, and active tab.
+  - `project_sessions`: project id, `no_thread_fallback_title`, overview marker, order, pin/archive/unread state, left-pane collapse, and `panel_state_json` for right/bottom collapse, layout, size, and active tab.
   - `project_session_tabs`: session/project id, `panel_id`, kind, title, per-panel order, state key/value, and validated kind-specific config JSON. The row `project_id` is the owner project that attaches the tab to a session; `config.projectId` is the content target for project-backed tab bodies and may differ for cross-project card-stage tabs.
   - `project_session_threads`: optional session-to-thread attachments; canonical thread metadata lives in `codex_threads`.
+  - Session lists return a derived `displayTitle`; attached sessions prefer `codex_threads.thread_name`/preview and only fall back to `no_thread_fallback_title`.
 - Window-local shell state owns active project, active session, settings route visibility, and transient focus history. App-window Back/Forward history is owned by `WorkbenchShell`, because that component owns active project/session selection plus right/bottom panel layout application.
 - Renderer-local side chat state owns temporary tab identity, loading/ready/expired status, and panel placement. The backing app-server thread stays in the main-process conversation cache only while live and is discarded when the tab closes.
 - Existing projects are migrated by creating missing Overview sessions. Existing cards, project data, history, and legacy card thread rows are migrated into `codex_threads` plus `project_session_threads`.
@@ -68,7 +69,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Empty-panel action choosers use the Codex row-stack layout: `p-2` host, centered `max-w-xl` stack, `gap-1 px-panel`, full-width `min-h-10` rounded rows with secondary background, `icon-xs` leading icons, `text-sm font-normal` labels, and right-aligned compact shortcut labels. The primary option order is Review (`Ctrl+Shift+G`), Terminal (`Ctrl+\``), Browser (`Cmd/Ctrl+T`), Files (`Cmd/Ctrl+Shift+E`), and Side chat (`Alt+Cmd/Ctrl+S`). Right-panel choosers append a divider plus Nodex-only DB View and Card Stage rows so project-native database and card workflows remain directly reachable without changing the Codex order. Those Nodex rows open a 330px move-to-style picker with a 28px search input, grouped `DB` / `Card` result semantics, command-palette-aligned fuzzy/prefix matching, delayed loading, empty, and error states.
 - Side chat entry points are available from the empty-panel action chooser, panel new-tab menu, attached-thread header overflow menu (`Open side chat`), composer slash command (`/side`), and transcript `Ask in side chat` actions. Creating a side chat from within a side chat is blocked with `'/side' is unavailable in side chats. Return to the main thread first`.
 - Keep `Timeline` hidden until Nodex has a first-class tab kind and eligibility model for it.
-- Project/session rows should be information-dense and shallow: folder disclosure, project label, session title, and subtle thread-attached indicator.
+- Project/session rows should be information-dense and shallow: folder disclosure, project label, derived session `displayTitle`, and subtle thread-attached indicator.
 - The thread page content frame keeps the shell top border but forces the frame top offset to `0px`, so the thread title row starts at the top instead of below an empty toolbar band. The global top-right controls are reserved inside that title row through the thread header right-reserve area.
 - Do not reintroduce the stage rail as a compatibility layer. DB view, Card Stage, Thread, Diff/review, and Terminal implementations should remain reusable bodies behind sessions and tabs.
 

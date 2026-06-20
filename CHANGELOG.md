@@ -74,6 +74,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
+- Fixed new Codex session rows so generated and manually renamed thread titles replace the initial `New thread` label in the sidebar.
 - Fixed the NFM side-menu `Card in` flyout so hovering the row opens the DB picker reliably.
 - Fixed card history retention so retained card versions stay previewable/restorable after pruning by preserving internal reconstruction checkpoints.
 - Fixed packaged production builds so backend logs are not written by default; diagnostics remain opt-in through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
