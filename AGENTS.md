@@ -2,7 +2,7 @@
 
 ## **IMPORTANT Global Instructions for Agents:**
 - Always commit changes after all edits are done (with a prefix like `feat:`/`fix:`/`docs:`/`refactor:`/`chore:`, e.g. `feat: add kanban board`). Do not leave uncommitted changes at the end of a task.
-- This app has no real users or real data yet. Feel free to make ANY huge changes/refactors you want and do not worry about it.
+- This app has no real users or real data yet. Prefer long-term architectural correctness over short-term compatibility. Breaking changes, schema migrations, and large refactors are acceptable when they make the product model simpler and more coherent.
 - For frontend design, prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
 - Keep implementation notes, docs, changelog entries, and handoff summaries product-native: describe what Nodex does and why, without surfacing private provenance, comparative targets, or reconstruction details unless the user explicitly asks for research notes.
 - Do not read repository contents via web crawling from `raw.githubusercontent.com` because it is not stable for agent workflows. For remote repository inspection, clone the repository into a temporary local directory and read files from the local clone instead.
@@ -45,6 +45,14 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Prefer pure helpers in `src/renderer/lib/` for reusable behavior.
 - Keep renderer transport-agnostic by going through `src/renderer/lib/api.ts`.
 - Preserve project scoping for stateful UI and server operations.
+
+## Architectural Preference
+- Default to the long-term, architecturally clean solution over the smallest incremental patch, even when that requires broad refactors, internal API changes, schema migrations, or breaking changes inside this repository.
+- This project has no real users or real data yet. Do not preserve legacy behavior, compatibility layers, duplicate paths, or awkward abstractions merely to reduce diff size.
+- When choosing between a quick local fix and a deeper model-level fix, prefer the model-level fix if it simplifies ownership, removes special cases, or makes future features easier to build.
+- Large refactors are acceptable, but they must still be coherent: preserve project scoping, update the source-of-truth docs, migrate affected call sites, remove obsolete code paths, and run the relevant checks.
+- Do not overbuild speculative abstractions. A long-term solution should reduce conceptual complexity, not add indirection for its own sake.
+- If a long-term fix is too large for one safe change, implement a clean vertical slice and document the remaining migration path instead of landing a temporary workaround.
 
 ## Architecture
 Read `ARCHITECTURE.md` first for system boundaries and dependency flow.
