@@ -32,7 +32,7 @@ function syncDocumentThemeClasses(resolved: Resolved): void {
   const isDark = resolved === "dark";
 
   root.classList.toggle("dark", isDark);
-  applyCodexThemeVariant(root, resolved);
+  applyCodexThemeVariant(root, resolved, document.body);
 
   if (root.dataset.codexWindowType !== "electron") return;
 

@@ -147,6 +147,10 @@ const PANEL_SLOPE: Record<ThemeVariant, number> = {
   light: 0.008,
 };
 
+const CODEX_RUNTIME_DOCUMENT_STYLE = {
+  "--cursor-interaction": "pointer",
+} as const;
+
 export function getCodexThemeVariantStyle(
   variant: ThemeVariant,
 ): Record<string, string> {
@@ -155,6 +159,7 @@ export function getCodexThemeVariantStyle(
   const derived = variant === "light" ? deriveLightTheme(prepared) : deriveDarkTheme(prepared);
 
   return {
+    ...CODEX_RUNTIME_DOCUMENT_STYLE,
     "--codex-base-accent": prepared.theme.accent,
     "--codex-base-contrast": String(prepared.theme.contrast),
     "--codex-base-ink": prepared.theme.ink,
@@ -212,10 +217,19 @@ export function getCodexThemeVariantStyle(
   };
 }
 
-export function applyCodexThemeVariant(root: HTMLElement, variant: ThemeVariant): void {
+export function applyCodexThemeVariant(
+  root: HTMLElement,
+  variant: ThemeVariant,
+  body?: HTMLElement,
+): void {
   const styles = getCodexThemeVariantStyle(variant);
   for (const [name, value] of Object.entries(styles)) {
     root.style.setProperty(name, value);
+  }
+
+  if (!body) return;
+  for (const [name, value] of Object.entries(CODEX_RUNTIME_DOCUMENT_STYLE)) {
+    body.style.setProperty(name, value);
   }
 }
 

@@ -90,7 +90,7 @@
   - `src/renderer/styles/theme-codex-surface.generated.css` owns the generated component/global surface rules.
   - `src/renderer/styles/theme-utilities.css` owns authored Nodex-local utilities that are intentionally outside the generated utility contract.
   - `src/renderer/styles/theme-surface.css` owns authored surface rules and global renderer CSS.
-  - `src/renderer/lib/codex-theme-variant.ts` owns the runtime semantic theme bridge that injects derived foreground/control/border/panel/editor variables onto `document.documentElement`.
+  - `src/renderer/lib/codex-theme-variant.ts` owns the runtime semantic theme bridge that injects derived foreground/control/border/panel/editor variables onto `document.documentElement`, plus document-scoped runtime overrides such as `--cursor-interaction` on both `documentElement` and `body`.
   - Reuse semantic chip/badge patterns for priority/estimate/status.
   - Avoid duplicating visual rules across board and toggle-list surfaces.
 - Follow the renderer composition order:

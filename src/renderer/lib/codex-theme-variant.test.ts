@@ -1,5 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { getCodexThemeVariantStyle } from "./codex-theme-variant";
+import {
+  applyCodexThemeVariant,
+  getCodexThemeVariantStyle,
+} from "./codex-theme-variant";
+
+function makeStyleTarget() {
+  const declarations: Record<string, string> = {};
+  const target = {
+    style: {
+      setProperty(name: string, value: string) {
+        declarations[name] = value;
+      },
+    },
+  } as HTMLElement;
+
+  return { declarations, target };
+}
 
 describe("getCodexThemeVariantStyle", () => {
   test("defines the runtime semantic control and foreground tokens for light", () => {
@@ -10,6 +26,7 @@ describe("getCodexThemeVariantStyle", () => {
     expect(styles["--color-accent-blue"]).toBe("#339cff");
     expect(styles["--color-text-foreground"]).toBe("#0d0d0d");
     expect(styles["--color-border"]).toBe("rgba(13, 13, 13, 0.078)");
+    expect(styles["--cursor-interaction"]).toBe("pointer");
   });
 
   test("defines the runtime semantic control and foreground tokens for dark", () => {
@@ -20,5 +37,16 @@ describe("getCodexThemeVariantStyle", () => {
     expect(styles["--color-accent-blue"]).toBe("#339cff");
     expect(styles["--color-text-foreground"]).toBe("#ffffff");
     expect(styles["--color-border"]).toBe("rgba(255, 255, 255, 0.084)");
+    expect(styles["--cursor-interaction"]).toBe("pointer");
+  });
+
+  test("applies document-scoped runtime interaction tokens to root and body", () => {
+    const root = makeStyleTarget();
+    const body = makeStyleTarget();
+
+    applyCodexThemeVariant(root.target, "light", body.target);
+
+    expect(root.declarations["--cursor-interaction"]).toBe("pointer");
+    expect(body.declarations["--cursor-interaction"]).toBe("pointer");
   });
 });
