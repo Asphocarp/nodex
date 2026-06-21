@@ -1,14 +1,17 @@
 const rendererChunkRules = [
   {
-    chunkName: "vendor-streamdown",
+    chunkName: "vendor-react",
     packageFragments: [
-      "/node_modules/streamdown/",
-      "/node_modules/@streamdown/",
+      "/node_modules/react/",
+      "/node_modules/react-dom/",
+      "/node_modules/scheduler/",
     ],
   },
   {
-    chunkName: "vendor-blocknote",
+    chunkName: "vendor-editor-markdown",
     packageFragments: [
+      "/node_modules/streamdown/",
+      "/node_modules/@streamdown/",
       "/third_party/blocknote/packages/",
       "/node_modules/@blocknote/",
       "/node_modules/@tiptap/",
