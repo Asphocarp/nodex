@@ -43,7 +43,6 @@ function makeCommandContext(
     canStartNewChat: true,
     showMockCommands: false,
     hasActiveSession: true,
-    activeSessionIsOverview: false,
     activeSessionPinned: false,
     hasAttachedThread: true,
     canOpenSessionInNewWindow: true,
@@ -119,19 +118,19 @@ describe("buildCommandPaletteCommands", () => {
   });
 
   test("disables unavailable session and side-chat commands", () => {
-    const overviewCommands = buildCommandPaletteCommands(makeCommandContext({
-      activeSessionIsOverview: true,
+    const commands = buildCommandPaletteCommands(makeCommandContext({
+      hasActiveSession: false,
       hasAttachedThread: false,
     }));
-    const renameCommand = overviewCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
-    const archiveCommand = overviewCommands.find((command) => command.id === "archiveThread");
-    const sideChatCommand = overviewCommands.find((command) => command.id === "openSideChat");
-    const dbViewCommand = overviewCommands.find((command) => command.id === OPEN_DB_VIEW_TAB_COMMAND_ID);
+    const renameCommand = commands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
+    const archiveCommand = commands.find((command) => command.id === "archiveThread");
+    const sideChatCommand = commands.find((command) => command.id === "openSideChat");
+    const dbViewCommand = commands.find((command) => command.id === OPEN_DB_VIEW_TAB_COMMAND_ID);
 
     expect(renameCommand?.disabled).toBeTrue();
     expect(archiveCommand?.disabled).toBeTrue();
     expect(sideChatCommand?.disabled).toBeTrue();
-    expect(dbViewCommand?.disabled).toBeFalse();
+    expect(dbViewCommand?.disabled).toBeTrue();
   });
 });
 
@@ -658,7 +657,7 @@ describe("buildCommandPaletteCommands navigation", () => {
     const disabledCommands = buildCommandPaletteCommands(makeCommandContext({
       canGoBack: true,
       canGoForward: true,
-      activeSessionIsOverview: true,
+      hasActiveSession: false,
       isMac: false,
     }));
     const enabled = enabledCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);

@@ -24,13 +24,13 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+P` | Search cards | Opens the global palette in card-search mode, including the card filter controls |
 | `⌘/Ctrl+[` | Back | Restores the previous shell-owned project/session/panel context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Forward | Restores the next shell-owned project/session/panel context; works from editable surfaces too |
-| `⌘/Ctrl+Shift+A` | Archive chat | Archives the active non-Overview project session |
+| `⌘/Ctrl+Shift+A` | Archive chat | Archives the active project or projectless session |
 | `⌘/Ctrl+N` | New chat | Starts a new chat in the active project |
 | `⌘/Ctrl+Alt+S` | Open side chat | Opens a side chat for the active attached thread |
-| Unassigned | Open in new window | Editable command; opens the active non-Overview session in a new window once assigned |
+| Unassigned | Open in new window | Editable command; opens the active session in a new window once assigned |
 | `⌘/Ctrl+Alt+N` | New quick chat | Starts a new chat in the active project |
-| `⌘/Ctrl+Alt+P` | Toggle pin | Pins or unpins the active non-Overview session |
-| `⌘/Ctrl+Alt+R` | Rename chat | Opens `Rename chat` for the active non-Overview project session |
+| `⌘/Ctrl+Alt+P` | Toggle pin | Pins or unpins the active session |
+| `⌘/Ctrl+Alt+R` | Rename chat | Opens `Rename chat` for the active session |
 | `MouseBack` | Back | Desktop mouse back button; routes to the same app-window workbench history command |
 | `MouseForward` | Forward | Desktop mouse forward button; routes to the same app-window workbench history command |
 | `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |

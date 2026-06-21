@@ -3034,7 +3034,7 @@ export class CodexService extends EventEmitter {
       const owners = projectSessionService.listProjectSessionThreadOwners(normalizedThreadId);
       for (const owner of owners) {
         const session = projectSessionService.getProjectSession(owner.sessionId);
-        if (!session || session.isOverview) continue;
+        if (!session) continue;
         projectSessionService.setProjectSessionPinned(session.id, { pinned });
         dbNotifier.notifyProjectSessionsChanged(session.projectId, "pin", session.id);
       }
@@ -3219,7 +3219,7 @@ export class CodexService extends EventEmitter {
 
       const sessions = projectSessionService.listProjectSessions(projectId, { includeArchived: false });
       for (const session of sessions) {
-        if (session.isOverview || session.archived || !session.thread || session.thread.archived) {
+        if (session.archived || !session.thread || session.thread.archived) {
           continue;
         }
 
@@ -5882,9 +5882,6 @@ export class CodexService extends EventEmitter {
     if (!sourceSession) {
       throw new Error(`Project session not found: ${sessionId}`);
     }
-    if (sourceSession.isOverview) {
-      throw new Error("Overview session cannot be forked");
-    }
     if (!sourceSession.thread) {
       throw new Error("Session has no Codex thread to fork");
     }
@@ -8266,7 +8263,7 @@ export class CodexService extends EventEmitter {
         const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
         for (const owner of owners) {
           const session = projectSessionService.getProjectSession(owner.sessionId);
-          if (!session || session.isOverview || session.archived) continue;
+          if (!session || session.archived) continue;
           const archivedSession = projectSessionService.archiveProjectSession(session.id);
           if (archivedSession) {
             dbNotifier.notifyProjectSessionsChanged(archivedSession.projectId, "archive", archivedSession.id);

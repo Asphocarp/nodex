@@ -21,6 +21,7 @@ import {
 } from "../../shared/project-icon";
 import { getDb } from "./database";
 import { dbNotifier } from "./db-notifier";
+import { insertInitialDatabaseViewSession } from "./project-session-defaults";
 
 interface DbProjectRow {
   id: string;
@@ -234,6 +235,7 @@ export function createProject(input: ProjectCreateInput): Project {
       VALUES (?, 0, ?)
     `).run(projectId, now);
     insertProjectSources(database, projectId, sources, now);
+    insertInitialDatabaseViewSession(database, projectId, now, { shiftExisting: false });
   });
   txn();
 

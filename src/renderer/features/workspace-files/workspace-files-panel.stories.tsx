@@ -25,7 +25,6 @@ const session: ProjectSession = {
   projectId: project.id,
   noThreadFallbackTitle: "Files story",
   displayTitle: "Files story",
-  isOverview: false,
   order: 0,
   pinned: false,
   pinnedOrder: null,

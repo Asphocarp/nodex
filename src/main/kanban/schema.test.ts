@@ -31,20 +31,21 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43]");
-    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44]");
+    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -146,6 +147,7 @@ describe("schema initialization", () => {
       expect(sessionColumnNames.includes("title")).toBeFalse();
       expect(sessionColumnNames.includes("no_thread_fallback_title")).toBeTrue();
       expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
+      expect(sessionColumnNames.includes("is_overview")).toBeFalse();
       expect(sessionColumnNames.includes("pinned")).toBeTrue();
       expect(sessionColumnNames.includes("pinned_order")).toBeTrue();
       expect(sessionColumnNames.includes("archived")).toBeTrue();
@@ -175,7 +177,7 @@ describe("schema initialization", () => {
             ?, 0, '{}', 1,
             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
           )
-        `).run(`overview:${defaultProjectId}`, defaultProjectId, JSON.stringify({ projectId: defaultProjectId, view: "kanban" }));
+        `).run("missing-session", defaultProjectId, JSON.stringify({ projectId: defaultProjectId, view: "kanban" }));
       } catch {
         invalidPanelRejected = true;
       }
@@ -192,7 +194,7 @@ describe("schema initialization", () => {
             ?, 0, '{}', 1,
             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
           )
-        `).run(`overview:${defaultProjectId}`, defaultProjectId, JSON.stringify({ projectId: defaultProjectId }));
+        `).run("missing-session", defaultProjectId, JSON.stringify({ projectId: defaultProjectId }));
       } catch {
         legacyBrowserKindRejected = true;
       }
@@ -209,7 +211,7 @@ describe("schema initialization", () => {
             ?, 0, '{}', 1,
             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
           )
-        `).run(`overview:${defaultProjectId}`, defaultProjectId, JSON.stringify({ projectId: defaultProjectId }));
+        `).run("missing-session", defaultProjectId, JSON.stringify({ projectId: defaultProjectId }));
       } catch {
         durableSideChatKindRejected = true;
       }
@@ -226,43 +228,49 @@ describe("schema initialization", () => {
             ?, 0, '{}', 1,
             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
           )
-        `).run(`overview:${defaultProjectId}`, defaultProjectId, JSON.stringify({ projectId: defaultProjectId }));
+        `).run("missing-session", defaultProjectId, JSON.stringify({ projectId: defaultProjectId }));
       } catch {
         legacyFilesKindRejected = true;
       }
       expect(legacyFilesKindRejected).toBeTrue();
 
-      const overviewSession = db.prepare(`
-        SELECT id, project_id, no_thread_fallback_title, is_overview, left_pane_collapsed, panel_state_json
+      const databaseViewSession = db.prepare(`
+        SELECT id, project_id, no_thread_fallback_title, "order", pinned, pinned_order, left_pane_collapsed, panel_state_json
         FROM project_sessions
-        WHERE project_id = ? AND is_overview = 1
+        WHERE project_id = ?
       `).get(defaultProjectId) as
         | {
           id: string;
           project_id: string;
           no_thread_fallback_title: string;
-          is_overview: number;
+          order: number;
+          pinned: number;
+          pinned_order: number | null;
           left_pane_collapsed: number;
           panel_state_json: string;
         }
         | undefined;
-      expect(overviewSession?.id).toBe(`overview:${defaultProjectId}`);
-      expect(overviewSession?.project_id).toBe(defaultProjectId);
-      expect(overviewSession?.no_thread_fallback_title).toBe("Overview");
-      expect(overviewSession?.is_overview).toBe(1);
-      expect(overviewSession?.left_pane_collapsed).toBe(1);
+      expect(databaseViewSession !== undefined).toBeTrue();
+      expect(databaseViewSession?.id.startsWith("overview:") ?? true).toBeFalse();
+      expect(databaseViewSession?.project_id).toBe(defaultProjectId);
+      expect(databaseViewSession?.no_thread_fallback_title).toBe("Database View");
+      expect(databaseViewSession?.order).toBe(0);
+      expect(databaseViewSession?.pinned).toBe(1);
+      expect(databaseViewSession?.pinned_order).toBe(0);
+      expect(databaseViewSession?.left_pane_collapsed).toBe(1);
 
-      const overviewTab = db.prepare(`
+      const databaseViewTab = db.prepare(`
         SELECT id, panel_id, kind, config_json
         FROM project_session_tabs
         WHERE session_id = ?
-      `).get(`overview:${defaultProjectId}`) as { id: string; panel_id: string; kind: string; config_json: string } | undefined;
-      expect(overviewTab?.id).toBe(`overview:${defaultProjectId}:db`);
-      expect(overviewTab?.panel_id).toBe("right");
-      expect(overviewTab?.kind).toBe("db_view");
-      expect(overviewTab?.config_json).toBe(JSON.stringify({ projectId: defaultProjectId, view: "kanban" }));
+      `).get(databaseViewSession?.id ?? "") as { id: string; panel_id: string; kind: string; config_json: string } | undefined;
+      expect(databaseViewTab !== undefined).toBeTrue();
+      expect(databaseViewTab?.id.startsWith("overview:") ?? true).toBeFalse();
+      expect(databaseViewTab?.panel_id).toBe("right");
+      expect(databaseViewTab?.kind).toBe("db_view");
+      expect(databaseViewTab?.config_json).toBe(JSON.stringify({ projectId: defaultProjectId, view: "kanban" }));
 
-      const parsedPanelState = JSON.parse(overviewSession?.panel_state_json ?? "{}") as {
+      const parsedPanelState = JSON.parse(databaseViewSession?.panel_state_json ?? "{}") as {
         right?: { collapsed?: boolean; layout?: { version?: number }; size?: { fullWidth?: boolean } };
         bottom?: { collapsed?: boolean; layout?: { version?: number } };
       };
@@ -2048,6 +2056,324 @@ describe("schema initialization", () => {
       const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
       expect(JSON.stringify(foreignKeyProblems)).toBe("[]");
       migrated.close();
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates schema 43 overview sessions into ordinary Database View sessions", async () => {
+    closeDatabase();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v43-database-view-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      const dbPath = getDatabasePath();
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      const db = new Database(dbPath);
+      const oldPanelStateJson = JSON.stringify({
+        right: {
+          collapsed: false,
+          layout: {
+            version: 2,
+            root: {
+              type: "leaf",
+              id: "main",
+              tabIds: ["overview:alpha:db"],
+              activeTabId: "overview:alpha:db",
+            },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+          },
+          size: { widthPx: 600, fullWidth: true },
+        },
+        bottom: {
+          collapsed: true,
+          layout: {
+            version: 2,
+            root: { type: "leaf", id: "bottom", tabIds: [], activeTabId: null },
+            activeLeafId: "bottom",
+            mruLeafIds: ["bottom"],
+          },
+          size: { heightPx: 280 },
+        },
+      });
+      const collapsedPanelStateJson = JSON.stringify({
+        right: {
+          collapsed: true,
+          layout: {
+            version: 2,
+            root: { type: "leaf", id: "main", tabIds: [], activeTabId: null },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+          },
+          size: { widthPx: 600, fullWidth: false },
+        },
+        bottom: {
+          collapsed: true,
+          layout: {
+            version: 2,
+            root: { type: "leaf", id: "bottom", tabIds: [], activeTabId: null },
+            activeLeafId: "bottom",
+            mruLeafIds: ["bottom"],
+          },
+          size: { heightPx: 280 },
+        },
+      });
+
+      db.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          icon TEXT NOT NULL DEFAULT '',
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+        CREATE TABLE project_order (
+          project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+          "order" INTEGER NOT NULL,
+          updated TEXT NOT NULL
+        );
+        CREATE TABLE codex_threads (
+          thread_id TEXT PRIMARY KEY,
+          project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+          parent_thread_id TEXT,
+          thread_name TEXT,
+          thread_preview TEXT NOT NULL DEFAULT '',
+          model_provider TEXT NOT NULL DEFAULT '',
+          cwd TEXT,
+          status_type TEXT NOT NULL DEFAULT 'notLoaded',
+          status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+          archived INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          linked_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE project_sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+          no_thread_fallback_title TEXT NOT NULL,
+          is_overview INTEGER NOT NULL DEFAULT 0,
+          "order" INTEGER NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          pinned_order INTEGER,
+          archived INTEGER NOT NULL DEFAULT 0,
+          archived_at TEXT,
+          unread INTEGER NOT NULL DEFAULT 0,
+          left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+          panel_state_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK (is_overview IN (0, 1)),
+          CHECK (pinned IN (0, 1)),
+          CHECK (archived IN (0, 1)),
+          CHECK (unread IN (0, 1)),
+          CHECK (left_pane_collapsed IN (0, 1))
+        );
+        CREATE UNIQUE INDEX idx_project_sessions_overview
+          ON project_sessions(project_id)
+          WHERE is_overview = 1;
+        CREATE INDEX idx_project_sessions_project_order
+          ON project_sessions(project_id, "order", created_at);
+        CREATE INDEX idx_project_sessions_project_sidebar
+          ON project_sessions(project_id, archived, pinned, pinned_order, "order");
+        CREATE TABLE project_session_tabs (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          panel_id TEXT NOT NULL DEFAULT 'right',
+          kind TEXT NOT NULL,
+          title TEXT NOT NULL,
+          config_json TEXT NOT NULL,
+          state_key INTEGER NOT NULL DEFAULT 0,
+          state_json TEXT NOT NULL DEFAULT '{}',
+          "order" INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK (kind IN ('db_view', 'card_stage', 'terminal', 'browser', 'review', 'files')),
+          CHECK (panel_id IN ('right', 'bottom'))
+        );
+        CREATE TABLE project_session_threads (
+          session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+          thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+          linked_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE codex_pinned_threads (
+          thread_id TEXT PRIMARY KEY,
+          pinned_order INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        INSERT INTO projects (id, name, description, icon, created, updated)
+        VALUES
+          ('alpha', 'Alpha', '', '', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+          ('beta', 'Beta', '', '', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z');
+        INSERT INTO project_order (project_id, "order", updated)
+        VALUES
+          ('alpha', 0, '2026-01-01T00:00:00.000Z'),
+          ('beta', 1, '2026-01-02T00:00:00.000Z');
+      `);
+      db.prepare(`
+        INSERT INTO project_sessions (
+          id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order,
+          archived, archived_at, unread, left_pane_collapsed, panel_state_json, created_at, updated_at
+        ) VALUES
+          ('overview:alpha', 'alpha', 'Overview', 1, 9, 0, NULL, 1, '2026-01-05T00:00:00.000Z', 1, 0, ?, '2026-01-01T00:00:00.000Z', '2026-01-05T00:00:00.000Z'),
+          ('session-alpha-pinned', 'alpha', 'Pinned notes', 0, 5, 1, 7, 0, NULL, 0, 0, ?, '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z'),
+          ('session-alpha-normal', 'alpha', 'Normal chat', 0, 2, 0, NULL, 0, NULL, 0, 0, ?, '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:00.000Z'),
+          ('session-beta-normal', 'beta', 'Beta chat', 0, 0, 0, NULL, 0, NULL, 0, 0, ?, '2026-01-04T00:00:00.000Z', '2026-01-04T00:00:00.000Z')
+      `).run(oldPanelStateJson, collapsedPanelStateJson, collapsedPanelStateJson, collapsedPanelStateJson);
+      db.exec(`
+        INSERT INTO project_session_tabs (
+          id, session_id, project_id, panel_id, kind, title, config_json,
+          state_key, state_json, "order", created_at, updated_at
+        ) VALUES (
+          'overview:alpha:db', 'overview:alpha', 'alpha', 'right', 'db_view', 'Old DB View',
+          '{"projectId":"alpha","view":"list"}', 0, '{}', 0,
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        );
+        INSERT INTO codex_threads (
+          thread_id, project_id, parent_thread_id, thread_name, thread_preview,
+          model_provider, cwd, status_type, status_active_flags_json, archived,
+          created_at, updated_at, linked_at
+        ) VALUES (
+          'thread-overview', 'alpha', NULL, 'Old overview link', '',
+          'openai', '/tmp/alpha', 'idle', '[]', 0, 1, 2, '2026-01-01T00:00:00.000Z'
+        );
+        INSERT INTO project_session_threads (session_id, thread_id, linked_at)
+        VALUES ('overview:alpha', 'thread-overview', '2026-01-01T00:00:00.000Z');
+        PRAGMA user_version = 43;
+      `);
+      db.close();
+
+      await initializeDatabase();
+
+      const migrated = new Database(dbPath, { readonly: true });
+      try {
+        const version = migrated.prepare("PRAGMA user_version").get() as
+          | { user_version: number }
+          | undefined;
+        expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+        const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
+        expect(sessionColumnNames.includes("is_overview")).toBeFalse();
+        const overviewIndex = migrated.prepare(`
+          SELECT 1
+          FROM sqlite_master
+          WHERE type = 'index' AND name = 'idx_project_sessions_overview'
+        `).get();
+        expect(overviewIndex === undefined).toBeTrue();
+
+        const oldOverviewCount = migrated.prepare(`
+          SELECT COUNT(*) AS count
+          FROM project_sessions
+          WHERE id LIKE 'overview:%'
+        `).get() as { count: number };
+        expect(oldOverviewCount.count).toBe(0);
+
+        const alphaDatabaseView = migrated.prepare(`
+          SELECT id, no_thread_fallback_title, "order", pinned, pinned_order, archived, archived_at,
+                 unread, left_pane_collapsed, panel_state_json
+          FROM project_sessions
+          WHERE project_id = 'alpha' AND no_thread_fallback_title = 'Database View'
+        `).get() as {
+          id: string;
+          no_thread_fallback_title: string;
+          order: number;
+          pinned: number;
+          pinned_order: number | null;
+          archived: number;
+          archived_at: string | null;
+          unread: number;
+          left_pane_collapsed: number;
+          panel_state_json: string;
+        } | undefined;
+        expect(alphaDatabaseView !== undefined).toBeTrue();
+        expect(alphaDatabaseView?.id.startsWith("overview:") ?? true).toBeFalse();
+        expect(alphaDatabaseView?.order).toBe(0);
+        expect(alphaDatabaseView?.pinned).toBe(1);
+        expect(alphaDatabaseView?.pinned_order).toBe(0);
+        expect(alphaDatabaseView?.archived).toBe(0);
+        expect(alphaDatabaseView?.archived_at ?? null).toBe(null);
+        expect(alphaDatabaseView?.unread).toBe(0);
+        expect(alphaDatabaseView?.left_pane_collapsed).toBe(1);
+
+        const panelState = JSON.parse(alphaDatabaseView?.panel_state_json ?? "{}") as {
+          right?: { collapsed?: boolean; size?: { fullWidth?: boolean } };
+          bottom?: { collapsed?: boolean };
+        };
+        expect(panelState.right?.collapsed).toBeFalse();
+        expect(panelState.right?.size?.fullWidth).toBeTrue();
+        expect(panelState.bottom?.collapsed).toBeTrue();
+
+        const alphaDatabaseViewTab = migrated.prepare(`
+          SELECT session_id, project_id, panel_id, kind, title, config_json
+          FROM project_session_tabs
+          WHERE session_id = ?
+        `).get(alphaDatabaseView?.id ?? "") as {
+          session_id: string;
+          project_id: string;
+          panel_id: string;
+          kind: string;
+          title: string;
+          config_json: string;
+        } | undefined;
+        expect(alphaDatabaseViewTab?.session_id).toBe(alphaDatabaseView?.id ?? "");
+        expect(alphaDatabaseViewTab?.project_id).toBe("alpha");
+        expect(alphaDatabaseViewTab?.panel_id).toBe("right");
+        expect(alphaDatabaseViewTab?.kind).toBe("db_view");
+        expect(alphaDatabaseViewTab?.title).toBe("DB View");
+        expect(alphaDatabaseViewTab?.config_json).toBe(JSON.stringify({ projectId: "alpha", view: "kanban" }));
+
+        const oldOverviewLinkCount = migrated.prepare(`
+          SELECT COUNT(*) AS count
+          FROM project_session_threads
+          WHERE thread_id = 'thread-overview'
+        `).get() as { count: number };
+        expect(oldOverviewLinkCount.count).toBe(0);
+
+        const alphaPinnedRows = migrated.prepare(`
+          SELECT id, pinned_order
+          FROM project_sessions
+          WHERE project_id = 'alpha' AND pinned = 1
+          ORDER BY pinned_order ASC
+        `).all() as Array<{ id: string; pinned_order: number | null }>;
+        expect(JSON.stringify(alphaPinnedRows.map((row) => row.id))).toBe(JSON.stringify([
+          alphaDatabaseView?.id ?? "",
+          "session-alpha-pinned",
+        ]));
+        expect(alphaPinnedRows[0]?.pinned_order).toBe(0);
+        expect(alphaPinnedRows[1]?.pinned_order).toBe(1);
+
+        const betaDatabaseView = migrated.prepare(`
+          SELECT id, no_thread_fallback_title, pinned, pinned_order
+          FROM project_sessions
+          WHERE project_id = 'beta' AND no_thread_fallback_title = 'Database View'
+        `).get() as { id: string; no_thread_fallback_title: string; pinned: number; pinned_order: number | null } | undefined;
+        expect(betaDatabaseView !== undefined).toBeTrue();
+        expect(betaDatabaseView?.id.startsWith("overview:") ?? true).toBeFalse();
+        expect(betaDatabaseView?.pinned).toBe(1);
+        expect(betaDatabaseView?.pinned_order).toBe(0);
+
+        const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
+        expect(JSON.stringify(foreignKeyProblems)).toBe("[]");
+      } finally {
+        migrated.close();
+      }
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {
         initializationRan = false;

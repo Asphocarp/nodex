@@ -41,7 +41,7 @@ export function resolveRevealInFileManagerLabel(platform: NodeJS.Platform | "bro
 }
 
 export function canForkSessionLocally(session: ProjectSession): boolean {
-  return !session.isOverview && Boolean(session.thread?.threadId && session.thread.cwd);
+  return Boolean(session.thread?.threadId && session.thread.cwd);
 }
 
 export function buildSessionContextMenuItems(input: SessionContextMenuInput): NativeContextMenuItem[] {
@@ -49,32 +49,31 @@ export function buildSessionContextMenuItems(input: SessionContextMenuInput): Na
   const revealPath = resolveSessionRevealPath(input);
   const forkLocalEnabled = canForkSessionLocally(session);
   const forkNewWorktreeEnabled = forkLocalEnabled && input.isGitRepository === true;
-  const actionEnabled = !session.isOverview;
 
   return [
     {
       id: SESSION_CONTEXT_MENU_ACTION_IDS.togglePin,
       label: session.pinned ? "Unpin" : "Pin",
-      enabled: actionEnabled,
+      enabled: true,
       iconKey: session.pinned ? "unpin" : "pin",
     },
     {
       id: SESSION_CONTEXT_MENU_ACTION_IDS.rename,
       label: "Rename",
-      enabled: actionEnabled,
+      enabled: true,
       iconKey: "rename",
     },
     {
       id: SESSION_CONTEXT_MENU_ACTION_IDS.archive,
       label: "Archive",
-      enabled: actionEnabled,
+      enabled: true,
       iconKey: "archive",
     },
     { type: "separator" },
     {
       id: SESSION_CONTEXT_MENU_ACTION_IDS.markUnread,
       label: "Mark as unread",
-      enabled: actionEnabled && !session.unread,
+      enabled: !session.unread,
       iconKey: "unread",
     },
     {

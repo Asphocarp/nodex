@@ -67,7 +67,7 @@
 - Codex follow-up turns tolerate app-server cold state after app restart: if `turn/start` reports `thread not found` for a persisted thread, the service issues `thread/resume` and retries once.
 - Snapshot requests never call `thread/read` or `thread/resume`; they rebroadcast the current canonical manager record and lazily bootstrap that manager record from persisted session artifacts when a linked thread has not been loaded yet.
 - Sidebar snapshot requests also avoid transcript hydration. They only use app-server thread metadata and SQLite session/link state; disconnected or missing app-server state falls back to the SQLite read model until the next successful refresh.
-- App-server archive notifications update `codex_threads.archived`, clear the global pin/unread sidebar state, and archive linked non-Overview sessions so active sidebar queries hide the row. Unarchive notifications restore only the thread read model; session restoration remains an explicit archive-page/user action.
+- App-server archive notifications update `codex_threads.archived`, clear the global pin/unread sidebar state, and archive linked sessions so active sidebar queries hide the row. Unarchive notifications restore only the thread read model; session restoration remains an explicit archive-page/user action.
 - Codex item hydration dedupes equivalent textual messages (`userMessage`, `assistantMessage`, `plan`, `reasoning`) across replay/live ID mismatches (for example synthetic `item-<n>` IDs from reads vs live `msg_*`/`rs_*` IDs) so follow-up text does not render twice.
 - Backend log serialization is bounded (string/object/array limits) so debugging stays available even when services encounter unexpectedly large payloads.
 

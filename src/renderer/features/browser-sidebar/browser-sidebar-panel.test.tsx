@@ -245,7 +245,6 @@ const activeSession: ProjectSession = {
   projectId: "alpha",
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
-  isOverview: false,
   order: 0,
   pinned: false,
   pinnedOrder: null,

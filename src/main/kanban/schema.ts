@@ -11,10 +11,16 @@ import {
   pruneEmptyProjectSessionPanelLeaves,
 } from "../../shared/project-session-panel-layout";
 import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
+import {
+  INITIAL_DATABASE_VIEW_SESSION_TITLE,
+  insertDatabaseViewTab,
+  insertInitialDatabaseViewSession,
+  makeInitialDatabaseViewPanelStateJson,
+} from "./project-session-defaults";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 43;
+export const CURRENT_SCHEMA_VERSION = 44;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -55,20 +61,21 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43];
-  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43];
-  if (currentVersion === 38) return [39, 40, 41, 42, 43];
-  if (currentVersion === 39) return [40, 41, 42, 43];
-  if (currentVersion === 40) return [41, 42, 43];
-  if (currentVersion === 41) return [42, 43];
-  if (currentVersion === 42) return [43];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44];
+  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44];
+  if (currentVersion === 39) return [40, 41, 42, 43, 44];
+  if (currentVersion === 40) return [41, 42, 43, 44];
+  if (currentVersion === 41) return [42, 43, 44];
+  if (currentVersion === 42) return [43, 44];
+  if (currentVersion === 43) return [44];
   return null;
 }
 
@@ -200,7 +207,6 @@ function createLatestSchema(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
       no_thread_fallback_title TEXT NOT NULL,
-      is_overview INTEGER NOT NULL DEFAULT 0,
       "order" INTEGER NOT NULL,
       pinned INTEGER NOT NULL DEFAULT 0,
       pinned_order INTEGER,
@@ -211,17 +217,12 @@ function createLatestSchema(db: Database.Database): void {
       panel_state_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      CHECK (is_overview IN (0, 1)),
       CHECK (pinned IN (0, 1)),
       CHECK (archived IN (0, 1)),
       CHECK (unread IN (0, 1)),
-      CHECK (left_pane_collapsed IN (0, 1)),
-      CHECK (is_overview = 0 OR project_id IS NOT NULL)
+      CHECK (left_pane_collapsed IN (0, 1))
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
-      ON project_sessions(project_id)
-      WHERE is_overview = 1;
     CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
       ON project_sessions(project_id, "order", created_at);
     CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
@@ -374,11 +375,11 @@ function createLatestSchema(db: Database.Database): void {
   `);
 }
 
-function makeOverviewSessionId(projectId: string): string {
+function makeLegacyOverviewSessionId(projectId: string): string {
   return `overview:${projectId}`;
 }
 
-function makeOverviewDbTabId(projectId: string): string {
+function makeLegacyOverviewDbTabId(projectId: string): string {
   return `overview:${projectId}:db`;
 }
 
@@ -408,50 +409,6 @@ function makePanelStateJson(input: {
       },
     },
   });
-}
-
-function seedOverviewSessionsForAllProjects(db: Database.Database): void {
-  const projects = db.prepare("SELECT id FROM projects ORDER BY created ASC").all() as Array<{ id: string }>;
-  const insertSession = db.prepare(`
-    INSERT OR IGNORE INTO project_sessions (
-      id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-      panel_state_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 1, 0, 0, NULL, 0, NULL, 0, 1, ?, ?, ?)
-  `);
-  const insertTab = db.prepare(`
-    INSERT OR IGNORE INTO project_session_tabs (
-      id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json, "order", created_at, updated_at
-    ) VALUES (?, ?, ?, 'right', 'db_view', 'DB View', ?, 0, '{}', 0, ?, ?)
-  `);
-
-  const seed = db.transaction(() => {
-    const now = new Date().toISOString();
-    for (const project of projects) {
-      const sessionId = makeOverviewSessionId(project.id);
-      const tabId = makeOverviewDbTabId(project.id);
-      insertSession.run(
-        sessionId,
-        project.id,
-        "Overview",
-        makePanelStateJson({
-          rightTabIds: [tabId],
-          bottomTabIds: [],
-          overview: true,
-        }),
-        now,
-        now,
-      );
-      insertTab.run(
-        tabId,
-        sessionId,
-        project.id,
-        JSON.stringify({ projectId: project.id, view: "kanban" }),
-        now,
-        now,
-      );
-    }
-  });
-  seed();
 }
 
 function tableHasColumn(db: Database.Database, tableName: string, columnName: string): boolean {
@@ -1296,10 +1253,10 @@ function migrateSchema35To37(db: Database.Database): void {
       for (const tableName of projectIdTables) {
         db.prepare(`UPDATE ${tableName} SET project_id = ? WHERE project_id = ?`).run(nextId, oldId);
       }
-      const oldOverviewSessionId = makeOverviewSessionId(oldId);
-      const nextOverviewSessionId = makeOverviewSessionId(nextId);
-      const oldOverviewTabId = makeOverviewDbTabId(oldId);
-      const nextOverviewTabId = makeOverviewDbTabId(nextId);
+      const oldOverviewSessionId = makeLegacyOverviewSessionId(oldId);
+      const nextOverviewSessionId = makeLegacyOverviewSessionId(nextId);
+      const oldOverviewTabId = makeLegacyOverviewDbTabId(oldId);
+      const nextOverviewTabId = makeLegacyOverviewDbTabId(nextId);
       db.prepare("UPDATE project_session_tabs SET session_id = ? WHERE session_id = ?")
         .run(nextOverviewSessionId, oldOverviewSessionId);
       db.prepare("UPDATE project_session_threads SET session_id = ? WHERE session_id = ?")
@@ -1550,6 +1507,168 @@ function migrateSchema42To43(db: Database.Database): void {
   setUserVersion(db, 43);
 }
 
+interface ProjectSessionOrderRow {
+  id: string;
+  pinned: number;
+  pinned_order: number | null;
+  order: number;
+  created_at: string;
+}
+
+interface LegacyOverviewSessionRow {
+  id: string;
+  project_id: string;
+}
+
+function normalizeProjectSessionOrders(
+  db: Database.Database,
+  projectId: string,
+  databaseViewSessionId: string,
+  now: string,
+): void {
+  const rows = db.prepare(`
+    SELECT id, pinned, pinned_order, "order", created_at
+    FROM project_sessions
+    WHERE project_id = ?
+    ORDER BY
+      CASE WHEN id = ? THEN 0 ELSE 1 END ASC,
+      CASE WHEN pinned = 1 THEN 0 ELSE 1 END ASC,
+      CASE WHEN pinned = 1 THEN COALESCE(pinned_order, 9223372036854775807) ELSE "order" END ASC,
+      created_at ASC
+  `).all(projectId, databaseViewSessionId) as ProjectSessionOrderRow[];
+
+  const updateOrder = db.prepare('UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ?');
+  rows.forEach((row, index) => updateOrder.run(index, now, row.id));
+
+  const pinnedRows = rows.filter((row) => row.pinned === 1);
+  const updatePinnedOrder = db.prepare("UPDATE project_sessions SET pinned_order = ?, updated_at = ? WHERE id = ?");
+  pinnedRows.forEach((row, index) => updatePinnedOrder.run(index, now, row.id));
+}
+
+function convertLegacyOverviewToDatabaseViewSession(
+  db: Database.Database,
+  overview: LegacyOverviewSessionRow,
+  now: string,
+): string {
+  const sessionId = randomUUID();
+  const tabId = randomUUID();
+
+  db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(overview.id);
+  db.prepare("DELETE FROM project_session_threads WHERE session_id = ?").run(overview.id);
+  db.prepare(`
+    UPDATE project_sessions
+    SET id = ?,
+        no_thread_fallback_title = ?,
+        "order" = 0,
+        pinned = 1,
+        pinned_order = 0,
+        archived = 0,
+        archived_at = NULL,
+        unread = 0,
+        left_pane_collapsed = 1,
+        panel_state_json = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(
+    sessionId,
+    INITIAL_DATABASE_VIEW_SESSION_TITLE,
+    makeInitialDatabaseViewPanelStateJson(tabId),
+    now,
+    overview.id,
+  );
+  insertDatabaseViewTab(db, {
+    sessionId,
+    projectId: overview.project_id,
+    tabId,
+    now,
+  });
+
+  return sessionId;
+}
+
+function migrateSchema43To44(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    const now = new Date().toISOString();
+    const projects = db.prepare("SELECT id FROM projects ORDER BY created ASC").all() as Array<{ id: string }>;
+    const overviewRows = tableHasColumn(db, "project_sessions", "is_overview")
+      ? db.prepare(`
+        SELECT id, project_id
+        FROM project_sessions
+        WHERE is_overview = 1 AND project_id IS NOT NULL
+        ORDER BY project_id ASC, created_at ASC
+      `).all() as LegacyOverviewSessionRow[]
+      : [];
+    const overviewRowsByProject = new Map<string, LegacyOverviewSessionRow[]>();
+    for (const row of overviewRows) {
+      const rows = overviewRowsByProject.get(row.project_id) ?? [];
+      rows.push(row);
+      overviewRowsByProject.set(row.project_id, rows);
+    }
+
+    for (const project of projects) {
+      const [primaryOverview, ...duplicateOverviews] = overviewRowsByProject.get(project.id) ?? [];
+      for (const duplicate of duplicateOverviews) {
+        db.prepare("DELETE FROM project_session_tabs WHERE session_id = ?").run(duplicate.id);
+        db.prepare("DELETE FROM project_session_threads WHERE session_id = ?").run(duplicate.id);
+        db.prepare("DELETE FROM project_sessions WHERE id = ?").run(duplicate.id);
+      }
+
+      const databaseViewSessionId = primaryOverview
+        ? convertLegacyOverviewToDatabaseViewSession(db, primaryOverview, now)
+        : insertInitialDatabaseViewSession(db, project.id, now).sessionId;
+      normalizeProjectSessionOrders(db, project.id, databaseViewSessionId, now);
+    }
+
+    db.exec(`
+      DROP TABLE IF EXISTS project_sessions_next;
+
+      CREATE TABLE project_sessions_next (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        no_thread_fallback_title TEXT NOT NULL,
+        "order" INTEGER NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        pinned_order INTEGER,
+        archived INTEGER NOT NULL DEFAULT 0,
+        archived_at TEXT,
+        unread INTEGER NOT NULL DEFAULT 0,
+        left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+        panel_state_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (pinned IN (0, 1)),
+        CHECK (archived IN (0, 1)),
+        CHECK (unread IN (0, 1)),
+        CHECK (left_pane_collapsed IN (0, 1))
+      );
+
+      INSERT INTO project_sessions_next (
+        id, project_id, no_thread_fallback_title, "order",
+        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        panel_state_json, created_at, updated_at
+      )
+      SELECT
+        id, project_id, no_thread_fallback_title, "order",
+        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        panel_state_json, created_at, updated_at
+      FROM project_sessions;
+
+      DROP TABLE project_sessions;
+      ALTER TABLE project_sessions_next RENAME TO project_sessions;
+
+      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
+        ON project_sessions(project_id, "order", created_at);
+      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
+        ON project_sessions(project_id, archived, pinned, pinned_order, "order");
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 44);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1660,6 +1779,14 @@ function runMigrations(
       fromVersion = 43;
       continue;
     }
+    if (target === 44) {
+      if (fromVersion !== 43) {
+        throw new Error(`Unsupported Nodex database migration target 44 from ${fromVersion}`);
+      }
+      migrateSchema43To44(db);
+      fromVersion = 44;
+      continue;
+    }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
   }
   options.onMigrationProgress?.({ type: "Done" });
@@ -1693,6 +1820,7 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
   db.prepare(
     'INSERT INTO project_order (project_id, "order", updated) VALUES (?, ?, ?)',
   ).run(projectId, 0, now);
+  insertInitialDatabaseViewSession(db, projectId, now, { shiftExisting: false });
 }
 
 export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
@@ -1723,7 +1851,6 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
     seedDefaultProjectIfMissing(db);
-    seedOverviewSessionsForAllProjects(db);
   } finally {
     db.close();
   }

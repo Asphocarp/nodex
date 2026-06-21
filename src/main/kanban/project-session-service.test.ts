@@ -87,16 +87,17 @@ function runValidation(fn: () => void): string | null {
 }
 
 describe("project session service", () => {
-  test("returns a default overview session for every project", async () => {
+  test("creates an ordinary pinned Database View session for every new project", async () => {
     const ran = await withTempDatabase(async () => {
       const defaultProject = listProjects()[0];
       if (!defaultProject) throw new Error("Missing default project");
       const defaultSessions = listProjectSessions(defaultProject.id);
       expect(defaultSessions.length).toBe(1);
-      expect(defaultSessions[0]?.id).toBe(`overview:${defaultProject.id}`);
-      expect(defaultSessions[0]?.noThreadFallbackTitle).toBe("Overview");
-      expect(defaultSessions[0]?.displayTitle).toBe("Overview");
-      expect(defaultSessions[0]?.isOverview).toBeTrue();
+      expect(defaultSessions[0]?.id.includes(":") ?? true).toBeFalse();
+      expect(defaultSessions[0]?.noThreadFallbackTitle).toBe("Database View");
+      expect(defaultSessions[0]?.displayTitle).toBe("Database View");
+      expect(defaultSessions[0]?.pinned).toBeTrue();
+      expect(defaultSessions[0]?.pinnedOrder).toBe(0);
       expect(defaultSessions[0]?.leftPaneCollapsed).toBeTrue();
       expect(defaultSessions[0]?.panels.right.collapsed).toBeFalse();
       expect(defaultSessions[0]?.panels.right.size.fullWidth).toBeTrue();
@@ -111,9 +112,25 @@ describe("project session service", () => {
       const alphaProject = createProject({ name: "Alpha", sources: ["/tmp/alpha"] });
       const alphaSessions = listProjectSessions(alphaProject.id);
       expect(alphaSessions.length).toBe(1);
-      expect(alphaSessions[0]?.id).toBe(`overview:${alphaProject.id}`);
+      expect(alphaSessions[0]?.id.includes(":") ?? true).toBeFalse();
+      expect(alphaSessions[0]?.displayTitle).toBe("Database View");
+      expect(alphaSessions[0]?.pinned).toBeTrue();
       expect(alphaSessions[0]?.panels.right.collapsed).toBeFalse();
-      expect(alphaSessions[0]?.tabs[0]?.id).toBe(`overview:${alphaProject.id}:db`);
+      expect(alphaSessions[0]?.tabs[0]?.kind).toBe("db_view");
+      expect(alphaSessions[0]?.tabs[0]?.title).toBe("DB View");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("does not recreate the Database View session during listing after user removal", async () => {
+    const ran = await withTempDatabase(async () => {
+      const databaseView = listProjectSessions(projectId)[0];
+      if (!databaseView) throw new Error("Missing Database View session");
+
+      getDb().prepare("DELETE FROM project_sessions WHERE id = ?").run(databaseView.id);
+
+      expect(listProjectSessions(projectId).length).toBe(0);
     });
 
     if (!ran) expect(true).toBeTrue();
@@ -127,7 +144,6 @@ describe("project session service", () => {
       });
 
       expect(session.projectId ?? null).toBe(null);
-      expect(session.isOverview).toBeFalse();
       expect(listProjectSessions(null).length).toBe(1);
       expect(listProjectlessSessions().length).toBe(1);
 
@@ -324,14 +340,15 @@ describe("project session service", () => {
 
   test("creates and reorders sessions and tabs with validated tab config", async () => {
     const ran = await withTempDatabase(async () => {
+      const databaseView = listProjectSessions(projectId)[0];
+      if (!databaseView) throw new Error("Missing Database View session");
       const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Build" });
-      expect(session.isOverview).toBeFalse();
       expect(session.panels.right.collapsed).toBeTrue();
       expect(session.panels.bottom.collapsed).toBeTrue();
 
-      const sessions = reorderProjectSessions(projectId, [session.id, `overview:${projectId}`]);
+      const sessions = reorderProjectSessions(projectId, [session.id, databaseView.id]);
       expect(JSON.stringify(sessions.map((item) => item.id))).toBe(
-        JSON.stringify([`overview:${projectId}`, session.id]),
+        JSON.stringify([databaseView.id, session.id]),
       );
 
       const terminal = createProjectSessionTab({
@@ -453,17 +470,20 @@ describe("project session service", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("inserts newly created project sessions at the top below Overview", async () => {
+  test("inserts newly created project sessions at the top below pinned Database View", async () => {
     const ran = await withTempDatabase(async () => {
+      const databaseView = listProjectSessions(projectId)[0];
+      if (!databaseView) throw new Error("Missing Database View session");
       const first = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "First" });
       const second = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Second" });
 
       const sessions = listProjectSessions(projectId);
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
-        JSON.stringify([`overview:${projectId}`, second.id, first.id]),
+        JSON.stringify([databaseView.id, second.id, first.id]),
       );
-      expect(sessions.find((session) => session.id === second.id)?.order).toBe(1);
-      expect(sessions.find((session) => session.id === first.id)?.order).toBe(2);
+      expect(sessions.find((session) => session.id === databaseView.id)?.order).toBe(2);
+      expect(sessions.find((session) => session.id === second.id)?.order).toBe(0);
+      expect(sessions.find((session) => session.id === first.id)?.order).toBe(1);
     });
 
     if (!ran) expect(true).toBeTrue();
@@ -471,6 +491,8 @@ describe("project session service", () => {
 
   test("pins, reorders pinned sessions, and archives without deleting sessions", async () => {
     const ran = await withTempDatabase(async () => {
+      const databaseView = listProjectSessions(projectId)[0];
+      if (!databaseView) throw new Error("Missing Database View session");
       const alpha = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Alpha" });
       const beta = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Beta" });
       const gamma = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Gamma" });
@@ -478,17 +500,17 @@ describe("project session service", () => {
       const pinnedAlpha = setProjectSessionPinned(alpha.id, { pinned: true });
       const pinnedGamma = setProjectSessionPinned(gamma.id, { pinned: true });
       expect(pinnedAlpha?.pinned).toBeTrue();
-      expect(pinnedAlpha?.pinnedOrder).toBe(0);
-      expect(pinnedGamma?.pinnedOrder).toBe(1);
+      expect(pinnedAlpha?.pinnedOrder).toBe(1);
+      expect(pinnedGamma?.pinnedOrder).toBe(2);
 
       let sessions = listProjectSessions(projectId);
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
-        JSON.stringify([`overview:${projectId}`, alpha.id, gamma.id, beta.id]),
+        JSON.stringify([databaseView.id, alpha.id, gamma.id, beta.id]),
       );
 
       sessions = setPinnedProjectSessionOrder(projectId, { orderedSessionIds: [gamma.id, alpha.id] });
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
-        JSON.stringify([`overview:${projectId}`, gamma.id, alpha.id, beta.id]),
+        JSON.stringify([gamma.id, alpha.id, databaseView.id, beta.id]),
       );
 
       const unreadGamma = markProjectSessionUnread(gamma.id, { unread: true });
@@ -501,7 +523,7 @@ describe("project session service", () => {
 
       sessions = listProjectSessions(projectId);
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
-        JSON.stringify([`overview:${projectId}`, alpha.id, beta.id]),
+        JSON.stringify([alpha.id, databaseView.id, beta.id]),
       );
 
       const archivedVisible = listProjectSessions(projectId, { includeArchived: true });

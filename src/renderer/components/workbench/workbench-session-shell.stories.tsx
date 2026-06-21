@@ -276,16 +276,15 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       rightFullWidth: args.rightPanel === "full",
       bottomCollapsed: args.bottomPanel !== "empty",
     });
-    const title = "Overview";
+    const title = "Database View";
     return {
-      id: "session:overview",
+      id: "session:database-view",
       projectId: "nodex",
       noThreadFallbackTitle: title,
       displayTitle: title,
-      isOverview: true,
       order: 0,
-      pinned: false,
-      pinnedOrder: null,
+      pinned: true,
+      pinnedOrder: 0,
       archived: false,
       archivedAt: null,
       unread: false,
@@ -386,7 +385,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
 
   const thread = args.thread === "attached"
     ? {
-        sessionId: "session:overview",
+        sessionId: "session:database-view",
         projectId: "nodex",
         threadId: "thread-story",
         parentThreadId: undefined,
@@ -403,18 +402,17 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       }
     : null;
   const title = args.longNames
-    ? "Overview and implementation notes for a Codex-style project session shell"
-    : "Overview";
+    ? "Database View and implementation notes for a project session shell"
+    : "Database View";
 
   return {
-    id: "session:overview",
+    id: "session:database-view",
     projectId: "nodex",
     noThreadFallbackTitle: title,
     displayTitle: thread?.threadName ?? title,
-    isOverview: true,
     order: 0,
-    pinned: false,
-    pinnedOrder: null,
+    pinned: true,
+    pinnedOrder: 0,
     archived: false,
     archivedAt: null,
     unread: false,
@@ -453,7 +451,6 @@ function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
     id: "session:release",
     noThreadFallbackTitle: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
     displayTitle: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
-    isOverview: false,
     order: 1,
     tabs,
     panels: makePanels({
@@ -519,14 +516,14 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
       "codex-readable": [
         withPanelLayouts({
           ...makeSession({ ...args, activeTab: "browser", thread: "empty" }),
-          id: "session:codex-overview",
+          id: "session:codex-database-view",
           projectId: "codex-readable",
-          noThreadFallbackTitle: "Overview",
-          displayTitle: "Overview",
+          noThreadFallbackTitle: "Database View",
+          displayTitle: "Database View",
           tabs: [
             makeTab({
               id: "tab:codex-browser",
-              sessionId: "session:codex-overview",
+              sessionId: "session:codex-database-view",
               projectId: "codex-readable",
               kind: "browser",
               title: "Browser",

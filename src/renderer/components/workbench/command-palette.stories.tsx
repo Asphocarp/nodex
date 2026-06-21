@@ -109,7 +109,6 @@ function CommandPaletteStory({
       canGoForward: true,
       canStartNewChat: true,
       hasActiveSession: true,
-      activeSessionIsOverview: false,
       activeSessionPinned: true,
       hasAttachedThread: false,
       canOpenSessionInNewWindow: false,

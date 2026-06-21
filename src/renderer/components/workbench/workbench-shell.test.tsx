@@ -99,7 +99,7 @@ const mockCodexControl = {
       source: {
         parentThreadId: "thread-alpha",
         sideConversation: true,
-        sideConversationParentNavigationPath: "project:alpha/session:overview:alpha/thread:thread-alpha",
+        sideConversationParentNavigationPath: "project:alpha/session:session:alpha:database-view/thread:thread-alpha",
       },
       threadName: null,
       threadPreview: "",
@@ -827,12 +827,13 @@ type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
   threadId?: string;
   tabs?: SessionTabFixture[];
   rightCollapsed?: boolean;
+  rightFullWidth?: boolean;
   rightLayout?: ProjectSession["panels"]["right"]["layout"];
 };
 
 function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
   return {
-    sessionId: "overview:alpha",
+    sessionId: "session:alpha:database-view",
     projectId: "alpha",
     panelId: "right",
     order: 0,
@@ -847,21 +848,22 @@ function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
 function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   const {
     rightCollapsed,
+    rightFullWidth,
     rightLayout,
     tabs: rawTabs,
     title,
     ...sessionOverrides
   } = overrides;
   const projectId = overrides.projectId ?? "alpha";
-  const sessionId = overrides.id ?? "overview:alpha";
-  const isOverview = overrides.isOverview ?? true;
+  const sessionId = overrides.id ?? "session:alpha:database-view";
   const thread = sessionOverrides.thread ?? null;
-  const noThreadFallbackTitle = sessionOverrides.noThreadFallbackTitle ?? title ?? "Overview";
+  const noThreadFallbackTitle = sessionOverrides.noThreadFallbackTitle ?? title ?? "Database View";
   const displayTitle = sessionOverrides.displayTitle
     ?? title
     ?? thread?.threadName
     ?? thread?.threadPreview
     ?? noThreadFallbackTitle;
+  const databaseViewStarter = thread === null && noThreadFallbackTitle === "Database View";
   const tabId = `${sessionId}:db`;
   const tabs = (rawTabs ?? [
     makeSessionTab({
@@ -887,7 +889,7 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
       ? rightLayout.root.activeTabId
       : rightTabIds[0] ?? null,
     rightCollapsed: rightCollapsed ?? false,
-    rightFullWidth: isOverview,
+    rightFullWidth: rightFullWidth ?? sessionOverrides.pinned ?? databaseViewStarter,
     bottomTabIds,
     bottomActiveTabId: bottomTabIds[0] ?? null,
     bottomCollapsed: bottomTabIds.length === 0,
@@ -897,7 +899,6 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
     projectId,
     noThreadFallbackTitle,
     displayTitle,
-    isOverview,
     order: 0,
     leftPaneCollapsed: true,
     panels,
@@ -906,8 +907,8 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
     ...sessionOverrides,
-    pinned: sessionOverrides.pinned ?? false,
-    pinnedOrder: sessionOverrides.pinnedOrder ?? null,
+    pinned: sessionOverrides.pinned ?? databaseViewStarter,
+    pinnedOrder: sessionOverrides.pinnedOrder ?? (databaseViewStarter ? 0 : null),
     archived: sessionOverrides.archived ?? false,
     archivedAt: sessionOverrides.archivedAt ?? null,
     unread: sessionOverrides.unread ?? false,
@@ -919,7 +920,7 @@ function makeAttachedSession(overrides: SessionFixtureOverrides = {}): ProjectSe
   return makeSession({
     leftPaneCollapsed: true,
     thread: {
-      sessionId: overrides.id ?? "overview:alpha",
+      sessionId: overrides.id ?? "session:alpha:database-view",
       projectId: overrides.projectId ?? "alpha",
       threadId,
       parentThreadId: undefined,
@@ -942,7 +943,6 @@ function makeBlankSession(overrides: SessionFixtureOverrides = {}): ProjectSessi
   return makeSession({
     id: "session:alpha:blank",
     title: "New thread",
-    isOverview: false,
     panels: makePanels({ rightCollapsed: true }),
     thread: null,
     tabs: [],
@@ -954,7 +954,6 @@ function makeBottomPanelTerminalSession(overrides: SessionFixtureOverrides = {})
   return makeSession({
     id: "session:alpha:terminal",
     title: "Terminal",
-    isOverview: false,
     rightCollapsed: true,
     tabs: [
       {
@@ -983,7 +982,7 @@ function replaceSession(
 
 function sortProjectSessionsForTest(sessions: ProjectSession[]): ProjectSession[] {
   return [...sessions].sort((a, b) => {
-    const rank = (session: ProjectSession) => session.isOverview ? 0 : session.pinned ? 1 : 2;
+    const rank = (session: ProjectSession) => session.pinned ? 0 : 1;
     const rankDelta = rank(a) - rank(b);
     if (rankDelta !== 0) return rankDelta;
     if (a.pinned || b.pinned) {
@@ -1391,9 +1390,9 @@ function renderWorkbench({
     if (channel === "project-sessions:create") {
       const input = (args[0] ?? {}) as { projectId: string; noThreadFallbackTitle?: string };
       const existingSessions = sessionState[input.projectId] ?? [];
-      const insertOrder = 1;
+      const insertOrder = 0;
       const shiftedSessions = existingSessions.map((session) => (
-        !session.isOverview && session.order >= insertOrder
+        session.order >= insertOrder
           ? { ...session, order: session.order + 1 }
           : session
       ));
@@ -1402,7 +1401,6 @@ function renderWorkbench({
         projectId: input.projectId,
         noThreadFallbackTitle: input.noThreadFallbackTitle ?? "New thread",
         displayTitle: input.noThreadFallbackTitle ?? "New thread",
-        isOverview: false,
         order: insertOrder,
         thread: null,
         tabs: [],
@@ -1953,14 +1951,14 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(order)).toBe(JSON.stringify(["second", "first"]));
   });
 
-  test("loads project sessions and renders the overview DB tab", async () => {
+  test("loads project sessions and renders the Database View DB tab", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const text = textContent(screen.container);
     expect(text.includes("Alpha")).toBeTrue();
-    expect(text.includes("Overview")).toBeTrue();
+    expect(text.includes("Database View")).toBeTrue();
     expect(text.includes("DB:alpha:kanban")).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
   });
@@ -2035,7 +2033,6 @@ describe("workbench session shell", () => {
       id: "session:alpha:pin-target",
       threadId: "thread-pin-target",
       title: "Pin target",
-      isOverview: false,
       order: 1,
       rightCollapsed: true,
       tabs: [],
@@ -2079,7 +2076,6 @@ describe("workbench session shell", () => {
       id: "session:alpha:first",
       threadId: "thread-first-unpinned",
       title: "First unpinned",
-      isOverview: false,
       order: 1,
       rightCollapsed: true,
       tabs: [],
@@ -2088,7 +2084,6 @@ describe("workbench session shell", () => {
       id: "session:alpha:second",
       threadId: "thread-second-target",
       title: "Second target",
-      isOverview: false,
       order: 2,
       rightCollapsed: true,
       tabs: [],
@@ -2113,7 +2108,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(JSON.stringify(getThreadRowTitles(screen.container).slice(0, 3))).toBe(
-      JSON.stringify(["Second target", "Overview", "First unpinned"]),
+      JSON.stringify(["Database View", "Second target", "First unpinned"]),
     );
   });
 
@@ -2122,10 +2117,9 @@ describe("workbench session shell", () => {
       id: "session:alpha:pinned",
       threadId: "thread-pinned-target",
       title: "Pinned target",
-      isOverview: false,
       order: 1,
       pinned: true,
-      pinnedOrder: 0,
+      pinnedOrder: 1,
       rightCollapsed: true,
       tabs: [],
     });
@@ -2162,11 +2156,10 @@ describe("workbench session shell", () => {
     expect(pinButton?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 20 20");
   });
 
-  test("sidebar pin slot excludes overview, reserves unread rows, and protects long titles", async () => {
+  test("sidebar pin slot treats Database View as ordinary, reserves unread rows, and protects long titles", async () => {
     const unread = makeAttachedSession({
       id: "session:alpha:unread",
       title: "Unread target",
-      isOverview: false,
       order: 1,
       unread: true,
       rightCollapsed: true,
@@ -2175,7 +2168,6 @@ describe("workbench session shell", () => {
     const long = makeAttachedSession({
       id: "session:alpha:long",
       title: "Very long session title that should truncate before colliding with row actions",
-      isOverview: false,
       order: 2,
       rightCollapsed: true,
       tabs: [],
@@ -2186,9 +2178,10 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const overviewRow = getThreadRow(screen.container, "Overview");
-    expect(overviewRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") === null).toBeTrue();
-    expect(overviewRow.querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBeTrue();
+    const databaseViewRow = getThreadRow(screen.container, "Database View");
+    expect(databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBeTrue();
+    expect(databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-session]") !== null).toBeTrue();
+    expect(databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-session]")?.getAttribute("aria-label")).toBe("Unpin chat");
 
     const unreadRow = getThreadRow(screen.container, "Unread target");
     expect(unreadRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBeTrue();
@@ -2204,7 +2197,6 @@ describe("workbench session shell", () => {
     const target = makeAttachedSession({
       id: "session:alpha:rename-target",
       title: "Rename target",
-      isOverview: false,
       order: 1,
       rightCollapsed: true,
       tabs: [],
@@ -2248,7 +2240,6 @@ describe("workbench session shell", () => {
     const target = makeAttachedSession({
       id: "session:alpha:rename-target",
       title: "Rename target",
-      isOverview: false,
       order: 1,
       rightCollapsed: true,
       tabs: [],
@@ -2360,7 +2351,6 @@ describe("workbench session shell", () => {
     const activeThread = makeAttachedSession({
       id: "session:alpha:thread",
       title: "Active thread",
-      isOverview: false,
       order: 1,
       rightCollapsed: true,
       rightLayout: makePanelLayout([], null),
@@ -2425,7 +2415,6 @@ describe("workbench session shell", () => {
     const olderThread = makeAttachedSession({
       id: "session:alpha:older",
       title: "Older chat",
-      isOverview: false,
       order: 1,
       rightCollapsed: true,
       rightLayout: makePanelLayout([], null),
@@ -2449,7 +2438,7 @@ describe("workbench session shell", () => {
     const rowTitles = Array.from(
       screen.container.querySelectorAll<HTMLElement>("[data-app-action-sidebar-thread-title]"),
     ).map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
-    const overviewIndex = rowTitles.indexOf("Overview");
+    const overviewIndex = rowTitles.indexOf("Database View");
     const newThreadIndex = rowTitles.indexOf("New thread");
     const olderThreadIndex = rowTitles.indexOf("Older chat");
 
@@ -2492,10 +2481,9 @@ describe("workbench session shell", () => {
           alpha: [makeSession()],
           beta: [
             makeSession({
-              id: "overview:beta",
+              id: "session:beta:database-view",
               projectId: "beta",
-              title: "Overview",
-              isOverview: true,
+              title: "Database View",
             }),
           ],
         },
@@ -2534,10 +2522,9 @@ describe("workbench session shell", () => {
         alpha: [makeSession()],
         beta: [
           makeSession({
-            id: "overview:beta",
+            id: "session:beta:database-view",
             projectId: "beta",
-            title: "Beta Overview",
-            isOverview: true,
+            title: "Beta Database View",
           }),
         ],
       },
@@ -2561,10 +2548,9 @@ describe("workbench session shell", () => {
       sessionsByProject: {
         alpha: [makeSession()],
         beta: [makeSession({
-          id: "overview:beta",
+          id: "session:beta:database-view",
           projectId: "beta",
-          title: "Beta Overview",
-          isOverview: true,
+          title: "Beta Database View",
         })],
       },
     });
@@ -2591,26 +2577,24 @@ describe("workbench session shell", () => {
       sessionsByProject: {
         alpha: [makeSession()],
         beta: [makeSession({
-          id: "overview:beta",
+          id: "session:beta:database-view",
           projectId: "beta",
-          title: "Beta Overview",
-          isOverview: true,
+          title: "Beta Database View",
         })],
         gamma: [makeSession({
-          id: "overview:gamma",
+          id: "session:gamma:database-view",
           projectId: "gamma",
-          title: "Gamma Overview",
-          isOverview: true,
+          title: "Gamma Database View",
         })],
       },
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pinnedSection = screen.container.querySelector('[data-app-action-sidebar-section-heading="Pinned"]');
+    const pinnedSections = Array.from(screen.container.querySelectorAll('[data-app-action-sidebar-section-heading="Pinned"]'));
     const projectsSection = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
-    expect(Boolean(pinnedSection)).toBeTrue();
-    expect(pinnedSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null).toBeTrue();
+    expect(pinnedSections.length > 0).toBeTrue();
+    expect(pinnedSections.some((section) => section.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null)).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') === null).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="alpha"]') !== null).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null).toBeTrue();
@@ -2621,7 +2605,6 @@ describe("workbench session shell", () => {
       id: "session:beta:blank",
       projectId: "beta",
       title: "New thread",
-      isOverview: false,
       thread: null,
       tabs: [],
     });
@@ -2631,10 +2614,9 @@ describe("workbench session shell", () => {
         alpha: [makeSession()],
         beta: [
           makeSession({
-            id: "overview:beta",
+            id: "session:beta:database-view",
             projectId: "beta",
-            title: "Overview",
-            isOverview: true,
+            title: "Database View",
           }),
           betaBlank,
         ],
@@ -2693,8 +2675,8 @@ describe("workbench session shell", () => {
   test("restores the DB toolbar controls inside session DB tabs", async () => {
     const prefs = getDefaultDbViewPrefs("list");
     const listTab = makeSessionTab({
-      id: "overview:alpha:list",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:list",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "db_view",
       title: "Table",
@@ -2743,7 +2725,7 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:update"
-      && call[1] === "overview:alpha:db"
+      && call[1] === "session:alpha:database-view:db"
       && JSON.stringify(call[2]) === JSON.stringify({
         config: { projectId: "alpha", view: "list" },
         title: "Table",
@@ -2751,10 +2733,10 @@ describe("workbench session shell", () => {
     )).toBeTrue();
   });
 
-  test("renders an attached non-overview session thread as the main session page", async () => {
+  test("renders an attached session thread as the main session page", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
-        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread", isOverview: false })],
+        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread" })],
       },
     });
     await settleAsyncRender();
@@ -2771,7 +2753,7 @@ describe("workbench session shell", () => {
   test("uses the global app header as the only top title row", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
-        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread", isOverview: false })],
+        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread" })],
       },
     });
     await settleAsyncRender();
@@ -2784,7 +2766,7 @@ describe("workbench session shell", () => {
     if (!globalHeader || !threadFrame || !threadStage) {
       throw new Error("Expected workbench global header, thread frame, and thread stage");
     }
-    expect(textContent(globalHeader).includes("Overview")).toBeFalse();
+    expect(textContent(globalHeader).includes("Database View")).toBeFalse();
     expect(textContent(globalHeader).includes("Alpha thread")).toBeTrue();
     expect(textContent(threadStage).includes("Alpha thread")).toBeFalse();
     expect(headerContextSurface !== null).toBeTrue();
@@ -2801,7 +2783,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -2824,7 +2805,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread-collapsed",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: true,
           }),
         ],
@@ -2887,7 +2867,7 @@ describe("workbench session shell", () => {
 
   test("inline message edit calls rollback edit and refreshes the active snapshot without seeding composer intent", async () => {
     renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession({ isOverview: false })] },
+      sessionsByProject: { alpha: [makeAttachedSession()] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -2918,7 +2898,7 @@ describe("workbench session shell", () => {
 
   test("session thread actions wire queued follow-up, plan, and background terminal commands", async () => {
     renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession({ isOverview: false })] },
+      sessionsByProject: { alpha: [makeAttachedSession()] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -3007,10 +2987,9 @@ describe("workbench session shell", () => {
         alpha: [makeBlankSession()],
         beta: [
           makeAttachedSession({
-            id: "overview:beta",
+            id: "session:beta:database-view",
             projectId: "beta",
-            title: "Overview",
-            isOverview: true,
+            title: "Database View",
           }),
         ],
       },
@@ -3120,7 +3099,7 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
-      && call[1] === "overview:alpha"
+      && call[1] === "session:alpha:database-view"
       && call[2] === "right"
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBeTrue();
@@ -3153,7 +3132,7 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
-      && call[1] === "overview:alpha"
+      && call[1] === "session:alpha:database-view"
       && call[2] === "bottom"
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBeTrue();
@@ -3168,7 +3147,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: true,
             tabs: [],
           }),
@@ -3212,7 +3190,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: true,
           }),
         ],
@@ -3240,7 +3217,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: true,
           }),
         ],
@@ -3268,7 +3244,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: true,
           }),
         ],
@@ -3295,7 +3270,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: true,
           }),
         ],
@@ -3333,7 +3307,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -3379,7 +3352,6 @@ describe("workbench session shell", () => {
           makeAttachedSession({
             id: "session:alpha:thread",
             title: "Thread",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -3523,7 +3495,9 @@ describe("workbench session shell", () => {
   });
 
   test("full-width eligible attached right-panel tabs pass the composer overlay host to the root thread", async () => {
-    const attachedSession = makeAttachedSession();
+    const attachedSession = makeAttachedSession({
+      rightFullWidth: true,
+    });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [attachedSession] },
     });
@@ -3591,6 +3565,7 @@ describe("workbench session shell", () => {
   test("full-width overlay state keeps the side-panel toggle clickable after pointerdown", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:overlay-side-toggle",
+      rightFullWidth: true,
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -3615,6 +3590,7 @@ describe("workbench session shell", () => {
   test("full-width overlay state keeps restore-panel-width clickable after pointerdown", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:overlay-restore",
+      rightFullWidth: true,
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -3730,8 +3706,13 @@ describe("workbench session shell", () => {
   test("closes the card-stage history modal when the owning tab closes", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:history-close-owner",
-      isOverview: false,
       tabs: [
+        {
+          id: "db-tab",
+          kind: "db_view",
+          title: "DB View",
+          config: { projectId: "alpha", view: "kanban" },
+        },
         {
           id: "card-stage-tab",
           kind: "card_stage",
@@ -3740,7 +3721,7 @@ describe("workbench session shell", () => {
         },
       ],
       panels: makePanels({
-        rightTabIds: ["card-stage-tab"],
+        rightTabIds: ["db-tab", "card-stage-tab"],
         rightActiveTabId: "card-stage-tab",
       }),
     });
@@ -3767,7 +3748,6 @@ describe("workbench session shell", () => {
   test("regular width and terminal right-panel tabs do not enable the root composer overlay", async () => {
     const regularSession = makeAttachedSession({
       id: "session:alpha:regular",
-      isOverview: false,
       rightCollapsed: false,
     });
     const regularScreen = renderWorkbench({
@@ -3792,6 +3772,7 @@ describe("workbench session shell", () => {
         },
       ],
       rightLayout: makePanelLayout(["terminal-tab"], "terminal-tab"),
+      rightFullWidth: true,
     });
     const terminalScreen = renderWorkbench({
       sessionsByProject: { alpha: [terminalSession] },
@@ -3805,14 +3786,13 @@ describe("workbench session shell", () => {
     expect(props?.rightPanelComposerOverlayEnabled).toBe(false);
   });
 
-  test("open non-overview right panel keeps side toggle global and expands from the tab header", async () => {
+  test("open session right panel keeps side toggle global and expands from the tab header", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
           makeSession({
             id: "session:alpha:build",
             title: "Build",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -3892,7 +3872,6 @@ describe("workbench session shell", () => {
           makeSession({
             id: "session:alpha:build",
             title: "Build",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -3944,7 +3923,6 @@ describe("workbench session shell", () => {
           makeSession({
             id: "session:alpha:build",
             title: "Build",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -3983,7 +3961,6 @@ describe("workbench session shell", () => {
           makeSession({
             id: "session:alpha:build",
             title: "Build",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -4016,7 +3993,6 @@ describe("workbench session shell", () => {
           makeSession({
             id: "session:alpha:build",
             title: "Build",
-            isOverview: false,
             rightCollapsed: false,
           }),
         ],
@@ -4257,7 +4233,6 @@ describe("workbench session shell", () => {
   test("empty right panel renders Codex-style new-tab actions", async () => {
     const emptySession = makeSession({
       id: "session:alpha:empty",
-      isOverview: false,
       tabs: [],
       rightLayout: makePanelLayout([], null),
     });
@@ -4311,7 +4286,6 @@ describe("workbench session shell", () => {
   test("right panel keeps Nodex-only actions after Codex actions", async () => {
     const emptySession = makeSession({
       id: "session:alpha:nodex-actions",
-      isOverview: false,
       tabs: [],
       rightLayout: makePanelLayout([], null),
     });
@@ -4331,7 +4305,6 @@ describe("workbench session shell", () => {
   test("empty right panel DB View action uses the panel destination picker", async () => {
     const emptySession = makeSession({
       id: "session:alpha:db-picker",
-      isOverview: false,
       tabs: [],
       rightLayout: makePanelLayout([], null),
     });
@@ -4363,7 +4336,6 @@ describe("workbench session shell", () => {
   test("empty right panel Card Stage action uses the panel destination picker", async () => {
     const emptySession = makeSession({
       id: "session:alpha:card-picker",
-      isOverview: false,
       tabs: [],
       rightLayout: makePanelLayout([], null),
     });
@@ -4472,8 +4444,8 @@ describe("workbench session shell", () => {
 
   test("plus menu hides singleton actions that already exist while keeping Browser multi-tab", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -4481,8 +4453,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
-      id: "overview:alpha:review",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:review",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Review",
@@ -4491,7 +4463,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -4513,8 +4485,8 @@ describe("workbench session shell", () => {
 
   test("bottom plus menu keeps Browser multi-tab and hides singleton Review tabs from either panel", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -4522,8 +4494,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
-      id: "overview:alpha:review",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:review",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Review",
@@ -4532,7 +4504,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -4597,7 +4569,7 @@ describe("workbench session shell", () => {
       sessionsByProject: {
         [project.id]: [
           makeAttachedSession({
-            id: "overview:palette-command",
+            id: "session:palette-command",
             projectId: project.id,
           }),
         ],
@@ -4619,7 +4591,7 @@ describe("workbench session shell", () => {
   test("command palette shell commands open Files Browser Review Terminal and DB View tabs", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
-        alpha: [makeAttachedSession({ id: "session:alpha:commands", isOverview: false })],
+        alpha: [makeAttachedSession({ id: "session:alpha:commands" })],
       },
     });
     await settleAsyncRender();
@@ -4659,7 +4631,7 @@ describe("workbench session shell", () => {
   test("command palette opens keyboard shortcuts settings", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
-        alpha: [makeAttachedSession({ id: "session:alpha:keyboard", isOverview: false })],
+        alpha: [makeAttachedSession({ id: "session:alpha:keyboard" })],
       },
     });
     await settleAsyncRender();
@@ -4768,8 +4740,8 @@ describe("workbench session shell", () => {
 
   test("Ctrl+Shift+] selects the next right-panel tab in the focused tab group", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -4777,8 +4749,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
-      id: "overview:alpha:review",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:review",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Review",
@@ -4787,7 +4759,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -4797,7 +4769,7 @@ describe("workbench session shell", () => {
 
     invokeCalls = [];
     await act(async () => {
-      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+      fireEvent.keyDown(getPanelTabById(screen.container, "session:alpha:database-view:db"), {
         key: "]",
         code: "BracketRight",
         ctrlKey: true,
@@ -4808,7 +4780,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === browserTab.id
@@ -4817,8 +4789,8 @@ describe("workbench session shell", () => {
 
   test("Ctrl+Shift+[ wraps from the first right-panel tab to the last tab in the focused tab group", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -4826,8 +4798,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
-      id: "overview:alpha:review",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:review",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Review",
@@ -4836,7 +4808,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -4846,7 +4818,7 @@ describe("workbench session shell", () => {
 
     invokeCalls = [];
     await act(async () => {
-      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+      fireEvent.keyDown(getPanelTabById(screen.container, "session:alpha:database-view:db"), {
         key: "[",
         code: "BracketLeft",
         ctrlKey: true,
@@ -4857,7 +4829,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === reviewTab.id
@@ -4883,7 +4855,6 @@ describe("workbench session shell", () => {
     const session = makeSession({
       id: "session:alpha:split-cycle",
       title: "Split cycle",
-      isOverview: false,
       panels: {
         ...panels,
         right: {
@@ -4958,8 +4929,8 @@ describe("workbench session shell", () => {
 
   test("panel tab cycling uses the last focused leaf when native routing has no leaf target", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -4967,8 +4938,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
-      id: "overview:alpha:review",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:review",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Review",
@@ -4977,7 +4948,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -4985,7 +4956,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    await pointerDownAndSettle(getPanelTabById(screen.container, "overview:alpha:db"));
+    await pointerDownAndSettle(getPanelTabById(screen.container, "session:alpha:database-view:db"));
 
     invokeCalls = [];
     await act(async () => {
@@ -5000,7 +4971,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === browserTab.id
@@ -5009,8 +4980,8 @@ describe("workbench session shell", () => {
 
   test("native panel tab cycle requests reuse the focused panel tab group", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5018,8 +4989,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
-      id: "overview:alpha:review",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:review",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Review",
@@ -5028,7 +4999,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5036,7 +5007,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    await pointerDownAndSettle(getPanelTabById(screen.container, "overview:alpha:db"));
+    await pointerDownAndSettle(getPanelTabById(screen.container, "session:alpha:database-view:db"));
 
     invokeCalls = [];
     await act(async () => {
@@ -5046,7 +5017,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === browserTab.id
@@ -5055,8 +5026,8 @@ describe("workbench session shell", () => {
 
   test("native panel tab cycle requests are ignored while an editable target is focused", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5065,7 +5036,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5073,7 +5044,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    await pointerDownAndSettle(getPanelTabById(screen.container, "overview:alpha:db"));
+    await pointerDownAndSettle(getPanelTabById(screen.container, "session:alpha:database-view:db"));
 
     const input = document.createElement("input");
     screen.getByTestId("session-right-panel").appendChild(input);
@@ -5091,8 +5062,8 @@ describe("workbench session shell", () => {
 
   test("panel tab cycling works from focused NFM editor content", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5101,7 +5072,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5129,7 +5100,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === browserTab.id
@@ -5138,8 +5109,8 @@ describe("workbench session shell", () => {
 
   test("panel tab cycling between durable card stages keeps editors mounted and active-scoped", async () => {
     const firstCardTab = makeSessionTab({
-      id: "overview:alpha:card-1",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:card-1",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "card_stage",
       title: "Card One",
@@ -5147,8 +5118,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
     });
     const secondCardTab = makeSessionTab({
-      id: "overview:alpha:card-2",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:card-2",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "card_stage",
       title: "Card Two",
@@ -5195,7 +5166,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === secondCardTab.id
@@ -5226,7 +5197,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === firstCardTab.id
@@ -5241,8 +5212,8 @@ describe("workbench session shell", () => {
 
   test("native panel tab cycle requests work while NFM editor content is focused", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5251,7 +5222,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5281,7 +5252,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().some((input) =>
-      input.sessionId === "overview:alpha"
+      input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
       && input.tabId === browserTab.id
@@ -5298,7 +5269,6 @@ describe("workbench session shell", () => {
     const session = makeSession({
       id: "session:alpha:bottom-cycle",
       title: "Bottom cycle",
-      isOverview: false,
       panels,
       tabs: [
         {
@@ -5349,8 +5319,8 @@ describe("workbench session shell", () => {
 
   test("panel tab cycling ignores input and dialog targets inside a focused panel", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5359,7 +5329,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5405,8 +5375,8 @@ describe("workbench session shell", () => {
 
   test("plain Ctrl+Bracket shortcuts bypass focused panel tab cycling", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5415,7 +5385,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5425,7 +5395,7 @@ describe("workbench session shell", () => {
 
     invokeCalls = [];
     await act(async () => {
-      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+      fireEvent.keyDown(getPanelTabById(screen.container, "session:alpha:database-view:db"), {
         key: "[",
         code: "BracketLeft",
         ctrlKey: true,
@@ -5439,8 +5409,8 @@ describe("workbench session shell", () => {
 
   test("Ctrl+W closes the active right-panel tab in the focused tab group", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5449,7 +5419,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], browserTab.id),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], browserTab.id),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5473,8 +5443,8 @@ describe("workbench session shell", () => {
 
   test("Ctrl+W routes close focus to the same-leaf most recently active tab", async () => {
     const firstTab = makeSessionTab({
-      id: "overview:alpha:first",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:first",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "db_view",
       title: "First",
@@ -5482,8 +5452,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha", view: "kanban" },
     });
     const secondTab = makeSessionTab({
-      id: "overview:alpha:second",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:second",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Second",
@@ -5491,8 +5461,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const thirdTab = makeSessionTab({
-      id: "overview:alpha:third",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:third",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Third",
@@ -5545,8 +5515,8 @@ describe("workbench session shell", () => {
 
   test("Ctrl+W close routing stays inside the focused split leaf", async () => {
     const firstTab = makeSessionTab({
-      id: "overview:alpha:first-split-close",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:first-split-close",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "db_view",
       title: "First",
@@ -5554,8 +5524,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha", view: "kanban" },
     });
     const secondTab = makeSessionTab({
-      id: "overview:alpha:second-split-close",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:second-split-close",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Second",
@@ -5563,8 +5533,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const thirdTab = makeSessionTab({
-      id: "overview:alpha:third-split-close",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:third-split-close",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Third",
@@ -5622,8 +5592,8 @@ describe("workbench session shell", () => {
 
   test("direct panel tab close routes focus to the same-leaf most recently active tab", async () => {
     const firstTab = makeSessionTab({
-      id: "overview:alpha:first-direct",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:first-direct",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "db_view",
       title: "First",
@@ -5631,8 +5601,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha", view: "kanban" },
     });
     const secondTab = makeSessionTab({
-      id: "overview:alpha:second-direct",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:second-direct",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Second",
@@ -5640,8 +5610,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const thirdTab = makeSessionTab({
-      id: "overview:alpha:third-direct",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:third-direct",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Third",
@@ -5685,8 +5655,8 @@ describe("workbench session shell", () => {
 
   test("middle-click panel tab close uses same-leaf MRU routing", async () => {
     const firstTab = makeSessionTab({
-      id: "overview:alpha:first-middle",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:first-middle",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "db_view",
       title: "First",
@@ -5694,8 +5664,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha", view: "kanban" },
     });
     const secondTab = makeSessionTab({
-      id: "overview:alpha:second-middle",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:second-middle",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Second",
@@ -5703,8 +5673,8 @@ describe("workbench session shell", () => {
       config: { projectId: "alpha" },
     });
     const thirdTab = makeSessionTab({
-      id: "overview:alpha:third-middle",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:third-middle",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "review",
       title: "Third",
@@ -5753,7 +5723,7 @@ describe("workbench session shell", () => {
 
     invokeCalls = [];
     await act(async () => {
-      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+      fireEvent.keyDown(getPanelTabById(screen.container, "session:alpha:database-view:db"), {
         key: "w",
         code: "KeyW",
         ctrlKey: true,
@@ -5767,8 +5737,8 @@ describe("workbench session shell", () => {
 
   test("native close-panel-tab requests close the active focused panel tab", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5777,7 +5747,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], browserTab.id),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], browserTab.id),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5807,7 +5777,6 @@ describe("workbench session shell", () => {
     const session = makeSession({
       id: "session:alpha:bottom-close",
       title: "Bottom close",
-      isOverview: false,
       panels,
       tabs: [
         {
@@ -5852,8 +5821,8 @@ describe("workbench session shell", () => {
 
   test("Ctrl+W closes the active panel tab from focused NFM editor content", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -5862,7 +5831,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], browserTab.id),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], browserTab.id),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -5896,7 +5865,6 @@ describe("workbench session shell", () => {
     const terminalSession = makeAttachedSession({
       id: "session:alpha:terminal-thread",
       title: "Terminal thread",
-      isOverview: false,
       tabs: [
         {
           id: "terminal-tab",
@@ -5922,7 +5890,6 @@ describe("workbench session shell", () => {
     const terminalSession = makeSession({
       id: "session:alpha:terminal-project",
       title: "Project terminal",
-      isOverview: false,
       tabs: [
         {
           id: "terminal-tab",
@@ -5948,7 +5915,6 @@ describe("workbench session shell", () => {
     const terminalSession = makeSession({
       id: "session:alpha:terminal-pty-default",
       title: "Default terminal",
-      isOverview: false,
       tabs: [
         {
           id: "terminal-tab",
@@ -5997,7 +5963,7 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
-      && call[1] === "overview:alpha"
+      && call[1] === "session:alpha:database-view"
       && call[2] === "right"
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBeTrue();
@@ -6053,7 +6019,7 @@ describe("workbench session shell", () => {
     const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
     expect(createCall !== undefined).toBeTrue();
     const input = createCall?.[1] as Record<string, unknown> | undefined;
-    expect(input?.sessionId).toBe("overview:alpha");
+    expect(input?.sessionId).toBe("session:alpha:database-view");
     expect(input?.projectId).toBe("alpha");
     expect(input?.panelId).toBe("right");
     expect("targetLeafId" in (input ?? {})).toBeFalse();
@@ -6105,7 +6071,7 @@ describe("workbench session shell", () => {
       const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
       expect(createCall !== undefined).toBeTrue();
       const input = createCall?.[1] as Record<string, unknown> | undefined;
-      expect(input?.sessionId).toBe("overview:alpha");
+      expect(input?.sessionId).toBe("session:alpha:database-view");
       expect(input?.projectId).toBe("alpha");
       expect(input?.panelId).toBe("right");
       expect(input?.targetLeafId).toBe("main");
@@ -6276,11 +6242,19 @@ describe("workbench session shell", () => {
 
   test("renders cross-project card-stage tabs from their target project", async () => {
     const session = makeSession({
-      isOverview: false,
       tabs: [
         {
+          id: "db-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          panelId: "right",
+          config: { projectId: "alpha", view: "kanban" },
+        },
+        {
           id: "card-tab",
-          sessionId: "overview:alpha",
+          sessionId: "session:alpha:database-view",
           projectId: "alpha",
           kind: "card_stage",
           title: "Beta Card",
@@ -6375,11 +6349,19 @@ describe("workbench session shell", () => {
 
   test("labels cross-project card-stage tabs with their target project", async () => {
     const session = makeSession({
-      isOverview: false,
       tabs: [
         {
+          id: "db-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          panelId: "right",
+          config: { projectId: "alpha", view: "kanban" },
+        },
+        {
           id: "card-tab",
-          sessionId: "overview:alpha",
+          sessionId: "session:alpha:database-view",
           projectId: "alpha",
           kind: "card_stage",
           title: "Beta Card",
@@ -6387,6 +6369,7 @@ describe("workbench session shell", () => {
           config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
         },
       ],
+      rightLayout: makePanelLayout(["db-tab", "card-tab"], "card-tab"),
     });
 
     const screen = renderWorkbench({
@@ -6409,7 +6392,7 @@ describe("workbench session shell", () => {
       tabs: [
         {
           id: "card-tab",
-          sessionId: "overview:alpha",
+          sessionId: "session:alpha:database-view",
           projectId: "alpha",
           kind: "card_stage",
           title: "Card One",
@@ -6446,7 +6429,7 @@ describe("workbench session shell", () => {
       tabs: [
         {
           id: "card-tab",
-          sessionId: "overview:alpha",
+          sessionId: "session:alpha:database-view",
           projectId: "alpha",
           kind: "card_stage",
           title: "Beta Card",
@@ -6480,13 +6463,13 @@ describe("workbench session shell", () => {
         config?: { projectId?: string; terminalSessionId?: string };
       } | undefined;
       return call[0] === "project-session-tabs:create"
-        && input?.sessionId === "overview:alpha"
+        && input?.sessionId === "session:alpha:database-view"
         && input.projectId === "alpha"
         && input.panelId === "bottom"
         && input.kind === "terminal"
         && input.config?.projectId === "beta"
         && typeof input.config.terminalSessionId === "string"
-        && input.config.terminalSessionId.startsWith("session:overview:alpha:terminal:");
+        && input.config.terminalSessionId.startsWith("session:session:alpha:database-view:terminal:");
     })).toBeTrue();
   });
 
@@ -6495,7 +6478,7 @@ describe("workbench session shell", () => {
       tabs: [
         {
           id: "card-tab",
-          sessionId: "overview:alpha",
+          sessionId: "session:alpha:database-view",
           projectId: "alpha",
           kind: "card_stage",
           title: "Missing Beta Card",
@@ -6521,7 +6504,7 @@ describe("workbench session shell", () => {
       tabs: [
         {
           id: "card-tab",
-          sessionId: "overview:alpha",
+          sessionId: "session:alpha:database-view",
           projectId: "alpha",
           kind: "card_stage",
           title: "Beta Card",
@@ -6573,7 +6556,7 @@ describe("workbench session shell", () => {
             tabs: [
               {
                 id: "db-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "db_view",
                 title: "DB View",
@@ -6582,7 +6565,7 @@ describe("workbench session shell", () => {
               },
               {
                 id: "card-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "card_stage",
                 title: "Card One",
@@ -6633,7 +6616,7 @@ describe("workbench session shell", () => {
             tabs: [
               {
                 id: "db-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "db_view",
                 title: "DB View",
@@ -6642,7 +6625,7 @@ describe("workbench session shell", () => {
               },
               {
                 id: "browser-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "browser",
                 title: "Browser",
@@ -6691,7 +6674,7 @@ describe("workbench session shell", () => {
             tabs: [
               {
                 id: "db-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "db_view",
                 title: "DB View",
@@ -6700,7 +6683,7 @@ describe("workbench session shell", () => {
               },
               {
                 id: "card-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "card_stage",
                 title: "Card One",
@@ -6727,8 +6710,8 @@ describe("workbench session shell", () => {
           makeSession({
             tabs: [
               {
-                id: "overview:alpha:db",
-                sessionId: "overview:alpha",
+                id: "session:alpha:database-view:db",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "db_view",
                 title: "DB View",
@@ -6737,7 +6720,7 @@ describe("workbench session shell", () => {
               },
               {
                 id: "card-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "card_stage",
                 title: "Card One",
@@ -6745,7 +6728,7 @@ describe("workbench session shell", () => {
                 config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
               },
             ],
-            rightLayout: makePanelLayout(["overview:alpha:db", "card-tab"], "overview:alpha:db"),
+            rightLayout: makePanelLayout(["session:alpha:database-view:db", "card-tab"], "session:alpha:database-view:db"),
           }),
         ],
       },
@@ -6768,7 +6751,7 @@ describe("workbench session shell", () => {
     expect(invokeCalls.some((call) => {
       const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
       return call[0] === "project-session-panels:update"
-        && call[1] === "overview:alpha"
+        && call[1] === "session:alpha:database-view"
         && call[2] === "right"
         && input?.size?.fullWidth === false;
     })).toBeFalse();
@@ -6805,7 +6788,7 @@ describe("workbench session shell", () => {
             tabs: [
               {
                 id: "db-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "db_view",
                 title: "DB View",
@@ -6814,7 +6797,7 @@ describe("workbench session shell", () => {
               },
               {
                 id: "browser-tab",
-                sessionId: "overview:alpha",
+                sessionId: "session:alpha:database-view",
                 projectId: "alpha",
                 kind: "browser",
                 title: "Browser",
@@ -6908,11 +6891,11 @@ describe("workbench session shell", () => {
     const resizeStrip = screen.getByTestId("sidebar-resize-strip");
     expect(resizeStrip.getAttribute("role")).toBe("separator");
     expect(resizeStrip.getAttribute("aria-orientation")).toBe("vertical");
-    expect(textContent(screen.container).includes("Overview")).toBeTrue();
+    expect(textContent(screen.container).includes("Database View")).toBeTrue();
     const threadRow = screen.container.querySelector("[data-app-action-sidebar-thread-row]");
     expect(threadRow !== null).toBeTrue();
     const threadTitle = threadRow?.querySelector('[data-thread-title="true"]');
-    expect(threadTitle?.textContent).toBe("Overview");
+    expect(threadTitle?.textContent).toBe("Database View");
     expect(threadTitle?.getAttribute("draggable")).toBe("false");
     const titleTrigger = threadTitle?.closest('[data-thread-title-trigger="true"]');
     expect(String(titleTrigger?.className).includes("self-stretch")).toBeTrue();
@@ -6926,13 +6909,13 @@ describe("workbench session shell", () => {
   test("clicking another project group header expands without switching session", async () => {
     const beta = makeProject("beta", "Beta");
     const betaSession = makeSession({
-      id: "overview:beta",
+      id: "session:beta:database-view",
       projectId: "beta",
-      title: "Beta Overview",
+      title: "Beta Database View",
       tabs: [
         {
-          id: "overview:beta:db",
-          sessionId: "overview:beta",
+          id: "session:beta:database-view:db",
+          sessionId: "session:beta:database-view",
           projectId: "beta",
           kind: "db_view",
           title: "DB View",
@@ -6942,7 +6925,7 @@ describe("workbench session shell", () => {
           updatedAt: "2026-06-07T00:00:00.000Z",
         },
       ],
-      rightLayout: makePanelLayout(["overview:beta:db"], "overview:beta:db"),
+      rightLayout: makePanelLayout(["session:beta:database-view:db"], "session:beta:database-view:db"),
     });
     const screen = renderWorkbench({
       projects: [makeProject(), beta],
@@ -6959,11 +6942,11 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(screen.setDbProjectCalls.includes("beta")).toBeFalse();
-    expect(textContent(screen.container).includes("Beta Overview")).toBeTrue();
+    expect(textContent(screen.container).includes("Beta Database View")).toBeTrue();
     expect(textContent(screen.container).includes("DB:beta:kanban")).toBeFalse();
 
     await act(async () => {
-      fireEvent.click(screen.getByText("Beta Overview"));
+      fireEvent.click(screen.getByText("Beta Database View"));
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -7239,7 +7222,6 @@ describe("workbench session shell", () => {
     const workSession = makeSession({
       id: "session:alpha:work",
       title: "Work",
-      isOverview: false,
       order: 1,
       tabs: [
         {
@@ -7303,7 +7285,6 @@ describe("workbench session shell", () => {
     const workSession = makeSession({
       id: "session:alpha:work",
       title: "Work",
-      isOverview: false,
       order: 1,
       tabs: [
         {
@@ -7350,8 +7331,8 @@ describe("workbench session shell", () => {
 
   test("window navigation restores right-panel tab selection", async () => {
     const browserTab = makeSessionTab({
-      id: "overview:alpha:browser",
-      sessionId: "overview:alpha",
+      id: "session:alpha:database-view:browser",
+      sessionId: "session:alpha:database-view",
       projectId: "alpha",
       kind: "browser",
       title: "Browser",
@@ -7360,7 +7341,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },

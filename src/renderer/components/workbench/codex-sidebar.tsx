@@ -715,7 +715,6 @@ export function CodexSidebarThreadRow({
   onOpenContextMenu,
   onRenameFromTitleDoubleClick,
   onTogglePinned,
-  defaultLabel,
 }: {
   item: CodexSidebarThreadItem;
   active: boolean;
@@ -724,7 +723,6 @@ export function CodexSidebarThreadRow({
   onOpenContextMenu?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
   onRenameFromTitleDoubleClick?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
   onTogglePinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
-  defaultLabel?: string;
 }) {
   const showSessionActions = !item.disabled && Boolean(onOpenContextMenu);
   const showPinSlot = !item.disabled && Boolean(onTogglePinned);
@@ -823,13 +821,6 @@ export function CodexSidebarThreadRow({
                 )}
               </div>
             ) : null}
-            {defaultLabel ? (
-              <div className="ml-[3px] flex min-w-[26px] items-center justify-end gap-1">
-                <span className="shrink-0 text-xs text-token-description-foreground">
-                  {defaultLabel}
-                </span>
-              </div>
-            ) : null}
             {showSessionActions ? (
               <button
                 type="button"
@@ -896,7 +887,7 @@ export function CodexThreadRow({
     statusType: (session.thread?.statusType ?? "notLoaded") as CodexSidebarThreadItem["statusType"],
     statusActiveFlags: (session.thread?.statusActiveFlags ?? []) as CodexSidebarThreadItem["statusActiveFlags"],
     projectless: session.projectId === null,
-    disabled: session.isOverview,
+    disabled: false,
   };
 
   return (
@@ -904,7 +895,6 @@ export function CodexThreadRow({
       item={item}
       active={active}
       contextMenuOpen={contextMenuOpen}
-      defaultLabel={session.isOverview ? "default" : undefined}
       onSelect={onSelect}
       onOpenContextMenu={onOpenContextMenu
         ? (_item, event) => onOpenContextMenu(session, event)

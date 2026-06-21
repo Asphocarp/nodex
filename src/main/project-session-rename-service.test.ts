@@ -8,7 +8,6 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
     projectId: "project-1",
     noThreadFallbackTitle: "Current title",
     displayTitle: "Current title",
-    isOverview: false,
     order: 1,
     pinned: false,
     pinnedOrder: null,
@@ -51,21 +50,6 @@ function makeDeps(session: ProjectSession, events: string[] = []): ProjectSessio
 }
 
 describe("renameProjectSessionChat", () => {
-  test("rejects overview sessions", async () => {
-    let rejected = false;
-    try {
-      await renameProjectSessionChat(
-        "session-1",
-        { title: "Ignored" },
-        makeDeps(makeSession({ isOverview: true })),
-      );
-    } catch {
-      rejected = true;
-    }
-
-    expect(rejected).toBeTrue();
-  });
-
   test("returns the existing session without effects for whitespace-only titles", async () => {
     const events: string[] = [];
     const session = makeSession();

@@ -668,7 +668,6 @@ export interface ProjectSession {
   projectId: string | null;
   noThreadFallbackTitle: string;
   displayTitle: string;
-  isOverview: boolean;
   order: number;
   pinned: boolean;
   pinnedOrder: number | null;

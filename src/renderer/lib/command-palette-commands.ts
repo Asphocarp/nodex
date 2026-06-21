@@ -42,7 +42,6 @@ export interface CommandPaletteShellCommandContext {
   canStartNewChat: boolean;
   showMockCommands: boolean;
   hasActiveSession: boolean;
-  activeSessionIsOverview: boolean;
   activeSessionPinned: boolean;
   hasAttachedThread: boolean;
   canOpenSessionInNewWindow: boolean;
@@ -89,7 +88,7 @@ export function buildCommandPaletteCommands(
   const shortcutState = context.commandKeymapState ?? fallbackCommandKeymapState(context.isMac);
   const shortcutLabel = (commandId: string, fallback?: string): string | undefined =>
     formatCommandShortcutLabel(shortcutState, commandId, fallback);
-  const sessionCommandDisabled = !context.hasActiveSession || context.activeSessionIsOverview;
+  const sessionCommandDisabled = !context.hasActiveSession;
   const panelCommandDisabled = !context.hasActiveSession;
   const sideChatDisabled = !context.hasActiveSession || !context.hasAttachedThread;
   const command = (

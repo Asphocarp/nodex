@@ -31,7 +31,7 @@ if (!(globalThis as { sessionStorage?: unknown }).sessionStorage) {
 function makeSnapshot(overrides: Partial<WorkbenchShellNavigationSnapshot> = {}): WorkbenchShellNavigationSnapshot {
   return {
     activeProjectId: "alpha",
-    activeSessionId: "overview:alpha",
+    activeSessionId: "session:alpha:database-view",
     activeView: "kanban",
     rightActiveTabId: "alpha-db",
     bottomActiveTabId: null,
@@ -68,7 +68,7 @@ describe("workbench shell navigation history", () => {
     );
 
     expect(history.backStack.length).toBe(2);
-    expect(history.backStack[1]?.activeSessionId).toBe("overview:alpha");
+    expect(history.backStack[1]?.activeSessionId).toBe("session:alpha:database-view");
     expect(history.forwardStack.length).toBe(0);
   });
 
@@ -78,7 +78,7 @@ describe("workbench shell navigation history", () => {
     const history = recordWorkbenchShellNavigationTransition({ backStack: [], forwardStack: [] }, first, second);
     const result = navigateBackInWorkbenchShellHistory(history, second);
 
-    expect(result.snapshot?.activeSessionId).toBe("overview:alpha");
+    expect(result.snapshot?.activeSessionId).toBe("session:alpha:database-view");
     expect(result.historyState.backStack.length).toBe(0);
     expect(result.historyState.forwardStack[0]?.activeSessionId).toBe("session:alpha:2");
   });
@@ -93,7 +93,7 @@ describe("workbench shell navigation history", () => {
     const forwardResult = navigateForwardInWorkbenchShellHistory(backResult.historyState, first);
 
     expect(forwardResult.snapshot?.activeSessionId).toBe("session:alpha:2");
-    expect(forwardResult.historyState.backStack[0]?.activeSessionId).toBe("overview:alpha");
+    expect(forwardResult.historyState.backStack[0]?.activeSessionId).toBe("session:alpha:database-view");
     expect(forwardResult.historyState.forwardStack.length).toBe(0);
   });
 

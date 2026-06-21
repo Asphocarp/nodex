@@ -556,11 +556,11 @@ function CodexSortableProjectsHarness({
 function makeStorySession(input: {
   id: string;
   title: string;
-  isOverview?: boolean;
   pinned?: boolean;
   pinnedOrder?: number | null;
   unread?: boolean;
   threadId?: string;
+  rightFullWidth?: boolean;
 }): ProjectSession {
   const tabId = `${input.id}:db`;
   return {
@@ -568,7 +568,6 @@ function makeStorySession(input: {
     projectId: "nodex",
     noThreadFallbackTitle: input.title,
     displayTitle: input.title,
-    isOverview: input.isOverview ?? false,
     order: 0,
     pinned: input.pinned ?? false,
     pinnedOrder: input.pinnedOrder ?? null,
@@ -580,7 +579,7 @@ function makeStorySession(input: {
       right: {
         collapsed: false,
         layout: makeProjectSessionPanelLayout([tabId], tabId),
-        size: { widthPx: 600, fullWidth: input.isOverview ?? false },
+        size: { widthPx: 600, fullWidth: input.rightFullWidth ?? false },
       },
       bottom: {
         collapsed: true,
@@ -630,8 +629,8 @@ function makeStorySession(input: {
 function CodexProjectSessionRowsHarness() {
   const project = SIDEBAR_PARITY_PROJECTS[0]!;
   const sessions = [
-    makeStorySession({ id: "overview:nodex", title: "Overview", isOverview: true }),
-    makeStorySession({ id: "thread:nodex:pinned", title: "Pinned architecture notes", pinned: true, pinnedOrder: 0, threadId: "local:pinned" }),
+    makeStorySession({ id: "session:nodex:database-view", title: "Database View", pinned: true, pinnedOrder: 0, rightFullWidth: true }),
+    makeStorySession({ id: "thread:nodex:pinned", title: "Pinned architecture notes", pinned: true, pinnedOrder: 1, threadId: "local:pinned" }),
     makeStorySession({ id: "thread:nodex:parity", title: "Mirror Codex Electron layout", unread: true, threadId: "local:sidebar-parity" }),
     makeStorySession({ id: "thread:nodex:unread-idle", title: "Unread accent idle", unread: true, threadId: "local:unread-idle" }),
     makeStorySession({ id: "thread:nodex:long", title: "Very long session title that should truncate before colliding with row actions", threadId: "local:long-title" }),

@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file.
 - Added chat rename entry points for active project sessions, including title double-click, thread/header actions, command palette, macOS menu, and `Cmd/Ctrl+Alt+R`.
 - Added workspace chat search to the command palette, including fuzzy chat metadata matches, bounded content snippets, and direct navigation to attached sessions.
 - Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browsers, and separate optional session-thread attachments.
-- Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
+- Added SQLite-backed project session, project session tab, and session-thread link storage with ordinary pinned `Database View` starter sessions seeded for every project.
 - Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
 - Added a `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
 - Added NFM thread mentions so card descriptions can reference and open Codex threads with `<mention-thread uuid="..." />`.
@@ -43,7 +43,8 @@ All notable changes to this project will be documented in this file.
 - Project names are now display-only: renaming a project no longer changes its stable server-generated UUID.
 - Project row actions now own rename, icon, source-folder, Finder, and delete management directly from the sidebar.
 - Matched the Workbench Projects header and project folder fold animations to the shipped Codex sidebar motion.
-- Sidebar chats now always use the Projects organization without an All chats/Projects/Connections selector, and newly created blank chats appear at the top of their project folder below Overview.
+- Sidebar chats now always use the Projects organization without an All chats/Projects/Connections selector, and newly created blank chats appear at the top of their project folder below pinned rows such as `Database View`.
+- Replaced the special Overview session with an ordinary pinned `Database View` starter session that can be renamed, unpinned, archived, deleted, and opened from the normal session menu.
 - Blank project session thread pages now open on a centered new-chat home with a project-aware hero prompt, attached composer/footer strip, ProseMirror prompt editor, and local/worktree-only start controls.
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
 - Settings now opens as a full-window route shell with the same native vibrant sidebar feel as the normal workbench sidebar instead of a modal overlay.
@@ -96,7 +97,7 @@ All notable changes to this project will be documented in this file.
 - Restored the native vibrant workbench sidebar background after the sidebar chrome update.
 - Fixed long Thread composer prompts so the prompt field shows only the textarea scrollbar instead of a second wrapper scrollbar.
 - Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
-- Fixed newly created non-Overview project sessions so they start with the right panel collapsed, while Overview sessions still open their DB tab full-width by default.
+- Fixed newly created chat sessions so they start with the right panel collapsed, while project starter `Database View` sessions open their DB tab full-width by default.
 - Fixed project-session DB tabs so the restored View toolbar includes the original view selector, search, filter, sort, display, and calendar controls.
 - Fixed cross-project Card Stage tabs so they keep loading the target card's project when hosted inside another project session, including recovery for previously saved blank tabs.
 - Fixed archived session threads so opening them shows a restore state instead of attempting to resume and surfacing an app-server archive error.

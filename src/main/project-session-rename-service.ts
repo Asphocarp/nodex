@@ -17,9 +17,6 @@ export async function renameProjectSessionChat(
   const parsed = ProjectSessionRenameInputSchema.parse(input);
   const existing = deps.getProjectSession(sessionId);
   if (!existing) return null;
-  if (existing.isOverview) {
-    throw new Error("Overview session cannot be renamed");
-  }
 
   const normalizedTitle = normalizeCodexManualThreadTitle(parsed.title);
   if (!normalizedTitle) {

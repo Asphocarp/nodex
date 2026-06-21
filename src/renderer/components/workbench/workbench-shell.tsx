@@ -511,7 +511,7 @@ function readRendererPlatform(): NodeJS.Platform | "browser" {
 
 function sortProjectSessionsForSidebar(sessions: ProjectSession[]): ProjectSession[] {
   return [...sessions].sort((a, b) => {
-    const rank = (session: ProjectSession) => session.isOverview ? 0 : session.pinned ? 1 : 2;
+    const rank = (session: ProjectSession) => session.pinned ? 0 : 1;
     const rankDelta = rank(a) - rank(b);
     if (rankDelta !== 0) return rankDelta;
     if (a.pinned || b.pinned) {
@@ -1642,7 +1642,7 @@ export function WorkbenchShell({
     [cardStageHistoryModal, projects],
   );
   const rightPanelFullWidth = Boolean(
-    activeSession && sidePanelOpen && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
+    activeSession && sidePanelOpen && (rightPanel?.size.fullWidth ?? false),
   );
   const rightActiveRenderableTab = rightActiveTabId
     ? rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? null
@@ -2046,9 +2046,9 @@ export function WorkbenchShell({
     ) {
       return;
     }
-    const overview = activeSessions.find((session) => session.isOverview) ?? activeSessions[0] ?? null;
+    const fallbackSession = activeSessions[0] ?? null;
     startTransition(() => {
-      setActiveSessionId(overview?.id ?? null);
+      setActiveSessionId(fallbackSession?.id ?? null);
     });
   }, [activeProject, activeSession, activeSessionId, activeSessions]);
 
@@ -2074,11 +2074,12 @@ export function WorkbenchShell({
 
   const selectProject = useCallback((projectId: string) => {
     const sessions = sessionsByProject[projectId] ?? [];
-    const overview = sessions.find((session) => session.isOverview) ?? sessions[0] ?? null;
-    recordShellNavigation(buildSnapshotForSession(overview, projectId));
+    const fallbackSession = sessions[0] ?? null;
+    recordShellNavigation(buildSnapshotForSession(fallbackSession, projectId));
     startTransition(() => {
       setActiveProjectId(projectId);
       setDbProject(projectId);
+      setActiveSessionId(fallbackSession?.id ?? null);
       setExpandedProjectIds((current) => new Set([...current, projectId]));
     });
   }, [buildSnapshotForSession, recordShellNavigation, sessionsByProject, setDbProject]);
@@ -2208,7 +2209,6 @@ export function WorkbenchShell({
   }, [knownSessions, mergeSessionInState, refreshProjectSessions, selectSession]);
 
   const openRenameSessionDialog = useCallback((session: ProjectSession) => {
-    if (session.isOverview) return;
     setRenameSession(session);
   }, []);
 
@@ -2217,7 +2217,6 @@ export function WorkbenchShell({
     event: ReactMouseEvent<HTMLElement>,
   ) => {
     if (event.defaultPrevented) return;
-    if (session.isOverview) return;
     if (activeSessionId !== session.id) return;
     if (!(event.target instanceof Element)) return;
     if (!event.target.closest("[data-thread-title]")) return;
@@ -2234,10 +2233,9 @@ export function WorkbenchShell({
       await invoke("project-sessions:archive", session.id);
       const sessions = await refreshProjectSessions(session.projectId);
       if (activeSessionId === session.id) {
-        const fallbackSession = sessions.find((candidate) => candidate.isOverview)
-          ?? sessions[0]
+        const fallbackSession = sessions[0]
           ?? (session.projectId === null
-            ? activeSessions.find((candidate) => candidate.isOverview) ?? activeSessions[0] ?? null
+            ? activeSessions[0] ?? null
             : null);
         if (fallbackSession) {
           selectSession(fallbackSession);
@@ -2374,8 +2372,6 @@ export function WorkbenchShell({
     session: ProjectSession,
     event: ReactMouseEvent<HTMLElement>,
   ) => {
-    if (session.isOverview) return;
-
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -2424,7 +2420,7 @@ export function WorkbenchShell({
     if (threadRenameRequest.tick <= 0) return;
     if (lastHandledThreadRenameRequestTickRef.current === threadRenameRequest.tick) return;
     lastHandledThreadRenameRequestTickRef.current = threadRenameRequest.tick;
-    if (!activeSession || activeSession.isOverview) return;
+    if (!activeSession) return;
     openRenameSessionDialog(activeSession);
   }, [activeSession, openRenameSessionDialog, threadRenameRequest]);
 
@@ -3554,7 +3550,7 @@ export function WorkbenchShell({
     options?: { select?: boolean },
   ) => {
     const sessions = sessionsByProject[projectId] ?? await refreshProjectSessions(projectId);
-    const reusableSession = sessions.find((candidate) => !candidate.thread && !candidate.isOverview) ?? null;
+    const reusableSession = sessions.find((candidate) => !candidate.thread && candidate.tabs.length === 0) ?? null;
     const shouldSelect = options?.select !== false;
 
     if (reusableSession) {
@@ -3619,7 +3615,7 @@ export function WorkbenchShell({
       if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return;
 
       if (matchesKeyboardEventToCommand(event, shortcutState, "archiveThread")) {
-        if (!activeSession || activeSession.isOverview) return;
+        if (!activeSession) return;
         event.preventDefault();
         void archiveSession(activeSession);
         return;
@@ -3638,7 +3634,7 @@ export function WorkbenchShell({
       }
 
       if (matchesKeyboardEventToCommand(event, shortcutState, "openThreadInNewWindow")) {
-        if (!activeSession || activeSession.isOverview) return;
+        if (!activeSession) return;
         event.preventDefault();
         void onOpenProjectSessionInNewWindow?.(activeSession);
         return;
@@ -3651,7 +3647,7 @@ export function WorkbenchShell({
       }
 
       if (matchesKeyboardEventToCommand(event, shortcutState, "toggleThreadPin")) {
-        if (!activeSession || activeSession.isOverview) return;
+        if (!activeSession) return;
         event.preventDefault();
         void toggleSessionPin(activeSession);
         return;
@@ -4182,7 +4178,6 @@ export function WorkbenchShell({
       const projectSessions = sessionsByProject[snapshot.activeProjectId] ?? await refreshProjectSessions(snapshot.activeProjectId);
       const targetSession =
         projectSessions.find((session) => session.id === snapshot.activeSessionId)
-        ?? projectSessions.find((session) => session.isOverview)
         ?? projectSessions[0]
         ?? null;
 
@@ -4521,7 +4516,7 @@ export function WorkbenchShell({
           ? tab.status !== "loading"
           : isMcpAppPanelTab(tab)
             ? true
-            : tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
+            : tab.preview === true || activeSession.tabs.length > 1,
         preview: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? undefined : tab.preview,
         keepMounted,
         reorderable: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? false : tab.preview === true ? false : true,
@@ -5430,7 +5425,6 @@ export function WorkbenchShell({
     canGoForward: shellCanNavigateForward,
     canStartNewChat: Boolean(activeProjectId),
     hasActiveSession: Boolean(activeSession),
-    activeSessionIsOverview: activeSession?.isOverview ?? false,
     activeSessionPinned: activeSession?.pinned ?? false,
     hasAttachedThread: Boolean(activeSession?.thread),
     canOpenSessionInNewWindow: Boolean(onOpenProjectSessionInNewWindow),
@@ -5450,19 +5444,19 @@ export function WorkbenchShell({
       void startNewChatInProject(activeProjectId);
     },
     renameThread: () => {
-      if (!activeSession || activeSession.isOverview) return;
+      if (!activeSession) return;
       openRenameSessionDialog(activeSession);
     },
     archiveThread: () => {
-      if (!activeSession || activeSession.isOverview) return;
+      if (!activeSession) return;
       void archiveSession(activeSession);
     },
     toggleThreadPin: () => {
-      if (!activeSession || activeSession.isOverview) return;
+      if (!activeSession) return;
       void toggleSessionPin(activeSession);
     },
     openThreadInNewWindow: () => {
-      if (!activeSession || activeSession.isOverview) return;
+      if (!activeSession) return;
       void onOpenProjectSessionInNewWindow?.(activeSession);
     },
     toggleSidebar: () => {
@@ -6092,7 +6086,7 @@ function SidebarThreadOrganizerSections({
           cwd: session.thread?.cwd ?? null,
           updatedAt: session.thread?.updatedAt ?? Date.parse(session.updatedAt),
           createdAt: session.thread?.createdAt ?? Date.parse(session.createdAt),
-          pinned: !session.isOverview && session.pinned,
+          pinned: session.pinned,
           pinnedOrder: session.pinnedOrder,
           unread: session.unread,
           archived: session.archived || session.thread?.archived === true,
@@ -6162,17 +6156,12 @@ function SidebarThreadOrganizerSections({
           void onSelectSidebarThread(item);
         }}
         onOpenContextMenu={session && onOpenSessionContextMenu
-          && !session.isOverview
           ? (_item, event) => onOpenSessionContextMenu(session, event)
           : undefined}
         onRenameFromTitleDoubleClick={session && onSessionTitleDoubleClick
-          && !session.isOverview
           ? (_item, event) => onSessionTitleDoubleClick(session, event)
           : undefined}
-        defaultLabel={session?.isOverview ? "default" : undefined}
-        onTogglePinned={session?.isOverview
-          ? undefined
-          : session && onToggleSessionPinned
+        onTogglePinned={session && onToggleSessionPinned
           ? () => onToggleSessionPinned(session)
           : onToggleSidebarThreadPinned}
       />
@@ -7310,8 +7299,7 @@ function ProjectSessionTabPanel({
         sessionId={activeSession.id}
         sessionThread={activeSession.thread ? makeThreadSummary(activeSession.thread) : null}
         canStartThreadInSession={
-          !activeSession.isOverview
-          && !activeSession.thread
+          !activeSession.thread
           && activeSession.projectId === cardTab.config.projectId
         }
         onLeaveCard={onLeaveCardStageCard}

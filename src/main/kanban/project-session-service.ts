@@ -84,7 +84,6 @@ interface DbProjectSession {
   id: string;
   project_id: string | null;
   no_thread_fallback_title: string;
-  is_overview: number;
   order: number;
   pinned: number;
   pinned_order: number | null;
@@ -180,14 +179,6 @@ function makeDefaultPanelState(panelId: PanelId, tabIds: string[], activeTabId: 
       ? { widthPx: DEFAULT_RIGHT_PANEL_WIDTH, fullWidth: false }
       : { heightPx: DEFAULT_BOTTOM_PANEL_HEIGHT },
   };
-}
-
-function makeOverviewSessionId(projectId: string): string {
-  return `overview:${projectId}`;
-}
-
-function makeOverviewDbTabId(projectId: string): string {
-  return `overview:${projectId}:db`;
 }
 
 function normalizePanelLayout(value: unknown, tabs: ProjectSessionTab[]): ProjectSessionPanelLayout {
@@ -353,7 +344,6 @@ function buildSession(row: DbProjectSession): ProjectSession {
       noThreadFallbackTitle,
       thread,
     }),
-    isOverview: row.is_overview === 1,
     order: row.order,
     pinned: row.pinned === 1,
     pinnedOrder: row.pinned_order,
@@ -388,63 +378,12 @@ function projectSessionWhereClause(projectId: string | null): {
   return { sql: "project_id = ?", values: [projectId] };
 }
 
-function ensureOverviewSession(projectId: string): void {
-  const database = getDb();
-  const overview = database
-    .prepare("SELECT 1 FROM project_sessions WHERE project_id = ? AND is_overview = 1")
-    .get(projectId);
-  if (overview) return;
-
-  const now = new Date().toISOString();
-  const sessionId = makeOverviewSessionId(projectId);
-  const tabId = makeOverviewDbTabId(projectId);
-  const insert = database.transaction(() => {
-    const rightLayout = makeDefaultPanelLayout([tabId], tabId);
-    const panels = {
-      right: {
-        collapsed: false,
-        layout: rightLayout,
-        size: { widthPx: DEFAULT_RIGHT_PANEL_WIDTH, fullWidth: true },
-      },
-      bottom: makeDefaultPanelState("bottom", [], null),
-    } satisfies Record<PanelId, ProjectSessionPanelState>;
-    database.prepare(`
-      INSERT OR IGNORE INTO project_sessions (
-        id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-        panel_state_json, created_at, updated_at
-      ) VALUES (?, ?, 'Overview', 1, 0, 0, NULL, 0, NULL, 0, 1, ?, ?, ?)
-    `).run(
-      sessionId,
-      projectId,
-      stringifyPanels(panels),
-      now,
-      now,
-    );
-    database.prepare(`
-      INSERT OR IGNORE INTO project_session_tabs (
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json, "order", created_at, updated_at
-      ) VALUES (?, ?, ?, 'right', 'db_view', 'DB View', ?, 0, '{}', 0, ?, ?)
-    `).run(
-      tabId,
-      sessionId,
-      projectId,
-      JSON.stringify({ projectId, view: "kanban" }),
-      now,
-      now,
-    );
-  });
-  insert();
-}
-
 export function listProjectSessions(
   projectId: string | null,
   options?: ProjectSessionListOptions,
 ): ProjectSession[] {
   projectId = normalizeProjectSessionProjectId(projectId);
   const parsedOptions = ProjectSessionListOptionsSchema.parse(options) ?? {};
-  if (projectId !== null) {
-    ensureOverviewSession(projectId);
-  }
   const projectWhere = projectSessionWhereClause(projectId);
   const rows = getDb()
     .prepare(`
@@ -453,11 +392,7 @@ export function listProjectSessions(
       WHERE ${projectWhere.sql}
         AND (? = 1 OR archived = 0)
       ORDER BY
-        CASE
-          WHEN is_overview = 1 THEN 0
-          WHEN pinned = 1 THEN 1
-          ELSE 2
-        END ASC,
+        CASE WHEN pinned = 1 THEN 0 ELSE 1 END ASC,
         CASE
           WHEN pinned = 1 THEN COALESCE(pinned_order, 9223372036854775807)
           ELSE "order"
@@ -528,7 +463,7 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
   const database = getDb();
   const now = new Date().toISOString();
   const projectWhere = projectSessionWhereClause(projectId);
-  const order = projectId === null ? 0 : 1;
+  const order = 0;
   const id = randomUUID();
   const panels = {
     right: makeDefaultPanelState("right", [], null),
@@ -540,15 +475,14 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
       UPDATE project_sessions
       SET "order" = "order" + 1, updated_at = ?
       WHERE ${projectWhere.sql}
-        AND is_overview = 0
         AND "order" >= ?
     `).run(now, ...projectWhere.values, order);
 
     database.prepare(`
       INSERT INTO project_sessions (
-        id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        id, project_id, no_thread_fallback_title, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
         panel_state_json, created_at, updated_at
-      ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
     `).run(
       id,
       projectId,
@@ -631,7 +565,6 @@ export function updateProjectSession(sessionId: string, input: ProjectSessionUpd
 export function deleteProjectSession(sessionId: string): boolean {
   const existing = getProjectSession(sessionId);
   if (!existing) return false;
-  if (existing.isOverview) throw new Error("Overview session cannot be deleted");
 
   const result = getDb().prepare("DELETE FROM project_sessions WHERE id = ?").run(sessionId);
   return result.changes > 0;
@@ -640,20 +573,19 @@ export function deleteProjectSession(sessionId: string): boolean {
 export function reorderProjectSessions(projectId: string, orderedSessionIds: string[]): ProjectSession[] {
   projectId = ensureProjectExists(projectId);
   const existing = listProjectSessions(projectId);
-  const movableSessions = existing.filter((session) => !session.isOverview);
-  const existingIds = new Set(movableSessions.map((session) => session.id));
+  const existingIds = new Set(existing.map((session) => session.id));
   const selected = orderedSessionIds.filter((sessionId) => existingIds.has(sessionId));
-  const remaining = movableSessions.map((session) => session.id).filter((sessionId) => !selected.includes(sessionId));
+  const remaining = existing.map((session) => session.id).filter((sessionId) => !selected.includes(sessionId));
   const finalOrder = [...selected, ...remaining];
-  const byId = new Map(movableSessions.map((session) => [session.id, session]));
+  const byId = new Map(existing.map((session) => [session.id, session]));
   const pinnedOrder = finalOrder.filter((sessionId) => byId.get(sessionId)?.pinned === true);
   const now = new Date().toISOString();
 
   const database = getDb();
-  const updateOrder = database.prepare('UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ? AND project_id = ? AND is_overview = 0');
-  const updatePinnedOrder = database.prepare("UPDATE project_sessions SET pinned_order = ?, updated_at = ? WHERE id = ? AND project_id = ? AND pinned = 1 AND is_overview = 0");
+  const updateOrder = database.prepare('UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ? AND project_id = ?');
+  const updatePinnedOrder = database.prepare("UPDATE project_sessions SET pinned_order = ?, updated_at = ? WHERE id = ? AND project_id = ? AND pinned = 1");
   const tx = database.transaction(() => {
-    finalOrder.forEach((sessionId, index) => updateOrder.run(index + 1, now, sessionId, projectId));
+    finalOrder.forEach((sessionId, index) => updateOrder.run(index, now, sessionId, projectId));
     pinnedOrder.forEach((sessionId, index) => updatePinnedOrder.run(index, now, sessionId, projectId));
   });
   tx();
@@ -667,7 +599,6 @@ export function setProjectSessionPinned(
   const parsed = ProjectSessionPinnedInputSchema.parse(input);
   const existing = getProjectSession(sessionId);
   if (!existing) return null;
-  if (existing.isOverview) throw new Error("Overview session cannot be pinned");
 
   const database = getDb();
   const now = new Date().toISOString();
@@ -687,7 +618,7 @@ export function setProjectSessionPinned(
     database.prepare(`
       UPDATE project_sessions
       SET pinned = 1, pinned_order = ?, updated_at = ?
-      WHERE id = ? AND is_overview = 0
+      WHERE id = ?
     `).run(nextPinnedOrder, now, sessionId);
     return getProjectSession(sessionId);
   }
@@ -695,7 +626,7 @@ export function setProjectSessionPinned(
   database.prepare(`
     UPDATE project_sessions
     SET pinned = 0, pinned_order = NULL, updated_at = ?
-    WHERE id = ? AND is_overview = 0
+    WHERE id = ?
   `).run(now, sessionId);
   return getProjectSession(sessionId);
 }
@@ -707,7 +638,7 @@ export function setPinnedProjectSessionOrder(
   const parsed = ProjectSessionPinnedOrderInputSchema.parse(input);
   projectId = ensureProjectExists(projectId);
   const existing = listProjectSessions(projectId, { includeArchived: true })
-    .filter((session) => session.pinned && !session.archived && !session.isOverview);
+    .filter((session) => session.pinned && !session.archived);
   const existingIds = new Set(existing.map((session) => session.id));
   const selected = parsed.orderedSessionIds.filter((sessionId) => existingIds.has(sessionId));
   const remaining = existing.map((session) => session.id).filter((sessionId) => !selected.includes(sessionId));
@@ -717,7 +648,7 @@ export function setPinnedProjectSessionOrder(
   const update = getDb().prepare(`
     UPDATE project_sessions
     SET pinned_order = ?, updated_at = ?
-    WHERE id = ? AND project_id = ? AND pinned = 1 AND is_overview = 0
+    WHERE id = ? AND project_id = ? AND pinned = 1
   `);
   getDb().transaction(() => {
     finalOrder.forEach((sessionId, index) => update.run(index, now, sessionId, projectId));
@@ -729,7 +660,6 @@ export function setPinnedProjectSessionOrder(
 export function archiveProjectSession(sessionId: string): ProjectSession | null {
   const existing = getProjectSession(sessionId);
   if (!existing) return null;
-  if (existing.isOverview) throw new Error("Overview session cannot be archived");
 
   getDb().prepare(`
     UPDATE project_sessions
@@ -739,7 +669,7 @@ export function archiveProjectSession(sessionId: string): ProjectSession | null 
         pinned_order = NULL,
         unread = 0,
         updated_at = ?
-    WHERE id = ? AND is_overview = 0
+    WHERE id = ?
   `).run(new Date().toISOString(), new Date().toISOString(), sessionId);
   return getProjectSession(sessionId);
 }
@@ -747,7 +677,6 @@ export function archiveProjectSession(sessionId: string): ProjectSession | null 
 export function unarchiveProjectSession(sessionId: string): ProjectSession | null {
   const existing = getProjectSession(sessionId);
   if (!existing) return null;
-  if (existing.isOverview) throw new Error("Overview session cannot be unarchived");
 
   const now = new Date().toISOString();
   getDb().prepare(`
@@ -755,7 +684,7 @@ export function unarchiveProjectSession(sessionId: string): ProjectSession | nul
     SET archived = 0,
         archived_at = NULL,
         updated_at = ?
-    WHERE id = ? AND is_overview = 0
+    WHERE id = ?
   `).run(now, sessionId);
   return getProjectSession(sessionId);
 }
@@ -767,9 +696,6 @@ export function markProjectSessionUnread(
   const parsed = ProjectSessionUnreadInputSchema.parse(input);
   const existing = getProjectSession(sessionId);
   if (!existing) return null;
-  if (existing.isOverview && parsed.unread) {
-    throw new Error("Overview session cannot be marked unread");
-  }
 
   const now = new Date().toISOString();
   getDb().prepare(`

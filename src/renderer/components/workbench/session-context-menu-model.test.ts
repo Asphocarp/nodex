@@ -13,7 +13,6 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
     projectId: "project-1",
     noThreadFallbackTitle: "Session one",
     displayTitle: "Session one",
-    isOverview: false,
     order: 1,
     pinned: false,
     pinnedOrder: null,

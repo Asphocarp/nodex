@@ -220,7 +220,6 @@ const activeSession: ProjectSession = {
   projectId: project.id,
   noThreadFallbackTitle: "Session",
   displayTitle: "Session",
-  isOverview: false,
   order: 0,
   pinned: false,
   pinnedOrder: null,
