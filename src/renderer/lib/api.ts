@@ -1,6 +1,11 @@
 import { resolveInvokeTransport, resolveRendererTransport } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
 
+const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
+  "codex:thread:archive",
+  "codex:thread:unarchive",
+]);
+
 export async function invoke<Channel extends keyof IpcApi>(
   channel: Channel,
   ...args: IpcApi[Channel]["args"]
@@ -15,7 +20,11 @@ export async function invoke(
 ): Promise<unknown> {
   const transport = resolveInvokeTransport(channel);
 
-  if (channel.startsWith("codex:") && transport.kind !== "electron") {
+  if (
+    channel.startsWith("codex:")
+    && transport.kind !== "electron"
+    && !BROWSER_CODEX_INVOKE_CHANNELS.has(channel)
+  ) {
     throw new Error("Codex threads require Electron in this release");
   }
 

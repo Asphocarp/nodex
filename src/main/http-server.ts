@@ -676,6 +676,24 @@ app.put("/api/project-sessions/:sessionId/unarchive", async (c) => {
   }
 });
 
+app.put("/api/codex/threads/:threadId/archive", async (c) => {
+  try {
+    const success = await codexService.archiveThread(c.req.param("threadId"));
+    return c.json({ success });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/codex/threads/:threadId/unarchive", async (c) => {
+  try {
+    const thread = await codexService.unarchiveThread(c.req.param("threadId"));
+    return c.json(thread);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
 app.put("/api/project-sessions/:sessionId/unread", async (c) => {
   const body = await c.req.json();
   try {

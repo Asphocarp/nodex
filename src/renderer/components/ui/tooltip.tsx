@@ -62,6 +62,7 @@ export interface NodexTooltipProps
   triggerRef?: RefObject<HTMLElement | null>;
   delayOpen?: boolean;
   interactive?: boolean;
+  surface?: "default" | "rich";
   tooltipClassName?: string;
   tooltipBodyClassName?: string;
 }
@@ -79,6 +80,7 @@ export function NodexTooltip({
   defaultOpen,
   onOpenChange,
   delayDuration,
+  surface = "default",
   tooltipClassName,
   tooltipBodyClassName,
   align,
@@ -113,6 +115,7 @@ export function NodexTooltip({
 
   const resolvedOpen = isControlled ? open : uncontrolledOpen;
   const resolvedDelay = delayOpen ? 250 : delayDuration;
+  const richSurface = surface === "rich";
 
   return (
     <RadixTooltip.Root
@@ -141,7 +144,9 @@ export function NodexTooltip({
           sideOffset={sideOffset}
           collisionPadding={8}
           className={cn(
-            "bg-token-dropdown-background text-token-foreground border-token-border w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
+            richSurface
+              ? "m-px flex w-fit select-none flex-col rounded-xl bg-token-dropdown-background/90 text-sm text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-sm whitespace-normal break-words"
+              : "bg-token-dropdown-background text-token-foreground border-token-border w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
             APP_SHELL_FLOATING_UI_LAYER_CLASS,
             tooltipClassName,
           )}
@@ -152,8 +157,8 @@ export function NodexTooltip({
           }}
           {...props}
         >
-          <div className="flex items-center gap-2">
-            <div className={cn("min-w-0", tooltipBodyClassName)}>{tooltipContent}</div>
+          <div className={cn("flex items-center gap-2", richSurface && "min-h-0 flex-1")}>
+            <div className={cn(richSurface ? "min-h-0 min-w-0 flex w-full" : "min-w-0", tooltipBodyClassName)}>{tooltipContent}</div>
             {shortcut ? <span>{shortcut}</span> : null}
           </div>
         </RadixTooltip.Content>

@@ -281,6 +281,22 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.ok ? res.json() : null;
     }
+    case "codex:thread:archive": {
+      const [threadId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/codex/threads/${encodeURIComponent(threadId)}/archive`), {
+        method: "PUT",
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return data.success === true;
+    }
+    case "codex:thread:unarchive": {
+      const [threadId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/codex/threads/${encodeURIComponent(threadId)}/unarchive`), {
+        method: "PUT",
+      });
+      return res.ok ? res.json() : null;
+    }
     case "project-sessions:mark-unread": {
       const [sessionId, input] = args as [string, { unread: boolean }];
       const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/unread`), {

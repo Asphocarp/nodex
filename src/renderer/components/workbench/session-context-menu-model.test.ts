@@ -49,6 +49,10 @@ function flattenActionIds(items: ReturnType<typeof buildSessionContextMenuItems>
 }
 
 describe("session context menu model", () => {
+  test("uses the Codex archive action id", () => {
+    expect(SESSION_CONTEXT_MENU_ACTION_IDS.archive).toBe("archive-thread");
+  });
+
   test("matches Codex action order", () => {
     const items = buildSessionContextMenuItems({
       session: makeSession({

@@ -30,6 +30,12 @@ import {
   useSidebarGroupReorderController,
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
+import {
+  CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
+  CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS,
+  CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
+  paginateCodexSidebarItems,
+} from "@/lib/codex-sidebar-pagination";
 
 const PROJECTS: Project[] = [
   {
@@ -96,6 +102,8 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     updated: new Date("2026-06-03T00:00:00.000Z"),
   },
 ];
+
+const STORY_TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1_000;
 
 const SIDEBAR_PARITY_SPACES: SpaceRef[] = [
   { projectId: "nodex", colorToken: "var(--accent-blue)", initial: "N" },
@@ -748,6 +756,7 @@ function ThreadRowsList({
             active={item.key === activeKey}
             contextMenuOpen={item.key === openKey}
             onSelect={() => {}}
+            onArchive={() => {}}
             onOpenContextMenu={() => {}}
             onTogglePinned={() => {}}
           />
@@ -804,6 +813,7 @@ function CodexSidebarProjectsThreadSyncHarness() {
                     item={item}
                     active
                     onSelect={() => {}}
+                    onArchive={() => {}}
                     onOpenContextMenu={() => {}}
                     onTogglePinned={() => {}}
                   />
@@ -886,10 +896,160 @@ function CodexSidebarArchivedHiddenHarness() {
                     item={item}
                     active={item.key === "local:active"}
                     onSelect={() => {}}
+                    onArchive={() => {}}
                     onOpenContextMenu={() => {}}
                     onTogglePinned={() => {}}
                   />
                 ))}
+              </CodexProjectSessionList>
+            </CodexProjectRow>
+          </div>
+        </div>
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
+function CodexSidebarThreadArchiveActionHarness() {
+  const items = [
+    makeSidebarThreadItem({
+      key: "local:archive-hover",
+      threadId: "thread-archive-hover",
+      title: "Hover archive action visible",
+      projectId: null,
+      projectless: true,
+      cwd: "/Users/asc/repo/nodex",
+    }),
+  ];
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+        <ThreadRowsList
+          label="Chats"
+          items={items}
+          activeKey="local:archive-hover"
+          openKey="local:archive-hover"
+        />
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
+function CodexSidebarThreadHoverCardHarness() {
+  const project = SIDEBAR_PARITY_PROJECTS[0]!;
+  const item = makeSidebarThreadItem({
+    key: "local:hover-card",
+    threadId: "thread-hover-card",
+    title: "X Plan Codex terminal reverse engineer",
+    projectId: project.id,
+    sessionId: "session-hover-card",
+    cwd: "/Users/asc/repo/nodex",
+    updatedAt: Date.now() - STORY_TWO_DAYS_MS,
+  });
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+        <div className="isolate flex flex-col [contain:layout]">
+          <div className="flex flex-col" role="list" aria-label="Chats">
+            <CodexSidebarThreadRow
+              item={item}
+              active
+              hoverCardOpen
+              hoverCardProjectLabel="nodex"
+              hoverCardBranchName="feat/thread-tools"
+              onSelect={() => {}}
+              onArchive={() => {}}
+              onOpenContextMenu={() => {}}
+              onTogglePinned={() => {}}
+            />
+          </div>
+        </div>
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
+function CodexSidebarShowMoreHarness({
+  initialExpanded = false,
+}: {
+  initialExpanded?: boolean;
+}) {
+  const project = SIDEBAR_PARITY_PROJECTS[0]!;
+  const [expanded, setExpanded] = useState(initialExpanded);
+  const [extraPageCount, setExtraPageCount] = useState(1);
+  const items = useMemo(() => Array.from({ length: 16 }, (_, index) => makeSidebarThreadItem({
+    key: `local:paged-${index + 1}`,
+    threadId: `thread-paged-${index + 1}`,
+    title: `Paged chat ${index + 1}`,
+    projectId: project.id,
+    cwd: "/Users/asc/repo/nodex",
+    updatedAt: 1_780_960_000_000 - index,
+  })), [project.id]);
+  const pagination = paginateCodexSidebarItems({
+    items,
+    getKey: (item) => item.key,
+    maxItems: CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
+    expanded,
+    extraPageCount,
+    forcedVisibleKey: null,
+  });
+
+  const showMore = () => {
+    if (!expanded) {
+      setExtraPageCount(1);
+      setExpanded(true);
+      return;
+    }
+    setExtraPageCount((current) => current + 1);
+  };
+
+  const showLess = () => {
+    setExtraPageCount(1);
+    setExpanded(false);
+  };
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
+        <div className="isolate flex flex-col [contain:layout]">
+          <div className="flex flex-col" role="list" aria-label="Projects">
+            <CodexProjectRow
+              project={project}
+              active
+              expanded
+              onActivate={() => {}}
+              onStartNewChat={() => {}}
+              onUpdateProject={async () => project}
+              onDeleteProject={async () => false}
+            >
+              <CodexProjectSessionList project={project} showAll={expanded}>
+                {pagination.visibleItems.map((item, index) => (
+                  <CodexSidebarThreadRow
+                    key={item.key}
+                    item={item}
+                    active={index === 0}
+                    onSelect={() => {}}
+                    onArchive={() => {}}
+                    onOpenContextMenu={() => {}}
+                    onTogglePinned={() => {}}
+                  />
+                ))}
+                {pagination.showPager ? (
+                  <div className={CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS} role="listitem">
+                    {pagination.hasOverflow ? (
+                      <button type="button" className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS} onClick={showMore}>
+                        Show more
+                      </button>
+                    ) : null}
+                    {expanded ? (
+                      <button type="button" className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS} onClick={showLess}>
+                        Show less
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </CodexProjectSessionList>
             </CodexProjectRow>
           </div>
@@ -1003,6 +1163,22 @@ export const CodexSidebarProjectlessChats: Story = {
 
 export const CodexSidebarArchivedHidden: Story = {
   render: () => <CodexSidebarArchivedHiddenHarness />,
+};
+
+export const CodexSidebarThreadArchiveAction: Story = {
+  render: () => <CodexSidebarThreadArchiveActionHarness />,
+};
+
+export const CodexSidebarThreadHoverCard: Story = {
+  render: () => <CodexSidebarThreadHoverCardHarness />,
+};
+
+export const CodexSidebarShowMore: Story = {
+  render: () => <CodexSidebarShowMoreHarness />,
+};
+
+export const CodexSidebarShowLess: Story = {
+  render: () => <CodexSidebarShowMoreHarness initialExpanded />,
 };
 
 export const SettingsFooterWithQuota: Story = {

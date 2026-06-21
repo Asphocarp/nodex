@@ -4,7 +4,7 @@ import type { ProjectSession } from "@/lib/types";
 export const SESSION_CONTEXT_MENU_ACTION_IDS = {
   togglePin: "session.togglePin",
   rename: "session.rename",
-  archive: "session.archive",
+  archive: "archive-thread",
   markUnread: "session.markUnread",
   reveal: "session.reveal",
   copyWorkingDirectory: "session.copyWorkingDirectory",

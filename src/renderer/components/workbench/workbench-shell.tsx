@@ -116,6 +116,15 @@ import {
   readThreadQueueFollowUpsEnabled,
   writeThreadQueueFollowUpsEnabled,
 } from "@/lib/thread-composer-follow-up-mode";
+import {
+  CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
+  CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
+  CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS,
+  CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS,
+  CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
+  paginateCodexSidebarItems,
+  type CodexSidebarPaginationResult,
+} from "@/lib/codex-sidebar-pagination";
 import { ThreadHeaderPortalProvider } from "@/lib/thread-header-portal";
 import {
   CODEX_SHELL_MEDIUM_WIDTH_PX,
@@ -1525,10 +1534,27 @@ export function WorkbenchShell({
   const sidebarThreadSync = useSidebarThreadSyncModel({
     projects,
   });
+  const refreshSidebarThreadSnapshot = sidebarThreadSync.refresh;
+  const [sidebarArchiveSuppressedKeys, setSidebarArchiveSuppressedKeys] = useState<Set<string>>(() => new Set());
   const knownSessions = useMemo(
     () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
     [projectlessSessions, sessionsByProject],
   );
+  useEffect(() => {
+    setSidebarArchiveSuppressedKeys((current) => {
+      if (current.size === 0) return current;
+
+      const liveKeys = new Set(sidebarThreadSync.model.threadItemsByKey.keys());
+      for (const session of knownSessions) {
+        if (!session.archived) {
+          liveKeys.add(`local:session:${session.id}`);
+        }
+      }
+
+      const next = new Set([...current].filter((key) => liveKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [knownSessions, sidebarThreadSync.model.threadItemsByKey]);
   const workbenchCodexControl = useCodexAppServerControl(activeProject?.id ?? activeProjectId);
   const activeProjectKanban = useKanban({
     projectId: activeProject?.id ?? activeProjectId,
@@ -2229,10 +2255,14 @@ export function WorkbenchShell({
     openRenameSessionDialog(session);
   }, [activeSessionId, openRenameSessionDialog]);
 
-  const archiveSession = useCallback(async (session: ProjectSession) => {
+  const archiveSession = useCallback(async (
+    session: ProjectSession,
+    options: { showToast?: boolean } = {},
+  ) => {
     try {
       await invoke("project-sessions:archive", session.id);
       const sessions = await refreshProjectSessions(session.projectId);
+      await refreshSidebarThreadSnapshot();
       if (activeSessionId === session.id) {
         const fallbackSession = sessions[0]
           ?? (session.projectId === null
@@ -2244,10 +2274,91 @@ export function WorkbenchShell({
           setActiveSessionId(null);
         }
       }
+      return true;
     } catch {
+      if (options.showToast !== false) {
+        toast.danger("Failed to archive chat");
+      }
+      return false;
+    }
+  }, [activeSessionId, activeSessions, refreshProjectSessions, refreshSidebarThreadSnapshot, selectSession]);
+
+  const resolveSidebarArchiveSuppressionKeyForSession = useCallback((session: ProjectSession) => {
+    for (const [key, item] of sidebarThreadSync.model.threadItemsByKey) {
+      if (item.sessionId === session.id) return key;
+      if (session.thread && item.threadId === session.thread.threadId) return key;
+    }
+
+    return `local:session:${session.id}`;
+  }, [sidebarThreadSync.model.threadItemsByKey]);
+
+  const suppressSidebarArchiveKey = useCallback((key: string) => {
+    setSidebarArchiveSuppressedKeys((current) => {
+      if (current.has(key)) return current;
+      return new Set([...current, key]);
+    });
+  }, []);
+
+  const releaseSidebarArchiveKey = useCallback((key: string) => {
+    setSidebarArchiveSuppressedKeys((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const archiveSessionWithSidebarSuppression = useCallback(async (session: ProjectSession) => {
+    const suppressionKey = resolveSidebarArchiveSuppressionKeyForSession(session);
+    if (sidebarArchiveSuppressedKeys.has(suppressionKey)) return;
+
+    suppressSidebarArchiveKey(suppressionKey);
+    const archived = await archiveSession(session, { showToast: false });
+
+    if (!archived) {
+      releaseSidebarArchiveKey(suppressionKey);
       toast.danger("Failed to archive chat");
     }
-  }, [activeSessionId, activeSessions, refreshProjectSessions, selectSession]);
+  }, [
+    archiveSession,
+    releaseSidebarArchiveKey,
+    resolveSidebarArchiveSuppressionKeyForSession,
+    sidebarArchiveSuppressedKeys,
+    suppressSidebarArchiveKey,
+  ]);
+
+  const archiveSidebarThreadItem = useCallback(async (item: CodexSidebarThreadItem) => {
+    if (item.disabled || sidebarArchiveSuppressedKeys.has(item.key)) return;
+
+    suppressSidebarArchiveKey(item.key);
+    const session = item.sessionId
+      ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
+      : knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null;
+
+    if (session) {
+      const archived = await archiveSession(session, { showToast: false });
+      if (!archived) {
+        releaseSidebarArchiveKey(item.key);
+        toast.danger("Failed to archive chat");
+      }
+      return;
+    }
+
+    try {
+      await invoke("codex:thread:archive", item.threadId);
+      await refreshSidebarThreadSnapshot();
+    } catch {
+      releaseSidebarArchiveKey(item.key);
+      toast.danger("Failed to archive chat");
+    }
+  }, [
+    archiveSession,
+    knownSessions,
+    refreshSidebarThreadSnapshot,
+    releaseSidebarArchiveKey,
+    sidebarArchiveSuppressedKeys,
+    suppressSidebarArchiveKey,
+  ]);
 
   const markSessionUnread = useCallback(async (session: ProjectSession) => {
     try {
@@ -2316,7 +2427,7 @@ export function WorkbenchShell({
       return;
     }
     if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.archive) {
-      await archiveSession(session);
+      await archiveSessionWithSidebarSuppression(session);
       return;
     }
     if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread) {
@@ -2359,7 +2470,7 @@ export function WorkbenchShell({
       await onOpenProjectSessionInNewWindow?.(session);
     }
   }, [
-    archiveSession,
+    archiveSessionWithSidebarSuppression,
     copySessionText,
     forkSession,
     markSessionUnread,
@@ -5619,6 +5730,7 @@ export function WorkbenchShell({
               onSelectSidebarThread={selectSidebarThread}
               onOpenSessionContextMenu={openSessionContextMenu}
               onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
+              onArchiveSidebarThread={archiveSidebarThreadItem}
               onToggleSessionPinned={toggleSessionPin}
               onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
@@ -5639,6 +5751,7 @@ export function WorkbenchShell({
               onRefreshAccount={codexAccountActions.refreshAccount}
               onLogout={handleCodexAccountLogout}
               onAccountErrorMessage={handleCodexAccountErrorMessage}
+              sidebarArchiveSuppressedKeys={sidebarArchiveSuppressedKeys}
             />
           ) : null}
 
@@ -5683,6 +5796,7 @@ export function WorkbenchShell({
                   onSelectSidebarThread={selectSidebarThread}
                   onOpenSessionContextMenu={openSessionContextMenu}
                   onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
+                  onArchiveSidebarThread={archiveSidebarThreadItem}
                   onToggleSessionPinned={toggleSessionPin}
                   onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
@@ -5703,6 +5817,7 @@ export function WorkbenchShell({
                   onRefreshAccount={codexAccountActions.refreshAccount}
                   onLogout={handleCodexAccountLogout}
                   onAccountErrorMessage={handleCodexAccountErrorMessage}
+                  sidebarArchiveSuppressedKeys={sidebarArchiveSuppressedKeys}
                 />
               </motion.div>
             ) : null}
@@ -5988,6 +6103,112 @@ export function WorkbenchShell({
   );
 }
 
+interface CodexSidebarPaginatedItemsProps<T> {
+  items: T[];
+  getKey: (item: T) => string;
+  maxItems?: number | null;
+  expanded: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  forcedVisibleKey?: string | null;
+  suppressedKeys?: ReadonlySet<string>;
+  pagerClassName?: string;
+  children: (
+    pagination: CodexSidebarPaginationResult<T>,
+    pager: ReactNode,
+  ) => ReactNode;
+}
+
+function CodexSidebarPaginatedItems<T>({
+  items,
+  getKey,
+  maxItems = null,
+  expanded,
+  onExpandedChange,
+  forcedVisibleKey = null,
+  suppressedKeys,
+  pagerClassName = CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
+  children,
+}: CodexSidebarPaginatedItemsProps<T>) {
+  const [extraPageCount, setExtraPageCount] = useState(1);
+  const focusRestoreTargetRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (expanded) return;
+    setExtraPageCount(1);
+  }, [expanded]);
+
+  const pagination = useMemo(() => paginateCodexSidebarItems({
+    items,
+    getKey,
+    maxItems,
+    expanded,
+    extraPageCount,
+    forcedVisibleKey,
+    suppressedKeys,
+    pagerEnabled: Boolean(onExpandedChange),
+  }), [
+    expanded,
+    extraPageCount,
+    forcedVisibleKey,
+    getKey,
+    items,
+    maxItems,
+    onExpandedChange,
+    suppressedKeys,
+  ]);
+
+  const restorePagerFocus = useCallback(() => {
+    queueMicrotask(() => {
+      focusRestoreTargetRef.current?.focus();
+    });
+  }, []);
+
+  const showMore = useCallback(() => {
+    if (!expanded) {
+      setExtraPageCount(1);
+      onExpandedChange?.(true);
+      restorePagerFocus();
+      return;
+    }
+
+    setExtraPageCount((current) => current + 1);
+    restorePagerFocus();
+  }, [expanded, onExpandedChange, restorePagerFocus]);
+
+  const showLess = useCallback(() => {
+    setExtraPageCount(1);
+    onExpandedChange?.(false);
+    restorePagerFocus();
+  }, [onExpandedChange, restorePagerFocus]);
+
+  const pager = pagination.showPager ? (
+    <div className={pagerClassName} role="listitem">
+      {pagination.hasOverflow ? (
+        <button
+          ref={focusRestoreTargetRef}
+          type="button"
+          className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS}
+          onClick={showMore}
+        >
+          Show more
+        </button>
+      ) : null}
+      {expanded ? (
+        <button
+          ref={pagination.hasOverflow ? undefined : focusRestoreTargetRef}
+          type="button"
+          className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS}
+          onClick={showLess}
+        >
+          Show less
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
+  return <>{children(pagination, pager)}</>;
+}
+
 function SidebarThreadOrganizerSections({
   activeProjectId,
   activeSessionId,
@@ -6006,6 +6227,7 @@ function SidebarThreadOrganizerSections({
   onSelectSidebarThread,
   onOpenSessionContextMenu,
   onSessionTitleDoubleClick,
+  onArchiveSidebarThread,
   onToggleSessionPinned,
   onToggleSidebarThreadPinned,
   onStartNewChatInProject,
@@ -6014,6 +6236,7 @@ function SidebarThreadOrganizerSections({
   onUpdateProject,
   onDeleteProject,
   onSetProjectPinned,
+  sidebarArchiveSuppressedKeys,
 }: {
   activeProjectId: string;
   activeSessionId: string | null;
@@ -6032,6 +6255,7 @@ function SidebarThreadOrganizerSections({
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
@@ -6040,8 +6264,12 @@ function SidebarThreadOrganizerSections({
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  sidebarArchiveSuppressedKeys: ReadonlySet<string>;
 }) {
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
+  const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
   const sessionsById = useMemo(() => {
     const entries = [
       ...Object.values(sessionsByProject).flat(),
@@ -6126,6 +6354,10 @@ function SidebarThreadOrganizerSections({
       sessionsById,
     }),
   })), [fallbackThreadItems, model.projectGroups, sessionsById, sidebarThreadItemsByKey]);
+  const projectLabelById = useMemo(() => {
+    const entries = projectGroups.map(({ project }) => [project.id, project.name] as const);
+    return new Map(entries);
+  }, [projectGroups]);
   const pinnedProjectGroups = useMemo(
     () => projectGroups.filter((group) => group.project.pinned),
     [projectGroups],
@@ -6144,6 +6376,29 @@ function SidebarThreadOrganizerSections({
     itemsByKey: sidebarThreadItemsByKey,
     sessionsById,
   }), [fallbackThreadItems, model.projectlessThreadKeys, sessionsById, sidebarThreadItemsByKey]);
+  const activeThreadKey = useMemo(() => {
+    if (!activeSessionId) return null;
+    const activeSession = sessionsById.get(activeSessionId);
+
+    for (const [key, item] of sidebarThreadItemsByKey) {
+      if (item.sessionId === activeSessionId) return key;
+      if (activeSession?.thread && item.threadId === activeSession.thread.threadId) return key;
+    }
+
+    return activeSession ? `local:session:${activeSession.id}` : null;
+  }, [activeSessionId, sessionsById, sidebarThreadItemsByKey]);
+
+  const setProjectThreadListExpanded = useCallback((projectId: string, expanded: boolean) => {
+    setExpandedProjectThreadListIds((current) => {
+      const next = new Set(current);
+      if (expanded) {
+        next.add(projectId);
+      } else {
+        next.delete(projectId);
+      }
+      return next;
+    });
+  }, []);
 
   const resolveSessionForItem = useCallback((item: CodexSidebarThreadItem) => {
     if (item.sessionId) {
@@ -6153,11 +6408,18 @@ function SidebarThreadOrganizerSections({
     return sessionsByThreadId.get(item.threadId) ?? null;
   }, [sessionsById, sessionsByThreadId]);
 
-  const renderThreadRow = useCallback((threadKey: string) => {
+  const renderThreadRow = useCallback((
+    threadKey: string,
+    options: {
+      hoverCardProjectLabel?: string | null;
+    } = {},
+  ) => {
     const item = sidebarThreadItemsByKey.get(threadKey);
     if (!item) return null;
     const session = resolveSessionForItem(item);
     const sessionId = item.sessionId ?? session?.id ?? null;
+    const hoverCardProjectLabel = options.hoverCardProjectLabel
+      ?? (item.projectId ? projectLabelById.get(item.projectId) ?? null : null);
 
     return (
       <CodexSidebarThreadRow
@@ -6165,6 +6427,7 @@ function SidebarThreadOrganizerSections({
         item={item}
         active={Boolean(sessionId && activeSessionId === sessionId)}
         contextMenuOpen={Boolean(sessionId && contextMenuSessionId === sessionId)}
+        hoverCardProjectLabel={hoverCardProjectLabel}
         onSelect={() => {
           void onSelectSidebarThread(item);
         }}
@@ -6174,6 +6437,8 @@ function SidebarThreadOrganizerSections({
         onRenameFromTitleDoubleClick={session && onSessionTitleDoubleClick
           ? (_item, event) => onSessionTitleDoubleClick(session, event)
           : undefined}
+        archivePending={sidebarArchiveSuppressedKeys.has(item.key)}
+        onArchive={onArchiveSidebarThread}
         onTogglePinned={session && onToggleSessionPinned
           ? () => onToggleSessionPinned(session)
           : onToggleSidebarThreadPinned}
@@ -6183,53 +6448,153 @@ function SidebarThreadOrganizerSections({
     activeSessionId,
     contextMenuSessionId,
     onOpenSessionContextMenu,
+    onArchiveSidebarThread,
     onSelectSidebarThread,
     onSessionTitleDoubleClick,
     onToggleSessionPinned,
     onToggleSidebarThreadPinned,
+    projectLabelById,
     resolveSessionForItem,
+    sidebarArchiveSuppressedKeys,
     sidebarThreadItemsByKey,
   ]);
 
-  const renderThreadList = useCallback((threadKeys: string[], emptyText: string) => (
-    <div className="isolate flex flex-col [contain:layout]">
-      <div className="flex flex-col" role="list">
-        {threadKeys.length > 0 ? threadKeys.map(renderThreadRow) : (
-          <div className="px-row-x py-row-y text-sm text-token-description-foreground">
-            {loadingSessions ? "Loading chats..." : emptyText}
+  const renderThreadList = useCallback((
+    threadKeys: string[],
+    emptyText: string,
+    options: {
+      ariaLabel?: string;
+      maxItems?: number | null;
+      expanded?: boolean;
+      onExpandedChange?: (expanded: boolean) => void;
+      forcedVisibleKey?: string | null;
+    } = {},
+  ) => (
+    <CodexSidebarPaginatedItems
+      items={threadKeys}
+      getKey={(threadKey) => threadKey}
+      maxItems={options.maxItems}
+      expanded={options.expanded ?? false}
+      onExpandedChange={options.onExpandedChange}
+      forcedVisibleKey={options.forcedVisibleKey ?? null}
+      suppressedKeys={sidebarArchiveSuppressedKeys}
+    >
+      {(pagination, pager) => (
+        <div className="isolate flex flex-col [contain:layout]">
+          <div className="flex flex-col" role="list" aria-label={options.ariaLabel}>
+            {pagination.visibleItems.length > 0 ? pagination.visibleItems.map((threadKey) => renderThreadRow(threadKey)) : (
+              <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
+                {loadingSessions ? "Loading chats..." : emptyText}
+              </div>
+            )}
+            {pager}
           </div>
-        )}
-      </div>
-    </div>
-  ), [loadingSessions, renderThreadRow]);
+        </div>
+      )}
+    </CodexSidebarPaginatedItems>
+  ), [loadingSessions, renderThreadRow, sidebarArchiveSuppressedKeys]);
 
-  const renderPinnedThreads = () => {
-    if (pinnedThreadKeys.length === 0) return null;
+  const renderProjectGroupRows = (
+    groups: typeof projectGroups,
+    options: {
+      expanded: boolean;
+      onExpandedChange: (expanded: boolean) => void;
+      emptyText?: string;
+    },
+  ) => (
+    <CodexSidebarPaginatedItems
+      items={groups}
+      getKey={(group) => group.project.id}
+      maxItems={CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS}
+      expanded={options.expanded}
+      onExpandedChange={options.onExpandedChange}
+      forcedVisibleKey={activeProjectId}
+    >
+      {(pagination, pager) => (
+        <div className="isolate flex flex-col [contain:layout]">
+          <SidebarProjectSortableContext groupIds={pagination.visibleItems.map((group) => group.project.id)}>
+            <div className="flex flex-col" role="list" aria-label="Projects">
+              {pagination.visibleItems.length > 0 ? pagination.visibleItems.map(({ project, threadKeys }) => {
+                const expanded = expandedProjectIds.has(project.id);
+                const threadListExpanded = expandedProjectThreadListIds.has(project.id);
+                return (
+                  <CodexProjectRow
+                    key={project.id}
+                    project={project}
+                    active={activeProjectId === project.id}
+                    expanded={expanded}
+                    groupDndController={NOOP_WORKBENCH_SIDEBAR_GROUP_DND_CONTROLLER}
+                    allowProjectReorder
+                    onActivate={() => onToggleProjectExpanded(project.id)}
+                    onSelectProject={() => onSelectProject(project.id)}
+                    onStartNewChat={() => void onStartNewChatInProject(project.id)}
+                    onUpdateProject={onUpdateProject}
+                    onDeleteProject={onDeleteProject}
+                    onSetProjectPinned={onSetProjectPinned}
+                  >
+                    <CodexSidebarPaginatedItems
+                      items={threadKeys}
+                      getKey={(threadKey) => threadKey}
+                      maxItems={CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS}
+                      expanded={threadListExpanded}
+                      onExpandedChange={(nextExpanded) => setProjectThreadListExpanded(project.id, nextExpanded)}
+                      forcedVisibleKey={activeThreadKey}
+                      suppressedKeys={sidebarArchiveSuppressedKeys}
+                      pagerClassName={CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS}
+                    >
+                      {(threadPagination, threadPager) => (
+                        <CodexProjectSessionList project={project} showAll={threadListExpanded}>
+                          {threadPagination.visibleItems.length > 0 ? threadPagination.visibleItems.map((threadKey) => renderThreadRow(threadKey, {
+                            hoverCardProjectLabel: project.name,
+                          })) : (
+                            <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
+                              {loadingSessions ? "Loading chats..." : "No chats"}
+                            </div>
+                          )}
+                          {threadPager}
+                        </CodexProjectSessionList>
+                      )}
+                    </CodexSidebarPaginatedItems>
+                  </CodexProjectRow>
+                );
+              }) : (
+                <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
+                  {loadingSessions ? "Loading projects..." : options.emptyText ?? "No projects"}
+                </div>
+              )}
+              {pager}
+            </div>
+          </SidebarProjectSortableContext>
+        </div>
+      )}
+    </CodexSidebarPaginatedItems>
+  );
+
+  const renderPinnedSection = () => {
+    if (pinnedThreadKeys.length === 0 && pinnedProjectGroups.length === 0) return null;
+
     return (
       <CodexSidebarSection
         heading="Pinned"
         collapsed={pinnedThreadsSectionCollapsed}
         onToggle={onTogglePinnedThreadsSectionCollapsed}
       >
-        {renderThreadList(pinnedThreadKeys, "No pinned chats")}
+        {pinnedThreadKeys.length > 0
+          ? renderThreadList(pinnedThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
+          : null}
+        {pinnedProjectGroups.length > 0
+          ? renderProjectGroupRows(pinnedProjectGroups, {
+            expanded: pinnedProjectsExpanded,
+            onExpandedChange: setPinnedProjectsExpanded,
+          })
+          : null}
       </CodexSidebarSection>
     );
   };
 
   const renderProjectGroups = () => (
     <>
-      {renderPinnedThreads()}
-      {pinnedProjectGroups.length > 0 ? (
-        <CodexSidebarSection
-          heading="Pinned"
-          collapsed={pinnedThreadsSectionCollapsed}
-          onToggle={onTogglePinnedThreadsSectionCollapsed}
-        >
-          <div className="isolate flex flex-col [contain:layout]">
-            {renderProjectGroupRows(pinnedProjectGroups)}
-          </div>
-        </CodexSidebarSection>
-      ) : null}
+      {renderPinnedSection()}
       <CodexSidebarSection
         heading="Projects"
         collapsed={projectsSectionCollapsed}
@@ -6241,52 +6606,19 @@ function SidebarThreadOrganizerSections({
           />
         )}
       >
-        <div className="isolate flex flex-col [contain:layout]">
-          {renderProjectGroupRows(unpinnedProjectGroups)}
-        </div>
+        {renderProjectGroupRows(unpinnedProjectGroups, {
+          expanded: projectsExpanded,
+          onExpandedChange: setProjectsExpanded,
+        })}
       </CodexSidebarSection>
       <CodexSidebarSection
         heading="Chats"
         collapsed={chatsCollapsed}
         onToggle={() => setChatsCollapsed((current) => !current)}
       >
-        {renderThreadList(projectlessThreadKeys, "No projectless chats")}
+        {renderThreadList(projectlessThreadKeys, "No projectless chats", { ariaLabel: "Chats" })}
       </CodexSidebarSection>
     </>
-  );
-
-  const renderProjectGroupRows = (groups: typeof projectGroups) => (
-    <SidebarProjectSortableContext groupIds={groups.map((group) => group.project.id)}>
-      <div className="flex flex-col" role="list" aria-label="Projects">
-        {groups.map(({ project, threadKeys }) => {
-          const expanded = expandedProjectIds.has(project.id);
-          return (
-            <CodexProjectRow
-              key={project.id}
-              project={project}
-              active={activeProjectId === project.id}
-              expanded={expanded}
-              groupDndController={NOOP_WORKBENCH_SIDEBAR_GROUP_DND_CONTROLLER}
-              allowProjectReorder
-              onActivate={() => onToggleProjectExpanded(project.id)}
-              onSelectProject={() => onSelectProject(project.id)}
-              onStartNewChat={() => void onStartNewChatInProject(project.id)}
-              onUpdateProject={onUpdateProject}
-              onDeleteProject={onDeleteProject}
-              onSetProjectPinned={onSetProjectPinned}
-            >
-              <CodexProjectSessionList project={project}>
-                {threadKeys.length > 0 ? threadKeys.map(renderThreadRow) : (
-                  <div className="px-row-x py-row-y text-sm text-token-description-foreground">
-                    {loadingSessions ? "Loading chats..." : "No chats"}
-                  </div>
-                )}
-              </CodexProjectSessionList>
-            </CodexProjectRow>
-          );
-        })}
-      </div>
-    </SidebarProjectSortableContext>
   );
 
   return renderProjectGroups();
@@ -6319,6 +6651,7 @@ function ProjectSessionSidebar({
   onSelectSidebarThread,
   onOpenSessionContextMenu,
   onSessionTitleDoubleClick,
+  onArchiveSidebarThread,
   onToggleSessionPinned,
   onToggleSidebarThreadPinned,
   onStartNewChatInProject,
@@ -6335,6 +6668,7 @@ function ProjectSessionSidebar({
   onRefreshAccount,
   onLogout,
   onAccountErrorMessage,
+  sidebarArchiveSuppressedKeys,
 }: {
   floating?: boolean;
   header?: ReactNode;
@@ -6363,6 +6697,7 @@ function ProjectSessionSidebar({
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
@@ -6379,6 +6714,7 @@ function ProjectSessionSidebar({
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
   onLogout: () => Promise<void>;
   onAccountErrorMessage: (message: string | null) => void;
+  sidebarArchiveSuppressedKeys: ReadonlySet<string>;
 }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const sidebarResizeDisabled = resizeDisabled;
@@ -6489,72 +6825,80 @@ function ProjectSessionSidebar({
         style={{ minWidth: width, width, opacity: floating ? undefined : contentOpacity }}
       >
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          <div className="shrink-0">
-            <SidebarNewChatButton
-              shortcutLabel={resolveCodexNewChatShortcutLabel()}
-              onClick={() => void onStartNewChatInProject(activeProjectId)}
-            />
-            <CodexSidebarTopAction
-              label="Search"
-              icon={<SearchIcon className="icon-xs" />}
-              shortcutLabel={resolveCodexCardSearchShortcutLabel()}
-              onClick={onOpenCommandPalette}
-            />
-            <CodexSidebarTopAction
-              label="Plugins"
-              icon={<ComposerPluginsIcon className="icon-xs" />}
-              onClick={() => onShowUnavailableProduct("Plugins")}
-            />
-            <CodexSidebarTopAction
-              label="Automations"
-              icon={<CodexAutomationsIcon />}
-              onClick={() => onShowUnavailableProduct("Automations")}
-            />
-          </div>
-
-          <div
-            data-app-action-sidebar-scroll=""
-            className="vertical-scroll-fade-mask scrollbar-token relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
+          <nav
+            className="sidebar-foreground-muted flex min-h-0 flex-1 flex-col"
+            role="navigation"
+            aria-label="Automation folders"
           >
-            <SidebarProjectDndProvider onProjectDrop={handleProjectDrop}>
-              <SidebarThreadOrganizerSections
-                activeProjectId={activeProjectId}
-                activeSessionId={activeSessionId}
-                contextMenuSessionId={contextMenuSessionId}
-                sessionsByProject={sessionsByProject}
-                projectlessSessions={projectlessSessions}
-                expandedProjectIds={expandedProjectIds}
-                pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
-                projectsSectionCollapsed={projectsSectionCollapsed}
-                loadingSessions={loadingSessions}
-                model={sidebarThreadModel}
-                onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
-                onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}
-                onToggleProjectExpanded={onToggleProjectExpanded}
-                onSelectProject={onSelectProject}
-                onSelectSidebarThread={onSelectSidebarThread}
-                onOpenSessionContextMenu={onOpenSessionContextMenu}
-                onSessionTitleDoubleClick={onSessionTitleDoubleClick}
-                onToggleSessionPinned={onToggleSessionPinned}
-                onToggleSidebarThreadPinned={onToggleSidebarThreadPinned}
-                onStartNewChatInProject={onStartNewChatInProject}
-                projectPickerOpenTick={projectPickerOpenTick}
-                onCreateProject={onCreateProject}
-                onUpdateProject={onUpdateProject}
-                onDeleteProject={onDeleteProject}
-                onSetProjectPinned={onSetProjectPinned}
+            <div className="shrink-0">
+              <SidebarNewChatButton
+                shortcutLabel={resolveCodexNewChatShortcutLabel()}
+                onClick={() => void onStartNewChatInProject(activeProjectId)}
               />
-            </SidebarProjectDndProvider>
-          </div>
+              <CodexSidebarTopAction
+                label="Search"
+                icon={<SearchIcon className="icon-xs" />}
+                shortcutLabel={resolveCodexCardSearchShortcutLabel()}
+                onClick={onOpenCommandPalette}
+              />
+              <CodexSidebarTopAction
+                label="Plugins"
+                icon={<ComposerPluginsIcon className="icon-xs" />}
+                onClick={() => onShowUnavailableProduct("Plugins")}
+              />
+              <CodexSidebarTopAction
+                label="Automations"
+                icon={<CodexAutomationsIcon />}
+                onClick={() => onShowUnavailableProduct("Automations")}
+              />
+            </div>
 
-          <LeftSidebarFooter
-            onOpenSettings={onOpenSettings}
-            account={account}
-            connection={connection}
-            onRefreshAccount={onRefreshAccount}
-            onLogout={onLogout}
-            onErrorMessage={onAccountErrorMessage}
-          />
+            <div
+              data-app-action-sidebar-scroll=""
+              className="vertical-scroll-fade-mask scrollbar-token relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
+            >
+              <SidebarProjectDndProvider onProjectDrop={handleProjectDrop}>
+                <SidebarThreadOrganizerSections
+                  activeProjectId={activeProjectId}
+                  activeSessionId={activeSessionId}
+                  contextMenuSessionId={contextMenuSessionId}
+                  sessionsByProject={sessionsByProject}
+                  projectlessSessions={projectlessSessions}
+                  expandedProjectIds={expandedProjectIds}
+                  pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
+                  projectsSectionCollapsed={projectsSectionCollapsed}
+                  loadingSessions={loadingSessions}
+                  model={sidebarThreadModel}
+                  onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
+                  onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}
+                  onToggleProjectExpanded={onToggleProjectExpanded}
+                  onSelectProject={onSelectProject}
+                  onSelectSidebarThread={onSelectSidebarThread}
+                  onOpenSessionContextMenu={onOpenSessionContextMenu}
+                  onSessionTitleDoubleClick={onSessionTitleDoubleClick}
+                  onArchiveSidebarThread={onArchiveSidebarThread}
+                  onToggleSessionPinned={onToggleSessionPinned}
+                  onToggleSidebarThreadPinned={onToggleSidebarThreadPinned}
+                  onStartNewChatInProject={onStartNewChatInProject}
+                  projectPickerOpenTick={projectPickerOpenTick}
+                  onCreateProject={onCreateProject}
+                  onUpdateProject={onUpdateProject}
+                  onDeleteProject={onDeleteProject}
+                  onSetProjectPinned={onSetProjectPinned}
+                  sidebarArchiveSuppressedKeys={sidebarArchiveSuppressedKeys}
+                />
+              </SidebarProjectDndProvider>
+            </div>
+
+            <LeftSidebarFooter
+              onOpenSettings={onOpenSettings}
+              account={account}
+              connection={connection}
+              onRefreshAccount={onRefreshAccount}
+              onLogout={onLogout}
+              onErrorMessage={onAccountErrorMessage}
+            />
+          </nav>
         </div>
       </motion.div>
 

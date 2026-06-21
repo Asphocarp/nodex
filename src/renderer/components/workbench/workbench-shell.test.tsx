@@ -1105,7 +1105,7 @@ function renderWorkbench({
   mockInvokeImpl = async (channel, ...args) => {
     if (channel === "project-sessions:list") {
       const projectId = String(args[0]);
-      return sessionState[projectId] ?? [];
+      return (sessionState[projectId] ?? []).filter((session) => !session.archived);
     }
     if (channel === "codex:sidebar:snapshot") {
       return {
@@ -1377,6 +1377,46 @@ function renderWorkbench({
         ),
       };
       return updated;
+    }
+    if (channel === "project-sessions:archive") {
+      const sessionId = String(args[0]);
+      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      if (!session) return null;
+      const updated = {
+        ...session,
+        archived: true,
+        archivedAt: "2026-06-07T00:00:00.000Z",
+        pinned: false,
+        pinnedOrder: null,
+        unread: false,
+        thread: session.thread
+          ? { ...session.thread, archived: true }
+          : session.thread,
+      };
+      sessionState = replaceSession(sessionState, updated);
+      return updated;
+    }
+    if (channel === "codex:thread:archive") {
+      const threadId = String(args[0]);
+      sessionState = Object.fromEntries(
+        Object.entries(sessionState).map(([projectId, sessions]) => [
+          projectId,
+          sessions.map((session) => (
+            session.thread?.threadId === threadId
+              ? {
+                  ...session,
+                  archived: true,
+                  archivedAt: "2026-06-07T00:00:00.000Z",
+                  pinned: false,
+                  pinnedOrder: null,
+                  unread: false,
+                  thread: { ...session.thread, archived: true },
+                }
+              : session
+          )),
+        ]),
+      );
+      return true;
     }
     if (channel === "project-session-panels:update") {
       const sessionId = String(args[0]);
@@ -2027,6 +2067,15 @@ describe("workbench session shell", () => {
     expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Automations")).toBeTrue();
   });
 
+  test("renders the Codex sidebar navigation landmark", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const nav = screen.getByRole("navigation", { name: "Automation folders" });
+    expect(nav.closest('[data-testid="project-session-sidebar"]') !== null).toBeTrue();
+  });
+
   test("sidebar Search opens the command palette in cards mode", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -2106,6 +2155,81 @@ describe("workbench session shell", () => {
     const updatedButton = updatedRow.querySelector("[data-app-action-sidebar-thread-pin-session]");
     expect(updatedButton?.getAttribute("aria-label")).toBe("Unpin chat");
     expect(updatedButton?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
+  });
+
+  test("sidebar archive hover action archives a session-backed chat optimistically", async () => {
+    const target = makeAttachedSession({
+      id: "session:alpha:archive-target",
+      threadId: "thread-archive-target",
+      title: "Archive target",
+      order: 1,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession(), target] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const row = getThreadRow(screen.container, "Archive target");
+    const archiveButton = within(row).getByRole("button", { name: "Archive chat" });
+    expect(archiveButton.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 20 20");
+
+    await act(async () => {
+      fireEvent.click(archiveButton);
+      await Promise.resolve();
+    });
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive target"]')).toBe(null);
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:archive"
+      && call[1] === "session:alpha:archive-target"
+    )).toBeTrue();
+  });
+
+  test("sidebar archive hover action uses codex thread archive for snapshot-only chats", async () => {
+    const snapshotOnlyItem: CodexSidebarThreadItem = {
+      key: "local:thread-snapshot-only",
+      kind: "local",
+      hostId: "local",
+      threadId: "thread-snapshot-only",
+      sessionId: null,
+      projectId: null,
+      title: "Snapshot only",
+      preview: "",
+      cwd: null,
+      updatedAt: 10,
+      createdAt: 1,
+      pinned: false,
+      pinnedOrder: null,
+      unread: false,
+      archived: false,
+      statusType: "idle",
+      statusActiveFlags: [],
+      projectless: true,
+      disabled: false,
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession()] },
+      sidebarSnapshotItems: [snapshotOnlyItem],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const row = getThreadRow(screen.container, "Snapshot only");
+    const archiveButton = within(row).getByRole("button", { name: "Archive chat" });
+
+    await act(async () => {
+      fireEvent.click(archiveButton);
+      await Promise.resolve();
+    });
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Snapshot only"]')).toBe(null);
+    expect(invokeCalls.some((call) =>
+      call[0] === "codex:thread:archive"
+      && call[1] === "thread-snapshot-only"
+    )).toBeTrue();
   });
 
   test("sidebar pin button promotes pinned sessions above unpinned siblings", async () => {
@@ -2226,7 +2350,8 @@ describe("workbench session shell", () => {
 
     const longRow = getThreadRow(screen.container, "Very long session title that should truncate before colliding with row actions");
     expect(longRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBeTrue();
-    expect(longRow.querySelector("[data-app-action-sidebar-thread-actions-menu]") !== null).toBeTrue();
+    expect(longRow.querySelector("[data-app-action-sidebar-thread-actions-menu]") === null).toBeTrue();
+    expect(longRow.querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBeTrue();
     expect(longRow.querySelector("[data-thread-title]")?.textContent).toBe("Very long session title that should truncate before colliding with row actions");
   });
 
@@ -2535,6 +2660,48 @@ describe("workbench session shell", () => {
     expect(newThreadIndex < olderThreadIndex).toBeTrue();
   });
 
+  test("project chat list follows Codex Show more and Show less paging", async () => {
+    const projectChats = Array.from({ length: 16 }, (_, index) => makeAttachedSession({
+      id: `session:alpha:paged-${index + 1}`,
+      threadId: `thread-paged-${index + 1}`,
+      title: `Paged chat ${index + 1}`,
+      order: index + 1,
+      pinned: false,
+      pinnedOrder: null,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    }));
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeSession(), ...projectChats],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 16"]')).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+  });
+
   test("Cmd+N opens the project-scoped new-chat composer from the workbench shell", async () => {
     renderWorkbench();
     await settleAsyncRender();
@@ -2679,8 +2846,8 @@ describe("workbench session shell", () => {
 
     const pinnedSections = Array.from(screen.container.querySelectorAll('[data-app-action-sidebar-section-heading="Pinned"]'));
     const projectsSection = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
-    expect(pinnedSections.length > 0).toBeTrue();
-    expect(pinnedSections.some((section) => section.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null)).toBeTrue();
+    expect(pinnedSections.length).toBe(1);
+    expect(pinnedSections[0]?.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') === null).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="alpha"]') !== null).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null).toBeTrue();

@@ -12,9 +12,12 @@ import { AnimatePresence, motion } from "motion/react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS, type Transform } from "@dnd-kit/utilities";
 import {
+  BranchStatusIcon,
+  CodexArchiveIcon,
   CodexFolderIcon,
+  CodexProjectFolderIcon,
+  CodexProjectFolderOpenIcon,
   CodexProjectActionsIcon,
-  CodexProjectHoverIcon,
   CodexSessionPinFilledIcon,
   CodexSessionPinIcon,
   ChevronDownIcon,
@@ -35,6 +38,7 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
+import { formatElapsedSince } from "@/lib/elapsed-time";
 import type { CodexSidebarThreadItem, Project, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -59,6 +63,10 @@ export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 poin
 export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 export const CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
 export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
+export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "flex items-center gap-2 opacity-0 group-hover:opacity-100 [&:has(:focus-visible)]:opacity-100";
+export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4";
+const CODEX_SIDEBAR_THREAD_HOVER_CARD_DELAY_MS = 700;
+const CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL = "Chat";
 
 const NOOP_SIDEBAR_GROUP_DND_CONTROLLER: SidebarGroupDndController = {
   handleDragEnd: () => undefined,
@@ -539,7 +547,7 @@ export function CodexProjectRow({
   return (
     <div
       ref={setNodeRef}
-      className={cn("group/cwd flex flex-col", isDragging && "opacity-50")}
+      className={cn("group/cwd flex flex-col", isDragging && "opacity-60")}
       style={sortableStyle}
       role="listitem"
       aria-label={project.name}
@@ -567,8 +575,11 @@ export function CodexProjectRow({
       >
         <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
           <span className="relative flex h-6 w-6 items-center justify-center">
-            <CodexProjectHoverIcon className="absolute icon-xs shrink-0 opacity-0 group-hover/folder-row:opacity-100" />
-            <CodexFolderIcon className="icon-xs shrink-0 group-hover/folder-row:opacity-0" />
+            {expanded ? (
+              <CodexProjectFolderOpenIcon className="icon-xs shrink-0" />
+            ) : (
+              <CodexProjectFolderIcon className="icon-xs shrink-0" />
+            )}
           </span>
           <div
             ref={setActivatorNodeRef}
@@ -688,15 +699,17 @@ function CodexProjectChildrenDisclosure({
 
 export function CodexProjectSessionList({
   project,
+  showAll = false,
   children,
 }: {
   project: Project;
+  showAll?: boolean;
   children: ReactNode;
 }) {
   return (
     <div
       data-app-action-sidebar-project-list-id={project.id}
-      data-app-action-sidebar-project-show-all="false"
+      data-app-action-sidebar-project-show-all={String(showAll)}
     >
       <div className="isolate flex flex-col [contain:layout]">
         <div className="flex flex-col" role="list" aria-label={`Automations in ${project.name}`}>
@@ -707,11 +720,130 @@ export function CodexProjectSessionList({
   );
 }
 
+function normalizeSidebarHoverCardText(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function basenameFromWorkspacePath(path: string | null) {
+  const normalized = normalizeSidebarHoverCardText(path);
+  if (!normalized) return null;
+
+  const segments = normalized.split(/[\\/]+/).filter((segment) => segment.length > 0);
+  return segments.at(-1) ?? normalized;
+}
+
+function resolveSidebarThreadHoverCardProjectLabel(
+  item: CodexSidebarThreadItem,
+  projectLabel?: string | null,
+) {
+  const explicitLabel = normalizeSidebarHoverCardText(projectLabel);
+  if (explicitLabel) return explicitLabel;
+  if (item.projectless) return CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL;
+  return basenameFromWorkspacePath(item.cwd) ?? CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL;
+}
+
+function resolveSidebarThreadHoverCardTimeLabel(item: CodexSidebarThreadItem) {
+  if (!Number.isFinite(item.updatedAt) || item.updatedAt <= 0) return null;
+  return formatElapsedSince(item.updatedAt, Date.now());
+}
+
+function CodexSidebarThreadHoverCardMetadataRow({
+  icon,
+  label,
+}: {
+  icon: ReactNode;
+  label: string | null;
+}) {
+  if (!label) return null;
+
+  return (
+    <div className="flex h-5 min-w-0 items-center gap-1.5 text-sm leading-5">
+      <span className="flex h-5 w-4 shrink-0 items-center justify-center text-token-description-foreground">
+        {icon}
+      </span>
+      <span className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5 text-token-foreground">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function CodexSidebarThreadHoverCard({
+  item,
+  projectLabel,
+  branchName,
+  onRenameFromTitleClick,
+}: {
+  item: CodexSidebarThreadItem;
+  projectLabel?: string | null;
+  branchName?: string | null;
+  onRenameFromTitleClick?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
+}) {
+  const resolvedProjectLabel = resolveSidebarThreadHoverCardProjectLabel(item, projectLabel);
+  const resolvedBranchName = normalizeSidebarHoverCardText(branchName);
+  const timeLabel = resolveSidebarThreadHoverCardTimeLabel(item);
+
+  return (
+    <div
+      className="flex w-fit max-w-[min(20rem,calc(100vw-16px))] min-w-56 flex-col gap-1 px-row-x py-1.5 text-token-foreground"
+      data-app-action-sidebar-thread-hover-card=""
+    >
+      <div className="flex w-full min-w-0 items-center gap-3 pb-0.5">
+        {onRenameFromTitleClick ? (
+          <button
+            type="button"
+            className="w-0 min-w-0 flex-1 cursor-interaction truncate rounded-md text-left text-base leading-6 font-medium text-token-foreground hover:bg-token-list-hover-background focus-visible:bg-token-list-hover-background focus-visible:outline-none"
+            aria-label="Chat title"
+            onPointerDown={stopCodexSidebarRowActionPropagation}
+            onMouseDown={stopCodexSidebarRowActionPropagation}
+            onKeyDown={stopCodexSidebarRowActionPropagation}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRenameFromTitleClick(item, event);
+            }}
+          >
+            {item.title}
+          </button>
+        ) : (
+          <div className="w-0 min-w-0 flex-1 truncate text-base leading-6 font-medium text-token-foreground">
+            {item.title}
+          </div>
+        )}
+        {timeLabel ? (
+          <div className="flex shrink-0 items-center gap-1 text-xs leading-5 text-token-description-foreground">
+            {timeLabel}
+          </div>
+        ) : null}
+      </div>
+      <CodexSidebarThreadHoverCardMetadataRow
+        icon={<CodexProjectFolderIcon className="icon-xs" />}
+        label={resolvedProjectLabel}
+      />
+      {resolvedBranchName ? (
+        <div className="flex min-w-0 flex-col gap-1">
+          <CodexSidebarThreadHoverCardMetadataRow
+            icon={<BranchStatusIcon className="icon-xs" />}
+            label={resolvedBranchName}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function CodexSidebarThreadRow({
   item,
   active,
   contextMenuOpen = false,
+  archivePending = false,
+  hoverCardProjectLabel,
+  hoverCardBranchName,
+  hoverCardOpen,
+  onHoverCardOpenChange,
   onSelect,
+  onArchive,
   onOpenContextMenu,
   onRenameFromTitleDoubleClick,
   onTogglePinned,
@@ -719,19 +851,63 @@ export function CodexSidebarThreadRow({
   item: CodexSidebarThreadItem;
   active: boolean;
   contextMenuOpen?: boolean;
+  archivePending?: boolean;
+  hoverCardProjectLabel?: string | null;
+  hoverCardBranchName?: string | null;
+  hoverCardOpen?: boolean;
+  onHoverCardOpenChange?: (open: boolean) => void;
   onSelect: () => void;
+  onArchive?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onOpenContextMenu?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
   onRenameFromTitleDoubleClick?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
   onTogglePinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
 }) {
-  const showSessionActions = !item.disabled && Boolean(onOpenContextMenu);
+  const canOpenContextMenu = !item.disabled && Boolean(onOpenContextMenu);
+  const showArchiveAction = !item.disabled && Boolean(onArchive);
   const showPinSlot = !item.disabled && Boolean(onTogglePinned);
   const pinButtonLabel = item.pinned ? "Unpin chat" : "Pin chat";
   const title = item.title;
+  const archiveDisabled = item.disabled || archivePending;
+  const [internalHoverCardOpen, setInternalHoverCardOpen] = useState(false);
+  const [lazyBranchName, setLazyBranchName] = useState<string | null>(null);
+  const resolvedHoverCardOpen = hoverCardOpen ?? internalHoverCardOpen;
+  const normalizedHoverCardCwd = item.cwd?.trim() ?? "";
+  const resolvedHoverCardBranchName = hoverCardBranchName ?? lazyBranchName;
 
-  return (
-    <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
-      <div
+  useEffect(() => {
+    if (hoverCardBranchName !== undefined) {
+      setLazyBranchName(null);
+      return;
+    }
+
+    setLazyBranchName(null);
+    if (!resolvedHoverCardOpen || !normalizedHoverCardCwd) return;
+
+    let cancelled = false;
+    void invoke("git:branch:state", normalizedHoverCardCwd)
+      .then((state) => {
+        if (cancelled) return;
+        const branch = typeof (state as { currentBranch?: unknown }).currentBranch === "string"
+          ? (state as { currentBranch: string }).currentBranch
+          : null;
+        setLazyBranchName(normalizeSidebarHoverCardText(branch));
+      })
+      .catch(() => {
+        if (!cancelled) setLazyBranchName(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hoverCardBranchName, normalizedHoverCardCwd, resolvedHoverCardOpen]);
+
+  const handleHoverCardOpenChange = (nextOpen: boolean) => {
+    if (hoverCardOpen === undefined) setInternalHoverCardOpen(nextOpen);
+    onHoverCardOpenChange?.(nextOpen);
+  };
+
+  const row = (
+    <div
         data-app-action-sidebar-thread-active={String(active)}
         data-app-action-sidebar-thread-host-id={item.hostId}
         data-app-action-sidebar-thread-id={item.threadId}
@@ -747,11 +923,11 @@ export function CodexSidebarThreadRow({
         )}
         role="button"
         tabIndex={0}
-        data-state={contextMenuOpen ? "open" : "closed"}
         aria-current={active ? "page" : undefined}
+        aria-disabled={item.disabled || undefined}
         onClick={onSelect}
         onContextMenu={(event) => {
-          if (!showSessionActions) return;
+          if (!canOpenContextMenu) return;
           event.preventDefault();
           onOpenContextMenu?.(item, event);
         }}
@@ -803,7 +979,7 @@ export function CodexSidebarThreadRow({
                     aria-label={pinButtonLabel}
                     className={cn(
                       "flex h-5 w-5 items-center justify-center leading-none text-token-foreground/50 hover:text-token-foreground",
-                      !item.pinned && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
+                      !item.pinned && "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
                     )}
                     data-state={contextMenuOpen ? "open" : "closed"}
                     data-app-action-sidebar-thread-pin-session=""
@@ -821,31 +997,65 @@ export function CodexSidebarThreadRow({
                 )}
               </div>
             ) : null}
-            {showSessionActions ? (
-              <button
-                type="button"
-                aria-label={`Session actions for ${title}`}
+            {showArchiveAction ? (
+              <div
                 className={cn(
-                  CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS,
-                  "ml-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
+                  CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS,
+                  "ml-1 shrink-0",
+                  contextMenuOpen && "opacity-100",
                 )}
                 data-state={contextMenuOpen ? "open" : "closed"}
-                data-app-action-sidebar-thread-actions-menu=""
-                onPointerDown={stopCodexSidebarRowActionPropagation}
-                onMouseDown={stopCodexSidebarRowActionPropagation}
-                onKeyDown={stopCodexSidebarRowActionPropagation}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onOpenContextMenu?.(item, event);
-                }}
               >
-                <CodexProjectActionsIcon />
-              </button>
+                <button
+                  type="button"
+                  aria-label="Archive chat"
+                  disabled={archiveDisabled}
+                  className={cn(
+                    CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS,
+                    CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS,
+                  )}
+                  data-app-action-sidebar-thread-archive=""
+                  onPointerDown={stopCodexSidebarRowActionPropagation}
+                  onMouseDown={stopCodexSidebarRowActionPropagation}
+                  onKeyDown={stopCodexSidebarRowActionPropagation}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void onArchive?.(item);
+                  }}
+                >
+                  <CodexArchiveIcon />
+                </button>
+              </div>
             ) : null}
           </div>
         </div>
-      </div>
+    </div>
+  );
+
+  return (
+    <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
+      <NodexTooltip
+        tooltipContent={(
+          <CodexSidebarThreadHoverCard
+            item={item}
+            projectLabel={hoverCardProjectLabel}
+            branchName={resolvedHoverCardBranchName}
+            onRenameFromTitleClick={onRenameFromTitleDoubleClick}
+          />
+        )}
+        surface="rich"
+        side="right"
+        align="start"
+        sideOffset={2}
+        delayDuration={CODEX_SIDEBAR_THREAD_HOVER_CARD_DELAY_MS}
+        interactive
+        disabled={item.disabled}
+        open={resolvedHoverCardOpen}
+        onOpenChange={handleHoverCardOpenChange}
+      >
+        {row}
+      </NodexTooltip>
     </div>
   );
 }
@@ -854,6 +1064,10 @@ export function CodexThreadRow({
   session,
   active,
   contextMenuOpen = false,
+  hoverCardProjectLabel,
+  hoverCardBranchName,
+  hoverCardOpen,
+  onHoverCardOpenChange,
   onSelect,
   onOpenContextMenu,
   onRenameFromTitleDoubleClick,
@@ -862,6 +1076,10 @@ export function CodexThreadRow({
   session: ProjectSession;
   active: boolean;
   contextMenuOpen?: boolean;
+  hoverCardProjectLabel?: string | null;
+  hoverCardBranchName?: string | null;
+  hoverCardOpen?: boolean;
+  onHoverCardOpenChange?: (open: boolean) => void;
   onSelect: () => void;
   onOpenContextMenu?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
   onRenameFromTitleDoubleClick?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
@@ -895,6 +1113,10 @@ export function CodexThreadRow({
       item={item}
       active={active}
       contextMenuOpen={contextMenuOpen}
+      hoverCardProjectLabel={hoverCardProjectLabel}
+      hoverCardBranchName={hoverCardBranchName}
+      hoverCardOpen={hoverCardOpen}
+      onHoverCardOpenChange={onHoverCardOpenChange}
       onSelect={onSelect}
       onOpenContextMenu={onOpenContextMenu
         ? (_item, event) => onOpenContextMenu(session, event)
