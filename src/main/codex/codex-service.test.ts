@@ -31,6 +31,7 @@ import {
 import {
   createProjectSession,
   getProjectSession,
+  listProjectSessions,
   upsertProjectSessionThreadLink,
 } from "../kanban/project-session-service";
 import { CodexRpcError } from "./codex-app-server-client";
@@ -45,6 +46,7 @@ import {
   CODEX_THREAD_TITLE_MODEL,
   CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
 } from "./thread-title-generator";
+import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-sessions";
 
 interface TestableCodexService {
   on: (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void) => unknown;
@@ -53,6 +55,7 @@ interface TestableCodexService {
   logoutAccount: () => Promise<boolean>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   resolveThreadSummary: (threadId: string) => Promise<import("../../shared/types").CodexThreadSummary | null>;
+  syncSidebarThreads: (input?: { includeArchived?: boolean; refresh?: boolean }) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
   listCommandPaletteThreads: (input: { projectIds: string[] }) => CommandPaletteThreadSummary[];
   searchCommandPaletteThreadContent: (input: {
     projectIds: string[];
@@ -556,6 +559,72 @@ describe("codex-service readThread fallback", () => {
         expect(summary?.statusType).toBe("active");
         expect(summary?.statusActiveFlags.join(",")).toBe("waitingOnUserInput");
         expect(persisted?.threadPreview).toBe("Remote preview");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("materializes sidebar sessions with bounded fallback titles from long app-server previews", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const longPreview = `Long preview ${"x".repeat(MAX_PROJECT_SESSION_TITLE_LENGTH + 200)}`;
+      const normalPreview = "Normal external thread";
+      const makeThread = (id: string, preview: string, updatedAt: number) => ({
+        id,
+        sessionId: id,
+        forkedFromId: null,
+        parentThreadId: null,
+        preview,
+        ephemeral: false,
+        modelProvider: "openai",
+        createdAt: updatedAt - 10,
+        updatedAt,
+        status: { type: "idle" },
+        path: null,
+        cwd: "/tmp/codex",
+        cliVersion: "test",
+        source: "cli",
+        threadSource: null,
+        agentNickname: null,
+        agentRole: null,
+        gitInfo: null,
+        name: null,
+        turns: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        return {
+          data: [
+            makeThread("thr_long_preview", longPreview, 20),
+            makeThread("thr_normal_preview", normalPreview, 10),
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        await service.syncSidebarThreads({ refresh: true });
+        const sessions = listProjectSessions(defaultProjectId);
+        const longSession = sessions.find((session) => session.thread?.threadId === "thr_long_preview");
+        const normalSession = sessions.find((session) => session.thread?.threadId === "thr_normal_preview");
+        const persistedLongThread = getCodexThread("thr_long_preview");
+
+        expect(longSession !== undefined).toBeTrue();
+        expect(normalSession !== undefined).toBeTrue();
+        expect(longSession?.noThreadFallbackTitle.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
+        expect(longSession?.noThreadFallbackTitle.startsWith("Long preview")).toBeTrue();
+        expect(normalSession?.noThreadFallbackTitle).toBe(normalPreview);
+        expect(persistedLongThread?.threadPreview.length).toBe(longPreview.length);
       } finally {
         await service.shutdown();
       }

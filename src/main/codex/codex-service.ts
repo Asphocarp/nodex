@@ -137,7 +137,10 @@ import type {
 import { parseAssetSource } from "../../shared/assets";
 import { parseInlineContent } from "../../shared/nfm";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
-import { ProjectSessionForkInputSchema } from "../../shared/schemas/project-sessions";
+import {
+  MAX_PROJECT_SESSION_TITLE_LENGTH,
+  ProjectSessionForkInputSchema,
+} from "../../shared/schemas/project-sessions";
 import * as projectSessionService from "../kanban/project-session-service";
 import {
   buildPermissionModeConfigEdits,
@@ -316,6 +319,16 @@ function resolveSidebarThreadTitle(thread: {
 }): string {
   const title = thread.threadName?.trim() || thread.threadPreview?.trim();
   return title || "New thread";
+}
+
+function normalizeSidebarSessionFallbackTitle(thread: {
+  threadName?: string | null;
+  threadPreview?: string | null;
+}): string {
+  return normalizeCodexManualThreadTitle(
+    resolveSidebarThreadTitle(thread),
+    MAX_PROJECT_SESSION_TITLE_LENGTH,
+  ) ?? "New thread";
 }
 
 interface PendingApproval {
@@ -3057,7 +3070,7 @@ export class CodexService extends EventEmitter {
 
     const session = projectSessionService.createProjectSession({
       projectId: summary.projectId,
-      noThreadFallbackTitle: resolveSidebarThreadTitle(summary),
+      noThreadFallbackTitle: normalizeSidebarSessionFallbackTitle(summary),
     });
     const link = projectSessionService.upsertProjectSessionThreadLink({
       sessionId: session.id,
@@ -3108,7 +3121,14 @@ export class CodexService extends EventEmitter {
           );
           if (!summary || summary.archived) continue;
 
-          this.ensureSidebarThreadSessionFromSummary(summary);
+          try {
+            this.ensureSidebarThreadSessionFromSummary(summary);
+          } catch (error) {
+            this.logger.warn("Could not materialize sidebar thread session", {
+              threadId: summary.threadId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
 
         cursor = response.nextCursor;
@@ -3126,7 +3146,7 @@ export class CodexService extends EventEmitter {
 
     const session = projectSessionService.createProjectSession({
       projectId: summary.projectId,
-      noThreadFallbackTitle: resolveSidebarThreadTitle(summary),
+      noThreadFallbackTitle: normalizeSidebarSessionFallbackTitle(summary),
     });
     const link = projectSessionService.upsertProjectSessionThreadLink({
       sessionId: session.id,
