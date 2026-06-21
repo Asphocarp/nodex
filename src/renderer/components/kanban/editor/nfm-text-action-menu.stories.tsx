@@ -182,6 +182,7 @@ function TextActionMenuStorySurface(
             </button>
           )}
           nodexRows={[]}
+          showReferenceMocks
           sourceProjectId={null}
           sourceCardId={null}
           onSelectBlockType={() => undefined}
@@ -214,6 +215,7 @@ function TextActionMoreHandoffStorySurface() {
     hasConvertDividerToThreadSection: false,
     isTableBlock: false,
     canUseTableHeaders: false,
+    showMockActions: true,
   }), []);
   const sections = useMemo(() => filterNfmSideMenuSections(baseSections, query), [baseSections, query]);
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
@@ -342,6 +344,7 @@ function TextActionMoreHandoffStorySurface() {
                 enabled: true,
               },
             ]}
+            showReferenceMocks
             sourceProjectId="default"
             sourceCardId="source-card"
             onSelectBlockType={() => undefined}

@@ -7,7 +7,7 @@ It is split into explicit entry modes so command recall, chat search, and card r
 - root mode searches command/action rows only
 - chats mode searches workspace chats across session-backed projects
 - cards mode searches workspace cards and owns the card filter controls
-- files mode keeps the reference command-menu shell visible, but file search is a disabled mock until Nodex has a real file-search backend
+- files mode keeps the reference command-menu shell available for parity work, but file search stays a development-only disabled mock until Nodex has a real file-search backend
 - result ranking favors fast recall over exhaustive inspection
 - matching context is visible directly in the result row through inline highlights and short previews
 
@@ -32,13 +32,15 @@ The palette is a transient overlay and does not become part of durable navigatio
 Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 
 - Root mode shows command/action rows only.
-- Chats, cards, and files are represented as explicit command rows such as `Search chats`, `Search cards`, and `Search files`.
-- Executing `Search chats` switches to chats mode. Executing `Search cards` switches to cards mode. `Search files` remains disabled until real file search exists.
+- Chats and cards are represented as explicit command rows such as `Search chats` and `Search cards`.
+- Executing `Search chats` switches to chats mode. Executing `Search cards` switches to cards mode.
+- `Search files` appears only in development as a disabled mock row until real file search exists.
 - Cards and chats are hidden entirely in root mode.
 - Disabled commands remain visible so users can understand available affordances, but they are skipped by keyboard selection and cannot be executed.
 - Commands use customized command-keymap shortcut labels where a matching command id exists.
 - Commands are grouped as Suggested, Chat, Navigation, Panels, Project, Configure, Skills, and App.
-- Unsupported Codex-parity commands remain visible as disabled mock rows; supported Nodex-only actions appear in the closest matching group.
+- Unsupported Codex-parity commands appear only in development as disabled mock rows with a `Mock` badge; production hides them entirely. Supported Nodex-only actions appear in the closest matching group.
+- `Toggle browser panel` and `Open Card Stage` are intentionally not part of the root command catalog.
 
 ### Chats Mode
 Chats mode is opened by `Cmd/Ctrl+G` or the root-mode `Search chats` row.
@@ -230,7 +232,7 @@ Content snippets only highlight literal query tokens because app-server snippets
 - When the query is empty, standard dialog close behavior applies.
 
 ## Result Limits
-- root mode shows up to `100` command rows so grouped parity commands and disabled mock rows remain discoverable
+- root mode shows up to `100` command rows; disabled mock rows are discoverable only in development builds because production does not include mock commands in the catalog
 - chats mode shows up to `12` chat rows
 - cards mode shows up to `12` card rows
 - files mode shows only its mock/empty state until real file search exists

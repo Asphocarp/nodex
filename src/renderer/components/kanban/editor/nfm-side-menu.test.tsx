@@ -93,9 +93,11 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
 function renderSideMenuSurface({
   initialQuery = "",
   initialFocusedIndex = -1,
+  showMockActions = true,
 }: {
   initialQuery?: string;
   initialFocusedIndex?: number;
+  showMockActions?: boolean;
 } = {}) {
   const calls = {
     rows: [] as string[],
@@ -114,6 +116,7 @@ function renderSideMenuSurface({
     hasConvertDividerToThreadSection: false,
     isTableBlock: false,
     canUseTableHeaders: false,
+    showMockActions,
   });
 
   const renderSurface = () => {
@@ -201,6 +204,7 @@ function StatefulSideMenuSurface({
     hasConvertDividerToThreadSection: false,
     isTableBlock: false,
     canUseTableHeaders: false,
+    showMockActions: true,
   }), []);
   const sections = useMemo(() => filterNfmSideMenuSections(baseSections, query), [baseSections, query]);
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
@@ -402,7 +406,7 @@ describe("nfm side menu surface", () => {
     })).toBeFalse();
   });
 
-  test("renders dialog, combobox, listbox, and disabled reference mocks", () => {
+  test("renders dialog, combobox, listbox, and disabled reference mocks in dev contexts", () => {
     const { calls, view } = renderSideMenuSurface();
 
     expect(view.getByRole("dialog", { name: "Block actions" })).not.toBeNull();
@@ -413,9 +417,19 @@ describe("nfm side menu surface", () => {
 
     const copyLink = view.getByRole("option", { name: /Copy link to block/ });
     expect(copyLink.getAttribute("aria-disabled")).toBe("true");
+    expect(copyLink.textContent?.includes("Mock")).toBeTrue();
 
     fireEvent.click(copyLink);
     expect(calls.rows.length).toBe(0);
+  });
+
+  test("hides reference mock rows in production contexts", () => {
+    const { view } = renderSideMenuSurface({ showMockActions: false });
+
+    expect(view.queryByRole("option", { name: /Copy link to block/ }) === null).toBeTrue();
+    expect(view.queryByRole("option", { name: /Ask AI/ }) === null).toBeTrue();
+    expect(view.queryByText("Mock") === null).toBeTrue();
+    expect(view.getByRole("option", { name: /Duplicate/ })).not.toBeNull();
   });
 
   test("filters from the search query", () => {

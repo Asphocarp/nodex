@@ -41,6 +41,7 @@ function makeCommandContext(
     canGoBack: true,
     canGoForward: true,
     canStartNewChat: true,
+    showMockCommands: false,
     hasActiveSession: true,
     activeSessionIsOverview: false,
     activeSessionPinned: false,
@@ -75,6 +76,35 @@ describe("buildCommandPaletteCommands", () => {
     expect(ids.includes("view-calendar")).toBeFalse();
     expect(ids.includes("open-project-picker")).toBeFalse();
     expect(ids.includes("search-current-project")).toBeFalse();
+  });
+
+  test("omits dev-only mock commands and removed redundant commands in production contexts", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext({
+      showMockCommands: false,
+    }));
+    const ids = commands.map((command) => command.id).join(",");
+
+    expect(commands.some((command) => command.mockReason !== undefined)).toBeFalse();
+    expect(ids.includes("searchFiles")).toBeFalse();
+    expect(ids.includes("git.commit")).toBeFalse();
+    expect(ids.includes("toggleBrowserPanel")).toBeFalse();
+    expect(ids.includes("openCardStage")).toBeFalse();
+  });
+
+  test("keeps unsupported parity commands as disabled mock rows in dev contexts", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext({
+      showMockCommands: true,
+    }));
+    const searchFiles = commands.find((command) => command.id === "searchFiles");
+    const gitCommit = commands.find((command) => command.id === "git.commit");
+    const ids = commands.map((command) => command.id).join(",");
+
+    expect(searchFiles?.disabled).toBeTrue();
+    expect(Boolean(searchFiles?.mockReason)).toBeTrue();
+    expect(gitCommit?.disabled).toBeTrue();
+    expect(Boolean(gitCommit?.mockReason)).toBeTrue();
+    expect(ids.includes("toggleBrowserPanel")).toBeFalse();
+    expect(ids.includes("openCardStage")).toBeFalse();
   });
 
   test("uses custom command-keymap labels for shell commands", () => {
@@ -448,10 +478,70 @@ describe("CommandPaletteSurface", () => {
 
     expect(nextActiveId !== firstActiveId).toBeTrue();
     expect(nextActive?.textContent?.includes("Settings")).toBeTrue();
+    expect(textContent(container).includes("Mock")).toBeFalse();
 
     fireEvent.keyDown(input, { key: "Enter" });
     expect(executedItems.length).toBe(1);
     expect(executedItems[0]?.id).toBe("settings");
+  });
+
+  test("marks mock commands with a visible badge and keeps them inert", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const executedItems: CommandPaletteCommand[] = [];
+    const closeCalls: number[] = [];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={5}
+        mode="root"
+        initialQuery=""
+        commands={[
+          makePaletteCommand({
+            id: "searchFiles",
+            group: "Suggested",
+            title: "Search files",
+            subtitle: "Search workspace files",
+            keywords: ["files"],
+            disabled: true,
+            mockReason: "Mock UI only. Not available in Nodex yet.",
+            priority: 300,
+          }),
+          makePaletteCommand({
+            id: "settings",
+            title: "Settings",
+            subtitle: "Can run",
+            keywords: ["settings"],
+            priority: 100,
+          }),
+        ]}
+        cards={[]}
+        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => {
+          closeCalls.push(1);
+        }}
+        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
+          if (item.kind === "command") executedItems.push(item);
+        }}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const mockButton = Array.from(container.querySelectorAll('button[cmdk-item]'))
+      .find((button) => button.textContent?.includes("Search files"));
+
+    expect(textContent(container).includes("Mock")).toBeTrue();
+    expect(mockButton !== undefined).toBeTrue();
+    expect(mockButton?.getAttribute("aria-disabled")).toBe("true");
+    if (mockButton) {
+      fireEvent.click(mockButton);
+    }
+    expect(closeCalls.length).toBe(0);
+    expect(executedItems.length).toBe(0);
   });
 
   test("renders the filter button on the search-input row", async () => {

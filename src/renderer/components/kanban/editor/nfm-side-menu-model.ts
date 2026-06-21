@@ -32,7 +32,7 @@ export interface NfmSideMenuAction {
   section: "reference" | "nodex" | "table";
   visualGroup: NfmSideMenuVisualGroup;
   enabled: boolean;
-  inactiveMock?: boolean;
+  mockReason?: string;
   shortcut?: string;
   badge?: string;
   submenu?: NfmSideMenuSubmenuKey;
@@ -54,6 +54,7 @@ export interface NfmSideMenuModelInput {
   hasConvertDividerToThreadSection: boolean;
   isTableBlock: boolean;
   canUseTableHeaders: boolean;
+  showMockActions: boolean;
 }
 
 export interface NfmSideMenuFlatRow {
@@ -61,7 +62,16 @@ export interface NfmSideMenuFlatRow {
   row: NfmSideMenuAction;
 }
 
-const REFERENCE_ACTIONS: readonly Omit<NfmSideMenuAction, "section" | "enabled" | "inactiveMock">[] = [
+const SIDE_MENU_MOCK_REASON = "Mock UI only. Not available in Nodex yet.";
+const REFERENCE_MOCK_ACTION_KEYS = new Set<NfmSideMenuActionKey>([
+  "copy-link-to-block",
+  "comment",
+  "suggest-edits",
+  "present-from-here",
+  "ask-ai",
+]);
+
+const REFERENCE_ACTIONS: readonly Omit<NfmSideMenuAction, "section" | "enabled" | "mockReason">[] = [
   {
     key: "turn-into",
     label: "Turn into",
@@ -163,14 +173,17 @@ function enabledForReferenceAction(
 }
 
 export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideMenuSection[] {
-  const referenceRows = REFERENCE_ACTIONS.map((action) => {
+  const referenceRows = REFERENCE_ACTIONS.flatMap((action) => {
+    const isMockAction = REFERENCE_MOCK_ACTION_KEYS.has(action.key);
+    if (isMockAction && !input.showMockActions) return [];
+
     const enabled = enabledForReferenceAction(action, input);
-    return {
+    return [{
       ...action,
       section: "reference" as const,
-      enabled,
-      inactiveMock: !enabled,
-    };
+      enabled: isMockAction ? false : enabled,
+      mockReason: isMockAction ? SIDE_MENU_MOCK_REASON : undefined,
+    }];
   });
 
   const nodexRows: NfmSideMenuAction[] = [];
@@ -186,7 +199,6 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
       section: "nodex",
       visualGroup: "nodex",
       enabled: input.isEditable,
-      inactiveMock: !input.isEditable,
       keywords: ["divider", "thread", "section"],
     });
   }
@@ -202,7 +214,6 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
           section: "table",
           visualGroup: "table",
           enabled: input.isEditable,
-          inactiveMock: !input.isEditable,
           keywords: ["table"],
         },
         {
@@ -212,7 +223,6 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
           section: "table",
           visualGroup: "table",
           enabled: input.isEditable,
-          inactiveMock: !input.isEditable,
           keywords: ["table"],
         },
       ]

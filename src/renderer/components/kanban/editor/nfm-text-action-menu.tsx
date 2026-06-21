@@ -175,6 +175,7 @@ export interface NfmTextActionMenuSurfaceProps {
   canClearFormat: boolean;
   linkControl?: ReactNode;
   nodexRows: TextActionNodexRow[];
+  showReferenceMocks?: boolean;
   sourceProjectId?: string | null;
   sourceCardId?: string | null;
   sendToThreadProjectNameById?: Readonly<Record<string, string>>;
@@ -888,17 +889,35 @@ function TextActionDisabledButton({
   children,
   label,
   className,
+  mock = false,
 }: {
   children: ReactNode;
   label: string;
   className?: string;
+  mock?: boolean;
 }) {
+  const tooltipContent = mock
+    ? `${label} is mock UI only. Not available in Nodex yet.`
+    : `${label} is not supported in Nodex yet.`;
+  const ariaLabel = mock ? `${label} Mock` : label;
+
   return (
-    <NodexTooltip tooltipContent={`${label} is not supported in Nodex yet.`} side="top" delayDuration={0}>
-      <TextActionButton label={label} disabled className={className}>
+    <NodexTooltip tooltipContent={tooltipContent} side="top" delayDuration={0}>
+      <TextActionButton label={ariaLabel} disabled className={className}>
         {children}
       </TextActionButton>
     </NodexTooltip>
+  );
+}
+
+function TextActionMockBadge({ reason }: { reason?: string }) {
+  return (
+    <span
+      title={reason}
+      className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-4 text-token-description-foreground"
+    >
+      Mock
+    </span>
   );
 }
 
@@ -956,6 +975,7 @@ type TextActionSkillRowProps = Omit<
 > & {
   label: string;
   disabled?: boolean;
+  mockReason?: string;
   rightSlot?: ReactNode;
   hasPopup?: "dialog" | "menu";
   expanded?: boolean;
@@ -965,6 +985,7 @@ type TextActionSkillRowProps = Omit<
 const TextActionSkillRow = forwardRef<HTMLDivElement, TextActionSkillRowProps>(function TextActionSkillRow({
   label,
   disabled = true,
+  mockReason,
   rightSlot,
   hasPopup,
   expanded,
@@ -1036,6 +1057,9 @@ const TextActionSkillRow = forwardRef<HTMLDivElement, TextActionSkillRowProps>(f
       }}
     >
       <span ref={labelRef} className="min-w-0 flex-1 truncate">{label}</span>
+      {mockReason ? (
+        <TextActionMockBadge reason={mockReason} />
+      ) : null}
       {rightSlot ?? (disabled ? (
         <span
           role="button"
@@ -1245,6 +1269,7 @@ function TextActionSendToThreadRow({
 
 function TextActionAiPane({
   nodexRows,
+  showReferenceMocks = false,
   sourceProjectId,
   sourceCardId,
   sendToThreadProjectNameById,
@@ -1257,6 +1282,7 @@ function TextActionAiPane({
 }: Pick<
   NfmTextActionMenuSurfaceProps,
   | "nodexRows"
+  | "showReferenceMocks"
   | "sourceProjectId"
   | "sourceCardId"
   | "sendToThreadProjectNameById"
@@ -1320,15 +1346,24 @@ function TextActionAiPane({
             })}
           </>
         ) : null}
-        <div className="flex h-7 items-center px-2 text-[12px] text-token-text-secondary">
-          <span className="min-w-0 flex-1 truncate">Skills</span>
-          <TextActionDisabledButton label="Skills" className="size-7 text-token-text-secondary">
-            <TextActionSlidersIcon />
-          </TextActionDisabledButton>
-        </div>
-        {TEXT_ACTION_REFERENCE_SKILLS.map((skill) => (
-          <TextActionSkillRow key={skill.key} label={skill.label} disabled />
-        ))}
+        {showReferenceMocks ? (
+          <>
+            <div className="flex h-7 items-center px-2 text-[12px] text-token-text-secondary">
+              <span className="min-w-0 flex-1 truncate">Skills</span>
+              <TextActionDisabledButton label="Skills" className="size-7 text-token-text-secondary" mock>
+                <TextActionSlidersIcon />
+              </TextActionDisabledButton>
+            </div>
+            {TEXT_ACTION_REFERENCE_SKILLS.map((skill) => (
+              <TextActionSkillRow
+                key={skill.key}
+                label={skill.label}
+                disabled
+                mockReason="Mock UI only. Not available in Nodex yet."
+              />
+            ))}
+          </>
+        ) : null}
       </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-linear-to-b from-transparent to-token-dropdown-background" />
     </div>
@@ -1352,6 +1387,7 @@ function TextActionAiFooter() {
       >
         Edit with AI
       </div>
+      <TextActionMockBadge reason="Mock UI only. Not available in Nodex yet." />
       <span className="shrink-0 text-[12px] leading-4 text-token-description-foreground">⌘⌃E</span>
     </div>
   );
@@ -1368,6 +1404,7 @@ export function NfmTextActionMenuSurface({
   canClearFormat,
   linkControl,
   nodexRows,
+  showReferenceMocks = false,
   sourceProjectId = null,
   sourceCardId = null,
   sendToThreadProjectNameById,
@@ -1384,6 +1421,8 @@ export function NfmTextActionMenuSurface({
   renderMoveToMenu,
   renderSendToThreadMenu,
 }: NfmTextActionMenuSurfaceProps) {
+  const showAiPane = showReferenceMocks || nodexRows.length > 0;
+
   return (
     <div className="pointer-events-none p-4" contentEditable={false}>
       <div
@@ -1470,41 +1509,53 @@ export function NfmTextActionMenuSurface({
                 <TextActionCodeIcon />
               </TextActionButton>
             </TextActionButtonTooltip>
-            <TextActionDisabledButton label="Equation">
-              <TextActionEquationIcon />
-            </TextActionDisabledButton>
+            {showReferenceMocks ? (
+              <TextActionDisabledButton label="Equation" mock>
+                <TextActionEquationIcon />
+              </TextActionDisabledButton>
+            ) : null}
             <TextActionMoreButton onOpenBlockActions={onOpenBlockActions} />
           </div>
         </div>
 
-        <TextActionDivider />
-        <div className="flex items-center">
-          <TextActionDisabledButton label="Write a comment" className="min-w-0 flex-1 justify-start gap-2 px-1.5">
-            <TextActionCommentIcon />
-            <span className="truncate">Comment</span>
-          </TextActionDisabledButton>
-          <TextActionDisabledButton label="Reaction">
-            <TextActionReactionIcon />
-          </TextActionDisabledButton>
-          <TextActionDisabledButton label="Comment pencil">
-            <TextActionCommentPencilIcon />
-          </TextActionDisabledButton>
-        </div>
-        <TextActionDivider compact />
+        {showReferenceMocks ? (
+          <>
+            <TextActionDivider />
+            <div className="flex items-center">
+              <TextActionDisabledButton label="Write a comment" className="min-w-0 flex-1 justify-start gap-2 px-1.5" mock>
+                <TextActionCommentIcon />
+                <span className="truncate">Comment</span>
+                <TextActionMockBadge reason="Mock UI only. Not available in Nodex yet." />
+              </TextActionDisabledButton>
+              <TextActionDisabledButton label="Reaction" mock>
+                <TextActionReactionIcon />
+              </TextActionDisabledButton>
+              <TextActionDisabledButton label="Comment pencil" mock>
+                <TextActionCommentPencilIcon />
+              </TextActionDisabledButton>
+            </div>
+            <TextActionDivider compact />
+          </>
+        ) : showAiPane ? (
+          <TextActionDivider />
+        ) : null}
 
-        <TextActionAiPane
-          nodexRows={nodexRows}
-          sourceProjectId={sourceProjectId}
-          sourceCardId={sourceCardId}
-          sendToThreadProjectNameById={sendToThreadProjectNameById}
-          sendToThreadPreferredTarget={sendToThreadPreferredTarget}
-          onNodexRow={onNodexRow}
-          onMoveBlocksToDestination={onMoveBlocksToDestination}
-          onSendBlocksToThread={onSendBlocksToThread}
-          renderMoveToMenu={renderMoveToMenu}
-          renderSendToThreadMenu={renderSendToThreadMenu}
-        />
-        <TextActionAiFooter />
+        {showAiPane ? (
+          <TextActionAiPane
+            nodexRows={nodexRows}
+            showReferenceMocks={showReferenceMocks}
+            sourceProjectId={sourceProjectId}
+            sourceCardId={sourceCardId}
+            sendToThreadProjectNameById={sendToThreadProjectNameById}
+            sendToThreadPreferredTarget={sendToThreadPreferredTarget}
+            onNodexRow={onNodexRow}
+            onMoveBlocksToDestination={onMoveBlocksToDestination}
+            onSendBlocksToThread={onSendBlocksToThread}
+            renderMoveToMenu={renderMoveToMenu}
+            renderSendToThreadMenu={renderSendToThreadMenu}
+          />
+        ) : null}
+        {showReferenceMocks ? <TextActionAiFooter /> : null}
       </div>
     </div>
   );
@@ -1635,6 +1686,7 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       canClearFormat={snapshot.canClearFormat}
       linkControl={<NfmCreateLinkButton renderTrigger={renderCreateLinkTrigger} />}
       nodexRows={nodexRows}
+      showReferenceMocks={import.meta.env.DEV}
       sourceProjectId={runtime.sourceProjectId ?? null}
       sourceCardId={runtime.sourceCardId ?? null}
       sendToThreadProjectNameById={runtime.sendToThreadProjectNameById}

@@ -161,6 +161,7 @@ function renderTextActionMenu(
             enabled: true,
           },
         ]}
+        showReferenceMocks={true}
         sourceProjectId="default"
         sourceCardId="source-card"
         sendToThreadProjectNameById={{ default: "Default" }}
@@ -222,9 +223,10 @@ describe("nfm text action menu surface", () => {
     expect(view.getByRole("button", { name: "Normal Text" }).getAttribute("aria-haspopup")).toBe("dialog");
     expect(view.getByRole("button", { name: "Bold" }).getAttribute("aria-pressed")).toBe("true");
     expect(view.getByRole("button", { name: "Color" }).getAttribute("aria-haspopup")).toBe("dialog");
-    expect(view.getByRole("button", { name: "Equation" }).getAttribute("aria-disabled")).toBe("true");
-    expect(view.getByRole("button", { name: "Write a comment" }).getAttribute("aria-disabled")).toBe("true");
+    expect(view.getByRole("button", { name: "Equation Mock" }).getAttribute("aria-disabled")).toBe("true");
+    expect(view.getByRole("button", { name: "Write a comment Mock" }).getAttribute("aria-disabled")).toBe("true");
     expect(view.getByRole("textbox").getAttribute("aria-disabled")).toBe("true");
+    expect(view.getAllByText("Mock").length > 0).toBeTrue();
     expect(Boolean(view.getByText("Improve writing"))).toBeTrue();
     expect(Boolean(view.getByText("⌘⌃E"))).toBeTrue();
 
@@ -232,6 +234,20 @@ describe("nfm text action menu surface", () => {
     const nodexIndex = toolbarText.indexOf("Actions");
     const skillsIndex = toolbarText.indexOf("Skills");
     expect(nodexIndex >= 0 && skillsIndex >= 0 && nodexIndex < skillsIndex).toBeTrue();
+  });
+
+  test("hides reference mock controls from the production surface", () => {
+    const { view } = renderTextActionMenu({ showReferenceMocks: false });
+
+    expect(view.queryByRole("button", { name: "Equation Mock" }) === null).toBeTrue();
+    expect(view.queryByRole("button", { name: "Write a comment Mock" }) === null).toBeTrue();
+    expect(view.queryByRole("textbox") === null).toBeTrue();
+    expect(view.queryByText("Skills") === null).toBeTrue();
+    expect(view.queryByText("Improve writing") === null).toBeTrue();
+    expect(view.queryByText("Mock") === null).toBeTrue();
+    expect(Boolean(view.getByRole("button", { name: "Bold" }))).toBeTrue();
+    expect(Boolean(view.getByRole("button", { name: "Send to chat" }))).toBeTrue();
+    expect(Boolean(view.getByRole("button", { name: "Move to" }))).toBeTrue();
   });
 
   test("opens the block type menu and delegates Turn into selections", async () => {
@@ -702,7 +718,7 @@ describe("nfm text action menu surface", () => {
   test("does not show action or skill row tooltips when labels are fully visible", async () => {
     const { view } = renderTextActionMenu();
     const actionRow = view.getByRole("button", { name: "Send to chat" });
-    const skillRow = view.getByRole("button", { name: "Improve writing" });
+    const skillRow = view.getByRole("button", { name: "Improve writing Mock" });
 
     await act(async () => {
       fireEvent.pointerEnter(actionRow);
@@ -901,8 +917,8 @@ describe("nfm text action menu surface", () => {
     const { actions, view } = renderTextActionMenu();
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Equation" }));
-      fireEvent.click(view.getByRole("button", { name: "Write a comment" }));
+      fireEvent.click(view.getByRole("button", { name: "Equation Mock" }));
+      fireEvent.click(view.getByRole("button", { name: "Write a comment Mock" }));
       await settleAsyncRender();
     });
 

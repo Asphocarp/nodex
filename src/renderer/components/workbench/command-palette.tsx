@@ -34,7 +34,7 @@ interface CommandPaletteProps {
   projects: Project[];
   activeProjectId: string;
   recentCardSessions: RecentCardSession[];
-  commandContext: Omit<CommandPaletteShellCommandContext, "isMac">;
+  commandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands">;
   commandHandlers: CommandPaletteShellCommandHandlers;
   onOpenChange: (open: boolean) => void;
   onOpenCard: (projectId: string, cardId: string, titleSnapshot?: string) => void;
@@ -203,6 +203,7 @@ export function CommandPalette({
     () => buildCommandPaletteCommands({
       ...commandContext,
       isMac,
+      showMockCommands: import.meta.env.DEV,
     }),
     [commandContext, isMac],
   );

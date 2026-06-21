@@ -8,7 +8,7 @@ import {
   moveNfmSideMenuFocus,
 } from "./nfm-side-menu-model";
 
-function buildDefaultSections() {
+function buildDefaultSections(showMockActions = false) {
   return buildNfmSideMenuSections({
     currentBlockId: "block-1",
     currentBlockType: "paragraph",
@@ -18,51 +18,47 @@ function buildDefaultSections() {
     hasConvertDividerToThreadSection: false,
     isTableBlock: false,
     canUseTableHeaders: false,
+    showMockActions,
   });
 }
 
 describe("nfm side menu model", () => {
-  test("keeps the reference action order and puts move semantics on the reference Move to row", () => {
+  test("hides reference mock actions from the production action order", () => {
     const sections = buildDefaultSections();
     const rows = flattenNfmSideMenuRows(sections);
 
-    expect(rows.length).toBe(10);
-    expect(rows[0]?.row.label).toBe("Turn into");
-    expect(rows[1]?.row.label).toBe("Color");
-    expect(rows[2]?.row.label).toBe("Copy link to block");
-    expect(rows[3]?.row.label).toBe("Duplicate");
-    expect(rows[4]?.row.label).toBe("Move to");
-    expect(rows[5]?.row.label).toBe("Delete");
-    expect(rows[6]?.row.label).toBe("Comment");
-    expect(rows[7]?.row.label).toBe("Suggest edits");
-    expect(rows[8]?.row.label).toBe("Present from here");
-    expect(rows[9]?.row.label).toBe("Ask AI");
-    expect(rows[4]?.sectionKey).toBe("text");
-    expect(rows[4]?.row.kind).toBe("submenu");
-    expect(rows[4]?.row.submenu).toBe("move-to");
+    expect(rows.map(({ row }) => row.label).join(",")).toBe("Turn into,Color,Duplicate,Move to,Delete");
+    expect(rows.some(({ row }) => row.mockReason !== undefined)).toBeFalse();
+    expect(rows[3]?.sectionKey).toBe("text");
+    expect(rows[3]?.row.kind).toBe("submenu");
+    expect(rows[3]?.row.submenu).toBe("move-to");
   });
 
   test("copies the reference action grouping boundaries", () => {
     const rows = flattenNfmSideMenuRows(buildDefaultSections());
     const separatorKeys = getNfmSideMenuSeparatorBeforeKeys(rows);
 
-    expect(separatorKeys.join(",")).toBe("copy-link-to-block,comment,present-from-here,ask-ai");
+    expect(separatorKeys.join(",")).toBe("duplicate");
   });
 
-  test("marks unsupported reference rows as inactive mocks while enabling Move to when moves are available", () => {
-    const rows = flattenNfmSideMenuRows(buildDefaultSections());
-    const copyLink = rows[2]?.row;
-    const duplicate = rows[3]?.row;
-    const moveTo = rows[4]?.row;
+  test("keeps reference mock actions disabled and marked in dev contexts", () => {
+    const rows = flattenNfmSideMenuRows(buildDefaultSections(true));
+    const copyLink = rows.find(({ row }) => row.key === "copy-link-to-block")?.row;
+    const present = rows.find(({ row }) => row.key === "present-from-here")?.row;
+    const duplicate = rows.find(({ row }) => row.key === "duplicate")?.row;
+    const moveTo = rows.find(({ row }) => row.key === "move-to")?.row;
 
     expect(copyLink?.enabled).toBeFalse();
-    expect(copyLink?.inactiveMock).toBeTrue();
+    expect(Boolean(copyLink?.mockReason)).toBeTrue();
+    expect(present?.badge).toBe("Beta");
+    expect(Boolean(present?.mockReason)).toBeTrue();
     expect(duplicate?.enabled).toBeTrue();
+    expect(duplicate?.mockReason === undefined).toBeTrue();
     expect(moveTo?.enabled).toBeTrue();
-    expect(moveTo?.inactiveMock).toBeFalse();
+    expect(moveTo?.mockReason === undefined).toBeTrue();
   });
 
-  test("keeps Move to visible as an inactive mock when block moves are unavailable", () => {
+  test("keeps Move to visible as a real disabled row when block moves are unavailable", () => {
     const sections = buildNfmSideMenuSections({
       currentBlockId: "block-1",
       currentBlockType: "paragraph",
@@ -72,13 +68,14 @@ describe("nfm side menu model", () => {
       hasConvertDividerToThreadSection: false,
       isTableBlock: false,
       canUseTableHeaders: false,
+      showMockActions: false,
     });
     const rows = flattenNfmSideMenuRows(sections);
-    const moveTo = rows[4]?.row;
+    const moveTo = rows.find(({ row }) => row.key === "move-to")?.row;
 
     expect(moveTo?.key).toBe("move-to");
     expect(moveTo?.enabled).toBeFalse();
-    expect(moveTo?.inactiveMock).toBeTrue();
+    expect(moveTo?.mockReason === undefined).toBeTrue();
   });
 
   test("adds divider and table specific Nodex sections only when relevant", () => {
@@ -91,25 +88,29 @@ describe("nfm side menu model", () => {
       hasConvertDividerToThreadSection: true,
       isTableBlock: true,
       canUseTableHeaders: true,
+      showMockActions: false,
     });
     const rows = flattenNfmSideMenuRows(sections);
 
-    expect(rows.length).toBe(13);
-    expect(rows[10]?.row.key).toBe("convert-divider-to-thread-section");
-    expect(rows[11]?.row.key).toBe("table-header-row");
-    expect(rows[12]?.row.key).toBe("table-header-column");
+    expect(rows.length).toBe(8);
+    expect(rows[5]?.row.key).toBe("convert-divider-to-thread-section");
+    expect(rows[6]?.row.key).toBe("table-header-row");
+    expect(rows[7]?.row.key).toBe("table-header-column");
   });
 
   test("filters by label, shortcut, and keywords", () => {
     const sections = buildDefaultSections();
+    const devSections = buildDefaultSections(true);
     const duplicateRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(sections, "⌘D"));
-    const aiRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(sections, "assistant"));
+    const productionAiRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(sections, "assistant"));
+    const devAiRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(devSections, "assistant"));
     const noneRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(sections, "zzzz"));
 
     expect(duplicateRows.length).toBe(1);
     expect(duplicateRows[0]?.row.key).toBe("duplicate");
-    expect(aiRows.length).toBe(1);
-    expect(aiRows[0]?.row.key).toBe("ask-ai");
+    expect(productionAiRows.length).toBe(0);
+    expect(devAiRows.length).toBe(1);
+    expect(devAiRows[0]?.row.key).toBe("ask-ai");
     expect(noneRows.length).toBe(0);
   });
 

@@ -76,6 +76,7 @@ function CardContextMenuStory({
         onMoveToProject={() => {}}
         onDelete={() => {}}
         onCopyLink={() => {}}
+        showMockActions
       >
         <button
           ref={triggerRef}

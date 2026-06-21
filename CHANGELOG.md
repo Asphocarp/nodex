@@ -18,7 +18,7 @@ All notable changes to this project will be documented in this file.
 - Added Codex-style project session shell parity for session pinning and native sidebar session context menus, including direct filled row pin buttons, archive/unread state, copy/reveal/fork/open actions, and `nodex://sessions/<session-id>` deeplinks.
 - Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
 - Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
-- Added a Notion-style floating text action menu for NFM rich-text selections, with tokenized parity chrome, supported text/link/block actions, inert reference-only AI/comment/equation controls, and Nodex send-block actions where Card Stage callbacks are available.
+- Added a Notion-style floating text action menu for NFM rich-text selections, with tokenized parity chrome, supported text/link/block actions, development-only reference mock controls, and Nodex send-block actions where Card Stage callbacks are available.
 - Added Settings -> Keyboard shortcuts with searchable editable command shortcuts, capture, conflict checks, per-command reset, reset-all, shared runtime/menu labels, and user-level config persistence.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
 - Added splitable tab groups for right and bottom session panels, including nested horizontal/vertical groups, sash resizing, tab split actions, leaf-scoped previews and side chats, live tab-row insertion previews, and body-edge drag splitting within a panel.
@@ -36,7 +36,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.
-- Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and disabled parity rows keep unsupported command affordances visible.
+- Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and unsupported parity rows are now development-only mock entries instead of production command results.
+- Production card and NFM editor action menus now hide reference-only mock rows; development and Storybook still show them as disabled `Mock` entries for parity work.
 - Card Stage history now opens as an app-shell version-history modal with post-change card snapshot previews rendered through the read-only NFM editor surface.
 - Codex thread previews now prefer the first user message from available transcript history, so thread mention fallback labels and thread pickers reflect the original request instead of the latest assistant response.
 - Project names are now display-only: renaming a project no longer changes its stable server-generated UUID.

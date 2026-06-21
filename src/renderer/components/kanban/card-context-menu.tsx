@@ -1,16 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
-import {
-  ArrowLeft,
-  ChevronRight,
-  Copy,
-  Image,
-  LayoutGrid,
-  PanelRightOpen,
-  SlidersHorizontal,
-  Star,
-  Trash2,
-} from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { CheckmarkIcon } from "@/components/shared/icons";
 import { NodexIconButton } from "@/components/ui/button";
 import {
@@ -24,9 +14,9 @@ import { cn } from "@/lib/utils";
 import {
   getCardActionMenuEntries,
   getCardMoveTargets,
-  type CardActionMenuEntry,
   type CardContextMenuProjectSummary,
 } from "./card-context-menu-model";
+import { CardContextMenuActionRowContent } from "./card-context-menu-row";
 import type { Card as CardType } from "@/lib/types";
 
 interface CardContextMenuProps {
@@ -39,6 +29,7 @@ interface CardContextMenuProps {
   onDelete: (input: { cardId: string; columnId: string }) => Promise<void> | void;
   onCopyLink: (input: { cardId: string; projectId: string }) => Promise<void> | void;
   onMenuOpen?: () => void;
+  showMockActions?: boolean;
   children: ReactNode;
 }
 
@@ -91,33 +82,6 @@ function getProjectBadgeLabel(project: { label: string; icon?: string }) {
   return initial || "?";
 }
 
-function ActionIcon({ entryId }: { entryId: CardActionMenuEntry["id"] }) {
-  const className = "size-4 shrink-0";
-
-  switch (entryId) {
-    case "favorite":
-      return <Star className={className} strokeWidth={1.8} />;
-    case "edit-icon":
-      return <Image className={className} strokeWidth={1.8} />;
-    case "edit-property":
-      return <SlidersHorizontal className={className} strokeWidth={1.8} />;
-    case "layout":
-      return <LayoutGrid className={className} strokeWidth={1.8} />;
-    case "property-visibility":
-      return <PanelRightOpen className={className} strokeWidth={1.8} />;
-    case "open-in":
-      return <PanelRightOpen className={className} strokeWidth={1.8} />;
-    case "copy-link":
-      return <Copy className={className} strokeWidth={1.8} />;
-    case "duplicate":
-      return <Copy className={className} strokeWidth={1.8} />;
-    case "move-to":
-      return <ChevronRight className={className} strokeWidth={1.8} />;
-    case "delete":
-      return <Trash2 className={className} strokeWidth={1.8} />;
-  }
-}
-
 function CardContextMenuSectionFooter({
   currentProjectName,
   createdAt,
@@ -143,6 +107,7 @@ export function CardContextMenu({
   onDelete,
   onCopyLink,
   onMenuOpen,
+  showMockActions = import.meta.env.DEV,
   children,
 }: CardContextMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -154,7 +119,7 @@ export function CardContextMenu({
   const moveInputRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const actions = getCardActionMenuEntries(actionQuery);
+  const actions = getCardActionMenuEntries({ query: actionQuery, showMockActions });
   const moveTargets = getCardMoveTargets(projects, currentProjectId, moveQuery);
   const canCopyLink = typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
 
@@ -288,18 +253,7 @@ export function CardContextMenu({
                         }}
                         className={cn(CONTEXT_MENU_ITEM_CLASS_NAME, "flex w-full items-center gap-2")}
                       >
-                        <span className="flex size-5 shrink-0 items-center justify-center text-token-description-foreground">
-                          <ActionIcon entryId={entry.id} />
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                        {entry.shortcut ? (
-                          <span className="shrink-0 text-xs text-token-description-foreground">
-                            {entry.shortcut}
-                          </span>
-                        ) : null}
-                        {entry.id === "move-to" ? (
-                          <ChevronRight className="size-3.5 shrink-0 text-token-description-foreground" strokeWidth={1.9} />
-                        ) : null}
+                        <CardContextMenuActionRowContent entry={entry} />
                       </ContextMenuPrimitive.Item>
                     ))
                   )}

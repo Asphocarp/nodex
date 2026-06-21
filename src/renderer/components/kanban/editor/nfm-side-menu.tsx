@@ -736,6 +736,14 @@ function NfmSideMenuRow({
         {getActionIcon(row.key)}
       </span>
       <span className="min-w-0 flex-1 truncate text-left">{row.label}</span>
+      {row.mockReason ? (
+        <span
+          title={row.mockReason}
+          className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-4 text-token-description-foreground"
+        >
+          Mock
+        </span>
+      ) : null}
       {row.badge ? (
         <span className="shrink-0 rounded-[4px] bg-token-foreground/5 px-1 text-[11px] leading-4 text-token-description-foreground">
           {row.badge}
@@ -1343,6 +1351,7 @@ function NfmSideMenuPopup({
     hasConvertDividerToThreadSection: runtimeSnapshot.hasConvertDividerToThreadSection,
     isTableBlock: block?.type === "table",
     canUseTableHeaders: editor.settings?.tables?.headers === true,
+    showMockActions: import.meta.env.DEV,
   }), [
     block?.type,
     colorSupport.background,

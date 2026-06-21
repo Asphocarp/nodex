@@ -132,6 +132,7 @@ function SideMenuStorySurface({
     hasConvertDividerToThreadSection: currentBlockType === "divider",
     isTableBlock,
     canUseTableHeaders,
+    showMockActions: true,
   }), [
     canSendBlocks,
     canUseColor,

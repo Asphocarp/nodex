@@ -582,7 +582,7 @@ type MockCommandPaletteProps = {
   open: boolean;
   initialMode?: string;
   initialQuery?: string;
-  commandContext: Omit<CommandPaletteShellCommandContext, "isMac">;
+  commandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands">;
   commandHandlers: CommandPaletteShellCommandHandlers;
   onOpenChange: (open: boolean) => void;
 };
@@ -594,7 +594,7 @@ mock.module("./workbench-shell-deps", () => ({
     const commandMode = props.initialMode === "root";
     const commandQuery = commandMode ? rawQuery.trim().toLowerCase() : "";
     const commands = commandMode
-      ? buildCommandPaletteCommands({ ...props.commandContext, isMac: true })
+      ? buildCommandPaletteCommands({ ...props.commandContext, isMac: true, showMockCommands: false })
         .filter((command) => {
           if (commandQuery.length === 0) return true;
           const haystack = [

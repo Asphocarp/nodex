@@ -5323,7 +5323,7 @@ export function WorkbenchShell({
     />
   );
   const commandPaletteProjectId = activeProject?.id ?? activeProjectId;
-  const commandPaletteCommandContext: Omit<CommandPaletteShellCommandContext, "isMac"> = {
+  const commandPaletteCommandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands"> = {
     canGoBack: shellCanNavigateBack,
     canGoForward: shellCanNavigateForward,
     canStartNewChat: Boolean(activeProjectId),

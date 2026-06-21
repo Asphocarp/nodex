@@ -114,6 +114,7 @@ function CommandPaletteStory({
       hasAttachedThread: false,
       canOpenSessionInNewWindow: false,
       isMac: true,
+      showMockCommands: true,
     }),
     {
       kind: "command",

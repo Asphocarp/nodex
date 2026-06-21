@@ -149,7 +149,7 @@ function getCommandGlyph(id: string) {
   if (id === "toggleFileTreePanel" || id === "openFolder" || id === "searchFiles") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="folder" {...props} />
   );
-  if (id === "openBrowserTab" || id === "toggleBrowserPanel" || id === "focusBrowserAddressBar") return (props: { className?: string }) => (
+  if (id === "openBrowserTab" || id === "focusBrowserAddressBar") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="globe" {...props} />
   );
   if (id === "toggleTerminal" || id === "installPrimaryRuntime") return (props: { className?: string }) => (
@@ -158,7 +158,7 @@ function getCommandGlyph(id: string) {
   if (id === "searchChats" || id === "searchCards" || id === "findInThread") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="search" {...props} />
   );
-  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID || id === "openCardStage") return CardIcon;
+  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return CardIcon;
   if (id === "openSideChat") return CardIcon;
   if (id === "settings" || id === "showKeyboardShortcuts" || id.endsWith("Settings")) return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="settings" {...props} />
@@ -200,6 +200,7 @@ function CommandRow({
 }) {
   const Glyph = getCommandGlyph(item.id);
   const subtitle = item.mockReason ?? item.subtitle;
+  const isMock = Boolean(item.mockReason);
 
   return (
     <div className={cn("flex w-full gap-2", showSubtitle ? "items-start" : "items-center")}>
@@ -209,7 +210,17 @@ function CommandRow({
         showSubtitle && "mt-0.5",
       )} />
       <div className="min-w-0 flex-1 leading-tight">
-        <div className="truncate text-token-foreground">{item.title}</div>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <div className="min-w-0 truncate text-token-foreground">{item.title}</div>
+          {isMock ? (
+            <span
+              title={item.mockReason}
+              className="inline-flex h-4 shrink-0 items-center rounded-sm bg-token-foreground/5 px-1 text-[10px] font-medium uppercase leading-none text-token-description-foreground"
+            >
+              Mock
+            </span>
+          ) : null}
+        </div>
         {showSubtitle ? (
           <div className="mt-0.5 truncate text-xs text-token-description-foreground">
             {subtitle}
