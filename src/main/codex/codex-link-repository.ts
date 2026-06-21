@@ -79,7 +79,8 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
 
 export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSummary {
   const database = getDb();
-  const projectId = input.projectId ? requireProjectId(input.projectId) : null;
+  const hasProjectIdInput = Object.prototype.hasOwnProperty.call(input, "projectId");
+  const projectId = hasProjectIdInput && input.projectId ? requireProjectId(input.projectId) : null;
   const nowMs = Date.now();
   const createdAt = Number.isFinite(input.createdAt) ? Number(input.createdAt) : nowMs;
   const updatedAt = Number.isFinite(input.updatedAt) ? Number(input.updatedAt) : nowMs;
@@ -103,7 +104,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
-      project_id = COALESCE(excluded.project_id, codex_threads.project_id),
+      project_id = CASE WHEN ? = 1 THEN excluded.project_id ELSE codex_threads.project_id END,
       thread_name = COALESCE(excluded.thread_name, codex_threads.thread_name),
       parent_thread_id = COALESCE(excluded.parent_thread_id, codex_threads.parent_thread_id),
       thread_preview = excluded.thread_preview,
@@ -128,6 +129,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     createdAt,
     updatedAt,
     linkedAt,
+    hasProjectIdInput ? 1 : 0,
   );
 
   const record = getCodexThread(input.threadId);

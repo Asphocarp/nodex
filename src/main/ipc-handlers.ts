@@ -1137,6 +1137,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.syncSidebarThreads(input)
   );
 
+  registerHandle("codex:sidebar:sync", (_, input) =>
+    codexService.syncSidebarThreadsDetailed(input)
+  );
+
   registerHandle("codex:threads:pinned:list", () =>
     codexService.listPinnedThreads()
   );

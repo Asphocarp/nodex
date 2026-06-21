@@ -3,6 +3,7 @@ import { Fragment, createElement, createRef, useEffect, useState, type Component
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type {
+  CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   Project,
   ProjectSession,
@@ -1082,6 +1083,8 @@ function renderWorkbench({
   projects = [makeProject()],
   sessionsByProject = { alpha: [makeSession()] },
   sidebarSnapshotItems = [],
+  sidebarSyncChangedProjectIds = [],
+  sidebarSyncProjectlessChanged = false,
   searchByProject = {},
   dbViewPrefsByProject = {},
   sidebar,
@@ -1093,6 +1096,8 @@ function renderWorkbench({
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
   sidebarSnapshotItems?: CodexSidebarThreadItem[];
+  sidebarSyncChangedProjectIds?: string[];
+  sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: { collapsed: boolean; width: number };
@@ -1102,23 +1107,36 @@ function renderWorkbench({
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
 } = {}) {
   let sessionState = sessionsByProject;
+  const buildSidebarSnapshot = () => ({
+    items: sidebarSnapshotItems,
+    pinnedThreadIds: sidebarSnapshotItems.filter((item) => item.pinned).map((item) => item.threadId),
+    projectAssignments: Object.fromEntries(
+      sidebarSnapshotItems
+        .filter((item): item is CodexSidebarThreadItem & { projectId: string } => typeof item.projectId === "string")
+        .map((item) => [item.threadId, item.projectId]),
+    ),
+    projectlessThreadIds: sidebarSnapshotItems.filter((item) => item.projectless).map((item) => item.threadId),
+    generatedAt: 1,
+  });
   mockInvokeImpl = async (channel, ...args) => {
     if (channel === "project-sessions:list") {
       const projectId = String(args[0]);
       return (sessionState[projectId] ?? []).filter((session) => !session.archived);
     }
     if (channel === "codex:sidebar:snapshot") {
+      return buildSidebarSnapshot();
+    }
+    if (channel === "codex:sidebar:sync") {
       return {
-        items: sidebarSnapshotItems,
-        pinnedThreadIds: sidebarSnapshotItems.filter((item) => item.pinned).map((item) => item.threadId),
-        projectAssignments: Object.fromEntries(
-          sidebarSnapshotItems
-            .filter((item): item is CodexSidebarThreadItem & { projectId: string } => typeof item.projectId === "string")
-            .map((item) => [item.threadId, item.projectId]),
-        ),
-        projectlessThreadIds: sidebarSnapshotItems.filter((item) => item.projectless).map((item) => item.threadId),
-        generatedAt: 1,
-      };
+        snapshot: buildSidebarSnapshot(),
+        source: "app-server",
+        refreshed: true,
+        refreshedAt: 1,
+        changedProjectIds: sidebarSyncChangedProjectIds,
+        projectlessChanged: sidebarSyncProjectlessChanged,
+        materializedSessionIds: [],
+        failedThreadIds: [],
+      } satisfies CodexSidebarSyncResult;
     }
     if (channel === "codex:threads:pinned:list") {
       return Object.values(sessionState)
@@ -2765,6 +2783,35 @@ describe("workbench session shell", () => {
     } finally {
       window.prompt = originalPrompt;
     }
+  });
+
+  test("sidebar sync refreshes inactive project session cache", async () => {
+    renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [
+          makeSession({
+            id: "session:beta:database-view",
+            projectId: "beta",
+            title: "Beta Database View",
+          }),
+        ],
+      },
+      sidebarSyncChangedProjectIds: ["beta"],
+    });
+    await settleAsyncRender();
+
+    await waitFor(() => {
+      const betaRefreshCount = invokeCalls.filter((call) =>
+        call[0] === "project-sessions:list" && call[1] === "beta"
+      ).length;
+      expect(betaRefreshCount >= 2).toBeTrue();
+    });
+    expect(invokeCalls.some((call) =>
+      call[0] === "codex:sidebar:sync"
+      && JSON.stringify(call[1]) === JSON.stringify({ policy: "force", reason: "mount" })
+    )).toBeTrue();
   });
 
   test("project action menu opens without selecting the project row", async () => {

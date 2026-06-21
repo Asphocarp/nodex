@@ -17,7 +17,10 @@ import type {
   CodexEvent,
   CodexReviewStartParams,
   CodexReviewStartResponse,
+  CodexSidebarRefreshPolicy,
+  CodexSidebarRefreshReason,
   CodexSidebarSnapshot,
+  CodexSidebarSyncResult,
   CodexServiceTier,
   BranchDiffStatsRequest,
   BranchDiffStatsResult,
@@ -747,6 +750,14 @@ export interface IpcApi {
   "codex:sidebar:snapshot": {
     args: [input?: { includeArchived?: boolean; refresh?: boolean }];
     result: CodexSidebarSnapshot;
+  };
+  "codex:sidebar:sync": {
+    args: [input?: {
+      includeArchived?: boolean;
+      policy?: CodexSidebarRefreshPolicy;
+      reason?: CodexSidebarRefreshReason;
+    }];
+    result: CodexSidebarSyncResult;
   };
   "codex:threads:pinned:list": {
     args: [];

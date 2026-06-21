@@ -56,6 +56,11 @@ interface TestableCodexService {
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   resolveThreadSummary: (threadId: string) => Promise<import("../../shared/types").CodexThreadSummary | null>;
   syncSidebarThreads: (input?: { includeArchived?: boolean; refresh?: boolean }) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
+  syncSidebarThreadsDetailed: (input?: {
+    includeArchived?: boolean;
+    policy?: import("../../shared/types").CodexSidebarRefreshPolicy;
+    reason?: import("../../shared/types").CodexSidebarRefreshReason;
+  }) => Promise<import("../../shared/types").CodexSidebarSyncResult>;
   listCommandPaletteThreads: (input: { projectIds: string[] }) => CommandPaletteThreadSummary[];
   searchCommandPaletteThreadContent: (input: {
     projectIds: string[];
@@ -628,6 +633,216 @@ describe("codex-service readThread fallback", () => {
       } finally {
         await service.shutdown();
       }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("materializes project-bound sidebar sessions from thread-started notifications", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+
+      try {
+        await serviceInternals.handleNotification("thread/started", {
+          thread: {
+            id: "thr_started_project",
+            parentThreadId: null,
+            preview: "Started from CLI",
+            ephemeral: false,
+            modelProvider: "openai",
+            cwd: "/tmp/codex/packages/app",
+            createdAt: 10,
+            updatedAt: 20,
+            status: { type: "idle" },
+            name: null,
+            source: "cli",
+          },
+        });
+
+        const sessions = listProjectSessions(defaultProjectId);
+        const linked = sessions.find((session) => session.thread?.threadId === "thr_started_project");
+        const summary = getCodexThread("thr_started_project");
+
+        expect(linked !== undefined).toBeTrue();
+        expect(linked?.projectId).toBe(defaultProjectId);
+        expect(linked?.noThreadFallbackTitle).toBe("Started from CLI");
+        expect(summary?.projectId).toBe(defaultProjectId);
+
+        await serviceInternals.handleNotification("thread/started", {
+          thread: {
+            id: "thr_started_project",
+            parentThreadId: null,
+            preview: "Started from CLI",
+            ephemeral: false,
+            modelProvider: "openai",
+            cwd: "/tmp/codex/packages/app",
+            createdAt: 10,
+            updatedAt: 30,
+            status: { type: "idle" },
+            name: null,
+            source: "cli",
+          },
+        });
+        const duplicateCount = listProjectSessions(defaultProjectId)
+          .filter((session) => session.thread?.threadId === "thr_started_project").length;
+        expect(duplicateCount).toBe(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("materializes projectless sidebar sessions from unmatched thread-started notifications", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+
+      try {
+        await serviceInternals.handleNotification("thread/started", {
+          thread: {
+            id: "thr_started_projectless",
+            parentThreadId: null,
+            preview: "Outside workspace",
+            ephemeral: false,
+            modelProvider: "openai",
+            cwd: "/tmp/outside-project",
+            createdAt: 10,
+            updatedAt: 20,
+            status: { type: "idle" },
+            name: null,
+            source: "cli",
+          },
+        });
+
+        const sessions = listProjectSessions(null);
+        const linked = sessions.find((session) => session.thread?.threadId === "thr_started_projectless");
+        const summary = getCodexThread("thr_started_projectless");
+
+        expect(linked !== undefined).toBeTrue();
+        expect(linked?.projectId).toBe(null);
+        expect(linked?.noThreadFallbackTitle).toBe("Outside workspace");
+        expect(summary?.projectId).toBe(null);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("coalesces concurrent sidebar force sync calls through one thread-list request", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      let requestCount = 0;
+      let releaseRequest: () => void = () => undefined;
+      const requestGate = new Promise<void>((resolve) => {
+        releaseRequest = resolve;
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        requestCount += 1;
+        await requestGate;
+        return {
+          data: [
+            {
+              id: "thr_coalesced_sidebar_sync",
+              parentThreadId: null,
+              preview: "Coalesced",
+              ephemeral: false,
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 1,
+              updatedAt: 2,
+              status: { type: "idle" },
+              name: null,
+              source: "cli",
+            },
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        const first = service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        const second = service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        await waitForCondition(() => requestCount === 1, 100);
+        releaseRequest();
+        const firstResult = await first;
+        const secondResult = await second;
+
+        expect(requestCount).toBe(1);
+        expect(firstResult.source).toBe("app-server");
+        expect(secondResult.source).toBe("app-server");
+        expect(firstResult.materializedSessionIds.length).toBe(1);
+        expect(secondResult.materializedSessionIds.length).toBe(1);
+      } finally {
+        releaseRequest();
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("clears sidebar project assignment when sync explicitly resolves no project", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_project_assignment_clear",
+        threadPreview: "In project",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      upsertCodexThread({
+        threadId: "thr_project_assignment_clear",
+        threadPreview: "Preserve old assignment",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        createdAt: 1,
+        updatedAt: 3,
+      });
+      const stillProjectBound = getCodexThread("thr_project_assignment_clear");
+
+      upsertCodexThread({
+        projectId: null,
+        threadId: "thr_project_assignment_clear",
+        threadPreview: "Projectless",
+        modelProvider: "openai",
+        cwd: "/tmp/outside-project",
+        createdAt: 1,
+        updatedAt: 4,
+      });
+      const cleared = getCodexThread("thr_project_assignment_clear");
+
+      upsertCodexThread({
+        threadId: "thr_project_assignment_clear",
+        threadPreview: "Preserved",
+        modelProvider: "openai",
+        cwd: "/tmp/outside-project",
+        createdAt: 1,
+        updatedAt: 5,
+      });
+      const preserved = getCodexThread("thr_project_assignment_clear");
+
+      expect(stillProjectBound?.projectId).toBe(defaultProjectId);
+      expect(cleared?.projectId).toBe(null);
+      expect(preserved?.projectId).toBe(null);
     });
 
     if (!ran) expect(true).toBeTrue();

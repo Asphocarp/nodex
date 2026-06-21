@@ -857,6 +857,29 @@ export interface CodexSidebarSnapshot {
   generatedAt: number;
 }
 
+export type CodexSidebarRefreshReason =
+  | "mount"
+  | "focus"
+  | "heartbeat"
+  | "host-message"
+  | "project-change"
+  | "session-change"
+  | "manual"
+  | "app-server-reconnect";
+
+export type CodexSidebarRefreshPolicy = "read" | "stale" | "force";
+
+export interface CodexSidebarSyncResult {
+  snapshot: CodexSidebarSnapshot;
+  source: "sqlite" | "app-server";
+  refreshed: boolean;
+  refreshedAt: number;
+  changedProjectIds: string[];
+  projectlessChanged: boolean;
+  materializedSessionIds: string[];
+  failedThreadIds: string[];
+}
+
 export interface UploadedResourceAsset {
   source: string;
   name: string;

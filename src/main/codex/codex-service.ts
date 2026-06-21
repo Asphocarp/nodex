@@ -97,7 +97,10 @@ import type {
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexSidebarRefreshPolicy,
+  CodexSidebarRefreshReason,
   CodexSidebarSnapshot,
+  CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   CodexSideChatStartInput,
   CodexSideChatStartResult,
@@ -243,6 +246,9 @@ import { terminalManager } from "../terminal-manager";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const COMMAND_PALETTE_THREAD_CONTENT_SEARCH_MAX_LIMIT = 60;
+const SIDEBAR_THREAD_SYNC_STALE_MS = 5_000;
+const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
+const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
 const COMMAND_PALETTE_THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
   "cli",
   "vscode",
@@ -273,6 +279,23 @@ const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
 interface ThreadRef {
   projectId: string | null;
   cwd: string | null;
+}
+
+interface SidebarThreadSyncMetadata {
+  changedProjectIds: Set<string>;
+  projectlessChanged: boolean;
+  materializedSessionIds: Set<string>;
+  failedThreadIds: Set<string>;
+}
+
+interface SidebarThreadMaterializationResult {
+  summary: CodexThreadSummary | null;
+  projectId: string | null;
+  projectless: boolean;
+  sessionId: string | null;
+  materialized: boolean;
+  changed: boolean;
+  failed: boolean;
 }
 
 function normalizeSidebarPath(value: string | null | undefined): string | null {
@@ -329,6 +352,23 @@ function normalizeSidebarSessionFallbackTitle(thread: {
     resolveSidebarThreadTitle(thread),
     MAX_PROJECT_SESSION_TITLE_LENGTH,
   ) ?? "New thread";
+}
+
+function hasSidebarThreadSummaryChanged(
+  previous: CodexThreadSummary | null,
+  next: CodexThreadSummary,
+): boolean {
+  if (!previous) return true;
+  return previous.projectId !== next.projectId
+    || previous.threadName !== next.threadName
+    || previous.threadPreview !== next.threadPreview
+    || previous.modelProvider !== next.modelProvider
+    || previous.cwd !== next.cwd
+    || previous.statusType !== next.statusType
+    || previous.statusActiveFlags.join("\u0000") !== next.statusActiveFlags.join("\u0000")
+    || previous.archived !== next.archived
+    || previous.createdAt !== next.createdAt
+    || previous.updatedAt !== next.updatedAt;
 }
 
 interface PendingApproval {
@@ -1657,6 +1697,11 @@ export class CodexService extends EventEmitter {
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
   private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
   private rateLimitsPollInFlight = false;
+  private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
+  private sidebarSyncInFlightIncludeArchived: boolean | null = null;
+  private sidebarLastSuccessfulRefreshAt = 0;
+  private sidebarFailureBackoffUntil = 0;
+  private sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
 
   constructor(options?: CodexServiceOptions) {
     super();
@@ -1684,6 +1729,10 @@ export class CodexService extends EventEmitter {
       this.syncRateLimitsPolling();
       if (connection.status === "connected" && connection.retries > 0 && !wasConnected) {
         this.markConversationsNeedResumeAfterReconnect();
+        void this.syncSidebarThreadsDetailed({
+          policy: "stale",
+          reason: "app-server-reconnect",
+        });
       }
     });
 
@@ -3024,11 +3073,123 @@ export class CodexService extends EventEmitter {
     includeArchived?: boolean;
     refresh?: boolean;
   } = {}): Promise<CodexSidebarSnapshot> {
-    if (input.refresh) {
-      await this.refreshSidebarThreadsFromAppServer({ includeArchived: input.includeArchived === true });
+    const result = await this.syncSidebarThreadsDetailed({
+      includeArchived: input.includeArchived,
+      policy: input.refresh ? "force" : "read",
+      reason: "manual",
+    });
+    return result.snapshot;
+  }
+
+  async syncSidebarThreadsDetailed(input: {
+    includeArchived?: boolean;
+    policy?: CodexSidebarRefreshPolicy;
+    reason?: CodexSidebarRefreshReason;
+  } = {}): Promise<CodexSidebarSyncResult> {
+    const includeArchived = input.includeArchived === true;
+    const policy = input.policy ?? "stale";
+    const reason = input.reason ?? "manual";
+
+    if (policy === "read") {
+      return this.buildSidebarSyncResult({
+        includeArchived,
+        source: "sqlite",
+        refreshed: false,
+        refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+      });
     }
 
-    return this.buildSidebarSnapshot({ includeArchived: input.includeArchived === true });
+    const now = Date.now();
+    const isFresh = this.sidebarLastSuccessfulRefreshAt > 0
+      && now - this.sidebarLastSuccessfulRefreshAt < SIDEBAR_THREAD_SYNC_STALE_MS;
+    if (policy === "stale" && isFresh) {
+      return this.buildSidebarSyncResult({
+        includeArchived,
+        source: "sqlite",
+        refreshed: false,
+        refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+      });
+    }
+
+    const backoffActive = policy === "stale" && this.sidebarFailureBackoffUntil > now;
+    if (backoffActive) {
+      return this.buildSidebarSyncResult({
+        includeArchived,
+        source: "sqlite",
+        refreshed: false,
+        refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+      });
+    }
+
+    if (this.sidebarSyncInFlight && this.sidebarSyncInFlightIncludeArchived === includeArchived) {
+      return await this.sidebarSyncInFlight;
+    }
+
+    this.sidebarSyncInFlightIncludeArchived = includeArchived;
+    this.sidebarSyncInFlight = this.runSidebarSyncFromAppServer({ includeArchived, reason });
+
+    try {
+      return await this.sidebarSyncInFlight;
+    } finally {
+      this.sidebarSyncInFlight = null;
+      this.sidebarSyncInFlightIncludeArchived = null;
+    }
+  }
+
+  private async runSidebarSyncFromAppServer(input: {
+    includeArchived: boolean;
+    reason: CodexSidebarRefreshReason;
+  }): Promise<CodexSidebarSyncResult> {
+    try {
+      const metadata = await this.refreshSidebarThreadsFromAppServer(input);
+      const refreshedAt = Date.now();
+      this.sidebarLastSuccessfulRefreshAt = refreshedAt;
+      this.sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
+      this.sidebarFailureBackoffUntil = 0;
+      return this.buildSidebarSyncResult({
+        includeArchived: input.includeArchived,
+        source: "app-server",
+        refreshed: true,
+        refreshedAt,
+        metadata,
+      });
+    } catch (error) {
+      this.sidebarFailureBackoffUntil = Date.now() + this.sidebarFailureBackoffMs;
+      this.sidebarFailureBackoffMs = Math.min(
+        this.sidebarFailureBackoffMs * 2,
+        SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS,
+      );
+      this.logger.warn("Could not sync sidebar threads from app-server", {
+        reason: input.reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.buildSidebarSyncResult({
+        includeArchived: input.includeArchived,
+        source: "sqlite",
+        refreshed: false,
+        refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+      });
+    }
+  }
+
+  private buildSidebarSyncResult(input: {
+    includeArchived: boolean;
+    source: "sqlite" | "app-server";
+    refreshed: boolean;
+    refreshedAt: number;
+    metadata?: SidebarThreadSyncMetadata;
+  }): CodexSidebarSyncResult {
+    const metadata = input.metadata;
+    return {
+      snapshot: this.buildSidebarSnapshot({ includeArchived: input.includeArchived }),
+      source: input.source,
+      refreshed: input.refreshed,
+      refreshedAt: input.refreshedAt,
+      changedProjectIds: [...(metadata?.changedProjectIds ?? new Set<string>())],
+      projectlessChanged: metadata?.projectlessChanged ?? false,
+      materializedSessionIds: [...(metadata?.materializedSessionIds ?? new Set<string>())],
+      failedThreadIds: [...(metadata?.failedThreadIds ?? new Set<string>())],
+    };
   }
 
   listPinnedThreads(): string[] {
@@ -3091,11 +3252,20 @@ export class CodexService extends EventEmitter {
     return projectSessionService.getProjectSession(session.id);
   }
 
-  private async refreshSidebarThreadsFromAppServer(input: { includeArchived: boolean }): Promise<void> {
+  private async refreshSidebarThreadsFromAppServer(input: {
+    includeArchived: boolean;
+    reason: CodexSidebarRefreshReason;
+  }): Promise<SidebarThreadSyncMetadata> {
     await this.ensureClientReady();
 
     const projects = dbService.listProjects();
     const archivedFilters = input.includeArchived ? [false, true] : [false];
+    const metadata: SidebarThreadSyncMetadata = {
+      changedProjectIds: new Set(),
+      projectlessChanged: false,
+      materializedSessionIds: new Set(),
+      failedThreadIds: new Set(),
+    };
 
     for (const archived of archivedFilters) {
       let cursor: string | null = null;
@@ -3109,30 +3279,105 @@ export class CodexService extends EventEmitter {
         });
 
         for (const thread of response.data) {
-          if (thread.ephemeral) continue;
-          if (typeof thread.parentThreadId === "string" && thread.parentThreadId.trim()) continue;
-
-          const cwd = typeof thread.cwd === "string" ? thread.cwd : null;
-          const projectId = resolveSidebarProjectIdForCwd(cwd, projects);
-          const summary = this.upsertLinkFromThread(
-            thread,
-            { projectId, cwd },
-            cwd,
-          );
-          if (!summary || summary.archived) continue;
-
-          try {
-            this.ensureSidebarThreadSessionFromSummary(summary);
-          } catch (error) {
-            this.logger.warn("Could not materialize sidebar thread session", {
-              threadId: summary.threadId,
-              error: error instanceof Error ? error.message : String(error),
-            });
+          const result = this.upsertSidebarThreadFromAppServerThread(thread, {
+            projects,
+            includeArchived: input.includeArchived,
+            reason: input.reason,
+          });
+          if (!result.summary) continue;
+          if (result.failed) metadata.failedThreadIds.add(result.summary.threadId);
+          if (result.changed || result.materialized) {
+            if (result.projectId) metadata.changedProjectIds.add(result.projectId);
+            if (result.projectless) metadata.projectlessChanged = true;
           }
+          if (result.sessionId && result.materialized) metadata.materializedSessionIds.add(result.sessionId);
         }
 
         cursor = response.nextCursor;
       } while (cursor);
+    }
+
+    return metadata;
+  }
+
+  private upsertSidebarThreadFromAppServerThread(
+    thread: unknown,
+    input: {
+      projects: readonly Project[];
+      includeArchived: boolean;
+      reason: CodexSidebarRefreshReason;
+    },
+  ): SidebarThreadMaterializationResult {
+    const empty: SidebarThreadMaterializationResult = {
+      summary: null,
+      projectId: null,
+      projectless: false,
+      sessionId: null,
+      materialized: false,
+      changed: false,
+      failed: false,
+    };
+    if (typeof thread !== "object" || thread === null) return empty;
+
+    const candidate = thread as Record<string, unknown>;
+    if (typeof candidate.id !== "string" || candidate.id.trim().length === 0) return empty;
+    if (candidate.ephemeral === true) return empty;
+    if (typeof candidate.parentThreadId === "string" && candidate.parentThreadId.trim()) return empty;
+    if (parseThreadSourceParentThreadId(candidate.source)) return empty;
+
+    const cwd = typeof candidate.cwd === "string" ? candidate.cwd : null;
+    const projectId = resolveSidebarProjectIdForCwd(cwd, input.projects);
+    const previousSummary = getCodexThread(candidate.id);
+    const summary = this.upsertLinkFromThread(thread, { projectId, cwd }, cwd);
+    if (!summary) return empty;
+    const changed = hasSidebarThreadSummaryChanged(previousSummary, summary);
+    if (!input.includeArchived && summary.archived) {
+      return {
+        ...empty,
+        summary,
+        projectId: summary.projectId,
+        projectless: summary.projectId === null,
+        changed,
+      };
+    }
+    if (summary.ephemeral || summary.source?.sideConversation) {
+      return {
+        ...empty,
+        summary,
+        projectId: summary.projectId,
+        projectless: summary.projectId === null,
+        changed,
+      };
+    }
+
+    const existingLink = projectSessionService.getProjectSessionThreadLink(summary.threadId);
+    try {
+      const session = this.ensureSidebarThreadSessionFromSummary(summary);
+      const sessionId = session?.id ?? existingLink?.sessionId ?? null;
+      return {
+        summary,
+        projectId: summary.projectId,
+        projectless: summary.projectId === null,
+        sessionId,
+        materialized: !existingLink && session !== null,
+        changed,
+        failed: false,
+      };
+    } catch (error) {
+      this.logger.warn("Could not materialize sidebar thread session", {
+        reason: input.reason,
+        threadId: summary.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        summary,
+        projectId: summary.projectId,
+        projectless: summary.projectId === null,
+        sessionId: existingLink?.sessionId ?? null,
+        materialized: false,
+        changed,
+        failed: true,
+      };
     }
   }
 
@@ -5222,7 +5467,7 @@ export class CodexService extends EventEmitter {
 
     const parentThreadId = parseThreadSourceParentThreadId(candidate.source);
     const summary = upsertCodexThread({
-      projectId: ref?.projectId ?? existing?.projectId ?? null,
+      projectId: ref ? ref.projectId : existing?.projectId ?? null,
       threadId: candidate.id,
       source: parentThreadId ? { parentThreadId } : null,
       threadName: typeof candidate.name === "string" ? candidate.name : null,
@@ -8218,6 +8463,17 @@ export class CodexService extends EventEmitter {
       .sort((left, right) => left.createdAt - right.createdAt);
   }
 
+  private scheduleSidebarThreadListRepair(notificationMethod: string, threadId: string): void {
+    this.logger.debug("Scheduling sidebar thread-list repair for unknown notification thread", {
+      notificationMethod,
+      threadId,
+    });
+    void this.syncSidebarThreadsDetailed({
+      policy: "stale",
+      reason: "host-message",
+    });
+  }
+
   private async handleNotification(method: string, params: unknown): Promise<void> {
     if (method === "thread/started") {
       const thread =
@@ -8225,11 +8481,18 @@ export class CodexService extends EventEmitter {
           ? (params as Record<string, unknown>).thread
           : null;
 
-      const summary = this.upsertLinkFromThread(thread);
+      const result = this.upsertSidebarThreadFromAppServerThread(thread, {
+        projects: dbService.listProjects(),
+        includeArchived: false,
+        reason: "host-message",
+      });
+      const summary = result.summary;
       if (summary) {
         this.logger.info("Received Codex thread started notification", {
           threadId: summary.threadId,
           projectId: summary.projectId,
+          sessionId: result.sessionId,
+          materialized: result.materialized,
         });
         this.emitEvent({ type: "threadSummary", thread: summary });
         this.emitThreadStreamSnapshotFromRecord(summary.threadId);
@@ -8254,6 +8517,8 @@ export class CodexService extends EventEmitter {
       const updated = updateCodexThreadStatus(payload.threadId, parsed.statusType, parsed.statusActiveFlags);
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
+      } else {
+        this.scheduleSidebarThreadListRepair(method, payload.threadId);
       }
       this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       this.notifyLinkedProjectSessionsChanged(payload.threadId);
@@ -8278,6 +8543,9 @@ export class CodexService extends EventEmitter {
         archived,
       });
       const updated = updateCodexThreadArchived(payload.threadId, archived);
+      if (!updated) {
+        this.scheduleSidebarThreadListRepair(method, payload.threadId);
+      }
       if (archived) {
         setCodexThreadPinned(payload.threadId, false);
         const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
@@ -8309,6 +8577,9 @@ export class CodexService extends EventEmitter {
         threadId: payload.threadId,
       });
       const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
+      if (owners.length === 0 && !getCodexThread(payload.threadId)) {
+        this.scheduleSidebarThreadListRepair(method, payload.threadId);
+      }
       unlinkCodexThread(payload.threadId);
       this.forgetThreadLocalState(payload.threadId);
       this.emitEvent({ type: "threadDeleted", threadId: payload.threadId });
@@ -8328,6 +8599,8 @@ export class CodexService extends EventEmitter {
       const updated = updateCodexThreadName(payload.threadId, name);
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
+      } else {
+        this.scheduleSidebarThreadListRepair(method, payload.threadId);
       }
       this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       this.notifyLinkedProjectSessionsChanged(payload.threadId);
