@@ -8,6 +8,7 @@ import type {
   CodexSidebarSyncResult,
   Project,
 } from "./types";
+import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
 import {
   invoke,
   subscribeCodexHostMessages,
@@ -36,12 +37,30 @@ function resolveSidebarSyncReasonForHostMessage(
   message: CodexHostMessage,
 ): CodexSidebarRefreshReason | null {
   if (message.type === "threadTitleUpdated" || message.type === "threadDeleted") return "host-message";
+  if (message.type === "sidebarSyncUpdated") return null;
   if (message.type !== "sharedObjectUpdated") return null;
   if (message.object.objectType === "connection") return "app-server-reconnect";
   if (message.object.objectType === "threadSummary" || message.object.objectType === "threadStartProgress") {
     return "host-message";
   }
   return null;
+}
+
+function addProjectSessionEventScope(
+  result: CodexSidebarSyncResult,
+  event: ProjectSessionsChangeEvent,
+): CodexSidebarSyncResult {
+  if (event.projectId === null) {
+    return {
+      ...result,
+      projectlessChanged: true,
+    };
+  }
+
+  return {
+    ...result,
+    changedProjectIds: [...new Set([...result.changedProjectIds, event.projectId])],
+  };
 }
 
 export function useSidebarThreadSyncModel(input: {
@@ -76,14 +95,21 @@ export function useSidebarThreadSyncModel(input: {
     void onSessionsAffectedRef.current?.(result);
   }, [queryClient]);
 
+  const requestSidebarSync = useCallback(async (
+    policy: CodexSidebarRefreshPolicy,
+    reason: CodexSidebarRefreshReason,
+  ): Promise<CodexSidebarSyncResult> => {
+    return await invoke("codex:sidebar:sync", { policy, reason });
+  }, []);
+
   const syncSidebarThreads = useCallback(async (
     policy: CodexSidebarRefreshPolicy,
     reason: CodexSidebarRefreshReason,
   ): Promise<CodexSidebarSyncResult> => {
-    const result = await invoke("codex:sidebar:sync", { policy, reason });
+    const result = await requestSidebarSync(policy, reason);
     applySidebarSyncResult(result);
     return result;
-  }, [applySidebarSyncResult]);
+  }, [applySidebarSyncResult, requestSidebarSync]);
 
   const scheduleHostMessageSync = useCallback((reason: CodexSidebarRefreshReason) => {
     if (hostMessageSyncTimerRef.current !== null) {
@@ -104,7 +130,7 @@ export function useSidebarThreadSyncModel(input: {
 
   useEffect(() => {
     let canceled = false;
-    void invoke("codex:sidebar:sync", { policy: "force", reason: "mount" })
+    void requestSidebarSync("force", "mount")
       .then((result) => {
         if (canceled) return;
         applySidebarSyncResult(result);
@@ -113,27 +139,35 @@ export function useSidebarThreadSyncModel(input: {
     return () => {
       canceled = true;
     };
-  }, [applySidebarSyncResult, projects]);
+  }, [applySidebarSyncResult, projects, requestSidebarSync]);
 
   useEffect(() => subscribeCodexHostMessages((message) => {
+    if (message.type === "sidebarSyncUpdated") {
+      applySidebarSyncResult(message.result);
+      return;
+    }
     const reason = resolveSidebarSyncReasonForHostMessage(message);
     if (reason) scheduleHostMessageSync(reason);
-  }), [scheduleHostMessageSync]);
+  }), [applySidebarSyncResult, scheduleHostMessageSync]);
 
   useEffect(() => subscribeProjectChanges(() => {
     void syncSidebarThreads("force", "project-change").catch(() => undefined);
   }), [syncSidebarThreads]);
 
   useEffect(() => {
-    const disposers = projects.map((project) =>
-      subscribeProjectSessionChanges(project.id, () => {
-        void syncSidebarThreads("read", "session-change").catch(() => undefined);
-      })
-    );
+    const handleProjectSessionChange = (event: ProjectSessionsChangeEvent) => {
+      void requestSidebarSync("read", "session-change")
+        .then((result) => applySidebarSyncResult(addProjectSessionEventScope(result, event)))
+        .catch(() => undefined);
+    };
+    const disposers = [
+      ...projects.map((project) => subscribeProjectSessionChanges(project.id, handleProjectSessionChange)),
+      subscribeProjectSessionChanges(null, handleProjectSessionChange),
+    ];
     return () => {
       for (const dispose of disposers) dispose();
     };
-  }, [projects, syncSidebarThreads]);
+  }, [applySidebarSyncResult, projects, requestSidebarSync]);
 
   useEffect(() => subscribeWindowFocusChanges((focused) => {
     focusedRef.current = focused;

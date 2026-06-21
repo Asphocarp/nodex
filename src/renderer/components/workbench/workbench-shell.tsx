@@ -95,7 +95,7 @@ import {
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
-import { invoke, subscribeProjectSessionChanges } from "@/lib/api";
+import { invoke } from "@/lib/api";
 import { useKanban } from "@/lib/use-kanban";
 import { useCardDetail } from "@/lib/card-detail-store";
 import { cn } from "@/lib/utils";
@@ -1533,17 +1533,53 @@ export function WorkbenchShell({
     ?? null;
   const activeSession = selectedActiveSession ?? activeSessions[0] ?? null;
   const refreshProjectSessionsRef = useRef<((projectId: string | null) => Promise<ProjectSession[]>) | null>(null);
+  const pendingSidebarSessionScopesRef = useRef<{
+    projectIds: Set<string>;
+    projectless: boolean;
+  }>({
+    projectIds: new Set(),
+    projectless: false,
+  });
+  const refreshSidebarSessionScopes = useCallback((
+    refreshProjectSessionsForId: (projectId: string | null) => Promise<ProjectSession[]>,
+    projectIds: readonly string[],
+    projectless: boolean,
+  ) => {
+    const uniqueProjectIds = [...new Set(projectIds)];
+    if (uniqueProjectIds.length === 0 && !projectless) return;
+
+    const refreshes = uniqueProjectIds.map((projectId) => refreshProjectSessionsForId(projectId));
+    if (projectless) refreshes.push(refreshProjectSessionsForId(null));
+    void Promise.all(refreshes).catch(() => undefined);
+  }, []);
+  const drainPendingSidebarSessionScopes = useCallback((
+    refreshProjectSessionsForId: (projectId: string | null) => Promise<ProjectSession[]>,
+  ) => {
+    const pending = pendingSidebarSessionScopesRef.current;
+    if (pending.projectIds.size === 0 && !pending.projectless) return;
+
+    const projectIds = [...pending.projectIds];
+    const projectless = pending.projectless;
+    pendingSidebarSessionScopesRef.current = {
+      projectIds: new Set(),
+      projectless: false,
+    };
+    refreshSidebarSessionScopes(refreshProjectSessionsForId, projectIds, projectless);
+  }, [refreshSidebarSessionScopes]);
   const handleSidebarSessionsAffected = useCallback((result: CodexSidebarSyncResult) => {
     const refreshProjectSessionsForId = refreshProjectSessionsRef.current;
-    if (!refreshProjectSessionsForId) return;
-
     const affectedProjectIds = [...new Set(result.changedProjectIds)];
     if (affectedProjectIds.length === 0 && !result.projectlessChanged) return;
 
-    const refreshes = affectedProjectIds.map((projectId) => refreshProjectSessionsForId(projectId));
-    if (result.projectlessChanged) refreshes.push(refreshProjectSessionsForId(null));
-    void Promise.all(refreshes).catch(() => undefined);
-  }, []);
+    if (!refreshProjectSessionsForId) {
+      const pending = pendingSidebarSessionScopesRef.current;
+      for (const projectId of affectedProjectIds) pending.projectIds.add(projectId);
+      pending.projectless ||= result.projectlessChanged;
+      return;
+    }
+
+    refreshSidebarSessionScopes(refreshProjectSessionsForId, affectedProjectIds, result.projectlessChanged);
+  }, [refreshSidebarSessionScopes]);
   const sidebarThreadSync = useSidebarThreadSyncModel({
     projects,
     onSessionsAffected: handleSidebarSessionsAffected,
@@ -1961,12 +1997,13 @@ export function WorkbenchShell({
 
   useEffect(() => {
     refreshProjectSessionsRef.current = refreshProjectSessions;
+    drainPendingSidebarSessionScopes(refreshProjectSessions);
     return () => {
       if (refreshProjectSessionsRef.current === refreshProjectSessions) {
         refreshProjectSessionsRef.current = null;
       }
     };
-  }, [refreshProjectSessions]);
+  }, [drainPendingSidebarSessionScopes, refreshProjectSessions]);
 
   const mergeSessionInState = useCallback((session: ProjectSession) => {
     if (session.projectId === null) {
@@ -2006,13 +2043,6 @@ export function WorkbenchShell({
       return false;
     }
   }, []);
-
-  useEffect(() => {
-    if (!activeProject?.id) return;
-    return subscribeProjectSessionChanges(activeProject.id, () => {
-      void refreshProjectSessions(activeProject.id);
-    });
-  }, [activeProject?.id, refreshProjectSessions]);
 
   const refreshAllSessions = useCallback(async () => {
     if (projects.length === 0) return;

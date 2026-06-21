@@ -30,6 +30,7 @@ import {
 } from "../kanban/db-service";
 import {
   createProjectSession,
+  createProjectSessionTab,
   getProjectSession,
   listProjectSessions,
   upsertProjectSessionThreadLink,
@@ -37,6 +38,7 @@ import {
 import { CodexRpcError } from "./codex-app-server-client";
 import {
   getCodexThread,
+  setCodexThreadPinned,
   upsertCodexThread,
 } from "./codex-link-repository";
 import { resetCodexSessionStoreCaches } from "./codex-session-store";
@@ -185,6 +187,40 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
 
 function createService(options?: { rateLimitsPollIntervalMs?: number }): TestableCodexService {
   return new CodexService(options) as unknown as TestableCodexService;
+}
+
+function makeSidebarListThread(input: {
+  id: string;
+  cwd: string | null;
+  preview?: string;
+  name?: string | null;
+  updatedAt?: number;
+  archived?: boolean;
+}) {
+  const updatedAt = input.updatedAt ?? 20;
+  return {
+    id: input.id,
+    sessionId: input.id,
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: input.preview ?? input.name ?? "External thread",
+    ephemeral: false,
+    modelProvider: "openai",
+    createdAt: Math.max(1, updatedAt - 10),
+    updatedAt,
+    status: { type: "idle" },
+    path: null,
+    cwd: input.cwd,
+    cliVersion: "test",
+    source: "cli",
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: input.name ?? null,
+    turns: [],
+    archived: input.archived ?? false,
+  };
 }
 
 async function flushAsyncWork(ticks = 2): Promise<void> {
@@ -644,6 +680,10 @@ describe("codex-service readThread fallback", () => {
       const serviceInternals = service as unknown as {
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
 
       try {
         await serviceInternals.handleNotification("thread/started", {
@@ -670,6 +710,12 @@ describe("codex-service readThread fallback", () => {
         expect(linked?.projectId).toBe(defaultProjectId);
         expect(linked?.noThreadFallbackTitle).toBe("Started from CLI");
         expect(summary?.projectId).toBe(defaultProjectId);
+        const sidebarMessage = hostMessages.find((message) => message.type === "sidebarSyncUpdated");
+        expect(sidebarMessage !== undefined).toBeTrue();
+        if (sidebarMessage?.type === "sidebarSyncUpdated") {
+          expect(sidebarMessage.result.changedProjectIds.includes(defaultProjectId)).toBeTrue();
+          expect(sidebarMessage.result.materializedSessionIds.includes(linked?.id ?? "")).toBeTrue();
+        }
 
         await serviceInternals.handleNotification("thread/started", {
           thread: {
@@ -791,6 +837,273 @@ describe("codex-service readThread fallback", () => {
         expect(secondResult.materializedSessionIds.length).toBe(1);
       } finally {
         releaseRequest();
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("forces sidebar repair for unknown name notifications even when the last sync is fresh", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      let requestCount = 0;
+      let exposeUnknownThread = false;
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        requestCount += 1;
+        return {
+          data: exposeUnknownThread
+            ? [
+                makeSidebarListThread({
+                  id: "thr_unknown_name_repair",
+                  cwd: "/tmp/codex/packages/app",
+                  name: "Repaired title",
+                  updatedAt: 50,
+                }),
+              ]
+            : [],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        exposeUnknownThread = true;
+        await serviceInternals.handleNotification("thread/name/updated", {
+          threadId: "thr_unknown_name_repair",
+          threadName: "Repaired title",
+        });
+        await waitForCondition(() => getCodexThread("thr_unknown_name_repair") !== null, 1_000);
+
+        const summary = getCodexThread("thr_unknown_name_repair");
+        const linked = listProjectSessions(defaultProjectId)
+          .find((session) => session.thread?.threadId === "thr_unknown_name_repair");
+
+        expect(requestCount).toBe(2);
+        expect(summary?.threadName).toBe("Repaired title");
+        expect(linked !== undefined).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("forces sidebar repair for unknown goal metadata notifications", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      let exposeUnknownThread = false;
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        return {
+          data: exposeUnknownThread
+            ? [
+                makeSidebarListThread({
+                  id: "thr_unknown_goal_repair",
+                  cwd: "/tmp/codex",
+                  preview: "Goal repaired",
+                  updatedAt: 80,
+                }),
+              ]
+            : [],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        exposeUnknownThread = true;
+        await serviceInternals.handleNotification("thread/goal/updated", {
+          threadId: "thr_unknown_goal_repair",
+        });
+        await waitForCondition(() => getCodexThread("thr_unknown_goal_repair") !== null, 1_000);
+
+        const linked = listProjectSessions(defaultProjectId)
+          .find((session) => session.thread?.threadId === "thr_unknown_goal_repair");
+
+        expect(getCodexThread("thr_unknown_goal_repair") !== null).toBeTrue();
+        expect(linked !== undefined).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("re-homes a projectless linked sidebar session when cwd later matches a project source", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      let cwd: string | null = "/tmp/outside-project";
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        return {
+          data: [
+            makeSidebarListThread({
+              id: "thr_rehome_projectless",
+              cwd,
+              preview: "Move me",
+              updatedAt: cwd === null ? 20 : 30,
+            }),
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        const projectless = listProjectSessions(null)
+          .find((session) => session.thread?.threadId === "thr_rehome_projectless");
+        expect(projectless !== undefined).toBeTrue();
+        expect(projectless?.projectId).toBe(null);
+
+        cwd = "/tmp/codex/packages/app";
+        await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+
+        const moved = listProjectSessions(defaultProjectId)
+          .find((session) => session.thread?.threadId === "thr_rehome_projectless");
+        const stillProjectless = listProjectSessions(null)
+          .find((session) => session.thread?.threadId === "thr_rehome_projectless");
+
+        expect(moved?.id).toBe(projectless?.id);
+        expect(moved?.projectId).toBe(defaultProjectId);
+        expect(stillProjectless === undefined).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("archives project-scoped linked session instead of moving its tabs across projects", async () => {
+    const ran = await withTempDatabase(async () => {
+      const targetProjectId = createProject({ name: "Other", sources: ["/tmp/other"] }).id;
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Scoped panel",
+      });
+      createProjectSessionTab({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        panelId: "right",
+        kind: "db_view",
+        title: "DB View",
+        config: { projectId: defaultProjectId, view: "kanban" },
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId: "thr_rehome_scoped_tabs",
+        threadPreview: "Scoped panel",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        return {
+          data: [
+            makeSidebarListThread({
+              id: "thr_rehome_scoped_tabs",
+              cwd: "/tmp/other/app",
+              preview: "Scoped panel moved",
+              updatedAt: 60,
+            }),
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+
+        const archivedOriginal = getProjectSession(session.id);
+        const replacement = listProjectSessions(targetProjectId)
+          .find((candidate) => candidate.thread?.threadId === "thr_rehome_scoped_tabs");
+
+        expect(archivedOriginal?.archived).toBeTrue();
+        expect(replacement !== undefined).toBeTrue();
+        expect(replacement?.id === session.id).toBeFalse();
+        expect(replacement?.projectId).toBe(targetProjectId);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("thread-deleted archives linked sessions, clears pin, and removes the active sidebar row", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Delete me",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId: "thr_deleted_cleanup",
+        threadPreview: "Delete me",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+      });
+      setCodexThreadPinned("thr_deleted_cleanup", true);
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+
+      try {
+        await serviceInternals.handleNotification("thread/deleted", {
+          threadId: "thr_deleted_cleanup",
+        });
+
+        const archived = getProjectSession(session.id);
+        const snapshot = await service.syncSidebarThreads({ refresh: false });
+
+        expect(archived?.archived).toBeTrue();
+        expect(getCodexThread("thr_deleted_cleanup") === null).toBeTrue();
+        expect(snapshot.items.some((item) => item.threadId === "thr_deleted_cleanup")).toBeFalse();
+        expect(snapshot.pinnedThreadIds.includes("thr_deleted_cleanup")).toBeFalse();
+      } finally {
         await service.shutdown();
       }
     });

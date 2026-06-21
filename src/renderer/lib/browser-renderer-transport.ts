@@ -13,7 +13,7 @@ import type {
   WindowSessionBootstrap,
   WorkbenchLayoutSnapshot,
 } from "./types";
-import type { BoardChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
+import type { BoardChangeEvent, ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -1495,7 +1495,14 @@ function subscribeBoardChanges(projectId: string, callback: () => void): () => v
   return () => es.close();
 }
 
-function subscribeProjectSessionChanges(projectId: string, callback: () => void): () => void {
+function subscribeProjectSessionChanges(
+  projectId: string | null,
+  callback: (event: ProjectSessionsChangeEvent) => void,
+): () => void {
+  if (projectId === null) {
+    void callback;
+    return () => {};
+  }
   if (typeof EventSource === "undefined") {
     return () => {};
   }
@@ -1506,7 +1513,7 @@ function subscribeProjectSessionChanges(projectId: string, callback: () => void)
     try {
       const data = JSON.parse(event.data) as { event?: string };
       if (data.event === "project-sessions-changed") {
-        callback();
+        callback({ projectId, changeType: "update" });
       }
     } catch {
       // ignore parse errors

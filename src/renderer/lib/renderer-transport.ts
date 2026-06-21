@@ -6,7 +6,10 @@ export interface RendererTransport {
   kind: "browser" | "electron";
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (projectId: string, callback: () => void) => () => void;
-  subscribeProjectSessionChanges: (projectId: string, callback: () => void) => () => void;
+  subscribeProjectSessionChanges: (
+    projectId: string | null,
+    callback: (event: import("../../shared/ipc-api").ProjectSessionsChangeEvent) => void,
+  ) => () => void;
   subscribeProjectChanges: (callback: (event: import("../../shared/ipc-api").ProjectsChangeEvent) => void) => () => void;
   subscribeCodexHostMessages: (callback: (message: import("./types").CodexHostMessage) => void) => () => void;
   subscribeDesktopNotificationActions: (

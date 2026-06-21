@@ -60,6 +60,8 @@ function applyHostMessage(message: CodexHostMessage): void {
     return;
   }
 
+  if (message.type === "sidebarSyncUpdated") return;
+
   dispatchCodexAppServerMessage("error", {
     hostId: message.hostId,
     message: message.message,

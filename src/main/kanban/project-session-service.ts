@@ -570,6 +570,48 @@ export function deleteProjectSession(sessionId: string): boolean {
   return result.changes > 0;
 }
 
+export function moveProjectSessionToProject(sessionId: string, projectId: string | null): ProjectSession | null {
+  const existing = getProjectSession(sessionId);
+  if (!existing) return null;
+
+  const nextProjectId = projectId === null ? null : ensureProjectExists(projectId);
+  if (existing.projectId === nextProjectId) return existing;
+
+  const database = getDb();
+  const now = new Date().toISOString();
+  const targetWhere = projectSessionWhereClause(nextProjectId);
+  const nextPinnedOrder = existing.pinned
+    ? ((database
+      .prepare(`
+        SELECT MAX(pinned_order) AS maxPinnedOrder
+        FROM project_sessions
+        WHERE ${targetWhere.sql} AND pinned = 1 AND archived = 0
+      `)
+      .get(...targetWhere.values) as { maxPinnedOrder: number | null } | undefined)?.maxPinnedOrder ?? -1) + 1
+    : null;
+
+  const move = database.transaction(() => {
+    database.prepare(`
+      UPDATE project_sessions
+      SET "order" = "order" + 1, updated_at = ?
+      WHERE ${targetWhere.sql}
+        AND "order" >= 0
+    `).run(now, ...targetWhere.values);
+
+    database.prepare(`
+      UPDATE project_sessions
+      SET project_id = ?,
+          "order" = 0,
+          pinned_order = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(nextProjectId, nextPinnedOrder, now, sessionId);
+  });
+  move();
+
+  return getProjectSession(sessionId);
+}
+
 export function reorderProjectSessions(projectId: string, orderedSessionIds: string[]): ProjectSession[] {
   projectId = ensureProjectExists(projectId);
   const existing = listProjectSessions(projectId);

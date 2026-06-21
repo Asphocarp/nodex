@@ -2271,5 +2271,11 @@ export type CodexHostMessage =
       hostId: string;
       threadId: string;
     }
+  | {
+      type: "sidebarSyncUpdated";
+      hostId: string;
+      result: CodexSidebarSyncResult;
+      reason: CodexSidebarRefreshReason;
+    }
   | CodexMcpNotificationMessage
   | { type: "error"; hostId: string; message: string; detail?: string };

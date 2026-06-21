@@ -39,8 +39,8 @@ export function subscribeBoardChanges(
 }
 
 export function subscribeProjectSessionChanges(
-  projectId: string,
-  callback: () => void,
+  projectId: string | null,
+  callback: (event: import("../../shared/ipc-api").ProjectSessionsChangeEvent) => void,
 ): () => void {
   return resolveRendererTransport().subscribeProjectSessionChanges(projectId, callback);
 }
