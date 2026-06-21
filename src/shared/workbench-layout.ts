@@ -1,6 +1,7 @@
 export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 export type WorkbenchLayoutStageId = "db" | "cards" | "threads" | "files";
 export type WorkbenchLayoutStageNavDirection = "left" | "right";
+export type WorkbenchLayoutSidebarPinnedOrganizationMode = "byProject" | "manualOrder";
 
 export interface WorkbenchRecentCardSession {
   id: string;
@@ -30,6 +31,7 @@ export interface WorkbenchLayoutFilesStageTab {
 export interface WorkbenchLayoutSidebarSnapshot {
   collapsed: boolean;
   width: number;
+  pinnedOrganizationMode: WorkbenchLayoutSidebarPinnedOrganizationMode;
   topLevelSectionOrder: string[];
   topLevelSections: Record<string, unknown>;
 }
@@ -94,6 +96,7 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
     sidebar: {
       collapsed: false,
       width: 300,
+      pinnedOrganizationMode: "byProject",
       topLevelSectionOrder: [],
       topLevelSections: {},
     },

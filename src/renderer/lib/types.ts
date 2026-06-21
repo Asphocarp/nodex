@@ -245,6 +245,7 @@ export type {
   WorkbenchLayoutCardStageState,
   WorkbenchLayoutFilesStageTab,
   WorkbenchRecentCardSession,
+  WorkbenchLayoutSidebarPinnedOrganizationMode,
   WorkbenchLayoutStageId,
   WorkbenchLayoutStageNavDirection,
   WorkbenchLayoutSnapshot,

@@ -52,11 +52,14 @@ export type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "cale
 export type StageId = "db" | "cards" | "threads" | "files";
 export type StageNavDirection = "left" | "right";
 export type SidebarGroupId = StageId | "recents";
+export type SidebarPinnedOrganizationMode = "byProject" | "manualOrder";
 export type {
   SidebarSectionItemLimit,
   SidebarTopLevelSectionId,
   SidebarTopLevelSectionsPrefs,
 } from "./sidebar-section-prefs";
+
+export const DEFAULT_SIDEBAR_PINNED_ORGANIZATION_MODE: SidebarPinnedOrganizationMode = "byProject";
 
 export const STAGE_ORDER: StageId[] = ["db", "cards", "threads", "files"];
 export const NEW_THREAD_STAGE_TAB_ID = "thread:new";
@@ -108,6 +111,7 @@ const NEW_THREAD_STAGE_TAB_TITLE = "New thread";
 interface SidebarPrefs {
   collapsed: boolean;
   width: number;
+  pinnedOrganizationMode: SidebarPinnedOrganizationMode;
   topLevelSectionOrder: SidebarTopLevelSectionId[];
   topLevelSections: SidebarTopLevelSectionsPrefs;
 }
@@ -368,6 +372,11 @@ function normalizeSlidingWindowPaneCount(value: unknown): number | null {
   return clampSlidingWindowPaneCount(value);
 }
 
+export function normalizeSidebarPinnedOrganizationMode(value: unknown): SidebarPinnedOrganizationMode {
+  if (value === "manualOrder" || value === "byProject") return value;
+  return DEFAULT_SIDEBAR_PINNED_ORGANIZATION_MODE;
+}
+
 function resolvePersistedSlidingWindowPaneCount(persistedPaneCount: unknown): number {
   const nextCount = normalizeSlidingWindowPaneCount(persistedPaneCount);
   if (nextCount !== null) return nextCount;
@@ -545,6 +554,9 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
           ? persistedSidebar.width
           : null,
       }),
+      pinnedOrganizationMode: normalizeSidebarPinnedOrganizationMode(
+        layoutSnapshot?.sidebar?.pinnedOrganizationMode ?? persistedSidebar?.pinnedOrganizationMode,
+      ),
       topLevelSectionOrder: normalizeSidebarTopLevelSectionOrder(
         layoutSnapshot?.sidebar?.topLevelSectionOrder ?? persistedSidebar?.topLevelSectionOrder,
       ),
@@ -1205,6 +1217,20 @@ export function useWorkbenchState(
     });
   }, []);
 
+  const setSidebarPinnedOrganizationMode = useCallback((mode: SidebarPinnedOrganizationMode) => {
+    const nextMode = normalizeSidebarPinnedOrganizationMode(mode);
+    setState((prev) => {
+      if (prev.sidebar.pinnedOrganizationMode === nextMode) return prev;
+      return {
+        ...prev,
+        sidebar: {
+          ...prev.sidebar,
+          pinnedOrganizationMode: nextMode,
+        },
+      };
+    });
+  }, []);
+
   const setSidebarTopLevelSectionVisible = useCallback((sectionId: SidebarTopLevelSectionId, visible: boolean) => {
     setState((prev) => {
       const currentSection = prev.sidebar.topLevelSections[sectionId];
@@ -1707,6 +1733,7 @@ export function useWorkbenchState(
     setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarWidth,
+    setSidebarPinnedOrganizationMode,
     setSidebarTopLevelSectionVisible,
     setSidebarTopLevelSectionItemLimit,
     moveSidebarTopLevelSectionBy,
@@ -1763,6 +1790,7 @@ export const workbenchTestHelpers = {
   normalizeStageMap,
   clampSlidingWindowPaneCount,
   normalizeSlidingWindowPaneCount,
+  normalizeSidebarPinnedOrganizationMode,
   resolvePersistedSlidingWindowPaneCount,
   normalizeSidebarTopLevelSectionOrder,
   normalizeSidebarTopLevelSectionsPrefs,

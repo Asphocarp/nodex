@@ -106,6 +106,14 @@ describe("use-workbench-state helpers", () => {
     expect(JSON.stringify(normalized)).toBe(JSON.stringify({ one: "kanban", three: "calendar" }));
   });
 
+  test("normalizes sidebar pinned organization mode", () => {
+    resetStorage();
+
+    expect(workbenchTestHelpers.normalizeSidebarPinnedOrganizationMode(undefined)).toBe("byProject");
+    expect(workbenchTestHelpers.normalizeSidebarPinnedOrganizationMode("unknown")).toBe("byProject");
+    expect(workbenchTestHelpers.normalizeSidebarPinnedOrganizationMode("manualOrder")).toBe("manualOrder");
+  });
+
   test("ignores old tabs state and falls back to current defaults", () => {
     resetStorage();
     localStorageRef.setItem(
@@ -815,6 +823,9 @@ describe("use-workbench-state helpers", () => {
       activeView: string;
       activeSearchQuery: string;
       focusedStage: string;
+      sidebar: {
+        pinnedOrganizationMode: string;
+      };
     };
     const capturedRef: { current: CapturedWorkbenchState | null } = { current: null };
 
@@ -840,6 +851,7 @@ describe("use-workbench-state helpers", () => {
       sidebar: {
         collapsed: false,
         width: 300,
+        pinnedOrganizationMode: "manualOrder",
         topLevelSectionOrder: [],
         topLevelSections: {},
       },
@@ -876,6 +888,33 @@ describe("use-workbench-state helpers", () => {
     expect(nextState.activeView).toBe("calendar");
     expect(nextState.activeSearchQuery).toBe("release");
     expect(nextState.focusedStage).toBe("threads");
+    expect(nextState.sidebar.pinnedOrganizationMode).toBe("manualOrder");
+  });
+
+  test("persists sidebar pinned organization mode in sidebar prefs", async () => {
+    resetStorage();
+    const capturedRef: { current: ReturnType<typeof useWorkbenchState> | null } = { current: null };
+
+    function Harness() {
+      capturedRef.current = useWorkbenchState(PROJECTS);
+      return null;
+    }
+
+    render(createElement(Harness));
+    await settleAsyncRender();
+
+    if (!capturedRef.current) throw new Error("missing workbench state");
+    expect(capturedRef.current.sidebar.pinnedOrganizationMode).toBe("byProject");
+
+    await act(async () => {
+      capturedRef.current?.setSidebarPinnedOrganizationMode("manualOrder");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
+    const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as { pinnedOrganizationMode?: string };
+    expect(sidebarPrefs.pinnedOrganizationMode).toBe("manualOrder");
   });
 
   resetStorage();

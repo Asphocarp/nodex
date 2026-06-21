@@ -22,6 +22,7 @@ import {
   type DbViewPrefs,
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
+import type { SidebarPinnedOrganizationMode } from "@/lib/use-workbench-state";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
@@ -1032,6 +1033,23 @@ function getThreadRow(container: HTMLElement, title: string): HTMLElement {
   return row;
 }
 
+function getSidebarSection(container: HTMLElement, heading: string): HTMLElement {
+  const section = container.querySelector(`[data-app-action-sidebar-section-heading="${heading}"]`);
+  if (!(section instanceof HTMLElement)) {
+    throw new Error(`Expected sidebar section ${heading}`);
+  }
+  return section;
+}
+
+function getSidebarProjectGroup(section: HTMLElement, projectId: string): HTMLElement {
+  const row = section.querySelector(`[data-app-action-sidebar-project-id="${projectId}"]`);
+  const group = row?.closest('[role="listitem"]');
+  if (!(group instanceof HTMLElement)) {
+    throw new Error(`Expected sidebar project group ${projectId}`);
+  }
+  return group;
+}
+
 function getThreadRowTitles(container: HTMLElement): string[] {
   return Array.from(container.querySelectorAll("[data-app-action-sidebar-thread-row]"))
     .map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
@@ -1100,7 +1118,7 @@ function renderWorkbench({
   sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  sidebar?: { collapsed: boolean; width: number };
+  sidebar?: { collapsed: boolean; width: number; pinnedOrganizationMode?: SidebarPinnedOrganizationMode };
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
@@ -1694,6 +1712,7 @@ function renderWorkbench({
   };
 
   const setDbProjectCalls: string[] = [];
+  const pinnedOrganizationModeChanges: SidebarPinnedOrganizationMode[] = [];
   const navigationStateChanges: WorkbenchNavigationCommandState[] = [];
   let requestWorkbenchNavigation: (
     direction: WorkbenchNavigationDirection,
@@ -1787,6 +1806,10 @@ function renderWorkbench({
         setSidebarWidth={(width) => {
           setSidebarState((current) => ({ ...current, width }));
         }}
+        setSidebarPinnedOrganizationMode={(mode) => {
+          pinnedOrganizationModeChanges.push(mode);
+          setSidebarState((current) => ({ ...current, pinnedOrganizationMode: mode }));
+        }}
         navigationCommandRequest={currentNavigationCommandRequest}
         panelTabCycleRequest={currentPanelTabCycleRequest}
         panelTabCloseRequest={currentPanelTabCloseRequest}
@@ -1806,6 +1829,7 @@ function renderWorkbench({
   return {
     ...result,
     setDbProjectCalls,
+    pinnedOrganizationModeChanges,
     navigationStateChanges,
     openCommandPalette: (mode?: "root" | "chats" | "cards" | "files", initialQuery?: string) => {
       openCommandPalette(mode, initialQuery);
@@ -2554,6 +2578,8 @@ describe("workbench session shell", () => {
     if (!(projectRow instanceof HTMLElement)) {
       throw new Error("Expected active project row");
     }
+    expect(projectRow.getAttribute("data-active")).toBe(null);
+    expect(getThreadRow(screen.container, "Active thread").getAttribute("data-app-action-sidebar-thread-active")).toBe("true");
     const projectSelectionCallCountBeforeProjectClick = screen.setDbProjectCalls.length;
 
     await act(async () => {
@@ -2698,8 +2724,8 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBeTrue();
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 4"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]')).toBe(null);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show more" }));
@@ -2707,8 +2733,8 @@ describe("workbench session shell", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]') !== null).toBeTrue();
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 16"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 14"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]')).toBe(null);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
@@ -2716,8 +2742,8 @@ describe("workbench session shell", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBeTrue();
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 4"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]')).toBe(null);
   });
 
   test("Cmd+N opens the project-scoped new-chat composer from the workbench shell", async () => {
@@ -2898,6 +2924,221 @@ describe("workbench session shell", () => {
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') === null).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="alpha"]') !== null).toBeTrue();
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null).toBeTrue();
+  });
+
+  test("default pinned organization places project pinned chats inside their project subtree", async () => {
+    const pinnedAlpha = makeAttachedSession({
+      id: "session:alpha:pinned",
+      threadId: "thread-alpha-pinned",
+      title: "Pinned Alpha",
+      pinned: true,
+      pinnedOrder: 0,
+      order: 1,
+    });
+    const normalAlpha = makeAttachedSession({
+      id: "session:alpha:normal",
+      threadId: "thread-alpha-normal",
+      title: "Normal Alpha",
+      pinned: false,
+      pinnedOrder: null,
+      order: 2,
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [pinnedAlpha, normalAlpha] },
+      sidebarSnapshotItems: [
+        makeSidebarSnapshotItemForSession(pinnedAlpha),
+        makeSidebarSnapshotItemForSession(normalAlpha),
+      ],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSection = getSidebarSection(screen.container, "Pinned");
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+    const alphaGroup = getSidebarProjectGroup(projectsSection, "alpha");
+
+    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Alpha"]') === null).toBeTrue();
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify(["Pinned Alpha", "Normal Alpha"]));
+  });
+
+  test("manual pinned organization keeps pinned chats as standalone Pinned rows", async () => {
+    const pinnedAlpha = makeAttachedSession({
+      id: "session:alpha:pinned",
+      threadId: "thread-alpha-pinned",
+      title: "Pinned Alpha",
+      pinned: true,
+      pinnedOrder: 0,
+      order: 1,
+    });
+    const normalAlpha = makeAttachedSession({
+      id: "session:alpha:normal",
+      threadId: "thread-alpha-normal",
+      title: "Normal Alpha",
+      pinned: false,
+      pinnedOrder: null,
+      order: 2,
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [pinnedAlpha, normalAlpha] },
+      sidebarSnapshotItems: [
+        makeSidebarSnapshotItemForSession(pinnedAlpha),
+        makeSidebarSnapshotItemForSession(normalAlpha),
+      ],
+      sidebar: { collapsed: false, width: 300, pinnedOrganizationMode: "manualOrder" },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSection = getSidebarSection(screen.container, "Pinned");
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+    const alphaGroup = getSidebarProjectGroup(projectsSection, "alpha");
+
+    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Alpha"]') !== null).toBeTrue();
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify(["Normal Alpha"]));
+  });
+
+  test("by-project organization keeps projectless pinned chats in the Pinned section", async () => {
+    const projectlessPinnedItem: CodexSidebarThreadItem = {
+      key: "local:thread-projectless-pinned",
+      kind: "local",
+      hostId: "local",
+      threadId: "thread-projectless-pinned",
+      sessionId: null,
+      projectId: null,
+      title: "Pinned Projectless",
+      preview: "",
+      cwd: null,
+      updatedAt: 10,
+      createdAt: 1,
+      pinned: true,
+      pinnedOrder: 0,
+      unread: false,
+      archived: false,
+      statusType: "idle",
+      statusActiveFlags: [],
+      projectless: true,
+      disabled: false,
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession()] },
+      sidebarSnapshotItems: [projectlessPinnedItem],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSection = getSidebarSection(screen.container, "Pinned");
+    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Projectless"]') !== null).toBeTrue();
+  });
+
+  test("by-project organization keeps pinned project chats inside the pinned project subtree", async () => {
+    const beta = {
+      ...makeProject("beta", "Beta"),
+      pinned: true,
+      pinnedOrder: 0,
+    };
+    const pinnedBeta = makeAttachedSession({
+      id: "session:beta:pinned",
+      projectId: "beta",
+      threadId: "thread-beta-pinned",
+      title: "Pinned Beta",
+      pinned: true,
+      pinnedOrder: 0,
+      order: 1,
+    });
+    const normalBeta = makeAttachedSession({
+      id: "session:beta:normal",
+      projectId: "beta",
+      threadId: "thread-beta-normal",
+      title: "Normal Beta",
+      pinned: false,
+      pinnedOrder: null,
+      order: 2,
+    });
+    const screen = renderWorkbench({
+      projects: [beta, makeProject()],
+      sessionsByProject: {
+        beta: [pinnedBeta, normalBeta],
+        alpha: [makeSession()],
+      },
+      sidebarSnapshotItems: [
+        makeSidebarSnapshotItemForSession(pinnedBeta),
+        makeSidebarSnapshotItemForSession(normalBeta),
+      ],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSection = getSidebarSection(screen.container, "Pinned");
+    const betaGroup = getSidebarProjectGroup(pinnedSection, "beta");
+
+    expect(JSON.stringify(getThreadRowTitles(betaGroup))).toBe(JSON.stringify(["Pinned Beta", "Normal Beta"]));
+  });
+
+  test("pinned organization menu switches to manual order", async () => {
+    const pinnedAlpha = makeAttachedSession({
+      id: "session:alpha:pinned",
+      threadId: "thread-alpha-pinned",
+      title: "Pinned Alpha",
+      pinned: true,
+      pinnedOrder: 0,
+      order: 1,
+    });
+    const normalAlpha = makeAttachedSession({
+      id: "session:alpha:normal",
+      threadId: "thread-alpha-normal",
+      title: "Normal Alpha",
+      pinned: false,
+      pinnedOrder: null,
+      order: 2,
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [pinnedAlpha, normalAlpha] },
+      sidebarSnapshotItems: [
+        makeSidebarSnapshotItemForSession(pinnedAlpha),
+        makeSidebarSnapshotItemForSession(normalAlpha),
+      ],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByLabelText("Pinned section actions"), { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(textContent(document.body).includes("Organize pins")).toBeTrue();
+    });
+
+    const organizeText = within(document.body).getByText("Organize pins");
+    const organizeItem = organizeText.closest('[role="menuitem"]');
+    if (!(organizeItem instanceof HTMLElement)) {
+      throw new Error("Expected Organize pins menu item");
+    }
+
+    await act(async () => {
+      fireEvent.pointerMove(organizeItem, { pointerType: "mouse" });
+      fireEvent.keyDown(organizeItem, { key: "ArrowRight" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(Boolean(within(document.body).getByRole("menuitemradio", { name: "By project" }))).toBeTrue();
+    });
+
+    const byProjectItem = within(document.body).getByRole("menuitemradio", { name: "By project" });
+    const manualOrderItem = within(document.body).getByRole("menuitemradio", { name: "Manual order" });
+    expect(byProjectItem.getAttribute("data-state")).toBe("checked");
+
+    await act(async () => {
+      fireEvent.click(manualOrderItem);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const pinnedSection = getSidebarSection(screen.container, "Pinned");
+    expect(screen.pinnedOrganizationModeChanges.at(-1)).toBe("manualOrder");
+    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Alpha"]') !== null).toBeTrue();
   });
 
   test("project row new-chat button reuses an existing blank session", async () => {

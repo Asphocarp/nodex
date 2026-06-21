@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { BoardSummary, Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
-import type { WorkbenchView } from "@/lib/use-workbench-state";
+import type { SidebarPinnedOrganizationMode, WorkbenchView } from "@/lib/use-workbench-state";
 import {
   writeWorkbenchShellNavigationHistoryState,
   type WorkbenchShellNavigationSnapshot,
@@ -26,6 +26,7 @@ type ShellStoryArgs = {
   sidebar: "expanded" | "collapsed";
   sidebarReveal: "idle" | "edge" | "focus";
   sidebarWidth: 240 | 300 | 520;
+  pinnedOrganizationMode: SidebarPinnedOrganizationMode;
   navigationHistory: "disabled" | "back" | "forward" | "both";
   longNames: boolean;
 };
@@ -49,6 +50,7 @@ const meta = {
     sidebar: "expanded",
     sidebarReveal: "idle",
     sidebarWidth: 300,
+    pinnedOrganizationMode: "byProject",
     navigationHistory: "both",
     longNames: false,
   },
@@ -84,6 +86,10 @@ const meta = {
     sidebarWidth: {
       control: "inline-radio",
       options: [240, 300, 520],
+    },
+    pinnedOrganizationMode: {
+      control: "inline-radio",
+      options: ["byProject", "manualOrder"],
     },
     navigationHistory: {
       control: "inline-radio",
@@ -538,6 +544,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   const [sessionsByProject, setSessionsByProject] = useState(initialSessionsByProject);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
+  const [pinnedOrganizationMode, setPinnedOrganizationMode] = useState<SidebarPinnedOrganizationMode>(args.pinnedOrganizationMode);
 
   writeStoryNavigationHistory(args.navigationHistory, initialSessionsByProject);
 
@@ -546,7 +553,8 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   useEffect(() => {
     setSidebarCollapsed(args.sidebar === "collapsed");
     setSidebarWidth(args.sidebarWidth);
-  }, [args.sidebar, args.sidebarWidth]);
+    setPinnedOrganizationMode(args.pinnedOrganizationMode);
+  }, [args.pinnedOrganizationMode, args.sidebar, args.sidebarWidth]);
 
   useEffect(() => {
     if (args.rightPanel === "collapsed") return undefined;
@@ -595,7 +603,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   return (
     <div className="h-screen">
       <WorkbenchShell
-        key={`${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
+        key={`${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.pinnedOrganizationMode}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
         projects={PROJECTS}
         dbProjectId="nodex"
         activeView={"kanban" as WorkbenchView}
@@ -604,9 +612,10 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         searchByProject={{ nodex: "" }}
         dbViewPrefsByProject={{}}
         spaces={SPACES}
-        sidebar={{ collapsed: sidebarCollapsed, width: sidebarWidth }}
+        sidebar={{ collapsed: sidebarCollapsed, width: sidebarWidth, pinnedOrganizationMode }}
         setSidebarCollapsed={setSidebarCollapsed}
         setSidebarWidth={setSidebarWidth}
+        setSidebarPinnedOrganizationMode={setPinnedOrganizationMode}
         cardStageCloseRef={{ current: null }}
         setDbProject={() => undefined}
         setSearchQuery={() => undefined}
@@ -1043,6 +1052,38 @@ export const ExpandedSidebarParity: Story = {
     docs: {
       description: {
         story: "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width and enabled Back/Forward chrome in the titlebar.",
+      },
+    },
+  },
+};
+
+export const SidebarPinnedByProject: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "expanded",
+    sidebarWidth: 300,
+    pinnedOrganizationMode: "byProject",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Pinned organization default: pinned chats render at the top of their project subtree while the Pinned header keeps the organize menu available.",
+      },
+    },
+  },
+};
+
+export const SidebarPinnedManualOrder: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "expanded",
+    sidebarWidth: 300,
+    pinnedOrganizationMode: "manualOrder",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Pinned organization compatibility mode: pinned chats render as standalone rows in the Pinned section before pinned project folders.",
       },
     },
   },

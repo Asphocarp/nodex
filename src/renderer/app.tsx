@@ -139,6 +139,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarWidth,
+    setSidebarPinnedOrganizationMode,
     setSidebarTopLevelSectionVisible,
     setSidebarTopLevelSectionItemLimit,
     moveSidebarTopLevelSectionBy,
@@ -1155,6 +1156,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       setDbViewPrefs={setDbViewPrefs}
       setSidebarCollapsed={setSidebarCollapsed}
       setSidebarWidth={setSidebarWidth}
+      setSidebarPinnedOrganizationMode={setSidebarPinnedOrganizationMode}
       setSidebarTopLevelSectionVisible={setSidebarTopLevelSectionVisible}
       setSidebarTopLevelSectionItemLimit={setSidebarTopLevelSectionItemLimit}
       moveSidebarTopLevelSectionBy={moveSidebarTopLevelSectionBy}

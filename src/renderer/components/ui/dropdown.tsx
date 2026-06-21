@@ -420,6 +420,65 @@ export const NodexDropdownItem = forwardRef<
   );
 });
 
+export function NodexDropdownRadioGroup(
+  props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>,
+) {
+  return <DropdownMenuPrimitive.RadioGroup {...props} />;
+}
+
+export interface NodexDropdownRadioItemProps
+  extends ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem> {
+  leftSlot?: ReactNode;
+  rightSlot?: ReactElement;
+  allowWrap?: boolean;
+}
+
+export const NodexDropdownRadioItem = forwardRef<
+  HTMLDivElement,
+  NodexDropdownRadioItemProps
+>(function NodexDropdownRadioItem(
+  {
+    children,
+    leftSlot,
+    rightSlot,
+    allowWrap = false,
+    className,
+    disabled = false,
+    onClick,
+    onSelect,
+    ...props
+  },
+  ref,
+) {
+  return (
+    <DropdownMenuPrimitive.RadioItem
+      ref={ref}
+      disabled={disabled}
+      onClick={disabled ? undefined : onClick}
+      onSelect={disabled ? undefined : onSelect}
+      className={cn(
+        "no-drag",
+        dropdownItemBaseClassName,
+        !disabled && dropdownItemInteractiveClassName,
+        "group flex flex-col",
+        disabled && "cursor-default opacity-50",
+        className,
+      )}
+      {...props}
+    >
+      <div className="flex w-full items-center gap-1.5">
+        {leftSlot ? <span className="shrink-0">{leftSlot}</span> : null}
+        <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
+          <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
+        </span>
+        <DropdownMenuPrimitive.ItemIndicator asChild>
+          {rightSlot ?? <NodexDropdownSelectedIcon />}
+        </DropdownMenuPrimitive.ItemIndicator>
+      </div>
+    </DropdownMenuPrimitive.RadioItem>
+  );
+});
+
 export interface NodexDropdownChoiceOption {
   value: string;
   label: ReactNode;
@@ -769,6 +828,8 @@ export const NodexDropdown = {
   Content: NodexDropdownContent,
   ButtonTrigger: NodexDropdownButtonTrigger,
   Item: NodexDropdownItem,
+  RadioGroup: NodexDropdownRadioGroup,
+  RadioItem: NodexDropdownRadioItem,
   ChoiceMenu: NodexDropdownChoiceMenu,
   Input: NodexDropdownInput,
   SearchInput: NodexDropdownSearchInput,

@@ -62,6 +62,8 @@ import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
   NodexDropdownMenu,
+  NodexDropdownRadioGroup,
+  NodexDropdownRadioItem,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
 import { NodexButton } from "@/components/ui/button";
@@ -204,7 +206,14 @@ import {
   type DbViewPrefs,
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
-import type { RecentCardSession, SpaceRef, WorkbenchView } from "@/lib/use-workbench-state";
+import {
+  DEFAULT_SIDEBAR_PINNED_ORGANIZATION_MODE,
+  normalizeSidebarPinnedOrganizationMode,
+  type RecentCardSession,
+  type SidebarPinnedOrganizationMode,
+  type SpaceRef,
+  type WorkbenchView,
+} from "@/lib/use-workbench-state";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import { buildSessionDeepLink } from "@/lib/card-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
@@ -241,6 +250,7 @@ import {
   CodexPanelBottomVisibleIcon,
   CodexPanelRightHiddenIcon,
   CodexPanelRightVisibleIcon,
+  CodexProjectActionsIcon,
   CodexRestorePanelIcon,
   CodexSidebarHiddenIcon,
   CodexSidebarVisibleIcon,
@@ -261,6 +271,7 @@ import {
 } from "./sidebar-new-chat-controls";
 import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
+  CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS,
   CodexProjectRow,
   CodexProjectSessionList,
   CodexSidebarSection,
@@ -549,6 +560,7 @@ interface WorkbenchShellProps {
   sidebar?: {
     collapsed: boolean;
     width: number;
+    pinnedOrganizationMode?: SidebarPinnedOrganizationMode;
     topLevelSectionOrder?: SidebarTopLevelSectionId[];
     topLevelSections?: SidebarTopLevelSectionsPrefs;
   };
@@ -589,6 +601,7 @@ interface WorkbenchShellProps {
   threadSearchOpenTick: number;
   setSidebarCollapsed?: (collapsed: boolean) => void;
   setSidebarWidth?: (width: number) => void;
+  setSidebarPinnedOrganizationMode?: (mode: SidebarPinnedOrganizationMode) => void;
   setSidebarTopLevelSectionVisible?: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
   setSidebarTopLevelSectionItemLimit?: (sectionId: SidebarTopLevelSectionId, itemLimit: SidebarSectionItemLimit) => void;
   moveSidebarTopLevelSectionBy?: (sectionId: SidebarTopLevelSectionId, direction: -1 | 1) => void;
@@ -1397,6 +1410,7 @@ export function WorkbenchShell({
   commandPaletteInitialQuery = "",
   setSidebarCollapsed,
   setSidebarWidth,
+  setSidebarPinnedOrganizationMode,
   setSidebarTopLevelSectionVisible,
   settingsToggleTick,
   keyboardShortcutsSettingsOpenTick,
@@ -1501,6 +1515,9 @@ export function WorkbenchShell({
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
   const persistedSidebarWidth = sidebar?.width ?? localSidebarWidth;
   const sidebarWidth = sidebarDragWidth ?? persistedSidebarWidth;
+  const sidebarPinnedOrganizationMode = normalizeSidebarPinnedOrganizationMode(
+    sidebar?.pinnedOrganizationMode ?? DEFAULT_SIDEBAR_PINNED_ORGANIZATION_MODE,
+  );
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
   const lastHandledKeyboardShortcutsSettingsOpenTickRef = useRef(keyboardShortcutsSettingsOpenTick);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
@@ -5766,6 +5783,8 @@ export function WorkbenchShell({
               sessionsByProject={sessionsByProject}
               projectlessSessions={projectlessSessions}
               sidebarThreadModel={sidebarThreadSync.model}
+              pinnedOrganizationMode={sidebarPinnedOrganizationMode}
+              onPinnedOrganizationModeChange={setSidebarPinnedOrganizationMode}
               expandedProjectIds={expandedProjectIds}
               pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
               projectsSectionCollapsed={projectsSectionCollapsed}
@@ -5834,6 +5853,8 @@ export function WorkbenchShell({
                   sessionsByProject={sessionsByProject}
                   projectlessSessions={projectlessSessions}
                   sidebarThreadModel={sidebarThreadSync.model}
+                  pinnedOrganizationMode={sidebarPinnedOrganizationMode}
+                  onPinnedOrganizationModeChange={setSidebarPinnedOrganizationMode}
                   expandedProjectIds={expandedProjectIds}
                   pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
@@ -6262,12 +6283,73 @@ function CodexSidebarPaginatedItems<T>({
   return <>{children(pagination, pager)}</>;
 }
 
+const SIDEBAR_PINNED_ORGANIZATION_OPTIONS: readonly {
+  value: SidebarPinnedOrganizationMode;
+  label: string;
+}[] = [
+  { value: "byProject", label: "By project" },
+  { value: "manualOrder", label: "Manual order" },
+];
+
+function CodexPinnedSectionActionsMenu({
+  mode,
+  onModeChange,
+}: {
+  mode: SidebarPinnedOrganizationMode;
+  onModeChange?: (mode: SidebarPinnedOrganizationMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <NodexDropdownMenu
+      open={open}
+      onOpenChange={setOpen}
+      side="bottom"
+      align="end"
+      contentWidth="sm"
+      triggerButton={(
+        <button
+          type="button"
+          className={CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS}
+          aria-label="Pinned section actions"
+          data-app-action-sidebar-pinned-actions-menu=""
+        >
+          <CodexProjectActionsIcon />
+        </button>
+      )}
+    >
+      <NodexDropdownFlyoutSubmenuItem
+        label="Organize pins"
+        contentClassName="min-w-[180px]"
+      >
+        <NodexDropdownRadioGroup
+          value={mode}
+          onValueChange={(value) => {
+            onModeChange?.(normalizeSidebarPinnedOrganizationMode(value));
+          }}
+        >
+          {SIDEBAR_PINNED_ORGANIZATION_OPTIONS.map((option) => (
+            <NodexDropdownRadioItem
+              key={option.value}
+              value={option.value}
+            >
+              {option.label}
+            </NodexDropdownRadioItem>
+          ))}
+        </NodexDropdownRadioGroup>
+      </NodexDropdownFlyoutSubmenuItem>
+    </NodexDropdownMenu>
+  );
+}
+
 function SidebarThreadOrganizerSections({
   activeProjectId,
   activeSessionId,
   contextMenuSessionId,
   sessionsByProject,
   projectlessSessions,
+  pinnedOrganizationMode,
+  onPinnedOrganizationModeChange,
   expandedProjectIds,
   pinnedThreadsSectionCollapsed,
   projectsSectionCollapsed,
@@ -6296,6 +6378,8 @@ function SidebarThreadOrganizerSections({
   contextMenuSessionId?: string | null;
   sessionsByProject: Record<string, ProjectSession[]>;
   projectlessSessions: ProjectSession[];
+  pinnedOrganizationMode: SidebarPinnedOrganizationMode;
+  onPinnedOrganizationModeChange?: (mode: SidebarPinnedOrganizationMode) => void;
   expandedProjectIds: Set<string>;
   pinnedThreadsSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
@@ -6386,7 +6470,7 @@ function SidebarThreadOrganizerSections({
     }
     return itemsByKey;
   }, [fallbackThreadItems, model.threadItemsByKey]);
-  const pinnedThreadKeys = useMemo(() => sortSidebarThreadKeysForDisplay({
+  const allPinnedThreadKeys = useMemo(() => sortSidebarThreadKeysForDisplay({
     threadKeys: [
       ...model.pinnedThreadKeys,
       ...fallbackThreadItems.filter((item) => item.pinned).map((item) => item.key),
@@ -6394,10 +6478,40 @@ function SidebarThreadOrganizerSections({
     itemsByKey: sidebarThreadItemsByKey,
     sessionsById,
   }), [fallbackThreadItems, model.pinnedThreadKeys, sessionsById, sidebarThreadItemsByKey]);
+  const projectIds = useMemo(
+    () => new Set(model.projectGroups.map((group) => group.project.id)),
+    [model.projectGroups],
+  );
+  const pinnedThreadKeysByProject = useMemo(() => {
+    const keysByProject = new Map<string, string[]>();
+    if (pinnedOrganizationMode !== "byProject") return keysByProject;
+
+    for (const threadKey of allPinnedThreadKeys) {
+      const item = sidebarThreadItemsByKey.get(threadKey);
+      if (!item?.projectId || item.projectless || !projectIds.has(item.projectId)) continue;
+      const keys = keysByProject.get(item.projectId) ?? [];
+      keys.push(threadKey);
+      keysByProject.set(item.projectId, keys);
+    }
+
+    return keysByProject;
+  }, [allPinnedThreadKeys, pinnedOrganizationMode, projectIds, sidebarThreadItemsByKey]);
+  const pinnedStandaloneThreadKeys = useMemo(() => {
+    if (pinnedOrganizationMode === "manualOrder") return allPinnedThreadKeys;
+
+    return allPinnedThreadKeys.filter((threadKey) => {
+      const item = sidebarThreadItemsByKey.get(threadKey);
+      if (!item) return true;
+      if (item.projectless) return true;
+      if (!item.projectId) return true;
+      return !projectIds.has(item.projectId);
+    });
+  }, [allPinnedThreadKeys, pinnedOrganizationMode, projectIds, sidebarThreadItemsByKey]);
   const projectGroups = useMemo(() => model.projectGroups.map((group) => ({
     project: group.project,
     threadKeys: sortSidebarThreadKeysForDisplay({
       threadKeys: [
+        ...(pinnedThreadKeysByProject.get(group.project.id) ?? []),
         ...group.threadKeys,
         ...fallbackThreadItems
           .filter((item) => item.projectId === group.project.id && !item.pinned)
@@ -6406,7 +6520,7 @@ function SidebarThreadOrganizerSections({
       itemsByKey: sidebarThreadItemsByKey,
       sessionsById,
     }),
-  })), [fallbackThreadItems, model.projectGroups, sessionsById, sidebarThreadItemsByKey]);
+  })), [fallbackThreadItems, model.projectGroups, pinnedThreadKeysByProject, sessionsById, sidebarThreadItemsByKey]);
   const projectLabelById = useMemo(() => {
     const entries = projectGroups.map(({ project }) => [project.id, project.name] as const);
     return new Map(entries);
@@ -6419,6 +6533,7 @@ function SidebarThreadOrganizerSections({
     () => projectGroups.filter((group) => !group.project.pinned),
     [projectGroups],
   );
+  const hasAnyPinnedSidebarItems = allPinnedThreadKeys.length > 0 || pinnedProjectGroups.length > 0;
   const projectlessThreadKeys = useMemo(() => sortSidebarThreadKeysForDisplay({
     threadKeys: [
       ...model.projectlessThreadKeys,
@@ -6574,7 +6689,7 @@ function SidebarThreadOrganizerSections({
                   <CodexProjectRow
                     key={project.id}
                     project={project}
-                    active={activeProjectId === project.id}
+                    active={activeSessionId === null && activeProjectId === project.id}
                     expanded={expanded}
                     groupDndController={NOOP_WORKBENCH_SIDEBAR_GROUP_DND_CONTROLLER}
                     allowProjectReorder
@@ -6624,16 +6739,22 @@ function SidebarThreadOrganizerSections({
   );
 
   const renderPinnedSection = () => {
-    if (pinnedThreadKeys.length === 0 && pinnedProjectGroups.length === 0) return null;
+    if (!hasAnyPinnedSidebarItems) return null;
 
     return (
       <CodexSidebarSection
         heading="Pinned"
         collapsed={pinnedThreadsSectionCollapsed}
         onToggle={onTogglePinnedThreadsSectionCollapsed}
+        actions={(
+          <CodexPinnedSectionActionsMenu
+            mode={pinnedOrganizationMode}
+            onModeChange={onPinnedOrganizationModeChange}
+          />
+        )}
       >
-        {pinnedThreadKeys.length > 0
-          ? renderThreadList(pinnedThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
+        {pinnedStandaloneThreadKeys.length > 0
+          ? renderThreadList(pinnedStandaloneThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
           : null}
         {pinnedProjectGroups.length > 0
           ? renderProjectGroupRows(pinnedProjectGroups, {
@@ -6686,6 +6807,8 @@ function ProjectSessionSidebar({
   sessionsByProject,
   projectlessSessions,
   sidebarThreadModel,
+  pinnedOrganizationMode,
+  onPinnedOrganizationModeChange,
   expandedProjectIds,
   pinnedProjectsSectionCollapsed,
   projectsSectionCollapsed,
@@ -6732,6 +6855,8 @@ function ProjectSessionSidebar({
   sessionsByProject: Record<string, ProjectSession[]>;
   projectlessSessions: ProjectSession[];
   sidebarThreadModel: CodexSidebarThreadSyncModel;
+  pinnedOrganizationMode: SidebarPinnedOrganizationMode;
+  onPinnedOrganizationModeChange?: (mode: SidebarPinnedOrganizationMode) => void;
   expandedProjectIds: Set<string>;
   pinnedProjectsSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
@@ -6917,6 +7042,8 @@ function ProjectSessionSidebar({
                   contextMenuSessionId={contextMenuSessionId}
                   sessionsByProject={sessionsByProject}
                   projectlessSessions={projectlessSessions}
+                  pinnedOrganizationMode={pinnedOrganizationMode}
+                  onPinnedOrganizationModeChange={onPinnedOrganizationModeChange}
                   expandedProjectIds={expandedProjectIds}
                   pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
