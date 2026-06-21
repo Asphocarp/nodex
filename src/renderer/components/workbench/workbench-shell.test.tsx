@@ -2,7 +2,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "
 import { Fragment, createElement, createRef, useEffect, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import type { Project, ProjectSession, ProjectSessionPanelNode, ProjectSessionTab } from "@/lib/types";
+import type {
+  CodexSidebarThreadItem,
+  Project,
+  ProjectSession,
+  ProjectSessionPanelNode,
+  ProjectSessionTab,
+} from "@/lib/types";
 import { resetCardDetailStoreForTests } from "@/lib/card-detail-store";
 import { terminalSessionStore } from "@/lib/terminal-session-store";
 import {
@@ -939,6 +945,31 @@ function makeAttachedSession(overrides: SessionFixtureOverrides = {}): ProjectSe
   });
 }
 
+function makeSidebarSnapshotItemForSession(session: ProjectSession): CodexSidebarThreadItem {
+  if (!session.thread) throw new Error("Expected attached session");
+  return {
+    key: `local:${session.thread.threadId}`,
+    kind: "local",
+    hostId: "local",
+    threadId: session.thread.threadId,
+    sessionId: session.id,
+    projectId: session.projectId,
+    title: session.displayTitle,
+    preview: session.thread.threadPreview,
+    cwd: session.thread.cwd ?? null,
+    updatedAt: session.thread.updatedAt,
+    createdAt: session.thread.createdAt,
+    pinned: session.pinned,
+    pinnedOrder: session.pinnedOrder,
+    unread: session.unread,
+    archived: session.archived || session.thread.archived,
+    statusType: "notLoaded",
+    statusActiveFlags: [],
+    projectless: session.projectId === null,
+    disabled: false,
+  };
+}
+
 function makeBlankSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   return makeSession({
     id: "session:alpha:blank",
@@ -1050,6 +1081,7 @@ function installReducedMotionMatchMediaForTest() {
 function renderWorkbench({
   projects = [makeProject()],
   sessionsByProject = { alpha: [makeSession()] },
+  sidebarSnapshotItems = [],
   searchByProject = {},
   dbViewPrefsByProject = {},
   sidebar,
@@ -1060,6 +1092,7 @@ function renderWorkbench({
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
+  sidebarSnapshotItems?: CodexSidebarThreadItem[];
   searchByProject?: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: { collapsed: boolean; width: number };
@@ -1076,10 +1109,14 @@ function renderWorkbench({
     }
     if (channel === "codex:sidebar:snapshot") {
       return {
-        items: [],
-        pinnedThreadIds: [],
-        projectAssignments: {},
-        projectlessThreadIds: [],
+        items: sidebarSnapshotItems,
+        pinnedThreadIds: sidebarSnapshotItems.filter((item) => item.pinned).map((item) => item.threadId),
+        projectAssignments: Object.fromEntries(
+          sidebarSnapshotItems
+            .filter((item): item is CodexSidebarThreadItem & { projectId: string } => typeof item.projectId === "string")
+            .map((item) => [item.threadId, item.projectId]),
+        ),
+        projectlessThreadIds: sidebarSnapshotItems.filter((item) => item.projectless).map((item) => item.threadId),
         generatedAt: 1,
       };
     }
@@ -2446,6 +2483,55 @@ describe("workbench session shell", () => {
     expect(newThreadIndex >= 0).toBeTrue();
     expect(olderThreadIndex >= 0).toBeTrue();
     expect(overviewIndex < newThreadIndex).toBeTrue();
+    expect(newThreadIndex < olderThreadIndex).toBeTrue();
+  });
+
+  test("new blank project chats render above snapshot-backed older chats", async () => {
+    const olderThreadBase = makeAttachedSession({
+      id: "session:alpha:snapshot-older",
+      threadId: "thread-snapshot-older",
+      title: "Older snapshot chat",
+      order: 1,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    });
+    if (!olderThreadBase.thread) throw new Error("Expected older thread");
+    const olderThread = {
+      ...olderThreadBase,
+      thread: {
+        ...olderThreadBase.thread,
+        threadName: "Older snapshot chat",
+        threadPreview: "Older snapshot chat",
+        createdAt: 100,
+        updatedAt: 100,
+      },
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeSession(), olderThread],
+      },
+      sidebarSnapshotItems: [makeSidebarSnapshotItemForSession(olderThread)],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rowTitles = getThreadRowTitles(screen.container);
+    const databaseViewIndex = rowTitles.indexOf("Database View");
+    const newThreadIndex = rowTitles.indexOf("New thread");
+    const olderThreadIndex = rowTitles.indexOf("Older snapshot chat");
+
+    expect(databaseViewIndex >= 0).toBeTrue();
+    expect(newThreadIndex >= 0).toBeTrue();
+    expect(olderThreadIndex >= 0).toBeTrue();
+    expect(databaseViewIndex < newThreadIndex).toBeTrue();
     expect(newThreadIndex < olderThreadIndex).toBeTrue();
   });
 

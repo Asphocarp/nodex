@@ -266,6 +266,7 @@ import {
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
 import {
+  sortSidebarThreadKeysForDisplay,
   type CodexSidebarThreadSyncModel,
 } from "@/lib/codex-sidebar-thread-sync";
 import { useSidebarThreadSyncModel } from "@/lib/use-sidebar-thread-sync-model";
@@ -6104,19 +6105,27 @@ function SidebarThreadOrganizerSections({
     }
     return itemsByKey;
   }, [fallbackThreadItems, model.threadItemsByKey]);
-  const pinnedThreadKeys = useMemo(() => [
-    ...model.pinnedThreadKeys,
-    ...fallbackThreadItems.filter((item) => item.pinned).map((item) => item.key),
-  ], [fallbackThreadItems, model.pinnedThreadKeys]);
+  const pinnedThreadKeys = useMemo(() => sortSidebarThreadKeysForDisplay({
+    threadKeys: [
+      ...model.pinnedThreadKeys,
+      ...fallbackThreadItems.filter((item) => item.pinned).map((item) => item.key),
+    ],
+    itemsByKey: sidebarThreadItemsByKey,
+    sessionsById,
+  }), [fallbackThreadItems, model.pinnedThreadKeys, sessionsById, sidebarThreadItemsByKey]);
   const projectGroups = useMemo(() => model.projectGroups.map((group) => ({
     project: group.project,
-    threadKeys: [
-      ...group.threadKeys,
-      ...fallbackThreadItems
-        .filter((item) => item.projectId === group.project.id && !item.pinned)
-        .map((item) => item.key),
-    ],
-  })), [fallbackThreadItems, model.projectGroups]);
+    threadKeys: sortSidebarThreadKeysForDisplay({
+      threadKeys: [
+        ...group.threadKeys,
+        ...fallbackThreadItems
+          .filter((item) => item.projectId === group.project.id && !item.pinned)
+          .map((item) => item.key),
+      ],
+      itemsByKey: sidebarThreadItemsByKey,
+      sessionsById,
+    }),
+  })), [fallbackThreadItems, model.projectGroups, sessionsById, sidebarThreadItemsByKey]);
   const pinnedProjectGroups = useMemo(
     () => projectGroups.filter((group) => group.project.pinned),
     [projectGroups],
@@ -6125,12 +6134,16 @@ function SidebarThreadOrganizerSections({
     () => projectGroups.filter((group) => !group.project.pinned),
     [projectGroups],
   );
-  const projectlessThreadKeys = useMemo(() => [
-    ...model.projectlessThreadKeys,
-    ...fallbackThreadItems
-      .filter((item) => item.projectless && !item.pinned)
-      .map((item) => item.key),
-  ], [fallbackThreadItems, model.projectlessThreadKeys]);
+  const projectlessThreadKeys = useMemo(() => sortSidebarThreadKeysForDisplay({
+    threadKeys: [
+      ...model.projectlessThreadKeys,
+      ...fallbackThreadItems
+        .filter((item) => item.projectless && !item.pinned)
+        .map((item) => item.key),
+    ],
+    itemsByKey: sidebarThreadItemsByKey,
+    sessionsById,
+  }), [fallbackThreadItems, model.projectlessThreadKeys, sessionsById, sidebarThreadItemsByKey]);
 
   const resolveSessionForItem = useCallback((item: CodexSidebarThreadItem) => {
     if (item.sessionId) {
