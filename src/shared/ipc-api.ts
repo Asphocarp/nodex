@@ -17,6 +17,7 @@ import type {
   CodexEvent,
   CodexReviewStartParams,
   CodexReviewStartResponse,
+  CodexSidebarSnapshot,
   CodexServiceTier,
   BranchDiffStatsRequest,
   BranchDiffStatsResult,
@@ -355,7 +356,7 @@ export type ProjectSessionChangeType =
   | "thread";
 
 export interface ProjectSessionsChangeEvent {
-  projectId: string;
+  projectId: string | null;
   changeType: ProjectSessionChangeType;
   sessionId?: string;
 }
@@ -401,7 +402,7 @@ export interface IpcApi {
   "projects:pick-source-root": { args: []; result: string | null };
   "workspace:pick-directory": { args: [input?: WorkspacePickDirectoryInput]; result: string | null };
   "projects:delete": { args: [projectId: string]; result: boolean };
-  "project-sessions:list": { args: [projectId: string, options?: ProjectSessionListOptions]; result: ProjectSession[] };
+  "project-sessions:list": { args: [projectId: string | null, options?: ProjectSessionListOptions]; result: ProjectSession[] };
   "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };
   "project-sessions:update": {
     args: [sessionId: string, input: ProjectSessionUpdateInput];
@@ -742,6 +743,22 @@ export interface IpcApi {
   "codex:threads:list": {
     args: [projectId: string, opts?: { includeArchived?: boolean }];
     result: CodexThreadSummary[];
+  };
+  "codex:sidebar:snapshot": {
+    args: [input?: { includeArchived?: boolean; refresh?: boolean }];
+    result: CodexSidebarSnapshot;
+  };
+  "codex:threads:pinned:list": {
+    args: [];
+    result: string[];
+  };
+  "codex:threads:pinned:set": {
+    args: [threadId: string, input: { pinned: boolean }];
+    result: CodexSidebarSnapshot;
+  };
+  "codex:thread:ensure-session": {
+    args: [threadId: string];
+    result: ProjectSession | null;
   };
   "codex:threads:palette:list": {
     args: [input: CommandPaletteThreadListInput];

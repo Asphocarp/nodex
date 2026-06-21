@@ -6,7 +6,7 @@ export interface ProjectSessionRenameServiceDeps {
   getProjectSession: (sessionId: string) => ProjectSession | null;
   updateProjectSession: (sessionId: string, input: ProjectSessionUpdateInput) => ProjectSession | null;
   setThreadName: (threadId: string, rawTitle: string) => Promise<boolean>;
-  notifyProjectSessionsChanged: (projectId: string, changeType: "update", sessionId: string) => void;
+  notifyProjectSessionsChanged: (projectId: string | null, changeType: "update", sessionId: string) => void;
 }
 
 export async function renameProjectSessionChat(

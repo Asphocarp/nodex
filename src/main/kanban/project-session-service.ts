@@ -82,7 +82,7 @@ const DEFAULT_BOTTOM_PANEL_HEIGHT = 280;
 
 interface DbProjectSession {
   id: string;
-  project_id: string;
+  project_id: string | null;
   no_thread_fallback_title: string;
   is_overview: number;
   order: number;
@@ -115,7 +115,7 @@ interface DbProjectSessionTab {
 interface DbProjectSessionThread {
   session_id: string;
   thread_id: string;
-  session_project_id: string;
+  session_project_id: string | null;
   project_id: string | null;
   parent_thread_id: string | null;
   thread_name: string | null;
@@ -132,7 +132,7 @@ interface DbProjectSessionThread {
 
 export interface ProjectSessionThreadOwner {
   sessionId: string;
-  projectId: string;
+  projectId: string | null;
 }
 
 function parseJson(value: string): unknown {
@@ -373,6 +373,21 @@ function ensureProjectExists(projectId: string): string {
   return requireProjectId(projectId);
 }
 
+function normalizeProjectSessionProjectId(projectId: string | null): string | null {
+  if (projectId === null) return null;
+  return ensureProjectExists(projectId);
+}
+
+function projectSessionWhereClause(projectId: string | null): {
+  sql: string;
+  values: Array<string | number>;
+} {
+  if (projectId === null) {
+    return { sql: "project_id IS NULL", values: [] };
+  }
+  return { sql: "project_id = ?", values: [projectId] };
+}
+
 function ensureOverviewSession(projectId: string): void {
   const database = getDb();
   const overview = database
@@ -422,17 +437,20 @@ function ensureOverviewSession(projectId: string): void {
 }
 
 export function listProjectSessions(
-  projectId: string,
+  projectId: string | null,
   options?: ProjectSessionListOptions,
 ): ProjectSession[] {
-  projectId = ensureProjectExists(projectId);
+  projectId = normalizeProjectSessionProjectId(projectId);
   const parsedOptions = ProjectSessionListOptionsSchema.parse(options) ?? {};
-  ensureOverviewSession(projectId);
+  if (projectId !== null) {
+    ensureOverviewSession(projectId);
+  }
+  const projectWhere = projectSessionWhereClause(projectId);
   const rows = getDb()
     .prepare(`
       SELECT *
       FROM project_sessions
-      WHERE project_id = ?
+      WHERE ${projectWhere.sql}
         AND (? = 1 OR archived = 0)
       ORDER BY
         CASE
@@ -446,8 +464,12 @@ export function listProjectSessions(
         END ASC,
         created_at ASC
     `)
-    .all(projectId, parsedOptions.includeArchived === true ? 1 : 0) as DbProjectSession[];
+    .all(...projectWhere.values, parsedOptions.includeArchived === true ? 1 : 0) as DbProjectSession[];
   return rows.map(buildSession);
+}
+
+export function listProjectlessSessions(options?: ProjectSessionListOptions): ProjectSession[] {
+  return listProjectSessions(null, options);
 }
 
 export function getProjectSession(sessionId: string): ProjectSession | null {
@@ -501,33 +523,43 @@ export function listProjectSessionThreadOwners(threadId: string): ProjectSession
 
 export function createProjectSession(input: ProjectSessionCreateInput): ProjectSession {
   const parsed = ProjectSessionCreateInputSchema.parse(input);
-  const projectId = ensureProjectExists(parsed.projectId);
+  const projectId = normalizeProjectSessionProjectId(parsed.projectId);
 
   const database = getDb();
   const now = new Date().toISOString();
-  const maxOrder = database
-    .prepare('SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?')
-    .get(projectId) as { maxOrder: number | null } | undefined;
+  const projectWhere = projectSessionWhereClause(projectId);
+  const order = projectId === null ? 0 : 1;
   const id = randomUUID();
   const panels = {
     right: makeDefaultPanelState("right", [], null),
     bottom: makeDefaultPanelState("bottom", [], null),
   } satisfies Record<PanelId, ProjectSessionPanelState>;
 
-  database.prepare(`
-    INSERT INTO project_sessions (
-      id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-      panel_state_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
-  `).run(
-    id,
-    projectId,
-    parsed.noThreadFallbackTitle,
-    (maxOrder?.maxOrder ?? -1) + 1,
-    stringifyPanels(panels),
-    now,
-    now,
-  );
+  const insert = database.transaction(() => {
+    database.prepare(`
+      UPDATE project_sessions
+      SET "order" = "order" + 1, updated_at = ?
+      WHERE ${projectWhere.sql}
+        AND is_overview = 0
+        AND "order" >= ?
+    `).run(now, ...projectWhere.values, order);
+
+    database.prepare(`
+      INSERT INTO project_sessions (
+        id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        panel_state_json, created_at, updated_at
+      ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
+    `).run(
+      id,
+      projectId,
+      parsed.noThreadFallbackTitle,
+      order,
+      stringifyPanels(panels),
+      now,
+      now,
+    );
+  });
+  insert();
 
   const session = getProjectSession(id);
   if (!session) throw new Error("Unable to create project session");
@@ -640,13 +672,14 @@ export function setProjectSessionPinned(
   const database = getDb();
   const now = new Date().toISOString();
   if (parsed.pinned) {
+    const projectWhere = projectSessionWhereClause(existing.projectId);
     const maxPinnedOrder = database
       .prepare(`
         SELECT MAX(pinned_order) AS maxPinnedOrder
         FROM project_sessions
-        WHERE project_id = ? AND pinned = 1 AND archived = 0
+        WHERE ${projectWhere.sql} AND pinned = 1 AND archived = 0
       `)
-      .get(existing.projectId) as { maxPinnedOrder: number | null } | undefined;
+      .get(...projectWhere.values) as { maxPinnedOrder: number | null } | undefined;
     const nextPinnedOrder = existing.pinned && existing.pinnedOrder !== null
       ? existing.pinnedOrder
       : (maxPinnedOrder?.maxPinnedOrder ?? -1) + 1;
@@ -875,6 +908,9 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
   const projectId = ensureProjectExists(parsed.projectId);
   const session = getProjectSession(parsed.sessionId);
   if (!session) throw new Error(`Project session not found: ${parsed.sessionId}`);
+  if (session.projectId === null) {
+    throw new Error("Projectless sessions cannot own project-scoped tabs");
+  }
   if (session.projectId !== projectId) {
     throw new Error("Tab project must match the owning session project");
   }
@@ -1267,7 +1303,7 @@ export function updateProjectSessionTabState(tabId: string, stateKey: number, st
 
 export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkInput): ProjectSessionThreadLink {
   const parsed = ProjectSessionThreadLinkInputSchema.parse(input);
-  const projectId = ensureProjectExists(parsed.projectId);
+  const projectId = normalizeProjectSessionProjectId(parsed.projectId);
   const session = getProjectSession(parsed.sessionId);
   if (!session) throw new Error(`Project session not found: ${parsed.sessionId}`);
   if (session.projectId !== projectId) {

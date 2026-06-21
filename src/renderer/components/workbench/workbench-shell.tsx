@@ -162,6 +162,7 @@ import type {
   CodexCollaborationModeKind,
   CodexConnectionState,
   CodexCollaborationModePreset,
+  CodexSidebarThreadItem,
   CodexThreadSummary,
   CodexTurnDiffReviewTarget,
   CodexPromptInput,
@@ -253,21 +254,21 @@ import {
   CodexProjectRow,
   CodexProjectSessionList,
   CodexSidebarSection,
+  CodexSidebarThreadRow,
   CodexSidebarTopAction,
-  CodexThreadRow,
   resolveCodexCardSearchShortcutLabel,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
 import { RenameChatDialog } from "./rename-chat-dialog";
 import {
-  replaceVisibleOrder,
-  SidebarDropIndicator,
   SidebarProjectDndProvider,
   SidebarProjectSortableContext,
-  usePinnedProjectDroppable,
-  useSidebarGroupReorderController,
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
+import {
+  type CodexSidebarThreadSyncModel,
+} from "@/lib/codex-sidebar-thread-sync";
+import { useSidebarThreadSyncModel } from "@/lib/use-sidebar-thread-sync-model";
 import {
   resolveWorkbenchNavigationShortcutLabel,
   WORKBENCH_NAVIGATION_COMMANDS,
@@ -339,6 +340,9 @@ const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
 const NODEX_PANEL_OPTION_ACTION_KIND_SET = new Set<ProjectSessionTab["kind"]>(
   NODEX_PANEL_OPTION_ACTION_ORDER,
 );
+const NOOP_WORKBENCH_SIDEBAR_GROUP_DND_CONTROLLER: SidebarGroupDndController = {
+  handleDragEnd: () => undefined,
+};
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "kanban", label: "Board", icon: SquareKanban },
   { id: "list", label: "Table", icon: Table2 },
@@ -520,46 +524,6 @@ function sortProjectSessionsForSidebar(sessions: ProjectSession[]): ProjectSessi
   });
 }
 
-function sortPinnedProjectsForSidebar(projects: Project[]): Project[] {
-  return [...projects].sort((a, b) => {
-    const orderDelta = (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER);
-    if (orderDelta !== 0) return orderDelta;
-    return a.created.getTime() - b.created.getTime();
-  });
-}
-
-function orderProjectsByIds(projects: readonly Project[], projectIds: readonly string[]): Project[] {
-  const byId = new Map(projects.map((project) => [project.id, project]));
-  const ordered = projectIds
-    .map((projectId) => byId.get(projectId))
-    .filter((project): project is Project => Boolean(project));
-  const orderedIds = new Set(ordered.map((project) => project.id));
-  const missing = projects.filter((project) => !orderedIds.has(project.id));
-  return [...ordered, ...missing];
-}
-
-function renderProjectRowsWithDropIndicator({
-  projects,
-  dropIndicatorIndex,
-  renderProject,
-}: {
-  projects: Project[];
-  dropIndicatorIndex: number | null;
-  renderProject: (project: Project) => ReactNode;
-}): ReactNode[] {
-  const rows: ReactNode[] = [];
-  projects.forEach((project, index) => {
-    if (dropIndicatorIndex === index) {
-      rows.push(<SidebarDropIndicator key={`drop-indicator-${project.id}`} />);
-    }
-    rows.push(renderProject(project));
-  });
-  if (dropIndicatorIndex === projects.length) {
-    rows.push(<SidebarDropIndicator key="drop-indicator-end" />);
-  }
-  return rows;
-}
-
 interface WorkbenchShellProps {
   projects: Project[];
   dbProjectId: string;
@@ -586,7 +550,7 @@ interface WorkbenchShellProps {
     occurrenceStart: string;
   } | null;
   pendingSessionOpen?: {
-    projectId: string;
+    projectId: string | null;
     sessionId: string;
   } | null;
   setDbProject: (projectId: string) => void;
@@ -1161,6 +1125,10 @@ function buildSideChatParentNavigationPath(session: ProjectSession, parentThread
   return `project:${session.projectId}/session:${session.id}/thread:${parentThreadId}`;
 }
 
+function resolveProjectBoundSessionId(session: ProjectSession): string | null {
+  return session.projectId;
+}
+
 function isPreviewableProjectSessionTabKind(kind: ProjectSessionTab["kind"]): boolean {
   return PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET.has(kind);
 }
@@ -1169,11 +1137,14 @@ function makeProjectSessionTabDraft(
   session: ProjectSession,
   kind: ProjectSessionTab["kind"],
 ): ProjectSessionTabDraft | null {
+  const projectId = resolveProjectBoundSessionId(session);
+  if (projectId === null) return null;
+
   if (kind === "db_view") {
     return {
       kind,
       title: "DB View",
-      config: { projectId: session.projectId, view: "kanban" },
+      config: { projectId, view: "kanban" },
     };
   }
 
@@ -1181,7 +1152,7 @@ function makeProjectSessionTabDraft(
     return {
       kind,
       title: "Files",
-      config: { projectId: session.projectId, hostId: "local", workspaceRoot: "" },
+      config: { projectId, hostId: "local", workspaceRoot: "" },
     };
   }
 
@@ -1189,7 +1160,7 @@ function makeProjectSessionTabDraft(
     return {
       kind,
       title: "Browser",
-      config: { projectId: session.projectId },
+      config: { projectId },
     };
   }
 
@@ -1197,7 +1168,7 @@ function makeProjectSessionTabDraft(
     return {
       kind,
       title: "Review",
-      config: { projectId: session.projectId },
+      config: { projectId },
     };
   }
 
@@ -1206,7 +1177,7 @@ function makeProjectSessionTabDraft(
       kind,
       title: "Terminal",
       config: {
-        projectId: session.projectId,
+        projectId,
         terminalSessionId: makeTerminalSessionId(session.id),
       },
     };
@@ -1220,11 +1191,15 @@ function makePreviewProjectSessionTab(
   panelId: PanelId,
   draft: ProjectSessionTabDraft,
 ): ProjectSessionPreviewTab {
+  const projectId = resolveProjectBoundSessionId(session);
+  if (projectId === null) {
+    throw new Error("Projectless sessions cannot own project-scoped tabs");
+  }
   const now = new Date().toISOString();
   return {
     id: `preview:${session.id}:${panelId}:${draft.kind}`,
     sessionId: session.id,
-    projectId: session.projectId,
+    projectId,
     panelId,
     kind: draft.kind,
     title: draft.title,
@@ -1243,17 +1218,21 @@ function makePreviewWorkspaceFileTab(
   panelId: PanelId,
   input: { path: string; title: string; workspaceRoot: string },
 ): ProjectSessionPreviewTab {
+  const projectId = resolveProjectBoundSessionId(session);
+  if (projectId === null) {
+    throw new Error("Projectless sessions cannot own project-scoped tabs");
+  }
   const now = new Date().toISOString();
   return {
     id: `preview:${session.id}:${panelId}:files:${input.path}`,
     sessionId: session.id,
-    projectId: session.projectId,
+    projectId,
     panelId,
     kind: "files",
     title: input.title,
     order: session.tabs.filter((tab) => tab.panelId === panelId).length,
     config: {
-      projectId: session.projectId,
+      projectId,
       hostId: "local",
       workspaceRoot: input.workspaceRoot,
       path: input.path,
@@ -1272,12 +1251,16 @@ function makePreviewCardStageTab(
   leafId: string,
   input: { projectId: string; cardId: string; titleSnapshot?: string },
 ): ProjectSessionPreviewTab {
+  const projectId = resolveProjectBoundSessionId(session);
+  if (projectId === null) {
+    throw new Error("Projectless sessions cannot own project-scoped tabs");
+  }
   const now = new Date().toISOString();
   const title = input.titleSnapshot || input.cardId;
   return {
     id: makeClientProjectSessionTabId(),
     sessionId: session.id,
-    projectId: session.projectId,
+    projectId,
     panelId,
     kind: "card_stage",
     title,
@@ -1393,9 +1376,7 @@ export function WorkbenchShell({
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
-  onReorderProjects,
   onSetProjectPinned,
-  onSetPinnedProjectOrder,
   onRequestProjectPickerOpen,
   projectPickerOpenTick = 0,
   taskSearchOpenTick = 0,
@@ -1421,6 +1402,7 @@ export function WorkbenchShell({
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, ProjectSession[]>>({});
+  const [projectlessSessions, setProjectlessSessions] = useState<ProjectSession[]>([]);
   const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
     readInitialExpandedProjects(projects, dbProjectId || fallbackProjectId),
   );
@@ -1535,8 +1517,17 @@ export function WorkbenchShell({
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
-  const selectedActiveSession = activeSessions.find((session) => session.id === activeSessionId) ?? null;
+  const selectedActiveSession = activeSessions.find((session) => session.id === activeSessionId)
+    ?? projectlessSessions.find((session) => session.id === activeSessionId)
+    ?? null;
   const activeSession = selectedActiveSession ?? activeSessions[0] ?? null;
+  const sidebarThreadSync = useSidebarThreadSyncModel({
+    projects,
+  });
+  const knownSessions = useMemo(
+    () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
+    [projectlessSessions, sessionsByProject],
+  );
   const workbenchCodexControl = useCodexAppServerControl(activeProject?.id ?? activeProjectId);
   const activeProjectKanban = useKanban({
     projectId: activeProject?.id ?? activeProjectId,
@@ -1917,19 +1908,33 @@ export function WorkbenchShell({
     setStripSmartPrefixFromTitleEnabled(writeStripSmartPrefixFromTitleEnabled(value));
   }, []);
 
-  const refreshProjectSessions = useCallback(async (projectId: string) => {
+  const refreshProjectSessions = useCallback(async (projectId: string | null) => {
     const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
+    if (projectId === null) {
+      setProjectlessSessions(sessions);
+      return sessions;
+    }
     setSessionsByProject((current) => ({ ...current, [projectId]: sessions }));
     return sessions;
   }, []);
 
   const mergeSessionInState = useCallback((session: ProjectSession) => {
+    if (session.projectId === null) {
+      setProjectlessSessions((current) => sortProjectSessionsForSidebar(
+        current.some((candidate) => candidate.id === session.id)
+          ? current.map((candidate) => candidate.id === session.id ? session : candidate)
+          : [...current, session],
+      ));
+      return;
+    }
+    const projectId = session.projectId;
+
     setSessionsByProject((current) => {
-      const sessions = current[session.projectId];
+      const sessions = current[projectId];
       if (!sessions) return current;
       return {
         ...current,
-        [session.projectId]: sortProjectSessionsForSidebar(
+        [projectId]: sortProjectSessionsForSidebar(
           sessions.map((candidate) => candidate.id === session.id ? session : candidate),
         ),
       };
@@ -1968,6 +1973,7 @@ export function WorkbenchShell({
         projects.map(async (project) => [project.id, await refreshProjectSessions(project.id)] as const),
       );
       setSessionsByProject(Object.fromEntries(entries));
+      await refreshProjectSessions(null);
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Unable to load project sessions");
     } finally {
@@ -2035,7 +2041,7 @@ export function WorkbenchShell({
     if (!activeProject) return;
     if (
       activeSession
-      && activeSession.projectId === activeProject.id
+      && (activeSession.projectId === activeProject.id || activeSession.projectId === null)
       && activeSession.id === activeSessionId
     ) {
       return;
@@ -2078,12 +2084,15 @@ export function WorkbenchShell({
   }, [buildSnapshotForSession, recordShellNavigation, sessionsByProject, setDbProject]);
 
   const selectSession = useCallback((session: ProjectSession) => {
-    recordShellNavigation(buildSnapshotForSession(session));
+    recordShellNavigation(buildSnapshotForSession(session, session.projectId ?? activeProjectId));
     startTransition(() => {
-      setActiveProjectId(session.projectId);
       setActiveSessionId(session.id);
-      setDbProject(session.projectId);
-      setExpandedProjectIds((current) => new Set([...current, session.projectId]));
+      if (session.projectId !== null) {
+        const projectId = session.projectId;
+        setActiveProjectId(projectId);
+        setDbProject(projectId);
+        setExpandedProjectIds((current) => new Set([...current, projectId]));
+      }
     });
     if (session.unread) {
       void invoke("project-sessions:mark-unread", session.id, { unread: false })
@@ -2093,18 +2102,39 @@ export function WorkbenchShell({
         })
         .catch(() => undefined);
     }
-  }, [buildSnapshotForSession, mergeSessionInState, recordShellNavigation, setDbProject]);
+  }, [activeProjectId, buildSnapshotForSession, mergeSessionInState, recordShellNavigation, setDbProject]);
 
   useEffect(() => {
     if (!pendingSessionOpen) return;
+    if (pendingSessionOpen.projectId === null) {
+      const targetSession = projectlessSessions.find((session) => session.id === pendingSessionOpen.sessionId);
+      if (!targetSession) return;
+      selectSession(targetSession);
+      return;
+    }
     if (pendingSessionOpen.projectId !== activeProject?.id) return;
     const targetSession = activeSessions.find((session) => session.id === pendingSessionOpen.sessionId);
     if (!targetSession) return;
     selectSession(targetSession);
-  }, [activeProject?.id, activeSessions, pendingSessionOpen, selectSession]);
+  }, [activeProject?.id, activeSessions, pendingSessionOpen, projectlessSessions, selectSession]);
 
   const toggleSessionPin = useCallback(async (session: ProjectSession) => {
-    const previousSessions = sessionsByProject[session.projectId] ?? [];
+    if (session.thread) {
+      const nextPinned = !session.pinned;
+      try {
+        await sidebarThreadSync.setPinned(session.thread.threadId, nextPinned);
+        const updatedSessions = await refreshProjectSessions(session.projectId);
+        const updatedSession = updatedSessions.find((candidate) => candidate.id === session.id);
+        if (updatedSession) mergeSessionInState(updatedSession);
+      } catch {
+        toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
+      }
+      return;
+    }
+
+    if (session.projectId === null) return;
+    const projectId = session.projectId;
+    const previousSessions = sessionsByProject[projectId] ?? [];
     const nextPinned = !session.pinned;
     const nextPinnedOrder = nextPinned
       ? Math.max(-1, ...previousSessions.map((candidate) => candidate.pinnedOrder ?? -1)) + 1
@@ -2117,8 +2147,8 @@ export function WorkbenchShell({
 
     setSessionsByProject((current) => ({
       ...current,
-      [session.projectId]: sortProjectSessionsForSidebar(
-        (current[session.projectId] ?? previousSessions)
+      [projectId]: sortProjectSessionsForSidebar(
+        (current[projectId] ?? previousSessions)
           .map((candidate) => candidate.id === session.id ? optimisticSession : candidate),
       ),
     }));
@@ -2126,12 +2156,56 @@ export function WorkbenchShell({
     try {
       const updated = await invoke("project-sessions:set-pinned", session.id, { pinned: nextPinned }) as ProjectSession | null;
       if (updated) mergeSessionInState(updated);
-      await refreshProjectSessions(session.projectId);
+      await refreshProjectSessions(projectId);
     } catch {
-      setSessionsByProject((current) => ({ ...current, [session.projectId]: previousSessions }));
+      setSessionsByProject((current) => ({ ...current, [projectId]: previousSessions }));
       toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
     }
-  }, [mergeSessionInState, refreshProjectSessions, sessionsByProject]);
+  }, [mergeSessionInState, refreshProjectSessions, sessionsByProject, sidebarThreadSync]);
+
+  const toggleSidebarThreadPinned = useCallback(async (item: CodexSidebarThreadItem) => {
+    if (item.disabled) return;
+    const nextPinned = !item.pinned;
+    try {
+      await sidebarThreadSync.setPinned(item.threadId, nextPinned);
+      const session = item.sessionId
+        ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
+        : null;
+      if (session) {
+        const refreshed = await refreshProjectSessions(session.projectId);
+        const updatedSession = refreshed.find((candidate) => candidate.id === session.id);
+        if (updatedSession) mergeSessionInState(updatedSession);
+      }
+    } catch {
+      toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
+    }
+  }, [knownSessions, mergeSessionInState, refreshProjectSessions, sidebarThreadSync]);
+
+  const selectSidebarThread = useCallback(async (item: CodexSidebarThreadItem) => {
+    if (item.disabled) return;
+    const existingSession = item.sessionId
+      ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
+      : knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null;
+    if (existingSession) {
+      selectSession(existingSession);
+      return;
+    }
+
+    try {
+      const ensured = await invoke("codex:thread:ensure-session", item.threadId) as ProjectSession | null;
+      if (!ensured) {
+        toast.info("That thread is not available in this workspace", {
+          id: `thread-open-unavailable-${item.threadId}`,
+        });
+        return;
+      }
+      mergeSessionInState(ensured);
+      await refreshProjectSessions(ensured.projectId);
+      selectSession(ensured);
+    } catch {
+      toast.danger("Failed to open chat");
+    }
+  }, [knownSessions, mergeSessionInState, refreshProjectSessions, selectSession]);
 
   const openRenameSessionDialog = useCallback((session: ProjectSession) => {
     if (session.isOverview) return;
@@ -2160,7 +2234,11 @@ export function WorkbenchShell({
       await invoke("project-sessions:archive", session.id);
       const sessions = await refreshProjectSessions(session.projectId);
       if (activeSessionId === session.id) {
-        const fallbackSession = sessions.find((candidate) => candidate.isOverview) ?? sessions[0] ?? null;
+        const fallbackSession = sessions.find((candidate) => candidate.isOverview)
+          ?? sessions[0]
+          ?? (session.projectId === null
+            ? activeSessions.find((candidate) => candidate.isOverview) ?? activeSessions[0] ?? null
+            : null);
         if (fallbackSession) {
           selectSession(fallbackSession);
         } else {
@@ -2170,7 +2248,7 @@ export function WorkbenchShell({
     } catch {
       toast.danger("Failed to archive chat");
     }
-  }, [activeSessionId, refreshProjectSessions, selectSession]);
+  }, [activeSessionId, activeSessions, refreshProjectSessions, selectSession]);
 
   const markSessionUnread = useCallback(async (session: ProjectSession) => {
     try {
@@ -2925,6 +3003,8 @@ export function WorkbenchShell({
 
   const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
+    const projectId = activeSession.projectId;
+    if (projectId === null) return;
     const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
     const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
       ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
@@ -2940,7 +3020,7 @@ export function WorkbenchShell({
       });
       const createInput: ProjectSessionTabCreateInput = {
         sessionId: activeSession.id,
-        projectId: activeSession.projectId,
+        projectId,
         panelId,
         targetLeafId,
         ...(previewTab.kind === "card_stage" ? { clientTabId: previewTab.id } : {}),
@@ -2950,12 +3030,12 @@ export function WorkbenchShell({
       };
       await invoke("project-session-tabs:create", createInput);
       if (previewTab.kind === "card_stage") {
-        await refreshProjectSessions(activeSession.projectId);
+        await refreshProjectSessions(projectId);
         clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
         return;
       }
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
-      await refreshProjectSessions(activeSession.projectId);
+      await refreshProjectSessions(projectId);
     } finally {
       pinningPreviewTabIdsRef.current.delete(tabId);
     }
@@ -3100,10 +3180,11 @@ export function WorkbenchShell({
       collaborationMode?: CodexCollaborationModeKind;
     } = {},
   ) => {
-    if (!activeSession?.thread) {
+    if (!activeSession?.thread || activeSession.projectId === null) {
       toast.danger("Failed to open side chat", { id: "side-chat-open-failed" });
       return;
     }
+    const projectId = activeSession.projectId;
 
     const panelId = input.targetPanelId ?? "right";
     const leafId = input.targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
@@ -3119,7 +3200,7 @@ export function WorkbenchShell({
       sideChat: true,
       id: loadingTabId,
       sessionId: activeSession.id,
-      projectId: activeSession.projectId,
+      projectId,
       panelId,
       leafId,
       parentThreadId,
@@ -3143,7 +3224,7 @@ export function WorkbenchShell({
 
     try {
       const result = await workbenchCodexControl.startSideChat({
-        projectId: activeSession.projectId,
+        projectId,
         parentThreadId,
         parentNavigationPath,
         prompt: input.prompt,
@@ -3200,7 +3281,8 @@ export function WorkbenchShell({
   ]);
 
   const openMcpAppSidePanel = useCallback(async (input: ThreadMcpAppSidePanelInput) => {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.projectId === null) return;
+    const projectId = activeSession.projectId;
 
     const panelId: PanelId = "right";
     const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
@@ -3209,7 +3291,7 @@ export function WorkbenchShell({
       mcpApp: true,
       id: tabId,
       sessionId: activeSession.id,
-      projectId: activeSession.projectId,
+      projectId,
       panelId,
       leafId,
       title: input.title.trim() || input.server,
@@ -3342,6 +3424,8 @@ export function WorkbenchShell({
     targetLeafId?: string,
   ) => {
     if (!activeSession) return;
+    const sessionProjectId = activeSession.projectId;
+    if (sessionProjectId === null) return;
     if (!isPreviewableProjectSessionTabKind(kind)) return;
 
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
@@ -3354,7 +3438,7 @@ export function WorkbenchShell({
       [makePanelPreviewKey(activeSession.id, panelId, leafId)]: makePreviewProjectSessionTab(activeSession, panelId, draft),
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
-    await refreshProjectSessions(activeSession.projectId);
+    await refreshProjectSessions(sessionProjectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
   const openWorkspaceFileTab = useCallback(async (input: {
@@ -3363,7 +3447,9 @@ export function WorkbenchShell({
     panelId: PanelId;
   }) => {
     if (!activeSession) return;
-    const project = projects.find((candidate) => candidate.id === activeSession.projectId) ?? null;
+    const sessionProjectId = activeSession.projectId;
+    if (sessionProjectId === null) return;
+    const project = projects.find((candidate) => candidate.id === sessionProjectId) ?? null;
     const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(project) ?? "";
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "files"
@@ -3386,14 +3472,15 @@ export function WorkbenchShell({
       }),
     }));
     await ensureActivePanelOpenWithoutRefresh(input.panelId);
-    await refreshProjectSessions(activeSession.projectId);
+    await refreshProjectSessions(sessionProjectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, projects, refreshProjectSessions, setActivePanelTab]);
 
   const openCardTab = useCallback<OpenCardTabHandler>(async (projectId, cardId, titleSnapshot, options) => {
-    if (!activeSession) {
+    if (!activeSession || activeSession.projectId === null) {
       openCardStage(projectId, cardId, titleSnapshot);
       return;
     }
+    const sessionProjectId = activeSession.projectId;
 
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "card_stage"
@@ -3435,13 +3522,13 @@ export function WorkbenchShell({
         ),
       }));
       await ensureActivePanelOpenWithoutRefresh("right");
-      await refreshProjectSessions(activeSession.projectId);
+      await refreshProjectSessions(sessionProjectId);
       return;
     }
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: activeSession.projectId,
+      projectId: sessionProjectId,
       panelId: "right",
       ...(targetLeafId ? { targetLeafId } : {}),
       kind: "card_stage",
@@ -3449,7 +3536,7 @@ export function WorkbenchShell({
       config: { projectId, cardId, titleSnapshot },
     });
     await ensureActivePanelOpenWithoutRefresh("right");
-    await refreshProjectSessions(activeSession.projectId);
+    await refreshProjectSessions(sessionProjectId);
   }, [
     activeSession,
     clearPanelPreviewTab,
@@ -3598,13 +3685,15 @@ export function WorkbenchShell({
     targetLeafId?: string,
   ) => {
     if (!activeSession) return;
+    const sessionProjectId = activeSession.projectId;
+    if (sessionProjectId === null) return;
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
     const draft = makeProjectSessionTabDraft(activeSession, kind);
     if (!draft) return;
 
     const createInput: ProjectSessionTabCreateInput = {
       sessionId: activeSession.id,
-      projectId: activeSession.projectId,
+      projectId: sessionProjectId,
       panelId,
       ...(targetLeafId ? { targetLeafId } : {}),
       ...(draft.kind === "terminal" && "terminalSessionId" in draft.config
@@ -3615,22 +3704,31 @@ export function WorkbenchShell({
 
     await invoke("project-session-tabs:create", createInput);
     await ensureActivePanelOpenWithoutRefresh(panelId);
-    await refreshProjectSessions(activeSession.projectId);
+    await refreshProjectSessions(sessionProjectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
-  const openAttachedThreadSession = useCallback((threadId: string) => {
-    const session = Object.values(sessionsByProject)
-      .flat()
-      .find((candidate) => candidate.thread?.threadId === threadId);
-    if (!session) {
-      toast.info("That thread is not attached to a chat in this workspace", {
-        id: `thread-open-unattached-${threadId}`,
-      });
+  const openAttachedThreadSession = useCallback(async (threadId: string) => {
+    const session = knownSessions.find((candidate) => candidate.thread?.threadId === threadId) ?? null;
+    if (session) {
+      selectSession(session);
       return;
     }
 
-    selectSession(session);
-  }, [selectSession, sessionsByProject]);
+    try {
+      const ensured = await invoke("codex:thread:ensure-session", threadId) as ProjectSession | null;
+      if (!ensured) {
+        toast.info("That thread is not attached to a chat in this workspace", {
+          id: `thread-open-unattached-${threadId}`,
+        });
+        return;
+      }
+      mergeSessionInState(ensured);
+      await refreshProjectSessions(ensured.projectId);
+      selectSession(ensured);
+    } catch {
+      toast.danger("Failed to open chat");
+    }
+  }, [knownSessions, mergeSessionInState, refreshProjectSessions, selectSession]);
 
   const openTurnDiffReview = useCallback((target: CodexTurnDiffReviewTarget) => {
     setSelectedTurnDiffReviewTarget(target);
@@ -3666,21 +3764,23 @@ export function WorkbenchShell({
 
   const createBrowserTabToRight = useCallback(async (sourceTab: ProjectSessionTab, duplicate: boolean) => {
     if (!activeSession) return;
+    const sessionProjectId = activeSession.projectId;
+    if (sessionProjectId === null) return;
     const panelId = sourceTab.panelId;
     const panelTabs = activeSession.tabs.filter((tab) => tab.panelId === panelId);
     const sourceIndex = panelTabs.findIndex((tab) => tab.id === sourceTab.id);
     const sourceConfig = sourceTab.kind === "browser" && "projectId" in sourceTab.config
       ? sourceTab.config
-      : { projectId: activeSession.projectId };
+      : { projectId: sessionProjectId };
     const created = await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: activeSession.projectId,
+      projectId: sessionProjectId,
       panelId,
       kind: "browser",
       title: duplicate ? sourceTab.title || "Browser" : "Browser",
       config: duplicate
         ? {
-            projectId: activeSession.projectId,
+            projectId: sessionProjectId,
             ...("url" in sourceConfig && typeof sourceConfig.url === "string" ? { url: sourceConfig.url } : {}),
             ...("title" in sourceConfig && typeof sourceConfig.title === "string" ? { title: sourceConfig.title } : {}),
             ...("faviconUrl" in sourceConfig && typeof sourceConfig.faviconUrl === "string" ? { faviconUrl: sourceConfig.faviconUrl } : {}),
@@ -3688,7 +3788,7 @@ export function WorkbenchShell({
               ? { deviceToolbarVisible: sourceConfig.deviceToolbarVisible }
               : {}),
           }
-        : { projectId: activeSession.projectId },
+        : { projectId: sessionProjectId },
     }) as ProjectSessionTab;
 
     if (sourceIndex >= 0) {
@@ -3699,7 +3799,7 @@ export function WorkbenchShell({
       });
     }
     await setActivePanelTab(panelId, created.id, { openPanel: true });
-    await refreshProjectSessions(activeSession.projectId);
+    await refreshProjectSessions(sessionProjectId);
   }, [activeSession, refreshProjectSessions, setActivePanelTab]);
 
   const reloadBrowserTab = useCallback((tabId: string) => {
@@ -3763,11 +3863,12 @@ export function WorkbenchShell({
     panelId: PanelId,
     leafId: string,
   ) => {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.projectId === null) return;
+    const sessionProjectId = activeSession.projectId;
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: activeSession.projectId,
+      projectId: sessionProjectId,
       panelId,
       targetLeafId: leafId,
       kind: "db_view",
@@ -3775,7 +3876,7 @@ export function WorkbenchShell({
       config: { projectId, view: "kanban" },
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
-    await refreshProjectSessions(activeSession.projectId);
+    await refreshProjectSessions(sessionProjectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
   const openCardStageFromPanelPicker = useCallback(async (
@@ -3783,10 +3884,11 @@ export function WorkbenchShell({
     panelId: PanelId,
     leafId: string,
   ) => {
-    if (!activeSession) {
+    if (!activeSession || activeSession.projectId === null) {
       openCardStage(destination.projectId, destination.cardId, destination.titleSnapshot);
       return;
     }
+    const sessionProjectId = activeSession.projectId;
 
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "card_stage"
@@ -3815,7 +3917,7 @@ export function WorkbenchShell({
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
-      projectId: activeSession.projectId,
+      projectId: sessionProjectId,
       panelId,
       targetLeafId: leafId,
       kind: "card_stage",
@@ -3827,7 +3929,7 @@ export function WorkbenchShell({
       },
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
-    await refreshProjectSessions(activeSession.projectId);
+    await refreshProjectSessions(sessionProjectId);
   }, [
     activeSession,
     clearPanelPreviewTab,
@@ -5498,12 +5600,13 @@ export function WorkbenchShell({
             <>
           {showInlineSidebar ? (
             <ProjectSessionSidebar
-              projects={projects}
               spaces={spaces}
               activeProjectId={activeProjectId}
               activeSessionId={activeSession?.id ?? null}
               contextMenuSessionId={contextMenuSessionId}
               sessionsByProject={sessionsByProject}
+              projectlessSessions={projectlessSessions}
+              sidebarThreadModel={sidebarThreadSync.model}
               expandedProjectIds={expandedProjectIds}
               pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
               projectsSectionCollapsed={projectsSectionCollapsed}
@@ -5518,10 +5621,11 @@ export function WorkbenchShell({
               onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
               onSelectProject={selectProject}
-              onSelectSession={selectSession}
+              onSelectSidebarThread={selectSidebarThread}
               onOpenSessionContextMenu={openSessionContextMenu}
               onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
               onToggleSessionPinned={toggleSessionPin}
+              onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
               onOpenCommandPalette={openSidebarCommandPalette}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -5533,9 +5637,7 @@ export function WorkbenchShell({
               }}
               onUpdateProject={onUpdateProject ?? (async () => null)}
               onDeleteProject={onDeleteProject ?? (async () => false)}
-              onReorderProjects={onReorderProjects}
               onSetProjectPinned={onSetProjectPinned}
-              onSetPinnedProjectOrder={onSetPinnedProjectOrder}
               onOpenSettings={openSettings}
               account={codexAccount}
               connection={codexConnection}
@@ -5564,12 +5666,13 @@ export function WorkbenchShell({
                 <ProjectSessionSidebar
                   floating
                   header={floatingSidebarHeader}
-                  projects={projects}
                   spaces={spaces}
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSession?.id ?? null}
                   contextMenuSessionId={contextMenuSessionId}
                   sessionsByProject={sessionsByProject}
+                  projectlessSessions={projectlessSessions}
+                  sidebarThreadModel={sidebarThreadSync.model}
                   expandedProjectIds={expandedProjectIds}
                   pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
@@ -5582,10 +5685,11 @@ export function WorkbenchShell({
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
                   onToggleProjectExpanded={toggleProjectExpanded}
                   onSelectProject={selectProject}
-                  onSelectSession={selectSession}
+                  onSelectSidebarThread={selectSidebarThread}
                   onOpenSessionContextMenu={openSessionContextMenu}
                   onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
                   onToggleSessionPinned={toggleSessionPin}
+                  onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
                   onOpenCommandPalette={openSidebarCommandPalette}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -5597,9 +5701,7 @@ export function WorkbenchShell({
                   }}
                   onUpdateProject={onUpdateProject ?? (async () => null)}
                   onDeleteProject={onDeleteProject ?? (async () => false)}
-                  onReorderProjects={onReorderProjects}
                   onSetProjectPinned={onSetProjectPinned}
-                  onSetPinnedProjectOrder={onSetPinnedProjectOrder}
                   onOpenSettings={openSettings}
                   account={codexAccount}
                   connection={codexConnection}
@@ -5891,198 +5993,241 @@ export function WorkbenchShell({
   );
 }
 
-function SidebarProjectGroupSections({
-  projects,
+function SidebarThreadOrganizerSections({
   activeProjectId,
   activeSessionId,
   contextMenuSessionId,
   sessionsByProject,
+  projectlessSessions,
   expandedProjectIds,
-  pinnedProjectsSectionCollapsed,
+  pinnedThreadsSectionCollapsed,
   projectsSectionCollapsed,
   loadingSessions,
-  onTogglePinnedProjectsSectionCollapsed,
+  model,
+  onTogglePinnedThreadsSectionCollapsed,
   onToggleProjectsSectionCollapsed,
   onToggleProjectExpanded,
   onSelectProject,
-  onSelectSession,
+  onSelectSidebarThread,
   onOpenSessionContextMenu,
   onSessionTitleDoubleClick,
   onToggleSessionPinned,
+  onToggleSidebarThreadPinned,
   onStartNewChatInProject,
   projectPickerOpenTick,
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
-  onReorderProjects,
   onSetProjectPinned,
-  onSetPinnedProjectOrder,
 }: {
-  projects: Project[];
   activeProjectId: string;
   activeSessionId: string | null;
   contextMenuSessionId?: string | null;
   sessionsByProject: Record<string, ProjectSession[]>;
+  projectlessSessions: ProjectSession[];
   expandedProjectIds: Set<string>;
-  pinnedProjectsSectionCollapsed: boolean;
+  pinnedThreadsSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   loadingSessions: boolean;
-  onTogglePinnedProjectsSectionCollapsed: () => void;
+  model: CodexSidebarThreadSyncModel;
+  onTogglePinnedThreadsSectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
-  onSelectSession: (session: ProjectSession) => void;
+  onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
+  onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   projectPickerOpenTick: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
-  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
-  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
 }) {
-  const projectOrderIds = useMemo(() => projects.map((project) => project.id), [projects]);
-  const pinnedProjects = useMemo(
-    () => sortPinnedProjectsForSidebar(projects.filter((project) => project.pinned)),
-    [projects],
+  const [chatsCollapsed, setChatsCollapsed] = useState(false);
+  const sessionsById = useMemo(() => {
+    const entries = [
+      ...Object.values(sessionsByProject).flat(),
+      ...projectlessSessions,
+    ].map((session) => [session.id, session] as const);
+    return new Map(entries);
+  }, [projectlessSessions, sessionsByProject]);
+  const knownSessions = useMemo(
+    () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
+    [projectlessSessions, sessionsByProject],
   );
-  const unpinnedProjects = useMemo(
-    () => projects.filter((project) => !project.pinned),
-    [projects],
-  );
-  const pinnedProjectIds = useMemo(() => pinnedProjects.map((project) => project.id), [pinnedProjects]);
-  const unpinnedProjectIds = useMemo(() => unpinnedProjects.map((project) => project.id), [unpinnedProjects]);
-  const pinnedDroppable = usePinnedProjectDroppable();
-
-  const handleUnpinnedProjectOrderChange = useCallback(async (nextProjectIds: string[]) => {
-    const orderedProjectIds = replaceVisibleOrder(projectOrderIds, unpinnedProjectIds, nextProjectIds);
-    try {
-      await onReorderProjects({ orderedProjectIds });
-    } catch {
-      toast.danger("Failed to reorder projects");
+  const sessionsByThreadId = useMemo(() => {
+    const entries = knownSessions
+      .filter((session) => session.thread)
+      .map((session) => [session.thread?.threadId ?? "", session] as const);
+    return new Map(entries);
+  }, [knownSessions]);
+  const fallbackThreadItems = useMemo(() => {
+    const existingSessionIds = new Set(
+      model.snapshot.items
+        .map((item) => item.sessionId)
+        .filter((sessionId): sessionId is string => typeof sessionId === "string"),
+    );
+    const existingThreadIds = new Set(model.snapshot.items.map((item) => item.threadId));
+    return knownSessions
+      .filter((session) => !session.archived)
+      .filter((session) => {
+        if (existingSessionIds.has(session.id)) return false;
+        if (session.thread && existingThreadIds.has(session.thread.threadId)) return false;
+        return true;
+      })
+      .map((session): CodexSidebarThreadItem => {
+        const threadId = session.thread?.threadId ?? session.id;
+        return {
+          key: `local:session:${session.id}`,
+          kind: "local",
+          hostId: "local",
+          threadId,
+          sessionId: session.id,
+          projectId: session.projectId,
+          title: session.displayTitle,
+          preview: session.thread?.threadPreview ?? "",
+          cwd: session.thread?.cwd ?? null,
+          updatedAt: session.thread?.updatedAt ?? Date.parse(session.updatedAt),
+          createdAt: session.thread?.createdAt ?? Date.parse(session.createdAt),
+          pinned: !session.isOverview && session.pinned,
+          pinnedOrder: session.pinnedOrder,
+          unread: session.unread,
+          archived: session.archived || session.thread?.archived === true,
+          statusType: (session.thread?.statusType ?? "notLoaded") as CodexSidebarThreadItem["statusType"],
+          statusActiveFlags: (session.thread?.statusActiveFlags ?? []) as CodexSidebarThreadItem["statusActiveFlags"],
+          projectless: session.projectId === null,
+          disabled: false,
+        };
+      });
+  }, [knownSessions, model.snapshot.items]);
+  const sidebarThreadItemsByKey = useMemo(() => {
+    const itemsByKey = new Map(model.threadItemsByKey);
+    for (const item of fallbackThreadItems) {
+      itemsByKey.set(item.key, item);
     }
-  }, [onReorderProjects, projectOrderIds, unpinnedProjectIds]);
+    return itemsByKey;
+  }, [fallbackThreadItems, model.threadItemsByKey]);
+  const pinnedThreadKeys = useMemo(() => [
+    ...model.pinnedThreadKeys,
+    ...fallbackThreadItems.filter((item) => item.pinned).map((item) => item.key),
+  ], [fallbackThreadItems, model.pinnedThreadKeys]);
+  const projectGroups = useMemo(() => model.projectGroups.map((group) => ({
+    project: group.project,
+    threadKeys: [
+      ...group.threadKeys,
+      ...fallbackThreadItems
+        .filter((item) => item.projectId === group.project.id && !item.pinned)
+        .map((item) => item.key),
+    ],
+  })), [fallbackThreadItems, model.projectGroups]);
+  const pinnedProjectGroups = useMemo(
+    () => projectGroups.filter((group) => group.project.pinned),
+    [projectGroups],
+  );
+  const unpinnedProjectGroups = useMemo(
+    () => projectGroups.filter((group) => !group.project.pinned),
+    [projectGroups],
+  );
+  const projectlessThreadKeys = useMemo(() => [
+    ...model.projectlessThreadKeys,
+    ...fallbackThreadItems
+      .filter((item) => item.projectless && !item.pinned)
+      .map((item) => item.key),
+  ], [fallbackThreadItems, model.projectlessThreadKeys]);
 
-  const handlePinnedProjectOrderChange = useCallback(async (orderedProjectIds: string[]) => {
-    try {
-      await onSetPinnedProjectOrder({ orderedProjectIds });
-    } catch {
-      toast.danger("Failed to reorder pinned projects");
+  const resolveSessionForItem = useCallback((item: CodexSidebarThreadItem) => {
+    if (item.sessionId) {
+      const session = sessionsById.get(item.sessionId);
+      if (session) return session;
     }
-  }, [onSetPinnedProjectOrder]);
+    return sessionsByThreadId.get(item.threadId) ?? null;
+  }, [sessionsById, sessionsByThreadId]);
 
-  const pinnedReorder = useSidebarGroupReorderController({
-    groupIds: pinnedProjectIds,
-    reorderGroups: handlePinnedProjectOrderChange,
-  });
-  const unpinnedReorder = useSidebarGroupReorderController({
-    groupIds: unpinnedProjectIds,
-    reorderGroups: handleUnpinnedProjectOrderChange,
-  });
-  const displayedPinnedProjects = useMemo(
-    () => orderProjectsByIds(pinnedProjects, pinnedReorder.groupIds),
-    [pinnedProjects, pinnedReorder.groupIds],
-  );
-  const displayedUnpinnedProjects = useMemo(
-    () => orderProjectsByIds(unpinnedProjects, unpinnedReorder.groupIds),
-    [unpinnedProjects, unpinnedReorder.groupIds],
-  );
-
-  const renderProjectRow = useCallback((project: Project, controller: SidebarGroupDndController) => {
-    const sessions = sessionsByProject[project.id] ?? [];
-    const expanded = expandedProjectIds.has(project.id);
-    const isActiveProject = project.id === activeProjectId;
+  const renderThreadRow = useCallback((threadKey: string) => {
+    const item = sidebarThreadItemsByKey.get(threadKey);
+    if (!item) return null;
+    const session = resolveSessionForItem(item);
+    const sessionId = item.sessionId ?? session?.id ?? null;
 
     return (
-      <CodexProjectRow
-        key={project.id}
-        project={project}
-        active={isActiveProject}
-        expanded={expanded}
-        groupDndController={controller}
-        allowProjectReorder
-        onActivate={() => onToggleProjectExpanded(project.id)}
-        onSelectProject={() => onSelectProject(project.id)}
-        onStartNewChat={() => void onStartNewChatInProject(project.id)}
-        onUpdateProject={onUpdateProject}
-        onDeleteProject={onDeleteProject}
-        onSetProjectPinned={onSetProjectPinned}
-      >
-        <CodexProjectSessionList project={project}>
-          {sessions.map((session) => (
-            <CodexThreadRow
-              key={session.id}
-              session={session}
-              active={activeSessionId === session.id}
-              contextMenuOpen={contextMenuSessionId === session.id}
-              onSelect={() => onSelectSession(session)}
-              onOpenContextMenu={onOpenSessionContextMenu}
-              onRenameFromTitleDoubleClick={onSessionTitleDoubleClick}
-              onTogglePinned={onToggleSessionPinned}
-            />
-          ))}
-          {sessions.length === 0 && loadingSessions ? (
-            <div className="px-row-x py-row-y text-sm text-token-description-foreground">
-              Loading sessions...
-            </div>
-          ) : null}
-        </CodexProjectSessionList>
-      </CodexProjectRow>
+      <CodexSidebarThreadRow
+        key={item.key}
+        item={item}
+        active={Boolean(sessionId && activeSessionId === sessionId)}
+        contextMenuOpen={Boolean(sessionId && contextMenuSessionId === sessionId)}
+        onSelect={() => {
+          void onSelectSidebarThread(item);
+        }}
+        onOpenContextMenu={session && onOpenSessionContextMenu
+          && !session.isOverview
+          ? (_item, event) => onOpenSessionContextMenu(session, event)
+          : undefined}
+        onRenameFromTitleDoubleClick={session && onSessionTitleDoubleClick
+          && !session.isOverview
+          ? (_item, event) => onSessionTitleDoubleClick(session, event)
+          : undefined}
+        defaultLabel={session?.isOverview ? "default" : undefined}
+        onTogglePinned={session?.isOverview
+          ? undefined
+          : session && onToggleSessionPinned
+          ? () => onToggleSessionPinned(session)
+          : onToggleSidebarThreadPinned}
+      />
     );
   }, [
-    activeProjectId,
     activeSessionId,
     contextMenuSessionId,
-    expandedProjectIds,
-    loadingSessions,
-    onDeleteProject,
     onOpenSessionContextMenu,
+    onSelectSidebarThread,
     onSessionTitleDoubleClick,
-    onSelectProject,
-    onSelectSession,
-    onSetProjectPinned,
-    onStartNewChatInProject,
-    onToggleProjectExpanded,
     onToggleSessionPinned,
-    onUpdateProject,
-    sessionsByProject,
+    onToggleSidebarThreadPinned,
+    resolveSessionForItem,
+    sidebarThreadItemsByKey,
   ]);
 
-  return (
-    <>
-      {displayedPinnedProjects.length > 0 ? (
-        <div ref={pinnedDroppable.setNodeRef} className="relative">
-          <CodexSidebarSection
-            heading="Pinned"
-            collapsed={pinnedProjectsSectionCollapsed}
-            onToggle={onTogglePinnedProjectsSectionCollapsed}
-          >
-            <div className="isolate flex flex-col [contain:layout]">
-              <SidebarProjectSortableContext groupIds={pinnedReorder.groupIds}>
-                <div className="flex flex-col" role="list" aria-label="Pinned">
-                  {renderProjectRowsWithDropIndicator({
-                    projects: displayedPinnedProjects,
-                    dropIndicatorIndex: pinnedReorder.dropIndicatorIndex,
-                    renderProject: (project) => renderProjectRow(project, pinnedReorder.controller),
-                  })}
-                </div>
-              </SidebarProjectSortableContext>
-            </div>
-          </CodexSidebarSection>
-        </div>
-      ) : pinnedDroppable.projectDragActive ? (
-        <div
-          ref={pinnedDroppable.setNodeRef}
-          className="absolute inset-x-0 top-0 px-row-x"
-        >
-          <SidebarDropIndicator />
-          <div className="h-4" />
-        </div>
-      ) : null}
+  const renderThreadList = useCallback((threadKeys: string[], emptyText: string) => (
+    <div className="isolate flex flex-col [contain:layout]">
+      <div className="flex flex-col" role="list">
+        {threadKeys.length > 0 ? threadKeys.map(renderThreadRow) : (
+          <div className="px-row-x py-row-y text-sm text-token-description-foreground">
+            {loadingSessions ? "Loading chats..." : emptyText}
+          </div>
+        )}
+      </div>
+    </div>
+  ), [loadingSessions, renderThreadRow]);
 
+  const renderPinnedThreads = () => {
+    if (pinnedThreadKeys.length === 0) return null;
+    return (
+      <CodexSidebarSection
+        heading="Pinned"
+        collapsed={pinnedThreadsSectionCollapsed}
+        onToggle={onTogglePinnedThreadsSectionCollapsed}
+      >
+        {renderThreadList(pinnedThreadKeys, "No pinned chats")}
+      </CodexSidebarSection>
+    );
+  };
+
+  const renderProjectGroups = () => (
+    <>
+      {renderPinnedThreads()}
+      {pinnedProjectGroups.length > 0 ? (
+        <CodexSidebarSection
+          heading="Pinned"
+          collapsed={pinnedThreadsSectionCollapsed}
+          onToggle={onTogglePinnedThreadsSectionCollapsed}
+        >
+          <div className="isolate flex flex-col [contain:layout]">
+            {renderProjectGroupRows(pinnedProjectGroups)}
+          </div>
+        </CodexSidebarSection>
+      ) : null}
       <CodexSidebarSection
         heading="Projects"
         collapsed={projectsSectionCollapsed}
@@ -6095,29 +6240,65 @@ function SidebarProjectGroupSections({
         )}
       >
         <div className="isolate flex flex-col [contain:layout]">
-          <SidebarProjectSortableContext groupIds={unpinnedReorder.groupIds}>
-            <div className="flex flex-col" role="list" aria-label="Projects">
-              {renderProjectRowsWithDropIndicator({
-                projects: displayedUnpinnedProjects,
-                dropIndicatorIndex: unpinnedReorder.dropIndicatorIndex,
-                renderProject: (project) => renderProjectRow(project, unpinnedReorder.controller),
-              })}
-            </div>
-          </SidebarProjectSortableContext>
+          {renderProjectGroupRows(unpinnedProjectGroups)}
         </div>
+      </CodexSidebarSection>
+      <CodexSidebarSection
+        heading="Chats"
+        collapsed={chatsCollapsed}
+        onToggle={() => setChatsCollapsed((current) => !current)}
+      >
+        {renderThreadList(projectlessThreadKeys, "No projectless chats")}
       </CodexSidebarSection>
     </>
   );
+
+  const renderProjectGroupRows = (groups: typeof projectGroups) => (
+    <SidebarProjectSortableContext groupIds={groups.map((group) => group.project.id)}>
+      <div className="flex flex-col" role="list" aria-label="Projects">
+        {groups.map(({ project, threadKeys }) => {
+          const expanded = expandedProjectIds.has(project.id);
+          return (
+            <CodexProjectRow
+              key={project.id}
+              project={project}
+              active={activeProjectId === project.id}
+              expanded={expanded}
+              groupDndController={NOOP_WORKBENCH_SIDEBAR_GROUP_DND_CONTROLLER}
+              allowProjectReorder
+              onActivate={() => onToggleProjectExpanded(project.id)}
+              onSelectProject={() => onSelectProject(project.id)}
+              onStartNewChat={() => void onStartNewChatInProject(project.id)}
+              onUpdateProject={onUpdateProject}
+              onDeleteProject={onDeleteProject}
+              onSetProjectPinned={onSetProjectPinned}
+            >
+              <CodexProjectSessionList project={project}>
+                {threadKeys.length > 0 ? threadKeys.map(renderThreadRow) : (
+                  <div className="px-row-x py-row-y text-sm text-token-description-foreground">
+                    {loadingSessions ? "Loading chats..." : "No chats"}
+                  </div>
+                )}
+              </CodexProjectSessionList>
+            </CodexProjectRow>
+          );
+        })}
+      </div>
+    </SidebarProjectSortableContext>
+  );
+
+  return renderProjectGroups();
 }
 
 function ProjectSessionSidebar({
   floating = false,
   header,
-  projects,
   activeProjectId,
   activeSessionId,
   contextMenuSessionId,
   sessionsByProject,
+  projectlessSessions,
+  sidebarThreadModel,
   expandedProjectIds,
   pinnedProjectsSectionCollapsed,
   projectsSectionCollapsed,
@@ -6133,10 +6314,11 @@ function ProjectSessionSidebar({
   onToggleProjectsSectionCollapsed,
   onToggleProjectExpanded,
   onSelectProject,
-  onSelectSession,
+  onSelectSidebarThread,
   onOpenSessionContextMenu,
   onSessionTitleDoubleClick,
   onToggleSessionPinned,
+  onToggleSidebarThreadPinned,
   onStartNewChatInProject,
   onOpenCommandPalette,
   onShowUnavailableProduct,
@@ -6144,9 +6326,7 @@ function ProjectSessionSidebar({
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
-  onReorderProjects,
   onSetProjectPinned,
-  onSetPinnedProjectOrder,
   onOpenSettings,
   account,
   connection,
@@ -6156,12 +6336,13 @@ function ProjectSessionSidebar({
 }: {
   floating?: boolean;
   header?: ReactNode;
-  projects: Project[];
   spaces: SpaceRef[];
   activeProjectId: string;
   activeSessionId: string | null;
   contextMenuSessionId?: string | null;
   sessionsByProject: Record<string, ProjectSession[]>;
+  projectlessSessions: ProjectSession[];
+  sidebarThreadModel: CodexSidebarThreadSyncModel;
   expandedProjectIds: Set<string>;
   pinnedProjectsSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
@@ -6177,10 +6358,11 @@ function ProjectSessionSidebar({
   onToggleProjectsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
-  onSelectSession: (session: ProjectSession) => void;
+  onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
+  onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   onOpenCommandPalette: () => void;
   onShowUnavailableProduct: (label: string) => void;
@@ -6188,9 +6370,7 @@ function ProjectSessionSidebar({
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
-  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
-  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
   onOpenSettings: () => void;
   account: CodexAccountSnapshot | null;
   connection: CodexConnectionState;
@@ -6335,32 +6515,32 @@ function ProjectSessionSidebar({
             className="vertical-scroll-fade-mask scrollbar-token relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
           >
             <SidebarProjectDndProvider onProjectDrop={handleProjectDrop}>
-              <SidebarProjectGroupSections
-                projects={projects}
+              <SidebarThreadOrganizerSections
                 activeProjectId={activeProjectId}
                 activeSessionId={activeSessionId}
                 contextMenuSessionId={contextMenuSessionId}
                 sessionsByProject={sessionsByProject}
+                projectlessSessions={projectlessSessions}
                 expandedProjectIds={expandedProjectIds}
-                pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
+                pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
                 projectsSectionCollapsed={projectsSectionCollapsed}
                 loadingSessions={loadingSessions}
-                onTogglePinnedProjectsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
+                model={sidebarThreadModel}
+                onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
                 onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}
                 onToggleProjectExpanded={onToggleProjectExpanded}
                 onSelectProject={onSelectProject}
-                onSelectSession={onSelectSession}
+                onSelectSidebarThread={onSelectSidebarThread}
                 onOpenSessionContextMenu={onOpenSessionContextMenu}
                 onSessionTitleDoubleClick={onSessionTitleDoubleClick}
                 onToggleSessionPinned={onToggleSessionPinned}
+                onToggleSidebarThreadPinned={onToggleSidebarThreadPinned}
                 onStartNewChatInProject={onStartNewChatInProject}
                 projectPickerOpenTick={projectPickerOpenTick}
                 onCreateProject={onCreateProject}
                 onUpdateProject={onUpdateProject}
                 onDeleteProject={onDeleteProject}
-                onReorderProjects={onReorderProjects}
                 onSetProjectPinned={onSetProjectPinned}
-                onSetPinnedProjectOrder={onSetPinnedProjectOrder}
               />
             </SidebarProjectDndProvider>
           </div>
@@ -6668,14 +6848,14 @@ function SessionThreadPage({
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
   onRequestRenameThread: ThreadStageActions["onRequestRenameThread"];
 }) {
-  const projectId = project?.id ?? session.projectId;
+  const projectId = session.projectId ?? project?.id ?? projects[0]?.id ?? "default";
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
   const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState(projectId);
   const [selectedNewThreadRunInTarget, setSelectedNewThreadRunInTarget] = useState<CardRunInTarget>("localProject");
   const [selectedNewThreadEnvironmentPath, setSelectedNewThreadEnvironmentPath] = useState<string | null>(null);
   const [newThreadEnvironmentOptions, setNewThreadEnvironmentOptions] = useState<WorktreeEnvironmentOption[]>([]);
   const [newThreadEnvironmentsLoading, setNewThreadEnvironmentsLoading] = useState(false);
-  const selectedNewThreadProject = projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ?? project;
+  const selectedNewThreadProject = projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ?? project ?? null;
   const effectiveProjectId = summary ? projectId : selectedNewThreadProject?.id ?? projectId;
   const codexControl = useCodexAppServerControl(effectiveProjectId);
   const threadStartProgress = useCodexThreadStartProgress(effectiveProjectId, session.id);
@@ -6729,7 +6909,7 @@ function SessionThreadPage({
     onOpenThread,
     onOpenTurnDiffReview,
     onForkSessionFromTurn,
-    currentSessionProjectId: session.projectId,
+    currentSessionProjectId: projectId,
     projectId: effectiveProjectId,
     onNewThreadProjectChange: setSelectedNewThreadProjectId,
     onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
@@ -6910,7 +7090,7 @@ function SideChatSessionTab({
     onQueueingEnabledChange,
     onOpenThread,
     onOpenTurnDiffReview,
-    currentSessionProjectId: activeSession.projectId,
+    currentSessionProjectId: activeSession.projectId ?? tab.projectId,
     projectId: tab.projectId,
     onNewThreadProjectChange: () => undefined,
     onRequestNewChatProjectCreate: () => undefined,
@@ -7137,10 +7317,12 @@ function ProjectSessionTabPanel({
         onLeaveCard={onLeaveCardStageCard}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
+          const sessionProjectId = activeSession.projectId;
+          if (sessionProjectId === null) return;
           const terminalSessionId = makeTerminalSessionId(activeSession.id);
           await invoke("project-session-tabs:create", {
             sessionId: activeSession.id,
-            projectId: activeSession.projectId,
+            projectId: sessionProjectId,
             panelId: "bottom",
             clientTabId: makeClientTerminalTabId(terminalSessionId),
             kind: "terminal",
@@ -7151,7 +7333,7 @@ function ProjectSessionTabPanel({
             },
           });
           await invoke("project-session-panels:update", activeSession.id, "bottom", { collapsed: false });
-          await onRefreshSessions(activeSession.projectId);
+          await onRefreshSessions(sessionProjectId);
         }}
         onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
         onRefreshSessions={onRefreshSessions}

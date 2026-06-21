@@ -20,6 +20,7 @@ import {
   listProjectSessionThreadOwners,
   activateProjectSessionPanelGroup,
   listProjectSessions,
+  listProjectlessSessions,
   archiveProjectSession,
   moveProjectSessionTab,
   reorderProjectSessionTabs,
@@ -113,6 +114,34 @@ describe("project session service", () => {
       expect(alphaSessions[0]?.id).toBe(`overview:${alphaProject.id}`);
       expect(alphaSessions[0]?.panels.right.collapsed).toBeFalse();
       expect(alphaSessions[0]?.tabs[0]?.id).toBe(`overview:${alphaProject.id}:db`);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("supports projectless chat sessions without overview or project-scoped tabs", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId: null,
+        noThreadFallbackTitle: "External CLI chat",
+      });
+
+      expect(session.projectId ?? null).toBe(null);
+      expect(session.isOverview).toBeFalse();
+      expect(listProjectSessions(null).length).toBe(1);
+      expect(listProjectlessSessions().length).toBe(1);
+
+      const error = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: session.id,
+          projectId,
+          panelId: "right",
+          kind: "db_view",
+          title: "DB View",
+          config: { projectId, view: "kanban" },
+        });
+      });
+      expect(error).toBe("Projectless sessions cannot own project-scoped tabs");
     });
 
     if (!ran) expect(true).toBeTrue();
@@ -419,6 +448,22 @@ describe("project session service", () => {
       expect(JSON.stringify(reloaded?.config)).toBe(
         JSON.stringify({ projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card updated" }),
       );
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("inserts newly created project sessions at the top below Overview", async () => {
+    const ran = await withTempDatabase(async () => {
+      const first = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "First" });
+      const second = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Second" });
+
+      const sessions = listProjectSessions(projectId);
+      expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
+        JSON.stringify([`overview:${projectId}`, second.id, first.id]),
+      );
+      expect(sessions.find((session) => session.id === second.id)?.order).toBe(1);
+      expect(sessions.find((session) => session.id === first.id)?.order).toBe(2);
     });
 
     if (!ran) expect(true).toBeTrue();

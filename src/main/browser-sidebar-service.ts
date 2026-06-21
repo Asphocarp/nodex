@@ -475,6 +475,7 @@ export class BrowserSidebarService extends EventEmitter {
     if (!sessionId) return;
     const sessionRecord = projectSessionService.getProjectSession(sessionId);
     if (!sessionRecord) return;
+    if (sessionRecord.projectId === null) return;
 
     const matches = data.match(LOCAL_SERVER_URL_PATTERN);
     if (!matches || matches.length === 0) return;

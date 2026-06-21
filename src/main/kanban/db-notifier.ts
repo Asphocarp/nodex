@@ -21,7 +21,7 @@ export interface BoardChangeEvent {
 }
 
 export interface ProjectSessionsChangeEvent {
-  projectId: string;
+  projectId: string | null;
   changeType: ProjectSessionChangeType;
   sessionId?: string;
 }
@@ -48,7 +48,7 @@ class DatabaseNotifier extends EventEmitter {
   }
 
   notifyProjectSessionsChanged(
-    projectId: string,
+    projectId: string | null,
     changeType: ProjectSessionChangeType,
     sessionId?: string,
   ): void {

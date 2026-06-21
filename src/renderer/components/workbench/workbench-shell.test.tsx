@@ -824,6 +824,7 @@ function makePanels(options: {
 type SessionTabFixture = Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">;
 type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
   title?: string;
+  threadId?: string;
   tabs?: SessionTabFixture[];
   rightCollapsed?: boolean;
   rightLayout?: ProjectSession["panels"]["right"]["layout"];
@@ -914,12 +915,13 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
 }
 
 function makeAttachedSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
+  const { threadId = "thread-alpha", ...sessionOverrides } = overrides;
   return makeSession({
     leftPaneCollapsed: true,
     thread: {
       sessionId: overrides.id ?? "overview:alpha",
       projectId: overrides.projectId ?? "alpha",
-      threadId: "thread-alpha",
+      threadId,
       parentThreadId: undefined,
       threadName: "Alpha thread",
       threadPreview: "Working on the active session",
@@ -932,7 +934,7 @@ function makeAttachedSession(overrides: SessionFixtureOverrides = {}): ProjectSe
       updatedAt: 1_780_800_000_000,
       linkedAt: "2026-06-07T00:00:00.000Z",
     },
-    ...overrides,
+    ...sessionOverrides,
   });
 }
 
@@ -1072,6 +1074,50 @@ function renderWorkbench({
     if (channel === "project-sessions:list") {
       const projectId = String(args[0]);
       return sessionState[projectId] ?? [];
+    }
+    if (channel === "codex:sidebar:snapshot") {
+      return {
+        items: [],
+        pinnedThreadIds: [],
+        projectAssignments: {},
+        projectlessThreadIds: [],
+        generatedAt: 1,
+      };
+    }
+    if (channel === "codex:threads:pinned:list") {
+      return Object.values(sessionState)
+        .flat()
+        .filter((session) => session.thread && session.pinned)
+        .map((session) => session.thread?.threadId);
+    }
+    if (channel === "codex:threads:pinned:set") {
+      const threadId = String(args[0]);
+      const input = (args[1] ?? {}) as { pinned?: boolean };
+      const nextPinned = input.pinned === true;
+      const projectSessions = Object.values(sessionState).flat();
+      const nextPinnedOrder = nextPinned
+        ? Math.max(-1, ...projectSessions.map((session) => session.pinnedOrder ?? -1)) + 1
+        : null;
+      sessionState = Object.fromEntries(
+        Object.entries(sessionState).map(([projectId, sessions]) => [
+          projectId,
+          sortProjectSessionsForTest(sessions.map((session) =>
+            session.thread?.threadId === threadId
+              ? { ...session, pinned: nextPinned, pinnedOrder: nextPinnedOrder }
+              : session
+          )),
+        ]),
+      );
+      return {
+        items: [],
+        pinnedThreadIds: Object.values(sessionState)
+          .flat()
+          .filter((session) => session.thread && session.pinned)
+          .map((session) => session.thread?.threadId),
+        projectAssignments: {},
+        projectlessThreadIds: [],
+        generatedAt: 1,
+      };
     }
     if (channel === "board:summary:get") {
       const projectId = String(args[0] ?? "alpha");
@@ -1276,7 +1322,9 @@ function renderWorkbench({
       const input = (args[1] ?? {}) as { pinned?: boolean };
       const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
       if (!session) return null;
-      const projectSessions = sessionState[session.projectId] ?? [];
+      if (session.projectId === null) return null;
+      const projectId = session.projectId;
+      const projectSessions = sessionState[projectId] ?? [];
       const nextPinned = input.pinned === true;
       const nextPinnedOrder = nextPinned
         ? session.pinnedOrder ?? Math.max(-1, ...projectSessions.map((item) => item.pinnedOrder ?? -1)) + 1
@@ -1288,7 +1336,7 @@ function renderWorkbench({
       };
       sessionState = {
         ...sessionState,
-        [session.projectId]: sortProjectSessionsForTest(
+        [projectId]: sortProjectSessionsForTest(
           projectSessions.map((item) => item.id === updated.id ? updated : item),
         ),
       };
@@ -1342,20 +1390,27 @@ function renderWorkbench({
     }
     if (channel === "project-sessions:create") {
       const input = (args[0] ?? {}) as { projectId: string; noThreadFallbackTitle?: string };
+      const existingSessions = sessionState[input.projectId] ?? [];
+      const insertOrder = 1;
+      const shiftedSessions = existingSessions.map((session) => (
+        !session.isOverview && session.order >= insertOrder
+          ? { ...session, order: session.order + 1 }
+          : session
+      ));
       const session = makeSession({
         id: `session:${input.projectId}:created`,
         projectId: input.projectId,
         noThreadFallbackTitle: input.noThreadFallbackTitle ?? "New thread",
         displayTitle: input.noThreadFallbackTitle ?? "New thread",
         isOverview: false,
-        order: sessionState[input.projectId]?.length ?? 0,
+        order: insertOrder,
         thread: null,
         tabs: [],
         panels: makePanels({ rightCollapsed: true }),
       });
       sessionState = {
         ...sessionState,
-        [input.projectId]: [...(sessionState[input.projectId] ?? []), session],
+        [input.projectId]: sortProjectSessionsForTest([...shiftedSessions, session]),
       };
       return session;
     }
@@ -1978,6 +2033,7 @@ describe("workbench session shell", () => {
   test("sidebar pin button toggles a session without selecting it", async () => {
     const target = makeAttachedSession({
       id: "session:alpha:pin-target",
+      threadId: "thread-pin-target",
       title: "Pin target",
       isOverview: false,
       order: 1,
@@ -2007,8 +2063,8 @@ describe("workbench session shell", () => {
 
     expect(screen.setDbProjectCalls.length).toBe(setDbProjectCallCount);
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:set-pinned"
-      && call[1] === "session:alpha:pin-target"
+      call[0] === "codex:threads:pinned:set"
+      && call[1] === "thread-pin-target"
       && (call[2] as { pinned?: boolean } | undefined)?.pinned === true
     )).toBeTrue();
     const updatedRow = getThreadRow(screen.container, "Pin target");
@@ -2021,6 +2077,7 @@ describe("workbench session shell", () => {
   test("sidebar pin button promotes pinned sessions above unpinned siblings", async () => {
     const first = makeAttachedSession({
       id: "session:alpha:first",
+      threadId: "thread-first-unpinned",
       title: "First unpinned",
       isOverview: false,
       order: 1,
@@ -2029,6 +2086,7 @@ describe("workbench session shell", () => {
     });
     const second = makeAttachedSession({
       id: "session:alpha:second",
+      threadId: "thread-second-target",
       title: "Second target",
       isOverview: false,
       order: 2,
@@ -2055,13 +2113,14 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(JSON.stringify(getThreadRowTitles(screen.container).slice(0, 3))).toBe(
-      JSON.stringify(["Overview", "Second target", "First unpinned"]),
+      JSON.stringify(["Second target", "Overview", "First unpinned"]),
     );
   });
 
   test("sidebar unpin button clears pinned state after refresh", async () => {
     const pinned = makeAttachedSession({
       id: "session:alpha:pinned",
+      threadId: "thread-pinned-target",
       title: "Pinned target",
       isOverview: false,
       order: 1,
@@ -2092,8 +2151,8 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:set-pinned"
-      && call[1] === "session:alpha:pinned"
+      call[0] === "codex:threads:pinned:set"
+      && call[1] === "thread-pinned-target"
       && (call[2] as { pinned?: boolean } | undefined)?.pinned === false
     )).toBeTrue();
     const row = getThreadRow(screen.container, "Pinned target");
@@ -2360,6 +2419,45 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:created"')).toBeTrue();
     expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
     expect(screen.queryByTestId("session-right-panel")).toBe(null);
+  });
+
+  test("new project chats render above older project chats", async () => {
+    const olderThread = makeAttachedSession({
+      id: "session:alpha:older",
+      title: "Older chat",
+      isOverview: false,
+      order: 1,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeSession(), olderThread],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rowTitles = Array.from(
+      screen.container.querySelectorAll<HTMLElement>("[data-app-action-sidebar-thread-title]"),
+    ).map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
+    const overviewIndex = rowTitles.indexOf("Overview");
+    const newThreadIndex = rowTitles.indexOf("New thread");
+    const olderThreadIndex = rowTitles.indexOf("Older chat");
+
+    expect(overviewIndex >= 0).toBeTrue();
+    expect(newThreadIndex >= 0).toBeTrue();
+    expect(olderThreadIndex >= 0).toBeTrue();
+    expect(overviewIndex < newThreadIndex).toBeTrue();
+    expect(newThreadIndex < olderThreadIndex).toBeTrue();
   });
 
   test("Cmd+N opens the project-scoped new-chat composer from the workbench shell", async () => {

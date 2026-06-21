@@ -28,6 +28,11 @@ interface DbCodexThread {
   linked_at: string;
 }
 
+interface DbCodexPinnedThread {
+  thread_id: string;
+  pinned_order: number;
+}
+
 export interface UpsertCodexThreadInput {
   projectId?: string | null;
   threadId: string;
@@ -166,6 +171,55 @@ export function listCodexThreadLinks(opts?: { includeArchived?: boolean }): Code
   `).all(includeArchived ? 1 : 0) as DbCodexThread[];
 
   return rows.map(rowToSummary);
+}
+
+export function listPinnedCodexThreadIds(): string[] {
+  const rows = getDb().prepare(`
+    SELECT p.thread_id, p.pinned_order
+    FROM codex_pinned_threads p
+    JOIN codex_threads t ON t.thread_id = p.thread_id
+    WHERE t.archived = 0
+    ORDER BY p.pinned_order ASC, p.created_at ASC, p.thread_id ASC
+  `).all() as DbCodexPinnedThread[];
+
+  return rows.map((row) => row.thread_id);
+}
+
+export function setCodexThreadPinned(threadId: string, pinned: boolean): string[] {
+  const normalizedThreadId = threadId.trim();
+  if (!normalizedThreadId) return listPinnedCodexThreadIds();
+
+  const database = getDb();
+  if (!pinned) {
+    database.prepare("DELETE FROM codex_pinned_threads WHERE thread_id = ?").run(normalizedThreadId);
+    return listPinnedCodexThreadIds();
+  }
+
+  const existing = database
+    .prepare("SELECT pinned_order FROM codex_pinned_threads WHERE thread_id = ?")
+    .get(normalizedThreadId) as { pinned_order: number } | undefined;
+  if (existing) return listPinnedCodexThreadIds();
+
+  const maxPinned = database
+    .prepare("SELECT MAX(pinned_order) AS maxPinnedOrder FROM codex_pinned_threads")
+    .get() as { maxPinnedOrder: number | null } | undefined;
+  const now = new Date().toISOString();
+
+  database.prepare(`
+    INSERT OR IGNORE INTO codex_pinned_threads (
+      thread_id,
+      pinned_order,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?)
+  `).run(
+    normalizedThreadId,
+    (maxPinned?.maxPinnedOrder ?? -1) + 1,
+    now,
+    now,
+  );
+
+  return listPinnedCodexThreadIds();
 }
 
 export function updateCodexThreadName(threadId: string, threadName: string | null): CodexThreadSummary | null {

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import type { CodexAccountSnapshot, Project, ProjectSession } from "@/lib/types";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { SearchIcon } from "@/components/shared/icons";
@@ -15,6 +15,7 @@ import {
 import {
   CodexProjectRow,
   CodexProjectSessionList,
+  CodexSidebarThreadRow,
   CodexSidebarSection,
   CodexSidebarTopAction,
   CodexThreadRow,
@@ -675,6 +676,230 @@ function CodexProjectSessionRowsHarness() {
   );
 }
 
+function makeSidebarThreadItem(input: {
+  key: string;
+  threadId: string;
+  title: string;
+  projectId?: string | null;
+  sessionId?: string | null;
+  kind?: CodexSidebarThreadItem["kind"];
+  hostId?: string;
+  pinned?: boolean;
+  pinnedOrder?: number | null;
+  unread?: boolean;
+  archived?: boolean;
+  projectless?: boolean;
+  disabled?: boolean;
+  cwd?: string | null;
+  updatedAt?: number;
+}): CodexSidebarThreadItem {
+  return {
+    key: input.key,
+    kind: input.kind ?? "local",
+    hostId: input.hostId ?? "local",
+    threadId: input.threadId,
+    sessionId: input.sessionId ?? input.threadId,
+    projectId: input.projectId ?? null,
+    title: input.title,
+    preview: "",
+    cwd: input.cwd ?? null,
+    updatedAt: input.updatedAt ?? 1_780_800_000_000,
+    createdAt: 1_780_700_000_000,
+    pinned: input.pinned ?? false,
+    pinnedOrder: input.pinnedOrder ?? null,
+    unread: input.unread ?? false,
+    archived: input.archived ?? false,
+    statusType: "notLoaded",
+    statusActiveFlags: [],
+    projectless: input.projectless ?? input.projectId == null,
+    disabled: input.disabled ?? false,
+  };
+}
+
+function SidebarProjectsChrome({ children }: { children: ReactNode }) {
+  return (
+    <NodexTooltipProvider>
+      <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
+        <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
+          {children}
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+function ThreadRowsList({
+  label,
+  items,
+  activeKey,
+  openKey,
+}: {
+  label: string;
+  items: CodexSidebarThreadItem[];
+  activeKey?: string;
+  openKey?: string;
+}) {
+  return (
+    <div className="isolate flex flex-col [contain:layout]">
+      <div className="flex flex-col" role="list" aria-label={label}>
+        {items.map((item) => (
+          <CodexSidebarThreadRow
+            key={item.key}
+            item={item}
+            active={item.key === activeKey}
+            contextMenuOpen={item.key === openKey}
+            onSelect={() => {}}
+            onOpenContextMenu={() => {}}
+            onTogglePinned={() => {}}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CodexSidebarProjectsThreadSyncHarness() {
+  const project = SIDEBAR_PARITY_PROJECTS[0]!;
+  const projectRows = [
+    makeSidebarThreadItem({
+      key: "local:auto-assigned",
+      threadId: "thread-auto-assigned",
+      title: "Auto-assigned external Codex thread",
+      projectId: project.id,
+      sessionId: "session-auto-assigned",
+      cwd: "/Users/asc/repo/nodex/src/renderer",
+      updatedAt: 1_780_960_000_000,
+    }),
+  ];
+  const chatsRows = [
+    makeSidebarThreadItem({
+      key: "local:projectless",
+      threadId: "thread-projectless",
+      title: "Projectless terminal chat",
+      sessionId: "session-projectless",
+      projectId: null,
+      projectless: true,
+      cwd: "/tmp/codex-scratch",
+      updatedAt: 1_780_940_000_000,
+    }),
+  ];
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
+        <div className="isolate flex flex-col [contain:layout]">
+          <div className="flex flex-col" role="list" aria-label="Projects">
+            <CodexProjectRow
+              project={project}
+              active
+              expanded
+              onActivate={() => {}}
+              onStartNewChat={() => {}}
+              onUpdateProject={async () => project}
+              onDeleteProject={async () => false}
+            >
+              <CodexProjectSessionList project={project}>
+                {projectRows.map((item) => (
+                  <CodexSidebarThreadRow
+                    key={item.key}
+                    item={item}
+                    active
+                    onSelect={() => {}}
+                    onOpenContextMenu={() => {}}
+                    onTogglePinned={() => {}}
+                  />
+                ))}
+              </CodexProjectSessionList>
+            </CodexProjectRow>
+          </div>
+        </div>
+      </CodexSidebarSection>
+      <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+        <ThreadRowsList label="Projectless chats" items={chatsRows} />
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
+function CodexSidebarProjectlessChatsHarness() {
+  const items = [
+    makeSidebarThreadItem({
+      key: "local:scratch",
+      threadId: "thread-scratch",
+      title: "Scratch workspace follow-up",
+      sessionId: "session-scratch",
+      projectId: null,
+      projectless: true,
+      cwd: "/Users/asc/Desktop/scratch",
+      updatedAt: 1_780_930_000_000,
+    }),
+    makeSidebarThreadItem({
+      key: "local:downloads",
+      threadId: "thread-downloads",
+      title: "Downloads folder cleanup",
+      sessionId: "session-downloads",
+      projectId: null,
+      projectless: true,
+      cwd: "/Users/asc/Downloads",
+      updatedAt: 1_780_820_000_000,
+    }),
+  ];
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+        <ThreadRowsList label="Chats" items={items} activeKey="local:scratch" />
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
+function CodexSidebarArchivedHiddenHarness() {
+  const project = SIDEBAR_PARITY_PROJECTS[0]!;
+  const visibleItems = [
+    makeSidebarThreadItem({
+      key: "local:active",
+      threadId: "thread-active",
+      title: "Visible active thread",
+      projectId: "nodex",
+      cwd: "/Users/asc/repo/nodex",
+    }),
+  ];
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
+        <div className="isolate flex flex-col [contain:layout]">
+          <div className="flex flex-col" role="list" aria-label="Projects">
+            <CodexProjectRow
+              project={project}
+              active
+              expanded
+              onActivate={() => {}}
+              onStartNewChat={() => {}}
+              onUpdateProject={async () => project}
+              onDeleteProject={async () => false}
+            >
+              <CodexProjectSessionList project={project}>
+                {visibleItems.map((item) => (
+                  <CodexSidebarThreadRow
+                    key={item.key}
+                    item={item}
+                    active={item.key === "local:active"}
+                    onSelect={() => {}}
+                    onOpenContextMenu={() => {}}
+                    onTogglePinned={() => {}}
+                  />
+                ))}
+              </CodexProjectSessionList>
+            </CodexProjectRow>
+          </div>
+        </div>
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
 function SettingsFooterHarness({
   account = FOOTER_QUOTA_ACCOUNT,
 }: {
@@ -767,6 +992,18 @@ export const CodexPinnedProjectsEmptyDropTarget: Story = {
 
 export const CodexProjectSessionRows: Story = {
   render: () => <CodexProjectSessionRowsHarness />,
+};
+
+export const CodexSidebarProjectsWithAutoAssignedThread: Story = {
+  render: () => <CodexSidebarProjectsThreadSyncHarness />,
+};
+
+export const CodexSidebarProjectlessChats: Story = {
+  render: () => <CodexSidebarProjectlessChatsHarness />,
+};
+
+export const CodexSidebarArchivedHidden: Story = {
+  render: () => <CodexSidebarArchivedHiddenHarness />,
 };
 
 export const SettingsFooterWithQuota: Story = {

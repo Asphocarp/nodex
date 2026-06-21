@@ -94,7 +94,7 @@ let databaseReady = false;
 let pendingCardDeepLinkCardId: string | null = null;
 let pendingCardDeepLinkTarget: { projectId: string; cardId: string } | null = null;
 let pendingSessionDeepLinkSessionId: string | null = null;
-let pendingSessionDeepLinkTarget: { projectId: string; sessionId: string } | null = null;
+let pendingSessionDeepLinkTarget: { projectId: string | null; sessionId: string } | null = null;
 const pendingCloseResolvers = new Map<number, () => void>();
 const allowImmediateWindowClose = new Set<number>();
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;

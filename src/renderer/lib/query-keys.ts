@@ -49,6 +49,11 @@ export const queryKeys = {
     resource: (params: ProtocolMcpResourceReadParams) =>
       ["mcp", "resource", normalizeNullable(params.threadId), params.server, params.uri] as const,
   },
+  codexSidebar: {
+    all: () => ["codexSidebar"] as const,
+    snapshot: () => ["codexSidebar", "snapshot"] as const,
+    pinnedThreads: () => ["codexSidebar", "pinnedThreads"] as const,
+  },
   workspaceFiles: {
     all: () => ["workspaceFiles"] as const,
     directory: (input: WorkspaceDirectoryEntriesInput) =>

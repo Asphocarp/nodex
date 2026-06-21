@@ -474,7 +474,10 @@ function resolveStoryPanelActiveTabId(session: ProjectSession, panelId: "right" 
   return panel.layout.root.activeTabId;
 }
 
-function makeStoryNavigationSnapshot(session: ProjectSession, projectId = session.projectId): WorkbenchShellNavigationSnapshot {
+function makeStoryNavigationSnapshot(
+  session: ProjectSession,
+  projectId = session.projectId ?? "project-alpha",
+): WorkbenchShellNavigationSnapshot {
   return {
     activeProjectId: projectId,
     activeSessionId: session.id,
@@ -503,7 +506,7 @@ function writeStoryNavigationHistory(
   const forwardStack =
     navigationHistory === "forward" || navigationHistory === "both"
       ? forwardSession
-        ? [makeStoryNavigationSnapshot(forwardSession, forwardSession.projectId)]
+        ? [makeStoryNavigationSnapshot(forwardSession, forwardSession.projectId ?? undefined)]
         : []
       : [];
   writeWorkbenchShellNavigationHistoryState({ backStack, forwardStack });

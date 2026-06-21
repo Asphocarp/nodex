@@ -137,11 +137,12 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Project sources: ordered source folders persisted separately from the project row. The first source is the primary workspace root for Git, Files, Review, local thread cwd, and managed worktree base repository; all configured sources are writable workspace roots for sandboxing.
 - Empty-source projects are valid Nodex data containers. Work-local thread starts allocate a generated per-thread workspace; managed worktree and local-environment flows require a primary source and surface a clear error when missing.
 - Sidebar project rows do not show the source path inline. Each project row actions menu exposes rename, choose icon, edit sources, add source folder, project pin/unpin, `Open in Finder` for the primary source, and delete.
+- The left sidebar uses a fixed Projects organization: globally pinned chats render first when present, then project folders, then a `Chats` section for projectless sessions. There is no visible organization selector.
 - Sidebar project headers can be reordered by dragging the header row. Normal project groups persist their order in `project_order`; pinned project groups render in a `Pinned` section above Projects and persist their order in `pinned_project_order`.
 - Dragging a normal project header onto the pinned section pins that project and leaves normal project order unchanged. The Projects section excludes pinned projects while preserving their normal order for later unpinning.
 - The Projects header add button opens a submenu with `Start from scratch` and `Use an existing folder`. `Start from scratch` opens the local project setup dialog with optional name/source collection. `Use an existing folder` opens the native folder picker, names the project from the folder basename, and stores that folder as the first source.
 - CASCADE delete removes all cards and history for a project
-- Codex thread links are one-owner: one card can own many threads, each thread belongs to one card
+- Codex thread links are session-owned. Cards can mention threads and send selected content to chats, but they do not own durable Codex threads.
 
 #### 2. Kanban Board View
 - 8 columns representing workflow stages
@@ -408,6 +409,12 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 12. Codex Threads (Electron-only in this phase)
 - New chats are created for project sessions and linked through `project_session_threads`; cards can mention threads or send selected content to them, but cards do not own threads.
+- The sidebar discovers active Codex threads globally through app-server `thread/list`, including chats created outside Nodex by Codex CLI, VS Code extension, or another local app-server client.
+- External threads are automatically materialized into local sessions during sidebar sync. Nodex assigns them to the project whose source root is the longest normalized cwd prefix. Threads whose cwd does not match any project become projectless sessions and render under `Chats`.
+- Projectless sessions have `projectId: null`, can open the thread stage, rename, archive, and pin like normal chats, but they do not switch the active project and cannot own Overview, DB View, or project-only Card Stage tabs.
+- Global thread pinning is stored in `codex_pinned_threads` and controls attached chat ordering in the sidebar pinned section. `project_sessions.pinned` is retained only as a compatibility mirror and for no-thread local rows.
+- Active sidebar lists hide archived Codex threads, archived sessions, deleted threads, ephemeral side chats, and side-conversation helper threads.
+- Newly created blank project chats render at the top of their project subtree, immediately below Overview and above older normal chats. Projectless blank chats render at the top of `Chats`.
 - Thread creation requires the first user prompt and immediately starts the first turn.
 - New threads auto-generate a concise title from the first user prompt in the main process after `thread/start` succeeds unless an explicit thread name or `skipAutoTitleGeneration` is provided.
 - Auto-title generation uses a Codex-compatible structured helper: `gpt-5.4-mini`, low reasoning, read-only ephemeral system thread, 30-second turn timeout, web search/hooks disabled, and a `{ title: string }` JSON schema capped at 36 characters. Schema-invalid model output returns no title before cleanup; valid generated titles are normalized, applied optimistically, and persisted through `thread/name/set`. Manual rename still trims/folds whitespace and truncates to 60 characters. Auto-title generation and persistence failures are log-only and do not surface as user-visible host errors.
@@ -428,6 +435,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Running threads keep syncing in the background when users switch to another thread tab; returning to the running tab preserves live state (including stop affordance and existing tool-call logs).
 - Thread tabs show a running indicator for actively executing threads.
 - Sidebar thread entries (and the Threads group icon) switch to a running indicator while execution is active.
+- Archiving a sidebar chat archives the app-server thread and the linked non-Overview session, clears global pin/unread state, and removes it from active sidebar lists. App-server archive notifications received from another client perform the same local hiding. Unarchive notifications restore thread metadata only; re-showing the session is an explicit unarchive action.
 - In-app account UX supports account read, ChatGPT/API-key login, login cancel, logout, and an authenticated quota indicator in the left sidebar footer. The footer indicator is a compact double ring: the outer ring shows the shorter window such as `5h` remaining, and the inner ring shows the weekly window remaining. Hovering or focusing the ring opens the existing account detail tooltip with email/plan, detailed remaining windows, reset timing when available, and sign-out; opening that tooltip refreshes account data. If authenticated rate-limit windows are unavailable, the footer shows a subdued connected indicator instead of percentages. Quota data also refreshes in the background every 60 seconds while the Codex connection is live and authenticated. Signed-out auth remains available from the thread header.
 - Thread permissions are resolved from Codex app-server config (`config/read`) plus config requirements (`configRequirements/read`), not from renderer-local per-project preferences.
 - Thread stage and Settings -> `Agent` expose the same preset-backed permission selector with the exact visible modes `Default permissions`, `Auto-review`, `Full access`, and `Custom (config.toml)`.
@@ -763,7 +771,7 @@ CREATE TABLE pinned_project_order (
 -- Project sessions and session tabs
 CREATE TABLE project_sessions (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
   no_thread_fallback_title TEXT NOT NULL, -- max 2,000 chars; not thread title authority
   is_overview INTEGER NOT NULL DEFAULT 0,
   "order" INTEGER NOT NULL,
@@ -775,7 +783,8 @@ CREATE TABLE project_sessions (
   left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
   panel_state_json TEXT NOT NULL,   -- right/bottom state; v2 split layout owns leaf membership
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  CHECK (is_overview = 0 OR project_id IS NOT NULL)
 );
 
 CREATE TABLE project_session_tabs (
@@ -911,6 +920,13 @@ CREATE TABLE codex_threads (
 
 CREATE INDEX idx_codex_threads_project_updated
   ON codex_threads(project_id, updated_at DESC);
+
+CREATE TABLE codex_pinned_threads (
+  thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+  pinned_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 ```
 
 ### Real-Time Sync Flow

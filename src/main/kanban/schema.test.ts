@@ -31,19 +31,20 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42]");
-    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43]");
+    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });

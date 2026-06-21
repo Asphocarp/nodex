@@ -648,7 +648,7 @@ export interface ProjectSessionTab {
 
 export interface ProjectSessionThreadLink {
   sessionId: string;
-  projectId: string;
+  projectId: string | null;
   threadId: string;
   parentThreadId?: string;
   threadName?: string;
@@ -665,7 +665,7 @@ export interface ProjectSessionThreadLink {
 
 export interface ProjectSession {
   id: string;
-  projectId: string;
+  projectId: string | null;
   noThreadFallbackTitle: string;
   displayTitle: string;
   isOverview: boolean;
@@ -684,7 +684,7 @@ export interface ProjectSession {
 }
 
 export interface ProjectSessionCreateInput {
-  projectId: string;
+  projectId: string | null;
   noThreadFallbackTitle: string;
 }
 
@@ -812,7 +812,7 @@ export interface ProjectSessionPanelMaximizeInput {
 
 export interface ProjectSessionThreadLinkInput {
   sessionId: string;
-  projectId: string;
+  projectId: string | null;
   threadId: string;
   parentThreadId?: string | null;
   threadName?: string | null;
@@ -824,6 +824,38 @@ export interface ProjectSessionThreadLinkInput {
   archived?: boolean;
   createdAt?: number;
   updatedAt?: number;
+}
+
+export type CodexSidebarThreadKind = "local" | "remote" | "pending-worktree";
+
+export interface CodexSidebarThreadItem {
+  key: string;
+  kind: CodexSidebarThreadKind;
+  hostId: string;
+  threadId: string;
+  sessionId: string | null;
+  projectId: string | null;
+  title: string;
+  preview: string;
+  cwd: string | null;
+  updatedAt: number;
+  createdAt: number;
+  pinned: boolean;
+  pinnedOrder: number | null;
+  unread: boolean;
+  archived: boolean;
+  statusType: CodexThreadStatusType;
+  statusActiveFlags: CodexThreadActiveFlag[];
+  projectless: boolean;
+  disabled: boolean;
+}
+
+export interface CodexSidebarSnapshot {
+  items: CodexSidebarThreadItem[];
+  pinnedThreadIds: string[];
+  projectAssignments: Record<string, string>;
+  projectlessThreadIds: string[];
+  generatedAt: number;
 }
 
 export interface UploadedResourceAsset {

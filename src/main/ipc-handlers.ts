@@ -362,7 +362,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   // Project sessions
-  registerHandle("project-sessions:list", (_, projectId: string, options) =>
+  registerHandle("project-sessions:list", (_, projectId: string | null, options) =>
     projectSessionService.listProjectSessions(projectId, options)
   );
 
@@ -1131,6 +1131,22 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:threads:list", (_, projectId: string, opts?: { includeArchived?: boolean }) =>
     codexService.listProjectThreads(projectId, opts)
+  );
+
+  registerHandle("codex:sidebar:snapshot", (_, input) =>
+    codexService.syncSidebarThreads(input)
+  );
+
+  registerHandle("codex:threads:pinned:list", () =>
+    codexService.listPinnedThreads()
+  );
+
+  registerHandle("codex:threads:pinned:set", (_, threadId: string, input) =>
+    codexService.setThreadPinned(threadId, input.pinned)
+  );
+
+  registerHandle("codex:thread:ensure-session", (_, threadId: string) =>
+    codexService.ensureSidebarThreadSession(threadId)
   );
 
   registerHandle("codex:threads:palette:list", (_, input) =>

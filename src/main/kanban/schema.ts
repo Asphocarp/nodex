@@ -14,7 +14,7 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 42;
+export const CURRENT_SCHEMA_VERSION = 43;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -35,6 +35,7 @@ const RESETTABLE_TABLES = [
   "card_history_snapshots",
   "history",
   "codex_thread_card_links",
+  "codex_pinned_threads",
   "codex_threads",
   "codex_card_threads",
   "description_revisions",
@@ -54,19 +55,20 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42];
-  if (currentVersion === 37) return [38, 39, 40, 41, 42];
-  if (currentVersion === 38) return [39, 40, 41, 42];
-  if (currentVersion === 39) return [40, 41, 42];
-  if (currentVersion === 40) return [41, 42];
-  if (currentVersion === 41) return [42];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43];
+  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43];
+  if (currentVersion === 38) return [39, 40, 41, 42, 43];
+  if (currentVersion === 39) return [40, 41, 42, 43];
+  if (currentVersion === 40) return [41, 42, 43];
+  if (currentVersion === 41) return [42, 43];
+  if (currentVersion === 42) return [43];
   return null;
 }
 
@@ -196,7 +198,7 @@ function createLatestSchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS project_sessions (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
       no_thread_fallback_title TEXT NOT NULL,
       is_overview INTEGER NOT NULL DEFAULT 0,
       "order" INTEGER NOT NULL,
@@ -213,7 +215,8 @@ function createLatestSchema(db: Database.Database): void {
       CHECK (pinned IN (0, 1)),
       CHECK (archived IN (0, 1)),
       CHECK (unread IN (0, 1)),
-      CHECK (left_pane_collapsed IN (0, 1))
+      CHECK (left_pane_collapsed IN (0, 1)),
+      CHECK (is_overview = 0 OR project_id IS NOT NULL)
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
@@ -254,6 +257,16 @@ function createLatestSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_project_session_threads_thread
       ON project_session_threads(thread_id);
+
+    CREATE TABLE IF NOT EXISTS codex_pinned_threads (
+      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      pinned_order INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_pinned_threads_order
+      ON codex_pinned_threads(pinned_order, created_at);
 
     CREATE TABLE IF NOT EXISTS history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1469,6 +1482,74 @@ function migrateSchema41To42(db: Database.Database): void {
   setUserVersion(db, 42);
 }
 
+function migrateSchema42To43(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS project_sessions_next;
+
+      CREATE TABLE project_sessions_next (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        no_thread_fallback_title TEXT NOT NULL,
+        is_overview INTEGER NOT NULL DEFAULT 0,
+        "order" INTEGER NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        pinned_order INTEGER,
+        archived INTEGER NOT NULL DEFAULT 0,
+        archived_at TEXT,
+        unread INTEGER NOT NULL DEFAULT 0,
+        left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+        panel_state_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (is_overview IN (0, 1)),
+        CHECK (pinned IN (0, 1)),
+        CHECK (archived IN (0, 1)),
+        CHECK (unread IN (0, 1)),
+        CHECK (left_pane_collapsed IN (0, 1)),
+        CHECK (is_overview = 0 OR project_id IS NOT NULL)
+      );
+
+      INSERT INTO project_sessions_next (
+        id, project_id, no_thread_fallback_title, is_overview, "order",
+        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        panel_state_json, created_at, updated_at
+      )
+      SELECT
+        id, project_id, no_thread_fallback_title, is_overview, "order",
+        pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+        panel_state_json, created_at, updated_at
+      FROM project_sessions;
+
+      DROP TABLE project_sessions;
+      ALTER TABLE project_sessions_next RENAME TO project_sessions;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
+        ON project_sessions(project_id)
+        WHERE is_overview = 1;
+      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
+        ON project_sessions(project_id, "order", created_at);
+      CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
+        ON project_sessions(project_id, archived, pinned, pinned_order, "order");
+
+      CREATE TABLE IF NOT EXISTS codex_pinned_threads (
+        thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+        pinned_order INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+
+      CREATE INDEX IF NOT EXISTS idx_codex_pinned_threads_order
+        ON codex_pinned_threads(pinned_order, created_at);
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 43);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1569,6 +1650,14 @@ function runMigrations(
       }
       migrateSchema41To42(db);
       fromVersion = 42;
+      continue;
+    }
+    if (target === 43) {
+      if (fromVersion !== 42) {
+        throw new Error(`Unsupported Nodex database migration target 43 from ${fromVersion}`);
+      }
+      migrateSchema42To43(db);
+      fromVersion = 43;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

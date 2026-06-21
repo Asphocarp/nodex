@@ -209,7 +209,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     cardId: string;
   } | null>(null);
   const [pendingSessionDeepLinkOpen, setPendingSessionDeepLinkOpen] = useState<{
-    projectId: string;
+    projectId: string | null;
     sessionId: string;
   } | null>(null);
   const cardStageStateRef = useRef(cardStageState);
@@ -914,7 +914,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
 
       if (!payload) return;
       if (
-        typeof payload.projectId !== "string"
+        (typeof payload.projectId !== "string" && payload.projectId !== null)
         || typeof payload.sessionId !== "string"
       ) {
         return;
@@ -924,7 +924,9 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
         projectId: payload.projectId,
         sessionId: payload.sessionId,
       });
-      navigateToProject(payload.projectId);
+      if (typeof payload.projectId === "string") {
+        navigateToProject(payload.projectId);
+      }
     });
   }, [navigateToProject]);
 
@@ -1029,7 +1031,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     });
   }, [flushWindowSessionLayout]);
 
-  const handleOpenProjectSessionInNewWindow = useCallback(async (session: { id: string; projectId: string }) => {
+  const handleOpenProjectSessionInNewWindow = useCallback(async (session: { id: string; projectId: string | null }) => {
     if (layoutSaveTimerRef.current !== null) {
       window.clearTimeout(layoutSaveTimerRef.current);
       layoutSaveTimerRef.current = null;
@@ -1039,7 +1041,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     await invoke("window:new", {
       layout: {
         ...latestLayoutRef.current,
-        dbProjectId: session.projectId,
+        ...(session.projectId === null ? {} : { dbProjectId: session.projectId }),
         activeProjectSessionId: session.id,
       },
     });

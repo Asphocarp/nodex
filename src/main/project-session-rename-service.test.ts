@@ -44,7 +44,7 @@ function makeDeps(session: ProjectSession, events: string[] = []): ProjectSessio
       events.push(`thread:${rawTitle}`);
       return true;
     },
-    notifyProjectSessionsChanged: (_projectId: string, changeType: "update", sessionId: string) => {
+    notifyProjectSessionsChanged: (_projectId: string | null, changeType: "update", sessionId: string) => {
       events.push(`notify:${changeType}:${sessionId}`);
     },
   };

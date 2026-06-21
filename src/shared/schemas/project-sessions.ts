@@ -147,7 +147,7 @@ const ProjectSessionPanelStateUpdateSchema = z.object({
 });
 
 export const ProjectSessionCreateInputSchema = z.object({
-  projectId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
   noThreadFallbackTitle: titleSchema,
 }) satisfies z.ZodType<ProjectSessionCreateInput>;
 
@@ -293,7 +293,7 @@ export const ProjectSessionPanelMaximizeInputSchema = z.object({
 
 export const ProjectSessionThreadLinkInputSchema = z.object({
   sessionId: z.string().min(1),
-  projectId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
   threadId: z.string().min(1),
   parentThreadId: z.string().nullable().optional(),
   threadName: z.string().nullable().optional(),

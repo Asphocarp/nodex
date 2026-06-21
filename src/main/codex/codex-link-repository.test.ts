@@ -5,7 +5,9 @@ import path from "node:path";
 import { closeDatabase, createProject, initializeDatabase, updateProject } from "../kanban/db-service";
 import {
   getCodexThread,
+  listPinnedCodexThreadIds,
   listCodexProjectThreads,
+  setCodexThreadPinned,
   updateCodexThreadArchived,
   updateCodexThreadName,
   updateCodexThreadStatus,
@@ -169,6 +171,26 @@ describe("codex-link-repository", () => {
 
       const link = getCodexThread("thr_test_rename");
       expect(link?.projectId).toBe(projectId);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("orders global pinned threads and excludes archived rows", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexThread({ projectId, threadId: "thr_pin_a" });
+      upsertCodexThread({ projectId, threadId: "thr_pin_b" });
+      upsertCodexThread({ projectId, threadId: "thr_pin_c" });
+
+      expect(JSON.stringify(setCodexThreadPinned("thr_pin_b", true))).toBe(JSON.stringify(["thr_pin_b"]));
+      expect(JSON.stringify(setCodexThreadPinned("thr_pin_a", true))).toBe(JSON.stringify(["thr_pin_b", "thr_pin_a"]));
+      expect(JSON.stringify(setCodexThreadPinned("thr_pin_b", true))).toBe(JSON.stringify(["thr_pin_b", "thr_pin_a"]));
+      expect(JSON.stringify(setCodexThreadPinned("thr_pin_c", true))).toBe(JSON.stringify(["thr_pin_b", "thr_pin_a", "thr_pin_c"]));
+
+      updateCodexThreadArchived("thr_pin_b", true);
+      expect(JSON.stringify(listPinnedCodexThreadIds())).toBe(JSON.stringify(["thr_pin_a", "thr_pin_c"]));
+
+      expect(JSON.stringify(setCodexThreadPinned("thr_pin_a", false))).toBe(JSON.stringify(["thr_pin_c"]));
     });
 
     if (!ran) expect(true).toBeTrue();

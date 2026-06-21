@@ -35,6 +35,7 @@ import type { McpResourceReadParams } from "@nodex/codex-app-server-protocol/v2/
 import type { McpResourceReadResponse } from "@nodex/codex-app-server-protocol/v2/McpResourceReadResponse";
 import type { McpServerStatus } from "@nodex/codex-app-server-protocol/v2/McpServerStatus";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
+import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
 import type { ThreadSearchResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSearchResponse";
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
@@ -96,6 +97,8 @@ import type {
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexSidebarSnapshot,
+  CodexSidebarThreadItem,
   CodexSideChatStartInput,
   CodexSideChatStartResult,
   CodexSteerTurnInput,
@@ -121,6 +124,8 @@ import type {
   CodexPromptInput,
   ManagedWorktreeRecord,
   ProjectSessionThreadLink,
+  Project,
+  ProjectSession,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
   UpdateWorktreeEnvironmentConfigInput,
@@ -161,8 +166,10 @@ import { resolveAssetPath } from "../kanban/asset-service";
 import { getKanbanDir } from "../kanban/config";
 import {
   getCodexThread,
+  listPinnedCodexThreadIds,
   listCodexThreadLinks,
   listCodexProjectThreads,
+  setCodexThreadPinned,
   unlinkCodexThread,
   updateCodexThreadArchived,
   updateCodexThreadName,
@@ -263,6 +270,52 @@ const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
 interface ThreadRef {
   projectId: string | null;
   cwd: string | null;
+}
+
+function normalizeSidebarPath(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const resolved = path.resolve(trimmed);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  } catch {
+    return null;
+  }
+}
+
+function isSameOrDescendantPath(candidatePath: string, rootPath: string): boolean {
+  if (candidatePath === rootPath) return true;
+  const relative = path.relative(rootPath, candidatePath);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function resolveSidebarProjectIdForCwd(
+  cwd: string | null | undefined,
+  projects: readonly Project[],
+): string | null {
+  const normalizedCwd = normalizeSidebarPath(cwd);
+  if (!normalizedCwd) return null;
+
+  let best: { projectId: string; sourcePath: string } | null = null;
+  for (const project of projects) {
+    for (const source of project.sources) {
+      const sourcePath = normalizeSidebarPath(source.root);
+      if (!sourcePath || !isSameOrDescendantPath(normalizedCwd, sourcePath)) continue;
+      if (!best || sourcePath.length > best.sourcePath.length) {
+        best = { projectId: project.id, sourcePath };
+      }
+    }
+  }
+
+  return best?.projectId ?? null;
+}
+
+function resolveSidebarThreadTitle(thread: {
+  threadName?: string | null;
+  threadPreview?: string | null;
+}): string {
+  const title = thread.threadName?.trim() || thread.threadPreview?.trim();
+  return title || "New thread";
 }
 
 interface PendingApproval {
@@ -2954,6 +3007,207 @@ export class CodexService extends EventEmitter {
     return listCodexProjectThreads(projectId, opts);
   }
 
+  async syncSidebarThreads(input: {
+    includeArchived?: boolean;
+    refresh?: boolean;
+  } = {}): Promise<CodexSidebarSnapshot> {
+    if (input.refresh) {
+      await this.refreshSidebarThreadsFromAppServer({ includeArchived: input.includeArchived === true });
+    }
+
+    return this.buildSidebarSnapshot({ includeArchived: input.includeArchived === true });
+  }
+
+  listPinnedThreads(): string[] {
+    return listPinnedCodexThreadIds();
+  }
+
+  async setThreadPinned(threadId: string, pinned: boolean): Promise<CodexSidebarSnapshot> {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) {
+      return this.buildSidebarSnapshot({ includeArchived: false });
+    }
+
+    const summary = getCodexThread(normalizedThreadId) ?? await this.resolveThreadSummary(normalizedThreadId);
+    if (summary) {
+      setCodexThreadPinned(normalizedThreadId, pinned);
+      const owners = projectSessionService.listProjectSessionThreadOwners(normalizedThreadId);
+      for (const owner of owners) {
+        const session = projectSessionService.getProjectSession(owner.sessionId);
+        if (!session || session.isOverview) continue;
+        projectSessionService.setProjectSessionPinned(session.id, { pinned });
+        dbNotifier.notifyProjectSessionsChanged(session.projectId, "pin", session.id);
+      }
+    }
+
+    return this.buildSidebarSnapshot({ includeArchived: false });
+  }
+
+  async ensureSidebarThreadSession(threadId: string): Promise<ProjectSession | null> {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return null;
+
+    const existingLink = projectSessionService.getProjectSessionThreadLink(normalizedThreadId);
+    if (existingLink) {
+      return projectSessionService.getProjectSession(existingLink.sessionId);
+    }
+
+    const summary = getCodexThread(normalizedThreadId) ?? await this.resolveThreadSummary(normalizedThreadId);
+    if (!summary || summary.archived || summary.ephemeral || summary.source?.sideConversation) return null;
+
+    const session = projectSessionService.createProjectSession({
+      projectId: summary.projectId,
+      noThreadFallbackTitle: resolveSidebarThreadTitle(summary),
+    });
+    const link = projectSessionService.upsertProjectSessionThreadLink({
+      sessionId: session.id,
+      projectId: summary.projectId,
+      threadId: summary.threadId,
+      parentThreadId: summary.source?.parentThreadId ?? null,
+      threadName: summary.threadName,
+      threadPreview: summary.threadPreview,
+      modelProvider: summary.modelProvider,
+      cwd: summary.cwd,
+      statusType: summary.statusType,
+      statusActiveFlags: summary.statusActiveFlags,
+      archived: summary.archived,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt,
+    });
+    dbNotifier.notifyProjectSessionsChanged(link.projectId, "create", session.id);
+    return projectSessionService.getProjectSession(session.id);
+  }
+
+  private async refreshSidebarThreadsFromAppServer(input: { includeArchived: boolean }): Promise<void> {
+    await this.ensureClientReady();
+
+    const projects = dbService.listProjects();
+    const archivedFilters = input.includeArchived ? [false, true] : [false];
+
+    for (const archived of archivedFilters) {
+      let cursor: string | null = null;
+      do {
+        const response: ThreadListResponse = await this.client.request<"thread/list", ThreadListResponse>("thread/list", {
+          cursor,
+          limit: 100,
+          sortKey: "updated_at",
+          sortDirection: "desc",
+          archived,
+        });
+
+        for (const thread of response.data) {
+          if (thread.ephemeral) continue;
+          if (typeof thread.parentThreadId === "string" && thread.parentThreadId.trim()) continue;
+
+          const cwd = typeof thread.cwd === "string" ? thread.cwd : null;
+          const projectId = resolveSidebarProjectIdForCwd(cwd, projects);
+          const summary = this.upsertLinkFromThread(
+            thread,
+            { projectId, cwd },
+            cwd,
+          );
+          if (!summary || summary.archived) continue;
+
+          this.ensureSidebarThreadSessionFromSummary(summary);
+        }
+
+        cursor = response.nextCursor;
+      } while (cursor);
+    }
+  }
+
+  private ensureSidebarThreadSessionFromSummary(summary: CodexThreadSummary): ProjectSession | null {
+    if (summary.archived || summary.ephemeral || summary.source?.sideConversation) return null;
+
+    const existingLink = projectSessionService.getProjectSessionThreadLink(summary.threadId);
+    if (existingLink) {
+      return projectSessionService.getProjectSession(existingLink.sessionId);
+    }
+
+    const session = projectSessionService.createProjectSession({
+      projectId: summary.projectId,
+      noThreadFallbackTitle: resolveSidebarThreadTitle(summary),
+    });
+    const link = projectSessionService.upsertProjectSessionThreadLink({
+      sessionId: session.id,
+      projectId: summary.projectId,
+      threadId: summary.threadId,
+      parentThreadId: summary.source?.parentThreadId ?? null,
+      threadName: summary.threadName,
+      threadPreview: summary.threadPreview,
+      modelProvider: summary.modelProvider,
+      cwd: summary.cwd,
+      statusType: summary.statusType,
+      statusActiveFlags: summary.statusActiveFlags,
+      archived: summary.archived,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt,
+    });
+    dbNotifier.notifyProjectSessionsChanged(link.projectId, "create", session.id);
+    return projectSessionService.getProjectSession(session.id);
+  }
+
+  private buildSidebarSnapshot(input: { includeArchived: boolean }): CodexSidebarSnapshot {
+    const pinnedThreadIds = listPinnedCodexThreadIds();
+    const pinnedOrderByThreadId = new Map(pinnedThreadIds.map((threadId, index) => [threadId, index]));
+    const projectAssignments: Record<string, string> = {};
+    const projectlessThreadIds: string[] = [];
+    const items: CodexSidebarThreadItem[] = [];
+
+    for (const thread of listCodexThreadLinks({ includeArchived: input.includeArchived })) {
+      const sessionLink = projectSessionService.getProjectSessionThreadLink(thread.threadId);
+      const session = sessionLink ? projectSessionService.getProjectSession(sessionLink.sessionId) : null;
+      const archived = thread.archived || session?.archived === true;
+      if (!input.includeArchived && archived) continue;
+      if (thread.ephemeral || thread.source?.sideConversation) continue;
+
+      const projectId = session?.projectId ?? thread.projectId;
+      if (projectId) {
+        projectAssignments[thread.threadId] = projectId;
+      } else {
+        projectlessThreadIds.push(thread.threadId);
+      }
+
+      const pinnedOrder = pinnedOrderByThreadId.get(thread.threadId) ?? null;
+      items.push({
+        key: `${DEFAULT_CODEX_HOST_ID}:${thread.threadId}`,
+        kind: "local",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        threadId: thread.threadId,
+        sessionId: session?.id ?? null,
+        projectId,
+        title: session?.displayTitle ?? resolveSidebarThreadTitle(thread),
+        preview: thread.threadPreview,
+        cwd: thread.cwd,
+        updatedAt: thread.updatedAt,
+        createdAt: thread.createdAt,
+        pinned: pinnedOrder !== null,
+        pinnedOrder,
+        unread: session?.unread === true,
+        archived,
+        statusType: thread.statusType,
+        statusActiveFlags: thread.statusActiveFlags,
+        projectless: projectId === null,
+        disabled: false,
+      });
+    }
+
+    items.sort((left, right) => {
+      if (left.pinned && right.pinned) return (left.pinnedOrder ?? 0) - (right.pinnedOrder ?? 0);
+      if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
+      if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
+      return left.threadId.localeCompare(right.threadId);
+    });
+
+    return {
+      items,
+      pinnedThreadIds,
+      projectAssignments,
+      projectlessThreadIds,
+      generatedAt: Date.now(),
+    };
+  }
+
   listCommandPaletteThreads(input: CommandPaletteThreadListInput): CommandPaletteThreadSummary[] {
     const projectIds = Array.from(new Set(input.projectIds.map((projectId) => projectId.trim()).filter(Boolean)));
     if (projectIds.length === 0) return [];
@@ -4973,7 +5227,7 @@ export class CodexService extends EventEmitter {
 
   private upsertSessionLinkFromThread(
     thread: unknown,
-    input: { sessionId: string; projectId: string },
+    input: { sessionId: string; projectId: string | null },
     fallbackCwd?: string | null,
   ): CodexThreadSummary | null {
     if (typeof thread !== "object" || thread === null) return null;
@@ -5634,28 +5888,34 @@ export class CodexService extends EventEmitter {
     if (!sourceSession.thread) {
       throw new Error("Session has no Codex thread to fork");
     }
-    if (!sourceSession.thread.cwd) {
+    const sourceThread = sourceSession.thread;
+    if (!sourceThread.cwd) {
       throw new Error("Session thread has no working directory to fork");
     }
-
+    const sourceProjectId = sourceSession.projectId;
     const runLocation = parsed.target === "newWorktree"
-      ? await this.resolveSessionThreadRunLocation({
-          projectId: sourceSession.projectId,
+      ? await (async () => {
+        if (sourceProjectId === null) {
+          throw new Error("Projectless sessions cannot be forked into new worktrees");
+        }
+        return this.resolveSessionThreadRunLocation({
+          projectId: sourceProjectId,
           sessionId: sourceSession.id,
           sessionTitle: sourceSession.noThreadFallbackTitle,
-          threadTitle: sourceSession.thread.threadName ?? sourceSession.noThreadFallbackTitle,
+          threadTitle: sourceThread.threadName ?? sourceSession.noThreadFallbackTitle,
           runInTarget: "newWorktree",
           worktreeStartMode: parsed.worktreeStartMode,
           worktreeBranchPrefix: parsed.worktreeBranchPrefix,
-        })
+        });
+      })()
       : {
-          cwd: sourceSession.thread.cwd,
-          workspaceRoots: [sourceSession.thread.cwd],
+          cwd: sourceThread.cwd,
+          workspaceRoots: [sourceThread.cwd],
           runInTarget: "localProject" as const,
           createdManagedWorktree: false,
         };
 
-    const sourceThreadId = sourceSession.thread.threadId;
+    const sourceThreadId = sourceThread.threadId;
     const sourceDetail = parsed.turnId ? this.serializeThreadDetail(sourceThreadId) : null;
     if (parsed.turnId && !sourceDetail) {
       throw new Error(`Thread '${sourceThreadId}' is not loaded for turn-scoped fork`);
@@ -5691,13 +5951,13 @@ export class CodexService extends EventEmitter {
       : forkResult.thread;
 
     const nextSession = projectSessionService.createProjectSession({
-      projectId: sourceSession.projectId,
+      projectId: sourceProjectId,
       noThreadFallbackTitle: sourceSession.displayTitle,
     });
     const summary = this.upsertSessionLinkFromThread(
       finalThreadPayload,
       {
-        projectId: sourceSession.projectId,
+        projectId: sourceProjectId,
         sessionId: nextSession.id,
       },
       runLocation.cwd,
@@ -6221,6 +6481,7 @@ export class CodexService extends EventEmitter {
     await this.ensureClientReady();
     await this.client.request("thread/archive", { threadId });
     updateCodexThreadArchived(threadId, true);
+    setCodexThreadPinned(threadId, false);
     this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
     this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
     this.notifyLinkedProjectSessionsChanged(threadId);
@@ -6231,7 +6492,8 @@ export class CodexService extends EventEmitter {
     await this.ensureClientReady();
     const result = await this.client.request<"thread/unarchive", ThreadUnarchiveResponse>("thread/unarchive", { threadId });
 
-    const summary = this.upsertLinkFromThread(result.thread) ?? updateCodexThreadArchived(threadId, false);
+    this.upsertLinkFromThread(result.thread);
+    const summary = updateCodexThreadArchived(threadId, false);
     if (summary) {
       this.emitEvent({ type: "threadSummary", thread: summary });
       this.emitEvent({ type: "threadArchivedState", threadId, archived: false });
@@ -7164,6 +7426,7 @@ export class CodexService extends EventEmitter {
         if (!threadId || typeof args.pinned !== "boolean") {
           throw new Error("set_thread_pinned requires threadId and pinned");
         }
+        await this.setThreadPinned(threadId, args.pinned);
         return this.buildDynamicToolSuccess({ threadId, pinned: args.pinned });
       }
 
@@ -7998,6 +8261,18 @@ export class CodexService extends EventEmitter {
         archived,
       });
       const updated = updateCodexThreadArchived(payload.threadId, archived);
+      if (archived) {
+        setCodexThreadPinned(payload.threadId, false);
+        const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
+        for (const owner of owners) {
+          const session = projectSessionService.getProjectSession(owner.sessionId);
+          if (!session || session.isOverview || session.archived) continue;
+          const archivedSession = projectSessionService.archiveProjectSession(session.id);
+          if (archivedSession) {
+            dbNotifier.notifyProjectSessionsChanged(archivedSession.projectId, "archive", archivedSession.id);
+          }
+        }
+      }
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
       }

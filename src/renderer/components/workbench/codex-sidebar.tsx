@@ -35,7 +35,7 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
-import type { Project, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
+import type { CodexSidebarThreadItem, Project, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   SIDEBAR_NEW_CHAT_ROW_CLASS,
@@ -707,37 +707,39 @@ export function CodexProjectSessionList({
   );
 }
 
-export function CodexThreadRow({
-  session,
+export function CodexSidebarThreadRow({
+  item,
   active,
   contextMenuOpen = false,
   onSelect,
   onOpenContextMenu,
   onRenameFromTitleDoubleClick,
   onTogglePinned,
+  defaultLabel,
 }: {
-  session: ProjectSession;
+  item: CodexSidebarThreadItem;
   active: boolean;
   contextMenuOpen?: boolean;
   onSelect: () => void;
-  onOpenContextMenu?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
-  onRenameFromTitleDoubleClick?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
-  onTogglePinned?: (session: ProjectSession) => void | Promise<void>;
+  onOpenContextMenu?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
+  onRenameFromTitleDoubleClick?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
+  onTogglePinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
+  defaultLabel?: string;
 }) {
-  const showSessionActions = !session.isOverview && Boolean(onOpenContextMenu);
-  const showPinSlot = !session.isOverview && Boolean(onTogglePinned);
-  const pinButtonLabel = session.pinned ? "Unpin chat" : "Pin chat";
-  const title = session.displayTitle;
+  const showSessionActions = !item.disabled && Boolean(onOpenContextMenu);
+  const showPinSlot = !item.disabled && Boolean(onTogglePinned);
+  const pinButtonLabel = item.pinned ? "Unpin chat" : "Pin chat";
+  const title = item.title;
 
   return (
     <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
       <div
         data-app-action-sidebar-thread-active={String(active)}
-        data-app-action-sidebar-thread-host-id="local"
-        data-app-action-sidebar-thread-id={session.thread?.threadId ?? session.id}
-        data-app-action-sidebar-thread-kind="local"
-        data-app-action-sidebar-thread-pinned={String(session.pinned)}
-        data-app-action-sidebar-thread-unread={String(session.unread)}
+        data-app-action-sidebar-thread-host-id={item.hostId}
+        data-app-action-sidebar-thread-id={item.threadId}
+        data-app-action-sidebar-thread-kind={item.kind}
+        data-app-action-sidebar-thread-pinned={String(item.pinned)}
+        data-app-action-sidebar-thread-unread={String(item.unread)}
         data-app-action-sidebar-thread-row=""
         data-app-action-sidebar-thread-title={title}
         className={cn(
@@ -753,10 +755,10 @@ export function CodexThreadRow({
         onContextMenu={(event) => {
           if (!showSessionActions) return;
           event.preventDefault();
-          onOpenContextMenu?.(session, event);
+          onOpenContextMenu?.(item, event);
         }}
         onDoubleClick={(event) => {
-          onRenameFromTitleDoubleClick?.(session, event);
+          onRenameFromTitleDoubleClick?.(item, event);
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -768,7 +770,7 @@ export function CodexThreadRow({
           <div className="flex h-full w-full items-center px-row-x text-sm leading-4">
             <div className="w-4 shrink-0">
               <div className="relative flex items-center justify-center">
-                {session.unread ? (
+                {item.unread ? (
                   <span
                     className="size-1.5 rounded-full bg-token-charts-blue"
                     aria-label="Unread"
@@ -795,7 +797,7 @@ export function CodexThreadRow({
                 className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center"
                 data-app-action-sidebar-thread-pin-slot=""
               >
-                {session.unread ? (
+                {item.unread ? (
                   <span aria-hidden="true" className="block h-5 w-5" />
                 ) : (
                   <button
@@ -803,7 +805,7 @@ export function CodexThreadRow({
                     aria-label={pinButtonLabel}
                     className={cn(
                       "flex h-5 w-5 items-center justify-center leading-none text-token-foreground/50 hover:text-token-foreground",
-                      !session.pinned && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
+                      !item.pinned && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
                     )}
                     data-state={contextMenuOpen ? "open" : "closed"}
                     data-app-action-sidebar-thread-pin-session=""
@@ -813,18 +815,18 @@ export function CodexThreadRow({
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      void onTogglePinned?.(session);
+                      void onTogglePinned?.(item);
                     }}
                   >
-                    {session.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
+                    {item.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
                   </button>
                 )}
               </div>
             ) : null}
-            {session.isOverview ? (
+            {defaultLabel ? (
               <div className="ml-[3px] flex min-w-[26px] items-center justify-end gap-1">
                 <span className="shrink-0 text-xs text-token-description-foreground">
-                  default
+                  {defaultLabel}
                 </span>
               </div>
             ) : null}
@@ -844,7 +846,7 @@ export function CodexThreadRow({
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  onOpenContextMenu?.(session, event);
+                  onOpenContextMenu?.(item, event);
                 }}
               >
                 <CodexProjectActionsIcon />
@@ -854,6 +856,64 @@ export function CodexThreadRow({
         </div>
       </div>
     </div>
+  );
+}
+
+export function CodexThreadRow({
+  session,
+  active,
+  contextMenuOpen = false,
+  onSelect,
+  onOpenContextMenu,
+  onRenameFromTitleDoubleClick,
+  onTogglePinned,
+}: {
+  session: ProjectSession;
+  active: boolean;
+  contextMenuOpen?: boolean;
+  onSelect: () => void;
+  onOpenContextMenu?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
+  onRenameFromTitleDoubleClick?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
+  onTogglePinned?: (session: ProjectSession) => void | Promise<void>;
+}) {
+  const threadId = session.thread?.threadId ?? session.id;
+  const item: CodexSidebarThreadItem = {
+    key: `local:${threadId}`,
+    kind: "local",
+    hostId: "local",
+    threadId,
+    sessionId: session.id,
+    projectId: session.projectId,
+    title: session.displayTitle,
+    preview: session.thread?.threadPreview ?? "",
+    cwd: session.thread?.cwd ?? null,
+    updatedAt: session.thread?.updatedAt ?? Date.parse(session.updatedAt),
+    createdAt: session.thread?.createdAt ?? Date.parse(session.createdAt),
+    pinned: session.pinned,
+    pinnedOrder: session.pinnedOrder,
+    unread: session.unread,
+    archived: session.archived || session.thread?.archived === true,
+    statusType: (session.thread?.statusType ?? "notLoaded") as CodexSidebarThreadItem["statusType"],
+    statusActiveFlags: (session.thread?.statusActiveFlags ?? []) as CodexSidebarThreadItem["statusActiveFlags"],
+    projectless: session.projectId === null,
+    disabled: session.isOverview,
+  };
+
+  return (
+    <CodexSidebarThreadRow
+      item={item}
+      active={active}
+      contextMenuOpen={contextMenuOpen}
+      defaultLabel={session.isOverview ? "default" : undefined}
+      onSelect={onSelect}
+      onOpenContextMenu={onOpenContextMenu
+        ? (_item, event) => onOpenContextMenu(session, event)
+        : undefined}
+      onRenameFromTitleDoubleClick={onRenameFromTitleDoubleClick
+        ? (_item, event) => onRenameFromTitleDoubleClick(session, event)
+        : undefined}
+      onTogglePinned={onTogglePinned ? () => onTogglePinned(session) : undefined}
+    />
   );
 }
 
