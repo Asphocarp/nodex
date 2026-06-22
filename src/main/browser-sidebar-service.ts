@@ -26,6 +26,7 @@ import {
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../shared/browser-url";
 import { getLogger, type BackendLogger } from "./logging/logger";
 import * as projectSessionService from "./kanban/project-session-service";
+import { safeBroadcastToWindows } from "./ipc-safe-send";
 
 type BrowserUseCommand = Extract<BrowserSidebarCommand, {
   type:
@@ -1145,10 +1146,7 @@ export function broadcastBrowserSidebarEvent<EventName extends keyof BrowserSide
   eventName: EventName,
   payload: BrowserSidebarServiceEvents[EventName][0],
 ): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed()) continue;
-    window.webContents.send(resolveBrowserSidebarIpcEventName(eventName), payload);
-  }
+  safeBroadcastToWindows(BrowserWindow.getAllWindows(), resolveBrowserSidebarIpcEventName(eventName), [payload]);
 }
 
 function resolveBrowserSidebarIpcEventName(eventName: keyof BrowserSidebarServiceEvents): string {

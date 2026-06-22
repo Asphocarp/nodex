@@ -576,6 +576,11 @@ When multiple agents use the CLI concurrently, a two-request pattern (lookup car
 ### IPC handler registration should be idempotent in Electron main
 In Electron dev workflows with reloads, re-running `registerIpcHandlers()` can throw duplicate-handler errors on the first already-registered channel and prevent later channels from being registered, which leads to selective `No handler registered for '<channel>'` runtime failures. Register IPC handlers through a helper that first calls `ipcMain.removeHandler(channel)` and then `ipcMain.handle(channel, listener)` so channel maps are always fully refreshed.
 
+### Main-process IPC fanout must tolerate renderer frame disposal
+Electron can destroy or replace a renderer frame after main has selected a `BrowserWindow` but before `webContents.send()` runs. A `BrowserWindow.isDestroyed()` check alone is not a send contract; check `webContents.isDestroyed()` too and keep the send itself inside a try/catch. In Nodex, all one-way main-to-renderer notifications should go through `ipc-safe-send`: lifecycle race errors such as disposed `WebFrameMain` are debug-level skips, and unexpected send failures are warning-rate-limited with channel/window/webContents context.
+
+Sidebar sync can amplify that IPC failure mode if no-op app-server `thread/list` rows are treated as session changes. Keep `upsertLinkFromThread()` as a pure Codex thread read-model write; callers decide whether the session read model changed. Repeating an identical force sync should produce no `project-sessions-changed` events and no changed sidebar scopes, while real title/preview/status/project ownership/archive changes should notify only the affected linked session scopes once.
+
 ### Notion inline styles/colors come from legacy title annotation tuples
 Notion clipboard rich text often arrives as `properties.title` tuples like `["text", [["b"], ["i"], ["h","teal_background"]]]`. Preserve inline formatting by mapping `b/i/s/c/_` to bold/italic/strikethrough/code/underline and map `h` color tokens (`teal`/`teal_background`) to NFM-compatible colors (`green`/`green_bg`).
 

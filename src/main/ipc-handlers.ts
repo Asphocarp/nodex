@@ -84,6 +84,10 @@ import {
   COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
   type CommandKeymapState,
 } from "../shared/command-keybindings";
+import {
+  safeBroadcastToWindows,
+  safeSendToWebContents,
+} from "./ipc-safe-send";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -147,8 +151,7 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
   channel: Channel,
   payload: IpcEvents[Channel],
 ): void {
-  if (sender.isDestroyed()) return;
-  sender.send(channel, payload);
+  safeSendToWebContents(sender, channel, [payload]);
 }
 
 function buildNativeContextMenuTemplate(
@@ -251,10 +254,7 @@ function ensureBrowserSidebarEventBridge(): void {
 }
 
 function broadcastCommandKeymapState(state: CommandKeymapState): void {
-  BrowserWindow.getAllWindows().forEach((window) => {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
-    window.webContents.send(COMMAND_KEYBINDINGS_CHANGED_CHANNEL, state);
-  });
+  safeBroadcastToWindows(BrowserWindow.getAllWindows(), COMMAND_KEYBINDINGS_CHANGED_CHANNEL, [state]);
 }
 
 function refreshBrowserSidebarCommandAccelerators(): void {
@@ -302,16 +302,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   };
 
   codexService.on("event", (event) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed()) continue;
-      window.webContents.send("codex:event", event);
-    }
+    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:event", [event]);
   });
   codexService.on("hostMessage", (message) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed()) continue;
-      window.webContents.send("codex:host-message", message);
-    }
+    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:host-message", [message]);
   });
 
   // Projects
@@ -737,13 +731,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         focusNotificationOriginWindow(originWindow);
       }
 
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("desktop-notification:action", {
-          ...action,
-          conversationId: notification.conversationId ?? null,
-          requestId: notification.requestId ?? null,
-        });
-      }
+      safeSendToWebContents(event.sender, "desktop-notification:action", [{
+        ...action,
+        conversationId: notification.conversationId ?? null,
+        requestId: notification.requestId ?? null,
+      }]);
     });
   });
 
@@ -987,7 +979,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         stopGitBranchWatch(webContentsId);
         return;
       }
-      sender.send("git:branch:changed", { cwd: normalizedCwd });
+      safeSendToWebContents(sender, "git:branch:changed", [{ cwd: normalizedCwd }]);
     });
 
     if (sender.isDestroyed()) {

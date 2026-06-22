@@ -3422,6 +3422,15 @@ export class CodexService extends EventEmitter {
       const sessionId = sessionResult.session?.id
         ?? projectSessionService.getProjectSessionThreadLink(summary.threadId)?.sessionId
         ?? null;
+      if (
+        changed
+        && !sessionResult.materialized
+        && sessionResult.changedProjectIds.size === 0
+        && !sessionResult.projectlessChanged
+        && sessionId !== null
+      ) {
+        this.notifyLinkedProjectSessionsChanged(summary.threadId);
+      }
       return {
         summary,
         projectId: summary.projectId,
@@ -3731,7 +3740,12 @@ export class CodexService extends EventEmitter {
       threadId: normalizedThreadId,
       includeTurns: false,
     });
-    return this.upsertLinkFromThread(result.thread) ?? getCodexThread(normalizedThreadId);
+    const previous = getCodexThread(normalizedThreadId);
+    const summary = this.upsertLinkFromThread(result.thread) ?? getCodexThread(normalizedThreadId);
+    if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
+      this.notifyLinkedProjectSessionsChanged(summary.threadId);
+    }
+    return summary;
   }
 
   async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
@@ -5646,9 +5660,6 @@ export class CodexService extends EventEmitter {
       linkedAt: existing?.linkedAt,
     });
 
-    if (summary) {
-      this.notifyLinkedProjectSessionsChanged(summary.threadId);
-    }
     return summary;
   }
 

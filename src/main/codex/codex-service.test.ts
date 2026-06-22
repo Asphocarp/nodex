@@ -29,6 +29,10 @@ import {
   initializeDatabase,
 } from "../kanban/db-service";
 import {
+  dbNotifier,
+  type ProjectSessionsChangeEvent,
+} from "../kanban/db-notifier";
+import {
   createProjectSession,
   createProjectSessionTab,
   getProjectSession,
@@ -262,6 +266,21 @@ function projectConversationFromHostMessages(
   }
 
   return conversation;
+}
+
+function collectProjectSessionChangeEvents(): {
+  events: ProjectSessionsChangeEvent[];
+  dispose: () => void;
+} {
+  const events: ProjectSessionsChangeEvent[] = [];
+  const listener = (event: ProjectSessionsChangeEvent) => {
+    events.push(event);
+  };
+  dbNotifier.on("project-sessions-changed", listener);
+  return {
+    events,
+    dispose: () => dbNotifier.removeListener("project-sessions-changed", listener),
+  };
 }
 
 function getRecordedItem(
@@ -844,6 +863,108 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("does not emit project session changes for unchanged sidebar force sync data", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      const captured = collectProjectSessionChangeEvents();
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        return {
+          data: [
+            makeSidebarListThread({
+              id: "thr_noop_sidebar_sync",
+              cwd: "/tmp/codex/packages/app",
+              preview: "Stable thread",
+              updatedAt: 50,
+            }),
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        const firstResult = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        expect(firstResult.materializedSessionIds.length).toBe(1);
+        expect(captured.events.length).toBe(1);
+
+        captured.events.length = 0;
+        const secondResult = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+
+        expect(captured.events.length).toBe(0);
+        expect(secondResult.changedProjectIds.length).toBe(0);
+        expect(secondResult.projectlessChanged).toBeFalse();
+        expect(secondResult.materializedSessionIds.length).toBe(0);
+      } finally {
+        captured.dispose();
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("emits one project session change when sidebar thread summary changes in place", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      const captured = collectProjectSessionChangeEvents();
+      let preview = "Before";
+      let updatedAt = 50;
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        return {
+          data: [
+            makeSidebarListThread({
+              id: "thr_changed_sidebar_summary",
+              cwd: "/tmp/codex/packages/app",
+              preview,
+              updatedAt,
+            }),
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        const linked = listProjectSessions(defaultProjectId)
+          .find((session) => session.thread?.threadId === "thr_changed_sidebar_summary");
+        expect(linked !== undefined).toBeTrue();
+
+        captured.events.length = 0;
+        preview = "After";
+        updatedAt = 60;
+        const result = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+
+        expect(captured.events.length).toBe(1);
+        expect(captured.events[0]?.projectId).toBe(defaultProjectId);
+        expect(captured.events[0]?.changeType).toBe("thread");
+        expect(captured.events[0]?.sessionId).toBe(linked?.id);
+        expect(result.changedProjectIds.includes(defaultProjectId)).toBeTrue();
+        expect(result.projectlessChanged).toBeFalse();
+        expect(result.materializedSessionIds.length).toBe(0);
+      } finally {
+        captured.dispose();
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("forces sidebar repair for unknown name notifications even when the last sync is fresh", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -960,6 +1081,7 @@ describe("codex-service readThread fallback", () => {
         start: () => Promise<void>;
         request: (method: string) => Promise<unknown>;
       };
+      const captured = collectProjectSessionChangeEvents();
       let cwd: string | null = "/tmp/outside-project";
 
       client.start = async () => undefined;
@@ -986,6 +1108,7 @@ describe("codex-service readThread fallback", () => {
         expect(projectless !== undefined).toBeTrue();
         expect(projectless?.projectId).toBe(null);
 
+        captured.events.length = 0;
         cwd = "/tmp/codex/packages/app";
         await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
 
@@ -997,7 +1120,21 @@ describe("codex-service readThread fallback", () => {
         expect(moved?.id).toBe(projectless?.id);
         expect(moved?.projectId).toBe(defaultProjectId);
         expect(stillProjectless === undefined).toBeTrue();
+        expect(captured.events.length).toBe(2);
+        const oldScopeEvents = captured.events.filter((event) =>
+          event.projectId === null
+          && event.changeType === "thread"
+          && event.sessionId === projectless?.id
+        );
+        const newScopeEvents = captured.events.filter((event) =>
+          event.projectId === defaultProjectId
+          && event.changeType === "thread"
+          && event.sessionId === projectless?.id
+        );
+        expect(oldScopeEvents.length).toBe(1);
+        expect(newScopeEvents.length).toBe(1);
       } finally {
+        captured.dispose();
         await service.shutdown();
       }
     });

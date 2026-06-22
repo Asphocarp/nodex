@@ -79,6 +79,11 @@ import {
   getPrimaryCommandAccelerator,
   toElectronAccelerator,
 } from "../shared/command-keybindings";
+import {
+  safeBroadcastToWindows,
+  safeSendToWebContents,
+  safeSendToWindow,
+} from "./ipc-safe-send";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -236,8 +241,7 @@ function configureMacWindowMenus(): void {
       | WorkbenchPanelTabCloseHostChannel,
   ) => {
     const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
-    if (!targetWindow || targetWindow.isDestroyed()) return;
-    targetWindow.webContents.send(channel);
+    safeSendToWindow(targetWindow, channel);
   };
 
   const closeFocusedWindow = () => {
@@ -340,10 +344,7 @@ function configureMacWindowMenus(): void {
 }
 
 function broadcastToWindows(channel: string, payload: unknown): void {
-  for (const window of openWindows.values()) {
-    if (window.isDestroyed()) continue;
-    window.webContents.send(channel, payload);
-  }
+  safeBroadcastToWindows(openWindows.values(), channel, [payload]);
 }
 
 function setAppInitializationStep(step: AppInitializationStep): void {
@@ -375,9 +376,9 @@ function publishDatabaseMigrationProgress(progress: DatabaseMigrationProgress): 
 function registerInitializationIpcHandlers(): void {
   ipcMain.removeHandler("app:await-initialization");
   ipcMain.handle("app:await-initialization", (event) => {
-    event.sender.send("app:init-step", appInitializationStep);
+    safeSendToWebContents(event.sender, "app:init-step", [appInitializationStep]);
     if (latestDatabaseMigrationProgress) {
-      event.sender.send("db:migration-progress", latestDatabaseMigrationProgress);
+      safeSendToWebContents(event.sender, "db:migration-progress", [latestDatabaseMigrationProgress]);
     }
     return appInitializationPromise;
   });
@@ -389,8 +390,7 @@ function sendReminderOpenEvent(payload: {
   occurrenceStart: string;
 }): void {
   const targetWindow = getLastFocusedWindow();
-  if (!targetWindow || targetWindow.isDestroyed()) return;
-  targetWindow.webContents.send("reminder:open", payload);
+  safeSendToWindow(targetWindow, "reminder:open", [payload]);
 }
 
 function flushPendingCardDeepLink(): void {
@@ -403,12 +403,13 @@ function flushPendingCardDeepLink(): void {
     return;
   }
 
-  if (targetWindow.webContents.isLoadingMainFrame()) {
+  if (targetWindow.webContents.isDestroyed() || targetWindow.webContents.isLoadingMainFrame()) {
     return;
   }
 
-  targetWindow.webContents.send("deeplink:open-card", pendingCardDeepLinkTarget);
-  pendingCardDeepLinkTarget = null;
+  if (safeSendToWindow(targetWindow, "deeplink:open-card", [pendingCardDeepLinkTarget])) {
+    pendingCardDeepLinkTarget = null;
+  }
 }
 
 function flushPendingSessionDeepLink(): void {
@@ -421,12 +422,13 @@ function flushPendingSessionDeepLink(): void {
     return;
   }
 
-  if (targetWindow.webContents.isLoadingMainFrame()) {
+  if (targetWindow.webContents.isDestroyed() || targetWindow.webContents.isLoadingMainFrame()) {
     return;
   }
 
-  targetWindow.webContents.send("deeplink:open-session", pendingSessionDeepLinkTarget);
-  pendingSessionDeepLinkTarget = null;
+  if (safeSendToWindow(targetWindow, "deeplink:open-session", [pendingSessionDeepLinkTarget])) {
+    pendingSessionDeepLinkTarget = null;
+  }
 }
 
 function resolvePendingCardDeepLink(): void {
@@ -675,9 +677,7 @@ function createWindow(
       finishClose();
     });
 
-    try {
-      window.webContents.send("app:flush-before-close", webContentsId);
-    } catch {
+    if (!safeSendToWindow(window, "app:flush-before-close", [webContentsId])) {
       finishClose();
     }
   };
@@ -686,9 +686,7 @@ function createWindow(
   window.on("focus", () => {
     lastFocusedWindowId = webContentsId;
     windowSessionState?.markFocused(webContentsId);
-    if (!window.isDestroyed()) {
-      window.webContents.send("electron-window:focus-changed", { isFocused: true });
-    }
+    safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
   });
   window.on("resize", () => {
     if (window.isDestroyed()) return;
@@ -699,15 +697,13 @@ function createWindow(
     windowSessionState?.updateBounds(webContentsId, captureWindowSessionBounds(window));
   });
   window.on("blur", () => {
-    if (!window.isDestroyed()) {
-      window.webContents.send("electron-window:focus-changed", { isFocused: false });
-    }
+    safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: false }]);
   });
   window.webContents.on("did-finish-load", () => {
     syncMacWindowTitle(window);
     const appUpdateStatus = appUpdateService?.getStatus();
     if (appUpdateStatus) {
-      window.webContents.send("app:update-status", appUpdateStatus);
+      safeSendToWindow(window, "app:update-status", [appUpdateStatus]);
     }
     flushPendingCardDeepLink();
     flushPendingSessionDeepLink();
