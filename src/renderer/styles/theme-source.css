@@ -506,19 +506,22 @@
   --color-token-bg-primary: var(--vscode-editor-background);
 }
 
-[data-codex-window-type="electron"]:not([data-codex-os="win32"]) body {
+[data-codex-window-type="electron"] {
   background: transparent;
-  background: var(--color-token-editor-background);
+  overflow: hidden;
 }
 
-@supports (color: color-mix(in lab, red, red)) {
-  [data-codex-window-type="electron"]:not([data-codex-os="win32"]) body {
-    background: color-mix(
-      in srgb,
-      var(--color-token-editor-background) 55%,
-      transparent
-    );
-  }
+[data-codex-window-type="electron"] body {
+  background: transparent;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+[data-codex-window-type="electron"]:not(
+    [data-codex-window-chrome="application-menu"]
+  )
+  body {
+  background: transparent;
 }
 
 [data-codex-window-type="electron"].electron-opaque {
@@ -541,6 +544,11 @@
   body {
   background-color: transparent;
   background-image: none;
+}
+
+[data-codex-window-type="electron"].compact-window,
+[data-codex-window-type="electron"].compact-window body {
+  background: transparent;
 }
 
 [data-codex-window-type="electron"] .blend {

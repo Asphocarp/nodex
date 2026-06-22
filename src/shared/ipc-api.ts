@@ -987,4 +987,5 @@ export interface IpcEvents {
     requestId: string | null;
   };
   "electron-window:focus-changed": { isFocused: boolean };
+  "electron-window-opaque-surface-changed": { opaqueWindowSurfaceEnabled: boolean };
 }

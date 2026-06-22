@@ -84,6 +84,10 @@ import {
   safeSendToWebContents,
   safeSendToWindow,
 } from "./ipc-safe-send";
+import {
+  resolveElectronWindowBackdrop,
+  shouldUseOpaqueElectronWindowSurface,
+} from "./electron-window-backdrop";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -113,6 +117,56 @@ let appUpdateService: AppUpdateService | null = null;
 let mediaPermissionHandlersRegistered = false;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
+const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
+
+function shouldManageElectronWindowBackdrop(): boolean {
+  return process.platform === "darwin" || process.platform === "win32";
+}
+
+function applyElectronWindowBackdrop(window: BrowserWindow, force = false): void {
+  if (!shouldManageElectronWindowBackdrop()) return;
+  if (window.isDestroyed()) return;
+
+  const bounds = window.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const opaqueWindowSurfaceEnabled = shouldUseOpaqueElectronWindowSurface({
+    bounds,
+    isFocused: window.isFocused(),
+    platform: process.platform,
+    scaleFactor: display.scaleFactor,
+  });
+
+  if (!force && electronWindowOpaqueSurfaceModes.get(window.id) === opaqueWindowSurfaceEnabled) {
+    return;
+  }
+
+  const backdrop = resolveElectronWindowBackdrop({
+    opaqueWindowSurfaceEnabled,
+    platform: process.platform,
+    prefersDarkColors: nativeTheme.shouldUseDarkColors,
+  });
+
+  try {
+    window.setBackgroundColor(backdrop.backgroundColor);
+    if (process.platform === "darwin") {
+      window.setVibrancy(backdrop.vibrancy as Parameters<BrowserWindow["setVibrancy"]>[0]);
+    }
+    if (process.platform === "win32") {
+      window.setBackgroundMaterial(
+        backdrop.backgroundMaterial as Parameters<BrowserWindow["setBackgroundMaterial"]>[0],
+      );
+    }
+    electronWindowOpaqueSurfaceModes.set(window.id, opaqueWindowSurfaceEnabled);
+    safeSendToWindow(window, "electron-window-opaque-surface-changed", [
+      { opaqueWindowSurfaceEnabled },
+    ]);
+  } catch (error) {
+    logger.warn("Failed to apply Electron window backdrop", {
+      error: error instanceof Error ? error.message : String(error),
+      windowId: window.id,
+    });
+  }
+}
 
 function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
   return {
@@ -638,7 +692,13 @@ function createWindow(
   openWindows.set(webContentsId, window);
   windowSessionState?.assignWindow(webContentsId, options.session.id);
   syncMacWindowTitle(window);
+  applyElectronWindowBackdrop(window, true);
   lastFocusedWindowId = webContentsId;
+
+  const refreshWindowBackdropForTheme = () => {
+    applyElectronWindowBackdrop(window, true);
+  };
+  nativeTheme.on("updated", refreshWindowBackdropForTheme);
 
   if (savedBounds?.mode === "maximized") {
     window.maximize();
@@ -686,21 +746,26 @@ function createWindow(
   window.on("focus", () => {
     lastFocusedWindowId = webContentsId;
     windowSessionState?.markFocused(webContentsId);
+    applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
   });
   window.on("resize", () => {
     if (window.isDestroyed()) return;
     windowSessionState?.updateBounds(webContentsId, captureWindowSessionBounds(window));
+    applyElectronWindowBackdrop(window);
   });
   window.on("move", () => {
     if (window.isDestroyed()) return;
     windowSessionState?.updateBounds(webContentsId, captureWindowSessionBounds(window));
+    applyElectronWindowBackdrop(window);
   });
   window.on("blur", () => {
+    applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: false }]);
   });
   window.webContents.on("did-finish-load", () => {
     syncMacWindowTitle(window);
+    applyElectronWindowBackdrop(window, true);
     const appUpdateStatus = appUpdateService?.getStatus();
     if (appUpdateStatus) {
       safeSendToWindow(window, "app:update-status", [appUpdateStatus]);
@@ -726,9 +791,11 @@ function createWindow(
     });
   });
   window.on("closed", () => {
+    nativeTheme.off("updated", refreshWindowBackdropForTheme);
     windowSessionState?.clearWindow(webContentsId);
     pendingCloseResolvers.delete(webContentsId);
     allowImmediateWindowClose.delete(webContentsId);
+    electronWindowOpaqueSurfaceModes.delete(window.id);
     openWindows.delete(webContentsId);
     if (lastFocusedWindowId === webContentsId) {
       lastFocusedWindowId = null;
