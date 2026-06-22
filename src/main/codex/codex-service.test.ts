@@ -48,6 +48,11 @@ import {
 import { resetCodexSessionStoreCaches } from "./codex-session-store";
 import { CodexService } from "./codex-service";
 import {
+  createInlineCommandPaletteThreadSearchClient,
+  type CommandPaletteThreadSearchClient,
+} from "./command-palette-thread-search-coordinator";
+import { CommandPaletteThreadSearchService } from "./command-palette-thread-search-service";
+import {
   CODEX_THREAD_TITLE_CONFIG,
   CODEX_THREAD_TITLE_MODEL,
   CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
@@ -189,8 +194,15 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
   };
 }
 
-function createService(options?: { rateLimitsPollIntervalMs?: number }): TestableCodexService {
-  return new CodexService(options) as unknown as TestableCodexService;
+function createService(options?: {
+  rateLimitsPollIntervalMs?: number;
+  commandPaletteThreadSearchClient?: CommandPaletteThreadSearchClient;
+}): TestableCodexService {
+  return new CodexService({
+    rateLimitsPollIntervalMs: options?.rateLimitsPollIntervalMs,
+    commandPaletteThreadSearchClient:
+      options?.commandPaletteThreadSearchClient ?? createInlineCommandPaletteThreadSearchClient(),
+  }) as unknown as TestableCodexService;
 }
 
 function makeSidebarListThread(input: {
@@ -1398,15 +1410,13 @@ describe("codex-service readThread fallback", () => {
       });
 
       const service = createService();
+      const searchIndexer = new CommandPaletteThreadSearchService();
       try {
         const summaries = service.listCommandPaletteThreads({ scope: "sidebar" });
-        const searchService = Reflect.get(service as object, "commandPaletteThreadSearchService") as {
-          indexThreadDetail: (summary: CommandPaletteThreadSummary, detail: CodexThreadDetail) => void;
-        };
         for (const summary of summaries) {
           const thread = getCodexThread(summary.threadId);
           if (!thread) continue;
-          searchService.indexThreadDetail(summary, {
+          searchIndexer.indexThreadDetail(summary, {
             ...thread,
             turns: [],
             transcript: [{
@@ -1435,6 +1445,7 @@ describe("codex-service readThread fallback", () => {
         expect(ids.includes("thr_content_projectless")).toBeTrue();
         expect(ids.includes("thr_content_archived")).toBeFalse();
       } finally {
+        searchIndexer.shutdown();
         await service.shutdown();
       }
     });
@@ -1466,6 +1477,43 @@ describe("codex-service readThread fallback", () => {
         const results = await service.searchCommandPaletteThreadContent({
           scope: "sidebar",
           query: "transcript",
+          limit: 60,
+        });
+
+        expect(results.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("fails closed when command-palette content search worker is unavailable", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_content_worker_unavailable",
+        threadName: "Worker unavailable",
+        threadPreview: "Visible preview",
+        modelProvider: "openai",
+      });
+
+      const failingClient: CommandPaletteThreadSearchClient = {
+        enqueueBackfill: () => undefined,
+        search: async () => {
+          throw new Error("worker unavailable");
+        },
+        indexConversation: () => undefined,
+        removeThread: () => undefined,
+        shutdown: () => undefined,
+      };
+      const service = createService({ commandPaletteThreadSearchClient: failingClient });
+
+      try {
+        const results = await service.searchCommandPaletteThreadContent({
+          scope: "sidebar",
+          query: "visible",
           limit: 60,
         });
 

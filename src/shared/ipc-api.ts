@@ -76,6 +76,7 @@ import type {
   CardSearchResult,
   CommandPaletteThreadContentSearchInput,
   CommandPaletteThreadContentSearchResult,
+  CommandPaletteThreadIndexUpdatedEvent,
   CommandPaletteThreadListInput,
   CommandPaletteThreadSummary,
   CreateBackupInput,
@@ -971,6 +972,7 @@ export interface IpcEvents {
   "terminal-exit": TerminalExitEvent;
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
+  "codex:threads:palette:index-updated": CommandPaletteThreadIndexUpdatedEvent;
   "browser-sidebar-state": BrowserSidebarStateSnapshot;
   "browser-sidebar-local-servers": BrowserSidebarLocalServersSnapshot;
   "browser-sidebar-browser-use-state": BrowserSidebarBrowserUseStateSnapshot;

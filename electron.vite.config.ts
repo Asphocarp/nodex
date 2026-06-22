@@ -40,6 +40,10 @@ export default defineConfig({
       rollupOptions: {
         input: {
           bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
+          "command-palette-thread-search-worker": resolve(
+            __dirname,
+            "src/main/codex/command-palette-thread-search-worker.ts",
+          ),
         },
         output: {
           entryFileNames: "[name].js",

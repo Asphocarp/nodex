@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import type {
   CommandPaletteCard,
   CommandPaletteCommand,
@@ -36,9 +36,16 @@ mock.module("./toggle-list-icon", () => ({
 
 let mockInvokeImplementation: (...args: unknown[]) => Promise<unknown> = async () => [];
 const mockInvoke = (...args: unknown[]) => mockInvokeImplementation(...args);
+let threadIndexUpdateCallbacks: Array<() => void> = [];
 
 mock.module("../../lib/api", () => ({
   invoke: mockInvoke,
+  subscribeCommandPaletteThreadIndexUpdates: (callback: () => void) => {
+    threadIndexUpdateCallbacks.push(callback);
+    return () => {
+      threadIndexUpdateCallbacks = threadIndexUpdateCallbacks.filter((entry) => entry !== callback);
+    };
+  },
 }));
 
 function makeCommandContext(
@@ -478,6 +485,66 @@ describe("CommandPaletteSurface", () => {
 
     expect(textContent(container).includes("backend snippet")).toBeTrue();
     mockInvokeImplementation = async () => [];
+  });
+
+  test("reruns chat content search when the thread index updates", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const threads = [
+      makePaletteThread({
+        threadId: "thr-refresh-hit",
+        id: "thread:thr-refresh-hit",
+        title: "Refresh hit",
+        preview: "",
+      }),
+    ];
+    const searchedQueries: string[] = [];
+    threadIndexUpdateCallbacks = [];
+    mockInvokeImplementation = async (channel: unknown, input: unknown) => {
+      if (channel === "codex:threads:palette:search-content") {
+        const query = typeof input === "object" && input !== null && "query" in input
+          ? String((input as { query?: unknown }).query ?? "")
+          : "";
+        searchedQueries.push(query);
+        return [{
+          threadId: "thr-refresh-hit",
+          snippet: `snippet ${searchedQueries.length}`,
+          score: 10,
+          matchKind: "fts",
+        }];
+      }
+      return [];
+    };
+
+    render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={8}
+        mode="chats"
+        initialQuery="refresh"
+        commands={[]}
+        cards={[]}
+        threads={threads}
+        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+    await act(async () => {
+      for (const callback of threadIndexUpdateCallbacks) callback();
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(searchedQueries.join(",")).toBe("refresh,refresh");
+    mockInvokeImplementation = async () => [];
+    threadIndexUpdateCallbacks = [];
   });
 
   test("skips disabled commands and updates aria-activedescendant during keyboard navigation", async () => {

@@ -20,7 +20,7 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 45;
+export const CURRENT_SCHEMA_VERSION = 46;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -64,22 +64,23 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45];
-  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45];
-  if (currentVersion === 40) return [41, 42, 43, 44, 45];
-  if (currentVersion === 41) return [42, 43, 44, 45];
-  if (currentVersion === 42) return [43, 44, 45];
-  if (currentVersion === 43) return [44, 45];
-  if (currentVersion === 44) return [45];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45, 46];
+  if (currentVersion === 40) return [41, 42, 43, 44, 45, 46];
+  if (currentVersion === 41) return [42, 43, 44, 45, 46];
+  if (currentVersion === 42) return [43, 44, 45, 46];
+  if (currentVersion === 43) return [44, 45, 46];
+  if (currentVersion === 44) return [45, 46];
+  if (currentVersion === 45) return [46];
   return null;
 }
 
@@ -300,8 +301,12 @@ function createLatestSchema(db: Database.Database): void {
       thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
       source_updated_at INTEGER NOT NULL,
       indexed_at INTEGER NOT NULL,
+      index_version INTEGER NOT NULL DEFAULT 1,
       unit_count INTEGER NOT NULL,
       status TEXT NOT NULL,
+      last_error TEXT,
+      failed_at INTEGER,
+      retry_after INTEGER,
       CHECK (status IN ('ready', 'stale', 'failed'))
     ) WITHOUT ROWID;
 
@@ -1765,8 +1770,12 @@ function migrateSchema44To45(db: Database.Database): void {
       thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
       source_updated_at INTEGER NOT NULL,
       indexed_at INTEGER NOT NULL,
+      index_version INTEGER NOT NULL DEFAULT 1,
       unit_count INTEGER NOT NULL,
       status TEXT NOT NULL,
+      last_error TEXT,
+      failed_at INTEGER,
+      retry_after INTEGER,
       CHECK (status IN ('ready', 'stale', 'failed'))
     ) WITHOUT ROWID;
 
@@ -1803,6 +1812,23 @@ function migrateSchema44To45(db: Database.Database): void {
   `);
 
   setUserVersion(db, 45);
+}
+
+function migrateSchema45To46(db: Database.Database): void {
+  if (!tableHasColumn(db, "thread_search_thread_state", "index_version")) {
+    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN index_version INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!tableHasColumn(db, "thread_search_thread_state", "last_error")) {
+    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN last_error TEXT");
+  }
+  if (!tableHasColumn(db, "thread_search_thread_state", "failed_at")) {
+    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN failed_at INTEGER");
+  }
+  if (!tableHasColumn(db, "thread_search_thread_state", "retry_after")) {
+    db.exec("ALTER TABLE thread_search_thread_state ADD COLUMN retry_after INTEGER");
+  }
+
+  setUserVersion(db, 46);
 }
 
 function runMigrations(
@@ -1929,6 +1955,14 @@ function runMigrations(
       }
       migrateSchema44To45(db);
       fromVersion = 45;
+      continue;
+    }
+    if (target === 46) {
+      if (fromVersion !== 45) {
+        throw new Error(`Unsupported Nodex database migration target 46 from ${fromVersion}`);
+      }
+      migrateSchema45To46(db);
+      fromVersion = 46;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

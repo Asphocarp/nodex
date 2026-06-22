@@ -307,6 +307,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   codexService.on("hostMessage", (message) => {
     safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:host-message", [message]);
   });
+  codexService.on("threadSearchIndexUpdated", (event) => {
+    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:threads:palette:index-updated", [event]);
+  });
 
   // Projects
   registerHandle("projects:list", () => dbService.listProjects());

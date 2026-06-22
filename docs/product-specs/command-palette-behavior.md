@@ -203,7 +203,9 @@ For non-empty queries, metadata relevance sorts first, then pinned/sidebar order
 For queries with at least `2` characters, the renderer also requests bounded chat content search through `codex:threads:palette:search-content`:
 
 - the request limit is capped at `60`
-- the main process searches a local SQLite FTS5 content index plus an in-memory MiniSearch fuzzy overlay
+- the main process delegates content search to the local thread-search indexer worker
+- SQLite FTS5 snippets are the primary hot path and can return before fuzzy content indexing is ready
+- MiniSearch fuzzy content matches are a background enhancement; when the worker finishes rebuilding the fuzzy overlay, it emits `codex:threads:palette:index-updated` so an open chat palette can refresh the current query
 - returned content hits are intersected with the current sidebar chat id whitelist before they can render
 - local search/index errors fail closed and leave metadata search working
 - content-only hits can appear in the `Chats` section after metadata hits

@@ -26,7 +26,7 @@ All notable changes to this project will be documented in this file.
 - Added ephemeral panel previews for Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added chat rename entry points for active project sessions, including title double-click, thread/header actions, command palette, macOS menu, and `Cmd/Ctrl+Alt+R`.
-- Added sidebar-wide chat search to the command palette, including projectless/sessionless sidebar chats, fuzzy metadata matches, local indexed content snippets, and direct navigation through chat session materialization.
+- Added sidebar-wide chat search to the command palette, including projectless/sessionless sidebar chats, fuzzy metadata matches, worker-backed local content snippets, and direct navigation through chat session materialization.
 - Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browsers, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with ordinary pinned `Database View` starter sessions seeded for every project.
 - Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.

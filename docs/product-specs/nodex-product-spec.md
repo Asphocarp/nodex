@@ -55,7 +55,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - URL sync: `/?project=<id>`, persisted to localStorage
 - Selecting a project expands its folder and switches the active DB project context. Selecting a session switches the thread page plus both panel tab groups and clears that session's unread flag.
 - Task search query is persisted per project and restored on space switching; search lives inside the active DB view tab toolbar for searchable DB views, while Calendar hides that search chrome
-- The global command palette has explicit modes. `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` open root mode, which searches command/action rows only and includes supported shell actions; unsupported parity actions appear only in development as disabled rows with a `Mock` badge and are hidden from production catalogs. `Cmd/Ctrl+G` opens chat search across the current non-archived sidebar chat snapshot, including project-backed, projectless, and sessionless sidebar chats, using fuzzy chat metadata plus bounded local content snippets from Nodex's main-process search index. `Cmd/Ctrl+P` opens card search, using fuzzy full-text ranking across title, description, tags, assignee, agent status, column, project name, and card id. Card mode owns the trailing `Filter` popover and compact active-filter row beneath the input, using the same status/priority/tag/project-style pill language as the DB view toolbar while persisting those filter selections across reopen/reload. A leading `>` no longer switches modes. File search remains a development-only disabled mock until Nodex has a real file-search backend.
+- The global command palette has explicit modes. `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` open root mode, which searches command/action rows only and includes supported shell actions; unsupported parity actions appear only in development as disabled rows with a `Mock` badge and are hidden from production catalogs. `Cmd/Ctrl+G` opens chat search across the current non-archived sidebar chat snapshot, including project-backed, projectless, and sessionless sidebar chats, using fuzzy chat metadata plus bounded local content snippets from Nodex's worker-owned search index. `Cmd/Ctrl+P` opens card search, using fuzzy full-text ranking across title, description, tags, assignee, agent status, column, project name, and card id. Card mode owns the trailing `Filter` popover and compact active-filter row beneath the input, using the same status/priority/tag/project-style pill language as the DB view toolbar while persisting those filter selections across reopen/reload. A leading `>` no longer switches modes. File search remains a development-only disabled mock until Nodex has a real file-search backend.
 - App-window Back/Forward navigation is available from the top-left titlebar controls, `Cmd/Ctrl+[` and `Cmd/Ctrl+]`, desktop mouse Back/Forward buttons, the command palette, and the macOS application menu. It navigates backward/forward through shell-owned durable workbench context: active project, active session, DB view, right/bottom active tabs, right/bottom collapsed state, and right-panel full-width state. Transient overlays such as settings, command palette, task search, and browser-sidebar webview history are not part of this stack.
 - The command palette always includes `Back` and `Forward` commands with matching keyboard hints; those commands are shown disabled when there is no history in that direction. Browser-sidebar webview history is separate and does not drive these app-window controls.
 - Desktop supports multi-window in a single app process (`Cmd/Ctrl+N`): each window keeps independent navigation/session state while all windows share the same SQLite data and realtime board/session-change fanout
@@ -948,8 +948,12 @@ CREATE TABLE thread_search_thread_state (
   thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
   source_updated_at INTEGER NOT NULL,
   indexed_at INTEGER NOT NULL,
+  index_version INTEGER NOT NULL DEFAULT 1,
   unit_count INTEGER NOT NULL,
-  status TEXT NOT NULL
+  status TEXT NOT NULL,
+  last_error TEXT,
+  failed_at INTEGER,
+  retry_after INTEGER
 ) WITHOUT ROWID;
 ```
 

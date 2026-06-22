@@ -21,7 +21,7 @@ function isSearchableRole(role: unknown): role is "user" | "assistant" {
   return role === "user" || role === "assistant";
 }
 
-function buildUnitKey(input: {
+export function buildThreadSearchUnitKey(input: {
   threadId: string;
   turnId: string;
   itemId: string;
@@ -41,7 +41,7 @@ export function extractThreadSearchUnitsFromConversation(
       const text = (item.markdownText ?? "").trim();
       if (!isSearchableRole(role) || !text) return [];
       return [{
-        unitKey: buildUnitKey({
+        unitKey: buildThreadSearchUnitKey({
           threadId: conversation.threadId,
           turnId: turn.turnId,
           itemId: item.itemId,
@@ -69,7 +69,7 @@ export function extractThreadSearchUnitsFromDetail(
     if (entry.kind !== "userMessage" && entry.kind !== "assistantMessage") return [];
 
     return [{
-      unitKey: buildUnitKey({
+      unitKey: buildThreadSearchUnitKey({
         threadId: detail.threadId,
         turnId: entry.turnId,
         itemId: entry.itemId,

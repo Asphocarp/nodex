@@ -237,6 +237,11 @@ export interface CommandPaletteThreadContentSearchInput {
   limit?: number;
 }
 
+export interface CommandPaletteThreadIndexUpdatedEvent {
+  generation: number;
+  reason: "backfill" | "fuzzy-ready";
+}
+
 export interface CommandPaletteSearchSnippetSegment {
   text: string;
   highlight: boolean;

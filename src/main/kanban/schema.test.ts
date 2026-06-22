@@ -31,22 +31,23 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44,45]");
-    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe("[45]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44,45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe("[45,46]");
+    expect(JSON.stringify(getSchemaMigrationTargets(45))).toBe("[46]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -150,6 +151,11 @@ describe("schema initialization", () => {
       const threadSearchColumns = tableColumnNames(db, "thread_search_units");
       expect(threadSearchColumns.includes("project_id")).toBeTrue();
       expect(threadSearchColumns.includes("session_id")).toBeTrue();
+      const threadSearchStateColumns = tableColumnNames(db, "thread_search_thread_state");
+      expect(threadSearchStateColumns.includes("index_version")).toBeTrue();
+      expect(threadSearchStateColumns.includes("last_error")).toBeTrue();
+      expect(threadSearchStateColumns.includes("failed_at")).toBeTrue();
+      expect(threadSearchStateColumns.includes("retry_after")).toBeTrue();
       const threadSearchTrigger = db.prepare(`
         SELECT 1
         FROM sqlite_master

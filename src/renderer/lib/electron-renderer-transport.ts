@@ -1,6 +1,7 @@
 import type {
   AppUpdateStatus,
   CodexHostMessage,
+  CommandPaletteThreadIndexUpdatedEvent,
   DesktopNotificationActionPayload,
 } from "./types";
 import {
@@ -87,6 +88,13 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
       return bridge.on(COMMAND_KEYBINDINGS_CHANGED_CHANNEL, (...args: unknown[]) => {
         const payload = args[0] as CommandKeymapState | undefined;
         if (!payload || payload.version !== 1 || !Array.isArray(payload.entries)) return;
+        callback(payload);
+      });
+    },
+    subscribeCommandPaletteThreadIndexUpdates(callback: (event: CommandPaletteThreadIndexUpdatedEvent) => void) {
+      return bridge.on("codex:threads:palette:index-updated", (...args: unknown[]) => {
+        const payload = args[0] as CommandPaletteThreadIndexUpdatedEvent | undefined;
+        if (!payload || typeof payload.generation !== "number") return;
         callback(payload);
       });
     },

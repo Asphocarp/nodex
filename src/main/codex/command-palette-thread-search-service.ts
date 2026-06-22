@@ -5,6 +5,7 @@ import type {
   CodexConversationSnapshot,
   CodexThreadDetail,
   CommandPaletteThreadContentSearchResult,
+  CommandPaletteThreadIndexUpdatedEvent,
   CommandPaletteThreadSummary,
   CommandPaletteSearchSnippetSegment,
 } from "../../shared/types";
@@ -20,7 +21,9 @@ import {
   parseMarkedSnippetSegments,
   type ThreadSearchUnit,
 } from "./command-palette-thread-search-helpers";
+import { readThreadSearchUnitsFromSession } from "./command-palette-thread-search-session-reader";
 
+export const THREAD_SEARCH_INDEX_VERSION = 2;
 const DEFAULT_CONTENT_SEARCH_LIMIT = 60;
 const MAX_CONTENT_SEARCH_LIMIT = 60;
 const FTS_SEARCH_CHUNK_SIZE = 450;
@@ -32,11 +35,15 @@ const FUZZY_EXCERPT_BEFORE = 80;
 const FUZZY_EXCERPT_AFTER = 180;
 const BACKFILL_CHUNK_SIZE = 4;
 const BACKFILL_DELAY_MS = 25;
+const FUZZY_BUILD_DEBOUNCE_MS = 200;
 const LIVE_INDEX_DEBOUNCE_MS = 500;
+const FAILED_BACKFILL_RETRY_MS = 5 * 60 * 1000;
 
 interface ThreadSearchStateRow {
   source_updated_at: number;
   status: string;
+  index_version: number | null;
+  retry_after: number | null;
 }
 
 interface ThreadSearchFtsRow {
@@ -63,6 +70,15 @@ export interface ThreadSearchBackfillSource {
 export interface ThreadSearchLiveSource {
   readConversation: (threadId: string) => CodexConversationSnapshot | null;
   readSummary: (threadId: string) => CommandPaletteThreadSummary | null;
+}
+
+export interface CommandPaletteThreadSearchServiceOptions {
+  onIndexUpdated?: (event: CommandPaletteThreadIndexUpdatedEvent) => void;
+  log?: (level: "debug" | "info" | "warn" | "error", message: string, data?: Record<string, unknown>) => void;
+}
+
+export interface CommandPaletteThreadSearchBackfillOptions {
+  force?: boolean;
 }
 
 function clampContentSearchLimit(limit: number | undefined): number {
@@ -183,15 +199,25 @@ export class CommandPaletteThreadSearchService {
   private miniSearch: MiniSearch<MiniSearchDocument> | null = null;
   private miniSearchRowsById = new Map<string, MiniSearchSourceRow>();
   private miniSearchDirty = true;
+  private miniSearchReady = false;
+  private miniSearchBuildInFlight = false;
+  private miniSearchBuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private generation = 0;
   private backfillQueue: CommandPaletteThreadSummary[] = [];
   private queuedBackfillThreadIds = new Set<string>();
   private backfillTimer: ReturnType<typeof setTimeout> | null = null;
   private liveIndexTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  constructor(private readonly options: CommandPaletteThreadSearchServiceOptions = {}) {}
+
   shutdown(): void {
     if (this.backfillTimer !== null) {
       clearTimeout(this.backfillTimer);
       this.backfillTimer = null;
+    }
+    if (this.miniSearchBuildTimer !== null) {
+      clearTimeout(this.miniSearchBuildTimer);
+      this.miniSearchBuildTimer = null;
     }
     this.backfillQueue = [];
     this.queuedBackfillThreadIds.clear();
@@ -203,9 +229,10 @@ export class CommandPaletteThreadSearchService {
 
   scheduleBackfill(
     summaries: CommandPaletteThreadSummary[],
-    source: ThreadSearchBackfillSource,
+    source?: ThreadSearchBackfillSource,
+    options: CommandPaletteThreadSearchBackfillOptions = {},
   ): void {
-    const staleSummaries = summaries.filter((summary) => this.isThreadIndexStale(summary));
+    const staleSummaries = summaries.filter((summary) => this.isThreadIndexStale(summary, options));
     for (const summary of staleSummaries) {
       if (this.queuedBackfillThreadIds.has(summary.threadId)) continue;
       this.queuedBackfillThreadIds.add(summary.threadId);
@@ -298,35 +325,59 @@ export class CommandPaletteThreadSearchService {
       .slice(0, limit);
   }
 
-  private scheduleBackfillTick(source: ThreadSearchBackfillSource): void {
+  private scheduleBackfillTick(source?: ThreadSearchBackfillSource): void {
     if (this.backfillTimer !== null || this.backfillQueue.length === 0) return;
 
     this.backfillTimer = setTimeout(() => {
       this.backfillTimer = null;
-      const batch = this.backfillQueue.splice(0, BACKFILL_CHUNK_SIZE);
-      for (const summary of batch) {
-        this.queuedBackfillThreadIds.delete(summary.threadId);
-        if (!this.isThreadIndexStale(summary)) continue;
-        try {
-          const detail = source.readThreadDetail(summary.threadId);
-          if (!detail) continue;
-          this.indexThreadDetail(summary, detail);
-        } catch {
-          continue;
-        }
-      }
-      this.scheduleBackfillTick(source);
+      void this.runBackfillBatch(source);
     }, BACKFILL_DELAY_MS);
   }
 
-  private isThreadIndexStale(summary: CommandPaletteThreadSummary): boolean {
+  private async runBackfillBatch(source?: ThreadSearchBackfillSource): Promise<void> {
+    const batch = this.backfillQueue.splice(0, BACKFILL_CHUNK_SIZE);
+    for (const summary of batch) {
+      this.queuedBackfillThreadIds.delete(summary.threadId);
+      if (!this.isThreadIndexStale(summary)) continue;
+      const startedAt = Date.now();
+      try {
+        const units = source
+          ? extractThreadSearchUnitsFromDetail(source.readThreadDetail(summary.threadId))
+          : await readThreadSearchUnitsFromSession(summary.threadId, summary.updatedAt);
+        if (!units) {
+          this.markThreadIndexFailed(summary, "Session transcript is not materialized");
+          continue;
+        }
+        this.replaceThreadUnits(summary, units);
+        this.log("debug", "Indexed command palette thread search units", {
+          threadId: summary.threadId,
+          unitCount: units.length,
+          durationMs: Date.now() - startedAt,
+        });
+      } catch (error) {
+        this.markThreadIndexFailed(summary, error instanceof Error ? error.message : String(error));
+      }
+    }
+    this.emitIndexUpdated("backfill");
+    this.scheduleBackfillTick(source);
+  }
+
+  private isThreadIndexStale(
+    summary: CommandPaletteThreadSummary,
+    options: CommandPaletteThreadSearchBackfillOptions = {},
+  ): boolean {
+    if (options.force) return true;
     const row = getDb().prepare(`
-      SELECT source_updated_at, status
+      SELECT source_updated_at, status, index_version, retry_after
       FROM thread_search_thread_state
       WHERE thread_id = ?
     `).get(summary.threadId) as ThreadSearchStateRow | undefined;
 
-    return !row || row.status !== "ready" || row.source_updated_at < summary.updatedAt;
+    if (!row) return true;
+    if (row.status === "failed" && row.retry_after !== null && row.retry_after > Date.now()) return false;
+    return row.status !== "ready"
+      || row.source_updated_at < summary.updatedAt
+      || row.index_version !== THREAD_SEARCH_INDEX_VERSION;
   }
 
   private replaceThreadUnits(
@@ -396,19 +447,65 @@ export class CommandPaletteThreadSearchService {
           thread_id,
           source_updated_at,
           indexed_at,
+          index_version,
           unit_count,
-          status
-        ) VALUES (?, ?, ?, ?, 'ready')
+          status,
+          last_error,
+          failed_at,
+          retry_after
+        ) VALUES (?, ?, ?, ?, ?, 'ready', NULL, NULL, NULL)
         ON CONFLICT(thread_id) DO UPDATE SET
           source_updated_at = excluded.source_updated_at,
           indexed_at = excluded.indexed_at,
+          index_version = excluded.index_version,
           unit_count = excluded.unit_count,
-          status = excluded.status
-      `).run(summary.threadId, summary.updatedAt, now, units.length);
+          status = excluded.status,
+          last_error = excluded.last_error,
+          failed_at = excluded.failed_at,
+          retry_after = excluded.retry_after
+      `).run(summary.threadId, summary.updatedAt, now, THREAD_SEARCH_INDEX_VERSION, units.length);
     });
 
     replace();
     this.markMiniSearchDirty();
+  }
+
+  private markThreadIndexFailed(summary: CommandPaletteThreadSummary, errorMessage: string): void {
+    const now = Date.now();
+    getDb().prepare(`
+      INSERT INTO thread_search_thread_state (
+        thread_id,
+        source_updated_at,
+        indexed_at,
+        index_version,
+        unit_count,
+        status,
+        last_error,
+        failed_at,
+        retry_after
+      ) VALUES (?, ?, ?, ?, 0, 'failed', ?, ?, ?)
+      ON CONFLICT(thread_id) DO UPDATE SET
+        source_updated_at = excluded.source_updated_at,
+        indexed_at = excluded.indexed_at,
+        index_version = excluded.index_version,
+        unit_count = excluded.unit_count,
+        status = excluded.status,
+        last_error = excluded.last_error,
+        failed_at = excluded.failed_at,
+        retry_after = excluded.retry_after
+    `).run(
+      summary.threadId,
+      summary.updatedAt,
+      now,
+      THREAD_SEARCH_INDEX_VERSION,
+      errorMessage.slice(0, 500),
+      now,
+      now + FAILED_BACKFILL_RETRY_MS,
+    );
+    this.log("debug", "Command palette thread search backfill failed", {
+      threadId: summary.threadId,
+      error: errorMessage,
+    });
   }
 
   private searchFts(
@@ -468,7 +565,12 @@ export class CommandPaletteThreadSearchService {
     eligibleThreadIds: string[],
     limit: number,
   ): CommandPaletteThreadContentSearchResult[] {
-    const miniSearch = this.getMiniSearch();
+    if (!this.miniSearchReady || this.miniSearchDirty || !this.miniSearch) {
+      this.scheduleFuzzyBuild();
+      return [];
+    }
+
+    const miniSearch = this.miniSearch;
     const normalizedQuery = normalizeSearchText(query);
     if (!normalizedQuery) return [];
 
@@ -498,45 +600,96 @@ export class CommandPaletteThreadSearchService {
     return Array.from(byThread.values());
   }
 
-  private getMiniSearch(): MiniSearch<MiniSearchDocument> {
-    if (!this.miniSearchDirty && this.miniSearch) {
-      return this.miniSearch;
-    }
+  private scheduleFuzzyBuild(): void {
+    if (this.miniSearchBuildInFlight || this.miniSearchBuildTimer !== null || !this.miniSearchDirty) return;
 
-    const miniSearch = createMiniSearch();
-    const rows = getDb().prepare(`
-      SELECT rowid, thread_id, text
-      FROM thread_search_units
-      ORDER BY source_updated_at DESC, rowid DESC
-    `).all() as Array<{ rowid: number; thread_id: string; text: string }>;
+    this.miniSearchBuildTimer = setTimeout(() => {
+      this.miniSearchBuildTimer = null;
+      void this.rebuildMiniSearch();
+    }, FUZZY_BUILD_DEBOUNCE_MS);
+  }
 
-    this.miniSearchRowsById = new Map();
-    const documents: MiniSearchDocument[] = [];
-    let indexedBytes = 0;
-    for (const row of rows) {
-      const text = row.text.slice(0, FUZZY_UNIT_TEXT_LIMIT);
-      indexedBytes += Buffer.byteLength(text, "utf8");
-      if (indexedBytes > FUZZY_TOTAL_TEXT_LIMIT) break;
-      const id = String(row.rowid);
-      this.miniSearchRowsById.set(id, {
-        rowid: row.rowid,
-        threadId: row.thread_id,
-        text: row.text,
+  private async rebuildMiniSearch(): Promise<void> {
+    if (this.miniSearchBuildInFlight || !this.miniSearchDirty) return;
+
+    this.miniSearchBuildInFlight = true;
+    const startedAt = Date.now();
+    const generation = this.generation;
+    try {
+      const miniSearch = createMiniSearch();
+      const rows = getDb().prepare(`
+        SELECT rowid, thread_id, text
+        FROM thread_search_units
+        ORDER BY source_updated_at DESC, rowid DESC
+      `).all() as Array<{ rowid: number; thread_id: string; text: string }>;
+
+      this.miniSearchRowsById = new Map();
+      const documents: MiniSearchDocument[] = [];
+      let indexedBytes = 0;
+      for (const row of rows) {
+        const text = row.text.slice(0, FUZZY_UNIT_TEXT_LIMIT);
+        indexedBytes += Buffer.byteLength(text, "utf8");
+        if (indexedBytes > FUZZY_TOTAL_TEXT_LIMIT) break;
+        const id = String(row.rowid);
+        this.miniSearchRowsById.set(id, {
+          rowid: row.rowid,
+          threadId: row.thread_id,
+          text: row.text,
+        });
+        documents.push({ id, text });
+      }
+
+      if (documents.length > 0) {
+        await miniSearch.addAllAsync(documents, { chunkSize: 1_000 });
+      }
+
+      if (generation !== this.generation) {
+        this.log("debug", "Discarded stale command palette thread fuzzy index build", {
+          buildGeneration: generation,
+          currentGeneration: this.generation,
+          durationMs: Date.now() - startedAt,
+        });
+        return;
+      }
+
+      this.miniSearch = miniSearch;
+      this.miniSearchDirty = false;
+      this.miniSearchReady = true;
+      this.log("info", "Built command palette thread fuzzy index", {
+        generation,
+        documentCount: documents.length,
+        indexedBytes,
+        durationMs: Date.now() - startedAt,
       });
-      documents.push({ id, text });
+      this.emitIndexUpdated("fuzzy-ready");
+    } catch (error) {
+      this.log("warn", "Could not build command palette thread fuzzy index", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.miniSearchBuildInFlight = false;
+      if (this.miniSearchDirty) {
+        this.scheduleFuzzyBuild();
+      }
     }
-
-    if (documents.length > 0) {
-      miniSearch.addAll(documents);
-    }
-
-    this.miniSearch = miniSearch;
-    this.miniSearchDirty = false;
-    return miniSearch;
   }
 
   private markMiniSearchDirty(): void {
+    this.generation += 1;
     this.miniSearchDirty = true;
+    this.miniSearchReady = false;
+    this.scheduleFuzzyBuild();
+  }
+
+  private emitIndexUpdated(reason: CommandPaletteThreadIndexUpdatedEvent["reason"]): void {
+    this.options.onIndexUpdated?.({
+      generation: this.generation,
+      reason,
+    });
+  }
+
+  private log(level: "debug" | "info" | "warn" | "error", message: string, data?: Record<string, unknown>): void {
+    this.options.log?.(level, message, data);
   }
 }
 

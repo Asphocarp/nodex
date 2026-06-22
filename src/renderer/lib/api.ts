@@ -86,6 +86,12 @@ export function subscribeCommandKeymapChanges(
   return resolveRendererTransport().subscribeCommandKeymapChanges(callback);
 }
 
+export function subscribeCommandPaletteThreadIndexUpdates(
+  callback: (event: import("./types").CommandPaletteThreadIndexUpdatedEvent) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCommandPaletteThreadIndexUpdates(callback);
+}
+
 export function getWindowFocusState(): Promise<boolean> {
   return resolveRendererTransport().getWindowFocusState();
 }

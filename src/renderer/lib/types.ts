@@ -17,6 +17,7 @@ export type {
   CardSearchResult,
   CommandPaletteThreadContentSearchInput,
   CommandPaletteThreadContentSearchResult,
+  CommandPaletteThreadIndexUpdatedEvent,
   CommandPaletteThreadListInput,
   CommandPaletteThreadSummary,
   CardCreatePlacement,

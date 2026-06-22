@@ -1579,6 +1579,13 @@ function subscribeCommandKeymapChanges(callback: (state: CommandKeymapState) => 
   return () => {};
 }
 
+function subscribeCommandPaletteThreadIndexUpdates(
+  callback: (event: import("./types").CommandPaletteThreadIndexUpdatedEvent) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 async function getWindowFocusState(): Promise<boolean> {
   return typeof document !== "undefined" ? document.visibilityState !== "hidden" : true;
 }
@@ -1614,6 +1621,7 @@ export const browserRendererTransport = {
   subscribeGitBranchChanges,
   subscribeAppUpdateStatus,
   subscribeCommandKeymapChanges,
+  subscribeCommandPaletteThreadIndexUpdates,
   getWindowFocusState,
   subscribeWindowFocusChanges,
 };

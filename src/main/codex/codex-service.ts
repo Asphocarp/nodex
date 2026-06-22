@@ -241,7 +241,10 @@ import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { CodexDictationService } from "./dictation-service";
 import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { terminalManager } from "../terminal-manager";
-import { CommandPaletteThreadSearchService } from "./command-palette-thread-search-service";
+import {
+  CommandPaletteThreadSearchCoordinator,
+  type CommandPaletteThreadSearchClient,
+} from "./command-palette-thread-search-coordinator";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const SIDEBAR_THREAD_SYNC_STALE_MS = 5_000;
@@ -488,6 +491,7 @@ interface GenerateThreadTitleAdapterInput {
 type CodexServiceOptions = {
   runtime?: ResolvedCodexRuntime;
   rateLimitsPollIntervalMs?: number;
+  commandPaletteThreadSearchClient?: CommandPaletteThreadSearchClient;
 };
 
 type CodexConversationStreamRole = "owner" | "follower" | null;
@@ -1712,7 +1716,7 @@ export class CodexService extends EventEmitter {
   private readonly outputDeltaQueue = new OutputDeltaQueue((updates) => {
     this.applyOutputDeltas(updates);
   });
-  private readonly commandPaletteThreadSearchService = new CommandPaletteThreadSearchService();
+  private readonly commandPaletteThreadSearchService: CommandPaletteThreadSearchCoordinator;
   private readonly dictationService = new CodexDictationService({
     readConfig: async () => await this.readConfigForDictation(),
     readAuthStatus: async (input) => await this.readAuthStatusForDictation(input),
@@ -1743,6 +1747,10 @@ export class CodexService extends EventEmitter {
 
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
     this.rateLimitsPollIntervalMs = options?.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
+    this.commandPaletteThreadSearchService = new CommandPaletteThreadSearchCoordinator({
+      client: options?.commandPaletteThreadSearchClient,
+      onIndexUpdated: (event) => this.emit("threadSearchIndexUpdated", event),
+    });
 
     this.client = new CodexAppServerClient({
       binaryPath: runtime.binaryPath,
@@ -3316,13 +3324,7 @@ export class CodexService extends EventEmitter {
     const reconciled = this.reconcileSidebarThreadSession(summary, { reason: "manual" });
     const paletteSummary = this.getCommandPaletteSidebarChat(normalizedThreadId);
     if (paletteSummary) {
-      this.commandPaletteThreadSearchService.scheduleBackfill([paletteSummary], {
-        readThreadDetail: (targetThreadId) => {
-          const thread = getCodexThread(targetThreadId);
-          if (!thread) return null;
-          return readCodexSessionThreadDetail({ threadId: targetThreadId, link: thread });
-        },
-      });
+      this.commandPaletteThreadSearchService.enqueueBackfill([paletteSummary], { force: true });
     }
     return reconciled.session;
   }
@@ -3685,13 +3687,7 @@ export class CodexService extends EventEmitter {
   listCommandPaletteThreads(input: CommandPaletteThreadListInput): CommandPaletteThreadSummary[] {
     if (input.scope !== "sidebar") return [];
     const summaries = this.listCommandPaletteSidebarChats();
-    this.commandPaletteThreadSearchService.scheduleBackfill(summaries, {
-      readThreadDetail: (threadId) => {
-        const thread = getCodexThread(threadId);
-        if (!thread) return null;
-        return readCodexSessionThreadDetail({ threadId, link: thread });
-      },
-    });
+    this.commandPaletteThreadSearchService.enqueueBackfill(summaries);
     return summaries;
   }
 
@@ -3702,15 +3698,10 @@ export class CodexService extends EventEmitter {
     if (input.scope !== "sidebar" || query.length === 0) return [];
 
     const summaries = this.listCommandPaletteSidebarChats();
-    this.commandPaletteThreadSearchService.scheduleBackfill(summaries, {
-      readThreadDetail: (threadId) => {
-        const thread = getCodexThread(threadId);
-        if (!thread) return null;
-        return readCodexSessionThreadDetail({ threadId, link: thread });
-      },
-    });
+    this.commandPaletteThreadSearchService.enqueueBackfill(summaries);
 
     return this.commandPaletteThreadSearchService.search({
+      scope: input.scope,
       query,
       limit: input.limit,
     }, summaries);

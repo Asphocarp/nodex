@@ -25,7 +25,7 @@ import {
   type CommandPaletteHighlightSegment,
 } from "../../lib/command-palette-highlight";
 import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
-import { invoke } from "../../lib/api";
+import { invoke, subscribeCommandPaletteThreadIndexUpdates } from "../../lib/api";
 import type { CardSearchResult, CommandPaletteThreadContentSearchResult } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
@@ -489,6 +489,7 @@ export function CommandPaletteSurface({
   const [filterOpen, setFilterOpen] = useState(false);
   const [descriptionSearchResults, setDescriptionSearchResults] = useState<CardSearchResult[]>([]);
   const [threadContentSearchResults, setThreadContentSearchResults] = useState<CommandPaletteThreadContentSearchResult[]>([]);
+  const [threadContentRefreshTick, setThreadContentRefreshTick] = useState(0);
   const deferredQuery = useDeferredValue(query);
   const availableTags = useMemo(
     () => Array.from(new Set(cards.flatMap((item) => item.card.tags))).sort((left, right) => left.localeCompare(right)),
@@ -743,6 +744,13 @@ export function CommandPaletteSurface({
   }, [deferredQuery, mode, open, projectIdsForSearch]);
 
   useEffect(() => {
+    if (mode !== "chats" || !open) return;
+    return subscribeCommandPaletteThreadIndexUpdates(() => {
+      setThreadContentRefreshTick((current) => current + 1);
+    });
+  }, [mode, open]);
+
+  useEffect(() => {
     const rawQuery = deferredQuery.trimStart();
     const queryText = rawQuery.trim();
     if (mode !== "chats" || !open || queryText.length < 2) {
@@ -771,7 +779,7 @@ export function CommandPaletteSurface({
     return () => {
       cancelled = true;
     };
-  }, [deferredQuery, mode, open]);
+  }, [deferredQuery, mode, open, threadContentRefreshTick]);
 
   useEffect(() => {
     if (!open) return;

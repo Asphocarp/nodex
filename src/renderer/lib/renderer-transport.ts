@@ -21,6 +21,9 @@ export interface RendererTransport {
   subscribeGitBranchChanges: (callback: (event: { cwd: string }) => void) => () => void;
   subscribeAppUpdateStatus: (callback: (status: import("./types").AppUpdateStatus) => void) => () => void;
   subscribeCommandKeymapChanges: (callback: (state: CommandKeymapState) => void) => () => void;
+  subscribeCommandPaletteThreadIndexUpdates: (
+    callback: (event: import("../../shared/types").CommandPaletteThreadIndexUpdatedEvent) => void,
+  ) => () => void;
   getWindowFocusState: () => Promise<boolean>;
   subscribeWindowFocusChanges: (callback: (isFocused: boolean) => void) => () => void;
 }
