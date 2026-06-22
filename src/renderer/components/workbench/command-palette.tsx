@@ -125,30 +125,30 @@ function buildThreadItem(
     title: summary.title,
     preview: summary.preview,
     cwd: summary.cwd,
+    projectless: summary.projectless,
+    pinned: summary.pinned,
+    pinnedOrder: summary.pinnedOrder,
     statusType: summary.statusType,
     statusActiveFlags: summary.statusActiveFlags,
     createdAt: summary.createdAt,
     updatedAt: summary.updatedAt,
     linkedAt: summary.linkedAt,
-    inActiveProject: summary.projectId === activeProjectId,
+    inActiveProject: summary.projectId !== null && summary.projectId === activeProjectId,
   };
 }
 
 function useCommandPaletteThreads(
   open: boolean,
   openTriggerTick: number,
-  projects: Project[],
   activeProjectId: string,
 ): { threads: CommandPaletteThread[]; loading: boolean } {
-  const projectIds = useMemo(() => projects.map((project) => project.id), [projects]);
-  const projectIdsKey = useMemo(() => projectIds.join("\u0001"), [projectIds]);
   const [state, setState] = useState<{ threads: CommandPaletteThread[]; loading: boolean }>({
     threads: [],
     loading: false,
   });
 
   useEffect(() => {
-    if (!open || projectIds.length === 0) {
+    if (!open) {
       setState((current) => current.threads.length === 0 && !current.loading
         ? current
         : { threads: [], loading: false });
@@ -158,7 +158,7 @@ function useCommandPaletteThreads(
     let cancelled = false;
     setState((current) => ({ threads: current.threads, loading: true }));
 
-    void invoke("codex:threads:palette:list", { projectIds })
+    void invoke("codex:threads:palette:list", { scope: "sidebar" })
       .then((summaries) => {
         if (cancelled) return;
         setState({
@@ -174,7 +174,7 @@ function useCommandPaletteThreads(
     return () => {
       cancelled = true;
     };
-  }, [activeProjectId, open, openTriggerTick, projectIds, projectIdsKey]);
+  }, [activeProjectId, open, openTriggerTick]);
 
   return state;
 }
@@ -195,7 +195,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const isMac = isMacPlatform();
   const { cards, loading } = useCommandPaletteCards(open, projects, activeProjectId, recentCardSessions);
-  const { threads, loading: threadsLoading } = useCommandPaletteThreads(open, openTriggerTick, projects, activeProjectId);
+  const { threads, loading: threadsLoading } = useCommandPaletteThreads(open, openTriggerTick, activeProjectId);
   const [mode, setMode] = useState<CommandMenuMode>(initialMode);
   const cardSearchIndex = useCommandPaletteCardSearchIndex(cards);
   const threadSearchIndex = useCommandPaletteThreadSearchIndex(threads);

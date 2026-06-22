@@ -34,6 +34,13 @@ mock.module("./toggle-list-icon", () => ({
   ToggleListIcon: ({ className }: { className?: string }) => createElement("span", { className }, "L"),
 }));
 
+let mockInvokeImplementation: (...args: unknown[]) => Promise<unknown> = async () => [];
+const mockInvoke = (...args: unknown[]) => mockInvokeImplementation(...args);
+
+mock.module("../../lib/api", () => ({
+  invoke: mockInvoke,
+}));
+
 function makeCommandContext(
   overrides: Partial<CommandPaletteShellCommandContext> = {},
 ): CommandPaletteShellCommandContext {
@@ -189,12 +196,15 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     kind: "thread",
     id: overrides.id ?? "thread:thr-palette",
     threadId: overrides.threadId ?? "thr-palette",
-    sessionId: overrides.sessionId ?? "session-palette",
-    projectId: overrides.projectId ?? "default",
-    projectName: overrides.projectName ?? "Default",
+    sessionId: overrides.sessionId === undefined ? "session-palette" : overrides.sessionId,
+    projectId: overrides.projectId === undefined ? "default" : overrides.projectId,
+    projectName: overrides.projectName === undefined ? "Default" : overrides.projectName,
     title: overrides.title ?? "Thread transcript search",
     preview: overrides.preview ?? "Search previous assistant messages from the command palette.",
     cwd: overrides.cwd ?? "/tmp/default",
+    projectless: overrides.projectless ?? false,
+    pinned: overrides.pinned ?? false,
+    pinnedOrder: overrides.pinnedOrder ?? null,
     statusType: overrides.statusType ?? "notLoaded",
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1_781_990_400,
@@ -326,6 +336,10 @@ describe("CommandPaletteSurface", () => {
       makePaletteThread({
         threadId: "thr-thread-search",
         id: "thread:thr-thread-search",
+        sessionId: null,
+        projectId: null,
+        projectName: null,
+        projectless: true,
         title: "Thread transcript search",
         preview: "Search previous assistant messages from the command palette.",
       }),
@@ -412,6 +426,58 @@ describe("CommandPaletteSurface", () => {
     expect(resultButtons.length).toBe(1);
     expect(textContent(container).includes("Thread transcript session")).toBeFalse();
     expect(textContent(container).includes("Thread transcript card")).toBeTrue();
+  });
+
+  test("renders backend-provided chat content snippet segments", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const threads = [
+      makePaletteThread({
+        threadId: "thr-content-hit",
+        id: "thread:thr-content-hit",
+        title: "Content hit",
+        preview: "",
+      }),
+    ];
+    mockInvokeImplementation = async (channel: unknown) => {
+      if (channel === "codex:threads:palette:search-content") {
+        return [{
+          threadId: "thr-content-hit",
+          snippet: "backend snippet",
+          score: 10,
+          matchKind: "fts",
+          snippetSegments: [
+            { text: "backend ", highlight: false },
+            { text: "snippet", highlight: true },
+          ],
+        }];
+      }
+      return [];
+    };
+
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={7}
+        mode="chats"
+        initialQuery="snippet"
+        commands={[]}
+        cards={[]}
+        threads={threads}
+        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container).includes("backend snippet")).toBeTrue();
+    mockInvokeImplementation = async () => [];
   });
 
   test("skips disabled commands and updates aria-activedescendant during keyboard navigation", async () => {

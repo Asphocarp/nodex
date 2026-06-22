@@ -211,12 +211,15 @@ export interface CardSearchResult {
 
 export interface CommandPaletteThreadSummary {
   threadId: string;
-  sessionId: string;
-  projectId: string;
-  projectName: string;
+  sessionId: string | null;
+  projectId: string | null;
+  projectName: string | null;
   title: string;
   preview: string;
   cwd: string | null;
+  projectless: boolean;
+  pinned: boolean;
+  pinnedOrder: number | null;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   createdAt: number;
@@ -225,19 +228,26 @@ export interface CommandPaletteThreadSummary {
 }
 
 export interface CommandPaletteThreadListInput {
-  projectIds: string[];
+  scope: "sidebar";
 }
 
 export interface CommandPaletteThreadContentSearchInput {
-  projectIds: string[];
+  scope: "sidebar";
   query: string;
   limit?: number;
+}
+
+export interface CommandPaletteSearchSnippetSegment {
+  text: string;
+  highlight: boolean;
 }
 
 export interface CommandPaletteThreadContentSearchResult {
   threadId: string;
   snippet: string;
   score: number;
+  matchKind?: "fts" | "fuzzy";
+  snippetSegments?: CommandPaletteSearchSnippetSegment[];
 }
 
 export type CardCreatePlacement = "top" | "bottom";

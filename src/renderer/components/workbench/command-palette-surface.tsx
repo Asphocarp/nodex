@@ -179,8 +179,14 @@ function buildServerDescriptionSearchPreview(
 function buildThreadContentSearchPreview(
   excerpt: string,
   query: string,
+  segments?: CommandPaletteThreadContentSearchResult["snippetSegments"],
 ): CommandPaletteThread["searchPreview"] {
-  const preview = buildCommandPaletteQueryHighlightPreview(excerpt, query);
+  const preview = segments && segments.length > 0
+    ? {
+      excerpt: excerpt.replace(/\s+/g, " ").trim(),
+      segments,
+    }
+    : buildCommandPaletteQueryHighlightPreview(excerpt, query);
   if (!preview) return null;
 
   return {
@@ -345,6 +351,7 @@ function ThreadRow({
   const decorations = item.searchDecorations;
   const cwdLabel = getCwdLabel(item.cwd);
   const updatedLabel = formatThreadDate(item.updatedAt);
+  const projectLabel = item.projectName ?? "Chats";
 
   return (
     <div className={cn("flex w-full gap-2", hasPreview ? "items-start" : "items-center")}>
@@ -364,7 +371,7 @@ function ThreadRow({
         <div className="truncate text-xs text-token-description-foreground">
           {decorations?.projectNameSegments
             ? renderSegments(decorations.projectNameSegments, `${item.id}:project`)
-            : item.projectName}
+            : projectLabel}
           {cwdLabel ? (
             <>
               {" / "}
@@ -530,10 +537,6 @@ export function CommandPaletteSurface({
     () => new Map(threads.map((item) => [item.threadId, item] as const)),
     [threads],
   );
-  const projectIdsForThreadSearch = useMemo(
-    () => Array.from(new Set(threads.map((item) => item.projectId))),
-    [threads],
-  );
   const results = useMemo(
     () => filterCommandPaletteItems({
       query: deferredQuery,
@@ -598,7 +601,7 @@ export function CommandPaletteSurface({
     return threadContentSearchResults.flatMap((result) => {
       const item = threadById.get(result.threadId);
       if (!item) return [];
-      const searchPreview = buildThreadContentSearchPreview(result.snippet, results.query);
+      const searchPreview = buildThreadContentSearchPreview(result.snippet, results.query, result.snippetSegments);
       if (!searchPreview) return [];
       return [{
         ...item,
@@ -742,14 +745,14 @@ export function CommandPaletteSurface({
   useEffect(() => {
     const rawQuery = deferredQuery.trimStart();
     const queryText = rawQuery.trim();
-    if (mode !== "chats" || !open || queryText.length < 2 || projectIdsForThreadSearch.length === 0) {
+    if (mode !== "chats" || !open || queryText.length < 2) {
       setThreadContentSearchResults((current) => current.length === 0 ? current : []);
       return;
     }
 
     let cancelled = false;
     void invoke("codex:threads:palette:search-content", {
-      projectIds: projectIdsForThreadSearch,
+      scope: "sidebar",
       query: queryText,
       limit: 60,
     })
@@ -768,7 +771,7 @@ export function CommandPaletteSurface({
     return () => {
       cancelled = true;
     };
-  }, [deferredQuery, mode, open, projectIdsForThreadSearch]);
+  }, [deferredQuery, mode, open]);
 
   useEffect(() => {
     if (!open) return;

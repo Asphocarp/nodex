@@ -103,12 +103,15 @@ export interface CommandPaletteThread {
   kind: "thread";
   id: string;
   threadId: string;
-  sessionId: string;
-  projectId: string;
-  projectName: string;
+  sessionId: string | null;
+  projectId: string | null;
+  projectName: string | null;
   title: string;
   preview: string;
   cwd: string | null;
+  projectless: boolean;
+  pinned: boolean;
+  pinnedOrder: number | null;
   statusType: string;
   statusActiveFlags: string[];
   createdAt: number;
@@ -504,8 +507,16 @@ function compareScoredCards(left: ScoredCard, right: ScoredCard): number {
 }
 
 function compareDefaultThreads(left: CommandPaletteThread, right: CommandPaletteThread): number {
-  if (left.inActiveProject !== right.inActiveProject) {
-    return left.inActiveProject ? -1 : 1;
+  if (left.pinned !== right.pinned) {
+    return left.pinned ? -1 : 1;
+  }
+
+  if (left.pinned && right.pinned) {
+    const leftPinnedOrder = left.pinnedOrder ?? Number.MAX_SAFE_INTEGER;
+    const rightPinnedOrder = right.pinnedOrder ?? Number.MAX_SAFE_INTEGER;
+    if (leftPinnedOrder !== rightPinnedOrder) {
+      return leftPinnedOrder - rightPinnedOrder;
+    }
   }
 
   if (right.updatedAt !== left.updatedAt) {
@@ -567,7 +578,6 @@ export function filterCommandPaletteItems(input: {
           .map(({ item }) => item)
       : threadItems
           .slice()
-          .sort(compareDefaultThreads)
           .slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT);
 
     return {

@@ -4,6 +4,9 @@ Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
 
+### Command palette chat content search must index visible transcript units only
+The command-palette chat content index is a main-process read model for navigation, not a raw Codex rollout search. Index only the same visible user/assistant markdown units that `Find in thread` can search, and always intersect content hits with the current non-archived sidebar chat snapshot before rendering. Do not index internal bootstrap/developer context, raw rollout rows, reasoning, tool output, command output, side-chat ephemera, archived rows, or helper threads; doing so leaks implementation context into a global navigation surface and makes palette results drift from what users can actually open and inspect.
+
 ### Renderer test browser APIs should preserve async lifetimes
 Shared browser API doubles must model enough of the real browser lifecycle to avoid cross-test noise. In particular, ResizeObserver test doubles should track observed elements, deliver entries asynchronously on a frame, honor `unobserve` / `disconnect`, and skip disconnected targets. A synchronous `observe()` callback can fire before third-party measurement code has completed its own bookkeeping, which produces warnings even when the product code is correct.
 

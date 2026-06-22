@@ -67,9 +67,9 @@ interface TestableCodexService {
     policy?: import("../../shared/types").CodexSidebarRefreshPolicy;
     reason?: import("../../shared/types").CodexSidebarRefreshReason;
   }) => Promise<import("../../shared/types").CodexSidebarSyncResult>;
-  listCommandPaletteThreads: (input: { projectIds: string[] }) => CommandPaletteThreadSummary[];
+  listCommandPaletteThreads: (input: { scope: "sidebar" }) => CommandPaletteThreadSummary[];
   searchCommandPaletteThreadContent: (input: {
-    projectIds: string[];
+    scope: "sidebar";
     query: string;
     limit?: number;
   }) => Promise<CommandPaletteThreadContentSearchResult[]>;
@@ -1298,7 +1298,7 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("lists command-palette threads from session-backed non-archived workspace links only", async () => {
+  test("lists command-palette chats from sidebar scope", async () => {
     const ran = await withTempDatabase(async () => {
       const visibleSession = createProjectSession({
         projectId: defaultProjectId,
@@ -1339,16 +1339,28 @@ describe("codex-service readThread fallback", () => {
         updatedAt: 400,
       });
 
+      upsertCodexThread({
+        threadId: "thr_projectless",
+        threadName: "Projectless chat",
+        threadPreview: "No project owner",
+        modelProvider: "openai",
+        updatedAt: 500,
+      });
+
       const service = createService();
       try {
-        const results = service.listCommandPaletteThreads({ projectIds: [defaultProjectId] });
+        const results = service.listCommandPaletteThreads({ scope: "sidebar" });
         const ids = results.map((thread) => thread.threadId).join(",");
 
-        expect(results.length).toBe(1);
-        expect(results[0]?.threadId).toBe("thr_palette_visible");
-        expect(results[0]?.title).toBe("Palette visible thread");
+        expect(results.length).toBe(3);
+        expect(ids.includes("thr_palette_visible")).toBeTrue();
+        expect(ids.includes("thr_project_only")).toBeTrue();
+        expect(ids.includes("thr_projectless")).toBeTrue();
         expect(ids.includes("thr_palette_archived")).toBeFalse();
-        expect(ids.includes("thr_project_only")).toBeFalse();
+        const projectless = results.find((thread) => thread.threadId === "thr_projectless");
+        expect(projectless?.projectless).toBeTrue();
+        expect(projectless?.projectId ?? null).toBe(null);
+        expect(projectless?.sessionId ?? null).toBe(null);
       } finally {
         await service.shutdown();
       }
@@ -1357,60 +1369,71 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("filters command-palette content search to workspace-backed thread ids", async () => {
+  test("searches command-palette content across sidebar chats without leaking archived rows", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({
+      upsertCodexThread({
         projectId: defaultProjectId,
-        noThreadFallbackTitle: "Palette content",
-      });
-      upsertProjectSessionThreadLink({
-        sessionId: session.id,
-        projectId: defaultProjectId,
-        threadId: "thr_content_visible",
-        threadName: "Content visible",
-        threadPreview: "Visible preview",
+        threadId: "thr_content_sessionless",
+        threadName: "Content sessionless",
+        threadPreview: "Visible sessionless preview",
         modelProvider: "openai",
+        updatedAt: 200,
+      });
+
+      upsertCodexThread({
+        threadId: "thr_content_projectless",
+        threadName: "Content projectless",
+        threadPreview: "Visible projectless preview",
+        modelProvider: "openai",
+        updatedAt: 300,
+      });
+
+      upsertCodexThread({
+        threadId: "thr_content_archived",
+        threadName: "Content archived",
+        threadPreview: "Archived preview",
+        modelProvider: "openai",
+        archived: true,
+        updatedAt: 400,
       });
 
       const service = createService();
-      const client = Reflect.get(service as object, "client") as {
-        start: () => Promise<void>;
-        request: (method: string, params: unknown) => Promise<{
-          data: Array<{ thread: { id: string }; snippet: string }>;
-          nextCursor: null;
-          backwardsCursor: null;
-        }>;
-      };
-      let requestMethod = "";
-      let requestParams: unknown = null;
-      client.start = async () => undefined;
-      client.request = async (method: string, params: unknown) => {
-        requestMethod = method;
-        requestParams = params;
-        return {
-          data: [
-            { thread: { id: "thr_unbound_remote" }, snippet: "Remote match that should not leak." },
-            { thread: { id: "thr_content_visible" }, snippet: "Visible transcript match." },
-          ],
-          nextCursor: null,
-          backwardsCursor: null,
-        };
-      };
-
       try {
+        const summaries = service.listCommandPaletteThreads({ scope: "sidebar" });
+        const searchService = Reflect.get(service as object, "commandPaletteThreadSearchService") as {
+          indexThreadDetail: (summary: CommandPaletteThreadSummary, detail: CodexThreadDetail) => void;
+        };
+        for (const summary of summaries) {
+          const thread = getCodexThread(summary.threadId);
+          if (!thread) continue;
+          searchService.indexThreadDetail(summary, {
+            ...thread,
+            turns: [],
+            transcript: [{
+              threadId: summary.threadId,
+              turnId: "turn_1",
+              itemId: `item_${summary.threadId}`,
+              type: "userMessage",
+              kind: "userMessage",
+              semanticKind: "userMessage",
+              role: "user",
+              markdownText: `Visible transcript needle from ${summary.threadId}`,
+              createdAt: summary.updatedAt,
+              updatedAt: summary.updatedAt,
+            }],
+          });
+        }
+
         const results = await service.searchCommandPaletteThreadContent({
-          projectIds: [defaultProjectId],
-          query: "transcript",
+          scope: "sidebar",
+          query: "needle",
           limit: 60,
         });
-        const params = requestParams as { searchTerm?: string; sourceKinds?: string[] };
+        const ids = results.map((result) => result.threadId).join(",");
 
-        expect(requestMethod).toBe("thread/search");
-        expect(params.searchTerm).toBe("transcript");
-        expect(params.sourceKinds?.includes("appServer")).toBeTrue();
-        expect(results.length).toBe(1);
-        expect(results[0]?.threadId).toBe("thr_content_visible");
-        expect(results[0]?.snippet).toBe("Visible transcript match.");
+        expect(ids.includes("thr_content_sessionless")).toBeTrue();
+        expect(ids.includes("thr_content_projectless")).toBeTrue();
+        expect(ids.includes("thr_content_archived")).toBeFalse();
       } finally {
         await service.shutdown();
       }
@@ -1419,17 +1442,12 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("returns no command-palette content hits when app-server search fails", async () => {
+  test("does not call app-server thread search for command-palette content", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({
+      upsertCodexThread({
         projectId: defaultProjectId,
-        noThreadFallbackTitle: "Palette content",
-      });
-      upsertProjectSessionThreadLink({
-        sessionId: session.id,
-        projectId: defaultProjectId,
-        threadId: "thr_content_failure",
-        threadName: "Content failure",
+        threadId: "thr_content_local_only",
+        threadName: "Content local only",
         threadPreview: "Visible preview",
         modelProvider: "openai",
       });
@@ -1441,12 +1459,12 @@ describe("codex-service readThread fallback", () => {
       };
       client.start = async () => undefined;
       client.request = async () => {
-        throw new Error("thread/search unavailable");
+        throw new Error("app-server should not be called");
       };
 
       try {
         const results = await service.searchCommandPaletteThreadContent({
-          projectIds: [defaultProjectId],
+          scope: "sidebar",
           query: "transcript",
           limit: 60,
         });

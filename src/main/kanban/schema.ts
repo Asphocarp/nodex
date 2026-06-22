@@ -20,7 +20,7 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 44;
+export const CURRENT_SCHEMA_VERSION = 45;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -31,6 +31,9 @@ const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
 const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 
 const RESETTABLE_TABLES = [
+  "thread_search_units_fts",
+  "thread_search_thread_state",
+  "thread_search_units",
   "project_session_threads",
   "project_session_tabs",
   "project_sessions",
@@ -61,21 +64,22 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44];
-  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44];
-  if (currentVersion === 39) return [40, 41, 42, 43, 44];
-  if (currentVersion === 40) return [41, 42, 43, 44];
-  if (currentVersion === 41) return [42, 43, 44];
-  if (currentVersion === 42) return [43, 44];
-  if (currentVersion === 43) return [44];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45];
+  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45];
+  if (currentVersion === 40) return [41, 42, 43, 44, 45];
+  if (currentVersion === 41) return [42, 43, 44, 45];
+  if (currentVersion === 42) return [43, 44, 45];
+  if (currentVersion === 43) return [44, 45];
+  if (currentVersion === 44) return [45];
   return null;
 }
 
@@ -268,6 +272,69 @@ function createLatestSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_codex_pinned_threads_order
       ON codex_pinned_threads(pinned_order, created_at);
+
+    CREATE TABLE IF NOT EXISTS thread_search_units (
+      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_key TEXT NOT NULL UNIQUE,
+      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      session_id TEXT REFERENCES project_sessions(id) ON DELETE SET NULL,
+      turn_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      source_updated_at INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      CHECK (role IN ('user', 'assistant'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_thread
+      ON thread_search_units(thread_id);
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_project
+      ON thread_search_units(project_id);
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_session
+      ON thread_search_units(session_id);
+
+    CREATE TABLE IF NOT EXISTS thread_search_thread_state (
+      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      source_updated_at INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      unit_count INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      CHECK (status IN ('ready', 'stale', 'failed'))
+    ) WITHOUT ROWID;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS thread_search_units_fts USING fts5(
+      text,
+      content='thread_search_units',
+      content_rowid='rowid',
+      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
+      prefix='2 3 4'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_ai
+      AFTER INSERT ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_ad
+      AFTER DELETE ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_au
+      AFTER UPDATE ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+        INSERT INTO thread_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
 
     CREATE TABLE IF NOT EXISTS history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1669,6 +1736,75 @@ function migrateSchema43To44(db: Database.Database): void {
   setUserVersion(db, 44);
 }
 
+function migrateSchema44To45(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS thread_search_units (
+      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_key TEXT NOT NULL UNIQUE,
+      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      session_id TEXT REFERENCES project_sessions(id) ON DELETE SET NULL,
+      turn_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      source_updated_at INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      CHECK (role IN ('user', 'assistant'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_thread
+      ON thread_search_units(thread_id);
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_project
+      ON thread_search_units(project_id);
+    CREATE INDEX IF NOT EXISTS idx_thread_search_units_session
+      ON thread_search_units(session_id);
+
+    CREATE TABLE IF NOT EXISTS thread_search_thread_state (
+      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      source_updated_at INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      unit_count INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      CHECK (status IN ('ready', 'stale', 'failed'))
+    ) WITHOUT ROWID;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS thread_search_units_fts USING fts5(
+      text,
+      content='thread_search_units',
+      content_rowid='rowid',
+      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
+      prefix='2 3 4'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_ai
+      AFTER INSERT ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_ad
+      AFTER DELETE ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS thread_search_units_au
+      AFTER UPDATE ON thread_search_units
+      BEGIN
+        INSERT INTO thread_search_units_fts(thread_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+        INSERT INTO thread_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
+  `);
+
+  setUserVersion(db, 45);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1785,6 +1921,14 @@ function runMigrations(
       }
       migrateSchema43To44(db);
       fromVersion = 44;
+      continue;
+    }
+    if (target === 45) {
+      if (fromVersion !== 44) {
+        throw new Error(`Unsupported Nodex database migration target 45 from ${fromVersion}`);
+      }
+      migrateSchema44To45(db);
+      fromVersion = 45;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

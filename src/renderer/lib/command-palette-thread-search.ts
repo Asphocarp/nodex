@@ -61,7 +61,7 @@ function buildSearchDocument(item: CommandPaletteThread): CommandPaletteThreadSe
     id: item.id,
     title: normalizeCommandPaletteThreadSearchText(item.title),
     preview: normalizeCommandPaletteThreadSearchText(item.preview),
-    projectName: normalizeCommandPaletteThreadSearchText(item.projectName),
+    projectName: normalizeCommandPaletteThreadSearchText(item.projectName ?? "Chats"),
     cwd: normalizeCommandPaletteThreadSearchText(item.cwd ?? ""),
     threadId: normalizeCommandPaletteThreadSearchText(item.threadId),
   };
@@ -95,7 +95,7 @@ function buildSearchDecorations(
     collectMatchedTermsForField(result, "title"),
   );
   const projectNameSegments = buildCommandPaletteHighlightedSegments(
-    item.projectName,
+    item.projectName ?? "Chats",
     collectMatchedTermsForField(result, "projectName"),
   );
   const cwdSegments = buildCommandPaletteHighlightedSegments(

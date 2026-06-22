@@ -7,12 +7,15 @@ function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPalet
     kind: "thread",
     id: overrides.id ?? "thread:thr-command-palette",
     threadId: overrides.threadId ?? "thr-command-palette",
-    sessionId: overrides.sessionId ?? "session-command-palette",
-    projectId: overrides.projectId ?? "project-1",
-    projectName: overrides.projectName ?? "Nodex",
+    sessionId: overrides.sessionId === undefined ? "session-command-palette" : overrides.sessionId,
+    projectId: overrides.projectId === undefined ? "project-1" : overrides.projectId,
+    projectName: overrides.projectName === undefined ? "Nodex" : overrides.projectName,
     title: overrides.title ?? "Command palette thread search",
     preview: overrides.preview ?? "Add thread search and content snippets to the launcher.",
     cwd: overrides.cwd ?? "/Users/asc/nodex",
+    projectless: overrides.projectless ?? false,
+    pinned: overrides.pinned ?? false,
+    pinnedOrder: overrides.pinnedOrder ?? null,
     statusType: overrides.statusType ?? "notLoaded",
     statusActiveFlags: overrides.statusActiveFlags ?? [],
     createdAt: overrides.createdAt ?? 1_781_990_400,
@@ -79,6 +82,26 @@ describe("command palette thread search index", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-cwd");
     expect(results[0]?.item.searchPreview ?? null).toBe(null);
+    expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBeTrue();
+  });
+
+  test("matches projectless chats through the Chats context label", () => {
+    const index = createCommandPaletteThreadSearchIndex([
+      makeThread({
+        threadId: "thr-projectless",
+        id: "thread:thr-projectless",
+        sessionId: null,
+        projectId: null,
+        projectName: null,
+        projectless: true,
+        title: "Projectless thread",
+      }),
+    ]);
+
+    const results = index.search("chats");
+
+    expect(results.length).toBe(1);
+    expect(results[0]?.item.threadId).toBe("thr-projectless");
     expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBeTrue();
   });
 });

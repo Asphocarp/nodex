@@ -2292,7 +2292,7 @@ export function WorkbenchShell({
     try {
       const ensured = await invoke("codex:thread:ensure-session", item.threadId) as ProjectSession | null;
       if (!ensured) {
-        toast.info("That thread is not available in this workspace", {
+        toast.info("That chat is not available", {
           id: `thread-open-unavailable-${item.threadId}`,
         });
         return;
@@ -3895,7 +3895,7 @@ export function WorkbenchShell({
     try {
       const ensured = await invoke("codex:thread:ensure-session", threadId) as ProjectSession | null;
       if (!ensured) {
-        toast.info("That thread is not attached to a chat in this workspace", {
+        toast.info("That chat is not available", {
           id: `thread-open-unattached-${threadId}`,
         });
         return;

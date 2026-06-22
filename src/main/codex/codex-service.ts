@@ -37,8 +37,6 @@ import type { McpServerStatus } from "@nodex/codex-app-server-protocol/v2/McpSer
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
-import type { ThreadSearchResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSearchResponse";
-import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
@@ -243,25 +241,13 @@ import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { CodexDictationService } from "./dictation-service";
 import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { terminalManager } from "../terminal-manager";
+import { CommandPaletteThreadSearchService } from "./command-palette-thread-search-service";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
-const COMMAND_PALETTE_THREAD_CONTENT_SEARCH_MAX_LIMIT = 60;
 const SIDEBAR_THREAD_SYNC_STALE_MS = 5_000;
 const SIDEBAR_THREAD_SYNC_REPAIR_DEBOUNCE_MS = 300;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
-const COMMAND_PALETTE_THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
-  "cli",
-  "vscode",
-  "exec",
-  "appServer",
-  "subAgent",
-  "subAgentReview",
-  "subAgentCompact",
-  "subAgentThreadSpawn",
-  "subAgentOther",
-  "unknown",
-];
 const require = createRequire(import.meta.url);
 
 const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
@@ -1726,6 +1712,7 @@ export class CodexService extends EventEmitter {
   private readonly outputDeltaQueue = new OutputDeltaQueue((updates) => {
     this.applyOutputDeltas(updates);
   });
+  private readonly commandPaletteThreadSearchService = new CommandPaletteThreadSearchService();
   private readonly dictationService = new CodexDictationService({
     readConfig: async () => await this.readConfigForDictation(),
     readAuthStatus: async (input) => await this.readAuthStatusForDictation(input),
@@ -2977,6 +2964,7 @@ export class CodexService extends EventEmitter {
     });
     this.frameTextDeltaQueue.cancel();
     this.outputDeltaQueue.cancel();
+    this.commandPaletteThreadSearchService.shutdown();
     this.stopRateLimitsPolling();
     if (this.sidebarThreadListRepairTimer !== null) {
       clearTimeout(this.sidebarThreadListRepairTimer);
@@ -3325,7 +3313,18 @@ export class CodexService extends EventEmitter {
       const existingLink = projectSessionService.getProjectSessionThreadLink(normalizedThreadId);
       return existingLink ? projectSessionService.getProjectSession(existingLink.sessionId) : null;
     }
-    return this.reconcileSidebarThreadSession(summary, { reason: "manual" }).session;
+    const reconciled = this.reconcileSidebarThreadSession(summary, { reason: "manual" });
+    const paletteSummary = this.getCommandPaletteSidebarChat(normalizedThreadId);
+    if (paletteSummary) {
+      this.commandPaletteThreadSearchService.scheduleBackfill([paletteSummary], {
+        readThreadDetail: (targetThreadId) => {
+          const thread = getCodexThread(targetThreadId);
+          if (!thread) return null;
+          return readCodexSessionThreadDetail({ threadId: targetThreadId, link: thread });
+        },
+      });
+    }
+    return reconciled.session;
   }
 
   private async refreshSidebarThreadsFromAppServer(input: {
@@ -3644,88 +3643,77 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  listCommandPaletteThreads(input: CommandPaletteThreadListInput): CommandPaletteThreadSummary[] {
-    const projectIds = Array.from(new Set(input.projectIds.map((projectId) => projectId.trim()).filter(Boolean)));
-    if (projectIds.length === 0) return [];
+  private listCommandPaletteSidebarChats(): CommandPaletteThreadSummary[] {
+    const snapshot = this.buildSidebarSnapshot({ includeArchived: false });
+    const seenThreadIds = new Set<string>();
+    const summaries: CommandPaletteThreadSummary[] = [];
 
-    const threads: CommandPaletteThreadSummary[] = [];
-    for (const projectId of projectIds) {
-      const project = dbService.getProject(projectId);
-      if (!project) continue;
+    for (const item of snapshot.items) {
+      if (item.archived || item.disabled || seenThreadIds.has(item.threadId)) continue;
+      const thread = getCodexThread(item.threadId);
+      if (!thread || thread.archived || thread.ephemeral || thread.source?.sideConversation) continue;
+      seenThreadIds.add(item.threadId);
 
-      const sessions = projectSessionService.listProjectSessions(projectId, { includeArchived: false });
-      for (const session of sessions) {
-        if (session.archived || !session.thread || session.thread.archived) {
-          continue;
-        }
-
-        const parsedStatus = parseThreadStatus(session.thread.statusType);
-        threads.push({
-          threadId: session.thread.threadId,
-          sessionId: session.id,
-          projectId,
-          projectName: project.name,
-          title: session.displayTitle,
-          preview: session.thread.threadPreview,
-          cwd: session.thread.cwd ?? null,
-          statusType: parsedStatus.statusType,
-          statusActiveFlags: parseThreadActiveFlags(session.thread.statusActiveFlags),
-          createdAt: session.thread.createdAt,
-          updatedAt: session.thread.updatedAt,
-          linkedAt: session.thread.linkedAt,
-        });
-      }
+      const project = item.projectId ? dbService.getProject(item.projectId) : null;
+      summaries.push({
+        threadId: item.threadId,
+        sessionId: item.sessionId,
+        projectId: item.projectId,
+        projectName: project?.name ?? null,
+        title: item.title,
+        preview: item.preview,
+        cwd: item.cwd,
+        projectless: item.projectless,
+        pinned: item.pinned,
+        pinnedOrder: item.pinnedOrder,
+        statusType: item.statusType,
+        statusActiveFlags: item.statusActiveFlags,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        linkedAt: thread.linkedAt,
+      });
     }
 
-    return threads.sort((left, right) => {
-      if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
-      return left.title.localeCompare(right.title);
+    return summaries;
+  }
+
+  private getCommandPaletteSidebarChat(threadId: string): CommandPaletteThreadSummary | null {
+    return this.listCommandPaletteSidebarChats()
+      .find((summary) => summary.threadId === threadId) ?? null;
+  }
+
+  listCommandPaletteThreads(input: CommandPaletteThreadListInput): CommandPaletteThreadSummary[] {
+    if (input.scope !== "sidebar") return [];
+    const summaries = this.listCommandPaletteSidebarChats();
+    this.commandPaletteThreadSearchService.scheduleBackfill(summaries, {
+      readThreadDetail: (threadId) => {
+        const thread = getCodexThread(threadId);
+        if (!thread) return null;
+        return readCodexSessionThreadDetail({ threadId, link: thread });
+      },
     });
+    return summaries;
   }
 
   async searchCommandPaletteThreadContent(
     input: CommandPaletteThreadContentSearchInput,
   ): Promise<CommandPaletteThreadContentSearchResult[]> {
     const query = input.query.trim();
-    if (query.length === 0) return [];
+    if (input.scope !== "sidebar" || query.length === 0) return [];
 
-    const eligibleThreadIds = new Set(
-      this.listCommandPaletteThreads({ projectIds: input.projectIds }).map((thread) => thread.threadId),
-    );
-    if (eligibleThreadIds.size === 0) return [];
+    const summaries = this.listCommandPaletteSidebarChats();
+    this.commandPaletteThreadSearchService.scheduleBackfill(summaries, {
+      readThreadDetail: (threadId) => {
+        const thread = getCodexThread(threadId);
+        if (!thread) return null;
+        return readCodexSessionThreadDetail({ threadId, link: thread });
+      },
+    });
 
-    const limit = Math.max(
-      1,
-      Math.min(
-        COMMAND_PALETTE_THREAD_CONTENT_SEARCH_MAX_LIMIT,
-        Math.trunc(input.limit ?? COMMAND_PALETTE_THREAD_CONTENT_SEARCH_MAX_LIMIT),
-      ),
-    );
-
-    try {
-      await this.ensureClientReady();
-      const result = await this.client.request<"thread/search", ThreadSearchResponse>("thread/search", {
-        searchTerm: query,
-        limit,
-        sortKey: "updated_at",
-        sortDirection: "desc",
-        archived: false,
-        sourceKinds: COMMAND_PALETTE_THREAD_SOURCE_KINDS,
-      });
-
-      return result.data.flatMap((hit, index): CommandPaletteThreadContentSearchResult[] => {
-        if (!eligibleThreadIds.has(hit.thread.id)) return [];
-        const snippet = hit.snippet.replace(/\s+/g, " ").trim();
-        if (!snippet) return [];
-        return [{
-          threadId: hit.thread.id,
-          snippet,
-          score: limit - index,
-        }];
-      });
-    } catch {
-      return [];
-    }
+    return this.commandPaletteThreadSearchService.search({
+      query,
+      limit: input.limit,
+    }, summaries);
   }
 
   async resolveThreadSummary(threadId: string): Promise<CodexThreadSummary | null> {
@@ -5281,6 +5269,10 @@ export class CodexService extends EventEmitter {
     const detail = this.ensureConversationDetail(threadId);
     if (!detail) return;
     detail.transcript = transcript;
+    this.commandPaletteThreadSearchService.scheduleLiveIndex(threadId, {
+      readConversation: (targetThreadId) => this.serializeConversationSnapshot(targetThreadId),
+      readSummary: (targetThreadId) => this.getCommandPaletteSidebarChat(targetThreadId),
+    });
   }
 
   private persistThreadDetailSummary(detail: CodexThreadDetail): void {
@@ -8738,6 +8730,7 @@ export class CodexService extends EventEmitter {
       const metadata = createSidebarThreadSyncMetadata();
       if (updated) markSidebarSyncScopeChanged(metadata, updated.projectId);
       if (archived) {
+        this.commandPaletteThreadSearchService.removeThread(payload.threadId);
         setCodexThreadPinned(payload.threadId, false);
         const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
         for (const owner of owners) {
@@ -8774,6 +8767,7 @@ export class CodexService extends EventEmitter {
       const existingThread = getCodexThread(payload.threadId);
       if (existingThread) markSidebarSyncScopeChanged(metadata, existingThread.projectId);
       setCodexThreadPinned(payload.threadId, false);
+      this.commandPaletteThreadSearchService.removeThread(payload.threadId);
       for (const owner of owners) {
         markSidebarSyncScopeChanged(metadata, owner.projectId);
         const session = projectSessionService.getProjectSession(owner.sessionId);
