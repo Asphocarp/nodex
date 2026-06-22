@@ -33,7 +33,7 @@ All notable changes to this project will be documented in this file.
 - Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
 - Added a `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
 - Added NFM thread mentions so card descriptions can reference and open Codex threads with `<mention-thread uuid="..." />`.
-- Added a real `Send to chat` picker to the NFM text-selection menu, including thread search with project-labeled chat rows, current-session `New chat` targeting for empty sessions, project-level new-chat sending, and an app-level persisted `Send & wrap` mode with inline explanation.
+- Added a real `Send to chat` picker to the NFM text-selection menu, including sidebar-wide chat search with content snippets, project-labeled chat rows, current-session/current-section priority, current-session `New chat` targeting for empty sessions, project-level new-chat sending, and an app-level persisted `Send & wrap` mode with inline explanation.
 
 ### Changed
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.

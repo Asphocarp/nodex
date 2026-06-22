@@ -182,6 +182,7 @@ import { useSpellcheck } from "@/lib/use-spellcheck";
 import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
+import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import {
   useCodexAppServerControl,
   useProjectThreadSummaries,
@@ -309,7 +310,7 @@ interface ThreadSectionPickerState {
 function isAvailableNfmSendToThreadPreferredTargetThread(
   thread: CodexThreadSummary | null | undefined,
 ): thread is CodexThreadSummary {
-  return Boolean(thread && !thread.archived && thread.ephemeral !== true);
+  return Boolean(thread && !thread.archived && thread.ephemeral !== true && thread.source?.sideConversation !== true);
 }
 
 function createNfmSendToThreadPreferredTargetFromThread(
@@ -534,6 +535,14 @@ export function NfmEditor({
   const [activeChipEdit, setActiveChipEdit] = useState<ActiveChipEdit | null>(null);
   const [pasteResourceDialog, setPasteResourceDialog] = useState<PasteResourceDialogState | null>(null);
   const [threadSectionPicker, setThreadSectionPicker] = useState<ThreadSectionPickerState | null>(null);
+  const {
+    threads: sendToThreadItems,
+    loading: sendToThreadItemsLoading,
+  } = useCommandPaletteThreadItems({
+    enabled: Boolean(threadSectionPicker) && Boolean(projectId),
+    activeProjectId: projectId,
+    refreshKey: 0,
+  });
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
   const [pasteResourceError, setPasteResourceError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
@@ -2650,7 +2659,8 @@ export function NfmEditor({
           >
             <NfmSendToThreadMenuSurface
               projectId={projectId}
-              threads={projectThreadSummaries}
+              threadItems={sendToThreadItems}
+              threadItemsLoading={sendToThreadItemsLoading}
               projectNameById={sendToThreadProjectNameById}
               preferredTarget={threadSectionPicker.preferredTarget}
               onAccept={handleAcceptThreadSectionPicker}

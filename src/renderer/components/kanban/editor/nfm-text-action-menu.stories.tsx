@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
 import { TextActionLinkIcon } from "@/components/shared/icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { BoardSummary, CardSummary, CodexThreadSummary, Project } from "@/lib/types";
 import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
@@ -73,6 +74,32 @@ function makeStoryThread(input: Partial<CodexThreadSummary> & { threadId: string
   };
 }
 
+function storyThreadSummaryToItem(thread: CodexThreadSummary): CommandPaletteThread {
+  const title = thread.threadName?.trim()
+    || thread.threadPreview.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0)
+    || thread.threadId;
+  return {
+    kind: "thread",
+    id: `thread:${thread.threadId}`,
+    threadId: thread.threadId,
+    sessionId: null,
+    projectId: thread.projectId,
+    projectName: thread.projectId ? "Default" : null,
+    title,
+    preview: thread.threadPreview,
+    cwd: thread.cwd,
+    projectless: thread.projectId === null,
+    pinned: false,
+    pinnedOrder: null,
+    statusType: thread.statusType,
+    statusActiveFlags: thread.statusActiveFlags,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    linkedAt: thread.linkedAt,
+    inActiveProject: thread.projectId === "default",
+  };
+}
+
 const STORY_MOVE_TO_PROJECTS = [
   makeStoryProject("default", "Default", "🔥"),
   makeStoryProject("renderer", "Renderer parity", "🧭"),
@@ -108,7 +135,7 @@ const STORY_MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
-const STORY_SEND_TO_THREAD_THREADS = [
+const STORY_SEND_TO_THREAD_SUMMARIES = [
   makeStoryThread({
     threadId: "thread-implementation",
     threadName: "Implementation pass",
@@ -129,6 +156,8 @@ const STORY_SEND_TO_THREAD_THREADS = [
     updatedAt: STORY_DATE.getTime() + 1,
   }),
 ];
+
+const STORY_SEND_TO_THREAD_THREADS = STORY_SEND_TO_THREAD_SUMMARIES.map(storyThreadSummaryToItem);
 
 function TextActionMenuStorySurface(
   props: Partial<NfmTextActionMenuSurfaceProps>,
@@ -440,10 +469,10 @@ export const WithNodexActions: Story = {
     sourceProjectId: "default",
     sourceCardId: "source-card",
     sendToThreadProjectNameById: { default: "Default" },
-    sendToThreadPreferredTarget: STORY_SEND_TO_THREAD_THREADS[0]
+    sendToThreadPreferredTarget: STORY_SEND_TO_THREAD_SUMMARIES[0]
       ? {
           kind: "thread",
-          thread: STORY_SEND_TO_THREAD_THREADS[0],
+          thread: STORY_SEND_TO_THREAD_SUMMARIES[0],
           meta: "This session",
         }
       : null,
@@ -451,7 +480,8 @@ export const WithNodexActions: Story = {
     renderSendToThreadMenu: (props) => (
       <NfmSendToThreadMenuSurface
         {...props}
-        threads={STORY_SEND_TO_THREAD_THREADS}
+        threadItems={STORY_SEND_TO_THREAD_THREADS}
+        enableThreadContentSearch={false}
       />
     ),
     renderMoveToMenu: (props) => (
@@ -475,12 +505,13 @@ export const SendToThreadPicker: Story = {
         <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
           <NfmSendToThreadMenuSurface
             projectId="default"
-            threads={STORY_SEND_TO_THREAD_THREADS}
+            threadItems={STORY_SEND_TO_THREAD_THREADS}
+            enableThreadContentSearch={false}
             projectNameById={{ default: "Default" }}
-            preferredTarget={STORY_SEND_TO_THREAD_THREADS[0]
+            preferredTarget={STORY_SEND_TO_THREAD_SUMMARIES[0]
               ? {
                   kind: "thread",
-                  thread: STORY_SEND_TO_THREAD_THREADS[0],
+                  thread: STORY_SEND_TO_THREAD_SUMMARIES[0],
                   meta: "This session",
                 }
               : null}
@@ -507,7 +538,8 @@ export const SendToThreadPickerEmptySession: Story = {
       <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={STORY_SEND_TO_THREAD_THREADS}
+          threadItems={STORY_SEND_TO_THREAD_THREADS}
+          enableThreadContentSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "new-thread",
@@ -535,12 +567,13 @@ export const SendToThreadPickerThreadSection: Story = {
       <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={STORY_SEND_TO_THREAD_THREADS}
+          threadItems={STORY_SEND_TO_THREAD_THREADS}
+          enableThreadContentSearch={false}
           projectNameById={{ default: "Default" }}
-          preferredTarget={STORY_SEND_TO_THREAD_THREADS[1]
+          preferredTarget={STORY_SEND_TO_THREAD_SUMMARIES[1]
             ? {
                 kind: "thread",
-                thread: STORY_SEND_TO_THREAD_THREADS[1],
+                thread: STORY_SEND_TO_THREAD_SUMMARIES[1],
                 meta: "Current section",
               }
             : null}
@@ -566,7 +599,8 @@ export const SendToThreadPickerEmpty: Story = {
       <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={[]}
+          threadItems={[]}
+          enableThreadContentSearch={false}
           initialQuery="no matches"
           onAccept={() => undefined}
           onClose={() => undefined}

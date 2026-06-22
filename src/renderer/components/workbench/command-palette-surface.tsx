@@ -25,8 +25,12 @@ import {
   type CommandPaletteHighlightSegment,
 } from "../../lib/command-palette-highlight";
 import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
-import { invoke, subscribeCommandPaletteThreadIndexUpdates } from "../../lib/api";
-import type { CardSearchResult, CommandPaletteThreadContentSearchResult } from "../../lib/types";
+import {
+  useCommandPaletteThreadContentSearch,
+  useSelectedCommandPaletteChatResults,
+} from "../../lib/command-palette-chat-search";
+import { invoke } from "../../lib/api";
+import type { CardSearchResult } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
 import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
@@ -174,25 +178,6 @@ function buildServerDescriptionSearchPreview(
   query: string,
 ): CommandPaletteCard["searchPreview"] {
   return buildCommandPaletteQueryHighlightPreview(excerpt, query);
-}
-
-function buildThreadContentSearchPreview(
-  excerpt: string,
-  query: string,
-  segments?: CommandPaletteThreadContentSearchResult["snippetSegments"],
-): CommandPaletteThread["searchPreview"] {
-  const preview = segments && segments.length > 0
-    ? {
-      excerpt: excerpt.replace(/\s+/g, " ").trim(),
-      segments,
-    }
-    : buildCommandPaletteQueryHighlightPreview(excerpt, query);
-  if (!preview) return null;
-
-  return {
-    ...preview,
-    source: "content",
-  };
 }
 
 function CommandRow({
@@ -488,9 +473,11 @@ export function CommandPaletteSurface({
   const [cardFilters, setCardFilters] = useState<CommandPaletteCardFilters>(() => readCommandPaletteCardFilters());
   const [filterOpen, setFilterOpen] = useState(false);
   const [descriptionSearchResults, setDescriptionSearchResults] = useState<CardSearchResult[]>([]);
-  const [threadContentSearchResults, setThreadContentSearchResults] = useState<CommandPaletteThreadContentSearchResult[]>([]);
-  const [threadContentRefreshTick, setThreadContentRefreshTick] = useState(0);
   const deferredQuery = useDeferredValue(query);
+  const threadContentSearchResults = useCommandPaletteThreadContentSearch({
+    enabled: mode === "chats" && open,
+    query: deferredQuery,
+  });
   const availableTags = useMemo(
     () => Array.from(new Set(cards.flatMap((item) => item.card.tags))).sort((left, right) => left.localeCompare(right)),
     [cards],
@@ -533,10 +520,6 @@ export function CommandPaletteSurface({
   const cardByProjectAndId = useMemo(
     () => new Map(cards.map((item) => [`${item.projectId}:${item.card.id}`, item] as const)),
     [cards],
-  );
-  const threadById = useMemo(
-    () => new Map(threads.map((item) => [item.threadId, item] as const)),
-    [threads],
   );
   const results = useMemo(
     () => filterCommandPaletteItems({
@@ -594,48 +577,12 @@ export function CommandPaletteSurface({
 
     return merged.slice(0, 24);
   }, [descriptionSearchCards, mode, results.cards, results.query]);
-  const contentSearchThreads = useMemo(() => {
-    if (mode !== "chats" || results.query.length === 0) {
-      return [];
-    }
-
-    return threadContentSearchResults.flatMap((result) => {
-      const item = threadById.get(result.threadId);
-      if (!item) return [];
-      const searchPreview = buildThreadContentSearchPreview(result.snippet, results.query, result.snippetSegments);
-      if (!searchPreview) return [];
-      return [{
-        ...item,
-        searchPreview,
-      }];
-    });
-  }, [mode, results.query, threadById, threadContentSearchResults]);
-  const visibleThreads = useMemo(() => {
-    if (mode !== "chats" || results.query.length === 0 || contentSearchThreads.length === 0) {
-      return results.threads;
-    }
-
-    const contentMatchesById = new Map(contentSearchThreads.map((item) => [item.id, item] as const));
-    const merged = results.threads.map((item) => {
-      const contentMatch = contentMatchesById.get(item.id);
-      if (!contentMatch?.searchPreview || item.searchPreview) {
-        return item;
-      }
-
-      return {
-        ...item,
-        searchPreview: contentMatch.searchPreview,
-      };
-    });
-    const seenIds = new Set(merged.map((item) => item.id));
-    contentSearchThreads.forEach((item) => {
-      if (seenIds.has(item.id)) return;
-      seenIds.add(item.id);
-      merged.push(item);
-    });
-
-    return merged.slice(0, 8);
-  }, [contentSearchThreads, mode, results.query, results.threads]);
+  const visibleThreads = useSelectedCommandPaletteChatResults({
+    query: deferredQuery,
+    threads,
+    threadSearchIndex,
+    threadContentSearchResults,
+  });
   const sections = useMemo<PaletteSectionModel[]>(() => {
     if (mode === "root") {
       return COMMAND_GROUP_ORDER
@@ -709,7 +656,6 @@ export function CommandPaletteSurface({
     setQuery("");
     setSelectedIndex(0);
     setDescriptionSearchResults((current) => current.length === 0 ? current : []);
-    setThreadContentSearchResults((current) => current.length === 0 ? current : []);
   }, [open]);
 
   useEffect(() => {
@@ -742,58 +688,6 @@ export function CommandPaletteSurface({
       cancelled = true;
     };
   }, [deferredQuery, mode, open, projectIdsForSearch]);
-
-  useEffect(() => {
-    if (mode !== "chats" || !open) return;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = subscribeCommandPaletteThreadIndexUpdates(() => {
-      if (refreshTimer !== null) {
-        clearTimeout(refreshTimer);
-      }
-      refreshTimer = setTimeout(() => {
-        refreshTimer = null;
-        setThreadContentRefreshTick((current) => current + 1);
-      }, 250);
-    });
-
-    return () => {
-      if (refreshTimer !== null) {
-        clearTimeout(refreshTimer);
-      }
-      unsubscribe();
-    };
-  }, [mode, open]);
-
-  useEffect(() => {
-    const rawQuery = deferredQuery.trimStart();
-    const queryText = rawQuery.trim();
-    if (mode !== "chats" || !open || queryText.length < 2) {
-      setThreadContentSearchResults((current) => current.length === 0 ? current : []);
-      return;
-    }
-
-    let cancelled = false;
-    void invoke("codex:threads:palette:search-content", {
-      scope: "sidebar",
-      query: queryText,
-      limit: 60,
-    })
-      .then((nextResults) => {
-        if (cancelled) return;
-        const safeResults = Array.isArray(nextResults) ? nextResults : [];
-        setThreadContentSearchResults((current) => (
-          current.length === 0 && safeResults.length === 0 ? current : safeResults
-        ));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setThreadContentSearchResults((current) => current.length === 0 ? current : []);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [deferredQuery, mode, open, threadContentRefreshTick]);
 
   useEffect(() => {
     if (!open) return;

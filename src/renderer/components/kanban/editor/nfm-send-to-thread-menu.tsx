@@ -12,9 +12,16 @@ import {
 } from "react";
 import { CodexThreadIcon, SpinnerIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { useProjectThreadSummaries } from "@/features/local-conversation/local-conversation-store";
-import type { CodexThreadSummary } from "@/lib/types";
+import {
+  useCommandPaletteThreadContentSearch,
+  useCommandPaletteThreadItems,
+  useSelectedCommandPaletteChatResults,
+} from "@/lib/command-palette-chat-search";
+import type { CommandPaletteThread } from "@/lib/command-palette";
+import type { CommandPaletteHighlightSegment } from "@/lib/command-palette-highlight";
+import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
 import { cn } from "@/lib/utils";
+import type { CommandPaletteThreadContentSearchResult } from "@/lib/types";
 import {
   readNfmSendToThreadMode,
   writeNfmSendToThreadMode,
@@ -39,13 +46,17 @@ interface NfmSendToThreadMenuProps {
 }
 
 export interface NfmSendToThreadMenuSurfaceProps extends NfmSendToThreadMenuProps {
-  threads: readonly CodexThreadSummary[];
+  threadItems: readonly CommandPaletteThread[];
   initialQuery?: string;
+  threadItemsLoading?: boolean;
+  threadContentSearchResults?: CommandPaletteThreadContentSearchResult[];
+  enableThreadContentSearch?: boolean;
 }
 
 const SEND_TO_THREAD_ERROR = "Could not send";
 const SEND_TO_THREAD_WRAP_TOOLTIP =
   "Sends the blocks, then replaces them with a collapsed toggle linking to the thread.";
+const SEND_TO_THREAD_RESULT_LIMIT = 24;
 
 function getSendToThreadRowDomId(listboxId: string, index: number) {
   return `${listboxId}-option-${index}`;
@@ -62,6 +73,20 @@ function SendToThreadStatusRow({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function renderSendToThreadPreviewSegments(
+  segments: readonly CommandPaletteHighlightSegment[],
+  keyPrefix: string,
+) {
+  return segments.map((segment, index) => (
+    <span
+      key={`${keyPrefix}:${index}`}
+      className={segment.highlight ? "rounded-[3px] bg-token-foreground/8 px-0.5 text-token-foreground" : undefined}
+    >
+      {segment.text}
+    </span>
+  ));
 }
 
 function SendToThreadModeSelector({
@@ -142,6 +167,8 @@ function SendToThreadRow({
   onAccept: (row: NfmSendToThreadRow) => void;
   onFocusRowChange: (rowId: string) => void;
 }) {
+  const preview = row.kind === "thread" ? row.searchPreview : null;
+  const hasPreview = Boolean(preview);
   return (
     <button
       id={getSendToThreadRowDomId(listboxId, index)}
@@ -152,7 +179,8 @@ function SendToThreadRow({
       data-focused={focused ? "true" : undefined}
       data-nfm-send-to-thread-row-kind={row.kind}
       className={cn(
-        "group flex h-7 w-full select-none items-center gap-1.5 rounded-[7px] px-1.5 text-left text-[14px] leading-7 outline-hidden",
+        "group flex w-full select-none gap-1.5 rounded-[7px] px-1.5 text-left text-[14px] outline-hidden",
+        hasPreview ? "min-h-9 items-start py-1" : "h-7 items-center leading-7",
         "text-token-foreground",
         disabled ? "cursor-default opacity-55" : "cursor-interaction hover:bg-token-list-hover-background",
         focused && "bg-token-list-hover-background",
@@ -165,19 +193,34 @@ function SendToThreadRow({
         onAccept(row);
       }}
     >
-      <span className="flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground">
+      <span className={cn(
+        "flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground",
+        hasPreview && "mt-0.5",
+      )}>
         {row.kind === "new-thread" ? (
           <Plus className="size-4" aria-hidden="true" />
         ) : (
           <CodexThreadIcon className="size-4" aria-hidden="true" />
         )}
       </span>
-      <span className="min-w-0 flex-1 truncate">{row.label}</span>
-      <span className="ml-1 max-w-[118px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
-        {row.meta}
+      <span className="min-w-0 flex-1">
+        <span className={cn("flex min-w-0 items-center", hasPreview ? "h-5" : "h-7")}>
+          <span className="min-w-0 flex-1 truncate">{row.label}</span>
+          <span className="ml-1 max-w-[118px] shrink truncate text-[12px] leading-4 text-token-description-foreground">
+            {row.meta}
+          </span>
+        </span>
+        {preview ? (
+          <span className="line-clamp-1 text-[12px] leading-4 wrap-break-word text-token-description-foreground/90">
+            {renderSendToThreadPreviewSegments(preview.segments, `${row.id}:preview`)}
+          </span>
+        ) : null}
       </span>
       {accepting ? (
-        <SpinnerIcon className="size-3.5 shrink-0 text-token-description-foreground" />
+        <SpinnerIcon className={cn(
+          "size-3.5 shrink-0 text-token-description-foreground",
+          hasPreview && "mt-1",
+        )} />
       ) : null}
     </button>
   );
@@ -191,12 +234,17 @@ export function NfmSendToThreadMenu({
   onClose,
   showModeSelector = true,
 }: NfmSendToThreadMenuProps) {
-  const threads = useProjectThreadSummaries(projectId ?? "");
+  const { threads, loading } = useCommandPaletteThreadItems({
+    enabled: Boolean(projectId),
+    activeProjectId: projectId ?? "",
+    refreshKey: 0,
+  });
 
   return (
     <NfmSendToThreadMenuSurface
       projectId={projectId}
-      threads={threads}
+      threadItems={threads}
+      threadItemsLoading={loading}
       projectNameById={projectNameById}
       preferredTarget={preferredTarget}
       onAccept={onAccept}
@@ -208,13 +256,16 @@ export function NfmSendToThreadMenu({
 
 export function NfmSendToThreadMenuSurface({
   projectId,
-  threads,
+  threadItems,
+  threadItemsLoading = false,
   projectNameById,
   preferredTarget = null,
   initialQuery = "",
   onAccept,
   onClose,
   showModeSelector = true,
+  threadContentSearchResults: injectedThreadContentSearchResults,
+  enableThreadContentSearch = true,
 }: NfmSendToThreadMenuSurfaceProps) {
   const listboxId = useId();
   const comboboxId = useId();
@@ -224,6 +275,23 @@ export function NfmSendToThreadMenuSurface({
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const normalizedThreadItems = useMemo(
+    () => [...threadItems],
+    [threadItems],
+  );
+  const threadSearchIndex = useCommandPaletteThreadSearchIndex(normalizedThreadItems);
+  const fetchedThreadContentSearchResults = useCommandPaletteThreadContentSearch({
+    enabled: enableThreadContentSearch && Boolean(projectId),
+    query: deferredQuery,
+  });
+  const threadContentSearchResults = injectedThreadContentSearchResults ?? fetchedThreadContentSearchResults;
+  const visibleThreads = useSelectedCommandPaletteChatResults({
+    query: deferredQuery,
+    threads: normalizedThreadItems,
+    threadSearchIndex,
+    threadContentSearchResults,
+    threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
+  });
 
   useEffect(() => {
     setQuery(initialQuery);
@@ -233,19 +301,14 @@ export function NfmSendToThreadMenuSurface({
   const rows = useMemo(
     () => {
       if (!projectId) return [];
-      const projectPreferredTarget = preferredTarget?.kind === "thread"
-        ? preferredTarget.thread.projectId === projectId
-          ? preferredTarget
-          : null
-        : preferredTarget;
       return buildNfmSendToThreadRows({
-        threads,
+        threads: visibleThreads,
         query: deferredQuery,
-        preferredTarget: projectPreferredTarget,
+        preferredTarget,
         projectNameById,
       });
     },
-    [deferredQuery, preferredTarget, projectId, projectNameById, threads],
+    [deferredQuery, preferredTarget, projectId, projectNameById, visibleThreads],
   );
   const resolvedFocusedRowId = resolveNfmSendToThreadFocusedRowId(
     focusedRowId,
@@ -383,7 +446,10 @@ export function NfmSendToThreadMenuSurface({
           {!projectId ? (
             <SendToThreadStatusRow>No project selected</SendToThreadStatusRow>
           ) : null}
-          {projectId && visibleMainRowCount === 0 ? (
+          {projectId && threadItemsLoading && visibleMainRowCount === 0 ? (
+            <SendToThreadStatusRow>Loading chats...</SendToThreadStatusRow>
+          ) : null}
+          {projectId && !threadItemsLoading && visibleMainRowCount === 0 ? (
             <SendToThreadStatusRow>{deferredQuery.trim() ? "No matching chats" : "No chats yet"}</SendToThreadStatusRow>
           ) : null}
           {acceptError ? (

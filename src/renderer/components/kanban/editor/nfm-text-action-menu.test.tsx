@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { CommandPaletteThread } from "@/lib/command-palette";
+import type { BoardSummary, CardSummary, CodexThreadSummary, Project } from "@/lib/types";
 import {
   TEXT_ACTION_RECENT_COLOR_STORAGE_KEY,
   writeTextActionRecentColors,
@@ -84,23 +85,57 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
-const SEND_TO_THREAD_THREADS = [
-  {
-    threadId: "thread-existing",
-    projectId: "default",
-    source: null,
-    threadName: "Existing implementation",
-    threadPreview: "Continue from selected notes",
+function makeSendToThreadItem(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
+  const threadId = overrides.threadId ?? "thread-existing";
+  return {
+    kind: "thread",
+    id: overrides.id ?? `thread:${threadId}`,
+    threadId,
+    sessionId: overrides.sessionId === undefined ? "session-existing" : overrides.sessionId,
+    projectId: overrides.projectId === undefined ? "default" : overrides.projectId,
+    projectName: overrides.projectName === undefined ? "Default" : overrides.projectName,
+    title: overrides.title ?? "Existing implementation",
+    preview: overrides.preview ?? "Continue from selected notes",
+    cwd: overrides.cwd ?? "/repo",
+    projectless: overrides.projectless ?? false,
+    pinned: overrides.pinned ?? false,
+    pinnedOrder: overrides.pinnedOrder ?? null,
+    statusType: overrides.statusType ?? "idle",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    createdAt: overrides.createdAt ?? 1,
+    updatedAt: overrides.updatedAt ?? 2,
+    linkedAt: overrides.linkedAt ?? "2026-01-01T00:00:00.000Z",
+    inActiveProject: overrides.inActiveProject ?? true,
+    searchPreview: overrides.searchPreview,
+    searchDecorations: overrides.searchDecorations,
+  };
+}
+
+function makePreferredThreadFromItem(
+  item: CommandPaletteThread,
+  overrides: Partial<CodexThreadSummary> = {},
+): CodexThreadSummary {
+  return {
+    threadId: overrides.threadId ?? item.threadId,
+    projectId: overrides.projectId ?? item.projectId,
+    source: overrides.source ?? null,
+    threadName: overrides.threadName ?? item.title,
+    threadPreview: overrides.threadPreview ?? item.preview,
     modelProvider: "openai",
-    cwd: "/repo",
-    statusType: "idle",
-    statusActiveFlags: [],
-    archived: false,
-    createdAt: 1,
-    updatedAt: 2,
-    linkedAt: "2026-01-01T00:00:00.000Z",
-  },
-] satisfies NfmSendToThreadMenuSurfaceProps["threads"];
+    cwd: overrides.cwd ?? item.cwd,
+    statusType: overrides.statusType ?? "idle",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    archived: overrides.archived ?? false,
+    createdAt: overrides.createdAt ?? item.createdAt,
+    updatedAt: overrides.updatedAt ?? item.updatedAt,
+    linkedAt: overrides.linkedAt ?? item.linkedAt,
+    ...(overrides.ephemeral !== undefined ? { ephemeral: overrides.ephemeral } : {}),
+  };
+}
+
+const SEND_TO_THREAD_THREADS = [
+  makeSendToThreadItem(),
+] satisfies NfmSendToThreadMenuSurfaceProps["threadItems"];
 
 function renderTextActionMenu(
   props?: Partial<NfmTextActionMenuSurfaceProps>,
@@ -292,13 +327,14 @@ describe("nfm text action menu surface", () => {
     const { actions, view } = renderTextActionMenu({
       sendToThreadPreferredTarget: {
         kind: "thread",
-        thread: existingThread,
+        thread: makePreferredThreadFromItem(existingThread),
         meta: "This session",
       },
       renderSendToThreadMenu: (props) => (
         <NfmSendToThreadMenuSurface
           {...props}
-          threads={SEND_TO_THREAD_THREADS}
+          threadItems={SEND_TO_THREAD_THREADS}
+          enableThreadContentSearch={false}
         />
       ),
     });
@@ -384,7 +420,7 @@ describe("nfm text action menu surface", () => {
       <NodexTooltipProvider>
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={[
+          threadItems={[
             {
               ...existingThread,
               updatedAt: 1,
@@ -392,17 +428,16 @@ describe("nfm text action menu surface", () => {
             {
               ...existingThread,
               threadId: "thread-newer",
-              threadName: "Recently updated",
+              id: "thread:thread-newer",
+              title: "Recently updated",
               updatedAt: 5,
             },
           ]}
+          enableThreadContentSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "thread",
-            thread: {
-              ...existingThread,
-              updatedAt: 1,
-            },
+            thread: makePreferredThreadFromItem(existingThread, { updatedAt: 1 }),
             meta: "This session",
           }}
           onAccept={() => undefined}
@@ -421,6 +456,46 @@ describe("nfm text action menu surface", () => {
     expect(options[2]?.textContent?.includes("New chat") ?? false).toBeTrue();
   });
 
+  test("selected-block picker shows a compact snippet for content-only chat matches", async () => {
+    const existingThread = SEND_TO_THREAD_THREADS[0];
+    if (!existingThread) {
+      throw new Error("missing send-to-thread fixture");
+    }
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threadItems={SEND_TO_THREAD_THREADS}
+          enableThreadContentSearch={false}
+          initialQuery="handoff"
+          threadContentSearchResults={[
+            {
+              threadId: existingThread.threadId,
+              snippet: "Review handoff notes before sending.",
+              score: 1,
+              matchKind: "fts",
+              snippetSegments: [
+                { text: "Review ", highlight: false },
+                { text: "handoff", highlight: true },
+                { text: " notes before sending.", highlight: false },
+              ],
+            },
+          ]}
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const options = view.getAllByRole("option");
+    expect(options.length).toBe(2);
+    expect(options[0]?.textContent?.includes("Existing implementation") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("Review handoff notes before sending.") ?? false).toBeTrue();
+    expect(options[1]?.textContent?.includes("New chat") ?? false).toBeTrue();
+  });
+
   test("selected-block picker displays current session new chat first when the session has no thread", async () => {
     const existingThread = SEND_TO_THREAD_THREADS[0];
     if (!existingThread) {
@@ -432,14 +507,16 @@ describe("nfm text action menu surface", () => {
       <NodexTooltipProvider>
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={[
+          threadItems={[
             {
               ...existingThread,
               threadId: "thread-newer",
-              threadName: "Recently updated",
+              id: "thread:thread-newer",
+              title: "Recently updated",
               updatedAt: 5,
             },
           ]}
+          enableThreadContentSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "new-thread",
@@ -477,13 +554,15 @@ describe("nfm text action menu surface", () => {
     const sectionThread = {
       ...existingThread,
       threadId: "thread-section",
-      threadName: "Section follow-up",
+      id: "thread:thread-section",
+      title: "Section follow-up",
       updatedAt: 1,
     };
     const sessionThread = {
       ...existingThread,
       threadId: "thread-session",
-      threadName: "Session chat",
+      id: "thread:thread-session",
+      title: "Session chat",
       updatedAt: 10,
     };
 
@@ -491,11 +570,12 @@ describe("nfm text action menu surface", () => {
       <NodexTooltipProvider>
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={[sessionThread, sectionThread]}
+          threadItems={[sessionThread, sectionThread]}
+          enableThreadContentSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "thread",
-            thread: sectionThread,
+            thread: makePreferredThreadFromItem(sectionThread),
             meta: "Current section",
           }}
           showModeSelector={false}
@@ -524,14 +604,16 @@ describe("nfm text action menu surface", () => {
       <NodexTooltipProvider>
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={[
+          threadItems={[
             {
               ...existingThread,
               threadId: "thread-session-other",
-              threadName: "Other session",
+              id: "thread:thread-session-other",
+              title: "Other session",
               updatedAt: 10,
             },
           ]}
+          enableThreadContentSearch={false}
           projectNameById={{ default: "Default" }}
           preferredTarget={{
             kind: "new-thread",
@@ -558,7 +640,8 @@ describe("nfm text action menu surface", () => {
       <NodexTooltipProvider>
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={SEND_TO_THREAD_THREADS}
+          threadItems={SEND_TO_THREAD_THREADS}
+          enableThreadContentSearch={false}
           initialQuery="nothing matches"
           onAccept={() => undefined}
           onClose={() => undefined}
@@ -580,7 +663,8 @@ describe("nfm text action menu surface", () => {
       <NodexTooltipProvider>
         <NfmSendToThreadMenuSurface
           projectId="default"
-          threads={SEND_TO_THREAD_THREADS}
+          threadItems={SEND_TO_THREAD_THREADS}
+          enableThreadContentSearch={false}
           onAccept={() => undefined}
           onClose={() => undefined}
         />
@@ -675,7 +759,8 @@ describe("nfm text action menu surface", () => {
       renderSendToThreadMenu: (props) => (
         <NfmSendToThreadMenuSurface
           {...props}
-          threads={SEND_TO_THREAD_THREADS}
+          threadItems={SEND_TO_THREAD_THREADS}
+          enableThreadContentSearch={false}
         />
       ),
       renderMoveToMenu: (props) => (

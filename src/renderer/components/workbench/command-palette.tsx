@@ -10,11 +10,11 @@ import type {
   CommandPaletteCommand,
   CommandPaletteThread,
 } from "@/lib/command-palette";
-import { invoke } from "@/lib/api";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { normalizeProjectIcon } from "@/lib/project-icon";
-import type { CommandPaletteThreadSummary, Project } from "@/lib/types";
+import type { Project } from "@/lib/types";
 import { useCommandPaletteCardSearchIndex } from "@/lib/use-command-palette-card-search-index";
+import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
 import type { RecentCardSession } from "@/lib/use-workbench-state";
 import {
@@ -111,74 +111,6 @@ function useCommandPaletteCards(
   }, [activeProjectId, recentIndexByKey, stores, version]);
 }
 
-function buildThreadItem(
-  summary: CommandPaletteThreadSummary,
-  activeProjectId: string,
-): CommandPaletteThread {
-  return {
-    kind: "thread",
-    id: `thread:${summary.threadId}`,
-    threadId: summary.threadId,
-    sessionId: summary.sessionId,
-    projectId: summary.projectId,
-    projectName: summary.projectName,
-    title: summary.title,
-    preview: summary.preview,
-    cwd: summary.cwd,
-    projectless: summary.projectless,
-    pinned: summary.pinned,
-    pinnedOrder: summary.pinnedOrder,
-    statusType: summary.statusType,
-    statusActiveFlags: summary.statusActiveFlags,
-    createdAt: summary.createdAt,
-    updatedAt: summary.updatedAt,
-    linkedAt: summary.linkedAt,
-    inActiveProject: summary.projectId !== null && summary.projectId === activeProjectId,
-  };
-}
-
-function useCommandPaletteThreads(
-  open: boolean,
-  openTriggerTick: number,
-  activeProjectId: string,
-): { threads: CommandPaletteThread[]; loading: boolean } {
-  const [state, setState] = useState<{ threads: CommandPaletteThread[]; loading: boolean }>({
-    threads: [],
-    loading: false,
-  });
-
-  useEffect(() => {
-    if (!open) {
-      setState((current) => current.threads.length === 0 && !current.loading
-        ? current
-        : { threads: [], loading: false });
-      return;
-    }
-
-    let cancelled = false;
-    setState((current) => ({ threads: current.threads, loading: true }));
-
-    void invoke("codex:threads:palette:list", { scope: "sidebar" })
-      .then((summaries) => {
-        if (cancelled) return;
-        setState({
-          threads: summaries.map((summary) => buildThreadItem(summary, activeProjectId)),
-          loading: false,
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setState({ threads: [], loading: false });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProjectId, open, openTriggerTick]);
-
-  return state;
-}
-
 export function CommandPalette({
   open,
   openTriggerTick,
@@ -195,7 +127,11 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const isMac = isMacPlatform();
   const { cards, loading } = useCommandPaletteCards(open, projects, activeProjectId, recentCardSessions);
-  const { threads, loading: threadsLoading } = useCommandPaletteThreads(open, openTriggerTick, activeProjectId);
+  const { threads, loading: threadsLoading } = useCommandPaletteThreadItems({
+    enabled: open,
+    activeProjectId,
+    refreshKey: openTriggerTick,
+  });
   const [mode, setMode] = useState<CommandMenuMode>(initialMode);
   const cardSearchIndex = useCommandPaletteCardSearchIndex(cards);
   const threadSearchIndex = useCommandPaletteThreadSearchIndex(threads);

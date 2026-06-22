@@ -1,4 +1,6 @@
 import type { CodexThreadSummary } from "@/lib/types";
+import type { CommandPaletteThread } from "@/lib/command-palette";
+import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import { normalizeSearchText } from "@/lib/search-text";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 
@@ -35,14 +37,15 @@ export interface NfmSendToThreadExistingRow {
   meta: string;
   statusLabel: string;
   isPreferredTarget: boolean;
-  thread: CodexThreadSummary;
+  searchPreview?: CommandPaletteThread["searchPreview"] | null;
+  thread: CommandPaletteThread;
   target: Extract<NfmSendToThreadTarget, { kind: "thread" }>;
 }
 
 export type NfmSendToThreadRow = NfmSendToThreadNewRow | NfmSendToThreadExistingRow;
 
 export interface NfmSendToThreadRowsInput {
-  threads: readonly CodexThreadSummary[];
+  threads: readonly CommandPaletteThread[];
   query: string;
   preferredTarget?: NfmSendToThreadPreferredTarget | null;
   projectNameById?: Readonly<Record<string, string>>;
@@ -61,7 +64,7 @@ export function resolveNfmSendToThreadTitle(thread: CodexThreadSummary): string 
     || formatThreadMentionShortUuid(thread.threadId);
 }
 
-function resolveThreadStatusLabel(thread: CodexThreadSummary): string {
+function resolveThreadStatusLabel(thread: Pick<CommandPaletteThread, "statusType" | "statusActiveFlags">): string {
   if (thread.statusType === "systemError") return "Error";
   if (thread.statusActiveFlags.includes("waitingOnApproval")) return "Approval";
   if (thread.statusActiveFlags.includes("waitingOnUserInput")) return "Waiting";
@@ -69,32 +72,14 @@ function resolveThreadStatusLabel(thread: CodexThreadSummary): string {
   return "Ready";
 }
 
-function resolveThreadProjectLabel(
-  thread: CodexThreadSummary,
-  projectNameById: Readonly<Record<string, string>>,
-): string {
-  const projectId = thread.projectId?.trim();
-  if (!projectId) return "Unscoped";
-  return projectNameById[projectId]?.trim() || projectId;
-}
-
-function threadMatchesQuery(
-  thread: CodexThreadSummary,
+function preferredThreadMatchesQuery(
+  thread: CommandPaletteThread,
   query: string,
-  projectNameById: Readonly<Record<string, string>>,
 ): boolean {
   const normalizedQuery = normalizeSearchText(query);
   if (!normalizedQuery) return true;
 
-  const haystack = normalizeSearchText([
-    thread.threadId,
-    thread.threadName ?? "",
-    thread.threadPreview,
-    thread.cwd ?? "",
-    resolveThreadProjectLabel(thread, projectNameById),
-    resolveThreadStatusLabel(thread),
-  ].join(" "));
-  return haystack.includes(normalizedQuery);
+  return createCommandPaletteThreadSearchIndex([thread]).search(normalizedQuery).length > 0;
 }
 
 function newThreadMatchesQuery(row: Pick<NfmSendToThreadNewRow, "label" | "meta" | "target">, query: string): boolean {
@@ -108,38 +93,58 @@ function newThreadMatchesQuery(row: Pick<NfmSendToThreadNewRow, "label" | "meta"
   return haystack.includes(normalizedQuery);
 }
 
-function isAvailableThread(thread: CodexThreadSummary): boolean {
-  return !thread.archived && thread.ephemeral !== true;
+function isAvailablePreferredThread(thread: CodexThreadSummary): boolean {
+  return !thread.archived && thread.ephemeral !== true && thread.source?.sideConversation !== true;
 }
 
-function mergeSendToThreadSummaries(
-  threads: readonly CodexThreadSummary[],
-  preferredTarget: NfmSendToThreadPreferredTarget | null | undefined,
-): CodexThreadSummary[] {
-  const threadsById = new Map<string, CodexThreadSummary>();
-  if (preferredTarget?.kind === "thread") {
-    threadsById.set(preferredTarget.thread.threadId, preferredTarget.thread);
-  }
-  for (const thread of threads) {
-    threadsById.set(thread.threadId, thread);
-  }
-  return [...threadsById.values()];
+function createPreferredThreadItem(
+  thread: CodexThreadSummary,
+  projectNameById: Readonly<Record<string, string>>,
+): CommandPaletteThread | null {
+  if (!isAvailablePreferredThread(thread)) return null;
+
+  const projectId = thread.projectId?.trim() || null;
+  const projectName = projectId ? projectNameById[projectId]?.trim() || projectId : null;
+  return {
+    kind: "thread",
+    id: `thread:${thread.threadId}`,
+    threadId: thread.threadId,
+    sessionId: null,
+    projectId,
+    projectName,
+    title: resolveNfmSendToThreadTitle(thread),
+    preview: thread.threadPreview,
+    cwd: thread.cwd,
+    projectless: projectId === null,
+    pinned: false,
+    pinnedOrder: null,
+    statusType: thread.statusType,
+    statusActiveFlags: thread.statusActiveFlags,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    linkedAt: thread.linkedAt,
+    inActiveProject: false,
+  };
+}
+
+function resolveThreadProjectLabel(thread: CommandPaletteThread): string {
+  return thread.projectName?.trim() || "Chats";
 }
 
 function createThreadRow(
-  thread: CodexThreadSummary,
+  thread: CommandPaletteThread,
   preferredMeta: string | null,
-  projectNameById: Readonly<Record<string, string>>,
 ): NfmSendToThreadExistingRow {
   const statusLabel = resolveThreadStatusLabel(thread);
   return {
     kind: "thread",
     id: `thread:${thread.threadId}`,
     threadId: thread.threadId,
-    label: resolveNfmSendToThreadTitle(thread),
-    meta: preferredMeta ?? resolveThreadProjectLabel(thread, projectNameById),
+    label: thread.title || "New chat",
+    meta: preferredMeta ?? resolveThreadProjectLabel(thread),
     statusLabel,
     isPreferredTarget: preferredMeta !== null,
+    searchPreview: thread.searchPreview,
     thread,
     target: {
       kind: "thread",
@@ -186,28 +191,33 @@ export function buildNfmSendToThreadRows({
   const preferredExistingThreadId = preferredTarget?.kind === "thread"
     ? preferredTarget.thread.threadId
     : null;
+  const preferredThreadFromResults = preferredExistingThreadId
+    ? threads.find((thread) => thread.threadId === preferredExistingThreadId) ?? null
+    : null;
+  const preferredThreadFallback = preferredTarget?.kind === "thread"
+    ? createPreferredThreadItem(preferredTarget.thread, projectNameById)
+    : null;
+  const preferredThread = preferredThreadFromResults ?? preferredThreadFallback;
+  const visiblePreferredThread = preferredThread && preferredThreadMatchesQuery(preferredThread, query)
+    ? preferredThread
+    : null;
   const preferredNewThreadRow = preferredTarget?.kind === "new-thread"
     ? createPreferredNewThreadRow(preferredTarget)
     : null;
   const visiblePreferredNewThreadRow = preferredNewThreadRow && newThreadMatchesQuery(preferredNewThreadRow, query)
     ? preferredNewThreadRow
     : null;
-  const threadRows = mergeSendToThreadSummaries(threads, preferredTarget)
-    .filter(isAvailableThread)
-    .filter((thread) => threadMatchesQuery(thread, query, projectNameById))
-    .sort((left, right) => {
-      const leftIsPreferred = left.threadId === preferredExistingThreadId;
-      const rightIsPreferred = right.threadId === preferredExistingThreadId;
-      if (leftIsPreferred !== rightIsPreferred) return leftIsPreferred ? -1 : 1;
-      return right.updatedAt - left.updatedAt;
-    })
-    .map((thread) => createThreadRow(
-      thread,
-      thread.threadId === preferredExistingThreadId && preferredTarget?.kind === "thread"
-        ? preferredTarget.meta
-        : null,
-      projectNameById,
-    ));
+  const threadRows = [
+    ...(visiblePreferredThread
+      ? [createThreadRow(
+        visiblePreferredThread,
+        preferredTarget?.kind === "thread" ? preferredTarget.meta : null,
+      )]
+      : []),
+    ...threads
+      .filter((thread) => thread.threadId !== visiblePreferredThread?.threadId)
+      .map((thread) => createThreadRow(thread, null)),
+  ];
 
   if (visiblePreferredNewThreadRow) {
     return [

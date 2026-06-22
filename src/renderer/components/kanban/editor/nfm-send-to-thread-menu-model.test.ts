@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { CommandPaletteThread } from "@/lib/command-palette";
+import { selectCommandPaletteChatResults } from "@/lib/command-palette-chat-search";
+import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import type { CodexThreadSummary } from "@/lib/types";
 import {
   buildNfmSendToThreadRows,
@@ -6,96 +9,177 @@ import {
   resolveNfmSendToThreadFocusedRowId,
 } from "./nfm-send-to-thread-menu-model";
 
-function makeThread(input: Partial<CodexThreadSummary> & { threadId: string }): CodexThreadSummary {
+function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
+  const threadId = overrides.threadId ?? "thread-existing";
   return {
-    threadId: input.threadId,
-    projectId: input.projectId ?? "project-1",
-    source: null,
-    threadName: input.threadName ?? null,
-    threadPreview: input.threadPreview ?? "",
-    modelProvider: "openai",
-    cwd: input.cwd ?? null,
-    statusType: input.statusType ?? "idle",
-    statusActiveFlags: input.statusActiveFlags ?? [],
-    archived: input.archived ?? false,
-    createdAt: input.createdAt ?? 0,
-    updatedAt: input.updatedAt ?? 0,
-    linkedAt: input.linkedAt ?? "2026-01-01T00:00:00.000Z",
-    ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),
+    kind: "thread",
+    id: overrides.id ?? `thread:${threadId}`,
+    threadId,
+    sessionId: overrides.sessionId === undefined ? "session-existing" : overrides.sessionId,
+    projectId: overrides.projectId === undefined ? "project-1" : overrides.projectId,
+    projectName: overrides.projectName === undefined ? "Launch project" : overrides.projectName,
+    title: overrides.title ?? "Existing implementation",
+    preview: overrides.preview ?? "Continue from selected notes",
+    cwd: overrides.cwd ?? "/repo",
+    projectless: overrides.projectless ?? false,
+    pinned: overrides.pinned ?? false,
+    pinnedOrder: overrides.pinnedOrder ?? null,
+    statusType: overrides.statusType ?? "idle",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    createdAt: overrides.createdAt ?? 0,
+    updatedAt: overrides.updatedAt ?? 0,
+    linkedAt: overrides.linkedAt ?? "2026-01-01T00:00:00.000Z",
+    inActiveProject: overrides.inActiveProject ?? true,
+    searchPreview: overrides.searchPreview,
+    searchDecorations: overrides.searchDecorations,
   };
 }
 
+function makePreferredThread(
+  overrides: Partial<CodexThreadSummary> & { threadId: string },
+): CodexThreadSummary {
+  return {
+    threadId: overrides.threadId,
+    projectId: overrides.projectId ?? "project-1",
+    source: overrides.source ?? null,
+    threadName: overrides.threadName ?? null,
+    threadPreview: overrides.threadPreview ?? "",
+    modelProvider: "openai",
+    cwd: overrides.cwd ?? null,
+    statusType: overrides.statusType ?? "idle",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    archived: overrides.archived ?? false,
+    createdAt: overrides.createdAt ?? 0,
+    updatedAt: overrides.updatedAt ?? 0,
+    linkedAt: overrides.linkedAt ?? "2026-01-01T00:00:00.000Z",
+    ...(overrides.ephemeral !== undefined ? { ephemeral: overrides.ephemeral } : {}),
+  };
+}
+
+function searchThreads(query: string, threads: CommandPaletteThread[]): CommandPaletteThread[] {
+  return selectCommandPaletteChatResults({
+    query,
+    threads,
+    threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
+    threadContentSearchResults: [],
+    threadLimit: 24,
+  });
+}
+
 describe("nfm send-to-thread menu model", () => {
-  test("keeps New chat last and filters archived or ephemeral threads", () => {
+  test("keeps New chat last and preserves command-palette thread ordering", () => {
     const rows = buildNfmSendToThreadRows({
       query: "",
       threads: [
-        makeThread({ threadId: "older", threadName: "Older", updatedAt: 1 }),
-        makeThread({ threadId: "newer", threadName: "Newer", updatedAt: 3 }),
-        makeThread({ threadId: "archived", threadName: "Archived", archived: true, updatedAt: 4 }),
-        makeThread({ threadId: "side", threadName: "Side", ephemeral: true, updatedAt: 5 }),
+        makeThread({ threadId: "newer", title: "Newer", updatedAt: 3 }),
+        makeThread({ threadId: "older", title: "Older", updatedAt: 1 }),
       ],
     });
 
-    expect(rows.length).toBe(3);
-    expect(rows[0]?.id).toBe("thread:newer");
-    expect(rows[1]?.id).toBe("thread:older");
-    expect(rows[2]?.kind).toBe("new-thread");
+    expect(rows.map((row) => row.id).join(",")).toBe("thread:newer,thread:older,new-thread");
   });
 
-  test("searches title, preview, cwd, status, and uuid", () => {
+  test("uses command-palette fuzzy and prefix search results", () => {
+    const threads = [
+      makeThread({
+        threadId: "target",
+        title: "Command palette thread search",
+        preview: "Search previous assistant messages.",
+      }),
+      makeThread({
+        threadId: "miss",
+        title: "Terminal layout polish",
+        preview: "No matching words.",
+      }),
+    ];
     const rows = buildNfmSendToThreadRows({
-      query: "approval",
-      threads: [
-        makeThread({
-          threadId: "status-hit",
-          threadName: "Needs user review",
-          statusActiveFlags: ["waitingOnApproval"],
-          updatedAt: 2,
-        }),
-        makeThread({
-          threadId: "miss",
-          threadName: "Different",
-          threadPreview: "No match",
-          updatedAt: 1,
-        }),
-      ],
+      query: "commnd pal",
+      threads: searchThreads("commnd pal", threads),
     });
 
     expect(rows.length).toBe(2);
-    expect(rows[0]?.id).toBe("thread:status-hit");
+    expect(rows[0]?.id).toBe("thread:target");
     expect(rows[1]?.kind).toBe("new-thread");
   });
 
-  test("uses the owning project label for ordinary thread row metadata", () => {
+  test("keeps content-only command-palette hits with snippets", () => {
+    const threads = [
+      makeThread({
+        threadId: "content-hit",
+        title: "General investigation",
+        preview: "",
+      }),
+    ];
+    const visibleThreads = selectCommandPaletteChatResults({
+      query: "needle",
+      threads,
+      threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
+      threadContentSearchResults: [{
+        threadId: "content-hit",
+        snippet: "backend needle snippet",
+        score: 10,
+        matchKind: "fts",
+        snippetSegments: [
+          { text: "backend ", highlight: false },
+          { text: "needle", highlight: true },
+          { text: " snippet", highlight: false },
+        ],
+      }],
+      threadLimit: 24,
+    });
+    const rows = buildNfmSendToThreadRows({
+      query: "needle",
+      threads: visibleThreads,
+    });
+
+    expect(rows[0]?.id).toBe("thread:content-hit");
+    if (rows[0]?.kind !== "thread") {
+      throw new Error("expected thread row");
+    }
+    expect(rows[0].searchPreview?.source).toBe("content");
+    expect(rows[0].searchPreview?.segments.some((segment) => segment.highlight)).toBeTrue();
+  });
+
+  test("uses project labels and projectless chat metadata", () => {
     const rows = buildNfmSendToThreadRows({
       query: "",
-      projectNameById: {
-        "project-1": "Launch project",
-      },
       threads: [
-        makeThread({ threadId: "ordinary", threadName: "Ordinary", updatedAt: 1 }),
+        makeThread({ threadId: "project", projectName: "Launch project" }),
+        makeThread({
+          threadId: "projectless",
+          sessionId: null,
+          projectId: null,
+          projectName: null,
+          projectless: true,
+          title: "Projectless chat",
+        }),
       ],
     });
 
     expect(rows[0]?.kind).toBe("thread");
-    if (rows[0]?.kind !== "thread") {
-      throw new Error("expected thread row");
+    expect(rows[1]?.kind).toBe("thread");
+    if (rows[0]?.kind !== "thread" || rows[1]?.kind !== "thread") {
+      throw new Error("expected thread rows");
     }
     expect(rows[0].meta).toBe("Launch project");
+    expect(rows[1].meta).toBe("Chats");
   });
 
-  test("pins and labels the preferred thread with caller meta when it matches the query", () => {
+  test("pins and labels the preferred thread with caller meta", () => {
     const rows = buildNfmSendToThreadRows({
       query: "",
       preferredTarget: {
         kind: "thread",
-        thread: makeThread({ threadId: "preferred", threadName: "Preferred", updatedAt: 1 }),
-        meta: "Current section",
+        thread: makePreferredThread({
+          threadId: "preferred",
+          threadName: "Stale title",
+          updatedAt: 1,
+        }),
+        meta: "This session",
       },
       threads: [
-        makeThread({ threadId: "newer", threadName: "Newer", updatedAt: 3 }),
-        makeThread({ threadId: "preferred", threadName: "Preferred", updatedAt: 1 }),
+        makeThread({ threadId: "newer", title: "Newer", updatedAt: 3 }),
+        makeThread({ threadId: "preferred", title: "Fresh title", updatedAt: 5 }),
       ],
     });
 
@@ -104,7 +188,8 @@ describe("nfm send-to-thread menu model", () => {
     if (rows[0]?.kind !== "thread") {
       throw new Error("expected preferred thread row");
     }
-    expect(rows[0].meta).toBe("Current section");
+    expect(rows[0].label).toBe("Fresh title");
+    expect(rows[0].meta).toBe("This session");
     expect(rows[0].isPreferredTarget).toBeTrue();
     expect(rows[1]?.id).toBe("thread:newer");
     expect(rows[2]?.kind).toBe("new-thread");
@@ -119,8 +204,8 @@ describe("nfm send-to-thread menu model", () => {
         meta: "This session",
       },
       threads: [
-        makeThread({ threadId: "newer", threadName: "Newer", updatedAt: 3 }),
-        makeThread({ threadId: "older", threadName: "Older", updatedAt: 1 }),
+        makeThread({ threadId: "newer", title: "Newer", updatedAt: 3 }),
+        makeThread({ threadId: "older", title: "Older", updatedAt: 1 }),
       ],
     });
 
@@ -146,9 +231,7 @@ describe("nfm send-to-thread menu model", () => {
         sessionId: "session-current",
         meta: "This session",
       },
-      threads: [
-        makeThread({ threadId: "other", threadName: "Other task", updatedAt: 1 }),
-      ],
+      threads: [],
     });
 
     expect(rows.length).toBe(1);
@@ -161,71 +244,39 @@ describe("nfm send-to-thread menu model", () => {
     expect(rows[0].target.sessionId ?? "").toBe("");
   });
 
-  test("uses thread summaries over preferred fallback without duplicating rows", () => {
-    const rows = buildNfmSendToThreadRows({
-      query: "",
-      preferredTarget: {
-        kind: "thread",
-        thread: makeThread({ threadId: "preferred", threadName: "Stale title", updatedAt: 1 }),
-        meta: "This session",
-      },
-      threads: [
-        makeThread({ threadId: "preferred", threadName: "Fresh title", updatedAt: 5 }),
-      ],
-    });
+  test("does not pin unavailable preferred threads", () => {
+    const unavailablePreferredThreads = [
+      makePreferredThread({ threadId: "archived", threadName: "Archived", archived: true }),
+      makePreferredThread({ threadId: "ephemeral", threadName: "Ephemeral", ephemeral: true }),
+      makePreferredThread({
+        threadId: "side",
+        threadName: "Side",
+        source: { parentThreadId: "parent", sideConversation: true },
+      }),
+    ];
 
-    expect(rows.length).toBe(2);
-    expect(rows[0]?.id).toBe("thread:preferred");
-    if (rows[0]?.kind !== "thread") {
-      throw new Error("expected thread row");
+    for (const thread of unavailablePreferredThreads) {
+      const rows = buildNfmSendToThreadRows({
+        query: "",
+        preferredTarget: {
+          kind: "thread",
+          thread,
+          meta: "Current section",
+        },
+        threads: [
+          makeThread({ threadId: "other", title: "Other", updatedAt: 1 }),
+        ],
+      });
+
+      expect(rows.map((row) => row.id).join(",")).toBe("thread:other,new-thread");
     }
-    expect(rows[0].label).toBe("Fresh title");
-    expect(rows[0].meta).toBe("This session");
-    expect(rows[1]?.kind).toBe("new-thread");
-  });
-
-  test("does not force the preferred thread into unrelated search results", () => {
-    const rows = buildNfmSendToThreadRows({
-      query: "other",
-      preferredTarget: {
-        kind: "thread",
-        thread: makeThread({ threadId: "preferred", threadName: "Preferred", updatedAt: 10 }),
-        meta: "This session",
-      },
-      threads: [
-        makeThread({ threadId: "preferred", threadName: "Preferred", updatedAt: 10 }),
-        makeThread({ threadId: "other", threadName: "Other task", updatedAt: 1 }),
-      ],
-    });
-
-    expect(rows.length).toBe(2);
-    expect(rows[0]?.id).toBe("thread:other");
-    expect(rows[1]?.kind).toBe("new-thread");
-  });
-
-  test("does not pin archived or ephemeral preferred threads", () => {
-    const rows = buildNfmSendToThreadRows({
-      query: "",
-      preferredTarget: {
-        kind: "thread",
-        thread: makeThread({ threadId: "preferred", threadName: "Preferred", archived: true, updatedAt: 10 }),
-        meta: "Current section",
-      },
-      threads: [
-        makeThread({ threadId: "preferred", threadName: "Preferred", archived: true, updatedAt: 10 }),
-        makeThread({ threadId: "ephemeral", threadName: "Ephemeral", ephemeral: true, updatedAt: 9 }),
-        makeThread({ threadId: "other", threadName: "Other", updatedAt: 1 }),
-      ],
-    });
-
-    expect(rows.map((row) => row.id).join(",")).toBe("thread:other,new-thread");
   });
 
   test("focus starts on a matching existing thread for search and wraps during keyboard movement", () => {
     const rows = buildNfmSendToThreadRows({
       query: "build",
       threads: [
-        makeThread({ threadId: "build-thread", threadName: "Build flow", updatedAt: 1 }),
+        makeThread({ threadId: "build-thread", title: "Build flow", updatedAt: 1 }),
       ],
     });
 
