@@ -54,7 +54,7 @@ function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): Workben
     onRequestCommandPalette: () => {},
     onRequestProjectPicker: () => {},
     onRequestTaskSearch: () => {},
-    onRequestThreadSearch: () => {},
+    onRequestContentSearch: () => {},
     onRequestSettingsToggle: () => {},
     onRequestKeyboardShortcuts: () => {},
     ...overrides,
@@ -443,13 +443,15 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBeFalse();
   });
 
-  test("Cmd+F opens thread search when the Threads stage is focused", () => {
-    let threadSearchProjectId: string | null = null;
+  test("Cmd+F opens content search in conversation mode when the Threads stage is focused", () => {
+    let contentSearchProjectId: string | null = null;
+    let contentSearchDomain: string | undefined;
     let taskSearchCalled = false;
     const actions = makeActions({
       focusedStage: "threads",
-      onRequestThreadSearch: (projectId) => {
-        threadSearchProjectId = projectId;
+      onRequestContentSearch: (projectId, preferredDomain) => {
+        contentSearchProjectId = projectId;
+        contentSearchDomain = preferredDomain;
       },
       onRequestTaskSearch: () => {
         taskSearchCalled = true;
@@ -470,17 +472,20 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBeTrue();
-    expect(threadSearchProjectId).toBe("a");
+    expect(contentSearchProjectId).toBe("a");
+    expect(contentSearchDomain).toBe("conversation");
     expect(taskSearchCalled).toBeFalse();
   });
 
-  test("Cmd+F opens diff search when the Diffs stage is focused", () => {
-    let diffSearchProjectId: string | null = null;
+  test("Cmd+F opens content search in diff mode when the Diffs stage is focused", () => {
+    let contentSearchProjectId: string | null = null;
+    let contentSearchDomain: string | undefined;
     let taskSearchCalled = false;
     const actions = makeActions({
       focusedStage: "files",
-      onRequestDiffSearch: (projectId) => {
-        diffSearchProjectId = projectId;
+      onRequestContentSearch: (projectId, preferredDomain) => {
+        contentSearchProjectId = projectId;
+        contentSearchDomain = preferredDomain;
       },
       onRequestTaskSearch: () => {
         taskSearchCalled = true;
@@ -501,7 +506,8 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBeTrue();
-    expect(diffSearchProjectId).toBe("a");
+    expect(contentSearchProjectId).toBe("a");
+    expect(contentSearchDomain).toBe("diff");
     expect(taskSearchCalled).toBeFalse();
   });
 

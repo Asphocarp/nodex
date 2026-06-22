@@ -1,7 +1,6 @@
 import {
   startTransition,
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -9,11 +8,20 @@ import {
 } from "react";
 import {
   CheckmarkIcon,
-  ChevronDownIcon,
   RefreshIcon,
-  SearchIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
+import {
+  useRegisterContentSearchSource,
+  type ContentSearchLocalMatch,
+  type ContentSearchLocalSource,
+} from "@/features/content-search/content-search-context";
+import {
+  CONTENT_SEARCH_ACTIVE_MARK_CLASS,
+  CONTENT_SEARCH_MARK_CLASS,
+  applyContentSearchDomMarks,
+  clearContentSearchMarks,
+} from "@/features/content-search/content-search-dom";
 import {
   readSkipForkFromOlderTurnConfirm,
   writeSkipForkFromOlderTurnConfirm,
@@ -46,7 +54,6 @@ import {
 import { LocalConversationResumeLoader } from "./shared/local-conversation-resume-loader";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
 import { createLocalConversationSearchSource } from "./local-conversation-search-source";
-import { applyThreadSearchDomMarks } from "./local-conversation-thread-search-dom-marks";
 
 const PROGRESS_PHASES = [
   { key: "creatingWorktree", label: "Worktree" },
@@ -55,6 +62,41 @@ const PROGRESS_PHASES = [
 ] as const;
 
 const DEFER_TURN_COUNT_THRESHOLD = 40;
+
+function countNeedleOccurrences(text: string, normalizedQuery: string): number {
+  if (!normalizedQuery) return 0;
+  const haystack = text.toLowerCase();
+  let count = 0;
+  let cursor = 0;
+  while (cursor < haystack.length) {
+    const index = haystack.indexOf(normalizedQuery, cursor);
+    if (index === -1) break;
+    count += 1;
+    cursor = index + normalizedQuery.length;
+  }
+  return count;
+}
+
+function escapeAttributeSelectorValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+function isConversationSearchMatchMeta(
+  value: unknown,
+): value is { unitKey: string; turnId: string; occurrenceIndex: number } {
+  if (!value || typeof value !== "object") return false;
+  const meta = value as { unitKey?: unknown; turnId?: unknown; occurrenceIndex?: unknown };
+  return typeof meta.unitKey === "string"
+    && typeof meta.turnId === "string"
+    && typeof meta.occurrenceIndex === "number";
+}
+
 function resolvePhaseIndex(
   phase:
     | "creatingWorktree"
@@ -209,7 +251,6 @@ export function LocalConversationThreadBodyOwner({
   statusType,
   parentTurns,
   projectWorkspacePath,
-  searchOpenTick,
   threadStartProgress,
   actions,
   onErrorMessage,
@@ -221,14 +262,8 @@ export function LocalConversationThreadBodyOwner({
     setScrollMode,
   } = useLocalConversationThreadScrollController();
   const setupProgressLogRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const lastHandledSearchOpenTickRef = useRef(searchOpenTick);
   const contentRootRef = useRef<HTMLDivElement | null>(null);
   const listApiRef = useRef<LocalConversationVirtualizedTurnListApi | null>(null);
-  const [isSearchVisible, setIsSearchVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const deferredSearchQuery = useDeferredValue(searchQuery);
-  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [collapsedAgentBodyByTurnId, setCollapsedAgentBodyByTurnId] = useState<
     Record<string, boolean>
   >(() => initialUiState?.collapsedAgentBodyByTurnId ?? {});
@@ -245,9 +280,6 @@ export function LocalConversationThreadBodyOwner({
       body.turnCount < DEFER_TURN_COUNT_THRESHOLD ||
       body.emptyState.type !== "none",
   );
-  const matchedSearchUnitKeysRef = useRef<ReadonlySet<string>>(new Set());
-  const matchedTurnKeysRef = useRef<ReadonlySet<string>>(new Set());
-  const activeSearchUnitKeyRef = useRef<string | null>(null);
   const conversation = useMemo(
     () =>
       threadId
@@ -376,38 +408,13 @@ export function LocalConversationThreadBodyOwner({
   }, [body.threadId, maybeStickToBottom, setScrollMode]);
 
   useEffect(() => {
-    setIsSearchVisible(false);
-    setSearchQuery("");
-    setActiveMatchIndex(0);
+    clearContentSearchMarks(contentRootRef.current);
     setCollapsedAgentBodyByTurnId(
       initialUiState?.collapsedAgentBodyByTurnId ?? {},
     );
     setForkDialogState(null);
     setIsForkSubmitting(false);
   }, [body.threadId, initialUiState?.collapsedAgentBodyByTurnId]);
-
-  useEffect(() => {
-    const shouldOpenSearch =
-      searchOpenTick > 0 &&
-      searchOpenTick !== lastHandledSearchOpenTickRef.current &&
-      body.turnCount > 0 &&
-      !body.showThreadStartProgressPanel &&
-      body.emptyState.type === "none";
-
-    if (!shouldOpenSearch) return;
-
-    lastHandledSearchOpenTickRef.current = searchOpenTick;
-    setIsSearchVisible(true);
-    requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-    });
-  }, [
-    body.emptyState.type,
-    body.showThreadStartProgressPanel,
-    body.turnCount,
-    searchOpenTick,
-  ]);
 
   useEffect(() => {
     if (!body.showThreadStartProgressPanel) return;
@@ -463,108 +470,75 @@ export function LocalConversationThreadBodyOwner({
     [],
   );
 
-  const syncSearchMarks = useCallback(() => {
-    const root = contentRootRef.current;
-    if (!root) return;
-    applyThreadSearchDomMarks({
-      root,
-      matchedSearchUnitKeys: matchedSearchUnitKeysRef.current,
-      matchedTurnKeys: matchedTurnKeysRef.current,
-      activeSearchUnitKey: activeSearchUnitKeyRef.current,
-    });
-  }, []);
+  const contentSearchSource = useMemo<ContentSearchLocalSource>(() => ({
+    domain: "conversation",
+    contextId: searchSource.routeContextId,
+    search(query, limit) {
+      const normalizedQuery = query.trim().toLowerCase();
+      if (!normalizedQuery) {
+        return { query, matches: [], totalMatches: 0, capped: false };
+      }
 
-  const normalizedSearchQuery = deferredSearchQuery.trim().toLowerCase();
-  const matchedSearchUnits = useMemo(
-    () => searchSource.findMatches(normalizedSearchQuery),
-    [normalizedSearchQuery, searchSource],
-  );
-  const matchedSearchUnitKeys = useMemo(
-    () => new Set(matchedSearchUnits.map((unit) => unit.key)),
-    [matchedSearchUnits],
-  );
-  const matchedTurnKeys = useMemo(
-    () =>
-      new Set(
-        matchedSearchUnits.flatMap((unit) => {
-          const turnKey = turnKeyByTurnId.get(unit.turnId);
-          return turnKey ? [turnKey] : [];
-        }),
-      ),
-    [matchedSearchUnits, turnKeyByTurnId],
-  );
-  const activeSearchUnitKey =
-    matchedSearchUnits[activeMatchIndex]?.key ?? null;
+      const matches: ContentSearchLocalMatch[] = [];
+      let capped = false;
+      for (const unit of searchSource.findMatches(normalizedQuery)) {
+        const occurrenceCount = countNeedleOccurrences(unit.text, normalizedQuery);
+        for (let occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex += 1) {
+          if (matches.length >= limit) {
+            capped = true;
+            break;
+          }
+          matches.push({
+            id: `conversation:${unit.key}:${occurrenceIndex}`,
+            domain: "conversation",
+            contextId: searchSource.routeContextId,
+            ordinal: matches.length,
+            label: unit.text,
+            meta: {
+              unitKey: unit.key,
+              turnId: unit.turnId,
+              occurrenceIndex,
+            },
+          });
+        }
+        if (capped) break;
+      }
 
-  useEffect(() => {
-    matchedSearchUnitKeysRef.current = matchedSearchUnitKeys;
-    matchedTurnKeysRef.current = matchedTurnKeys;
-    activeSearchUnitKeyRef.current = activeSearchUnitKey;
-    syncSearchMarks();
-  }, [
-    activeSearchUnitKey,
-    matchedSearchUnitKeys,
-    matchedTurnKeys,
-    syncSearchMarks,
-  ]);
-
-  useEffect(() => {
-    const root = contentRootRef.current;
-    if (!root || typeof MutationObserver === "undefined") {
-      return;
-    }
-
-    const observer = new MutationObserver(() => {
-      syncSearchMarks();
-    });
-    observer.observe(root, {
-      childList: true,
-      subtree: true,
-    });
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [body.threadId, syncSearchMarks]);
-
-  useEffect(() => {
-    if (matchedSearchUnits.length === 0) {
-      setActiveMatchIndex(0);
-      return;
-    }
-    setActiveMatchIndex((current) =>
-      Math.min(current, matchedSearchUnits.length - 1),
-    );
-  }, [matchedSearchUnits]);
-
-  useEffect(() => {
-    if (matchedSearchUnits.length === 0) return;
-    const targetUnit = matchedSearchUnits[activeMatchIndex];
-    if (!targetUnit) return;
-    const turnKey = turnKeyByTurnId.get(targetUnit.turnId);
-    if (!turnKey) return;
-    void searchSource.scrollAdapter.scrollToTurn(turnKey);
-  }, [activeMatchIndex, matchedSearchUnits, searchSource, turnKeyByTurnId]);
-
-  const handleStepSearchMatch = useCallback(
-    (direction: "previous" | "next") => {
-      if (matchedSearchUnits.length === 0) return;
-      setActiveMatchIndex((current) => {
-        const delta = direction === "next" ? 1 : -1;
-        return (
-          (current + delta + matchedSearchUnits.length) %
-          matchedSearchUnits.length
-        );
-      });
+      return {
+        query,
+        matches,
+        totalMatches: matches.length,
+        capped,
+      };
     },
-    [matchedSearchUnits.length],
-  );
+    async activate(match, query) {
+      if (!isConversationSearchMatchMeta(match.meta)) return;
+      const turnKey = turnKeyByTurnId.get(match.meta.turnId);
+      if (turnKey) {
+        await searchSource.scrollAdapter.scrollToTurn(turnKey);
+        await nextAnimationFrame();
+      }
 
-  const closeSearch = useCallback(() => {
-    setIsSearchVisible(false);
-    setSearchQuery("");
-    setActiveMatchIndex(0);
-  }, []);
+      const root = contentRootRef.current;
+      if (!root) return;
+      const result = applyContentSearchDomMarks({
+        root,
+        query,
+        idPrefix: "content-search:conversation",
+      });
+      const unitSelector = `[data-content-search-unit-key="${escapeAttributeSelectorValue(match.meta.unitKey)}"]`;
+      const unitElement = root.querySelector<HTMLElement>(unitSelector);
+      const unitMarks = Array.from(unitElement?.querySelectorAll<HTMLElement>(`mark.${CONTENT_SEARCH_MARK_CLASS}`) ?? []);
+      const activeElement = unitMarks[match.meta.occurrenceIndex] ?? unitMarks[0] ?? result.matches[0]?.element ?? null;
+      if (!activeElement) return;
+      activeElement.classList.add(CONTENT_SEARCH_ACTIVE_MARK_CLASS);
+      activeElement.scrollIntoView({ block: "center", inline: "nearest" });
+    },
+    clear() {
+      clearContentSearchMarks(contentRootRef.current);
+    },
+  }), [searchSource, turnKeyByTurnId]);
+  useRegisterContentSearchSource(contentSearchSource);
 
   const handleEditLastUserTurn = useCallback(
     async (input: { threadId: string; turnId: string; message: string }) => {
@@ -644,11 +618,6 @@ export function LocalConversationThreadBodyOwner({
     }
   }, [actions, isRestoringArchivedThread, onErrorMessage, projectId, threadId]);
 
-  const showThreadSearch =
-    isSearchVisible &&
-    body.turnCount > 0 &&
-    !body.showThreadStartProgressPanel &&
-    body.emptyState.type === "none";
   const shouldRenderAboveComposerPortal =
     aboveComposerBlocks.length > 0 && body.activeTurnId !== null;
 
@@ -734,52 +703,6 @@ export function LocalConversationThreadBodyOwner({
             data-thread-find-target="conversation"
             className={LOCAL_CONVERSATION_CONTENT_CLASS_NAME}
           >
-            {showThreadSearch ? (
-              <div className="sticky top-0 z-10 -mt-1 mb-3 flex items-center gap-2 rounded-2xl border border-[color-mix(in_srgb,var(--border)_78%,transparent)] bg-token-input-background/80 px-3 py-2 backdrop-blur-sm">
-                <SearchIcon className="text-token-description-foreground" />
-                <input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Escape") return;
-                    event.preventDefault();
-                    closeSearch();
-                  }}
-                  placeholder="Find in thread"
-                  aria-label="Find in thread"
-                  className="min-w-0 flex-1 bg-transparent text-size-chat text-token-foreground outline-none placeholder:text-token-description-foreground"
-                />
-                {matchedSearchUnits.length > 0 ? (
-                  <div className="flex items-center gap-1.5 text-size-chat-sm text-token-description-foreground">
-                    <span>
-                      {activeMatchIndex + 1}/{matchedSearchUnits.length}
-                    </span>
-                    <button
-                      type="button"
-                      className="rounded-full p-1 hover:bg-token-foreground/5"
-                      onClick={() => handleStepSearchMatch("previous")}
-                      aria-label="Previous match"
-                    >
-                      <ChevronDownIcon className="rotate-90" />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-full p-1 hover:bg-token-foreground/5"
-                      onClick={() => handleStepSearchMatch("next")}
-                      aria-label="Next match"
-                    >
-                      <ChevronDownIcon className="-rotate-90" />
-                    </button>
-                  </div>
-                ) : normalizedSearchQuery ? (
-                  <div className="text-size-chat-sm text-token-description-foreground">
-                    No matches
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
             {isDeferredBodyReady ? (
               <LocalConversationVirtualizedTurnList
                 entries={virtualizedEntries}

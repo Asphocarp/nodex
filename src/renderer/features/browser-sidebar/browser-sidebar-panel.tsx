@@ -65,6 +65,7 @@ import {
 } from "./browser-sidebar-ui-model";
 import type { ProjectSession, ProjectSessionTab } from "@/lib/types";
 import { invoke } from "@/lib/api";
+import { useRegisterContentSearchBrowserTarget } from "@/features/content-search/content-search-context";
 import {
   RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
   RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE,
@@ -132,11 +133,13 @@ export function BrowserSidebarPanel({
   activeSession,
   onRefreshSessions,
   boundsSyncTrigger,
+  activeForContentSearch = false,
 }: {
   tab: BrowserTab;
   activeSession: ProjectSession;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   boundsSyncTrigger?: MotionValue<number>;
+  activeForContentSearch?: boolean;
 }) {
   const browserRuntimeAvailable = typeof window !== "undefined" && Boolean(window.api);
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
@@ -163,6 +166,16 @@ export function BrowserSidebarPanel({
   const command = useCallback(async (input: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> => {
     return invoke("browser-sidebar-command", input) as Promise<BrowserSidebarCommandResult>;
   }, []);
+  const contentSearchBrowserTarget = useMemo(() => {
+    if (!activeForContentSearch || pageActionsDisabled) return null;
+    return {
+      tabId: tab.id,
+      available: snapshot.hasBrowserPage && !isBlank,
+      findState: snapshot.findState,
+      command,
+    };
+  }, [activeForContentSearch, command, isBlank, pageActionsDisabled, snapshot.findState, snapshot.hasBrowserPage, tab.id]);
+  useRegisterContentSearchBrowserTarget(contentSearchBrowserTarget);
 
   useEffect(() => {
     if (!browserRuntimeAvailable) return undefined;

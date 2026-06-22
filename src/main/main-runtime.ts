@@ -59,8 +59,10 @@ import {
   CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
+  WORKBENCH_CONTENT_SEARCH_COMMAND,
   WORKBENCH_THREAD_RENAME_COMMAND,
   WORKBENCH_SIDEBAR_TOGGLE_COMMAND,
+  type WorkbenchContentSearchHostChannel,
   type WorkbenchPanelTabCloseHostChannel,
   type WorkbenchPanelTabCycleHostChannel,
   type WorkbenchThreadRenameHostChannel,
@@ -291,6 +293,7 @@ function configureMacWindowMenus(): void {
       | WorkbenchNavigationHostChannel
       | WorkbenchSidebarToggleHostChannel
       | WorkbenchThreadRenameHostChannel
+      | WorkbenchContentSearchHostChannel
       | WorkbenchPanelTabCycleHostChannel
       | WorkbenchPanelTabCloseHostChannel,
   ) => {
@@ -350,6 +353,17 @@ function configureMacWindowMenus(): void {
           accelerator: menuAccelerator("navigateForward", "CommandOrControl+]"),
           click: () => {
             sendNavigationMessage(NAVIGATE_FORWARD_HOST_CHANNEL);
+          },
+        },
+        { type: "separator" },
+        {
+          label: WORKBENCH_CONTENT_SEARCH_COMMAND.label,
+          accelerator: menuAccelerator(
+            WORKBENCH_CONTENT_SEARCH_COMMAND.id,
+            "CommandOrControl+F",
+          ),
+          click: () => {
+            sendNavigationMessage(WORKBENCH_CONTENT_SEARCH_COMMAND.hostChannel);
           },
         },
         { type: "separator" },

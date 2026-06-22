@@ -36,7 +36,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |
 | `⌘/Ctrl+Shift+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
 | `⌘/Ctrl+Shift+W` | Close app window | Electron desktop only; kept distinct from `⌘/Ctrl+W` close-panel-tab |
-| `⌘/Ctrl+F` | Find in active thread, review, or DB surface | In Threads, opens `Find in thread`; in Reviews, opens `Find in review`; otherwise opens the active DB surface task search. Thread and review search can open even when focus is inside their content |
+| `⌘/Ctrl+F` | Content search or DB search | In Threads, opens the floating content search in chat mode; in Reviews, opens it in diff mode; with an active Browser tab it can search the page; in DB surfaces it keeps opening the DB task search. When the floating input is focused, repeating the shortcut cycles chat -> diff -> browser when available |
 | `⌘/Ctrl+L` | Focus browser address bar | Focuses and selects the active Browser tab address field when one is mounted |
 
 ## Project Session Panels

@@ -19,6 +19,17 @@ import {
 } from "../ui/dropdown";
 import { toast } from "../ui/toast";
 import {
+  useRegisterContentSearchSource,
+  type ContentSearchLocalMatch,
+  type ContentSearchLocalSource,
+} from "@/features/content-search/content-search-context";
+import {
+  CONTENT_SEARCH_ACTIVE_MARK_CLASS,
+  CONTENT_SEARCH_MARK_CLASS,
+  applyContentSearchDomMarks,
+  clearContentSearchMarks,
+} from "@/features/content-search/content-search-dom";
+import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
   getNodexDiffOptions,
@@ -26,7 +37,6 @@ import {
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
   buildReviewRenderPlan,
-  buildReviewSearchMatches,
   filterReviewFiles,
   buildReviewVisibleFiles,
   getReviewContainIntrinsicSize,
@@ -35,7 +45,6 @@ import {
   isReviewLargeDiff,
   resolveReviewSelectedPath,
   REVIEW_CAPPED_MATCH_PAGE_SIZE,
-  type ReviewSearchMatch,
 } from "@/lib/review-diff-model";
 import {
   buildReviewFileTreeDefaultExpandedPaths,
@@ -72,7 +81,6 @@ import type {
   CodexTurnDiffReviewTarget,
   GitReviewFileContents,
   GitReviewFileStatus,
-  GitReviewSearchResult,
   GitReviewSnapshot,
   GitReviewSource,
   ReviewDiffResult,
@@ -180,6 +188,45 @@ const DEFAULT_REVIEW_DIFF_PANEL_DEPS: ReviewDiffPanelDeps = {
   FileDiff: defaultFileDiff,
   MultiFileDiff: defaultMultiFileDiff,
 };
+
+function countReviewOccurrences(entry: ReviewFileEntry, query: string, fullContents: GitReviewFileContents | null): number {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return 0;
+  const haystacks = [
+    entry.displayPath,
+    entry.patchText,
+    fullContents?.oldText ?? "",
+    fullContents?.newText ?? "",
+  ];
+  let total = 0;
+  for (const value of haystacks) {
+    const haystack = value.toLowerCase();
+    let cursor = 0;
+    while (cursor < haystack.length) {
+      const index = haystack.indexOf(normalizedQuery, cursor);
+      if (index === -1) break;
+      total += 1;
+      cursor = index + normalizedQuery.length;
+    }
+  }
+  return total;
+}
+
+function escapeAttributeSelectorValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+function isReviewSearchMatchMeta(value: unknown): value is { path: string; occurrenceIndex: number } {
+  if (!value || typeof value !== "object") return false;
+  const meta = value as { path?: unknown; occurrenceIndex?: unknown };
+  return typeof meta.path === "string" && typeof meta.occurrenceIndex === "number";
+}
 
 const SOURCE_LABELS: Record<ReviewSource, string> = {
   "selected-turn": "Selected turn",
@@ -1107,7 +1154,6 @@ export function ReviewDiffPanel({
   selectedTurnDiff = null,
   initialSource = "last-turn",
   initialFileTreeOpen = false,
-  searchOpenTick = 0,
   deps,
 }: ReviewDiffPanelProps) {
   const resolvedDeps = {
@@ -1116,8 +1162,7 @@ export function ReviewDiffPanel({
   };
   const { invoke, parsePatchFiles } = resolvedDeps;
   const { opener } = useFileLinkOpener();
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const lastHandledSearchOpenTickRef = useRef(searchOpenTick);
+  const reviewContentRootRef = useRef<HTMLDivElement | null>(null);
   const [source, setSource] = useState<ReviewSource>(initialSource);
   const [diffMode, setDiffMode] = useState<ReviewDiffMode>("unified");
   const [hideWhitespace, setHideWhitespace] = useState(false);
@@ -1127,20 +1172,16 @@ export function ReviewDiffPanel({
   const deferredFileFilter = useDeferredValue(fileFilter);
   const deferredJumpToFileQuery = useDeferredValue(jumpToFileQuery);
   const [expandedDirectoryPaths, setExpandedDirectoryPaths] = useState<Set<string>>(new Set());
-  const [isSearchVisible, setIsSearchVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedTreeItemId, setSelectedTreeItemId] = useState<string | null>(null);
   const [focusedTreeItemId, setFocusedTreeItemId] = useState<string | null>(null);
   const [gitSnapshot, setGitSnapshot] = useState<GitReviewSnapshot | ReviewDiffResult | null>(null);
-  const [reviewSearchResult, setReviewSearchResult] = useState<GitReviewSearchResult | null>(null);
   const [gitLoadStatus, setGitLoadStatus] = useState<GitReviewLoadStatus>("idle");
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [fullContentsByPath, setFullContentsByPath] = useState<Record<string, GitReviewFileContents>>({});
   const [fullContentsLoadingPaths, setFullContentsLoadingPaths] = useState<Record<string, boolean>>({});
   const gitLoadRequestIdRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const [visibleSearchMatchCount, setVisibleSearchMatchCount] = useState(REVIEW_CAPPED_MATCH_PAGE_SIZE);
   const gitLoading = gitLoadStatus === "loading";
   const wrap = false;
   const wordDiffsEnabled = false;
@@ -1154,23 +1195,8 @@ export function ReviewDiffPanel({
     : (projectWorkspacePath ?? conversation?.cwd ?? null);
 
   useEffect(() => {
-    setIsSearchVisible(false);
-    setSearchQuery("");
-    lastHandledSearchOpenTickRef.current = searchOpenTick;
+    clearContentSearchMarks(reviewContentRootRef.current);
   }, [conversation?.threadId]);
-
-  useEffect(() => {
-    if (searchOpenTick <= 0 || searchOpenTick === lastHandledSearchOpenTickRef.current) {
-      return;
-    }
-
-    lastHandledSearchOpenTickRef.current = searchOpenTick;
-    setIsSearchVisible(true);
-    requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-    });
-  }, [searchOpenTick]);
 
   useEffect(() => {
     if (!selectedTurnDiff) {
@@ -1221,30 +1247,6 @@ export function ReviewDiffPanel({
       previousPath: entry.previousPath,
       baseRef: gitSnapshot?.baseRef ?? null,
     }) as Promise<GitReviewFileContents>;
-  };
-
-  const runReviewSearch = async (query: string): Promise<GitReviewSearchResult> => {
-    if (isTranscriptReviewSource(source)) {
-      return {
-        query,
-        matchingPaths: [],
-      };
-    }
-
-    const normalizedCwd = reviewCwd?.trim() ?? "";
-    if (!normalizedCwd) {
-      return {
-        query,
-        matchingPaths: [],
-      };
-    }
-
-    return invoke("git:review:search", {
-      cwd: normalizedCwd,
-      source,
-      query,
-      baseRef: gitSnapshot?.baseRef ?? null,
-    }) as Promise<GitReviewSearchResult>;
   };
 
   useEffect(() => {
@@ -1347,76 +1349,13 @@ export function ReviewDiffPanel({
   useEffect(() => {
     setFullContentsByPath({});
     setFullContentsLoadingPaths({});
-    setReviewSearchResult(null);
+    clearContentSearchMarks(reviewContentRootRef.current);
   }, [snapshot.patch, source]);
-
-  const effectiveSearchQuery = isSearchVisible ? searchQuery : "";
-
-  useEffect(() => {
-    setVisibleSearchMatchCount(REVIEW_CAPPED_MATCH_PAGE_SIZE);
-  }, [deferredFileFilter, effectiveSearchQuery, snapshot.patch, source]);
-
-  useEffect(() => {
-    if (isTranscriptReviewSource(source)) {
-      setReviewSearchResult(null);
-      return;
-    }
-
-    const normalizedQuery = effectiveSearchQuery.trim();
-    if (normalizedQuery.length === 0) {
-      setReviewSearchResult(null);
-      return;
-    }
-
-    let cancelled = false;
-    void runReviewSearch(normalizedQuery)
-      .then((result) => {
-        if (cancelled) return;
-        setReviewSearchResult(result);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setReviewSearchResult({
-          query: normalizedQuery,
-          matchingPaths: [],
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [effectiveSearchQuery, gitSnapshot?.baseRef, reviewCwd, source]);
 
   const filteredFiles = useMemo(
     () => filterReviewFiles(snapshot.files, deferredFileFilter),
     [deferredFileFilter, snapshot.files],
   );
-
-  const reviewSearchMatches = useMemo<ReviewSearchMatch[]>(() => {
-    return buildReviewSearchMatches(snapshot.files, effectiveSearchQuery, fullContentsByPath);
-  }, [effectiveSearchQuery, fullContentsByPath, snapshot.files]);
-  const reviewSearchMatchCount = effectiveSearchQuery.trim().length === 0
-    ? 0
-    : isTranscriptReviewSource(source)
-      ? reviewSearchMatches.length
-      : (reviewSearchResult?.matchingPaths.length ?? 0);
-
-  const searchMatchPaths = useMemo(() => {
-    const normalizedQuery = effectiveSearchQuery.trim();
-    if (normalizedQuery.length === 0) return null;
-
-    if (isTranscriptReviewSource(source)) {
-      return new Set(reviewSearchMatches.map((match) => match.path));
-    }
-
-    if (!reviewSearchResult) return new Set<string>();
-    return new Set(reviewSearchResult.matchingPaths);
-  }, [effectiveSearchQuery, reviewSearchMatches, reviewSearchResult, source]);
-
-  const searchFilteredFiles = useMemo(() => {
-    if (!searchMatchPaths) return filteredFiles;
-    return filteredFiles.filter((file) => searchMatchPaths.has(file.displayPath));
-  }, [filteredFiles, searchMatchPaths]);
 
   const fullFileTreeModel = useMemo(
     () => buildReviewFileTreeModel(snapshot.files),
@@ -1462,13 +1401,13 @@ export function ReviewDiffPanel({
 
   useEffect(() => {
     const nextSelectedPath = resolveReviewSelectedPath(
-      searchFilteredFiles,
+      filteredFiles,
       selectedPath,
       isCappedMode,
     );
     if (nextSelectedPath === selectedPath) return;
     setSelectedPath(nextSelectedPath);
-  }, [isCappedMode, searchFilteredFiles, selectedPath]);
+  }, [filteredFiles, isCappedMode, selectedPath]);
 
   useEffect(() => {
     setExpandedDirectoryPaths(new Set(buildReviewFileTreeDefaultExpandedPaths(snapshot.files)));
@@ -1539,23 +1478,104 @@ export function ReviewDiffPanel({
 
   const visibleFiles = useMemo(() => {
     return buildReviewVisibleFiles(
-      searchFilteredFiles,
+      filteredFiles,
       selectedPath,
       isCappedMode,
-      searchMatchPaths !== null,
-      visibleSearchMatchCount,
+      false,
+      REVIEW_CAPPED_MATCH_PAGE_SIZE,
     );
   }, [
+    filteredFiles,
     isCappedMode,
-    searchFilteredFiles,
-    searchMatchPaths,
     selectedPath,
-    visibleSearchMatchCount,
   ]);
   const reviewRenderPlan = useMemo(
     () => buildReviewRenderPlan(visibleFiles, isCappedMode),
     [isCappedMode, visibleFiles],
   );
+  const contentSearchSource = useMemo<ContentSearchLocalSource>(() => ({
+    domain: "diff",
+    contextId: `diff:${reviewCwd ?? "workspace"}:${source}`,
+    search(query, limit) {
+      const normalizedQuery = query.trim();
+      if (!normalizedQuery) {
+        return { query, matches: [], totalMatches: 0, capped: false };
+      }
+
+      const matches: ContentSearchLocalMatch[] = [];
+      let capped = false;
+      for (const entry of snapshot.files) {
+        const occurrenceCount = countReviewOccurrences(
+          entry,
+          normalizedQuery,
+          fullContentsByPath[entry.displayPath] ?? null,
+        );
+        for (let occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex += 1) {
+          if (matches.length >= limit) {
+            capped = true;
+            break;
+          }
+          matches.push({
+            id: `diff:${entry.key}:${occurrenceIndex}`,
+            domain: "diff",
+            contextId: `diff:${reviewCwd ?? "workspace"}:${source}`,
+            ordinal: matches.length,
+            label: entry.displayPath,
+            meta: {
+              path: entry.displayPath,
+              occurrenceIndex,
+            },
+          });
+        }
+        if (capped) break;
+      }
+
+      return {
+        query,
+        matches,
+        totalMatches: matches.length,
+        capped,
+      };
+    },
+    async activate(match, query) {
+      if (!isReviewSearchMatchMeta(match.meta)) return;
+      const meta = match.meta;
+      const entry = snapshot.files.find((file) => file.displayPath === meta.path);
+      if (!entry) return;
+
+      setSelectedPath(entry.displayPath);
+      setExpandedKeys((current) => {
+        if (current.has(entry.key)) return current;
+        const next = new Set(current);
+        next.add(entry.key);
+        return next;
+      });
+
+      await nextAnimationFrame();
+      const row = rowRefs.current.get(entry.displayPath);
+      row?.scrollIntoView({ block: "start", inline: "nearest" });
+      await nextAnimationFrame();
+
+      const root = reviewContentRootRef.current;
+      if (!root) return;
+      const result = applyContentSearchDomMarks({
+        root,
+        query,
+        idPrefix: "content-search:diff",
+      });
+      const rowSelector = `[data-review-path="${escapeAttributeSelectorValue(entry.displayPath)}"]`;
+      const rowElement = root.querySelector<HTMLElement>(rowSelector);
+      const rowMarks = Array.from(rowElement?.querySelectorAll<HTMLElement>(`mark.${CONTENT_SEARCH_MARK_CLASS}`) ?? []);
+      const activeElement = rowMarks[meta.occurrenceIndex] ?? rowMarks[0] ?? result.matches[0]?.element ?? null;
+      if (!activeElement) return;
+      activeElement.classList.add(CONTENT_SEARCH_ACTIVE_MARK_CLASS);
+      activeElement.scrollIntoView({ block: "center", inline: "nearest" });
+    },
+    clear() {
+      clearContentSearchMarks(reviewContentRootRef.current);
+    },
+  }), [fullContentsByPath, reviewCwd, snapshot.files, source]);
+  useRegisterContentSearchSource(contentSearchSource);
   const areAllDiffsExpanded = useMemo(() => {
     if (snapshot.files.length === 0) return false;
     return snapshot.files.every((entry) => expandedKeys.has(entry.key));
@@ -1577,10 +1597,6 @@ export function ReviewDiffPanel({
     if (!node) return;
     node.scrollIntoView({ block: "start" });
   }, [selectedPath, visibleFiles]);
-
-  const canLoadMoreMatches = isCappedMode
-    && searchMatchPaths !== null
-    && visibleFiles.length < searchFilteredFiles.length;
 
   const renderReviewRow = (entry: ReviewFileEntry, keyPrefix = "") => (
     <div
@@ -1960,30 +1976,6 @@ export function ReviewDiffPanel({
         </div>
 
         <div className="relative min-h-0">
-          {isSearchVisible ? (
-            <div className="px-3 pb-2">
-              <div className="relative">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-token-description-foreground" />
-                <input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Escape") return;
-                    event.preventDefault();
-                    setIsSearchVisible(false);
-                    setSearchQuery("");
-                  }}
-                  placeholder="Find in review"
-                  aria-label="Find in review"
-                  className="border-token-border/80 bg-token-main-surface-primary h-8 w-full rounded-lg border pl-8 pr-18 text-sm text-token-foreground outline-none placeholder:text-token-description-foreground"
-                />
-                <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-token-description-foreground">
-                  {searchQuery.trim().length > 0 ? `${reviewSearchMatchCount} matches` : null}
-                </div>
-              </div>
-            </div>
-          ) : null}
           {gitLoadStatus === "loading" && isGitReviewSource(source) ? (
             <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">Loading review…</div>
           ) : gitLoadStatus === "timed-out" && isGitReviewSource(source) ? (
@@ -2036,6 +2028,7 @@ export function ReviewDiffPanel({
           ) : (
             <div className="absolute inset-0 flex min-w-0 overflow-hidden">
               <div
+                ref={reviewContentRootRef}
                 className="min-w-0 flex-1 overflow-auto px-2 pb-3"
                 style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
               >
@@ -2051,19 +2044,6 @@ export function ReviewDiffPanel({
                   >
                     {reviewRows}
                   </ReviewDeferredRender>
-                  {canLoadMoreMatches ? (
-                    <div className="flex items-center justify-center py-2">
-                      <button
-                        type="button"
-                        className="border-token-border user-select-none no-drag cursor-interaction gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-foreground enabled:hover:bg-token-list-hover-background border-transparent px-3 py-1.5 text-sm"
-                        onClick={() => {
-                          setVisibleSearchMatchCount((current) => current + REVIEW_CAPPED_MATCH_PAGE_SIZE);
-                        }}
-                      >
-                        Load more matches
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
               </div>
 

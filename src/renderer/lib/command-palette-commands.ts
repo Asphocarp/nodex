@@ -31,6 +31,7 @@ export type CommandPaletteShellCommandId =
   | "toggleTerminal"
   | typeof OPEN_DB_VIEW_TAB_COMMAND_ID
   | "openSideChat"
+  | "findInThread"
   | "settings"
   | "showKeyboardShortcuts";
 
@@ -71,6 +72,7 @@ export function isCommandPaletteShellCommandId(id: string): id is CommandPalette
     || id === "toggleTerminal"
     || id === OPEN_DB_VIEW_TAB_COMMAND_ID
     || id === "openSideChat"
+    || id === "findInThread"
     || id === "settings"
     || id === "showKeyboardShortcuts";
 }
@@ -186,7 +188,10 @@ export function buildCommandPaletteCommands(
       shortcut: shortcutLabel("navigateForward", "CmdOrCtrl+]"),
       disabled: !context.canGoForward,
     }),
-    ...maybeMockCommand("findInThread", "Navigation", "Find in chat", "Find in the current chat", ["find", "search", "chat"], 1000, shortcutLabel("findInThread", "CmdOrCtrl+F")),
+    command("findInThread", "Navigation", "Find", "Find in the current chat, review, or browser page", ["find", "search", "chat", "review", "browser"], 1000, {
+      shortcut: shortcutLabel("findInThread", "CmdOrCtrl+F"),
+      disabled: !context.hasActiveSession,
+    }),
     ...maybeMockCommand("focusBrowserAddressBar", "Navigation", "Focus browser address bar", "Focus the active Browser tab address bar", ["browser", "address", "url"], 990, shortcutLabel("focusBrowserAddressBar", "CmdOrCtrl+L")),
     ...maybeMockCommand("switchMode1", "Navigation", "Switch mode 1", "Switch to the first reference app mode", ["switch", "mode"], 980),
     ...maybeMockCommand("switchMode2", "Navigation", "Switch mode 2", "Switch to the second reference app mode", ["switch", "mode"], 970),

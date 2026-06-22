@@ -36,7 +36,7 @@ export function NodexDialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="codex-dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/45",
+        "codex-dialog-overlay fixed inset-0 z-50 bg-black/45",
         "data-[state=open]:animate-in data-[state=open]:fade-in-0",
         "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
         className,

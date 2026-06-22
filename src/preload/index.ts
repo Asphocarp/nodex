@@ -11,6 +11,7 @@ import {
   CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
+  OPEN_CONTENT_SEARCH_HOST_CHANNEL,
   RENAME_THREAD_HOST_CHANNEL,
   TOGGLE_SIDEBAR_HOST_CHANNEL,
 } from "../shared/window-navigation";
@@ -109,6 +110,13 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on(RENAME_THREAD_HOST_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(RENAME_THREAD_HOST_CHANNEL, listener);
+    };
+  },
+  onOpenContentSearch: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(OPEN_CONTENT_SEARCH_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(OPEN_CONTENT_SEARCH_HOST_CHANNEL, listener);
     };
   },
   onCyclePanelTabPrevious: (callback: () => void) => {

@@ -2,11 +2,13 @@ export const NAVIGATE_BACK_COMMAND_ID = "navigateBack";
 export const NAVIGATE_FORWARD_COMMAND_ID = "navigateForward";
 export const TOGGLE_SIDEBAR_COMMAND_ID = "toggleSidebar";
 export const RENAME_THREAD_COMMAND_ID = "renameThread";
+export const OPEN_CONTENT_SEARCH_COMMAND_ID = "findInThread";
 
 export const NAVIGATE_BACK_HOST_CHANNEL = "navigate-back";
 export const NAVIGATE_FORWARD_HOST_CHANNEL = "navigate-forward";
 export const TOGGLE_SIDEBAR_HOST_CHANNEL = "toggle-sidebar";
 export const RENAME_THREAD_HOST_CHANNEL = "rename-thread";
+export const OPEN_CONTENT_SEARCH_HOST_CHANNEL = "open-content-search";
 export const CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL = "cycle-panel-tab-previous";
 export const CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL = "cycle-panel-tab-next";
 export const CLOSE_PANEL_TAB_HOST_CHANNEL = "close-panel-tab";
@@ -23,6 +25,8 @@ export type WorkbenchSidebarToggleCommandId = typeof TOGGLE_SIDEBAR_COMMAND_ID;
 export type WorkbenchSidebarToggleHostChannel = typeof TOGGLE_SIDEBAR_HOST_CHANNEL;
 export type WorkbenchThreadRenameCommandId = typeof RENAME_THREAD_COMMAND_ID;
 export type WorkbenchThreadRenameHostChannel = typeof RENAME_THREAD_HOST_CHANNEL;
+export type WorkbenchContentSearchCommandId = typeof OPEN_CONTENT_SEARCH_COMMAND_ID;
+export type WorkbenchContentSearchHostChannel = typeof OPEN_CONTENT_SEARCH_HOST_CHANNEL;
 export type WorkbenchPanelTabCycleHostChannel =
   | typeof CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL
   | typeof CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL;
@@ -102,6 +106,13 @@ export interface WorkbenchThreadRenameCommandDefinition {
   accelerator: "CmdOrCtrl+Alt+R";
 }
 
+export interface WorkbenchContentSearchCommandDefinition {
+  id: WorkbenchContentSearchCommandId;
+  label: "Find";
+  hostChannel: WorkbenchContentSearchHostChannel;
+  accelerator: "CmdOrCtrl+F";
+}
+
 export const WORKBENCH_NAVIGATION_COMMANDS: {
   back: WorkbenchNavigationCommandDefinition;
   forward: WorkbenchNavigationCommandDefinition;
@@ -134,6 +145,13 @@ export const WORKBENCH_THREAD_RENAME_COMMAND: WorkbenchThreadRenameCommandDefini
   label: "Rename chat",
   hostChannel: RENAME_THREAD_HOST_CHANNEL,
   accelerator: "CmdOrCtrl+Alt+R",
+};
+
+export const WORKBENCH_CONTENT_SEARCH_COMMAND: WorkbenchContentSearchCommandDefinition = {
+  id: OPEN_CONTENT_SEARCH_COMMAND_ID,
+  label: "Find",
+  hostChannel: OPEN_CONTENT_SEARCH_HOST_CHANNEL,
+  accelerator: "CmdOrCtrl+F",
 };
 
 export function resolveWorkbenchNavigationShortcutLabel(

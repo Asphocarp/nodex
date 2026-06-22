@@ -74,6 +74,15 @@ describe("buildCommandPaletteCommands", () => {
     expect(sidebarCommand?.shortcut).toBe("⌘B");
   });
 
+  test("includes find as a real shell command", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext());
+    const findCommand = commands.find((command) => command.id === "findInThread");
+
+    expect(findCommand?.title).toBe("Find");
+    expect(Boolean(findCommand?.disabled)).toBeFalse();
+    expect(Boolean(findCommand?.mockReason)).toBeFalse();
+  });
+
   test("omits legacy stage and DB view-switch commands", () => {
     const commands = buildCommandPaletteCommands(makeCommandContext());
     const ids = commands.map((command) => command.id).join(",");

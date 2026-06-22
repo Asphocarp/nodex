@@ -5,6 +5,7 @@ import type {
   WorkbenchSidebarToggleCommandSource,
   WorkbenchThreadRenameCommandSource,
 } from "../../shared/window-navigation";
+import type { ContentSearchDomain } from "@/features/content-search/content-search-context";
 import {
   createCommandKeymapState,
   matchesKeyboardEventToCommand,
@@ -26,8 +27,7 @@ export interface WorkbenchShortcutActions {
   onRequestCommandPalette?: (request?: CommandMenuOpenRequest) => void;
   onRequestProjectPicker?: () => void;
   onRequestTaskSearch?: (projectId: string) => void;
-  onRequestThreadSearch?: (projectId: string) => void;
-  onRequestDiffSearch?: (projectId: string) => void;
+  onRequestContentSearch?: (projectId: string, preferredDomain?: ContentSearchDomain) => void;
   onRequestSettingsToggle?: () => void;
   onRequestKeyboardShortcuts?: () => void;
   navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
@@ -192,13 +192,18 @@ export function handleWorkbenchShortcut(
   }
 
   if (matchesCommandShortcut(e, actions, "findInThread", isMac)) {
-    if (actions.focusedStage === "threads" && actions.onRequestThreadSearch) {
-      actions.onRequestThreadSearch(actions.dbProjectId);
+    if (actions.focusedStage === "threads" && actions.onRequestContentSearch) {
+      actions.onRequestContentSearch(actions.dbProjectId, "conversation");
       return true;
     }
 
-    if (actions.focusedStage === "files" && actions.onRequestDiffSearch) {
-      actions.onRequestDiffSearch(actions.dbProjectId);
+    if (actions.focusedStage === "files" && actions.onRequestContentSearch) {
+      actions.onRequestContentSearch(actions.dbProjectId, "diff");
+      return true;
+    }
+
+    if (actions.focusedStage === "cards" && actions.onRequestContentSearch) {
+      actions.onRequestContentSearch(actions.dbProjectId);
       return true;
     }
 

@@ -598,7 +598,7 @@ describe("review diff panel", () => {
     expect((deletedStatus.textContent ?? "").trim()).toBe("D");
   });
 
-  test("keeps review search hidden until searchOpenTick opens it", async () => {
+  test("does not render the retired review-local search input", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
 
     const view = render(
@@ -626,7 +626,7 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
     await settleAsyncRender();
-    expect(view.getByPlaceholderText("Find in review").getAttribute("placeholder")).toBe("Find in review");
+    expect(textContent(view.container).includes("Find in review")).toBeFalse();
   });
 
   test("loads git review snapshots when switching away from last turn", async () => {

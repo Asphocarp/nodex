@@ -48,6 +48,13 @@ import {
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
 import {
+  ContentSearchProvider,
+  type ContentSearchDomain,
+  type ContentSearchOpenRequest,
+  type ContentSearchOpenSource,
+} from "@/features/content-search/content-search-context";
+import { ContentSearchSurface } from "@/features/content-search/content-search-surface";
+import {
   WorkspaceFilesPanel,
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
@@ -601,6 +608,8 @@ interface WorkbenchShellProps {
   onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
   onRequestProjectPickerOpen: () => void;
   threadSearchOpenTick: number;
+  contentSearchOpenRequest?: ContentSearchOpenRequest | null;
+  onRequestContentSearchOpen?: (preferredDomain: ContentSearchDomain | undefined, source: ContentSearchOpenSource) => void;
   setSidebarCollapsed?: (collapsed: boolean) => void;
   setSidebarWidth?: (width: number) => void;
   setSidebarPinnedOrganizationMode?: (mode: SidebarPinnedOrganizationMode) => void;
@@ -1407,6 +1416,8 @@ export function WorkbenchShell({
   projectPickerOpenTick = 0,
   taskSearchOpenTick = 0,
   threadSearchOpenTick,
+  contentSearchOpenRequest = null,
+  onRequestContentSearchOpen,
   commandPaletteOpenTick = 0,
   commandPaletteInitialMode = "root",
   commandPaletteInitialQuery = "",
@@ -5671,6 +5682,10 @@ export function WorkbenchShell({
     openSideChat: () => {
       void openSideChat({ targetPanelId: "right" });
     },
+    findInThread: () => {
+      setCommandPaletteOpen(false);
+      onRequestContentSearchOpen?.(undefined, "command_palette");
+    },
     settings: openSettings,
     showKeyboardShortcuts: openKeyboardShortcutsSettings,
   };
@@ -5696,9 +5711,11 @@ export function WorkbenchShell({
   return (
     <HeaderActionProvider actions={settingsPath ? null : headerActions}>
       <NodexTooltipProvider>
-        {renameSessionDialog}
-        {commandPalette}
-        <ThreadHeaderPortalProvider target={threadHeaderPortalElement}>
+        <ContentSearchProvider openRequest={contentSearchOpenRequest}>
+          <ContentSearchSurface />
+          {renameSessionDialog}
+          {commandPalette}
+          <ThreadHeaderPortalProvider target={threadHeaderPortalElement}>
           <motion.div
             ref={workbenchRootRef}
             className="relative flex flex-col text-token-text-primary"
@@ -6174,7 +6191,8 @@ export function WorkbenchShell({
           )}
         </div>
           </motion.div>
-        </ThreadHeaderPortalProvider>
+          </ThreadHeaderPortalProvider>
+        </ContentSearchProvider>
       </NodexTooltipProvider>
     </HeaderActionProvider>
   );
@@ -7900,6 +7918,7 @@ function ProjectSessionTabPanel({
         activeSession={activeSession}
         onRefreshSessions={onRefreshSessions}
         boundsSyncTrigger={browserBoundsSyncTrigger}
+        activeForContentSearch={isActivePanelTab}
       />
     );
   }

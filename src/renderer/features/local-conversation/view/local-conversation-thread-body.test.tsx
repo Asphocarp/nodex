@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
@@ -192,7 +192,7 @@ describe("LocalConversationThreadBody", () => {
     installAsyncRequestAnimationFrame();
   });
 
-  test("keeps find-in-thread hidden until cmd+f opens it", async () => {
+  test("does not render the retired in-thread sticky search input", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const { container, rerender } = render(
       <TooltipProvider>
@@ -219,12 +219,10 @@ describe("LocalConversationThreadBody", () => {
     );
     await settleAsyncRender();
 
-    await waitFor(() => {
-      const searchInput = container.querySelector(
-        'input[aria-label="Find in thread"]',
-      ) as HTMLInputElement | null;
-      expect(Boolean(searchInput)).toBeTrue();
-    });
+    await settleAsyncRender();
+    expect(
+      Boolean(container.querySelector('input[aria-label="Find in thread"]')),
+    ).toBeFalse();
   });
 
   test("lets the shared scroll layout own viewport and content wrappers", async () => {

@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
 import { LocalConversationProvider } from "@/features/local-conversation";
 import { DesktopNotificationController } from "@/features/local-conversation/desktop-notification-controller";
+import type {
+  ContentSearchDomain,
+  ContentSearchOpenRequest,
+  ContentSearchOpenSource,
+} from "@/features/content-search/content-search-context";
 import { useProjects } from "@/lib/use-projects";
 import {
   resolveCardsStageSelectionForCard,
@@ -167,8 +172,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   });
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
   const [taskSearchOpenTick, setTaskSearchOpenTick] = useState(0);
-  const [threadSearchOpenTick, setThreadSearchOpenTick] = useState(0);
-  const [diffSearchOpenTick, setDiffSearchOpenTick] = useState(0);
+  const [contentSearchOpenRequest, setContentSearchOpenRequest] =
+    useState<ContentSearchOpenRequest | null>(null);
   const [commandPaletteOpenTick, setCommandPaletteOpenTick] = useState(0);
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState("");
   const [commandPaletteInitialMode, setCommandPaletteInitialMode] = useState<CommandMenuMode>("root");
@@ -805,6 +810,17 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     }));
   }, []);
 
+  const requestContentSearchOpen = useCallback((
+    source: ContentSearchOpenSource,
+    preferredDomain?: ContentSearchDomain,
+  ) => {
+    setContentSearchOpenRequest((current) => ({
+      tick: (current?.tick ?? 0) + 1,
+      source,
+      preferredDomain,
+    }));
+  }, []);
+
   useEffect(() => {
     if (!window.api?.onNavigateBack) return undefined;
     return window.api.onNavigateBack(() => {
@@ -832,6 +848,19 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       requestThreadRename("menu");
     });
   }, [requestThreadRename]);
+
+  useEffect(() => {
+    if (!window.api?.onOpenContentSearch) return undefined;
+    return window.api.onOpenContentSearch(() => {
+      const preferredDomain: ContentSearchDomain | undefined =
+        focusedStage === "threads"
+          ? "conversation"
+          : focusedStage === "files"
+            ? "diff"
+            : undefined;
+      requestContentSearchOpen("menu", preferredDomain);
+    });
+  }, [focusedStage, requestContentSearchOpen]);
 
   useEffect(() => {
     if (!window.api?.onCyclePanelTabPrevious) return undefined;
@@ -1002,15 +1031,16 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     focusStageWithNearestIntent(projectId, "db");
   }, [focusStageWithNearestIntent]);
 
-  const handleOpenThreadSearch = useCallback((projectId: string) => {
-    setThreadSearchOpenTick((tick) => tick + 1);
-    focusStageWithNearestIntent(projectId, "threads");
-  }, [focusStageWithNearestIntent]);
-
-  const handleOpenDiffSearch = useCallback((projectId: string) => {
-    setDiffSearchOpenTick((tick) => tick + 1);
-    focusStageWithNearestIntent(projectId, "files");
-  }, [focusStageWithNearestIntent]);
+  const handleOpenContentSearch = useCallback((projectId: string, preferredDomain?: ContentSearchDomain) => {
+    requestContentSearchOpen("keyboard_shortcut", preferredDomain);
+    if (preferredDomain === "conversation") {
+      focusStageWithNearestIntent(projectId, "threads");
+      return;
+    }
+    if (preferredDomain === "diff") {
+      focusStageWithNearestIntent(projectId, "files");
+    }
+  }, [focusStageWithNearestIntent, requestContentSearchOpen]);
 
   const handleToggleSettings = useCallback(() => {
     setSettingsToggleTick((tick) => tick + 1);
@@ -1069,8 +1099,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     onRequestCommandPalette: handleOpenCommandPalette,
     onRequestProjectPicker: handleOpenProjectPicker,
     onRequestTaskSearch: handleOpenTaskSearch,
-    onRequestThreadSearch: handleOpenThreadSearch,
-    onRequestDiffSearch: handleOpenDiffSearch,
+    onRequestContentSearch: handleOpenContentSearch,
     onRequestSettingsToggle: handleToggleSettings,
     onRequestKeyboardShortcuts: handleOpenKeyboardShortcutsSettings,
     navigateBack: (source) => {
@@ -1182,8 +1211,12 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       onRequestProjectPickerOpen={handleOpenProjectPicker}
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}
-      threadSearchOpenTick={threadSearchOpenTick}
-      diffSearchOpenTick={diffSearchOpenTick}
+      threadSearchOpenTick={0}
+      diffSearchOpenTick={0}
+      contentSearchOpenRequest={contentSearchOpenRequest}
+      onRequestContentSearchOpen={(preferredDomain, source) => {
+        requestContentSearchOpen(source, preferredDomain);
+      }}
       commandPaletteOpenTick={commandPaletteOpenTick}
       commandPaletteInitialMode={commandPaletteInitialMode}
       commandPaletteInitialQuery={commandPaletteInitialQuery}
