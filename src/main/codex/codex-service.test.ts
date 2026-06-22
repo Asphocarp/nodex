@@ -814,6 +814,112 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("requests sidebar thread-list with all source kinds from the state DB read model", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: unknown[] = [];
+      const expectedSourceKinds = [
+        "cli",
+        "vscode",
+        "exec",
+        "appServer",
+        "subAgent",
+        "subAgentReview",
+        "subAgentCompact",
+        "subAgentThreadSpawn",
+        "subAgentOther",
+        "unknown",
+      ];
+
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        if (method !== "thread/list") return {};
+        requests.push(params);
+        return {
+          data: [],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        await service.syncSidebarThreadsDetailed({
+          includeArchived: true,
+          policy: "force",
+          reason: "manual",
+        });
+
+        const activeRequest = requests[0] as Record<string, unknown> | undefined;
+        const archivedRequest = requests[1] as Record<string, unknown> | undefined;
+
+        expect(requests.length).toBe(2);
+        expect(activeRequest !== undefined).toBeTrue();
+        expect(archivedRequest !== undefined).toBeTrue();
+        expect(activeRequest?.archived).toBe(false);
+        expect(archivedRequest?.archived).toBe(true);
+        expect(activeRequest?.modelProviders).toBe(null);
+        expect(archivedRequest?.modelProviders).toBe(null);
+        expect(activeRequest?.useStateDbOnly).toBe(true);
+        expect(archivedRequest?.useStateDbOnly).toBe(true);
+        expect(JSON.stringify(activeRequest?.sourceKinds)).toBe(JSON.stringify(expectedSourceKinds));
+        expect(JSON.stringify(archivedRequest?.sourceKinds)).toBe(JSON.stringify(expectedSourceKinds));
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("falls back when app-server does not support state DB sidebar thread-listing", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: unknown[] = [];
+
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        if (method !== "thread/list") return {};
+        requests.push(params);
+        const request = params as Record<string, unknown>;
+        if (request.useStateDbOnly === true) {
+          throw new CodexRpcError("unknown field `useStateDbOnly`", -32602);
+        }
+        return {
+          data: [],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        const firstResult = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        const secondResult = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        const firstRequest = requests[0] as Record<string, unknown> | undefined;
+        const retryRequest = requests[1] as Record<string, unknown> | undefined;
+        const secondSyncRequest = requests[2] as Record<string, unknown> | undefined;
+
+        expect(firstResult.source).toBe("app-server");
+        expect(secondResult.source).toBe("app-server");
+        expect(requests.length).toBe(3);
+        expect(firstRequest?.useStateDbOnly).toBe(true);
+        expect("useStateDbOnly" in (retryRequest ?? {})).toBeFalse();
+        expect("useStateDbOnly" in (secondSyncRequest ?? {})).toBeFalse();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("coalesces concurrent sidebar force sync calls through one thread-list request", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();

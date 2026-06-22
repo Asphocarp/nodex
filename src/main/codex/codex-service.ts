@@ -40,7 +40,9 @@ import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/Thr
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
+import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
+import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { ThreadGoalGetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalGetResponse";
 import type { ThreadGoalSetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetResponse";
@@ -251,6 +253,18 @@ const SIDEBAR_THREAD_SYNC_STALE_MS = 5_000;
 const SIDEBAR_THREAD_SYNC_REPAIR_DEBOUNCE_MS = 300;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
+const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [
+  "cli",
+  "vscode",
+  "exec",
+  "appServer",
+  "subAgent",
+  "subAgentReview",
+  "subAgentCompact",
+  "subAgentThreadSpawn",
+  "subAgentOther",
+  "unknown",
+] as const satisfies readonly ThreadSourceKind[];
 const require = createRequire(import.meta.url);
 
 const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
@@ -983,6 +997,18 @@ function isThreadArchivedError(error: unknown): boolean {
   if (!(error instanceof CodexRpcError)) return false;
   const message = error.message.toLowerCase();
   return message.includes(" is archived") || (message.includes("session") && message.includes("archived"));
+}
+
+function isUnsupportedStateDbOnlyThreadListError(error: unknown): boolean {
+  if (!(error instanceof CodexRpcError)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("usestatedbonly")
+    && (
+      message.includes("unknown field")
+      || message.includes("invalid params")
+      || message.includes("deserialize")
+      || message.includes("experimentalapi")
+    );
 }
 
 function isSteerTurnInactiveError(error: unknown): boolean {
@@ -1742,6 +1768,7 @@ export class CodexService extends EventEmitter {
   private sidebarFailureBackoffUntil = 0;
   private sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
   private sidebarThreadListRepairTimer: ReturnType<typeof setTimeout> | null = null;
+  private sidebarUseStateDbOnlyThreadList = true;
 
   constructor(options?: CodexServiceOptions) {
     super();
@@ -3343,13 +3370,7 @@ export class CodexService extends EventEmitter {
     for (const archived of archivedFilters) {
       let cursor: string | null = null;
       do {
-        const response: ThreadListResponse = await this.client.request<"thread/list", ThreadListResponse>("thread/list", {
-          cursor,
-          limit: 100,
-          sortKey: "updated_at",
-          sortDirection: "desc",
-          archived,
-        });
+        const response = await this.requestSidebarThreadList({ cursor, archived });
 
         for (const thread of response.data) {
           const result = this.upsertSidebarThreadFromAppServerThread(thread, {
@@ -3365,6 +3386,42 @@ export class CodexService extends EventEmitter {
     }
 
     return metadata;
+  }
+
+  private async requestSidebarThreadList(input: {
+    cursor: string | null;
+    archived: boolean;
+  }): Promise<ThreadListResponse> {
+    const createParams = (useStateDbOnly: boolean): ThreadListParams => ({
+      cursor: input.cursor,
+      limit: 100,
+      sortKey: "updated_at",
+      sortDirection: "desc",
+      modelProviders: null,
+      sourceKinds: [...CODEX_SIDEBAR_THREAD_SOURCE_KINDS],
+      archived: input.archived,
+      ...(useStateDbOnly ? { useStateDbOnly: true } : {}),
+    });
+
+    try {
+      return await this.client.request<"thread/list", ThreadListResponse>(
+        "thread/list",
+        createParams(this.sidebarUseStateDbOnlyThreadList),
+      );
+    } catch (error) {
+      if (!this.sidebarUseStateDbOnlyThreadList || !isUnsupportedStateDbOnlyThreadListError(error)) {
+        throw error;
+      }
+
+      this.sidebarUseStateDbOnlyThreadList = false;
+      this.logger.warn("Codex app-server does not support state DB thread listing; falling back to rollout scan", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return await this.client.request<"thread/list", ThreadListResponse>(
+        "thread/list",
+        createParams(false),
+      );
+    }
   }
 
   private upsertSidebarThreadFromAppServerThread(
