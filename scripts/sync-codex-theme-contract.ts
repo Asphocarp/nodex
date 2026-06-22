@@ -7,6 +7,10 @@ type CssBlock = {
   body: string;
 };
 
+const codexRuntimeVscodeOverrides: DeclarationMap = new Map([
+  ["--vscode-font-weight", "430"],
+]);
+
 const referencePath = resolve(
   process.cwd(),
   "design.local/codex-design-tokens/index.css",
@@ -105,13 +109,27 @@ const formatThemeBlock = (declarations: DeclarationMap): string => {
   return `@theme static {\n${lines.join("\n")}\n}`;
 };
 
+const applyCodexRuntimeVscodeOverrides = (
+  declarations: DeclarationMap,
+): DeclarationMap => {
+  const next = new Map(declarations);
+
+  for (const [name, value] of codexRuntimeVscodeOverrides) {
+    next.set(name, value);
+  }
+
+  return next;
+};
+
 const run = (): void => {
   const css = readFileSync(referencePath, "utf8");
   const blocks = collectBlocks(css);
-  const vscodeDeclarations = extractDeclarationsFromBlocks(
-    blocks,
-    '[data-codex-window-type="electron"]',
-    "--vscode-",
+  const vscodeDeclarations = applyCodexRuntimeVscodeOverrides(
+    extractDeclarationsFromBlocks(
+      blocks,
+      '[data-codex-window-type="electron"]',
+      "--vscode-",
+    ),
   );
   const colorTokenDeclarations = extractDeclarationsFromBlocks(
     blocks,
@@ -142,6 +160,7 @@ if (import.meta.main) {
 }
 
 export {
+  applyCodexRuntimeVscodeOverrides,
   collectBlocks,
   extractDeclarationsFromBlocks,
   normalizeSelector,

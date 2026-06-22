@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyCodexRuntimeVscodeOverrides,
   collectBlocks,
   extractDeclarationsFromBlocks,
 } from "./sync-codex-theme-contract";
@@ -62,5 +63,19 @@ describe("sync-codex-theme-contract", () => {
     expect(vscodeDeclarations.get("--vscode-sideBar-background")).toBe(
       "var(--color-background-surface-under)",
     );
+  });
+
+  test("normalizes runtime vscode overrides observed from Electron", () => {
+    const declarations = new Map<string, string>([
+      ["--vscode-font-family", "inherit"],
+      ["--vscode-font-weight", "normal"],
+      ["--vscode-editor-font-weight", "normal"],
+    ]);
+
+    const normalized = applyCodexRuntimeVscodeOverrides(declarations);
+
+    expect(normalized.get("--vscode-font-weight")).toBe("430");
+    expect(normalized.get("--vscode-font-family")).toBe("inherit");
+    expect(normalized.get("--vscode-editor-font-weight")).toBe("normal");
   });
 });

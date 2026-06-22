@@ -91,6 +91,7 @@
   - `src/renderer/styles/theme-utilities.css` owns authored Nodex-local utilities that are intentionally outside the generated utility contract.
   - `src/renderer/styles/theme-surface.css` owns authored surface rules and global renderer CSS.
   - `src/renderer/lib/codex-theme-variant.ts` owns the runtime semantic theme bridge that injects derived foreground/control/border/panel/editor variables onto `document.documentElement`, plus document-scoped runtime overrides such as `--cursor-interaction` on both `documentElement` and `body`.
+  - Electron shell typography must flow through the Codex `--vscode-font-family` / `--vscode-font-weight` contract on `body`, with `--vscode-font-weight: 430` and antialiased WebKit text smoothing. Do not locally compensate for perceived sidebar weight with per-row `font-weight` classes; keep sidebar rows on inherited shell typography and token foregrounds.
   - Reuse semantic chip/badge patterns for priority/estimate/status.
   - Avoid duplicating visual rules across board and toggle-list surfaces.
 - Follow the renderer composition order:

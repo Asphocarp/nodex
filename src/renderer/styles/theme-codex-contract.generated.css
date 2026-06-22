@@ -6,7 +6,7 @@
 
 [data-codex-window-type="electron"] {
   --vscode-font-family: inherit;
-  --vscode-font-weight: normal;
+  --vscode-font-weight: 430;
   --vscode-editor-font-family: inherit;
   --vscode-editor-font-weight: normal;
   --vscode-foreground: var(--color-text-foreground);

@@ -165,8 +165,7 @@
   --purple-300: var(--color-purple-300);
   --purple-400: var(--color-purple-400);
   --font-system:
-    ui-sans-serif, -apple-system, BlinkMacSystemFont,
-    "Segoe UI Variable Display", "Segoe UI", Helvetica, Arial, sans-serif;
+    -apple-system, "system-ui", "Segoe UI", sans-serif;
   --font-mono-stack:
     ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;

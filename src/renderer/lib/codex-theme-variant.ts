@@ -112,7 +112,7 @@ const DEFAULT_THEMES: Record<ThemeVariant, BaseTheme> = {
     },
     contrast: 45,
     fonts: { code: null, ui: null },
-    ink: "#0d0d0d",
+    ink: "#1a1c1f",
     opaqueWindows: false,
     semanticColors: {
       diffAdded: "#00a240",

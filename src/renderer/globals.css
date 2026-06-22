@@ -236,8 +236,10 @@
   }
   body {
     @apply text-foreground;
-    font-family: var(--font-system);
-    -webkit-font-smoothing: auto;
+    color: var(--color-token-editor-foreground);
+    font-family: var(--vscode-font-family, var(--font-system));
+    font-weight: var(--vscode-font-weight, 400);
+    -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background: transparent;
   }
