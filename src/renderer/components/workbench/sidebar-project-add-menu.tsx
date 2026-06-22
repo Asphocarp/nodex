@@ -1,5 +1,5 @@
-import { useEffect, useState, type DragEvent } from "react";
-import { FolderOpen, Plus, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { FolderOpen } from "lucide-react";
 import {
   NodexDialog,
   NodexDialogContent,
@@ -19,8 +19,12 @@ import type { Project, ProjectCreateInput } from "@/lib/types";
 import {
   CodexSidebarActionButton,
 } from "./codex-sidebar";
+import { CodexProjectAddIcon } from "@/components/shared/icons";
 
 export type SidebarCreateProjectHandler = (input: ProjectCreateInput) => Promise<Project | null>;
+
+export const CODEX_PROJECT_ADD_BUTTON_CLASS = "outline-hidden cursor-interaction relative isolate h-6 w-6 overflow-visible rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
+const CODEX_PROJECT_ADD_MENU_ICON_CLASS = "icon-xs opacity-75 group-focus:opacity-100 group-hover:opacity-100";
 
 function basename(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).at(-1) ?? filePath;
@@ -192,6 +196,7 @@ export function SidebarProjectAddMenu({
 }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const [lastOpenSetupTick, setLastOpenSetupTick] = useState(openSetupTick ?? 0);
+  const openSetupAfterMenuCloseRef = useRef(false);
 
   useEffect(() => {
     if (openSetupTick === undefined || openSetupTick === lastOpenSetupTick) return;
@@ -211,23 +216,34 @@ export function SidebarProjectAddMenu({
   return (
     <>
       <NodexDropdownMenu
-        align="end"
+        align="start"
         side="bottom"
         contentWidth="menu"
+        onCloseAutoFocus={(event) => {
+          if (!openSetupAfterMenuCloseRef.current) return;
+          openSetupAfterMenuCloseRef.current = false;
+          event.preventDefault();
+          setSetupOpen(true);
+        }}
         triggerButton={(
-          <CodexSidebarActionButton label="Add project" title="Add project">
-            <Plus className="size-3.5" />
+          <CodexSidebarActionButton
+            label="Add new project"
+            className={CODEX_PROJECT_ADD_BUTTON_CLASS}
+          >
+            <CodexProjectAddIcon />
           </CodexSidebarActionButton>
         )}
       >
         <NodexDropdownItem
-          leftSlot={<Sparkles className="icon-sm" />}
-          onSelect={() => setSetupOpen(true)}
+          leftSlot={<CodexProjectAddIcon className={CODEX_PROJECT_ADD_MENU_ICON_CLASS} />}
+          onSelect={() => {
+            openSetupAfterMenuCloseRef.current = true;
+          }}
         >
           Start from scratch
         </NodexDropdownItem>
         <NodexDropdownItem
-          leftSlot={<FolderOpen className="icon-sm" />}
+          leftSlot={<CodexProjectAddIcon className={CODEX_PROJECT_ADD_MENU_ICON_CLASS} />}
           onSelect={() => {
             void createFromExistingFolder();
           }}

@@ -41,24 +41,6 @@
  * Source: design/tokens.json
  */
 
-@property --top-fade {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0;
-}
-
-@property --bottom-fade {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0;
-}
-
-@property --edge-fade-distance {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 1rem;
-}
-
 @layer components {
   .inline-chevron {
     vertical-align: middle;
@@ -87,90 +69,6 @@
 
   .hide-scrollbar::-webkit-scrollbar-track {
     background-color: transparent;
-  }
-
-  @keyframes edge-fade {
-    0% {
-      --top-fade: 0;
-      --bottom-fade: var(--edge-fade-distance, 1rem);
-    }
-
-    1% {
-      --top-fade: 0;
-      --bottom-fade: var(--edge-fade-distance, 1rem);
-    }
-
-    99% {
-      --top-fade: var(--edge-fade-distance, 1rem);
-      --bottom-fade: 0;
-    }
-
-    to {
-      --top-fade: var(--edge-fade-distance, 1rem);
-      --bottom-fade: 0;
-    }
-  }
-
-  @keyframes edge-fade-top {
-    0% {
-      --top-fade: var(--edge-fade-distance, 1rem);
-      --bottom-fade: var(--edge-fade-distance, 1rem);
-    }
-
-    1% {
-      --top-fade: var(--edge-fade-distance, 1rem);
-      --bottom-fade: var(--edge-fade-distance, 1rem);
-    }
-
-    99% {
-      --top-fade: var(--edge-fade-distance, 1rem);
-      --bottom-fade: 0;
-    }
-
-    to {
-      --top-fade: var(--edge-fade-distance, 1rem);
-      --bottom-fade: 0;
-    }
-  }
-
-  @supports (animation-timeline: --scroll-fade) {
-    .vertical-scroll-fade-mask {
-      -webkit-mask: linear-gradient(
-        to bottom in oklch,
-        oklch(60% 0 0/0),
-        oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
-        oklch(60% 0 0/0)
-      );
-      mask: linear-gradient(
-        to bottom in oklch,
-        oklch(60% 0 0/0),
-        oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
-        oklch(60% 0 0/0)
-      );
-      animation-name: edge-fade;
-      animation-timing-function: linear;
-      animation-fill-mode: both;
-      animation-timeline: scroll(self y);
-    }
-
-    .vertical-scroll-fade-mask-top {
-      -webkit-mask: linear-gradient(
-        to bottom in oklch,
-        oklch(60% 0 0/0),
-        oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
-        oklch(60% 0 0/0)
-      );
-      mask: linear-gradient(
-        to bottom in oklch,
-        oklch(60% 0 0/0),
-        oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
-        oklch(60% 0 0/0)
-      );
-      animation-name: edge-fade-top;
-      animation-timing-function: linear;
-      animation-fill-mode: both;
-      animation-timeline: scroll(self y);
-    }
   }
 
   @keyframes right-panel-composer-overlay-enter {
@@ -248,22 +146,14 @@
 /* ===== Scrollbar Utilities ===== */
 
 @utility scrollbar-token {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--foreground) 8%, transparent)
-    transparent;
-  &::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+  scrollbar-color: var(--color-token-scrollbar-slider-background) transparent;
+
+  &:hover {
+    scrollbar-color: var(--color-token-scrollbar-slider-hover-background) transparent;
   }
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--foreground) 8%, transparent);
-    border-radius: 4px;
-  }
-  &::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--foreground) 14%, transparent);
+
+  &:active {
+    scrollbar-color: var(--color-token-scrollbar-slider-active-background) transparent;
   }
 }
 

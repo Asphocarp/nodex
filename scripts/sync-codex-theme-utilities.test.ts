@@ -109,6 +109,89 @@ describe("sync-codex-theme-utilities", () => {
     expect(generatedCss.includes(".ignored-utility")).toBeFalse();
   });
 
+  test("keeps the complete Codex scroll fade mask utility family", () => {
+    const generatedCss = buildGeneratedUtilitiesCss(`
+      @layer components {
+        @property --top-fade {
+          syntax: "<length>";
+          inherits: false;
+          initial-value: 0;
+        }
+
+        @property --bottom-fade {
+          syntax: "<length>";
+          inherits: false;
+          initial-value: 0;
+        }
+
+        @property --edge-fade-distance {
+          syntax: "<length>";
+          inherits: false;
+          initial-value: 1rem;
+        }
+
+        @keyframes edge-fade {
+          0% {
+            --top-fade: 0;
+            --bottom-fade: var(--edge-fade-distance, 1rem);
+          }
+
+          99% {
+            --top-fade: var(--edge-fade-distance, 1rem);
+            --bottom-fade: 0;
+          }
+        }
+
+        @keyframes edge-fade-top {
+          0% {
+            --top-fade: var(--edge-fade-distance, 1rem);
+            --bottom-fade: var(--edge-fade-distance, 1rem);
+          }
+
+          99% {
+            --top-fade: var(--edge-fade-distance, 1rem);
+            --bottom-fade: 0;
+          }
+        }
+
+        @supports (animation-timeline: --scroll-fade) {
+          .vertical-scroll-fade-mask {
+            mask: linear-gradient(
+              to bottom in oklch,
+              oklch(60% 0 0/0),
+              oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
+              oklch(60% 0 0/0)
+            );
+            animation-name: edge-fade;
+            animation-timeline: scroll(self y);
+          }
+
+          .vertical-scroll-fade-mask-top {
+            mask: linear-gradient(
+              to bottom in oklch,
+              oklch(60% 0 0/0),
+              oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
+              oklch(60% 0 0/0)
+            );
+            animation-name: edge-fade-top;
+            animation-timeline: scroll(self y);
+          }
+        }
+      }
+    `);
+
+    expect(generatedCss.includes(".vertical-scroll-fade-mask")).toBeTrue();
+    expect(generatedCss.includes(".vertical-scroll-fade-mask-top")).toBeTrue();
+    expect(generatedCss.includes(".vertical-scroll-fade-mask-bottom")).toBeTrue();
+    expect(generatedCss.includes(".horizontal-scroll-fade-mask")).toBeTrue();
+    expect(generatedCss.includes("@property --left-fade")).toBeTrue();
+    expect(generatedCss.includes("@property --right-fade")).toBeTrue();
+    expect(generatedCss.includes("@keyframes edge-fade-bottom")).toBeTrue();
+    expect(generatedCss.includes("@keyframes edge-fade-horizontal")).toBeTrue();
+    expect(generatedCss.includes("animation-timeline: scroll(self y);")).toBeTrue();
+    expect(generatedCss.includes("animation-timeline: scroll(self x);")).toBeTrue();
+  });
+
   test("keeps allowlisted selectors from the Codex components layer", () => {
     const css = `
       @layer components {

@@ -57,13 +57,11 @@ import { CommandPalette } from "./workbench-shell-deps";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
-import { SidebarProjectAddMenu } from "./sidebar-project-add-menu";
+import { SidebarProjectsSectionActions } from "./sidebar-projects-section-actions";
 import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
   NodexDropdownMenu,
-  NodexDropdownRadioGroup,
-  NodexDropdownRadioItem,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
 import { NodexButton } from "@/components/ui/button";
@@ -127,6 +125,12 @@ import {
   paginateCodexSidebarItems,
   type CodexSidebarPaginationResult,
 } from "@/lib/codex-sidebar-pagination";
+import {
+  listExpandedVisibleProjectGroupIds,
+  listReopenableVisibleProjectGroupIds,
+  resolveSidebarProjectGroupCollapseAction,
+  type SidebarProjectGroupCollapseAction,
+} from "@/lib/sidebar-project-group-collapse-action";
 import { ThreadHeaderPortalProvider } from "@/lib/thread-header-portal";
 import {
   CODEX_SHELL_MEDIUM_WIDTH_PX,
@@ -250,7 +254,6 @@ import {
   CodexPanelBottomVisibleIcon,
   CodexPanelRightHiddenIcon,
   CodexPanelRightVisibleIcon,
-  CodexProjectActionsIcon,
   CodexRestorePanelIcon,
   CodexSidebarHiddenIcon,
   CodexSidebarVisibleIcon,
@@ -271,7 +274,6 @@ import {
 } from "./sidebar-new-chat-controls";
 import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
-  CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS,
   CodexProjectRow,
   CodexProjectSessionList,
   CodexSidebarSection,
@@ -6283,65 +6285,6 @@ function CodexSidebarPaginatedItems<T>({
   return <>{children(pagination, pager)}</>;
 }
 
-const SIDEBAR_PINNED_ORGANIZATION_OPTIONS: readonly {
-  value: SidebarPinnedOrganizationMode;
-  label: string;
-}[] = [
-  { value: "byProject", label: "By project" },
-  { value: "manualOrder", label: "Manual order" },
-];
-
-function CodexPinnedSectionActionsMenu({
-  mode,
-  onModeChange,
-}: {
-  mode: SidebarPinnedOrganizationMode;
-  onModeChange?: (mode: SidebarPinnedOrganizationMode) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <NodexDropdownMenu
-      open={open}
-      onOpenChange={setOpen}
-      side="bottom"
-      align="end"
-      contentWidth="sm"
-      triggerButton={(
-        <button
-          type="button"
-          className={CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS}
-          aria-label="Pinned section actions"
-          data-app-action-sidebar-pinned-actions-menu=""
-        >
-          <CodexProjectActionsIcon />
-        </button>
-      )}
-    >
-      <NodexDropdownFlyoutSubmenuItem
-        label="Organize pins"
-        contentClassName="min-w-[180px]"
-      >
-        <NodexDropdownRadioGroup
-          value={mode}
-          onValueChange={(value) => {
-            onModeChange?.(normalizeSidebarPinnedOrganizationMode(value));
-          }}
-        >
-          {SIDEBAR_PINNED_ORGANIZATION_OPTIONS.map((option) => (
-            <NodexDropdownRadioItem
-              key={option.value}
-              value={option.value}
-            >
-              {option.label}
-            </NodexDropdownRadioItem>
-          ))}
-        </NodexDropdownRadioGroup>
-      </NodexDropdownFlyoutSubmenuItem>
-    </NodexDropdownMenu>
-  );
-}
-
 function SidebarThreadOrganizerSections({
   activeProjectId,
   activeSessionId,
@@ -6407,6 +6350,7 @@ function SidebarThreadOrganizerSections({
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
+  const [previouslyExpandedProjectGroupIds, setPreviouslyExpandedProjectGroupIds] = useState<string[]>([]);
   const sessionsById = useMemo(() => {
     const entries = [
       ...Object.values(sessionsByProject).flat(),
@@ -6533,7 +6477,48 @@ function SidebarThreadOrganizerSections({
     () => projectGroups.filter((group) => !group.project.pinned),
     [projectGroups],
   );
-  const hasAnyPinnedSidebarItems = allPinnedThreadKeys.length > 0 || pinnedProjectGroups.length > 0;
+  const visibleProjectGroupIds = useMemo(
+    () => unpinnedProjectGroups.map((group) => group.project.id),
+    [unpinnedProjectGroups],
+  );
+  const projectGroupCollapseAction = useMemo(() => resolveSidebarProjectGroupCollapseAction({
+    visibleGroupIds: visibleProjectGroupIds,
+    expandedGroupIds: expandedProjectIds,
+    previouslyExpandedGroupIds: previouslyExpandedProjectGroupIds,
+  }), [expandedProjectIds, previouslyExpandedProjectGroupIds, visibleProjectGroupIds]);
+  const runProjectGroupCollapseAction = useCallback((action: SidebarProjectGroupCollapseAction) => {
+    if (action === "collapse-all") {
+      const expandedVisibleProjectGroupIds = listExpandedVisibleProjectGroupIds(
+        visibleProjectGroupIds,
+        expandedProjectIds,
+      );
+      if (expandedVisibleProjectGroupIds.length === 0) return;
+
+      setPreviouslyExpandedProjectGroupIds(expandedVisibleProjectGroupIds);
+      for (const projectId of expandedVisibleProjectGroupIds) {
+        onToggleProjectExpanded(projectId);
+      }
+      return;
+    }
+
+    const reopenableProjectGroupIds = listReopenableVisibleProjectGroupIds(
+      visibleProjectGroupIds,
+      previouslyExpandedProjectGroupIds,
+    ).filter((projectId) => !expandedProjectIds.has(projectId));
+    setPreviouslyExpandedProjectGroupIds([]);
+    for (const projectId of reopenableProjectGroupIds) {
+      onToggleProjectExpanded(projectId);
+    }
+  }, [
+    expandedProjectIds,
+    onToggleProjectExpanded,
+    previouslyExpandedProjectGroupIds,
+    visibleProjectGroupIds,
+  ]);
+  const hasVisiblePinnedStandaloneThreads = pinnedStandaloneThreadKeys.some((threadKey) =>
+    !sidebarArchiveSuppressedKeys.has(threadKey)
+  );
+  const hasVisiblePinnedSectionItems = hasVisiblePinnedStandaloneThreads || pinnedProjectGroups.length > 0;
   const projectlessThreadKeys = useMemo(() => sortSidebarThreadKeysForDisplay({
     threadKeys: [
       ...model.projectlessThreadKeys,
@@ -6739,19 +6724,13 @@ function SidebarThreadOrganizerSections({
   );
 
   const renderPinnedSection = () => {
-    if (!hasAnyPinnedSidebarItems) return null;
+    if (!hasVisiblePinnedSectionItems) return null;
 
     return (
       <CodexSidebarSection
         heading="Pinned"
         collapsed={pinnedThreadsSectionCollapsed}
         onToggle={onTogglePinnedThreadsSectionCollapsed}
-        actions={(
-          <CodexPinnedSectionActionsMenu
-            mode={pinnedOrganizationMode}
-            onModeChange={onPinnedOrganizationModeChange}
-          />
-        )}
       >
         {pinnedStandaloneThreadKeys.length > 0
           ? renderThreadList(pinnedStandaloneThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
@@ -6774,9 +6753,13 @@ function SidebarThreadOrganizerSections({
         collapsed={projectsSectionCollapsed}
         onToggle={onToggleProjectsSectionCollapsed}
         actions={(
-          <SidebarProjectAddMenu
+          <SidebarProjectsSectionActions
+            projectGroupCollapseAction={projectGroupCollapseAction}
+            onProjectGroupCollapseAction={runProjectGroupCollapseAction}
             onCreateProject={onCreateProject}
             openSetupTick={projectPickerOpenTick}
+            pinnedOrganizationMode={pinnedOrganizationMode}
+            onPinnedOrganizationModeChange={onPinnedOrganizationModeChange}
           />
         )}
       >
@@ -7033,7 +7016,7 @@ function ProjectSessionSidebar({
 
             <div
               data-app-action-sidebar-scroll=""
-              className="vertical-scroll-fade-mask scrollbar-token relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
+              className="vertical-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
             >
               <SidebarProjectDndProvider onProjectDrop={handleProjectDrop}>
                 <SidebarThreadOrganizerSections

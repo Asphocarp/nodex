@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { Project } from "../../lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, textContent } from "../../test/dom";
@@ -125,7 +125,9 @@ describe("SidebarProjectsSection", () => {
     );
 
     expect(getByText("Projects").textContent).toBe("Projects");
-    expect(getByLabelText("Add project").getAttribute("aria-label")).toBe("Add project");
+    expect(container.querySelector('[data-app-action-sidebar-projects-collapse-action]') === null).toBeTrue();
+    expect(getByLabelText("Project sidebar options").getAttribute("aria-disabled")).toBe(null);
+    expect(getByLabelText("Add new project").getAttribute("aria-label")).toBe("Add new project");
     expect(textContent(container).indexOf("Beta") < textContent(container).indexOf("Alpha")).toBeTrue();
     expect(textContent(container).includes("/repo/beta")).toBeFalse();
     expect(textContent(container).includes("/alpha")).toBeFalse();
@@ -161,12 +163,61 @@ describe("SidebarProjectsSection", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Add project"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(getByLabelText("Add new project"), { button: 0, ctrlKey: false });
       await Promise.resolve();
     });
 
     expect(getByText("Start from scratch").textContent).toBe("Start from scratch");
     expect(getByText("Use an existing folder").textContent).toBe("Use an existing folder");
+  });
+
+  test("opens the project sidebar options menu and sort flyout", async () => {
+    const { getByLabelText, getByText } = renderProjectsSection(
+      <SidebarProjectsSection
+        projects={PROJECTS}
+        spaces={[
+          { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
+          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
+        ]}
+        activeProjectId="alpha"
+        expanded
+        onToggleExpanded={() => undefined}
+        onSelectSpace={() => undefined}
+        onCreateProject={async () => null}
+        onDeleteProject={async () => false}
+        onUpdateProject={async () => null}
+        projectPickerOpenTick={0}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.pointerDown(getByLabelText("Project sidebar options"), { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(textContent(document.body).includes("Archive all chats")).toBeTrue();
+      expect(textContent(document.body).includes("Organize pins")).toBeTrue();
+      expect(textContent(document.body).includes("Organize sidebar")).toBeTrue();
+      expect(textContent(document.body).includes("Sort by")).toBeTrue();
+    });
+
+    const sortByItem = getByText("Sort by").closest('[role="menuitem"]');
+    if (!(sortByItem instanceof HTMLElement)) {
+      throw new Error("Expected Sort by menu item");
+    }
+
+    await act(async () => {
+      fireEvent.pointerMove(sortByItem, { pointerType: "mouse" });
+      fireEvent.keyDown(sortByItem, { key: "ArrowRight" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(textContent(document.body).includes("Manual order")).toBeTrue();
+      expect(textContent(document.body).includes("Created")).toBeTrue();
+      expect(textContent(document.body).includes("Updated")).toBeTrue();
+    });
   });
 
   test("hides project rows when the Projects section is initially collapsed", () => {

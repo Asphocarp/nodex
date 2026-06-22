@@ -2551,6 +2551,68 @@ describe("workbench session shell", () => {
     expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
   });
 
+  test("Projects header actions mirror Codex controls and reopen previous project folders", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [makeSession({
+          id: "session:beta:database-view",
+          projectId: "beta",
+          title: "Beta Database",
+        })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const section = getSidebarSection(screen.container, "Projects");
+    const options = within(section).getByRole("button", { name: "Project sidebar options" });
+    const addNewProject = within(section).getByRole("button", { name: "Add new project" });
+    const alphaRow = section.querySelector('[data-app-action-sidebar-project-id="alpha"]');
+    const betaRow = section.querySelector('[data-app-action-sidebar-project-id="beta"]');
+
+    if (!(alphaRow instanceof HTMLElement) || !(betaRow instanceof HTMLElement)) {
+      throw new Error("Expected Alpha and Beta project rows");
+    }
+
+    expect(options.getAttribute("aria-disabled")).toBe(null);
+    expect(addNewProject.getAttribute("aria-label")).toBe("Add new project");
+    expect(alphaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(betaRow.getAttribute("aria-expanded")).toBe("false");
+    expect(within(section).queryByRole("button", { name: "Collapse all" }) === null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(betaRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(betaRow.getAttribute("aria-expanded")).toBe("true");
+    const collapseAll = within(section).getByRole("button", { name: "Collapse all" });
+
+    await act(async () => {
+      fireEvent.click(collapseAll);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(alphaRow.getAttribute("aria-expanded")).toBe("false");
+    expect(betaRow.getAttribute("aria-expanded")).toBe("false");
+    const reopenPrevious = within(section).getByRole("button", { name: "Reopen previous" });
+    expect(reopenPrevious.getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("reopen-previous");
+
+    await act(async () => {
+      fireEvent.click(reopenPrevious);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(alphaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(betaRow.getAttribute("aria-expanded")).toBe("true");
+    expect(within(section).getByRole("button", { name: "Collapse all" }).getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("collapse-all");
+  });
+
   test("clicking an active project row while focused on its child session keeps the folder collapsed", async () => {
     const activeThread = makeAttachedSession({
       id: "session:alpha:thread",
@@ -2953,11 +3015,10 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pinnedSection = getSidebarSection(screen.container, "Pinned");
     const projectsSection = getSidebarSection(screen.container, "Projects");
     const alphaGroup = getSidebarProjectGroup(projectsSection, "alpha");
 
-    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Alpha"]') === null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-action-sidebar-section-heading="Pinned"]')).toBe(null);
     expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify(["Pinned Alpha", "Normal Alpha"]));
   });
 
@@ -3074,7 +3135,7 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(getThreadRowTitles(betaGroup))).toBe(JSON.stringify(["Pinned Beta", "Normal Beta"]));
   });
 
-  test("pinned organization menu switches to manual order", async () => {
+  test("projects options menu switches pinned organization to manual order", async () => {
     const pinnedAlpha = makeAttachedSession({
       id: "session:alpha:pinned",
       threadId: "thread-alpha-pinned",
@@ -3101,8 +3162,12 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
+    expect(screen.queryByLabelText("Pinned section actions")).toBe(null);
+
+    const projectsSection = getSidebarSection(screen.container, "Projects");
+
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Pinned section actions"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(within(projectsSection).getByLabelText("Project sidebar options"), { button: 0, ctrlKey: false });
       await Promise.resolve();
     });
 

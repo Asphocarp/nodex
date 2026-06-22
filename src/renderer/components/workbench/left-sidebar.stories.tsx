@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
-import type { SpaceRef } from "@/lib/use-workbench-state";
+import type { SidebarPinnedOrganizationMode, SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { SearchIcon } from "@/components/shared/icons";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
@@ -351,15 +351,19 @@ function CodexProjectsHarness({
   expanded = true,
   activeProjectId = "nodex",
   openActionsFor,
+  openSectionOptions = false,
   projects = SIDEBAR_PARITY_PROJECTS,
   revealProjectDisclosureChevrons = false,
 }: {
   expanded?: boolean;
   activeProjectId?: string;
   openActionsFor?: string;
+  openSectionOptions?: boolean;
   projects?: Project[];
   revealProjectDisclosureChevrons?: boolean;
 }) {
+  const [pinnedOrganizationMode, setPinnedOrganizationMode] = useState<SidebarPinnedOrganizationMode>("byProject");
+
   useEffect(() => {
     if (!openActionsFor) return;
     const frameId = window.requestAnimationFrame(() => {
@@ -372,6 +376,19 @@ function CodexProjectsHarness({
     });
     return () => window.cancelAnimationFrame(frameId);
   }, [openActionsFor]);
+
+  useEffect(() => {
+    if (!openSectionOptions) return;
+    const frameId = window.requestAnimationFrame(() => {
+      const trigger = document.querySelector<HTMLElement>("[aria-label='Project sidebar options']");
+      if (!trigger) return;
+      const event = typeof PointerEvent === "function"
+        ? new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false })
+        : new MouseEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false });
+      trigger.dispatchEvent(event);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [openSectionOptions]);
 
   return (
     <NodexTooltipProvider>
@@ -397,6 +414,8 @@ function CodexProjectsHarness({
             onDeleteProject={async () => true}
             onUpdateProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}
             projectPickerOpenTick={0}
+            pinnedOrganizationMode={pinnedOrganizationMode}
+            onPinnedOrganizationModeChange={setPinnedOrganizationMode}
           />
         </div>
       </div>
@@ -1118,6 +1137,10 @@ export const CodexProjectsCollapsed: Story = {
 
 export const CodexProjectActionsMenuOpen: Story = {
   render: () => <CodexProjectsHarness expanded activeProjectId="nodex" openActionsFor="Nodex" />,
+};
+
+export const CodexProjectsOptionsMenuOpen: Story = {
+  render: () => <CodexProjectsHarness expanded activeProjectId="nodex" openSectionOptions />,
 };
 
 export const CodexProjectsMissingWorkspacePath: Story = {

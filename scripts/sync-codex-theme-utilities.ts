@@ -47,6 +47,10 @@ const ROOT_SELECTOR_BLOCKS = [
   ".ease-basic",
   ".scroll-contain",
   ".scrollbar-stable",
+  ".horizontal-scroll-fade-mask",
+  ".vertical-scroll-fade-mask",
+  ".vertical-scroll-fade-mask-top",
+  ".vertical-scroll-fade-mask-bottom",
   ".disambiguated-digits",
   ".disambig-digits.slashed-zero",
   ".\\[\\&_\\.ProseMirror\\]\\:focus-visible\\:outline-none .ProseMirror:focus-visible",
@@ -64,6 +68,10 @@ const ROOT_SELECTOR_BLOCKS = [
 ] as const;
 
 const ROOT_SUPPORT_SELECTOR_BLOCKS = [
+  ".horizontal-scroll-fade-mask",
+  ".vertical-scroll-fade-mask",
+  ".vertical-scroll-fade-mask-top",
+  ".vertical-scroll-fade-mask-bottom",
   ".\\[\\&_\\*\\]\\:text-token-description-foreground\\/80 *",
   ".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *",
 ] as const;
@@ -204,6 +212,104 @@ const TOOLBAR_PADDING_UTILITY_CSS = `.px-toolbar {
   padding-inline: var(--padding-toolbar);
 }`;
 
+const SCROLL_FADE_UTILITY_FALLBACK_CSS = `@layer components {
+  @property --left-fade {
+    syntax: "<length>";
+    inherits: false;
+    initial-value: 0;
+  }
+
+  @property --right-fade {
+    syntax: "<length>";
+    inherits: false;
+    initial-value: 0;
+  }
+
+  @keyframes edge-fade-bottom {
+    0% {
+      --top-fade: 0;
+      --bottom-fade: var(--edge-fade-distance, 1rem);
+    }
+
+    1% {
+      --top-fade: 0;
+      --bottom-fade: var(--edge-fade-distance, 1rem);
+    }
+
+    99% {
+      --top-fade: 0;
+      --bottom-fade: 0;
+    }
+
+    to {
+      --top-fade: 0;
+      --bottom-fade: 0;
+    }
+  }
+
+  @keyframes edge-fade-horizontal {
+    0% {
+      --left-fade: 0;
+      --right-fade: var(--edge-fade-distance, 1rem);
+    }
+
+    0.1% {
+      --left-fade: var(--edge-fade-distance, 1rem);
+      --right-fade: var(--edge-fade-distance, 1rem);
+    }
+
+    99.9% {
+      --left-fade: var(--edge-fade-distance, 1rem);
+      --right-fade: var(--edge-fade-distance, 1rem);
+    }
+
+    to {
+      --left-fade: var(--edge-fade-distance, 1rem);
+      --right-fade: 0;
+    }
+  }
+
+  @supports (animation-timeline: --scroll-fade) {
+    .horizontal-scroll-fade-mask {
+      -webkit-mask: linear-gradient(
+        to right in oklch,
+        oklch(60% 0 0/0),
+        oklch(85% 0 0) var(--left-fade) calc(100% - var(--right-fade)),
+        oklch(60% 0 0/0)
+      );
+      mask: linear-gradient(
+        to right in oklch,
+        oklch(60% 0 0/0),
+        oklch(85% 0 0) var(--left-fade) calc(100% - var(--right-fade)),
+        oklch(60% 0 0/0)
+      );
+      animation-name: edge-fade-horizontal;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(self x);
+    }
+
+    .vertical-scroll-fade-mask-bottom {
+      -webkit-mask: linear-gradient(
+        to bottom in oklch,
+        oklch(85% 0 0),
+        oklch(85% 0 0) calc(100% - var(--bottom-fade)),
+        oklch(60% 0 0/0)
+      );
+      mask: linear-gradient(
+        to bottom in oklch,
+        oklch(85% 0 0),
+        oklch(85% 0 0) calc(100% - var(--bottom-fade)),
+        oklch(60% 0 0/0)
+      );
+      animation-name: edge-fade-bottom;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(self y);
+    }
+  }
+}`;
+
 const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
   const layerNameStack: string[] = [];
   let supportsDepth = 0;
@@ -291,6 +397,9 @@ const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
   generatedCss = generatedCss.trim();
   if (!generatedCss.includes(".px-toolbar")) {
     generatedCss = `${generatedCss}\n\n${TOOLBAR_PADDING_UTILITY_CSS}`;
+  }
+  if (!generatedCss.includes(".horizontal-scroll-fade-mask")) {
+    generatedCss = `${generatedCss}\n\n${SCROLL_FADE_UTILITY_FALLBACK_CSS}`;
   }
 
   return `/*
