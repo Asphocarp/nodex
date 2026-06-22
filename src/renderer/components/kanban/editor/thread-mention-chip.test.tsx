@@ -89,6 +89,31 @@ describe("thread mention inline content", () => {
     expect(openedThreadId).toBe("019-thread");
   });
 
+  test("opens uncached thread mentions when an opener is available", async () => {
+    let openedThreadId = "";
+    const view = render(
+      <NodexTooltipProvider>
+        <ThreadMentionRuntimeProvider
+          value={{
+            threads: {},
+            resolvingIds: new Set(["019-thread"]),
+            openThread: (threadId) => {
+              openedThreadId = threadId;
+            },
+          }}
+        >
+          <ThreadMentionInlineContentView inlineContent={{ props: { uuid: "019-thread" } }} />
+        </ThreadMentionRuntimeProvider>
+      </NodexTooltipProvider>,
+    );
+
+    fireEvent.click(view.getByRole("button"));
+    await settleAsyncRender();
+
+    expect(openedThreadId).toBe("019-thread");
+    expect(document.body.querySelector('[role="dialog"]') === null).toBeTrue();
+  });
+
   test("reveals thread metadata in a hover tooltip", async () => {
     const view = render(
       <NodexTooltipProvider>

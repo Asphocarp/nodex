@@ -207,7 +207,7 @@ export function ThreadMentionInlineContentView({
     () => resolveThreadMentionChip({ uuid: props.uuid, thread, resolving, missing }),
     [missing, props.uuid, resolving, thread],
   );
-  const canOpen = Boolean(props.uuid && thread && runtime.openThread);
+  const canOpen = Boolean(props.uuid && runtime.openThread && !missing);
 
   useEffect(() => {
     if (thread) {

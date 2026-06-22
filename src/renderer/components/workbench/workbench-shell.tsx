@@ -4771,6 +4771,7 @@ export function WorkbenchShell({
               onRefreshSessions={refreshProjectSessions}
               onCloseTab={closeTab}
               onCreateTerminalTab={(panelId, leafId) => createManualTab("terminal", panelId, leafId)}
+              onOpenThread={openAttachedThreadSession}
               cardStageHistoryModal={cardStageHistoryModal}
               onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
               selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
@@ -7731,6 +7732,7 @@ function ProjectSessionTabPanel({
   onRefreshSessions,
   onCloseTab,
   onCreateTerminalTab,
+  onOpenThread,
   cardStageHistoryModal,
   onToggleCardStageHistoryModal,
   selectedTurnDiffReviewTarget,
@@ -7776,6 +7778,7 @@ function ProjectSessionTabPanel({
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
   onCreateTerminalTab: (panelId: PanelId, leafId: string) => Promise<void> | void;
+  onOpenThread: (threadId: string) => Promise<void>;
   cardStageHistoryModal: CardStageHistoryModalContext | null;
   onToggleCardStageHistoryModal: (context: CardStageHistoryModalContext) => void;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
@@ -7845,6 +7848,7 @@ function ProjectSessionTabPanel({
         }}
         onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
         onRefreshSessions={onRefreshSessions}
+        onOpenThread={onOpenThread}
         historyPanelActive={Boolean(
           cardStageHistoryModal
           && cardStageHistoryModal.sessionId === activeSession.id
@@ -8153,6 +8157,7 @@ function CardStageSessionTab({
   onOpenTerminal,
   onEnsureBlankSessionForProject,
   onRefreshSessions,
+  onOpenThread,
   historyPanelActive,
   onToggleHistoryPanel,
   isActivePanelTab,
@@ -8173,6 +8178,7 @@ function CardStageSessionTab({
     options?: { select?: boolean },
   ) => Promise<ProjectSession>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onOpenThread: (threadId: string) => Promise<void>;
   historyPanelActive: boolean;
   onToggleHistoryPanel: (context: CardStageHistoryModalContext) => void;
   isActivePanelTab: boolean;
@@ -8323,6 +8329,7 @@ function CardStageSessionTab({
         sessionThread={sessionThread}
         canStartThreadInSession={canStartThreadInSession}
         linkedCodexThreads={[]}
+        onOpenCodexThread={onOpenThread}
         onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
         onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
           await codexControl.startTurn(threadId, prompt, { projectId, promptInput });

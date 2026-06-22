@@ -1162,6 +1162,30 @@ function renderWorkbench({
         .filter((session) => session.thread && session.pinned)
         .map((session) => session.thread?.threadId);
     }
+    if (channel === "codex:thread:ensure-session") {
+      const threadId = String(args[0]);
+      const existing = Object.values(sessionState)
+        .flat()
+        .find((session) => session.thread?.threadId === threadId);
+      if (existing) return existing;
+
+      const projectId = "alpha";
+      const projectSessions = sessionState[projectId] ?? [];
+      const session = makeAttachedSession({
+        id: `session:${projectId}:${threadId}`,
+        projectId,
+        threadId,
+        title: "Mention target",
+        order: projectSessions.length,
+        rightCollapsed: true,
+        tabs: [],
+      });
+      sessionState = {
+        ...sessionState,
+        [projectId]: sortProjectSessionsForTest([...projectSessions, session]),
+      };
+      return session;
+    }
     if (channel === "codex:threads:pinned:set") {
       const threadId = String(args[0]);
       const input = (args[1] ?? {}) as { pinned?: boolean };
@@ -6951,6 +6975,52 @@ describe("workbench session shell", () => {
       runInTarget: "localProject",
     }));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBeFalse();
+  });
+
+  test("card-stage editor can open a mentioned thread session", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:card-open-source",
+      threadId: "thread-source",
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "session:alpha:card-open-source",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      panels: makePanels({
+        rightTabIds: ["card-tab"],
+        rightActiveTabId: "card-tab",
+      }),
+    });
+
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    const openThread = cardStageProps?.onOpenCodexThread as ((threadId: string) => Promise<void>) | undefined;
+    expect(typeof openThread).toBe("function");
+    if (!openThread) return;
+
+    await act(async () => {
+      await openThread("thread-mentioned");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "codex:thread:ensure-session"
+      && call[1] === "thread-mentioned"
+    )).toBeTrue();
+    expect(getThreadRow(screen.container, "Mention target").getAttribute("data-app-action-sidebar-thread-active")).toBe("true");
   });
 
   test("labels cross-project card-stage tabs with their target project", async () => {
