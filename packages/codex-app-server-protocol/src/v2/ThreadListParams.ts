@@ -51,4 +51,8 @@ useStateDbOnly?: boolean,
 /**
  * Optional substring filter for the extracted thread title.
  */
-searchTerm?: string | null, };
+searchTerm?: string | null,
+/**
+ * Optional direct parent thread filter.
+ */
+parentThreadId?: string | null, };

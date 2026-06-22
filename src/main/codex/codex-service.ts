@@ -255,6 +255,7 @@ const require = createRequire(import.meta.url);
 
 const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
   {
+    type: "function",
     name: "read_thread_terminal",
     description:
       "Read the app terminal session attached to the current thread, including cwd, shell, and the latest terminal buffer.",

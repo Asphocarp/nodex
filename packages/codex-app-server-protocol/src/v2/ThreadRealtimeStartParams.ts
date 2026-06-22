@@ -16,6 +16,14 @@ export type ThreadRealtimeStartParams = { threadId: string,
  */
 architecture?: RealtimeConversationArchitecture | null,
 /**
+ * Sends automatic Codex responses as realtime conversation items instead of handoff appends.
+ */
+codexResponsesAsItems?: boolean | null,
+/**
+ * Optional prefix added to automatic Codex response items when `codexResponsesAsItems` is true.
+ */
+codexResponseItemPrefix?: string | null,
+/**
  * Overrides the configured realtime model for this session only.
  */
 model?: string | null,
@@ -23,7 +31,11 @@ model?: string | null,
  * Selects text or audio output for the realtime session. Transport and voice stay
  * independent so clients can choose how they connect separately from what the model emits.
  */
-outputModality: RealtimeOutputModality, prompt?: string | null | null, realtimeSessionId?: string | null, transport?: ThreadRealtimeStartTransport | null,
+outputModality: RealtimeOutputModality,
+/**
+ * Set to false to start without Codex's startup context. Omitted or null includes it.
+ */
+includeStartupContext?: boolean | null, prompt?: string | null | null, realtimeSessionId?: string | null, transport?: ThreadRealtimeStartTransport | null,
 /**
  * Overrides the configured realtime protocol version for this session only.
  */
