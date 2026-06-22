@@ -3756,7 +3756,6 @@ export class CodexService extends EventEmitter {
     if (input.scope !== "sidebar" || query.length === 0) return [];
 
     const summaries = this.listCommandPaletteSidebarChats();
-    this.commandPaletteThreadSearchService.enqueueBackfill(summaries);
 
     return this.commandPaletteThreadSearchService.search({
       scope: input.scope,

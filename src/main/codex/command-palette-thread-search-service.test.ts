@@ -47,7 +47,10 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   }
 }
 
-function makeSummary(threadId: string): CommandPaletteThreadSummary {
+function makeSummary(
+  threadId: string,
+  overrides: Partial<CommandPaletteThreadSummary> = {},
+): CommandPaletteThreadSummary {
   return {
     threadId,
     sessionId: null,
@@ -64,6 +67,7 @@ function makeSummary(threadId: string): CommandPaletteThreadSummary {
     createdAt: 1,
     updatedAt: 2,
     linkedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -92,7 +96,7 @@ function makeDetail(threadId: string, markdownText: string): CodexThreadDetail {
 }
 
 describe("command palette thread search service", () => {
-  test("returns FTS results without waiting for fuzzy index readiness", async () => {
+  test("returns FTS results without content fuzzy indexing", async () => {
     const ran = await withTempDatabase(async () => {
       const service = new CommandPaletteThreadSearchService();
       try {
@@ -134,9 +138,84 @@ describe("command palette thread search service", () => {
             return makeDetail(summary.threadId, "versioned content");
           },
         });
-        await new Promise((resolve) => setTimeout(resolve, 80));
+        await new Promise((resolve) => setTimeout(resolve, 320));
 
         expect(backfilled).toBeTrue();
+      } finally {
+        service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("processes backfill recent-first in bounded slices", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = new CommandPaletteThreadSearchService();
+      const processedThreadIds: string[] = [];
+      try {
+        const oldSummary = makeSummary("thr_backfill_old", { updatedAt: 10 });
+        const recentSummary = makeSummary("thr_backfill_recent", { updatedAt: 30 });
+        const pinnedSummary = makeSummary("thr_backfill_pinned", {
+          pinned: true,
+          pinnedOrder: 0,
+          updatedAt: 20,
+        });
+
+        service.scheduleBackfill([
+          oldSummary,
+          recentSummary,
+          pinnedSummary,
+          recentSummary,
+        ], {
+          readThreadDetail: (threadId) => {
+            processedThreadIds.push(threadId);
+            return makeDetail(threadId, `content for ${threadId}`);
+          },
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 320));
+        expect(processedThreadIds.join(",")).toBe("thr_backfill_pinned,thr_backfill_recent");
+
+        await new Promise((resolve) => setTimeout(resolve, 320));
+        expect(processedThreadIds.join(",")).toBe("thr_backfill_pinned,thr_backfill_recent,thr_backfill_old");
+      } finally {
+        service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("does not update unchanged search units", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = new CommandPaletteThreadSearchService();
+      try {
+        const summary = makeSummary("thr_unchanged_units");
+        service.indexThreadDetail(summary, makeDetail(summary.threadId, "oldneedle transcript"));
+        const firstIndexedAt = (getDb().prepare(`
+          SELECT indexed_at
+          FROM thread_search_units
+          WHERE thread_id = ?
+        `).get(summary.threadId) as { indexed_at: number } | undefined)?.indexed_at ?? 0;
+
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        service.indexThreadDetail(summary, makeDetail(summary.threadId, "oldneedle transcript"));
+        const secondIndexedAt = (getDb().prepare(`
+          SELECT indexed_at
+          FROM thread_search_units
+          WHERE thread_id = ?
+        `).get(summary.threadId) as { indexed_at: number } | undefined)?.indexed_at ?? 0;
+
+        expect(secondIndexedAt).toBe(firstIndexedAt);
+
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        service.indexThreadDetail(summary, makeDetail(summary.threadId, "newneedle transcript"));
+        const oldHits = service.search({ query: "oldneedle", limit: 10 }, [summary]);
+        const newHits = service.search({ query: "newneedle", limit: 10 }, [summary]);
+
+        expect(oldHits.length).toBe(0);
+        expect(newHits.length).toBe(1);
       } finally {
         service.shutdown();
       }

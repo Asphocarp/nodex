@@ -745,9 +745,23 @@ export function CommandPaletteSurface({
 
   useEffect(() => {
     if (mode !== "chats" || !open) return;
-    return subscribeCommandPaletteThreadIndexUpdates(() => {
-      setThreadContentRefreshTick((current) => current + 1);
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribeCommandPaletteThreadIndexUpdates(() => {
+      if (refreshTimer !== null) {
+        clearTimeout(refreshTimer);
+      }
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        setThreadContentRefreshTick((current) => current + 1);
+      }, 250);
     });
+
+    return () => {
+      if (refreshTimer !== null) {
+        clearTimeout(refreshTimer);
+      }
+      unsubscribe();
+    };
   }, [mode, open]);
 
   useEffect(() => {

@@ -239,7 +239,7 @@ export interface CommandPaletteThreadContentSearchInput {
 
 export interface CommandPaletteThreadIndexUpdatedEvent {
   generation: number;
-  reason: "backfill" | "fuzzy-ready";
+  reason: "backfill";
 }
 
 export interface CommandPaletteSearchSnippetSegment {
@@ -251,7 +251,7 @@ export interface CommandPaletteThreadContentSearchResult {
   threadId: string;
   snippet: string;
   score: number;
-  matchKind?: "fts" | "fuzzy";
+  matchKind: "fts";
   snippetSegments?: CommandPaletteSearchSnippetSegment[];
 }
 

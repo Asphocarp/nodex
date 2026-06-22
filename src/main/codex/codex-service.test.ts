@@ -1595,6 +1595,53 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("does not enqueue command-palette content backfill from search", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_content_no_search_backfill",
+        threadName: "Content no search backfill",
+        threadPreview: "Visible preview",
+        modelProvider: "openai",
+      });
+
+      let enqueueCalls = 0;
+      let searchCalls = 0;
+      let eligibleCount = 0;
+      const countingClient: CommandPaletteThreadSearchClient = {
+        enqueueBackfill: () => {
+          enqueueCalls += 1;
+        },
+        search: async (_input, eligibleSummaries) => {
+          searchCalls += 1;
+          eligibleCount = eligibleSummaries.length;
+          return [];
+        },
+        indexConversation: () => undefined,
+        removeThread: () => undefined,
+        shutdown: () => undefined,
+      };
+      const service = createService({ commandPaletteThreadSearchClient: countingClient });
+
+      try {
+        const results = await service.searchCommandPaletteThreadContent({
+          scope: "sidebar",
+          query: "visible",
+          limit: 60,
+        });
+
+        expect(results.length).toBe(0);
+        expect(enqueueCalls).toBe(0);
+        expect(searchCalls).toBe(1);
+        expect(eligibleCount).toBe(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("fails closed when command-palette content search worker is unavailable", async () => {
     const ran = await withTempDatabase(async () => {
       upsertCodexThread({

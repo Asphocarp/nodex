@@ -1,4 +1,3 @@
-import MiniSearch, { type Options, type SearchResult } from "minisearch";
 import { createHash } from "node:crypto";
 import { getDb } from "../kanban/db-service";
 import type {
@@ -7,12 +6,7 @@ import type {
   CommandPaletteThreadContentSearchResult,
   CommandPaletteThreadIndexUpdatedEvent,
   CommandPaletteThreadSummary,
-  CommandPaletteSearchSnippetSegment,
 } from "../../shared/types";
-import {
-  normalizeSearchText,
-  resolveFuzzyThreshold,
-} from "../../shared/search-text";
 import {
   buildThreadContentFtsMatchQuery,
   extractThreadSearchUnitsFromConversation,
@@ -29,13 +23,10 @@ const MAX_CONTENT_SEARCH_LIMIT = 60;
 const FTS_SEARCH_CHUNK_SIZE = 450;
 const FTS_CANDIDATE_MULTIPLIER = 8;
 const FTS_SNIPPET_TOKENS = 32;
-const FUZZY_UNIT_TEXT_LIMIT = 20_000;
-const FUZZY_TOTAL_TEXT_LIMIT = 30 * 1024 * 1024;
-const FUZZY_EXCERPT_BEFORE = 80;
-const FUZZY_EXCERPT_AFTER = 180;
-const BACKFILL_CHUNK_SIZE = 4;
-const BACKFILL_DELAY_MS = 25;
-const FUZZY_BUILD_DEBOUNCE_MS = 200;
+const BACKFILL_CHUNK_SIZE = 2;
+const BACKFILL_SLICE_BUDGET_MS = 50;
+const BACKFILL_DELAY_MS = 250;
+const INDEX_UPDATED_THROTTLE_MS = 1_000;
 const LIVE_INDEX_DEBOUNCE_MS = 500;
 const FAILED_BACKFILL_RETRY_MS = 5 * 60 * 1000;
 
@@ -50,17 +41,6 @@ interface ThreadSearchFtsRow {
   thread_id: string;
   snippet: string;
   rank: number;
-}
-
-interface MiniSearchDocument {
-  id: string;
-  text: string;
-}
-
-interface MiniSearchSourceRow {
-  rowid: number;
-  threadId: string;
-  text: string;
 }
 
 export interface ThreadSearchBackfillSource {
@@ -99,90 +79,6 @@ function normalizeSnippetText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function createMiniSearch(): MiniSearch<MiniSearchDocument> {
-  return new MiniSearch<MiniSearchDocument>({
-    fields: ["text"],
-    idField: "id",
-    storeFields: ["id"],
-    processTerm: (term) => {
-      const normalized = normalizeSearchText(term);
-      return normalized.length > 0 ? normalized : null;
-    },
-  } satisfies Options<MiniSearchDocument>);
-}
-
-function buildFuzzyHighlightRegex(terms: string[]): RegExp | null {
-  const normalizedTerms = Array.from(new Set(
-    terms
-      .map((term) => term.trim())
-      .filter(Boolean)
-      .sort((left, right) => right.length - left.length),
-  ));
-  if (normalizedTerms.length === 0) return null;
-  const escaped = normalizedTerms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return new RegExp(`(${escaped.join("|")})`, "gi");
-}
-
-function buildFuzzySnippet(
-  text: string,
-  matchedTerms: string[],
-): { snippet: string; segments: CommandPaletteSearchSnippetSegment[] } | null {
-  const normalized = normalizeSnippetText(text);
-  if (!normalized) return null;
-
-  const regex = buildFuzzyHighlightRegex(matchedTerms);
-  if (!regex) {
-    const snippet = normalized.slice(0, FUZZY_EXCERPT_BEFORE + FUZZY_EXCERPT_AFTER).trim();
-    return {
-      snippet,
-      segments: [{ text: snippet, highlight: false }],
-    };
-  }
-
-  regex.lastIndex = 0;
-  const match = regex.exec(normalized);
-  if (!match) {
-    const snippet = normalized.slice(0, FUZZY_EXCERPT_BEFORE + FUZZY_EXCERPT_AFTER).trim();
-    return {
-      snippet,
-      segments: [{ text: snippet, highlight: false }],
-    };
-  }
-
-  const from = Math.max(0, match.index - FUZZY_EXCERPT_BEFORE);
-  const to = Math.min(normalized.length, match.index + match[0].length + FUZZY_EXCERPT_AFTER);
-  const snippet = `${from > 0 ? "…" : ""}${normalized.slice(from, to).trim()}${to < normalized.length ? "…" : ""}`;
-  regex.lastIndex = 0;
-
-  const segments: CommandPaletteSearchSnippetSegment[] = [];
-  let lastIndex = 0;
-  let segmentMatch: RegExpExecArray | null = null;
-  while ((segmentMatch = regex.exec(snippet)) !== null) {
-    if (segmentMatch.index > lastIndex) {
-      segments.push({
-        text: snippet.slice(lastIndex, segmentMatch.index),
-        highlight: false,
-      });
-    }
-    segments.push({
-      text: segmentMatch[0],
-      highlight: true,
-    });
-    lastIndex = segmentMatch.index + segmentMatch[0].length;
-  }
-  if (lastIndex < snippet.length) {
-    segments.push({
-      text: snippet.slice(lastIndex),
-      highlight: false,
-    });
-  }
-
-  return {
-    snippet,
-    segments: segments.length > 0 ? segments : [{ text: snippet, highlight: false }],
-  };
-}
-
 function uniqueThreadIds(summaries: CommandPaletteThreadSummary[]): string[] {
   return Array.from(new Set(summaries.map((summary) => summary.threadId)));
 }
@@ -195,18 +91,28 @@ function chunkValues<T>(values: T[], chunkSize: number): T[][] {
   return chunks;
 }
 
+function compareBackfillSummaries(
+  left: CommandPaletteThreadSummary,
+  right: CommandPaletteThreadSummary,
+): number {
+  if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
+  const leftPinnedOrder = left.pinnedOrder ?? Number.MAX_SAFE_INTEGER;
+  const rightPinnedOrder = right.pinnedOrder ?? Number.MAX_SAFE_INTEGER;
+  if (leftPinnedOrder !== rightPinnedOrder) return leftPinnedOrder - rightPinnedOrder;
+  if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
+  return left.threadId.localeCompare(right.threadId);
+}
+
 export class CommandPaletteThreadSearchService {
-  private miniSearch: MiniSearch<MiniSearchDocument> | null = null;
-  private miniSearchRowsById = new Map<string, MiniSearchSourceRow>();
-  private miniSearchDirty = true;
-  private miniSearchReady = false;
-  private miniSearchBuildInFlight = false;
-  private miniSearchBuildTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
   private backfillQueue: CommandPaletteThreadSummary[] = [];
   private queuedBackfillThreadIds = new Set<string>();
+  private processingBackfillThreadIds = new Set<string>();
   private backfillTimer: ReturnType<typeof setTimeout> | null = null;
   private liveIndexTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private indexUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingIndexUpdated = false;
+  private lastIndexUpdatedAt = 0;
 
   constructor(private readonly options: CommandPaletteThreadSearchServiceOptions = {}) {}
 
@@ -215,12 +121,14 @@ export class CommandPaletteThreadSearchService {
       clearTimeout(this.backfillTimer);
       this.backfillTimer = null;
     }
-    if (this.miniSearchBuildTimer !== null) {
-      clearTimeout(this.miniSearchBuildTimer);
-      this.miniSearchBuildTimer = null;
+    if (this.indexUpdatedTimer !== null) {
+      clearTimeout(this.indexUpdatedTimer);
+      this.indexUpdatedTimer = null;
     }
     this.backfillQueue = [];
     this.queuedBackfillThreadIds.clear();
+    this.processingBackfillThreadIds.clear();
+    this.pendingIndexUpdated = false;
     for (const timer of this.liveIndexTimers.values()) {
       clearTimeout(timer);
     }
@@ -235,11 +143,12 @@ export class CommandPaletteThreadSearchService {
     const staleSummaries = summaries.filter((summary) => this.isThreadIndexStale(summary, options));
     for (const summary of staleSummaries) {
       if (this.queuedBackfillThreadIds.has(summary.threadId)) continue;
+      if (this.processingBackfillThreadIds.has(summary.threadId)) continue;
       this.queuedBackfillThreadIds.add(summary.threadId);
       this.backfillQueue.push(summary);
     }
 
-    this.backfillQueue.sort((left, right) => right.updatedAt - left.updatedAt);
+    this.backfillQueue.sort(compareBackfillSummaries);
     this.scheduleBackfillTick(source);
   }
 
@@ -266,20 +175,26 @@ export class CommandPaletteThreadSearchService {
     summary: CommandPaletteThreadSummary,
     conversation: CodexConversationSnapshot,
   ): void {
-    this.replaceThreadUnits(summary, extractThreadSearchUnitsFromConversation(conversation));
+    if (this.replaceThreadUnits(summary, extractThreadSearchUnitsFromConversation(conversation))) {
+      this.markContentIndexChanged();
+    }
   }
 
   indexThreadDetail(
     summary: CommandPaletteThreadSummary,
     detail: CodexThreadDetail,
   ): void {
-    this.replaceThreadUnits(summary, extractThreadSearchUnitsFromDetail(detail));
+    if (this.replaceThreadUnits(summary, extractThreadSearchUnitsFromDetail(detail))) {
+      this.markContentIndexChanged();
+    }
   }
 
   removeThread(threadId: string): void {
-    getDb().prepare("DELETE FROM thread_search_units WHERE thread_id = ?").run(threadId);
-    getDb().prepare("DELETE FROM thread_search_thread_state WHERE thread_id = ?").run(threadId);
-    this.markMiniSearchDirty();
+    const unitsDeleted = getDb().prepare("DELETE FROM thread_search_units WHERE thread_id = ?").run(threadId).changes;
+    const statesDeleted = getDb().prepare("DELETE FROM thread_search_thread_state WHERE thread_id = ?").run(threadId).changes;
+    if (unitsDeleted > 0 || statesDeleted > 0) {
+      this.markContentIndexChanged();
+    }
   }
 
   search(
@@ -296,33 +211,12 @@ export class CommandPaletteThreadSearchService {
     const eligibleThreadIds = uniqueThreadIds(eligibleSummaries);
     if (eligibleThreadIds.length === 0) return [];
 
-    const eligibleOrder = new Map(eligibleThreadIds.map((threadId, index) => [threadId, index] as const));
-    const merged = new Map<string, CommandPaletteThreadContentSearchResult>();
-
     try {
-      for (const hit of this.searchFts(query, eligibleThreadIds, limit)) {
-        merged.set(hit.threadId, hit);
-      }
+      return this.searchFts(query, eligibleThreadIds, limit);
     } catch {
       // Content search is supplemental; metadata search should keep working.
+      return [];
     }
-
-    try {
-      for (const hit of this.searchFuzzy(query, eligibleThreadIds, limit)) {
-        if (merged.has(hit.threadId)) continue;
-        merged.set(hit.threadId, hit);
-      }
-    } catch {
-      // Content search is supplemental; metadata search should keep working.
-    }
-
-    return Array.from(merged.values())
-      .sort((left, right) => {
-        if (right.score !== left.score) return right.score - left.score;
-        return (eligibleOrder.get(left.threadId) ?? Number.MAX_SAFE_INTEGER)
-          - (eligibleOrder.get(right.threadId) ?? Number.MAX_SAFE_INTEGER);
-      })
-      .slice(0, limit);
   }
 
   private scheduleBackfillTick(source?: ThreadSearchBackfillSource): void {
@@ -335,12 +229,18 @@ export class CommandPaletteThreadSearchService {
   }
 
   private async runBackfillBatch(source?: ThreadSearchBackfillSource): Promise<void> {
-    const batch = this.backfillQueue.splice(0, BACKFILL_CHUNK_SIZE);
-    for (const summary of batch) {
-      this.queuedBackfillThreadIds.delete(summary.threadId);
-      if (!this.isThreadIndexStale(summary)) continue;
-      const startedAt = Date.now();
+    const sliceStartedAt = Date.now();
+    let processedCount = 0;
+
+    while (this.backfillQueue.length > 0 && processedCount < BACKFILL_CHUNK_SIZE) {
+      if (processedCount > 0 && Date.now() - sliceStartedAt >= BACKFILL_SLICE_BUDGET_MS) break;
+
+      const summary = this.backfillQueue.shift();
+      if (!summary) break;
+      this.processingBackfillThreadIds.add(summary.threadId);
       try {
+        if (!this.isThreadIndexStale(summary)) continue;
+        const startedAt = Date.now();
         const units = source
           ? extractThreadSearchUnitsFromDetail(source.readThreadDetail(summary.threadId))
           : await readThreadSearchUnitsFromSession(summary.threadId, summary.updatedAt);
@@ -348,7 +248,9 @@ export class CommandPaletteThreadSearchService {
           this.markThreadIndexFailed(summary, "Session transcript is not materialized");
           continue;
         }
-        this.replaceThreadUnits(summary, units);
+        if (this.replaceThreadUnits(summary, units)) {
+          this.markContentIndexChanged();
+        }
         this.log("debug", "Indexed command palette thread search units", {
           threadId: summary.threadId,
           unitCount: units.length,
@@ -356,9 +258,17 @@ export class CommandPaletteThreadSearchService {
         });
       } catch (error) {
         this.markThreadIndexFailed(summary, error instanceof Error ? error.message : String(error));
+      } finally {
+        this.processingBackfillThreadIds.delete(summary.threadId);
+        this.queuedBackfillThreadIds.delete(summary.threadId);
+        processedCount += 1;
       }
     }
-    this.emitIndexUpdated("backfill");
+
+    if (this.backfillQueue.length === 0) {
+      this.flushPendingIndexUpdated();
+      return;
+    }
     this.scheduleBackfillTick(source);
   }
 
@@ -383,9 +293,10 @@ export class CommandPaletteThreadSearchService {
   private replaceThreadUnits(
     summary: CommandPaletteThreadSummary,
     units: ThreadSearchUnit[],
-  ): void {
+  ): boolean {
     const now = Date.now();
     const database = getDb();
+    let changedUnits = 0;
     const replace = database.transaction(() => {
       const currentRows = database.prepare(`
         SELECT unit_key
@@ -397,7 +308,7 @@ export class CommandPaletteThreadSearchService {
       const deleteUnit = database.prepare("DELETE FROM thread_search_units WHERE unit_key = ?");
       for (const row of currentRows) {
         if (nextKeys.has(row.unit_key)) continue;
-        deleteUnit.run(row.unit_key);
+        changedUnits += deleteUnit.run(row.unit_key).changes;
       }
 
       const upsertUnit = database.prepare(`
@@ -424,10 +335,18 @@ export class CommandPaletteThreadSearchService {
           text_hash = excluded.text_hash,
           source_updated_at = excluded.source_updated_at,
           indexed_at = excluded.indexed_at
+        WHERE
+          thread_search_units.project_id IS NOT excluded.project_id OR
+          thread_search_units.session_id IS NOT excluded.session_id OR
+          thread_search_units.turn_id IS NOT excluded.turn_id OR
+          thread_search_units.item_id IS NOT excluded.item_id OR
+          thread_search_units.role IS NOT excluded.role OR
+          thread_search_units.text_hash IS NOT excluded.text_hash OR
+          thread_search_units.source_updated_at IS NOT excluded.source_updated_at
       `);
 
       for (const unit of units) {
-        upsertUnit.run(
+        changedUnits += upsertUnit.run(
           unit.unitKey,
           unit.threadId,
           summary.projectId,
@@ -439,7 +358,7 @@ export class CommandPaletteThreadSearchService {
           hashText(unit.text),
           summary.updatedAt,
           now,
-        );
+        ).changes;
       }
 
       database.prepare(`
@@ -467,7 +386,7 @@ export class CommandPaletteThreadSearchService {
     });
 
     replace();
-    this.markMiniSearchDirty();
+    return changedUnits > 0;
   }
 
   private markThreadIndexFailed(summary: CommandPaletteThreadSummary, errorMessage: string): void {
@@ -560,125 +479,41 @@ export class CommandPaletteThreadSearchService {
     return Array.from(byThread.values());
   }
 
-  private searchFuzzy(
-    query: string,
-    eligibleThreadIds: string[],
-    limit: number,
-  ): CommandPaletteThreadContentSearchResult[] {
-    if (!this.miniSearchReady || this.miniSearchDirty || !this.miniSearch) {
-      this.scheduleFuzzyBuild();
-      return [];
-    }
-
-    const miniSearch = this.miniSearch;
-    const normalizedQuery = normalizeSearchText(query);
-    if (!normalizedQuery) return [];
-
-    const eligible = new Set(eligibleThreadIds);
-    const results = miniSearch.search(normalizedQuery, {
-      combineWith: "AND",
-      prefix: (term) => term.length >= 2,
-      fuzzy: resolveFuzzyThreshold,
-    });
-
-    const byThread = new Map<string, CommandPaletteThreadContentSearchResult>();
-    for (const result of results) {
-      const source = this.miniSearchRowsById.get(String(result.id));
-      if (!source || !eligible.has(source.threadId) || byThread.has(source.threadId)) continue;
-      const snippet = buildFuzzySnippet(source.text, collectMatchedFuzzyTerms(result));
-      if (!snippet) continue;
-      byThread.set(source.threadId, {
-        threadId: source.threadId,
-        snippet: snippet.snippet,
-        score: 1_000_000 - byThread.size,
-        matchKind: "fuzzy",
-        snippetSegments: snippet.segments,
-      });
-      if (byThread.size >= limit) break;
-    }
-
-    return Array.from(byThread.values());
-  }
-
-  private scheduleFuzzyBuild(): void {
-    if (this.miniSearchBuildInFlight || this.miniSearchBuildTimer !== null || !this.miniSearchDirty) return;
-
-    this.miniSearchBuildTimer = setTimeout(() => {
-      this.miniSearchBuildTimer = null;
-      void this.rebuildMiniSearch();
-    }, FUZZY_BUILD_DEBOUNCE_MS);
-  }
-
-  private async rebuildMiniSearch(): Promise<void> {
-    if (this.miniSearchBuildInFlight || !this.miniSearchDirty) return;
-
-    this.miniSearchBuildInFlight = true;
-    const startedAt = Date.now();
-    const generation = this.generation;
-    try {
-      const miniSearch = createMiniSearch();
-      const rows = getDb().prepare(`
-        SELECT rowid, thread_id, text
-        FROM thread_search_units
-        ORDER BY source_updated_at DESC, rowid DESC
-      `).all() as Array<{ rowid: number; thread_id: string; text: string }>;
-
-      this.miniSearchRowsById = new Map();
-      const documents: MiniSearchDocument[] = [];
-      let indexedBytes = 0;
-      for (const row of rows) {
-        const text = row.text.slice(0, FUZZY_UNIT_TEXT_LIMIT);
-        indexedBytes += Buffer.byteLength(text, "utf8");
-        if (indexedBytes > FUZZY_TOTAL_TEXT_LIMIT) break;
-        const id = String(row.rowid);
-        this.miniSearchRowsById.set(id, {
-          rowid: row.rowid,
-          threadId: row.thread_id,
-          text: row.text,
-        });
-        documents.push({ id, text });
-      }
-
-      if (documents.length > 0) {
-        await miniSearch.addAllAsync(documents, { chunkSize: 1_000 });
-      }
-
-      if (generation !== this.generation) {
-        this.log("debug", "Discarded stale command palette thread fuzzy index build", {
-          buildGeneration: generation,
-          currentGeneration: this.generation,
-          durationMs: Date.now() - startedAt,
-        });
-        return;
-      }
-
-      this.miniSearch = miniSearch;
-      this.miniSearchDirty = false;
-      this.miniSearchReady = true;
-      this.log("info", "Built command palette thread fuzzy index", {
-        generation,
-        documentCount: documents.length,
-        indexedBytes,
-        durationMs: Date.now() - startedAt,
-      });
-      this.emitIndexUpdated("fuzzy-ready");
-    } catch (error) {
-      this.log("warn", "Could not build command palette thread fuzzy index", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      this.miniSearchBuildInFlight = false;
-      if (this.miniSearchDirty) {
-        this.scheduleFuzzyBuild();
-      }
-    }
-  }
-
-  private markMiniSearchDirty(): void {
+  private markContentIndexChanged(): void {
     this.generation += 1;
-    this.miniSearchDirty = true;
-    this.miniSearchReady = false;
-    this.scheduleFuzzyBuild();
+    this.emitIndexUpdatedThrottled();
+  }
+
+  private emitIndexUpdatedThrottled(): void {
+    const now = Date.now();
+    const elapsed = now - this.lastIndexUpdatedAt;
+    if (elapsed >= INDEX_UPDATED_THROTTLE_MS && this.indexUpdatedTimer === null) {
+      this.lastIndexUpdatedAt = now;
+      this.emitIndexUpdated("backfill");
+      return;
+    }
+
+    this.pendingIndexUpdated = true;
+    if (this.indexUpdatedTimer !== null) return;
+
+    this.indexUpdatedTimer = setTimeout(() => {
+      this.indexUpdatedTimer = null;
+      if (!this.pendingIndexUpdated) return;
+      this.pendingIndexUpdated = false;
+      this.lastIndexUpdatedAt = Date.now();
+      this.emitIndexUpdated("backfill");
+    }, Math.max(0, INDEX_UPDATED_THROTTLE_MS - elapsed));
+  }
+
+  private flushPendingIndexUpdated(): void {
+    if (this.indexUpdatedTimer !== null) {
+      clearTimeout(this.indexUpdatedTimer);
+      this.indexUpdatedTimer = null;
+    }
+    if (!this.pendingIndexUpdated) return;
+    this.pendingIndexUpdated = false;
+    this.lastIndexUpdatedAt = Date.now();
+    this.emitIndexUpdated("backfill");
   }
 
   private emitIndexUpdated(reason: CommandPaletteThreadIndexUpdatedEvent["reason"]): void {
@@ -691,9 +526,4 @@ export class CommandPaletteThreadSearchService {
   private log(level: "debug" | "info" | "warn" | "error", message: string, data?: Record<string, unknown>): void {
     this.options.log?.(level, message, data);
   }
-}
-
-function collectMatchedFuzzyTerms(result: SearchResult): string[] {
-  const resultTerms = result.terms.map((term) => term.trim()).filter(Boolean);
-  return Array.from(new Set(resultTerms));
 }

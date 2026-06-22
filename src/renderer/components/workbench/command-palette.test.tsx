@@ -538,7 +538,7 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
     await act(async () => {
       for (const callback of threadIndexUpdateCallbacks) callback();
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 280));
     });
     await settleAsyncRender();
 

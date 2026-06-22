@@ -204,8 +204,9 @@ For queries with at least `2` characters, the renderer also requests bounded cha
 
 - the request limit is capped at `60`
 - the main process delegates content search to the local thread-search indexer worker
-- SQLite FTS5 snippets are the primary hot path and can return before fuzzy content indexing is ready
-- MiniSearch fuzzy content matches are a background enhancement; when the worker finishes rebuilding the fuzzy overlay, it emits `codex:threads:palette:index-updated` so an open chat palette can refresh the current query
+- SQLite FTS5 is the only content-search hot path; the search IPC only reads the current FTS index and never triggers transcript backfill, index rebuilds, full-table scans, or app-server `thread/search`
+- sidebar listing can enqueue low-priority backfill, but the worker advances it recent-first in small slices so palette open/search remains responsive
+- `codex:threads:palette:index-updated` is emitted only after actual indexed content changes, throttled by the backend and debounced by the renderer before refreshing the current query
 - returned content hits are intersected with the current sidebar chat id whitelist before they can render
 - local search/index errors fail closed and leave metadata search working
 - content-only hits can appear in the `Chats` section after metadata hits
@@ -219,7 +220,7 @@ Each chat result renders:
 - optional preview/snippet row
 
 Metadata matches can highlight fuzzy-matched title, project/Chats context, cwd, and preview spans using MiniSearch match terms.
-Content snippets prefer backend-provided highlight segments from FTS snippets; fuzzy content fallback snippets highlight only literal matched terms when available.
+Content snippets use backend-provided highlight segments from FTS snippets. Content typo-level fuzzy matching is intentionally not promised; if Nodex adds it later, it should use a bounded trigram/n-gram style index instead of rebuilding a full-content MiniSearch overlay.
 
 ## Command Search Model
 - Commands are matched only in root mode.
