@@ -1,12 +1,26 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
+import type {
+  AppState,
+  BinaryFiles,
+  ExcalidrawImperativeAPI,
+} from "@excalidraw/excalidraw/types";
+import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import "@excalidraw/excalidraw/index.css";
-import { useCanvasState } from "@/lib/use-canvas-state";
-import { useKanban } from "@/lib/use-kanban";
-import { useTheme } from "@/lib/use-theme";
+import {
+  loadCanvasCardSidebar,
+  loadExcalidraw,
+  useCanvasState,
+  useKanban,
+  useTheme,
+  type CanvasInitialData,
+} from "./canvas-view-deps";
 import {
   createCardElement,
+  collectPlacedCardIds,
   isCardElement,
   getCardIdFromElement,
+  syncPlacedCardIds,
   updateCardElements,
 } from "@/lib/canvas-card-elements";
 import type { CardSummary } from "@/lib/types";
@@ -14,17 +28,17 @@ import { toCardSummary } from "../../../shared/card-summary";
 import { LayoutGrid } from "lucide-react";
 
 const ExcalidrawLazy = lazy(async () => {
-  const mod = await import("@excalidraw/excalidraw");
+  const mod = await loadExcalidraw();
   return { default: mod.Excalidraw };
 });
 
 const CanvasCardSidebarLazy = lazy(async () => {
-  const mod = await import("./canvas-card-sidebar");
+  const mod = await loadCanvasCardSidebar();
   return { default: mod.CanvasCardSidebar };
 });
 
 // Lazy-load convertToExcalidrawElements alongside Excalidraw
-const convertPromise = import("@excalidraw/excalidraw").then(
+const convertPromise = loadExcalidraw().then(
   (mod) => mod.convertToExcalidrawElements,
 );
 
@@ -36,43 +50,79 @@ interface CanvasViewProps {
     titleSnapshot?: string,
   ) => void;
   cardStageCardId: string | undefined;
-  cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
+  cardStageCloseRef: RefObject<(() => Promise<void>) | null>;
 }
 
 export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStageCloseRef }: CanvasViewProps) {
   const { initialData, isLoading, saveCanvas } = useCanvasState({ projectId });
+
+  if (isLoading || !initialData || initialData.projectId !== projectId) {
+    return (
+      <div className="flex h-full flex-1 items-center justify-center">
+        <div className="text-sm text-(--foreground-secondary)">Loading canvas...</div>
+      </div>
+    );
+  }
+
+  return (
+    <CanvasEditor
+      key={projectId}
+      projectId={projectId}
+      initialData={initialData}
+      saveCanvas={saveCanvas}
+      openCardStage={openCardStage}
+      cardStageCardId={cardStageCardId}
+      cardStageCloseRef={cardStageCloseRef}
+    />
+  );
+}
+
+interface CanvasEditorProps extends CanvasViewProps {
+  initialData: CanvasInitialData;
+  saveCanvas: (
+    elements: readonly unknown[],
+    appState: Record<string, unknown>,
+    files: Record<string, unknown> | undefined,
+  ) => void;
+}
+
+function CanvasEditor({
+  projectId,
+  initialData,
+  saveCanvas,
+  openCardStage,
+  cardStageCardId,
+  cardStageCloseRef,
+}: CanvasEditorProps) {
   const {
     board,
     createCard,
   } = useKanban({ projectId });
   const { resolved: themeResolved } = useTheme();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
-  // Bumped after local scene mutations so placedCardIds recomputes
-  const [sceneVersion, setSceneVersion] = useState(0);
+  const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const latestElementsRef = useRef<readonly OrderedExcalidrawElement[]>(
+    initialData.elements as readonly OrderedExcalidrawElement[],
+  );
+  const [placedCardIds, setPlacedCardIds] = useState(() => collectPlacedCardIds(initialData.elements));
 
-  // Track which cards are already placed on the canvas
-  const placedCardIds = useMemo(() => {
-    if (!excalidrawAPI) return new Set<string>();
-    const elements = excalidrawAPI.getSceneElements() as Record<string, unknown>[];
-    const ids = new Set<string>();
-    for (const el of elements) {
-      const cardId = getCardIdFromElement(el);
-      if (cardId) ids.add(cardId);
-    }
-    return ids;
-  }, [excalidrawAPI, board, sceneVersion]);
+  const handleExcalidrawAPI = useCallback((api: ExcalidrawImperativeAPI) => {
+    excalidrawApiRef.current = api;
+  }, []);
 
   // Sync card labels when board changes
   useEffect(() => {
-    if (!excalidrawAPI || !board) return;
-    const elements = excalidrawAPI.getSceneElements() as Record<string, unknown>[];
+    const api = excalidrawApiRef.current;
+    if (!api || !board) return;
+
+    const elements = latestElementsRef.current as readonly Record<string, unknown>[];
     const updated = updateCardElements(elements, board);
-    if (updated) {
-      excalidrawAPI.updateScene({ elements: updated });
-      setSceneVersion((v) => v + 1);
-    }
-  }, [excalidrawAPI, board]);
+    if (!updated) return;
+
+    const nextElements = updated as unknown as readonly OrderedExcalidrawElement[];
+    latestElementsRef.current = nextElements;
+    api.updateScene({ elements: nextElements });
+    setPlacedCardIds((previous) => syncPlacedCardIds(previous, nextElements));
+  }, [board]);
 
   // Find card + column from board by cardId
   const findCard = useCallback(
@@ -115,38 +165,46 @@ export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStag
   // Place an existing card on the canvas
   const handlePlaceCard = useCallback(
     async (card: CardSummary, columnId: string) => {
-      if (!excalidrawAPI) return;
+      const api = excalidrawApiRef.current;
+      if (!api) return;
       const convert = await convertPromise;
 
       const skeleton = createCardElement(card, columnId, {
         x: 100 + Math.random() * 300,
         y: 100 + Math.random() * 300,
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const elements = convert([skeleton as any]);
-      const existing = excalidrawAPI.getSceneElements();
-      excalidrawAPI.updateScene({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        elements: [...existing, ...elements] as any,
-      });
-      setSceneVersion((v) => v + 1);
+      const elements = convert([skeleton] as Parameters<typeof convert>[0]);
+      const existing = api.getSceneElements();
+      const nextElements = [...existing, ...elements] as readonly OrderedExcalidrawElement[];
+      latestElementsRef.current = nextElements;
+      api.updateScene({ elements: nextElements });
+      setPlacedCardIds((previous) => syncPlacedCardIds(previous, nextElements));
     },
-    [excalidrawAPI],
+    [],
   );
 
   // Create a new card and place it on canvas
   const handleCreateAndPlace = useCallback(async () => {
-    if (!excalidrawAPI) return;
+    if (!excalidrawApiRef.current) return;
     const card = await createCard("draft", { title: "New Card" });
     if (!card) return;
     await handlePlaceCard(toCardSummary(card), "draft");
-  }, [excalidrawAPI, createCard, handlePlaceCard]);
+  }, [createCard, handlePlaceCard]);
 
   // onChange handler: debounced save
   const handleChange = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (elements: readonly any[], appState: any, files: Record<string, unknown>) => {
-      saveCanvas(elements, appState, files);
+    (
+      elements: readonly OrderedExcalidrawElement[],
+      appState: AppState,
+      files: BinaryFiles,
+    ) => {
+      latestElementsRef.current = elements;
+      setPlacedCardIds((previous) => syncPlacedCardIds(previous, elements));
+      saveCanvas(
+        elements,
+        appState as unknown as Record<string, unknown>,
+        files as unknown as Record<string, unknown>,
+      );
     },
     [saveCanvas],
   );
@@ -155,7 +213,8 @@ export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStag
   const renderTopRightUI = useCallback(() => {
     return (
       <button
-        onClick={() => excalidrawAPI?.toggleSidebar({ name: "cards", tab: "browse" })}
+        type="button"
+        onClick={() => excalidrawApiRef.current?.toggleSidebar({ name: "cards", tab: "browse" })}
         className="excalidraw-button"
         title="Cards"
         style={{
@@ -170,15 +229,7 @@ export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStag
         Cards
       </button>
     );
-  }, [excalidrawAPI]);
-
-  if (isLoading || !initialData) {
-    return (
-      <div className="flex h-full flex-1 items-center justify-center">
-        <div className="text-sm text-(--foreground-secondary)">Loading canvas...</div>
-      </div>
-    );
-  }
+  }, []);
 
   return (
     <div className="h-full min-h-0 w-full px-4 pb-4">
@@ -191,16 +242,14 @@ export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStag
       >
         <div className="h-full min-h-0 overflow-hidden rounded-lg border border-(--border)">
           <ExcalidrawLazy
-            excalidrawAPI={(api) => setExcalidrawAPI(api)}
+            excalidrawAPI={handleExcalidrawAPI}
             initialData={{
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              elements: initialData.elements as any,
+              elements: initialData.elements as readonly OrderedExcalidrawElement[],
               appState: {
                 ...initialData.appState,
                 theme: themeResolved,
               },
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              files: initialData.files as any,
+              files: initialData.files as BinaryFiles,
             }}
             theme={themeResolved}
             onChange={handleChange}

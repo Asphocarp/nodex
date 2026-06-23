@@ -61,15 +61,43 @@ export function createCardElement(
   };
 }
 
+function asElementRecord(element: unknown): ExcalidrawElementLike | null {
+  if (!element || typeof element !== "object") return null;
+  return element as ExcalidrawElementLike;
+}
+
 /** Type guard: does this Excalidraw element represent an Nodex card? */
-export function isCardElement(element: ExcalidrawElementLike): boolean {
-  return element.customData?.type === CARD_ELEMENT_TYPE;
+export function isCardElement(element: unknown): boolean {
+  return asElementRecord(element)?.customData?.type === CARD_ELEMENT_TYPE;
 }
 
 /** Extract cardId from an Nodex card element. Returns null for non-card elements. */
-export function getCardIdFromElement(element: ExcalidrawElementLike): string | null {
+export function getCardIdFromElement(element: unknown): string | null {
   if (!isCardElement(element)) return null;
-  return (element.customData as unknown as CardCustomData).cardId;
+  const cardId = asElementRecord(element)?.customData?.cardId;
+  return typeof cardId === "string" ? cardId : null;
+}
+
+export function collectPlacedCardIds(elements: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const element of elements) {
+    const cardId = getCardIdFromElement(element);
+    if (cardId) ids.add(cardId);
+  }
+  return ids;
+}
+
+export function haveSameCardIds(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const id of left) {
+    if (!right.has(id)) return false;
+  }
+  return true;
+}
+
+export function syncPlacedCardIds(previous: Set<string>, elements: readonly unknown[]): Set<string> {
+  const next = collectPlacedCardIds(elements);
+  return haveSameCardIds(previous, next) ? previous : next;
 }
 
 /** Build a card lookup map from a board summary: cardId → { card, columnId } */

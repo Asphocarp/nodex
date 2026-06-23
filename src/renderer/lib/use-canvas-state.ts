@@ -7,7 +7,8 @@ interface UseCanvasStateOptions {
   projectId: string;
 }
 
-interface CanvasInitialData {
+export interface CanvasInitialData {
+  projectId: string;
   elements: unknown[];
   appState: Record<string, unknown>;
   files: Record<string, unknown>;
@@ -92,6 +93,7 @@ export function useCanvasState({ projectId }: UseCanvasStateOptions) {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
+    setInitialData(null);
 
     void (async () => {
       await flushSave();
@@ -102,16 +104,17 @@ export function useCanvasState({ projectId }: UseCanvasStateOptions) {
 
         if (data) {
           setInitialData({
+            projectId,
             elements: JSON.parse(data.elements) as unknown[],
             appState: JSON.parse(data.appState) as Record<string, unknown>,
             files: JSON.parse(typeof data.files === "string" ? data.files : "{}") as Record<string, unknown>,
           });
         } else {
-          setInitialData({ elements: [], appState: {}, files: {} });
+          setInitialData({ projectId, elements: [], appState: {}, files: {} });
         }
       } catch {
         if (!cancelled) {
-          setInitialData({ elements: [], appState: {}, files: {} });
+          setInitialData({ projectId, elements: [], appState: {}, files: {} });
         }
       } finally {
         if (!cancelled) setIsLoading(false);
