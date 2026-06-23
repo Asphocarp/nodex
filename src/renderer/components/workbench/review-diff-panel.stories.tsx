@@ -125,9 +125,24 @@ type Story = StoryObj<typeof meta>;
 
 export const LastTurnWithoutFileTree: Story = {};
 
+export const HeaderAndFileRows: Story = {
+  args: {
+    conversation: buildStoryConversation(),
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+};
+
 export const LastTurnWithFileTree: Story = {
   args: {
     initialFileTreeOpen: true,
+  },
+};
+
+export const FileTreeChrome: Story = {
+  args: {
+    initialSource: "unstaged",
+    initialFileTreeOpen: true,
+    projectWorkspacePath: "/tmp/storybook/virtualized-tree",
   },
 };
 

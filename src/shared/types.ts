@@ -1973,9 +1973,60 @@ export interface CodexBackgroundTerminalRow {
   previewLine: string | null;
 }
 
-export type GitReviewSource = "unstaged" | "staged" | "branch";
+export type ReviewDiffSourceKind =
+  | "last-turn"
+  | "unstaged"
+  | "staged"
+  | "branch"
+  | "commit"
+  | "pull-request";
 
-export type ReviewDiffFilter = "last-turn" | GitReviewSource;
+export type GitReviewSource = "unstaged" | "staged" | "branch" | "commit";
+
+export interface GitReviewBranchCommitsRequest {
+  cwd: string;
+  baseBranch?: string | null;
+  operationSource?: string | null;
+  requestId?: string | null;
+}
+
+export interface GitReviewBranchCommit {
+  sha: string;
+  committedAt: string;
+  subject: string;
+}
+
+export interface GitReviewBranchCommitsResult {
+  cwd: string;
+  baseBranch: string | null;
+  commits: GitReviewBranchCommit[];
+  errorMessage: string | null;
+}
+
+export type ReviewDiffFilter = "last-turn" | GitReviewSource | "pull-request";
+
+export type ReviewDiffSourceDescriptor =
+  | { kind: "last-turn" }
+  | { kind: "unstaged" }
+  | { kind: "staged" }
+  | { kind: "branch"; baseBranch?: string | null }
+  | { kind: "commit"; commitSha: string; title?: string | null }
+  | { kind: "pull-request"; prNumber: number; baseBranch?: string | null };
+
+export interface ReviewPanelTabStateV1 {
+  version: 1;
+  source: ReviewDiffSourceDescriptor;
+  diffMode: "unified" | "split";
+  fileTreeOpen: boolean;
+  sidePaneWidth: number;
+  hideWhitespace: boolean;
+  wrap: boolean;
+  richPreview: boolean;
+  fullFile: boolean;
+  selectedPath: string | null;
+  filter: string;
+  expandedPaths: string[];
+}
 
 export type GitReviewFileStatus = "modified" | "added" | "deleted" | "renamed";
 
@@ -2014,6 +2065,10 @@ export interface ReviewDiffEntry extends GitReviewFileSummary {
   diff: string;
   loadStatus: ReviewDiffLoadStatus;
   renderKey: string;
+  revision: string | null;
+  diffBytes: number;
+  diffError: string | null;
+  canApplyPatchActions: boolean;
   changedBytes: number;
   tooLarge: boolean;
   tooLargeReason: string | null;
@@ -2022,12 +2077,15 @@ export interface ReviewDiffEntry extends GitReviewFileSummary {
 export interface ReviewDiffRequest {
   cwd: string;
   source: GitReviewSource;
+  sourceDescriptor?: ReviewDiffSourceDescriptor;
   files?: string[];
   baseRef?: string | null;
   baseBranch?: string | null;
   commitSha?: string | null;
   hideWhitespace?: boolean;
+  hostConfig?: Record<string, unknown> | null;
   operationSource?: string | null;
+  requestId?: string | null;
 }
 
 export interface ReviewDiffResult {
@@ -2062,6 +2120,30 @@ export interface BranchDiffStatsResult {
   errorMessage: string | null;
 }
 
+export interface GitReviewSummaryRequest {
+  cwd: string;
+  source: GitReviewSource;
+  baseRef?: string | null;
+  baseBranch?: string | null;
+  commitSha?: string | null;
+  hideWhitespace?: boolean;
+  requestId?: string | null;
+}
+
+export interface GitReviewSummaryResult {
+  cwd: string;
+  source: GitReviewSource;
+  baseRef: string | null;
+  commitSha: string | null;
+  files: GitReviewFileSummary[];
+  additions: number;
+  deletions: number;
+  isGitRepository: boolean;
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  errorMessage: string | null;
+}
+
 export interface GitMergeBaseRequest {
   cwd: string;
   gitRoot?: string | null;
@@ -2085,6 +2167,7 @@ export interface GitReviewFileContentsInput {
   path: string;
   previousPath?: string | null;
   baseRef?: string | null;
+  commitSha?: string | null;
 }
 
 export interface GitReviewFileContents {
@@ -2102,6 +2185,10 @@ export interface GitReviewSearchInput {
   source: GitReviewSource;
   query: string;
   baseRef?: string | null;
+  baseBranch?: string | null;
+  commitSha?: string | null;
+  hideWhitespace?: boolean;
+  limit?: number;
 }
 
 export interface GitReviewSearchResult {
@@ -2123,6 +2210,163 @@ export interface GitApplyPatchResult {
   conflictedPaths: string[];
   errorCode: string | null;
   errorMessage: string | null;
+}
+
+export interface GitReviewCancelInput {
+  requestId: string;
+}
+
+export interface GitReviewBlameInput {
+  cwd: string;
+  path: string;
+  ref?: string | null;
+}
+
+export interface GitReviewBlameLine {
+  line: number;
+  commitSha: string;
+  author: string | null;
+  authorTime: number | null;
+  summary: string | null;
+}
+
+export interface GitReviewBlameResult {
+  cwd: string;
+  path: string;
+  ref: string | null;
+  lines: GitReviewBlameLine[];
+  errorMessage: string | null;
+}
+
+export type GhCliAvailability =
+  | "available"
+  | "missing-gh"
+  | "not-authenticated"
+  | "missing-remote"
+  | "error";
+
+export interface GhCliStatusResult {
+  cwd: string;
+  available: boolean;
+  status: GhCliAvailability;
+  message: string | null;
+}
+
+export interface GhPrStatusRequest {
+  cwd: string;
+  prNumber?: number | null;
+}
+
+export interface GhPrStatusResult {
+  cwd: string;
+  available: boolean;
+  status: "ready" | "disabled" | "error";
+  disabledReason: GhCliAvailability | null;
+  prNumber: number | null;
+  title: string | null;
+  url: string | null;
+  state: string | null;
+  mergeStateStatus: string | null;
+  message: string | null;
+}
+
+export interface GhPrCheckRun {
+  name: string;
+  status: string | null;
+  conclusion: string | null;
+  detailsUrl: string | null;
+}
+
+export interface GhPrChecksRequest {
+  cwd: string;
+  prNumber?: number | null;
+}
+
+export interface GhPrChecksResult {
+  cwd: string;
+  available: boolean;
+  disabledReason: GhCliAvailability | null;
+  checks: GhPrCheckRun[];
+  message: string | null;
+}
+
+export interface GhPrComment {
+  id: string;
+  path: string | null;
+  line: number | null;
+  body: string;
+  author: string | null;
+  url: string | null;
+}
+
+export interface GhPrCommentsRequest {
+  cwd: string;
+  prNumber?: number | null;
+}
+
+export interface GhPrCommentsResult {
+  cwd: string;
+  available: boolean;
+  disabledReason: GhCliAvailability | null;
+  comments: GhPrComment[];
+  message: string | null;
+}
+
+export interface GhPrDiffRequest {
+  cwd: string;
+  prNumber?: number | null;
+}
+
+export interface GhPrDiffResult {
+  cwd: string;
+  available: boolean;
+  disabledReason: GhCliAvailability | null;
+  patch: string;
+  message: string | null;
+}
+
+export interface GhPrCommentInput {
+  cwd: string;
+  prNumber: number;
+  body: string;
+}
+
+export interface GhPrCommentResult {
+  cwd: string;
+  available: boolean;
+  disabledReason: GhCliAvailability | null;
+  url: string | null;
+  message: string | null;
+}
+
+export interface GhPrMergeInput {
+  cwd: string;
+  prNumber: number;
+  method?: "merge" | "squash" | "rebase";
+}
+
+export interface GhPrUpdateInput {
+  cwd: string;
+  prNumber: number;
+  title?: string | null;
+  body?: string | null;
+}
+
+export interface GhPrCreateInput {
+  cwd: string;
+  title: string;
+  body?: string | null;
+  base?: string | null;
+  head?: string | null;
+  draft?: boolean;
+}
+
+export interface GhPrMutationResult {
+  cwd: string;
+  available: boolean;
+  disabledReason: GhCliAvailability | null;
+  url: string | null;
+  message: string | null;
 }
 
 export interface CodexConversationChildMembership {

@@ -65,14 +65,29 @@ import {
 } from "./git-branch-service";
 import {
   applyGitReviewPatch,
+  cancelGitReviewRequest,
   initializeGitRepositoryAndReadReviewSnapshot,
   readBranchDiffStats,
+  readGitReviewBlameFile,
+  readGitReviewBranchCommits,
   readGitReviewDiff,
   readGitReviewFileContents,
   readGitReviewSnapshot,
+  readGitReviewSummary,
   resolveGitMergeBase,
   searchGitReview,
 } from "./git-review-service";
+import {
+  createGhPr,
+  createGhPrComment,
+  mergeGhPr,
+  readGhCliStatus,
+  readGhPrChecks,
+  readGhPrComments,
+  readGhPrDiff,
+  readGhPrStatus,
+  updateGhPr,
+} from "./github-pr-service";
 import type { AppUpdateSettings, AppUpdateStatus, CodexPromptInput } from "../shared/types";
 import type {
   BrowserBrowsingDataKind,
@@ -917,19 +932,32 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("git:review:snapshot", (_, input: {
     cwd: string;
-    source: "unstaged" | "staged" | "branch";
+    source: "unstaged" | "staged" | "branch" | "commit";
     baseRef?: string | null;
+    commitSha?: string | null;
     hideWhitespace?: boolean;
   }) => {
     return readGitReviewSnapshot(input);
+  });
+
+  registerHandle("git:review:summary", (_, input) => {
+    return readGitReviewSummary(input);
   });
 
   registerHandle("git:review:diff", (_, input) => {
     return readGitReviewDiff(input);
   });
 
+  registerHandle("git:review:cancel", (_, input) => {
+    return cancelGitReviewRequest(input);
+  });
+
   registerHandle("git:review:branch-diff-stats", (_, input) => {
     return readBranchDiffStats(input);
+  });
+
+  registerHandle("git:review:branch-commits", (_, input) => {
+    return readGitReviewBranchCommits(input);
   });
 
   registerHandle("git:merge-base", (_, input) => {
@@ -944,12 +972,56 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return searchGitReview(input);
   });
 
+  registerHandle("git:review:patch", (_, input) => {
+    return applyGitReviewPatch(input);
+  });
+
+  registerHandle("git:review:blame-file", (_, input) => {
+    return readGitReviewBlameFile(input);
+  });
+
   registerHandle("git:apply-patch", (_, input) => {
     return applyGitReviewPatch(input);
   });
 
   registerHandle("git:init", (_, cwd: string) => {
     return initializeGitRepositoryAndReadReviewSnapshot(cwd);
+  });
+
+  registerHandle("gh-cli-status", (_, input) => {
+    return readGhCliStatus(input);
+  });
+
+  registerHandle("gh-pr-status", (_, input) => {
+    return readGhPrStatus(input);
+  });
+
+  registerHandle("gh-pr-checks", (_, input) => {
+    return readGhPrChecks(input);
+  });
+
+  registerHandle("gh-pr-comments", (_, input) => {
+    return readGhPrComments(input);
+  });
+
+  registerHandle("gh-pr-diff", (_, input) => {
+    return readGhPrDiff(input);
+  });
+
+  registerHandle("gh-pr-comment", (_, input) => {
+    return createGhPrComment(input);
+  });
+
+  registerHandle("gh-pr-merge", (_, input) => {
+    return mergeGhPr(input);
+  });
+
+  registerHandle("gh-pr-update", (_, input) => {
+    return updateGhPr(input);
+  });
+
+  registerHandle("gh-pr-create", (_, input) => {
+    return createGhPr(input);
   });
 
   registerHandle("git:branch:watch:start", async (event, cwd: string) => {

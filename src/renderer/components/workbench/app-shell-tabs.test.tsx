@@ -173,6 +173,33 @@ describe("AppShellTabs", () => {
     expect(textContent(view.getByRole("tabpanel"))).toBe("Panel two");
   });
 
+  test("maps durable tab ids to Codex DOM tab ids on tab chrome and active panel", () => {
+    const view = renderAppShellTabs({
+      activeTabId: "review-durable-id",
+      panelTabDnd: {
+        sessionId: "session-1",
+        panelId: "right",
+        leafId: "leaf-a",
+        activeDragId: null,
+        previewIntent: null,
+      },
+      tabs: [
+        {
+          id: "review-durable-id",
+          domTabId: "diff",
+          title: "Review",
+          renderPanel: () => <div>Review panel</div>,
+        },
+      ],
+    });
+
+    expect(view.container.querySelector('[data-panel-tab-id="review-durable-id"][data-tab-id="diff"]') !== null).toBeTrue();
+    const panel = view.getByRole("tabpanel");
+    expect(panel.getAttribute("data-app-shell-tab-panel-controller")).toBe("right");
+    expect(panel.getAttribute("data-tab-id")).toBe("diff");
+    expect(panel.getAttribute("aria-label")).toBe("Review");
+  });
+
   test("keeps retained tab panels mounted under stable wrappers", () => {
     const mounts: string[] = [];
     const unmounts: string[] = [];

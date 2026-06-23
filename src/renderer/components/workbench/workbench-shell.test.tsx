@@ -4931,7 +4931,7 @@ describe("workbench session shell", () => {
     expect(within(menu).getByText("Files") !== null).toBeTrue();
     expect(within(menu).getByText("Side chat") !== null).toBeTrue();
     expect(within(menu).getByText("Browser") !== null).toBeTrue();
-    expect(within(menu).getByText("Review") !== null).toBeTrue();
+    expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Terminal") !== null).toBeTrue();
     expect(within(menu).queryByText("DB View")).toBe(null);
     expect(within(menu).queryByText("Card Stage")).toBe(null);
@@ -5261,7 +5261,7 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
   });
 
-  test("bottom review action creates and renders the connected review panel", async () => {
+  test("bottom panel add menu does not expose Review", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
     });
@@ -5270,16 +5270,7 @@ describe("workbench session shell", () => {
     await openBottomPanel(screen);
 
     const menu = await openPanelMenu(screen, "Open bottom panel tab");
-    fireEvent.click(within(menu).getByText("Review"));
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-session-tabs:create"
-      && JSON.stringify(call[1]).includes('"panelId":"bottom"')
-      && JSON.stringify(call[1]).includes('"kind":"review"')
-    )).toBeTrue();
-    expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
+    expect(within(menu).queryByText("Review")).toBe(null);
   });
 
   test("command palette open tick renders the command palette with the initial query", async () => {

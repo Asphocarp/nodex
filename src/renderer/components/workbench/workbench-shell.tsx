@@ -479,7 +479,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
     kind: "review",
     defaultPanelId: "right",
-    targetPanelIds: ["right", "bottom"],
+    targetPanelIds: ["right"],
     label: "Review",
     description: "View code changes",
     shortcut: "ctrl+shift+g",
@@ -4757,9 +4757,11 @@ export function WorkbenchShell({
 
       return {
         id: tab.id,
-        domTabId: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "files" && "path" in tab.config
-          ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
-          : undefined,
+        domTabId: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "review"
+          ? "diff"
+          : !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "files" && "path" in tab.config
+            ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
+            : undefined,
         title,
         ...chromeContext,
         icon: isSideChatPanelTab(tab)

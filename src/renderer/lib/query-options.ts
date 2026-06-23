@@ -3,6 +3,14 @@ import { invoke } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
   BoardSummary,
+  GitReviewBranchCommitsRequest,
+  GitReviewBranchCommitsResult,
+  GitReviewFileContents,
+  GitReviewFileContentsInput,
+  GitReviewSearchInput,
+  GitReviewSearchResult,
+  GitReviewSummaryRequest,
+  GitReviewSummaryResult,
   ProtocolMcpResourceReadResponse,
   ProtocolMcpServerStatus,
   Project,
@@ -17,6 +25,8 @@ import type {
   WorkspaceFileReadInput,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
+  ReviewDiffRequest,
+  ReviewDiffResult,
 } from "./types";
 import type {
   GitBranchState,
@@ -76,6 +86,52 @@ export function gitBranchStateQueryOptions(cwd: string) {
     queryKey: queryKeys.git.branchState(cwd),
     queryFn: () => invoke("git:branch:state", cwd) as Promise<GitBranchState>,
     enabled: cwd.trim().length > 0,
+  });
+}
+
+export function reviewSummaryQueryOptions(input: GitReviewSummaryRequest) {
+  return queryOptions({
+    queryKey: queryKeys.review.summary(input),
+    queryFn: () => invoke("git:review:summary", input) as Promise<GitReviewSummaryResult>,
+    enabled: input.cwd.trim().length > 0,
+    refetchOnWindowFocus: true,
+    staleTime: 5_000,
+  });
+}
+
+export function reviewDiffQueryOptions(input: ReviewDiffRequest) {
+  return queryOptions({
+    queryKey: queryKeys.review.diff(input),
+    queryFn: () => invoke("git:review:diff", input) as Promise<ReviewDiffResult>,
+    enabled: input.cwd.trim().length > 0,
+    refetchOnWindowFocus: true,
+    staleTime: 5_000,
+  });
+}
+
+export function reviewBranchCommitsQueryOptions(input: GitReviewBranchCommitsRequest) {
+  return queryOptions({
+    queryKey: queryKeys.review.branchCommits(input),
+    queryFn: () => invoke("git:review:branch-commits", input) as Promise<GitReviewBranchCommitsResult>,
+    enabled: input.cwd.trim().length > 0,
+    refetchOnWindowFocus: true,
+    staleTime: 5_000,
+  });
+}
+
+export function reviewFileContentsQueryOptions(input: GitReviewFileContentsInput) {
+  return queryOptions({
+    queryKey: queryKeys.review.fileContents(input),
+    queryFn: () => invoke("git:review:file-contents", input) as Promise<GitReviewFileContents>,
+    enabled: input.cwd.trim().length > 0 && input.path.trim().length > 0,
+  });
+}
+
+export function reviewSearchQueryOptions(input: GitReviewSearchInput) {
+  return queryOptions({
+    queryKey: queryKeys.review.search(input),
+    queryFn: () => invoke("git:review:search", input) as Promise<GitReviewSearchResult>,
+    enabled: input.cwd.trim().length > 0 && input.query.trim().length > 0,
   });
 }
 

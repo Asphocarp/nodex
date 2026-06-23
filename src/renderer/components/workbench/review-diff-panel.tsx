@@ -1,22 +1,45 @@
 import type { FileContents } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   CheckmarkIcon,
+  CodexCloseIcon,
+  CodexSidePanelFilesIcon,
   FileTreeChevronIcon,
   FileTreeFileIcon,
   FileTreeLockIcon,
+  ReviewCollapseAllDiffsIcon,
+  ReviewCommitOrPushIcon,
+  ReviewCreatePrIcon,
+  ReviewDisableRichPreviewIcon,
+  ReviewDisableWordDiffsIcon,
+  ReviewDisableWordWrapIcon,
+  ReviewEnableWordWrapIcon,
+  ReviewFileToggleChevronIcon,
+  ReviewExpandAllDiffsIcon,
+  ReviewFileDocumentIcon,
+  ReviewFullFilesIcon,
+  ReviewHideWhitespaceIcon,
+  ReviewJumpToFileIcon,
+  ReviewOpenInIcon,
+  ReviewRefreshIcon,
+  ReviewRichPreviewIcon,
+  SearchIcon,
   ReviewSplitDiffIcon,
   ReviewUnifiedDiffIcon,
-  SearchIcon,
+  ReviewWordDiffsIcon,
 } from "../shared/icons";
 import {
+  NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
   NodexDropdownMenu,
+  NodexDropdownMessage,
+  NodexDropdownScrollList,
   NodexDropdownSearchInput,
   NodexDropdownSeparator,
 } from "../ui/dropdown";
+import { NodexTooltip } from "../ui/tooltip";
 import { toast } from "../ui/toast";
 import {
   useRegisterContentSearchSource,
@@ -34,7 +57,13 @@ import {
   getNodexDiffHostStyle,
   getNodexDiffOptions,
 } from "@/lib/diff-presentation";
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
+import {
+  middleTruncateReviewJumpText,
+  selectReviewJumpToFileMatches,
+  splitReviewJumpToFilePath,
+} from "@/lib/review-jump-to-file";
 import {
   buildReviewRenderPlan,
   filterReviewFiles,
@@ -75,10 +104,11 @@ import {
 } from "@/lib/review-code-comments";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import type {
-  CodexReviewTarget,
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexTurnDiffReviewTarget,
+  GitReviewBranchCommit,
+  GitReviewBranchCommitsResult,
   GitReviewFileContents,
   GitReviewFileStatus,
   GitReviewSnapshot,
@@ -96,7 +126,6 @@ import {
 import {
   DiffStats,
   FilenameButton,
-  basename,
   normalizePathSegments,
   resolveOpenPath,
   stripPatchPrefix,
@@ -113,6 +142,7 @@ interface ReviewDiffPanelProps {
   projectWorkspacePath?: string | null;
   selectedTurnDiff?: CodexTurnDiffReviewTarget | null;
   initialSource?: ReviewSource;
+  initialCommitSha?: string | null;
   initialFileTreeOpen?: boolean;
   searchOpenTick?: number;
   deps?: Partial<ReviewDiffPanelDeps>;
@@ -152,32 +182,48 @@ interface ReviewSnapshot {
   emptyReason: "noDiff" | "noLongerAvailable" | null;
 }
 
+interface ReviewEmptyStateCopy {
+  title: string;
+  description: string;
+  showIllustration: boolean;
+  showViewBranchDiffAction: boolean;
+}
+
 const REVIEW_FILE_TREE_DEFAULT_WIDTH_PX = 280;
+const REVIEW_FILE_TREE_MIN_WIDTH_PX = 200;
+const REVIEW_FILE_TREE_MAX_WIDTH_RATIO = 0.6;
 const LARGE_DIFF_LINE_THRESHOLD = 3_000;
 const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
 const REVIEW_DIFF_BATCH_DELAY_MS = 16;
 const REVIEW_DIFF_TIMEOUT_MS = 15_000;
+const REVIEW_CONTENT_SEARCH_CAP = 250;
+const REVIEW_OPTIONS_MENU_ICON_CLASS_NAME = "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+const REVIEW_AGGREGATE_DIFF_STATS_CLASS_NAME = "text-size-chat mr-1 shrink-0 select-none";
+const REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]";
+const REVIEW_EMPTY_STATE_ILLUSTRATION_PATH = "M20.4622 0.247806C21.3984 -0.00979114 22.5424 -0.0833059 24.3919 0.107181C26.2731 0.300998 28.6338 0.734691 31.9925 1.35718L50.5852 4.80249C53.6017 5.36157 54.6803 5.57925 55.6038 5.99488L55.929 6.15015C56.6787 6.52555 57.3664 7.00409 57.9681 7.57202C58.6934 8.25736 59.2703 9.14603 60.8177 11.6287L62.7884 14.7898C64.336 17.2728 64.8793 18.1822 65.1751 19.1355C65.455 20.0387 65.5807 20.9906 65.5491 21.9519C65.5479 21.9883 65.5432 22.0246 65.5413 22.0613C65.5596 22.3428 65.5672 22.6264 65.5579 22.9109V22.9119C65.5243 23.9209 65.245 24.9841 64.4183 27.9392L56.0804 57.7429C55.1602 61.0318 54.5093 63.3424 53.8548 65.1169V65.1179C53.2117 66.8608 52.6407 67.8608 51.9915 68.5945L51.9905 68.5955C50.6374 70.1236 48.849 71.2391 46.8811 71.781C45.9363 72.0411 44.7864 72.1129 42.9378 71.9226C41.0562 71.7288 38.6945 71.295 35.3362 70.6726L14.0296 66.7234C10.6714 66.101 8.31217 65.6599 6.51298 65.1716C4.74539 64.6918 3.74685 64.2213 3.03348 63.6541C1.54801 62.4722 0.529247 60.8364 0.122352 58.9822V58.9812C0.00960176 58.4665 -0.0292753 57.8806 0.0227425 57.1306C-0.0250512 56.373 0.0534353 55.4382 0.303016 54.1472C0.657029 52.3165 1.29974 50.004 2.22001 46.7146L11.302 14.2527C12.2224 10.9631 12.8721 8.65292 13.5266 6.87867C14.1702 5.13425 14.7404 4.13988 15.3841 3.41285C16.7292 1.89375 18.5059 0.78636 20.4622 0.247806ZM42.9808 70.9324C43.6743 71.0038 44.2688 71.0384 44.7903 71.0398C44.2691 71.0384 43.675 71.0038 42.9817 70.9324C42.7465 70.9081 42.5034 70.88 42.2522 70.8484L42.9808 70.9324ZM9.73075 64.908C10.9652 65.1573 12.3945 65.4229 14.0735 65.7341L35.3802 69.6824C37.4793 70.0714 39.1889 70.3869 40.635 70.616L39.7347 70.4675C38.4898 70.2571 37.0602 69.9936 35.3811 69.6824L14.0745 65.7341C12.3951 65.4229 10.9652 65.1573 9.73075 64.908ZM24.3411 0.604251C22.523 0.41699 21.4475 0.494741 20.595 0.729251C18.7322 1.24208 17.039 2.29737 15.7581 3.7439C15.1719 4.40597 14.6292 5.33725 13.9964 7.05249C13.3505 8.80345 12.7059 11.0904 11.7835 14.3875L2.70145 46.8494C1.77899 50.1466 1.14345 52.4359 0.794227 54.2419C0.452241 56.0108 0.446252 57.0412 0.622352 57.8445C1.00742 59.5997 1.972 61.1476 3.37821 62.2664C4.02189 62.7782 4.95004 63.227 6.68876 63.699C8.46395 64.1808 10.799 64.618 14.1653 65.2419L35.472 69.1912C38.8383 69.8151 41.176 70.2441 43.0325 70.4353C44.8509 70.6226 45.9261 70.545 46.7786 70.3103C48.6414 69.7974 50.3347 68.7422 51.6155 67.2957C52.2015 66.6336 52.7446 65.7028 53.3772 63.988C54.0232 62.237 54.6677 59.9493 55.5901 56.6521L63.928 26.8484C64.3266 25.4238 64.5906 24.4522 64.764 23.7244L53.3714 21.4041C52.1934 21.1641 51.6039 21.0432 51.2161 20.7195C50.9667 20.5111 50.7735 20.2461 50.6507 19.949C50.3911 19.6602 50.208 19.3084 50.1243 18.9255C50.06 18.6309 50.081 18.3236 50.1536 17.9578C50.2257 17.5945 50.3541 17.1493 50.5188 16.5759L53.5852 5.90015C52.8637 5.73959 51.8946 5.55438 50.4934 5.29468L31.9007 1.84839C28.5347 1.22455 26.1975 0.795542 24.3411 0.604251ZM48.5755 70.1746C48.2997 70.3039 48.0182 70.4211 47.7317 70.5261C48.0182 70.421 48.2997 70.3039 48.5755 70.1746ZM49.0227 69.9539L49.0218 69.9548L49.0227 69.9539ZM50.5677 68.9568C50.4229 69.0691 50.2746 69.1764 50.1243 69.281C50.2746 69.1764 50.4229 69.0691 50.5677 68.9568ZM51.8548 67.7722C51.771 67.8633 51.6848 67.9519 51.5979 68.0398C51.6848 67.9519 51.771 67.8633 51.8548 67.7722ZM0.428016 58.9783C0.944949 60.4218 1.85125 61.691 3.06669 62.658C3.78719 63.2307 4.79047 63.7019 6.55692 64.1814C6.78191 64.2425 7.01573 64.303 7.25907 64.363L6.5579 64.1814C5.23267 63.8217 4.33703 63.4667 3.66825 63.0701C3.55675 63.004 3.45169 62.9366 3.35184 62.8679C3.25212 62.7993 3.15765 62.7295 3.06766 62.658C2.0389 61.8396 1.23176 60.8043 0.694618 59.6306C0.645767 59.5239 0.59834 59.4164 0.553993 59.3074C0.509667 59.1984 0.467769 59.0884 0.428016 58.9773V58.9783ZM54.3792 60.9002C54.1696 61.606 53.9696 62.2451 53.7766 62.8298C54 62.1525 54.2305 61.4017 54.4778 60.5593C54.4441 60.6743 54.4123 60.7886 54.3792 60.9002ZM55.8245 57.6638C55.4675 58.9368 55.1526 60.0532 54.8587 61.0427C55.1526 60.0532 55.4675 58.9367 55.8245 57.6638ZM0.0764534 57.6433C0.0924277 57.7492 0.111172 57.8519 0.133094 57.9519C0.184295 58.1852 0.245507 58.4153 0.315711 58.6414L0.218055 58.2996C0.187644 58.1846 0.159687 58.0687 0.134071 57.9519C0.11215 57.8519 0.0928863 57.7491 0.0764534 57.6433ZM19.6155 45.2244C19.9624 43.9875 21.2673 43.1731 22.5306 43.407L36.8714 46.0652C38.1329 46.3007 38.8774 47.4939 38.5325 48.7302C38.1864 49.9672 36.8795 50.7801 35.6165 50.5476L21.2766 47.8904C20.0128 47.6561 19.2692 46.4622 19.6155 45.2244ZM34.096 22.2293C34.4424 20.9919 35.7486 20.1784 37.012 20.4119C38.2747 20.6469 39.0191 21.8407 38.6731 23.0779L37.3362 27.8572L42.219 28.7625C43.4806 28.9978 44.226 30.1911 43.8811 31.4275C43.5351 32.6645 42.2282 33.4774 40.9651 33.2449L36.0823 32.3406L34.7444 37.1228C34.3978 38.3595 33.0914 39.1732 31.8284 38.9402C30.5656 38.7055 29.8208 37.5113 30.1663 36.2742L31.5052 31.4919L26.6253 30.5877C25.3614 30.3533 24.6169 29.1595 24.9632 27.9216C25.3101 26.6846 26.6158 25.8702 27.8792 26.1043L32.7591 27.0085L34.096 22.2293ZM50.9993 16.7146C50.8323 17.296 50.7099 17.7177 50.6429 18.0554C50.5765 18.39 50.5694 18.6196 50.6126 18.8181C50.6955 19.1975 50.9025 19.5398 51.2005 19.7888C51.3566 19.919 51.5644 20.0181 51.8919 20.114C52.2222 20.2107 52.652 20.299 53.2444 20.4197L64.9554 22.8044C65.0101 22.4792 65.0411 22.2051 65.0501 21.9353C65.0799 21.0284 64.9606 20.1319 64.6975 19.283C64.4254 18.406 63.9256 17.5606 62.3636 15.0544L60.3938 11.8933C58.8317 9.38706 58.2918 8.56584 57.6243 7.93531C56.9781 7.32527 56.226 6.82357 55.3987 6.45093C55.0334 6.28652 54.6399 6.15562 54.0725 6.01441L50.9993 16.7146Z";
 
 type ReviewFileTreeHostStyle = CSSProperties & Record<`--${string}`, string>;
 
 const REVIEW_FILE_TREE_HOST_STYLE = {
   "--trees-row-height": "28px",
   "--trees-font-size": "13px",
-  "--trees-item-padding-x": "8px",
-  "--trees-item-margin-x": "2px",
-  "--trees-item-row-gap": "6px",
+  "--trees-item-padding-x": "6px",
+  "--trees-item-margin-x": "0px",
+  "--trees-item-row-gap": "10px",
   "--trees-icon-width": "16px",
-  "--trees-level-gap": "8px",
+  "--trees-level-gap": "0px",
   "--trees-border-radius": "6px",
   "--trees-fg": "var(--color-token-foreground)",
-  "--trees-fg-muted": "var(--color-token-description-foreground)",
+  "--trees-file-fg": "var(--color-token-description-foreground)",
+  "--trees-fg-muted": "light-dark(#84848a, #84848a)",
   "--trees-bg": "var(--color-token-main-surface-primary)",
   "--trees-bg-muted": "var(--color-token-list-hover-background)",
-  "--trees-border-color": "var(--color-token-panel-border)",
+  "--trees-border-color": "var(--color-token-border)",
+  "--trees-indent-guide-bg": "color-mix(in lab, var(--trees-fg-muted) 25%, transparent)",
   "--trees-selected-fg": "var(--color-token-list-active-selection-foreground)",
   "--trees-selected-bg": "var(--color-token-list-active-selection-background)",
   "--trees-focus-ring-color": "var(--color-token-list-focus-outline)",
-  "--trees-search-bg": "var(--color-token-input-background)",
+  "--trees-search-bg": "var(--color-token-bg-fog)",
   "--trees-search-fg": "var(--color-token-foreground)",
 } satisfies ReviewFileTreeHostStyle;
 
@@ -229,34 +275,223 @@ function isReviewSearchMatchMeta(value: unknown): value is { path: string; occur
 }
 
 const SOURCE_LABELS: Record<ReviewSource, string> = {
-  "selected-turn": "Selected turn",
+  "selected-turn": "Last turn",
   "last-turn": "Last turn",
   branch: "Branch",
+  commit: "Commit",
   staged: "Staged",
-  unstaged: "Uncommitted",
+  unstaged: "Unstaged",
 };
+
+type BranchCommitsLoadStatus = "idle" | "loading" | "loaded" | "error";
+
+function formatReviewCommitRelativeTime(committedAt: string): string {
+  const committedAtMs = Date.parse(committedAt);
+  if (!Number.isFinite(committedAtMs)) return "";
+
+  const elapsedMs = Math.max(0, Date.now() - committedAtMs);
+  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+  if (elapsedMinutes < 1) return "now";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 30) return `${elapsedDays}d`;
+
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+  if (elapsedMonths < 12) return `${elapsedMonths}mo`;
+
+  return `${Math.floor(elapsedMonths / 12)}y`;
+}
+
+function ReviewSourceCountBadge({ count }: { count: number }) {
+  return (
+    <span className="disambiguated-digits rounded bg-token-foreground/10 px-1.5 py-0.5 text-xs font-medium text-token-description-foreground">
+      {count}
+    </span>
+  );
+}
+
+function buildReviewJumpCanvasFont(style: CSSStyleDeclaration): string {
+  return [
+    style.fontStyle || "normal",
+    style.fontVariant || "normal",
+    style.fontWeight || "400",
+    style.fontSize || "14px",
+    style.fontFamily || "sans-serif",
+  ].join(" ");
+}
+
+function createReviewJumpTextMeasurer(font: string): ((value: string) => number | null) | null {
+  if (typeof document === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+
+  context.font = font;
+  return (value: string) => {
+    const width = context.measureText(value).width;
+    return Number.isFinite(width) ? width : null;
+  };
+}
+
+function ReviewJumpMiddleTruncatedText({
+  className,
+  text,
+}: {
+  className?: string;
+  text: string;
+}) {
+  const [element, setElement] = useState<HTMLSpanElement | null>(null);
+  const [measurement, setMeasurement] = useState<{
+    font: string;
+    maxWidthPx: number;
+  } | null>(null);
+
+  const updateMeasurement = useCallback(() => {
+    if (!element || element.clientWidth <= 0) {
+      setMeasurement(null);
+      return;
+    }
+
+    const ownerWindow = element.ownerDocument.defaultView ?? window;
+    const style = ownerWindow.getComputedStyle(element);
+    const nextMeasurement = {
+      font: buildReviewJumpCanvasFont(style),
+      maxWidthPx: element.clientWidth,
+    };
+    setMeasurement((current) => (
+      current?.font === nextMeasurement.font && current.maxWidthPx === nextMeasurement.maxWidthPx
+        ? current
+        : nextMeasurement
+    ));
+  }, [element]);
+
+  useLayoutEffect(() => {
+    updateMeasurement();
+    if (!element || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => updateMeasurement());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, updateMeasurement]);
+
+  const renderedText = useMemo(() => {
+    if (!measurement) return text;
+    const measureTextWidth = createReviewJumpTextMeasurer(measurement.font);
+    if (!measureTextWidth) return text;
+    return middleTruncateReviewJumpText(text, measurement.maxWidthPx, measureTextWidth);
+  }, [measurement, text]);
+
+  const body = (
+    <span
+      ref={setElement}
+      className={cn("block min-w-0 overflow-hidden whitespace-nowrap", className)}
+    >
+      {renderedText}
+    </span>
+  );
+
+  return (
+    <NodexTooltip tooltipContent={text} disabled={renderedText === text}>
+      {body}
+    </NodexTooltip>
+  );
+}
+
+function ReviewJumpFilePathLabel({ displayPath }: { displayPath: string }) {
+  const { fileName, parentPath } = useMemo(() => splitReviewJumpToFilePath(displayPath), [displayPath]);
+
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="shrink-0 text-token-foreground">{fileName}</span>
+      {parentPath.length > 0 ? (
+        <ReviewJumpMiddleTruncatedText
+          className="min-w-0 flex-1 text-token-description-foreground"
+          text={parentPath}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+function buildReviewGitApplyCommand(diff: string): string {
+  return ` (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' \n${diff.trimEnd()} \nEOF\n)`;
+}
 
 function isTranscriptReviewSource(source: ReviewSource): source is TranscriptReviewSource {
   return source === "selected-turn" || source === "last-turn";
 }
 
 function isGitReviewSource(source: ReviewSource): source is GitReviewSource {
-  return source === "branch" || source === "staged" || source === "unstaged";
+  return source === "branch" || source === "commit" || source === "staged" || source === "unstaged";
 }
 
-function ReviewTreeIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 20 20" className={cn("icon-xs", className)}>
-      <path d="M1.418 13.667V9.25c0-.514 0-.94.028-1.285.029-.354.092-.683.25-.993l.097-.175a2.54 2.54 0 0 1 1.012-.935l.117-.055c.276-.118.566-.169.875-.194.346-.028.772-.028 1.286-.028h.988c.396 0 .696-.004.986.061l.18.047c.178.054.35.127.512.219l.189.12c.185.13.364.295.585.494l.14.126.357.314c.08.066.129.102.18.13l.16.076c.055.02.112.037.17.05l.092.016c.105.012.262.014.603.014h.941c.514 0 .94-.001 1.287.027.353.029.682.092.992.25l.175.098c.397.244.722.593.935 1.011l.055.118c.118.275.169.565.194.875.028.346.027.772.027 1.286v2.75c0 .514.001.94-.027 1.286-.025.31-.076.6-.194.875l-.055.117a2.54 2.54 0 0 1-.935 1.012l-.175.097c-.31.158-.639.221-.992.25-.346.029-.772.028-1.287.028H5.083c-.514 0-.94 0-1.286-.028a2.74 2.74 0 0 1-.875-.194l-.117-.056a2.54 2.54 0 0 1-1.012-.934l-.097-.175c-.158-.31-.221-.639-.25-.992-.029-.346-.028-.772-.028-1.286Zm1.33 0c0 .536.001.898.024 1.177.022.272.062.406.108.498l.047.082c.116.19.283.344.482.446l.078.033c.089.032.215.058.419.075.279.023.641.024 1.177.024h6.083c.536 0 .899-.001 1.178-.024.272-.022.406-.062.497-.108l.083-.047a1.21 1.21 0 0 0 .446-.482l.034-.078c.031-.089.057-.215.074-.419.023-.279.023-.641.023-1.177v-2.75c0-.536 0-.899-.023-1.178a1.668 1.668 0 0 0-.074-.419l-.034-.078a1.21 1.21 0 0 0-.446-.482l-.083-.046c-.091-.047-.225-.087-.497-.109-.28-.023-.642-.023-1.178-.023h-.941c-.297 0-.54.002-.765-.025l-.22-.037a2.54 2.54 0 0 1-.528-.18l-.165-.085a2.56 2.56 0 0 1-.374-.262l-.4-.352-.14-.127a6.455 6.455 0 0 0-.457-.392l-.079-.051a1.217 1.217 0 0 0-.161-.075l-.169-.052c-.114-.025-.241-.03-.696-.03h-.988c-.536 0-.898.001-1.177.024-.204.017-.33.043-.42.075l-.077.034a1.21 1.21 0 0 0-.482.445l-.047.084c-.046.091-.086.226-.108.497-.023.28-.024.641-.024 1.177v4.417Z" />
-    </svg>
-  );
+function resolveReviewNoFilesEmptyStateCopy(
+  source: ReviewSource,
+  emptyReason: ReviewSnapshot["emptyReason"],
+): ReviewEmptyStateCopy {
+  if (source === "staged") {
+    return {
+      title: "No staged changes",
+      description: "Accept edits to stage them",
+      showIllustration: false,
+      showViewBranchDiffAction: true,
+    };
+  }
+
+  if (source === "unstaged") {
+    return {
+      title: "No unstaged changes",
+      description: "Code changes will appear here",
+      showIllustration: false,
+      showViewBranchDiffAction: true,
+    };
+  }
+
+  if (emptyReason === "noLongerAvailable") {
+    return {
+      title: "No file changes yet",
+      description: source === "selected-turn"
+        ? "The selected turn diff is no longer available."
+        : "The latest diffs are no longer available.",
+      showIllustration: true,
+      showViewBranchDiffAction: source !== "branch",
+    };
+  }
+
+  if (source === "last-turn") {
+    return {
+      title: "No file changes yet",
+      description: "The last turn was committed or reverted.",
+      showIllustration: true,
+      showViewBranchDiffAction: true,
+    };
+  }
+
+  return {
+    title: "No file changes yet",
+    description: "Changes in this project will appear here.",
+    showIllustration: true,
+    showViewBranchDiffAction: source !== "branch",
+  };
 }
 
 function ReviewPanelIcon({ className }: { className?: string }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("icon-xs", className)}>
-      <path d="M4.33496 11C4.33496 10.6327 4.63273 10.335 5 10.335C5.36727 10.335 5.66504 10.6327 5.66504 11V14.335H9L9.13379 14.3486C9.43692 14.4106 9.66504 14.6786 9.66504 15C9.66504 15.3214 9.43692 15.5894 9.13379 15.6514L9 15.665H5C4.63273 15.665 4.33496 15.3673 4.33496 15V11ZM14.335 9V5.66504H11C10.6327 5.66504 10.335 5.36727 10.335 5C10.335 4.63273 10.6327 4.33496 11 4.33496H15L15.1338 4.34863C15.4369 4.41057 15.665 4.67857 15.665 5V9C15.665 9.36727 15.3673 9.66504 15 9.66504C14.6327 9.66504 14.335 9.36727 14.335 9Z" fill="currentColor" />
-      <path d="M4.80469 4.33496C4.43742 4.33496 4.13965 4.63273 4.13965 5C4.13965 5.36727 4.43742 5.66504 4.80469 5.66504H8.13867L8.27246 5.65137C8.57559 5.58943 8.80371 5.32143 8.80371 5C8.80371 4.67857 8.57559 4.41057 8.27246 4.34863L8.13867 4.33496H4.80469ZM11.8613 14.335L11.7275 14.3486C11.4244 14.4106 11.1963 14.6786 11.1963 15C11.1963 15.3214 11.4244 15.5894 11.7275 15.6514L11.8613 15.665H15.1953C15.5626 15.665 15.8604 15.3673 15.8604 15C15.8604 14.6327 15.5626 14.335 15.1953 14.335H11.8613Z" fill="currentColor" />
+    <svg
+      width="66"
+      height="73"
+      viewBox="0 0 66 73"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      className={cn("h-18 w-auto text-token-input-placeholder-foreground", className)}
+    >
+      <path d={REVIEW_EMPTY_STATE_ILLUSTRATION_PATH} fill="currentColor" />
     </svg>
   );
 }
@@ -464,37 +699,63 @@ function buildGitSnapshot(
   };
 }
 
-function toolbarIconButtonClassName(extraClassName?: string): string {
+const REVIEW_TOOLBAR_ICON_BUTTON_BASE_CLASS_NAME = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square items-center justify-center !px-0";
+const REVIEW_TOOLBAR_ICON_BUTTON_IDLE_CLASS_NAME = "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background";
+const REVIEW_TOOLBAR_ICON_BUTTON_ACTIVE_CLASS_NAME = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10";
+const REVIEW_HEADER_ACTION_BUTTON_CLASS_NAME = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border-token-border text-token-button-tertiary-foreground bg-token-bg-fog enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border h-token-button-composer px-2 py-0 text-base leading-[18px] min-w-0 px-2 enabled:text-token-foreground gap-0 [@container_review-header_(max-width:624px)]:aspect-square [@container_review-header_(max-width:624px)]:justify-center [@container_review-header_(max-width:624px)]:!px-0";
+const REVIEW_HEADER_ACTION_LABEL_CLASS_NAME = "hidden [@container_review-header_(min-width:625px)]:inline min-w-0 shrink-0 whitespace-nowrap";
+const REVIEW_FILE_ROW_SURFACE_STYLE = {
+  "--codex-diffs-surface": "var(--codex-diffs-surface-override, var(--color-token-main-surface-primary))",
+  backgroundColor: "var(--codex-diffs-surface)",
+} satisfies CSSProperties & Record<`--${string}`, string>;
+const REVIEW_FILE_ROW_HEADER_STYLE = {
+  backgroundColor: "color-mix(in srgb, var(--codex-diffs-surface) 88%, transparent)",
+} satisfies CSSProperties;
+
+function toolbarIconButtonClassName(options?: { active?: boolean; extraClassName?: string }): string {
   return cn(
-    "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5",
-    extraClassName,
+    REVIEW_TOOLBAR_ICON_BUTTON_BASE_CLASS_NAME,
+    options?.active ? REVIEW_TOOLBAR_ICON_BUTTON_ACTIVE_CLASS_NAME : REVIEW_TOOLBAR_ICON_BUTTON_IDLE_CLASS_NAME,
+    options?.extraClassName,
   );
 }
 
 function toolbarSourceButtonClassName(): string {
-  return "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent px-2 py-0.5 text-sm leading-[18px] outline-hidden cursor-interaction flex w-full max-w-[320px] min-w-0 items-center gap-1 px-2 py-1 text-base";
+  return "border-token-border user-select-none no-drag cursor-interaction flex h-7 w-fit max-w-[320px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-transparent px-1.5 text-base leading-[18px] text-token-foreground outline-hidden enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 electron:rounded-md";
 }
 
 function ReviewPanelEmptyState({
   title,
   description,
+  illustration,
   action,
+  className,
 }: {
   title: string;
   description: string;
+  illustration?: ReactNode;
   action?: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="flex h-full min-h-0 items-center justify-center px-6 py-10">
-      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <div className="text-token-input-placeholder-foreground">
-          <ReviewPanelIcon className="h-14 w-14" />
+    <div className={cn("flex w-full flex-col items-center justify-center px-3 py-6 h-full", className)}>
+      <div className="flex w-full max-w-xl flex-col items-center justify-center text-center gap-6">
+        {illustration ? (
+          <div className="pointer-events-none text-token-input-placeholder-foreground">
+            <div className="flex justify-center">
+              {illustration}
+            </div>
+          </div>
+        ) : null}
+        <div className="flex flex-col items-center gap-2">
+          <div className="font-medium text-base text-token-foreground">{title}</div>
+          <div className="text-base text-token-description-foreground">{description}</div>
         </div>
-        <div className="space-y-1">
-          <div className="text-base font-medium text-token-foreground">{title}</div>
-          <div className="text-sm text-token-description-foreground">{description}</div>
-        </div>
-        {action}
+        {action ? (
+          <div className="flex w-full flex-wrap items-center justify-center gap-2">
+            {action}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -573,39 +834,71 @@ function ReviewFileRow({
   return (
     <section
       data-review-path={entry.displayPath}
-      className="border-token-border overflow-hidden rounded-xl border bg-token-main-surface-primary"
+      className="group/file-diff flex flex-col overflow-clip pb-0.5 codex-review-diff-card extension:rounded-lg"
+      style={REVIEW_FILE_ROW_SURFACE_STYLE}
     >
-      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-token-border bg-token-main-surface-primary/96 px-3 py-2 backdrop-blur-sm">
-        <div
-          role="button"
-          tabIndex={0}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          onClick={onToggleExpanded}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            onToggleExpanded();
-          }}
-          aria-expanded={expanded}
-        >
-          <span className={cn("text-token-description-foreground transition-transform duration-150", expanded && "rotate-90")}>
-            <ChevronDownIcon className="h-3.5 w-3.5 -rotate-90" />
-          </span>
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <FilenameButton
-              displayPath={entry.displayPath}
-              onOpen={entry.openPath ? openFile : null}
-              className="cursor-interaction max-w-full truncate text-left text-sm text-token-foreground hover:underline"
-            />
-            <DiffStats additions={entry.additions} deletions={entry.deletions} className="text-xs" />
+      <div
+        className="cursor-interaction select-none focus-visible:outline-none z-10 sticky top-0 backdrop-blur-sm"
+        style={REVIEW_FILE_ROW_HEADER_STYLE}
+        onClick={onToggleExpanded}
+      >
+        <div>
+          <div className="group/diff-header text-size-chat @container/diff-header relative flex items-center gap-2 py-0.5 ps-3 pe-2 hover:bg-token-list-hover-background bg-[color-mix(in_srgb,var(--color-token-main-surface-primary)_88%,transparent)] [.dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] [.electron-dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] mb-0.5">
+            <div className="text-size-chat flex min-w-0 flex-1 items-center text-token-text-primary gap-0.5">
+              <div className="flex min-w-0 items-center gap-2 pl-1">
+                <FileTreeFileIcon className="size-4 shrink-0 text-token-description-foreground" />
+                <span className="min-w-0" onClick={(event) => event.stopPropagation()}>
+                  <FilenameButton
+                    displayPath={entry.displayPath}
+                    onOpen={entry.openPath ? openFile : null}
+                    className="min-w-0 cursor-interaction truncate text-start text-token-text-primary select-text [direction:rtl]"
+                  />
+                </span>
+              </div>
+              <span className="shrink-0 opacity-0 group-focus-within/diff-header:opacity-100 group-hover/diff-header:opacity-100">
+                <button
+                  type="button"
+                  data-app-action-review-file-expanded={String(expanded)}
+                  data-app-action-review-file-toggle=""
+                  className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square items-center justify-center !px-0 bg-transparent text-token-foreground"
+                  aria-label="Toggle file diff"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleExpanded();
+                  }}
+                >
+                  <ReviewFileToggleChevronIcon className={cn("icon-2xs transition-transform duration-200", expanded ? "rotate-90" : "rotate-0")} />
+                </button>
+              </span>
+            </div>
+            <div className="ms-auto flex items-center gap-0">
+              <span className="flex shrink-0 items-center me-1">
+                <DiffStats additions={entry.additions} deletions={entry.deletions} />
+              </span>
+              {entry.openPath ? (
+                <button
+                  type="button"
+                  className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square items-center justify-center !px-0 text-token-text-tertiary hover:text-token-text-primary"
+                  aria-label="Open in"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openFile();
+                  }}
+                >
+                  <ReviewOpenInIcon className="icon-2xs" />
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="truncate text-xs text-token-description-foreground">{basename(entry.displayPath)}</span>
         </div>
       </div>
       {expanded ? (
-        <div className="bg-token-main-surface-primary">
+        <div
+          className="bg-token-main-surface-primary"
+          data-code="true"
+          data-unified={diffMode === "unified" ? "true" : "false"}
+          data-container-size="regular"
+        >
           {comments.length > 0 ? (
             <div className="border-b border-token-border bg-token-list-hover-background/40 px-3 py-2" data-review-code-comments="true">
               <div className="flex flex-col gap-2">
@@ -948,8 +1241,9 @@ function ReviewFileTreePane({
         data-item-contains-git-change={row.containsGitChange ? "true" : undefined}
         data-item-locked={row.isLocked ? "true" : undefined}
         className={cn(
-          "border-none relative mx-[2px] flex w-full items-center gap-[6px] rounded-[6px] bg-transparent text-left text-token-foreground outline-none",
-          row.isSelected ? "bg-token-list-hover-background text-token-list-active-selection-foreground z-[3]" : "text-token-foreground hover:bg-token-list-hover-background",
+          "border-none relative mx-[var(--trees-item-margin-x)] flex w-full items-center gap-[var(--trees-item-row-gap)] rounded-[var(--trees-border-radius)] bg-token-main-surface-primary text-left outline-none",
+          row.type === "file" && !row.isSelected ? "text-[var(--trees-file-fg)]" : "text-[var(--trees-fg)]",
+          row.isSelected ? "bg-token-list-active-selection-background text-[var(--trees-selected-fg)] z-[3]" : "hover:bg-token-list-hover-background",
           row.isFocused ? "outline outline-1 -outline-offset-1 outline-token-list-focus-outline z-[2]" : undefined,
           row.isFocused && row.isSelected ? "outline-token-list-focus-outline" : undefined,
         )}
@@ -979,12 +1273,12 @@ function ReviewFileTreePane({
                 data-ancestor-id={row.ancestorIds[spacingIndex] ?? `${row.id}:ancestor:${spacingIndex + 1}`}
                 data-ancestor-active={highlightedAncestorIds.has(row.ancestorIds[spacingIndex] ?? "") ? "true" : undefined}
                 className={cn(
-                  "inline-block h-full shrink-0 translate-x-[-0.25px] border-l border-token-panel-border opacity-55",
+                  "inline-block h-full shrink-0 translate-x-[-0.25px] border-l opacity-0 transition-opacity duration-150 ease-in group-hover/review-file-tree:opacity-75",
                   highlightedAncestorIds.has(row.ancestorIds[spacingIndex] ?? "") ? "opacity-100" : undefined,
-                  row.isSelected || row.isFocused ? "h-[calc(100%-2px)]" : undefined,
                 )}
                 style={{
-                  width: "calc(var(--trees-level-gap))",
+                  borderLeftColor: "var(--trees-indent-guide-bg)",
+                  width: "0px",
                   marginRight: "calc(var(--trees-level-gap) - 1px)",
                   marginLeft: spacingIndex === 0
                     ? undefined
@@ -996,23 +1290,36 @@ function ReviewFileTreePane({
         ) : null}
         <div
           data-item-section="icon"
-          className="flex shrink-0 items-center justify-center text-token-description-foreground"
+          className={cn(
+            "flex shrink-0 items-center justify-center text-[var(--trees-fg-muted)]",
+            row.isSelected ? "text-[var(--trees-selected-fg)]" : undefined,
+          )}
           style={{ width: "var(--trees-icon-width)" }}
         >
           {row.type === "folder" ? (
-            <FileTreeChevronIcon className={cn("transition-transform", row.isExpanded ? undefined : "-rotate-90")} />
+            <FileTreeChevronIcon className={cn("size-4 transition-transform", row.isExpanded ? undefined : "-rotate-90")} />
           ) : (
-            <FileTreeFileIcon />
+            <FileTreeFileIcon className="size-4" />
           )}
         </div>
-        <div data-item-section="content" className="min-w-0 flex-1 truncate text-left">
+        <div
+          data-item-section="content"
+          className={cn(
+            "min-w-0 flex-1 truncate text-left",
+            row.type === "folder"
+              ? "text-[var(--trees-fg)]"
+              : row.isSelected
+                ? "text-[var(--trees-selected-fg)]"
+                : "text-[var(--trees-file-fg)]",
+          )}
+        >
           {row.type === "folder"
             ? <ReviewFileTreeFlattenedLabel row={row} />
             : row.label}
         </div>
         {statusSlot ? (
           <div
-            data-item-section="status"
+            data-item-section="git"
             className={cn(
               "flex w-3 shrink-0 items-center justify-center text-center",
               row.gitStatus === "added" ? "text-token-charts-green" : undefined,
@@ -1034,47 +1341,53 @@ function ReviewFileTreePane({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-token-main-surface-primary pr-2"
+      className="group/review-file-tree flex h-full min-h-0 flex-col bg-token-main-surface-primary"
       data-file-tree-virtualized-wrapper={isVirtualized ? "true" : undefined}
       style={{
         ...(REVIEW_FILE_TREE_HOST_STYLE as CSSProperties),
         ...RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
       }}
     >
-      <div data-file-tree-search-container="true" className="shrink-0 pr-2 pb-1">
+      <div data-file-tree-search-container="true" className="shrink-0 px-2 pt-2 pb-px">
         <label className="sr-only" htmlFor={REVIEW_FILE_TREE_SEARCH_INPUT_ID}>
           Filter files
         </label>
-        <div className="relative flex w-full items-center gap-1.5 rounded-md border-[0.5px] border-token-border bg-token-input-background">
+        <div className="relative flex h-token-button-composer w-full items-center gap-1.5 rounded-lg border border-token-border bg-token-bg-fog text-base leading-[18px]">
+          <SearchIcon className="icon-xs ms-2 shrink-0 text-token-input-placeholder-foreground" />
           <input
             id={REVIEW_FILE_TREE_SEARCH_INPUT_ID}
             value={fileFilter}
             onChange={(event) => onFileFilterChange(event.target.value)}
-            placeholder="Filter files..."
+            placeholder="Filter files…"
             data-file-tree-search-input="true"
             aria-controls={treeDomId}
             aria-activedescendant={focusedTreeItemId ? `${treeDomId}-${focusedTreeItemId}` : undefined}
-            className="w-full appearance-none border-none bg-transparent p-1.5 text-token-foreground ring-0 outline-none placeholder:text-token-input-placeholder-foreground focus:border-none focus:ring-0 focus:outline-none"
-            style={{
-              height: "var(--trees-row-height)",
-              lineHeight: "var(--trees-row-height)",
-              fontSize: "var(--trees-font-size)",
-            }}
+            className="w-full appearance-none border-none bg-transparent py-0 ps-0 pe-1.5 text-token-foreground ring-0 outline-none select-text placeholder:text-token-input-placeholder-foreground focus:border-none focus:ring-0 focus:outline-none [&::placeholder]:select-none"
           />
+          {fileFilter.length > 0 ? (
+            <button
+              type="button"
+              aria-label="Clear file filter"
+              className="flex size-7 shrink-0 cursor-interaction items-center justify-center rounded-md text-token-input-placeholder-foreground hover:text-token-foreground"
+              onClick={() => onFileFilterChange("")}
+            >
+              <CodexCloseIcon className="icon-2xs" />
+            </button>
+          ) : null}
         </div>
       </div>
       <div
-        className={cn("bg-token-main-surface-primary min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-1", isVirtualized ? "flex flex-col overflow-hidden" : undefined)}
+        className={cn("bg-token-main-surface-primary min-h-0 flex-1 overflow-x-hidden overflow-y-auto", isVirtualized ? "flex flex-col overflow-hidden" : undefined)}
         data-file-tree-virtualized-root={isVirtualized ? "true" : undefined}
       >
         <div
           ref={scrollRef}
-          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-token-main-surface-primary"
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-token-main-surface-primary px-2"
           data-file-tree-virtualized-scroll={isVirtualized ? "true" : undefined}
           style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
         >
           {rows.length === 0 ? (
-            <div className="px-2 py-2 text-sm text-token-description-foreground">No matching files</div>
+            <div className="py-2 text-sm text-token-description-foreground">No matching files</div>
           ) : isVirtualized ? (
             <div
               ref={listRef}
@@ -1153,6 +1466,7 @@ export function ReviewDiffPanel({
   projectWorkspacePath,
   selectedTurnDiff = null,
   initialSource = "last-turn",
+  initialCommitSha = null,
   initialFileTreeOpen = false,
   deps,
 }: ReviewDiffPanelProps) {
@@ -1163,10 +1477,17 @@ export function ReviewDiffPanel({
   const { invoke, parsePatchFiles } = resolvedDeps;
   const { opener } = useFileLinkOpener();
   const reviewContentRootRef = useRef<HTMLDivElement | null>(null);
+  const reviewSplitRootRef = useRef<HTMLDivElement | null>(null);
   const [source, setSource] = useState<ReviewSource>(initialSource);
+  const [commitSha, setCommitSha] = useState<string | null>(initialCommitSha?.trim() || null);
   const [diffMode, setDiffMode] = useState<ReviewDiffMode>("unified");
   const [hideWhitespace, setHideWhitespace] = useState(false);
+  const [wrap, setWrap] = useState(false);
+  const [wordDiffsEnabled, setWordDiffsEnabled] = useState(false);
+  const [richPreviewEnabled, setRichPreviewEnabled] = useState(false);
+  const [loadFullFilesEnabled, setLoadFullFilesEnabled] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useState(initialFileTreeOpen);
+  const [fileTreeWidth, setFileTreeWidth] = useState(REVIEW_FILE_TREE_DEFAULT_WIDTH_PX);
   const [fileFilter, setFileFilter] = useState("");
   const [jumpToFileQuery, setJumpToFileQuery] = useState("");
   const deferredFileFilter = useDeferredValue(fileFilter);
@@ -1177,16 +1498,15 @@ export function ReviewDiffPanel({
   const [focusedTreeItemId, setFocusedTreeItemId] = useState<string | null>(null);
   const [gitSnapshot, setGitSnapshot] = useState<GitReviewSnapshot | ReviewDiffResult | null>(null);
   const [gitLoadStatus, setGitLoadStatus] = useState<GitReviewLoadStatus>("idle");
+  const [branchCommits, setBranchCommits] = useState<GitReviewBranchCommit[]>([]);
+  const [branchCommitsLoadStatus, setBranchCommitsLoadStatus] = useState<BranchCommitsLoadStatus>("idle");
+  const [branchCommitsError, setBranchCommitsError] = useState<string | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [fullContentsByPath, setFullContentsByPath] = useState<Record<string, GitReviewFileContents>>({});
   const [fullContentsLoadingPaths, setFullContentsLoadingPaths] = useState<Record<string, boolean>>({});
   const gitLoadRequestIdRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const gitLoading = gitLoadStatus === "loading";
-  const wrap = false;
-  const wordDiffsEnabled = false;
-  const richPreviewEnabled = false;
-  const loadFullFilesEnabled = false;
 
   const reviewCwd = isTranscriptReviewSource(source)
     ? (source === "selected-turn"
@@ -1207,6 +1527,30 @@ export function ReviewDiffPanel({
     setSource("selected-turn");
   }, [selectedTurnDiff?.entryId, selectedTurnDiff?.patch]);
 
+  useEffect(() => {
+    if (source !== "commit" || commitSha) return;
+    setSource("branch");
+  }, [commitSha, source]);
+
+  const selectReviewSource = (nextSource: ReviewSource) => {
+    startTransition(() => {
+      setSelectedPath(null);
+      setSelectedTreeItemId(null);
+      setFocusedTreeItemId(null);
+      setSource(nextSource);
+    });
+  };
+
+  const selectReviewCommit = (commit: GitReviewBranchCommit) => {
+    startTransition(() => {
+      setCommitSha(commit.sha);
+      setSelectedPath(null);
+      setSelectedTreeItemId(null);
+      setFocusedTreeItemId(null);
+      setSource("commit");
+    });
+  };
+
   const lastTurnSnapshot = useMemo(
     () => buildLastTurnSnapshot(conversation, projectWorkspacePath, parsePatchFiles),
     [conversation, parsePatchFiles, projectWorkspacePath],
@@ -1223,8 +1567,10 @@ export function ReviewDiffPanel({
     return invoke("git:review:diff", {
       cwd: nextCwd,
       source: nextSource,
+      commitSha: nextSource === "commit" ? commitSha : null,
       hideWhitespace,
       operationSource: "review_model",
+      requestId: `review:${nextCwd}:${nextSource}:${commitSha ?? ""}`,
     }) as Promise<ReviewDiffResult>;
   };
 
@@ -1246,6 +1592,7 @@ export function ReviewDiffPanel({
       path: entry.displayPath,
       previousPath: entry.previousPath,
       baseRef: gitSnapshot?.baseRef ?? null,
+      commitSha: source === "commit" ? commitSha : null,
     }) as Promise<GitReviewFileContents>;
   };
 
@@ -1317,13 +1664,39 @@ export function ReviewDiffPanel({
         window.clearTimeout(loadTimerId);
       }
     };
-  }, [hideWhitespace, reviewCwd, source]);
+  }, [commitSha, hideWhitespace, reviewCwd, source]);
 
   const snapshot = useMemo(() => {
     if (source === "selected-turn") return selectedTurnSnapshot;
     if (source === "last-turn") return lastTurnSnapshot;
     return buildGitSnapshot(gitSnapshot, parsePatchFiles);
   }, [gitSnapshot, lastTurnSnapshot, parsePatchFiles, selectedTurnSnapshot, source]);
+  const selectedCommitSubject = useMemo(
+    () => branchCommits.find((commit) => commit.sha === commitSha)?.subject ?? null,
+    [branchCommits, commitSha],
+  );
+  const loadBranchCommits = async () => {
+    const normalizedCwd = reviewCwd?.trim() ?? "";
+    if (!normalizedCwd) return;
+
+    setBranchCommitsLoadStatus("loading");
+    setBranchCommitsError(null);
+    try {
+      const result = await invoke("git:review:branch-commits", {
+        cwd: normalizedCwd,
+        baseBranch: snapshot.baseRef ?? snapshot.defaultBranch,
+        operationSource: "review_model",
+        requestId: `review:${normalizedCwd}:branch-commits:${snapshot.baseRef ?? snapshot.defaultBranch ?? ""}`,
+      }) as GitReviewBranchCommitsResult;
+      setBranchCommits(result.commits);
+      setBranchCommitsError(result.errorMessage);
+      setBranchCommitsLoadStatus(result.errorMessage ? "error" : "loaded");
+    } catch (error) {
+      setBranchCommits([]);
+      setBranchCommitsError(error instanceof Error ? error.message : "Unable to load commits");
+      setBranchCommitsLoadStatus("error");
+    }
+  };
   const reviewCodeComments = useMemo(
     () => extractReviewCodeCommentsFromConversation(conversation),
     [conversation],
@@ -1504,6 +1877,7 @@ export function ReviewDiffPanel({
 
       const matches: ContentSearchLocalMatch[] = [];
       let capped = false;
+      const cappedLimit = Math.min(limit, REVIEW_CONTENT_SEARCH_CAP);
       for (const entry of snapshot.files) {
         const occurrenceCount = countReviewOccurrences(
           entry,
@@ -1511,12 +1885,12 @@ export function ReviewDiffPanel({
           fullContentsByPath[entry.displayPath] ?? null,
         );
         for (let occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex += 1) {
-          if (matches.length >= limit) {
+          if (matches.length >= cappedLimit) {
             capped = true;
             break;
           }
           matches.push({
-            id: `diff:${entry.key}:${occurrenceIndex}`,
+            id: `diff:${entry.displayPath}:0:${entry.openLine ?? 1}:${occurrenceIndex}`,
             domain: "diff",
             contextId: `diff:${reviewCwd ?? "workspace"}:${source}`,
             ordinal: matches.length,
@@ -1581,14 +1955,7 @@ export function ReviewDiffPanel({
     return snapshot.files.every((entry) => expandedKeys.has(entry.key));
   }, [expandedKeys, snapshot.files]);
   const jumpToFileMatches = useMemo(() => {
-    const query = deferredJumpToFileQuery.trim().toLowerCase();
-    const files = query.length === 0
-      ? snapshot.files
-      : snapshot.files.filter((file) => {
-          const normalizedPath = file.displayPath.toLowerCase();
-          return normalizedPath.includes(query) || basename(normalizedPath).includes(query);
-        });
-    return files.slice(0, 80);
+    return selectReviewJumpToFileMatches(snapshot.files, deferredJumpToFileQuery);
   }, [deferredJumpToFileQuery, snapshot.files]);
 
   useEffect(() => {
@@ -1747,53 +2114,6 @@ export function ReviewDiffPanel({
     }
   };
 
-  const startProtocolReview = async (target: CodexReviewTarget) => {
-    const threadId = conversation?.threadId ?? null;
-    if (!threadId) {
-      toast.danger("Open a thread before starting a review.", {
-        id: "review-diff-notice",
-      });
-      return;
-    }
-
-    try {
-      await invoke("codex:review:start", {
-        threadId,
-        target,
-        delivery: "inline",
-      });
-      toast.success("Started review.", {
-        id: "review-diff-notice",
-      });
-    } catch (error) {
-      toast.danger(error instanceof Error ? error.message : "Could not start review.", {
-        id: "review-diff-notice",
-      });
-    }
-  };
-
-  const handleReviewUncommittedChanges = () => {
-    setSource("unstaged");
-    void startProtocolReview({ type: "uncommittedChanges" });
-  };
-
-  const handleReviewBaseBranch = async () => {
-    const baseBranch = snapshot.baseRef ?? snapshot.defaultBranch ?? "main";
-    setSource("branch");
-    const normalizedCwd = reviewCwd?.trim() ?? "";
-    if (normalizedCwd) {
-      await invoke("git:merge-base", {
-        cwd: normalizedCwd,
-        baseBranch,
-      }).catch((error) => {
-        toast.danger(error instanceof Error ? error.message : "Could not resolve merge base.", {
-          id: "review-diff-notice",
-        });
-      });
-    }
-    void startProtocolReview({ type: "baseBranch", branch: baseBranch });
-  };
-
   const startThreadPrompt = async (prompt: string) => {
     const threadId = conversation?.threadId ?? null;
     if (!threadId) return;
@@ -1810,6 +2130,29 @@ export function ReviewDiffPanel({
   const commitOrPushPrompt = "Commit or push the reviewed workspace changes. Inspect the current Git state first, then choose the smallest appropriate commit or push action.";
   const createPrPrompt = "Create a pull request for the reviewed branch changes. Inspect the branch, remote, and merge base first, then open a PR with an accurate title and summary.";
   const canUseThreadGitActions = Boolean(conversation?.threadId && snapshot.isGitRepository && reviewCwd);
+  const reviewOptionsWordWrapLabel = wrap ? "Disable word wrap" : "Enable word wrap";
+  const reviewOptionsExpandLabel = areAllDiffsExpanded ? "Collapse all diffs" : "Expand all diffs";
+  const reviewOptionsFullFilesLabel = loadFullFilesEnabled ? "Don't load full files" : "Load full files";
+  const reviewOptionsRichPreviewLabel = richPreviewEnabled ? "Disable rich preview" : "Enable rich preview";
+  const reviewOptionsWordDiffsLabel = wordDiffsEnabled ? "Disable word diffs" : "Enable word diffs";
+  const reviewOptionsWhitespaceLabel = hideWhitespace ? "Show white space" : "Hide white space";
+  const canCopyGitApplyCommand = isGitReviewSource(source) && snapshot.patch.trim().length > 0;
+
+  const handleCopyGitApplyCommand = async () => {
+    if (!canCopyGitApplyCommand) return;
+
+    const copied = await writeTextToClipboard(buildReviewGitApplyCommand(snapshot.patch));
+    if (copied) {
+      toast.success("Copied git apply command to the clipboard", {
+        id: "review-diff-notice",
+      });
+      return;
+    }
+
+    toast.danger("Could not copy git apply command.", {
+      id: "review-diff-notice",
+    });
+  };
 
   const sourceTrigger = (
     <button type="button" className={toolbarSourceButtonClassName()} aria-label="Review source">
@@ -1826,7 +2169,7 @@ export function ReviewDiffPanel({
 
   const jumpToFileTrigger = (
     <button type="button" className={toolbarIconButtonClassName()} aria-label="Jump to file">
-      <SearchIcon className="icon-xs" />
+      <ReviewJumpToFileIcon className="icon-xs text-token-description-foreground" />
     </button>
   );
   const diffModeLabel = diffMode === "unified" ? "Switch to split diff" : "Switch to unified diff";
@@ -1842,6 +2185,51 @@ export function ReviewDiffPanel({
       return next;
     });
   };
+  const handleFileTreeResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const ownerDocument = event.currentTarget.ownerDocument;
+    const ownerWindow = ownerDocument.defaultView;
+    const splitRoot = reviewSplitRootRef.current;
+    if (!ownerWindow || !splitRoot) return;
+
+    const startX = event.clientX;
+    const startWidth = fileTreeWidth;
+    const maxWidth = Math.max(
+      REVIEW_FILE_TREE_MIN_WIDTH_PX,
+      splitRoot.getBoundingClientRect().width * REVIEW_FILE_TREE_MAX_WIDTH_RATIO,
+    );
+    const clampWidth = (width: number) =>
+      Math.min(maxWidth, Math.max(REVIEW_FILE_TREE_MIN_WIDTH_PX, Math.round(width)));
+
+    const previousCursor = ownerDocument.body.style.cursor;
+    const previousUserSelect = ownerDocument.body.style.userSelect;
+    ownerDocument.body.style.cursor = "col-resize";
+    ownerDocument.body.style.userSelect = "none";
+
+    const cleanup = () => {
+      ownerWindow.removeEventListener("pointermove", handlePointerMove);
+      ownerWindow.removeEventListener("pointerup", handlePointerUp);
+      ownerWindow.removeEventListener("pointercancel", handlePointerCancel);
+      ownerDocument.body.style.cursor = previousCursor;
+      ownerDocument.body.style.userSelect = previousUserSelect;
+    };
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      setFileTreeWidth(clampWidth(startWidth - (moveEvent.clientX - startX)));
+    };
+    const handlePointerUp = () => {
+      cleanup();
+    };
+    const handlePointerCancel = () => {
+      cleanup();
+    };
+
+    ownerWindow.addEventListener("pointermove", handlePointerMove);
+    ownerWindow.addEventListener("pointerup", handlePointerUp);
+    ownerWindow.addEventListener("pointercancel", handlePointerCancel);
+  };
 
   if (!reviewCwd) {
     return (
@@ -1849,70 +2237,302 @@ export function ReviewDiffPanel({
         <ReviewPanelEmptyState
           title="No review workspace available"
           description="Start or open a local thread with a project workspace to review file changes here."
+          illustration={<ReviewPanelIcon />}
         />
       </div>
     );
   }
 
+  const canViewBranchDiffFromEmptyState = snapshot.isGitRepository
+    && reviewCwd.trim().length > 0
+    && source !== "branch";
+  const noFilesEmptyStateCopy = resolveReviewNoFilesEmptyStateCopy(source, snapshot.emptyReason);
+  const viewBranchDiffAction = noFilesEmptyStateCopy.showViewBranchDiffAction && canViewBranchDiffFromEmptyState ? (
+    <button
+      type="button"
+      className={REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME}
+      onClick={() => selectReviewSource("branch")}
+    >
+      View branch diff
+    </button>
+  ) : null;
+  const emptyStateIllustration = noFilesEmptyStateCopy.showIllustration
+    ? <ReviewPanelIcon />
+    : undefined;
+  const fileTreePane = fileTreeOpen ? (
+    <div
+      className="relative flex h-full shrink-0 border-l border-token-border-default"
+      style={{
+        maxWidth: `${REVIEW_FILE_TREE_MAX_WIDTH_RATIO * 100}%`,
+        opacity: 1,
+        width: fileTreeWidth,
+      }}
+    >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        className="group absolute flex touch-none select-none z-40 top-0 bottom-0 left-0 w-4 -translate-x-2 cursor-col-resize active:cursor-col-resize"
+        onPointerDown={handleFileTreeResizePointerDown}
+        onDoubleClick={() => setFileTreeWidth(REVIEW_FILE_TREE_DEFAULT_WIDTH_PX)}
+      >
+        <div className="sidebar-resize-handle-line pointer-events-none m-auto opacity-0 h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent group-hover:opacity-100 group-active:opacity-100" />
+      </div>
+      <div
+        className="flex h-full min-h-0 w-full flex-col"
+        data-file-tree-virtualized={isReviewFileTreeVirtualizationEnabled(fileTreeState.rows.length, REVIEW_FILE_TREE_VIRTUALIZE_THRESHOLD) ? "true" : undefined}
+      >
+        <ReviewFileTreePane
+          rows={fileTreeState.rows}
+          fileFilter={fileFilter}
+          onFileFilterChange={setFileFilter}
+          selectedTreeItemId={selectedTreeItemId}
+          focusedTreeItemId={focusedTreeItemId}
+          onSelectTreeItemId={setSelectedTreeItemId}
+          onFocusTreeItemId={setFocusedTreeItemId}
+          onSelectPath={setSelectedPath}
+          onToggleDirectory={handleToggleDirectory}
+        />
+      </div>
+    </div>
+  ) : null;
+  const reviewMainContent = gitLoadStatus === "loading" && isGitReviewSource(source) ? (
+    <div className="flex h-full w-full items-center justify-center text-sm text-token-description-foreground">Loading review…</div>
+  ) : gitLoadStatus === "timed-out" && isGitReviewSource(source) ? (
+    <ReviewPanelEmptyState
+      title="Review timed out"
+      description="The diff request took longer than 15 seconds. Try again or narrow the review target."
+      illustration={<ReviewPanelIcon />}
+      action={(
+        <button
+          type="button"
+          className={REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME}
+          onClick={() => void refreshGitSnapshot()}
+        >
+          Retry
+        </button>
+      )}
+    />
+  ) : snapshot.errorMessage ? (
+    <ReviewPanelEmptyState
+      title="Could not load review"
+      description={snapshot.errorMessage}
+      illustration={<ReviewPanelIcon />}
+    />
+  ) : !snapshot.isGitRepository && isGitReviewSource(source) ? (
+    <ReviewPanelEmptyState
+      title="Create a Git repository"
+      description="Track, review, and undo changes in this project."
+      illustration={<ReviewPanelIcon />}
+      action={(
+        <button
+          type="button"
+          className={REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME}
+          onClick={handleCreateGitRepository}
+        >
+          Create repository
+        </button>
+      )}
+    />
+  ) : snapshot.files.length === 0 ? (
+    <ReviewPanelEmptyState
+      title={noFilesEmptyStateCopy.title}
+      description={noFilesEmptyStateCopy.description}
+      illustration={emptyStateIllustration}
+      action={viewBranchDiffAction}
+    />
+  ) : visibleFiles.length === 0 ? (
+    <ReviewPanelEmptyState
+      title="No review matches"
+      description="Try a different file filter or review search query."
+    />
+  ) : (
+    <div
+      ref={reviewContentRootRef}
+      className="electron:bg-token-main-surface-primary flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-3"
+      style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
+    >
+      {isCappedMode ? (
+        <div className="bg-token-surface-muted text-token-foreground-muted mb-3 rounded-md px-3 py-2 text-xs">
+          Large diff detected — showing one file at a time.
+        </div>
+      ) : null}
+      <div className="flex w-full flex-col extension:pl-4 extension:pr-1">
+        <div className="flex flex-col extension:gap-2">
+          <ReviewDeferredRender
+            defer={reviewRenderPlan.shouldDefer}
+            fallback={reviewFallbackRows}
+          >
+            {reviewRows}
+          </ReviewDeferredRender>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="relative h-full min-h-0 bg-token-main-surface-primary">
       <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_1fr]">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-token-border px-2 py-1 text-token-description-foreground">
+        <div className="h-toolbar-pane border-b bg-token-main-surface-primary [container-name:review-header] [container-type:inline-size] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-token-border px-2 py-1 text-token-description-foreground">
           <div className="flex min-w-0 items-center gap-2">
             <div className="min-w-0 font-medium text-token-foreground">
-              <NodexDropdownMenu triggerButton={sourceTrigger} align="start" sideOffset={8}>
-                <NodexDropdownItem onSelect={() => setSource("last-turn")} rightSlot={source === "last-turn" || source === "selected-turn" ? <CheckmarkIcon className="size-4" /> : null}>
+              <NodexDropdownMenu triggerButton={sourceTrigger} align="start" sideOffset={8} contentWidth="menuBounded">
+                <NodexDropdownItem
+                  onSelect={() => selectReviewSource("unstaged")}
+                  rightSlot={source === "unstaged" ? <CheckmarkIcon className="size-4" /> : null}
+                >
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">Unstaged</span>
+                    {source === "unstaged" && snapshot.files.length > 0 ? <ReviewSourceCountBadge count={snapshot.files.length} /> : null}
+                  </span>
+                </NodexDropdownItem>
+                <NodexDropdownItem
+                  onSelect={() => selectReviewSource("staged")}
+                  rightSlot={source === "staged" ? <CheckmarkIcon className="size-4" /> : null}
+                >
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">Staged</span>
+                    {source === "staged" && snapshot.files.length > 0 ? <ReviewSourceCountBadge count={snapshot.files.length} /> : null}
+                  </span>
+                </NodexDropdownItem>
+                <NodexDropdownFlyoutSubmenuItem
+                  label="Commit"
+                  onOpenChange={(open) => {
+                    if (!open) return;
+                    void loadBranchCommits();
+                  }}
+                  contentClassName="min-w-[320px]"
+                >
+                  {branchCommitsLoadStatus === "loading" ? (
+                    <NodexDropdownMessage compact>Loading commits...</NodexDropdownMessage>
+                  ) : branchCommitsLoadStatus === "error" ? (
+                    <>
+                      <NodexDropdownMessage compact tone="error">
+                        {branchCommitsError ?? "Unable to load commits"}
+                      </NodexDropdownMessage>
+                      <NodexDropdownItem onSelect={() => void loadBranchCommits()}>
+                        Retry
+                      </NodexDropdownItem>
+                    </>
+                  ) : branchCommits.length === 0 ? (
+                    <NodexDropdownMessage compact>No commits on branch</NodexDropdownMessage>
+                  ) : (
+                    <NodexDropdownScrollList className="max-h-80">
+                      {branchCommits.map((commit) => {
+                        const relativeTime = formatReviewCommitRelativeTime(commit.committedAt);
+                        return (
+                          <NodexDropdownItem
+                            key={commit.sha}
+                            onSelect={() => selectReviewCommit(commit)}
+                            tooltipText={commit.subject}
+                            rightSlot={source === "commit" && commitSha === commit.sha ? <CheckmarkIcon className="size-4" /> : null}
+                          >
+                            <span className="flex min-w-0 items-center justify-between gap-3">
+                              <span className="min-w-0 truncate">{commit.subject}</span>
+                              {relativeTime ? (
+                                <span className="shrink-0 text-xs text-token-description-foreground">
+                                  {relativeTime} ago
+                                </span>
+                              ) : null}
+                            </span>
+                          </NodexDropdownItem>
+                        );
+                      })}
+                    </NodexDropdownScrollList>
+                  )}
+                </NodexDropdownFlyoutSubmenuItem>
+                <NodexDropdownItem
+                  onSelect={() => selectReviewSource("branch")}
+                  rightSlot={source === "branch" ? <CheckmarkIcon className="size-4" /> : null}
+                >
+                  Branch
+                </NodexDropdownItem>
+                <NodexDropdownItem
+                  onSelect={() => selectReviewSource("last-turn")}
+                  rightSlot={source === "last-turn" || source === "selected-turn" ? <CheckmarkIcon className="size-4" /> : null}
+                >
                   Last turn
-                </NodexDropdownItem>
-                <NodexDropdownItem onSelect={handleReviewUncommittedChanges} rightSlot={source === "unstaged" ? <CheckmarkIcon className="size-4" /> : null}>
-                  Review uncommitted changes
-                </NodexDropdownItem>
-                <NodexDropdownItem onSelect={() => setSource("staged")} rightSlot={source === "staged" ? <CheckmarkIcon className="size-4" /> : null}>
-                  Review staged changes
-                </NodexDropdownItem>
-                <NodexDropdownItem onSelect={handleReviewBaseBranch} rightSlot={source === "branch" ? <CheckmarkIcon className="size-4" /> : null}>
-                  Review against a base branch
                 </NodexDropdownItem>
               </NodexDropdownMenu>
             </div>
-            <DiffStats additions={snapshot.files.reduce((total, file) => total + file.additions, 0)} deletions={snapshot.files.reduce((total, file) => total + file.deletions, 0)} className="text-xs" />
+            {source === "commit" && selectedCommitSubject ? (
+              <span className="max-w-[320px] truncate text-token-description-foreground">
+                {selectedCommitSubject}
+              </span>
+            ) : null}
+            <DiffStats additions={snapshot.files.reduce((total, file) => total + file.additions, 0)} deletions={snapshot.files.reduce((total, file) => total + file.deletions, 0)} className={REVIEW_AGGREGATE_DIFF_STATS_CLASS_NAME} />
           </div>
           <div className="flex min-w-0 flex-shrink-0 items-center gap-1">
-            <NodexDropdownMenu triggerButton={optionsTrigger} align="end" sideOffset={8}>
-              <NodexDropdownItem onSelect={handleReviewUncommittedChanges}>
-                Review uncommitted changes
-              </NodexDropdownItem>
-              <NodexDropdownItem onSelect={handleReviewBaseBranch}>
-                Review against a base branch
-              </NodexDropdownItem>
-              <NodexDropdownSeparator />
-              <NodexDropdownItem
-                onSelect={() => setHideWhitespace((current) => !current)}
-                rightSlot={hideWhitespace ? <CheckmarkIcon className="size-4" /> : null}
-                disabled={!isGitReviewSource(source)}
-              >
-                Hide whitespace
-              </NodexDropdownItem>
-              <NodexDropdownItem
-                onSelect={() => setExpandedKeys(areAllDiffsExpanded ? new Set() : new Set(snapshot.files.map((file) => file.key)))}
-              >
-                {areAllDiffsExpanded ? "Collapse all diffs" : "Expand all diffs"}
-              </NodexDropdownItem>
+            <NodexDropdownMenu triggerButton={optionsTrigger} align="end" sideOffset={8} contentWidth="menu">
               {isGitReviewSource(source) ? (
                 <NodexDropdownItem
                   onSelect={() => void refreshGitSnapshot()}
                   disabled={gitLoading}
+                  leftSlot={<ReviewRefreshIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
                 >
                   Refresh
                 </NodexDropdownItem>
               ) : null}
+              <NodexDropdownItem
+                onSelect={() => setWrap((current) => !current)}
+                leftSlot={wrap
+                  ? <ReviewDisableWordWrapIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
+                  : <ReviewEnableWordWrapIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
+              >
+                {reviewOptionsWordWrapLabel}
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                onSelect={() => setExpandedKeys(areAllDiffsExpanded ? new Set() : new Set(snapshot.files.map((file) => file.key)))}
+                leftSlot={areAllDiffsExpanded
+                  ? <ReviewCollapseAllDiffsIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
+                  : <ReviewExpandAllDiffsIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
+              >
+                {reviewOptionsExpandLabel}
+              </NodexDropdownItem>
+              <NodexDropdownSeparator />
+              <NodexDropdownItem
+                onSelect={() => setLoadFullFilesEnabled((current) => !current)}
+                disabled={isTranscriptReviewSource(source)}
+                leftSlot={<ReviewFullFilesIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
+              >
+                {reviewOptionsFullFilesLabel}
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                onSelect={() => setRichPreviewEnabled((current) => !current)}
+                leftSlot={richPreviewEnabled
+                  ? <ReviewDisableRichPreviewIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
+                  : <ReviewRichPreviewIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
+              >
+                {reviewOptionsRichPreviewLabel}
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                onSelect={() => setWordDiffsEnabled((current) => !current)}
+                leftSlot={wordDiffsEnabled
+                  ? <ReviewDisableWordDiffsIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
+                  : <ReviewWordDiffsIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
+              >
+                {reviewOptionsWordDiffsLabel}
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                onSelect={() => setHideWhitespace((current) => !current)}
+                disabled={!isGitReviewSource(source)}
+                leftSlot={<ReviewHideWhitespaceIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
+              >
+                {reviewOptionsWhitespaceLabel}
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                onSelect={() => void handleCopyGitApplyCommand()}
+                disabled={!canCopyGitApplyCommand}
+                leftSlot={<ReviewFileDocumentIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
+              >
+                Copy git apply command
+              </NodexDropdownItem>
             </NodexDropdownMenu>
             <NodexDropdownMenu
               triggerButton={jumpToFileTrigger}
               align="end"
               sideOffset={8}
               contentWidth="panelWide"
-              contentMaxHeight="tall"
+              contentMaxHeight="list"
             >
               <NodexDropdownSearchInput
                 value={jumpToFileQuery}
@@ -1920,20 +2540,20 @@ export function ReviewDiffPanel({
                 placeholder="Jump to file"
                 aria-label="Jump to file"
               />
-              <NodexDropdownSeparator />
               {jumpToFileMatches.length === 0 ? (
-                <div className="px-2 py-2 text-sm text-token-description-foreground">No files</div>
+                <NodexDropdownMessage compact>No matching files</NodexDropdownMessage>
               ) : (
                 jumpToFileMatches.map((file) => (
                   <NodexDropdownItem
                     key={file.key}
+                    allowWrap
                     onSelect={() => {
                       setSelectedPath(file.displayPath);
                       setJumpToFileQuery("");
                     }}
                     rightSlot={selectedPath === file.displayPath ? <CheckmarkIcon className="size-4" /> : null}
                   >
-                    <span className="block max-w-[300px] truncate">{file.displayPath}</span>
+                    <ReviewJumpFilePathLabel displayPath={file.displayPath} />
                   </NodexDropdownItem>
                 ))
               )}
@@ -1948,131 +2568,38 @@ export function ReviewDiffPanel({
             </button>
             <button
               type="button"
-              className={toolbarIconButtonClassName()}
+              className={toolbarIconButtonClassName({ active: fileTreeOpen })}
               aria-label={toggleFileTreeLabel}
               onClick={() => setFileTreeOpen((current) => !current)}
             >
-              <ReviewTreeIcon />
+              <CodexSidePanelFilesIcon className="icon-sm" />
             </button>
             <button
               type="button"
-              className="border-token-border user-select-none no-drag cursor-interaction flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-transparent px-2 text-sm text-token-foreground outline-hidden enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40"
+              className={REVIEW_HEADER_ACTION_BUTTON_CLASS_NAME}
               aria-label="Commit or push"
               disabled={!canUseThreadGitActions}
               onClick={() => void startThreadPrompt(commitOrPushPrompt)}
             >
-              Commit or push
+              <ReviewCommitOrPushIcon className="icon-xs shrink-0" />
+              <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>Commit or push</span>
             </button>
             <button
               type="button"
-              className="border-token-border user-select-none no-drag cursor-interaction flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-transparent px-2 text-sm text-token-foreground outline-hidden enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40"
+              className={REVIEW_HEADER_ACTION_BUTTON_CLASS_NAME}
               aria-label="Create PR"
               disabled={!canUseThreadGitActions}
               onClick={() => void startThreadPrompt(createPrPrompt)}
             >
-              Create PR
+              <ReviewCreatePrIcon className="icon-xs shrink-0" />
+              <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>Create PR</span>
             </button>
           </div>
         </div>
 
-        <div className="relative min-h-0">
-          {gitLoadStatus === "loading" && isGitReviewSource(source) ? (
-            <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">Loading review…</div>
-          ) : gitLoadStatus === "timed-out" && isGitReviewSource(source) ? (
-            <ReviewPanelEmptyState
-              title="Review timed out"
-              description="The diff request took longer than 15 seconds. Try again or narrow the review target."
-              action={(
-                <button
-                  type="button"
-                  className="rounded-full bg-token-foreground px-3 py-1.5 text-sm text-token-background hover:brightness-[1.05]"
-                  onClick={() => void refreshGitSnapshot()}
-                >
-                  Retry
-                </button>
-              )}
-            />
-          ) : snapshot.errorMessage ? (
-            <ReviewPanelEmptyState
-              title="Could not load review"
-              description={snapshot.errorMessage}
-            />
-          ) : !snapshot.isGitRepository && isGitReviewSource(source) ? (
-            <ReviewPanelEmptyState
-              title="Create a Git repository"
-              description="Track, review, and undo changes in this project."
-              action={(
-                <button
-                  type="button"
-                  className="rounded-full bg-token-foreground px-3 py-1.5 text-sm text-token-background hover:brightness-[1.05]"
-                  onClick={handleCreateGitRepository}
-                >
-                  Create repository
-                </button>
-              )}
-            />
-          ) : snapshot.files.length === 0 ? (
-            <ReviewPanelEmptyState
-              title={snapshot.emptyReason === "noLongerAvailable" ? "No file changes yet" : "No file changes yet"}
-              description={snapshot.emptyReason === "noLongerAvailable"
-                ? source === "selected-turn"
-                  ? "The selected turn diff is no longer available."
-                  : "The latest diffs are no longer available."
-                : "Review file changes here once the workspace has modifications."}
-            />
-          ) : visibleFiles.length === 0 ? (
-            <ReviewPanelEmptyState
-              title="No review matches"
-              description="Try a different file filter or review search query."
-            />
-          ) : (
-            <div className="absolute inset-0 flex min-w-0 overflow-hidden">
-              <div
-                ref={reviewContentRootRef}
-                className="min-w-0 flex-1 overflow-auto px-2 pb-3"
-                style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
-              >
-                {isCappedMode ? (
-                  <div className="bg-token-surface-muted text-token-foreground-muted mb-3 rounded-md px-3 py-2 text-xs">
-                    Large diff detected — showing one file at a time.
-                  </div>
-                ) : null}
-                <div className="flex flex-col gap-2">
-                  <ReviewDeferredRender
-                    defer={reviewRenderPlan.shouldDefer}
-                    fallback={reviewFallbackRows}
-                  >
-                    {reviewRows}
-                  </ReviewDeferredRender>
-                </div>
-              </div>
-
-              {fileTreeOpen ? (
-                <div
-                  className="h-full shrink-0 overflow-hidden border-l border-token-border pl-2"
-                  style={{ width: REVIEW_FILE_TREE_DEFAULT_WIDTH_PX }}
-                >
-                    <aside
-                      className="h-full shrink-0 overflow-hidden bg-token-main-surface-primary"
-                    data-file-tree-virtualized={isReviewFileTreeVirtualizationEnabled(fileTreeState.rows.length, REVIEW_FILE_TREE_VIRTUALIZE_THRESHOLD) ? "true" : undefined}
-                      style={{ width: "100%" }}
-                  >
-                    <ReviewFileTreePane
-                      rows={fileTreeState.rows}
-                      fileFilter={fileFilter}
-                      onFileFilterChange={setFileFilter}
-                      selectedTreeItemId={selectedTreeItemId}
-                      focusedTreeItemId={focusedTreeItemId}
-                      onSelectTreeItemId={setSelectedTreeItemId}
-                      onFocusTreeItemId={setFocusedTreeItemId}
-                      onSelectPath={setSelectedPath}
-                      onToggleDirectory={handleToggleDirectory}
-                    />
-                    </aside>
-                </div>
-              ) : null}
-            </div>
-          )}
+        <div ref={reviewSplitRootRef} className="flex min-h-0 max-w-full min-w-0">
+          {reviewMainContent}
+          {fileTreePane}
         </div>
       </div>
     </div>

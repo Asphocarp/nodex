@@ -120,7 +120,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - User-interrupted turns must never produce a turn-complete desktop notification, even if later terminal updates arrive for that turn through the local stream.
 - Packaged macOS builds can check for stable app updates on launch in the background, download them automatically when found, expose a manual `Check now` action in Settings -> General -> `App updates`, expose `Check for Updates…` in the macOS app menu, and require an explicit `Restart to Update` action before installation.
 - Diff stage is a review panel bound to the active thread cwd or project primary source:
-  - review sources include `Last turn`, `Review uncommitted changes`, `Review staged changes`, and `Review against a base branch`
+  - review sources include `Unstaged`, `Staged`, `Commit`, `Branch`, and `Last turn`; the selector only switches the visible diff source and never starts a review prompt
   - the panel can initialize Git for a workspace that is not yet a repository
   - the toolbar exposes source selection, `+N` / `-N` stats, `Review options`, `Jump to file`, unified/split diff mode, `Hide files` / `Show files`, `Commit or push`, and `Create PR`
   - the panel does not expose word-diff toggles, rich-preview toggles, full-file loading toggles, manual file-tree resizing, copy-git-apply commands, or inline stage/unstage/revert actions

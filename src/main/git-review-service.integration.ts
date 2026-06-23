@@ -7,9 +7,12 @@ import {
   applyGitReviewPatch,
   initializeGitRepositoryAndReadReviewSnapshot,
   readBranchDiffStats,
+  readGitReviewBlameFile,
+  readGitReviewBranchCommits,
   readGitReviewDiff,
   readGitReviewFileContents,
   readGitReviewSnapshot,
+  readGitReviewSummary,
   resolveGitMergeBase,
   searchGitReview,
 } from "./git-review-service";
@@ -124,6 +127,51 @@ describe("git review service", () => {
     expect(snapshot.files[0]?.path).toBe("feature.ts");
   });
 
+  test("returns branch commits against the merge base", async () => {
+    const cwd = createTempDir("nodex-git-review-branch-commits-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+    runGit(cwd, ["checkout", "--quiet", "-b", "feature/review"]);
+    writeFileSync(path.join(cwd, "feature-a.ts"), "export const featureA = true;\n", "utf8");
+    commitAll(cwd, "feat: add feature a");
+    writeFileSync(path.join(cwd, "feature-b.ts"), "export const featureB = true;\n", "utf8");
+    commitAll(cwd, "fix: add feature b");
+
+    const result = await readGitReviewBranchCommits({
+      cwd,
+      baseBranch: "main",
+      operationSource: "review_model",
+    });
+
+    expect(result.errorMessage).toBe(null);
+    expect(result.baseBranch).toBe("main");
+    expect(result.commits.length).toBe(2);
+    expect(result.commits.map((commit) => commit.subject).join("|")).toBe("fix: add feature b|feat: add feature a");
+  });
+
+  test("returns commit snapshots for a selected commit", async () => {
+    const cwd = createTempDir("nodex-git-review-commit-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+    writeFileSync(path.join(cwd, "feature.ts"), "export const committed = true;\n", "utf8");
+    commitAll(cwd, "feature");
+    const commitSha = runGit(cwd, ["rev-parse", "HEAD"]).trim();
+
+    const snapshot = await readGitReviewSnapshot({
+      cwd,
+      source: "commit",
+      commitSha,
+    });
+
+    expect(snapshot.isGitRepository).toBeTrue();
+    expect(snapshot.source).toBe("commit");
+    expect(snapshot.files.length).toBe(1);
+    expect(snapshot.files[0]?.path).toBe("feature.ts");
+    expect(snapshot.patch.includes("+++ b/feature.ts")).toBeTrue();
+  });
+
   test("returns codex-shaped per-file review diffs", async () => {
     const cwd = createTempDir("nodex-git-review-diff-");
     initializeRepository(cwd);
@@ -168,6 +216,25 @@ describe("git review service", () => {
     expect(stats.files.length).toBe(1);
     expect(stats.additions).toBe(1);
     expect(mergeBase.mergeBaseSha).toBe(mainHead);
+  });
+
+  test("returns generic review summary totals", async () => {
+    const cwd = createTempDir("nodex-git-review-summary-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+
+    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+    const summary = await readGitReviewSummary({
+      cwd,
+      source: "unstaged",
+    });
+
+    expect(summary.isGitRepository).toBeTrue();
+    expect(summary.source).toBe("unstaged");
+    expect(summary.files.length).toBe(1);
+    expect(summary.additions).toBe(1);
+    expect(summary.deletions).toBe(0);
   });
 
   test("initializes a git repository when requested", async () => {
@@ -272,6 +339,44 @@ describe("git review service", () => {
     expect(result.oldExists).toBeFalse();
     expect(result.newExists).toBeTrue();
     expect(result.newText?.includes("feature")).toBeTrue();
+  });
+
+  test("reads review file contents for commit sources", async () => {
+    const cwd = createTempDir("nodex-git-review-file-contents-commit-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+    commitAll(cwd, "feature");
+    const commitSha = runGit(cwd, ["rev-parse", "HEAD"]).trim();
+
+    const result = await readGitReviewFileContents({
+      cwd,
+      source: "commit",
+      path: "README.md",
+      commitSha,
+    });
+
+    expect(result.oldExists).toBeTrue();
+    expect(result.newExists).toBeTrue();
+    expect(result.oldText?.includes("beta")).toBeFalse();
+    expect(result.newText?.includes("beta")).toBeTrue();
+  });
+
+  test("reads git blame for file source tabs", async () => {
+    const cwd = createTempDir("nodex-git-review-blame-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+
+    const result = await readGitReviewBlameFile({
+      cwd,
+      path: "README.md",
+    });
+
+    expect(result.errorMessage).toBe(null);
+    expect(result.lines.length).toBe(1);
+    expect(result.lines[0]?.author).toBe("Nodex Test");
   });
 
   test("searches git review content across file paths and contents", async () => {

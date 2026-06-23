@@ -97,8 +97,8 @@ export function DiffStats({
       data-thread-find-skip="true"
       className={cn("inline-flex items-center gap-1 disambiguated-digits tabular-nums tracking-tight", className)}
     >
-      <span className="flex-shrink-0 text-token-git-decoration-added-resource-foreground">+{additions}</span>
-      <span className="flex-shrink-0 text-token-git-decoration-deleted-resource-foreground">-{deletions}</span>
+      <span className="flex shrink-0 items-center text-token-git-decoration-added-resource-foreground">+{additions}</span>
+      <span className="flex shrink-0 items-center text-token-git-decoration-deleted-resource-foreground">-{deletions}</span>
     </span>
   );
 }

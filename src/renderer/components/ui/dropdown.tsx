@@ -744,6 +744,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   tooltipTextClassName,
   tooltipSide,
   tooltipAlign,
+  onOpenChange,
 }: {
   label: ReactNode;
   children: ReactNode;
@@ -758,6 +759,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   tooltipTextClassName?: string;
   tooltipSide?: "top" | "right" | "bottom" | "left";
   tooltipAlign?: "start" | "center" | "end";
+  onOpenChange?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>["onOpenChange"];
 }) {
   const trigger = (
     <NodexDropdownSubmenuTrigger
@@ -785,7 +787,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   );
 
   return (
-    <NodexDropdownSubmenu>
+    <NodexDropdownSubmenu onOpenChange={onOpenChange}>
       {tooltipText ? (
         <NodexTooltip
           tooltipContent={

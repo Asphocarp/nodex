@@ -416,6 +416,7 @@ export function AppShellTabs({
 
   const renderPanel = (tab: AppShellTabItem, isActive: boolean, retained: boolean) => {
     const panelId = makeTabPanelId(controllerId, tab.id);
+    const dataTabId = tab.domTabId ?? tab.id;
 
     return (
       <div
@@ -425,6 +426,8 @@ export function AppShellTabs({
         aria-label={isActive ? makeAppShellTabAccessibleLabel(tab) : undefined}
         aria-hidden={isActive ? undefined : "true"}
         hidden={isActive ? undefined : true}
+        data-app-shell-tab-panel-controller={isActive ? (panelTabDnd?.panelId ?? controllerId) : undefined}
+        data-tab-id={isActive ? dataTabId : undefined}
         data-app-shell-tabpanel-preview={isActive && tab.preview ? "true" : undefined}
         data-app-shell-tabpanel-retained={!isActive && retained ? tab.id : undefined}
         className={cn("relative h-full min-h-0", !isActive && "hidden")}

@@ -8,6 +8,12 @@ import type {
   BranchDiffStatsResult,
   GitApplyPatchInput,
   GitApplyPatchResult,
+  GitReviewBlameInput,
+  GitReviewBlameResult,
+  GitReviewBranchCommit,
+  GitReviewBranchCommitsRequest,
+  GitReviewBranchCommitsResult,
+  GitReviewCancelInput,
   GitMergeBaseRequest,
   GitMergeBaseResult,
   GitReviewFileContents,
@@ -18,6 +24,8 @@ import type {
   GitReviewFileSummary,
   GitReviewSnapshot,
   GitReviewSource,
+  GitReviewSummaryRequest,
+  GitReviewSummaryResult,
   ReviewDiffEntry,
   ReviewDiffRequest,
   ReviewDiffResult,
@@ -35,8 +43,18 @@ interface GitCommandError extends Error {
   exitCode?: number | null;
 }
 
+interface GitReviewSnapshotRequest {
+  cwd: string;
+  source: GitReviewSource;
+  baseRef?: string | null;
+  commitSha?: string | null;
+  hideWhitespace?: boolean;
+  requestId?: string | null;
+}
+
 const GIT_COMMAND_TIMEOUT_MS = 8_000;
 const REVIEW_FILE_CHANGED_LINES_LIMIT = 15_000;
+const gitReviewAbortControllers = new Map<string, AbortController>();
 
 async function ensureDirectory(cwd: string): Promise<string> {
   const normalizedCwd = cwd.trim();
@@ -56,6 +74,7 @@ function runGitCommand(
   args: string[],
   cwd: string,
   allowedExitCodes: number[] = [0],
+  options?: { signal?: AbortSignal },
 ): Promise<GitCommandResult> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -67,6 +86,7 @@ function runGitCommand(
         timeout: GIT_COMMAND_TIMEOUT_MS,
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
+        signal: options?.signal,
       },
       (error, stdout, stderr) => {
         const exitCode = typeof (error as { code?: unknown } | null)?.code === "number"
@@ -88,6 +108,39 @@ function runGitCommand(
       },
     );
   });
+}
+
+async function runGitReviewRequest<T>(
+  requestId: string | null | undefined,
+  run: (signal?: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const normalizedRequestId = requestId?.trim() || "";
+  if (!normalizedRequestId) {
+    return run();
+  }
+
+  gitReviewAbortControllers.get(normalizedRequestId)?.abort();
+  const controller = new AbortController();
+  gitReviewAbortControllers.set(normalizedRequestId, controller);
+  try {
+    return await run(controller.signal);
+  } finally {
+    if (gitReviewAbortControllers.get(normalizedRequestId) === controller) {
+      gitReviewAbortControllers.delete(normalizedRequestId);
+    }
+  }
+}
+
+export function cancelGitReviewRequest(input: GitReviewCancelInput): { cancelled: boolean } {
+  const normalizedRequestId = input.requestId.trim();
+  if (!normalizedRequestId) return { cancelled: false };
+
+  const controller = gitReviewAbortControllers.get(normalizedRequestId);
+  if (!controller) return { cancelled: false };
+
+  controller.abort();
+  gitReviewAbortControllers.delete(normalizedRequestId);
+  return { cancelled: true };
 }
 
 function isNotGitRepositoryError(error: unknown): boolean {
@@ -190,6 +243,10 @@ function toReviewDiffEntries(patch: string): ReviewDiffEntry[] {
       diff,
       loadStatus: tooLarge ? "diff-too-large" : "loaded",
       renderKey: `${file.previousPath ?? ""}->${file.path}:${file.additions}:${file.deletions}:${diff.length}`,
+      revision: null,
+      diffBytes: Buffer.byteLength(diff, "utf8"),
+      diffError: null,
+      canApplyPatchActions: true,
       changedBytes: Buffer.byteLength(diff, "utf8"),
       tooLarge,
       tooLargeReason: tooLarge
@@ -224,6 +281,7 @@ async function readBranchDiffPatch(
   cwd: string,
   baseRef: string,
   hideWhitespace?: boolean,
+  signal?: AbortSignal,
 ): Promise<string> {
   const result = await runGitCommand([
     "diff",
@@ -234,12 +292,12 @@ async function readBranchDiffPatch(
     "--src-prefix=a/",
     "--dst-prefix=b/",
     `${baseRef}...HEAD`,
-  ], cwd);
+  ], cwd, [0], { signal });
   return result.stdout;
 }
 
-async function listUntrackedFiles(cwd: string): Promise<string[]> {
-  const result = await runGitCommand(["ls-files", "--others", "--exclude-standard", "-z"], cwd);
+async function listUntrackedFiles(cwd: string, signal?: AbortSignal): Promise<string[]> {
+  const result = await runGitCommand(["ls-files", "--others", "--exclude-standard", "-z"], cwd, [0], { signal });
   return result.stdout
     .split("\0")
     .map((entry) => entry.trim())
@@ -250,6 +308,7 @@ async function readUntrackedFilePatch(
   cwd: string,
   relativePath: string,
   hideWhitespace?: boolean,
+  signal?: AbortSignal,
 ): Promise<string> {
   const absolutePath = path.resolve(cwd, relativePath);
   const contents = await readFile(absolutePath, "utf8").catch(() => "");
@@ -267,11 +326,11 @@ async function readUntrackedFilePatch(
     "--",
     "/dev/null",
     relativePath,
-  ], cwd, [0, 1]);
+  ], cwd, [0, 1], { signal });
   return result.stdout;
 }
 
-async function readUnstagedDiffPatch(cwd: string, hideWhitespace?: boolean): Promise<string> {
+async function readUnstagedDiffPatch(cwd: string, hideWhitespace?: boolean, signal?: AbortSignal): Promise<string> {
   const trackedResult = await runGitCommand([
     "diff",
     ...buildDiffWhitespaceArgs(hideWhitespace),
@@ -280,21 +339,21 @@ async function readUnstagedDiffPatch(cwd: string, hideWhitespace?: boolean): Pro
     "--relative",
     "--src-prefix=a/",
     "--dst-prefix=b/",
-  ], cwd);
-  const untrackedFiles = await listUntrackedFiles(cwd);
+  ], cwd, [0], { signal });
+  const untrackedFiles = await listUntrackedFiles(cwd, signal);
   if (untrackedFiles.length === 0) {
     return trackedResult.stdout;
   }
 
   const untrackedPatches = await Promise.all(
-    untrackedFiles.map((relativePath) => readUntrackedFilePatch(cwd, relativePath, hideWhitespace)),
+    untrackedFiles.map((relativePath) => readUntrackedFilePatch(cwd, relativePath, hideWhitespace, signal)),
   );
   return [trackedResult.stdout, ...untrackedPatches.filter((patch) => patch.trim().length > 0)]
     .filter((patch) => patch.trim().length > 0)
     .join("\n");
 }
 
-async function readStagedDiffPatch(cwd: string, hideWhitespace?: boolean): Promise<string> {
+async function readStagedDiffPatch(cwd: string, hideWhitespace?: boolean, signal?: AbortSignal): Promise<string> {
   const result = await runGitCommand([
     "diff",
     "--cached",
@@ -304,7 +363,32 @@ async function readStagedDiffPatch(cwd: string, hideWhitespace?: boolean): Promi
     "--relative",
     "--src-prefix=a/",
     "--dst-prefix=b/",
-  ], cwd);
+  ], cwd, [0], { signal });
+  return result.stdout;
+}
+
+async function readCommitDiffPatch(
+  cwd: string,
+  commitSha: string | null | undefined,
+  hideWhitespace?: boolean,
+  signal?: AbortSignal,
+): Promise<string> {
+  const normalizedCommitSha = commitSha?.trim() ?? "";
+  if (!normalizedCommitSha) {
+    throw new Error("Commit SHA is required for commit review.");
+  }
+
+  const result = await runGitCommand([
+    "show",
+    "--format=",
+    ...buildDiffWhitespaceArgs(hideWhitespace),
+    "--no-ext-diff",
+    "--find-renames",
+    "--relative",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    normalizedCommitSha,
+  ], cwd, [0], { signal });
   return result.stdout;
 }
 
@@ -328,6 +412,44 @@ async function resolveBaseRef(cwd: string, explicitBaseRef?: string | null): Pro
   }
 
   return branchState.currentBranch ?? null;
+}
+
+async function resolveBranchComparisonBase(
+  cwd: string,
+  explicitBaseBranch: string | null | undefined,
+  signal?: AbortSignal,
+): Promise<{ baseBranch: string | null; baseSha: string | null }> {
+  const baseBranch = explicitBaseBranch?.trim() || (await resolveBaseRef(cwd, null));
+  if (!baseBranch) {
+    return {
+      baseBranch: null,
+      baseSha: null,
+    };
+  }
+
+  const mergeBase = await runGitCommand(["merge-base", "HEAD", baseBranch], cwd, [0, 1, 128], { signal })
+    .catch(() => null);
+  const baseSha = mergeBase?.exitCode === 0 ? mergeBase.stdout.trim() : "";
+  return {
+    baseBranch,
+    baseSha: baseSha || null,
+  };
+}
+
+function parseBranchCommitLog(stdout: string): GitReviewBranchCommit[] {
+  if (!stdout.trim()) return [];
+
+  return stdout
+    .split("\n")
+    .flatMap((line): GitReviewBranchCommit[] => {
+      const [sha, committedAt, subject] = line.split("\0");
+      if (!sha || !committedAt || subject === undefined) return [];
+      return [{
+        sha,
+        committedAt,
+        subject: subject || sha.slice(0, 12),
+      }];
+    });
 }
 
 async function readGitBlobText(
@@ -355,12 +477,10 @@ async function readWorktreeFileText(
   return readFile(absolutePath, "utf8").catch(() => null);
 }
 
-export async function readGitReviewSnapshot(input: {
-  cwd: string;
-  source: GitReviewSource;
-  baseRef?: string | null;
-  hideWhitespace?: boolean;
-}): Promise<GitReviewSnapshot> {
+async function readGitReviewSnapshotWithSignal(
+  input: GitReviewSnapshotRequest,
+  signal?: AbortSignal,
+): Promise<GitReviewSnapshot> {
   const cwd = await ensureDirectory(input.cwd);
   const gitRepository = await isGitRepository(cwd);
   const branchState = gitRepository
@@ -386,11 +506,13 @@ export async function readGitReviewSnapshot(input: {
       ? await resolveBaseRef(cwd, input.baseRef)
       : null;
     const patch = input.source === "staged"
-      ? await readStagedDiffPatch(cwd, input.hideWhitespace)
+      ? await readStagedDiffPatch(cwd, input.hideWhitespace, signal)
       : input.source === "unstaged"
-        ? await readUnstagedDiffPatch(cwd, input.hideWhitespace)
+        ? await readUnstagedDiffPatch(cwd, input.hideWhitespace, signal)
+        : input.source === "commit"
+          ? await readCommitDiffPatch(cwd, input.commitSha, input.hideWhitespace, signal)
         : baseRef
-          ? await readBranchDiffPatch(cwd, baseRef, input.hideWhitespace)
+          ? await readBranchDiffPatch(cwd, baseRef, input.hideWhitespace, signal)
           : "";
 
     return {
@@ -433,27 +555,62 @@ export async function readGitReviewSnapshot(input: {
   }
 }
 
+export async function readGitReviewSnapshot(input: GitReviewSnapshotRequest): Promise<GitReviewSnapshot> {
+  return runGitReviewRequest(input.requestId, (signal) => readGitReviewSnapshotWithSignal(input, signal));
+}
+
 export async function readGitReviewDiff(input: ReviewDiffRequest): Promise<ReviewDiffResult> {
+  return runGitReviewRequest(input.requestId, async (signal) => {
+    const baseRef = input.baseBranch?.trim() || input.baseRef?.trim() || null;
+    const snapshot = await readGitReviewSnapshotWithSignal({
+      cwd: input.cwd,
+      source: input.source,
+      baseRef,
+      commitSha: input.commitSha,
+      hideWhitespace: input.hideWhitespace,
+    }, signal);
+    const filteredEntries = filterReviewDiffEntries(toReviewDiffEntries(snapshot.patch), input.files);
+    const filteredPatch = filteredEntries
+      .map((entry) => entry.diff)
+      .filter((diff) => diff.trim().length > 0)
+      .join("\n");
+
+    return {
+      cwd: snapshot.cwd,
+      source: snapshot.source,
+      patch: filteredPatch,
+      files: filteredEntries,
+      isGitRepository: snapshot.isGitRepository,
+      baseRef: snapshot.baseRef,
+      currentBranch: snapshot.currentBranch,
+      defaultBranch: snapshot.defaultBranch,
+      errorMessage: snapshot.errorMessage,
+    };
+  });
+}
+
+export async function readGitReviewSummary(input: GitReviewSummaryRequest): Promise<GitReviewSummaryResult> {
   const baseRef = input.baseBranch?.trim() || input.baseRef?.trim() || null;
   const snapshot = await readGitReviewSnapshot({
     cwd: input.cwd,
     source: input.source,
     baseRef,
+    commitSha: input.commitSha,
     hideWhitespace: input.hideWhitespace,
+    requestId: input.requestId,
   });
-  const filteredEntries = filterReviewDiffEntries(toReviewDiffEntries(snapshot.patch), input.files);
-  const filteredPatch = filteredEntries
-    .map((entry) => entry.diff)
-    .filter((diff) => diff.trim().length > 0)
-    .join("\n");
+  const additions = snapshot.files.reduce((total, file) => total + file.additions, 0);
+  const deletions = snapshot.files.reduce((total, file) => total + file.deletions, 0);
 
   return {
     cwd: snapshot.cwd,
     source: snapshot.source,
-    patch: filteredPatch,
-    files: filteredEntries,
-    isGitRepository: snapshot.isGitRepository,
     baseRef: snapshot.baseRef,
+    commitSha: input.commitSha?.trim() || null,
+    files: snapshot.files,
+    additions,
+    deletions,
+    isGitRepository: snapshot.isGitRepository,
     currentBranch: snapshot.currentBranch,
     defaultBranch: snapshot.defaultBranch,
     errorMessage: snapshot.errorMessage,
@@ -482,6 +639,57 @@ export async function readBranchDiffStats(input: BranchDiffStatsRequest): Promis
     defaultBranch: snapshot.defaultBranch,
     errorMessage: snapshot.errorMessage,
   };
+}
+
+export async function readGitReviewBranchCommits(
+  input: GitReviewBranchCommitsRequest,
+): Promise<GitReviewBranchCommitsResult> {
+  return runGitReviewRequest(input.requestId, async (signal) => {
+    const cwd = await ensureDirectory(input.cwd);
+    const gitRepository = await isGitRepository(cwd);
+    if (!gitRepository) {
+      return {
+        cwd,
+        baseBranch: null,
+        commits: [],
+        errorMessage: "Git review is unavailable outside a Git repository.",
+      };
+    }
+
+    const { baseBranch, baseSha } = await resolveBranchComparisonBase(cwd, input.baseBranch, signal);
+    if (!baseSha) {
+      return {
+        cwd,
+        baseBranch,
+        commits: [],
+        errorMessage: baseBranch
+          ? `Could not resolve a merge base for ${baseBranch}.`
+          : "Could not resolve a base branch.",
+      };
+    }
+
+    try {
+      const result = await runGitCommand(
+        ["log", "--format=%H%x00%cI%x00%s", `${baseSha}..HEAD`],
+        cwd,
+        [0],
+        { signal },
+      );
+      return {
+        cwd,
+        baseBranch,
+        commits: parseBranchCommitLog(result.stdout),
+        errorMessage: null,
+      };
+    } catch (error) {
+      return {
+        cwd,
+        baseBranch,
+        commits: [],
+        errorMessage: error instanceof Error ? error.message : "Could not load branch commits.",
+      };
+    }
+  });
 }
 
 export async function resolveGitMergeBase(input: GitMergeBaseRequest): Promise<GitMergeBaseResult> {
@@ -570,6 +778,8 @@ export async function readGitReviewFileContents(
         ? headExists
           ? await readGitBlobText(cwd, "HEAD", previousPath)
           : null
+        : source === "commit"
+          ? await readGitBlobText(cwd, `${input.commitSha?.trim() || "HEAD"}^`, previousPath)
         : baseRef
           ? await readGitBlobText(cwd, baseRef, previousPath)
           : null;
@@ -578,6 +788,8 @@ export async function readGitReviewFileContents(
       ? await readWorktreeFileText(cwd, normalizedPath)
       : source === "staged"
         ? await readGitBlobText(cwd, ":", normalizedPath)
+        : source === "commit"
+          ? await readGitBlobText(cwd, input.commitSha?.trim() || "HEAD", normalizedPath)
         : headExists
           ? await readGitBlobText(cwd, "HEAD", normalizedPath)
           : await readWorktreeFileText(cwd, normalizedPath);
@@ -618,7 +830,9 @@ export async function searchGitReview(
   const snapshot = await readGitReviewSnapshot({
     cwd: input.cwd,
     source: input.source,
-    baseRef: input.baseRef ?? null,
+    baseRef: input.baseBranch ?? input.baseRef ?? null,
+    commitSha: input.commitSha ?? null,
+    hideWhitespace: input.hideWhitespace,
   });
 
   if (!snapshot.isGitRepository || snapshot.files.length === 0) {
@@ -641,7 +855,8 @@ export async function searchGitReview(
       source: input.source,
       path: file.path,
       previousPath: file.previousPath,
-      baseRef: input.baseRef ?? null,
+      baseRef: input.baseBranch ?? input.baseRef ?? null,
+      commitSha: input.commitSha ?? null,
     });
     const contentHaystacks = [fullContents.oldText ?? "", fullContents.newText ?? ""];
     if (contentHaystacks.some((value) => value.toLowerCase().includes(normalizedQuery))) {
@@ -651,8 +866,93 @@ export async function searchGitReview(
 
   return {
     query: input.query,
-    matchingPaths: Array.from(matchingPaths),
+    matchingPaths: Array.from(matchingPaths).slice(0, input.limit ?? 250),
   };
+}
+
+function parseBlamePorcelain(stdout: string): GitReviewBlameResult["lines"] {
+  const lines: GitReviewBlameResult["lines"] = [];
+  const chunks = stdout.split("\n");
+  let current: {
+    commitSha: string;
+    line: number;
+    author: string | null;
+    authorTime: number | null;
+    summary: string | null;
+  } | null = null;
+
+  for (const chunk of chunks) {
+    const header = /^([0-9a-f]{40}) \d+ (\d+)/.exec(chunk);
+    if (header) {
+      if (current) lines.push(current);
+      current = {
+        commitSha: header[1] ?? "",
+        line: Number(header[2] ?? "0"),
+        author: null,
+        authorTime: null,
+        summary: null,
+      };
+      continue;
+    }
+    if (!current) continue;
+    if (chunk.startsWith("author ")) {
+      current.author = chunk.slice("author ".length) || null;
+      continue;
+    }
+    if (chunk.startsWith("author-time ")) {
+      const authorTime = Number(chunk.slice("author-time ".length));
+      current.authorTime = Number.isFinite(authorTime) ? authorTime : null;
+      continue;
+    }
+    if (chunk.startsWith("summary ")) {
+      current.summary = chunk.slice("summary ".length) || null;
+      continue;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.filter((line) => line.line > 0 && line.commitSha.length > 0);
+}
+
+export async function readGitReviewBlameFile(input: GitReviewBlameInput): Promise<GitReviewBlameResult> {
+  const cwd = await ensureDirectory(input.cwd);
+  const normalizedPath = input.path.trim();
+  const ref = input.ref?.trim() || null;
+
+  if (!normalizedPath) {
+    return {
+      cwd,
+      path: normalizedPath,
+      ref,
+      lines: [],
+      errorMessage: "File path is required.",
+    };
+  }
+
+  try {
+    const args = [
+      "blame",
+      "--line-porcelain",
+      ...(ref ? [ref] : []),
+      "--",
+      normalizedPath,
+    ];
+    const result = await runGitCommand(args, cwd);
+    return {
+      cwd,
+      path: normalizedPath,
+      ref,
+      lines: parseBlamePorcelain(result.stdout),
+      errorMessage: null,
+    };
+  } catch (error) {
+    return {
+      cwd,
+      path: normalizedPath,
+      ref,
+      lines: [],
+      errorMessage: error instanceof Error ? error.message : "Could not load Git blame.",
+    };
+  }
 }
 
 export async function initializeGitRepositoryAndReadReviewSnapshot(cwd: string): Promise<GitReviewSnapshot> {

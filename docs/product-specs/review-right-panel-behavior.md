@@ -1,60 +1,118 @@
 # Review Right Panel Behavior
 
 Status: Active
-Last updated: 2026-06-09
+Last updated: 2026-06-24
 
 ## Purpose
 
-The Review right-panel tab gives an attached thread a compact, code-review-oriented view of workspace changes. It is a read-first review surface: it selects a diff source, renders file diffs, navigates changed files, starts review requests, and routes commit or PR follow-up prompts through the active thread.
+The Review right-panel tab is Nodex's code-review workspace for an attached thread. It selects a review source, renders changed files, navigates the file tree, opens source previews, starts protocol review requests, and routes commit or pull-request follow-up work through the active thread.
+
+The parity evidence pack for this surface is kept at `/Users/asc/repo/devtools-codex/codex_electron_26.611.62324_to_be_readable/.readable/REVIEW_TAB_RIGHT_PANEL_26_611_*`.
+
+## Shell And DOM Contract
+
+Review is a session singleton, but its durable tab id stays separate from the DOM id used by the right-panel shell. Review tab chrome and the active tabpanel expose `data-tab-id="diff"`. The active panel exposes `role="tabpanel"`, `aria-label="Review"`, and `data-app-shell-tab-panel-controller="right"` when mounted in the right panel.
+
+The right panel owns `aside[data-app-shell-focus-area="right-panel"]`, the left resize handle, shadow edge, tab strip, close/plus/expand controls, and overflow containment. The Review body root is `grid h-full min-h-0 w-full grid-rows-[auto_1fr]`.
 
 ## Toolbar Contract
 
-The toolbar is a single compact row:
+The toolbar is a two-column compact header with `h-toolbar-pane`, bottom border, primary surface background, and `review-header` container name. Control order is fixed:
 
-- Source selector: `Last turn`, `Review uncommitted changes`, `Review staged changes`, and `Review against a base branch`.
-- Diff stats: aggregate `+N` and `-N` for the active snapshot.
-- `Review options`: includes review target entries, hidden-whitespace toggle, expand/collapse all diffs, and refresh for Git-backed sources.
-- `Jump to file`: searchable changed-file list; selecting a row focuses and scrolls that file.
-- Diff mode toggle: `Switch to split diff` and `Switch to unified diff`.
-- File-tree toggle: `Hide files` and `Show files`.
-- Action buttons: `Commit or push` and `Create PR`.
+- Source selector.
+- Aggregate `+N` / `-N` stats.
+- `Review options`.
+- `Jump to file`.
+- Split/unified diff toggle.
+- `Hide files` / `Show files`.
+- `Commit or push`.
+- `Create PR`.
 
-The Review tab does not expose the older convenience controls for word diffs, rich preview, full-file loading, manual file-tree resizing, copy-git-apply commands, or inline stage/unstage/revert actions.
+The source selector is a pure Review data-source switch. It does not start a Codex review request or send a prompt. Its visible local-source menu order is `Unstaged`, `Staged`, `Commit`, `Branch`, `Last turn`; `Commit` opens a flyout with branch commits and selecting a commit only stores the commit SHA and switches the diff source to `commit`.
+
+Toolbar icon controls use the compact review toolbar preset: square `h-token-button-composer` buttons with tertiary text color, transparent border, hover list background, and active file-tree state on `bg-token-foreground/5`. `Jump to file`, split/unified, and `Hide files` / `Show files` are icon-only. The file-tree toggle uses the shared Codex side-panel files glyph. `Commit or push` and `Create PR` use tertiary pill buttons with Codex SVG glyphs, visible labels at `review-header` widths of `625px` and wider, and icon-only square behavior below that container width.
+
+Aggregate `+N` / `-N` stats use the Review toolbar text rhythm: `text-size-chat mr-1 shrink-0 select-none` layered on the shared diff stats element. Review must not pass `text-xs` to these stats.
+
+`Jump to file` opens an end-aligned `panelWide` searchable menu with `contentMaxHeight="list"` and no separator between the search row and results. Empty query results sort by file name, then parent path. Search scores the basename first and falls back to the full path. Each result row uses the wrapped dropdown item body: filename is the primary `shrink-0 text-token-foreground` label, and the folder path is a secondary `min-w-0 flex-1 text-token-description-foreground` label rendered after the filename with middle truncation.
+
+`Review options` includes view/query actions only and uses iconized menu rows. For Git-backed sources the order is `Refresh`, `Enable/Disable word wrap`, `Expand/Collapse all diffs`, separator, `Load full files` / `Don't load full files`, `Enable/Disable rich preview`, `Enable/Disable word diffs`, `Hide/Show white space`, and `Copy git apply command`. The copy action writes a `git apply --3way` heredoc for the current patch. Review request actions must live in an explicit review-start surface, not inside the source selector or the `Review options` menu. The old restriction against word diffs, rich preview, full-file loading, and manual file-tree resizing no longer applies.
 
 ## Source And State Contract
 
-`Last turn` renders from the active conversation turn diff. A selected transcript turn can still open an internal selected-turn diff, but selected turns are not a primary source menu option.
+Supported source kinds are:
 
-Git-backed sources are `unstaged`, `staged`, and `branch`. The renderer stores lightweight tab state only: selected source, base branch when known, diff mode, hidden-whitespace preference, file-tree visibility, selected path, file filter, jump-to-file query, search query, expanded files, and load status.
+- `last-turn`
+- `unstaged`
+- `staged`
+- `branch` with optional base branch
+- `commit` with commit SHA and optional title
+- `pull-request` with PR number
 
-Raw diffs, parsed hunks, file contents, and model review comments are not persisted in tab state.
+Selected transcript turns can still open an internal selected-turn diff, but selected turns are not a primary source menu item.
 
-## Backend Contract
+Review tab state is lightweight and may persist source descriptor, diff mode, file-tree visibility, side-pane width, hide-whitespace, wrap, rich/full-file flags, selected path, filter, and expanded paths. Raw diffs, file contents, and comments are not persisted in tab state.
 
-The renderer calls `src/renderer/lib/api.ts`; it does not call Electron directly.
+## Empty-State Contract
 
-Git-backed review loading uses:
+No-change states are source-specific. `staged` with no diff renders `No staged changes` with `Accept edits to stage them`; `unstaged` with no diff renders `No unstaged changes` with `Code changes will appear here`. These stage-filter empty states do not render the generic Review illustration. When a Git branch diff is available and the active source is not already `branch`, the empty-state action is the secondary toolbar-size `View branch diff` button. Clicking it only switches the Review source to `branch`; it must not call `codex:review:start` or send a prompt.
 
-- `git:review:diff` for the active source and optional file list.
-- `git:review:branch-diff-stats` for branch aggregate stats.
-- `git:merge-base` before branch review actions when a base branch is selected.
-- `git:review:snapshot` remains available for compatibility surfaces outside the Review right panel.
+Generic no-diff states render `No file changes yet` with the Codex 66x73 document illustration. A missing last-turn diff says `The latest diffs are no longer available.`; a retained last-turn diff whose files are no longer renderable says `The last turn was committed or reverted.`; an internal selected-turn diff that has expired says `The selected turn diff is no longer available.`; ordinary Git no-diff states say `Changes in this project will appear here.`. The Review body remains a split container in empty states, so an open file-tree pane stays visible and shows its own `Filter files…` / `No matching files` state instead of disappearing behind the main empty state.
 
-The Review panel batches Git diff loads behind a 16 ms delay and treats requests that take longer than 15 seconds as `timed-out`. Stale responses are ignored.
+## Diff And File Tree Contract
+
+Each file diff card exposes `data-review-path`, `group/file-diff`, `codex-review-diff-card`, a toggle marked `data-app-action-review-file-toggle`, and an `Open in` action. The diff scroll viewport is zero-inset horizontally; file rows must not sit inside an extra padded or gapped card list. The file row surface uses `--codex-diffs-surface` with the primary surface fallback and `pb-0.5`. The sticky row header is a `group/diff-header` strip with blurred surface mix, `text-size-chat`, `py-0.5 ps-3 pe-2`, a file icon, path label, hover/focus-revealed chevron toggle button, right-aligned stats, and icon-only `Open in`. Row-level `+N` / `-N` stats inherit that `text-size-chat` header size and must not add a smaller `text-xs` override. Diff rendering uses `@pierre/diffs` through `src/renderer/lib/diff-presentation.ts` and must pass the shared host style/options rather than feature-local shadow-DOM CSS.
+
+The file tree is a right split pane. It has a minimum logical width of `200px`, a maximum width of `60%`, and hidden-state preservation for filter, expanded paths, selection, and width. The open pane outer shell uses `relative flex h-full shrink-0 border-l border-token-border-default`; inline style owns only `width`, `maxWidth: "60%"`, and `opacity: 1`. Do not add pane-level padding, background, overflow clipping, or a dimmed opacity; the inner content wrapper is `flex h-full min-h-0 w-full flex-col`. The left resize separator is a 16px hit target with `role="separator"` and `aria-orientation="vertical"`: `group absolute flex touch-none select-none z-40 top-0 bottom-0 left-0 w-4 -translate-x-2 cursor-col-resize active:cursor-col-resize`, containing an opacity-0 gradient line that appears on hover/active. The tree search uses the Codex `Filter files…` field chrome: `px-2 pt-2 pb-px` search container, leading search glyph, `h-token-button-composer` rounded input surface, and a clear button only while a filter is present. The tree rows use the same 8px horizontal inset as the search input, so the rounded input and row backgrounds share the same left and right edges. The tree preserves ancestor folders during filtering and keeps focused/selected rows synchronized with the active diff path.
+
+File-tree rows use the Codex tree density variables: 28px row height, 13px font size, 6px row padding, zero row margin, 10px icon/text gap, zero level gap, and no outer pane padding beyond the search/row inset. Folder names inherit foreground color. File names inherit `text-token-description-foreground` unless the row is selected, while file and folder icons use the Codex tree muted foreground (`#84848a` in light mode). Added/deleted state is shown in the `git` lane (`A`/`D`) without recoloring the file name. Indent guides are rendered for rows below root depth but are hidden at rest (`opacity: 0`), fade to `0.75` while the tree is hovered, and stay fully visible only for the focused/selected row's active ancestor chain.
 
 Large diff mode activates when any of these are true: file count is above 128, total changed lines are above 9000, total changed bytes are above 12582912, or a single file changes more than 15000 lines.
 
+## Search Contract
+
+Review does not own a local find bar. It registers a global content-search source with `domain: "diff"`. Matches are capped at 250. Match ids use a `diff:<path>:<hunk>:<start>` prefix, and activation scrolls the matching `data-review-path` card before marking and centering the text match.
+
+## Backend Contract
+
+Renderer code calls `src/renderer/lib/api.ts`; it does not call Electron or main-process services directly.
+
+Git-backed Review uses:
+
+- `git:review:summary`
+- `git:review:diff`
+- `git:review:branch-commits`
+- `git:review:search`
+- `git:review:patch`
+- `git:review:cancel`
+- `git:review:blame-file`
+- compatibility channels `git:review:snapshot`, `git:review:branch-diff-stats`, `git:merge-base`, `git:review:file-contents`, `git:apply-patch`, and `git:init`
+
+`git:review:diff` accepts `cwd`, `source`, optional `files`, `baseBranch` / `baseRef`, `commitSha`, `hideWhitespace`, `hostConfig`, `operationSource: "review_model"`, and `requestId`. Main process owns Git execution, per-request cancellation, per-file load/error/large states, and diff parsing.
+
+GitHub pull-request review uses typed `gh`-backed IPC:
+
+- `gh-cli-status`
+- `gh-pr-status`
+- `gh-pr-checks`
+- `gh-pr-comments`
+- `gh-pr-diff`
+- `gh-pr-comment`
+- `gh-pr-merge`
+- `gh-pr-update`
+- `gh-pr-create`
+
+When `gh` is missing, unauthenticated, or the repository has no remote, main returns typed disabled states. Renderer surfaces disabled/error UI from those states instead of inferring capability from missing data.
+
 ## Review Requests And Comments
 
-Review target options call `codex:review:start` with protocol-native targets where possible:
+Explicit review-start actions call `codex:review:start` with protocol-native targets where possible:
 
 - uncommitted changes -> `{ type: "uncommittedChanges" }`
 - base branch -> `{ type: "baseBranch", branch }`
-- commit targets may use `{ type: "commit", sha, title }` when available
-- unsupported custom scopes should use `{ type: "custom", instructions }`
+- commit -> `{ type: "commit", sha, title }`
+- unsupported custom scopes -> `{ type: "custom", instructions }`
 
-Assistant `::code-comment{title body file start end priority}` directives are parsed separately from normal text and render as anchored review annotations on matching file diffs.
+Delivery defaults to `inline`.
 
-## File Tree Contract
-
-The file tree is a fixed-width right pane and has no visible resize handle. It remains stateful when hidden and restored. The tree uses a `Filter files...` input, shows folder/file rows with preserved ancestors while filtering, and keeps selected/focused row state synchronized with the active diff path.
+Assistant `::code-comment{title body file start end priority}` directives are parsed separately from normal text and render as anchored review annotations on matching file diffs. PR comments/checks/fix rows are owned by the GitHub PR data plane and attach to Review state rather than being persisted as raw tab content.

@@ -214,7 +214,7 @@ export function buildCommandPaletteCommands(
       shortcut: shortcutLabel("openBrowserTab", "CmdOrCtrl+T"),
       disabled: panelCommandDisabled,
     }),
-    command("openReviewTab", "Panels", "Open review tab", "Open or focus code review in the active panel", ["review", "diff", "changes", "git", "panel", "tab"], 880, {
+    command("openReviewTab", "Panels", "Open review tab", "Open or focus code review in the right panel", ["review", "diff", "changes", "git", "panel", "tab"], 880, {
       shortcut: shortcutLabel("openReviewTab", "Ctrl+Shift+G"),
       disabled: panelCommandDisabled,
     }),

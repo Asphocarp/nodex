@@ -1199,6 +1199,39 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         errorMessage: result.errorMessage,
       };
     }
+    case "git:review:branch-commits": {
+      const [input] = args as [{ cwd: string; baseBranch?: string | null }];
+      if (isStorybookRuntime()) {
+        return {
+          cwd: input.cwd,
+          baseBranch: input.baseBranch ?? "main",
+          commits: [
+            {
+              sha: "1111111111111111111111111111111111111111",
+              committedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+              subject: "feat: add review right-panel parity foundations",
+            },
+            {
+              sha: "2222222222222222222222222222222222222222",
+              committedAt: new Date(Date.now() - 52 * 60_000).toISOString(),
+              subject: "fix: preserve text action selection",
+            },
+            {
+              sha: "3333333333333333333333333333333333333333",
+              committedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+              subject: "fix: stabilize canvas excalidraw lifecycle",
+            },
+          ],
+          errorMessage: null,
+        };
+      }
+      return {
+        cwd: input.cwd,
+        baseBranch: input.baseBranch ?? null,
+        commits: [],
+        errorMessage: "Branch commits are unavailable outside Electron.",
+      };
+    }
     case "git:merge-base": {
       const [input] = args as [{ cwd: string; baseBranch: string }];
       return {

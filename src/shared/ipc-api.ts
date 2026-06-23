@@ -26,14 +26,36 @@ import type {
   BranchDiffStatsResult,
   GitApplyPatchInput,
   GitApplyPatchResult,
+  GitReviewBranchCommitsRequest,
+  GitReviewBranchCommitsResult,
   GitMergeBaseRequest,
   GitMergeBaseResult,
+  GitReviewBlameInput,
+  GitReviewBlameResult,
+  GitReviewCancelInput,
   GitReviewFileContents,
   GitReviewFileContentsInput,
   GitReviewSearchInput,
   GitReviewSearchResult,
   GitReviewSnapshot,
   GitReviewSource,
+  GitReviewSummaryRequest,
+  GitReviewSummaryResult,
+  GhCliStatusResult,
+  GhPrChecksRequest,
+  GhPrChecksResult,
+  GhPrCommentInput,
+  GhPrCommentResult,
+  GhPrCommentsRequest,
+  GhPrCommentsResult,
+  GhPrCreateInput,
+  GhPrDiffRequest,
+  GhPrDiffResult,
+  GhPrMergeInput,
+  GhPrMutationResult,
+  GhPrStatusRequest,
+  GhPrStatusResult,
+  GhPrUpdateInput,
   ReviewDiffRequest,
   ReviewDiffResult,
   CodexHostMessage,
@@ -696,16 +718,28 @@ export interface IpcApi {
 
   // Git review
   "git:review:snapshot": {
-    args: [input: { cwd: string; source: GitReviewSource; baseRef?: string | null }];
+    args: [input: { cwd: string; source: GitReviewSource; baseRef?: string | null; commitSha?: string | null }];
     result: GitReviewSnapshot;
+  };
+  "git:review:summary": {
+    args: [input: GitReviewSummaryRequest];
+    result: GitReviewSummaryResult;
   };
   "git:review:diff": {
     args: [input: ReviewDiffRequest];
     result: ReviewDiffResult;
   };
+  "git:review:cancel": {
+    args: [input: GitReviewCancelInput];
+    result: { cancelled: boolean };
+  };
   "git:review:branch-diff-stats": {
     args: [input: BranchDiffStatsRequest];
     result: BranchDiffStatsResult;
+  };
+  "git:review:branch-commits": {
+    args: [input: GitReviewBranchCommitsRequest];
+    result: GitReviewBranchCommitsResult;
   };
   "git:merge-base": {
     args: [input: GitMergeBaseRequest];
@@ -719,8 +753,21 @@ export interface IpcApi {
     args: [input: GitReviewSearchInput];
     result: GitReviewSearchResult;
   };
+  "git:review:patch": { args: [input: GitApplyPatchInput]; result: GitApplyPatchResult };
+  "git:review:blame-file": { args: [input: GitReviewBlameInput]; result: GitReviewBlameResult };
   "git:apply-patch": { args: [input: GitApplyPatchInput]; result: GitApplyPatchResult };
   "git:init": { args: [cwd: string]; result: GitReviewSnapshot };
+
+  // GitHub pull request review
+  "gh-cli-status": { args: [input: { cwd: string }]; result: GhCliStatusResult };
+  "gh-pr-status": { args: [input: GhPrStatusRequest]; result: GhPrStatusResult };
+  "gh-pr-checks": { args: [input: GhPrChecksRequest]; result: GhPrChecksResult };
+  "gh-pr-comments": { args: [input: GhPrCommentsRequest]; result: GhPrCommentsResult };
+  "gh-pr-diff": { args: [input: GhPrDiffRequest]; result: GhPrDiffResult };
+  "gh-pr-comment": { args: [input: GhPrCommentInput]; result: GhPrCommentResult };
+  "gh-pr-merge": { args: [input: GhPrMergeInput]; result: GhPrMutationResult };
+  "gh-pr-update": { args: [input: GhPrUpdateInput]; result: GhPrMutationResult };
+  "gh-pr-create": { args: [input: GhPrCreateInput]; result: GhPrMutationResult };
 
   // Terminal
   "terminal-create": { args: [input: TerminalCreateRequest]; result: void };
