@@ -48,6 +48,19 @@ export function buildCommandPaletteThreadItem(
   };
 }
 
+export async function listCommandPaletteThreadItems({
+  activeProjectId,
+}: {
+  activeProjectId: string;
+}): Promise<CommandPaletteThread[]> {
+  try {
+    const summaries = await invoke("codex:threads:palette:list", { scope: "sidebar" });
+    return summaries.map((summary) => buildCommandPaletteThreadItem(summary, activeProjectId));
+  } catch {
+    return [];
+  }
+}
+
 export function useCommandPaletteThreadItems({
   enabled,
   activeProjectId,
@@ -73,11 +86,11 @@ export function useCommandPaletteThreadItems({
     let cancelled = false;
     setState((current) => ({ threads: current.threads, loading: true }));
 
-    void invoke("codex:threads:palette:list", { scope: "sidebar" })
-      .then((summaries) => {
+    void listCommandPaletteThreadItems({ activeProjectId })
+      .then((threads) => {
         if (cancelled) return;
         setState({
-          threads: summaries.map((summary) => buildCommandPaletteThreadItem(summary, activeProjectId)),
+          threads,
           loading: false,
         });
       })
@@ -111,6 +124,28 @@ export function buildThreadContentSearchPreview(
     ...preview,
     source: "content",
   };
+}
+
+export async function searchCommandPaletteThreadContent({
+  query,
+  limit = CONTENT_SEARCH_LIMIT,
+}: {
+  query: string;
+  limit?: number;
+}): Promise<CommandPaletteThreadContentSearchResult[]> {
+  const queryText = query.trimStart().trim();
+  if (queryText.length < 2) return [];
+
+  try {
+    const results = await invoke("codex:threads:palette:search-content", {
+      scope: "sidebar",
+      query: queryText,
+      limit,
+    });
+    return Array.isArray(results) ? results : [];
+  } catch {
+    return [];
+  }
 }
 
 export function useCommandPaletteThreadContentSearch({
@@ -152,16 +187,11 @@ export function useCommandPaletteThreadContentSearch({
     }
 
     let cancelled = false;
-    void invoke("codex:threads:palette:search-content", {
-      scope: "sidebar",
-      query: queryText,
-      limit: CONTENT_SEARCH_LIMIT,
-    })
+    void searchCommandPaletteThreadContent({ query: queryText, limit: CONTENT_SEARCH_LIMIT })
       .then((nextResults) => {
         if (cancelled) return;
-        const safeResults = Array.isArray(nextResults) ? nextResults : [];
         setResults((current) => (
-          current.length === 0 && safeResults.length === 0 ? current : safeResults
+          current.length === 0 && nextResults.length === 0 ? current : nextResults
         ));
       })
       .catch(() => {

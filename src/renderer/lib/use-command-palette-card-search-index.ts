@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CommandPaletteCard } from "./command-palette";
 import {
   createCommandPaletteCardSearchIndex,
@@ -12,13 +12,21 @@ interface CommandPaletteCardSearchIndexState {
   index: CommandPaletteCardSearchIndex | null;
 }
 
-function buildCardsKey(cards: CommandPaletteCard[]): string {
+function buildCardsKey(cards: readonly CommandPaletteCard[]): string {
   return cards
     .map((item) => [
       item.id,
-      item.card.revision,
+      item.projectId,
       item.projectName,
       item.columnName,
+      item.inActiveProject ? "1" : "0",
+      item.recentIndex ?? "",
+      item.boardIndex,
+      item.card.revision,
+      item.card.status,
+      item.card.priority ?? "",
+      item.card.estimate ?? "",
+      item.card.archived ? "1" : "0",
       item.card.title,
       item.card.descriptionPreview,
       item.card.assignee ?? "",
@@ -32,44 +40,67 @@ export function useCommandPaletteCardSearchIndex(
   cards: CommandPaletteCard[],
 ): CommandPaletteCardSearchIndex | null {
   const cardsKey = useMemo(() => buildCardsKey(cards), [cards]);
+  const latestCardsRef = useRef(cards);
+  latestCardsRef.current = cards;
   const [state, setState] = useState<CommandPaletteCardSearchIndexState>(() => ({
     cardsKey,
     index: getCachedCommandPaletteCardSearchIndex(cards),
   }));
 
   useEffect(() => {
-    const cachedIndex = getCachedCommandPaletteCardSearchIndex(cards);
+    const nextCards = latestCardsRef.current;
+    const cachedIndex = getCachedCommandPaletteCardSearchIndex(nextCards);
     if (cachedIndex) {
-      setState({ cardsKey, index: cachedIndex });
+      setState((current) => (
+        current.cardsKey === cardsKey && current.index !== null
+          ? current
+          : { cardsKey, index: cachedIndex }
+      ));
       return;
     }
 
-    if (cards.length === 0) {
-      setState({
-        cardsKey,
-        index: createCommandPaletteCardSearchIndex([]),
-      });
+    if (nextCards.length === 0) {
+      setState((current) => (
+        current.cardsKey === cardsKey && current.index !== null
+          ? current
+          : {
+            cardsKey,
+            index: createCommandPaletteCardSearchIndex([]),
+          }
+      ));
       return;
     }
 
     if (typeof indexedDB === "undefined") {
-      setState({
-        cardsKey,
-        index: createCommandPaletteCardSearchIndex(cards),
-      });
+      setState((current) => (
+        current.cardsKey === cardsKey && current.index !== null
+          ? current
+          : {
+            cardsKey,
+            index: createCommandPaletteCardSearchIndex(nextCards),
+          }
+      ));
       return;
     }
 
     let cancelled = false;
-    setState({ cardsKey, index: null });
+    setState((current) => (
+      current.cardsKey === cardsKey && current.index === null
+        ? current
+        : { cardsKey, index: null }
+    ));
 
-    void hydrateCommandPaletteCardSearchIndex(cards)
+    void hydrateCommandPaletteCardSearchIndex(nextCards)
       .then((index) => {
         if (cancelled) {
           return;
         }
 
-        setState({ cardsKey, index });
+        setState((current) => (
+          current.cardsKey === cardsKey && current.index !== null
+            ? current
+            : { cardsKey, index }
+        ));
       })
       .catch(() => {
         if (cancelled) {
@@ -78,14 +109,14 @@ export function useCommandPaletteCardSearchIndex(
 
         setState({
           cardsKey,
-          index: createCommandPaletteCardSearchIndex(cards),
+          index: createCommandPaletteCardSearchIndex(latestCardsRef.current),
         });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [cards, cardsKey]);
+  }, [cardsKey]);
 
   if (state.cardsKey !== cardsKey) {
     return null;

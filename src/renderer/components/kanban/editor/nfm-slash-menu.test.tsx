@@ -4,6 +4,11 @@ import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
+  buildNfmCardMentionBlock,
+  buildNfmCardMentionSuggestionItem,
+  buildNfmMentionSuggestionItems,
+  buildNfmThreadMentionInlineContent,
+  buildNfmThreadMentionSuggestionItem,
   getNfmSlashMenuCustomItems,
   NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS,
   NfmSuggestionMenuSurface,
@@ -16,7 +21,8 @@ import {
   NFM_SUGGESTION_MENU_Z_INDEX,
 } from "./nfm-blocknote-floating-ui";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
-import type { CodexThreadSummary, Project } from "@/lib/types";
+import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
+import type { CardSummary, CodexThreadSummary, Project } from "@/lib/types";
 
 function makeItems(): DefaultReactSuggestionItem[] {
   return [
@@ -111,6 +117,83 @@ function createMentionProject(): Project {
   };
 }
 
+function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
+  const descriptionPreview = overrides.descriptionPreview ?? "Add shared mention search.";
+  return {
+    id: overrides.id ?? "card-1",
+    title: overrides.title ?? "Mention search card",
+    descriptionPreview,
+    descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
+    hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
+    status: overrides.status ?? "in_progress",
+    archived: overrides.archived ?? false,
+    priority: overrides.priority,
+    estimate: overrides.estimate,
+    tags: overrides.tags ?? [],
+    dueDate: overrides.dueDate,
+    scheduledStart: overrides.scheduledStart,
+    scheduledEnd: overrides.scheduledEnd,
+    isAllDay: overrides.isAllDay ?? false,
+    recurrence: overrides.recurrence,
+    reminders: overrides.reminders ?? [],
+    scheduleTimezone: overrides.scheduleTimezone,
+    assignee: overrides.assignee,
+    agentStatus: overrides.agentStatus,
+    agentBlocked: overrides.agentBlocked ?? false,
+    runInTarget: overrides.runInTarget ?? "localProject",
+    runInLocalPath: overrides.runInLocalPath,
+    runInBaseBranch: overrides.runInBaseBranch,
+    runInWorktreePath: overrides.runInWorktreePath,
+    runInEnvironmentPath: overrides.runInEnvironmentPath,
+    revision: overrides.revision ?? 1,
+    created: overrides.created ?? new Date("2026-06-20T00:00:00.000Z"),
+    order: overrides.order ?? 0,
+  };
+}
+
+function makePaletteCard(overrides: Partial<CommandPaletteCard> = {}): CommandPaletteCard {
+  const card = overrides.card ?? makeCard();
+  return {
+    kind: "card",
+    id: overrides.id ?? `${overrides.projectId ?? "project-1"}:${card.id}`,
+    projectId: overrides.projectId ?? "project-1",
+    projectName: overrides.projectName ?? "Alpha",
+    projectIcon: overrides.projectIcon ?? "",
+    columnName: overrides.columnName ?? "Doing",
+    card,
+    inActiveProject: overrides.inActiveProject ?? true,
+    recentIndex: overrides.recentIndex ?? null,
+    boardIndex: overrides.boardIndex ?? 0,
+    searchPreview: overrides.searchPreview,
+    searchDecorations: overrides.searchDecorations,
+  };
+}
+
+function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
+  return {
+    kind: "thread",
+    id: overrides.id ?? "thread:thr-mention",
+    threadId: overrides.threadId ?? "thr-mention",
+    sessionId: overrides.sessionId === undefined ? "session-1" : overrides.sessionId,
+    projectId: overrides.projectId === undefined ? "project-1" : overrides.projectId,
+    projectName: overrides.projectName === undefined ? "Alpha" : overrides.projectName,
+    title: overrides.title ?? "Mention search thread",
+    preview: overrides.preview ?? "Shared picker search.",
+    cwd: overrides.cwd ?? "/tmp/project",
+    projectless: overrides.projectless ?? false,
+    pinned: overrides.pinned ?? false,
+    pinnedOrder: overrides.pinnedOrder ?? null,
+    statusType: overrides.statusType ?? "notLoaded",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    createdAt: overrides.createdAt ?? 1,
+    updatedAt: overrides.updatedAt ?? 2,
+    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
+    inActiveProject: overrides.inActiveProject ?? true,
+    searchPreview: overrides.searchPreview,
+    searchDecorations: overrides.searchDecorations,
+  };
+}
+
 describe("NfmSlashMenu", () => {
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {
     const project = createMentionProject();
@@ -120,6 +203,79 @@ describe("NfmSlashMenu", () => {
       statusType: "active",
       statusActiveFlags: ["waitingOnUserInput"],
     }), project)).toBe("Alpha / Waiting / 019-thread");
+  });
+
+  test("mention suggestion builders expose command-palette snippets in compact row tooltips", () => {
+    const editor = {};
+    const cardItem = buildNfmCardMentionSuggestionItem(editor, makePaletteCard({
+      card: makeCard({ id: "card-snippet", title: "Searchable card", status: "backlog" }),
+      searchPreview: {
+        excerpt: "Description-only vector clock hit.",
+        segments: [{ text: "Description-only vector clock hit.", highlight: true }],
+      },
+    }));
+    const threadItem = buildNfmThreadMentionSuggestionItem(editor, makePaletteThread({
+      threadId: "thr-snippet",
+      searchPreview: {
+        source: "content",
+        excerpt: "Transcript-only approval heuristic hit.",
+        segments: [{ text: "Transcript-only approval heuristic hit.", highlight: true }],
+      },
+    }));
+
+    expect(cardItem.group).toBe("Cards");
+    expect(cardItem.subtext?.includes("Description-only vector clock")).toBeTrue();
+    expect(threadItem.group).toBe("Chats");
+    expect(threadItem.subtext?.includes("Transcript-only approval heuristic")).toBeTrue();
+  });
+
+  test("mention payload helpers preserve cardRef and threadMention storage shapes", () => {
+    const cardBlock = buildNfmCardMentionBlock(makePaletteCard({
+      projectId: "project-2",
+      card: makeCard({ id: "card-2" }),
+    })) as { type?: string; props?: { sourceProjectId?: string; cardId?: string } };
+    const threadContent = buildNfmThreadMentionInlineContent(makePaletteThread({
+      threadId: "thr-payload",
+    })) as Array<{ type?: string; props?: { uuid?: string } } | string>;
+
+    expect(cardBlock.type).toBe("cardRef");
+    expect(cardBlock.props?.sourceProjectId).toBe("project-2");
+    expect(cardBlock.props?.cardId).toBe("card-2");
+    const firstThreadContent = threadContent[0];
+    expect(typeof firstThreadContent === "string").toBeFalse();
+    if (typeof firstThreadContent === "string") return;
+    expect(firstThreadContent?.type).toBe("threadMention");
+    expect(firstThreadContent?.props?.uuid).toBe("thr-payload");
+    expect(threadContent[1]).toBe(" ");
+  });
+
+  test("mention suggestion mapping keeps chat results before card results without substring filtering", () => {
+    const items = buildNfmMentionSuggestionItems({
+      editor: {},
+      threadResults: [makePaletteThread({
+        title: "Unrelated visible title",
+        searchPreview: {
+          source: "content",
+          excerpt: "Only transcript content matched the query.",
+          segments: [{ text: "Only transcript content matched the query.", highlight: true }],
+        },
+      })],
+      cardResults: [makePaletteCard({
+        card: makeCard({
+          title: "Unrelated card title",
+        }),
+        searchPreview: {
+          excerpt: "Only card description matched the query.",
+          segments: [{ text: "Only card description matched the query.", highlight: true }],
+        },
+      })],
+    });
+
+    expect(items.length).toBe(2);
+    expect(items[0]?.group).toBe("Chats");
+    expect(items[0]?.subtext?.includes("Only transcript content")).toBeTrue();
+    expect(items[1]?.group).toBe("Cards");
+    expect(items[1]?.subtext?.includes("Only card description")).toBeTrue();
   });
 
   test("agent config item inserts a plan-mode chip", () => {

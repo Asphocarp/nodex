@@ -18,10 +18,21 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { getDefaultToggleListInlineViewProps } from "@/lib/toggle-list/inline-view-props";
 import { useAllBoards } from "@/lib/use-all-boards";
-import type { CodexThreadSummary, Project } from "@/lib/types";
+import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { useProjects } from "@/lib/use-projects";
-import { useDefaultCodexAppServerManager } from "@/features/local-conversation";
+import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
+import {
+  buildCommandPaletteCardItemsFromBoardSummaries,
+  searchCommandPaletteCardDescriptions,
+  selectCommandPaletteCardResults,
+} from "@/lib/command-palette-card-results";
+import {
+  listCommandPaletteThreadItems,
+  searchCommandPaletteThreadContent,
+  selectCommandPaletteChatResults,
+} from "@/lib/command-palette-chat-search";
+import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
+import { useCommandPaletteCardSearchIndex } from "@/lib/use-command-palette-card-search-index";
 import {
   NFM_SUGGESTION_MENU_FLOATING_OPTIONS,
   NFM_SUGGESTION_MENU_PORTAL_ELEMENT,
@@ -368,19 +379,41 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
 // @ mention for cards and Codex threads
 // ---------------------------------------------------------------------------
 
-function resolveThreadMentionTitle(thread: CodexThreadSummary): string {
-  const threadName = thread.threadName?.trim();
-  if (threadName) return threadName;
+type ThreadMentionSubtextInput = {
+  threadId: string;
+  projectId: string | null;
+  projectName?: string | null;
+  statusType: string;
+  statusActiveFlags: readonly string[];
+  archived?: boolean;
+};
 
-  const firstPreviewLine = thread.threadPreview
+function appendMentionSearchPreviewSubtext(
+  baseSubtext: string,
+  searchPreview: CommandPaletteCard["searchPreview"] | CommandPaletteThread["searchPreview"] | undefined,
+): string {
+  const excerpt = searchPreview?.excerpt?.replace(/\s+/g, " ").trim();
+  if (!excerpt) return baseSubtext;
+  return `${baseSubtext} / ${excerpt}`;
+}
+
+function resolveThreadMentionTitle(thread: CommandPaletteThread): string {
+  const title = thread.title.trim();
+  if (title) return title;
+
+  const firstPreviewLine = thread.preview
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find((line) => line.length > 0);
   return firstPreviewLine || formatThreadMentionShortUuid(thread.threadId);
 }
 
-export function resolveThreadMentionSubtext(thread: CodexThreadSummary, project: Project | null): string {
-  const projectLabel = project?.name?.trim() || project?.id || thread.projectId || "Unscoped";
+export function resolveThreadMentionSubtext(thread: ThreadMentionSubtextInput, project: Pick<Project, "id" | "name"> | null): string {
+  const projectLabel = project?.name?.trim()
+    || project?.id
+    || thread.projectName?.trim()
+    || thread.projectId
+    || "Chats";
   const stateLabel = thread.archived
     ? "Archived"
     : thread.statusType === "systemError"
@@ -397,123 +430,266 @@ export function resolveThreadMentionSubtext(thread: CodexThreadSummary, project:
     .join(" / ");
 }
 
-function sortProjectsForMentions(projects: readonly Project[], currentProjectId: string): Project[] {
-  return [...projects].sort((a, b) => {
-    if (a.id === currentProjectId) return -1;
-    if (b.id === currentProjectId) return 1;
-    return a.name.localeCompare(b.name);
+function resolveCardMentionSubtext(item: CommandPaletteCard): string {
+  const stateLabel = item.card.status.replace(/_/g, " ");
+  const baseSubtext = [item.projectName, item.columnName, stateLabel, item.card.id]
+    .filter(Boolean)
+    .join(" / ");
+  return appendMentionSearchPreviewSubtext(baseSubtext, item.searchPreview);
+}
+
+function resolveCommandPaletteThreadMentionSubtext(item: CommandPaletteThread): string {
+  return appendMentionSearchPreviewSubtext(
+    resolveThreadMentionSubtext(item, null),
+    item.searchPreview,
+  );
+}
+
+export function buildNfmCardMentionBlock(item: CommandPaletteCard): Record<string, unknown> {
+  return {
+    type: "cardRef",
+    props: { sourceProjectId: item.projectId, cardId: item.card.id },
+  };
+}
+
+export function buildNfmThreadMentionInlineContent(item: CommandPaletteThread): unknown[] {
+  return [
+    {
+      type: "threadMention",
+      props: { uuid: item.threadId },
+    },
+    " ",
+  ];
+}
+
+export function buildNfmCardMentionSuggestionItem(
+  editor: unknown,
+  item: CommandPaletteCard,
+): DefaultReactSuggestionItem {
+  return {
+    title: item.card.title || "Untitled",
+    subtext: resolveCardMentionSubtext(item),
+    aliases: [],
+    group: "Cards",
+    badge: "@",
+    icon: <Link2 size={16} />,
+    onItemClick: () => {
+      insertBlock(editor, buildNfmCardMentionBlock(item));
+    },
+  };
+}
+
+export function buildNfmThreadMentionSuggestionItem(
+  editor: unknown,
+  item: CommandPaletteThread,
+): DefaultReactSuggestionItem {
+  return {
+    title: resolveThreadMentionTitle(item),
+    subtext: resolveCommandPaletteThreadMentionSubtext(item),
+    aliases: [],
+    group: "Chats",
+    badge: "@thread",
+    icon: <CodexThreadIcon className="size-4" />,
+    onItemClick: () => {
+      insertInlineContent(editor, buildNfmThreadMentionInlineContent(item));
+    },
+  };
+}
+
+export function buildNfmMentionSuggestionItems({
+  editor,
+  cardResults,
+  threadResults,
+}: {
+  editor: unknown;
+  cardResults: readonly CommandPaletteCard[];
+  threadResults: readonly CommandPaletteThread[];
+}): DefaultReactSuggestionItem[] {
+  return [
+    ...threadResults.map((item) => buildNfmThreadMentionSuggestionItem(editor, item)),
+    ...cardResults.map((item) => buildNfmCardMentionSuggestionItem(editor, item)),
+  ];
+}
+
+interface NfmMentionSearchState {
+  editor: unknown;
+  cardItems: CommandPaletteCard[];
+  cardSearchIndex: ReturnType<typeof useCommandPaletteCardSearchIndex>;
+  projectIdsForCardSearch: string[];
+}
+
+export interface NfmMentionGetItemsLoaders {
+  searchCardDescriptions: typeof searchCommandPaletteCardDescriptions;
+  listThreadItems: typeof listCommandPaletteThreadItems;
+  searchThreadContent: typeof searchCommandPaletteThreadContent;
+  selectCardResults: typeof selectCommandPaletteCardResults;
+  selectChatResults: typeof selectCommandPaletteChatResults;
+  createThreadSearchIndex: typeof createCommandPaletteThreadSearchIndex;
+}
+
+interface NfmMentionGetItemsInput {
+  editor: unknown;
+  projectId: string;
+  cardItems: CommandPaletteCard[];
+  cardSearchIndex: ReturnType<typeof useCommandPaletteCardSearchIndex>;
+  projectIdsForCardSearch: string[];
+  loaders?: NfmMentionGetItemsLoaders;
+}
+
+const DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS: NfmMentionGetItemsLoaders = {
+  searchCardDescriptions: searchCommandPaletteCardDescriptions,
+  listThreadItems: listCommandPaletteThreadItems,
+  searchThreadContent: searchCommandPaletteThreadContent,
+  selectCardResults: selectCommandPaletteCardResults,
+  selectChatResults: selectCommandPaletteChatResults,
+  createThreadSearchIndex: createCommandPaletteThreadSearchIndex,
+};
+
+export function useNfmMentionGetItems({
+  editor,
+  projectId,
+  cardItems,
+  cardSearchIndex,
+  projectIdsForCardSearch,
+  loaders = DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS,
+}: NfmMentionGetItemsInput): (query: string) => Promise<DefaultReactSuggestionItem[]> {
+  const threadItemsRef = useRef<{ activeProjectId: string; items: CommandPaletteThread[] } | null>(null);
+  const threadLoadPromiseRef = useRef<{ activeProjectId: string; promise: Promise<CommandPaletteThread[]> } | null>(null);
+  const threadSearchIndexRef = useRef<{
+    activeProjectId: string;
+    items: CommandPaletteThread[];
+    index: ReturnType<typeof createCommandPaletteThreadSearchIndex>;
+  } | null>(null);
+  const projectIdRef = useRef(projectId);
+  const loadersRef = useRef(loaders);
+  const searchStateRef = useRef<NfmMentionSearchState>({
+    editor,
+    cardItems,
+    cardSearchIndex,
+    projectIdsForCardSearch,
   });
+
+  projectIdRef.current = projectId;
+  loadersRef.current = loaders;
+  searchStateRef.current = {
+    editor,
+    cardItems,
+    cardSearchIndex,
+    projectIdsForCardSearch,
+  };
+
+  const loadThreadItems = useCallback(() => {
+    const activeProjectId = projectIdRef.current;
+    const cachedThreads = threadItemsRef.current;
+    if (cachedThreads?.activeProjectId === activeProjectId) {
+      return Promise.resolve(cachedThreads.items);
+    }
+
+    const inFlight = threadLoadPromiseRef.current;
+    if (inFlight?.activeProjectId === activeProjectId) {
+      return inFlight.promise;
+    }
+
+    const promise = loadersRef.current.listThreadItems({ activeProjectId })
+      .then((items) => {
+        threadItemsRef.current = { activeProjectId, items };
+        return items;
+      })
+      .finally(() => {
+        const current = threadLoadPromiseRef.current;
+        if (current?.activeProjectId !== activeProjectId) return;
+        threadLoadPromiseRef.current = null;
+      });
+    threadLoadPromiseRef.current = { activeProjectId, promise };
+    return promise;
+  }, []);
+
+  const getThreadSearchIndex = useCallback((threadItems: CommandPaletteThread[]) => {
+    const activeProjectId = projectIdRef.current;
+    const cachedIndex = threadSearchIndexRef.current;
+    if (cachedIndex?.activeProjectId === activeProjectId && cachedIndex.items === threadItems) {
+      return cachedIndex.index;
+    }
+
+    const index = loadersRef.current.createThreadSearchIndex(threadItems);
+    threadSearchIndexRef.current = {
+      activeProjectId,
+      items: threadItems,
+      index,
+    };
+    return index;
+  }, []);
+
+  return useCallback(
+    async (query: string) => {
+      const {
+        editor: currentEditor,
+        cardItems: currentCardItems,
+        cardSearchIndex: currentCardSearchIndex,
+        projectIdsForCardSearch: currentProjectIdsForCardSearch,
+      } = searchStateRef.current;
+      const currentLoaders = loadersRef.current;
+      const [
+        cardDescriptionSearchResults,
+        threadItems,
+        threadContentSearchResults,
+      ] = await Promise.all([
+        currentLoaders.searchCardDescriptions({
+          projectIds: currentProjectIdsForCardSearch,
+          query,
+        }),
+        loadThreadItems(),
+        currentLoaders.searchThreadContent({ query }),
+      ]);
+      const cardResults = currentLoaders.selectCardResults({
+        query,
+        cards: currentCardItems,
+        cardSearchIndex: currentCardSearchIndex,
+        cardDescriptionSearchResults,
+        metadataCardLimit: 24,
+        mergedCardLimit: 24,
+      });
+      const threadResults = currentLoaders.selectChatResults({
+        query,
+        threads: threadItems,
+        threadSearchIndex: getThreadSearchIndex(threadItems),
+        threadContentSearchResults,
+        threadLimit: 24,
+      });
+
+      return buildNfmMentionSuggestionItems({
+        editor: currentEditor,
+        cardResults,
+        threadResults,
+      });
+    },
+    [getThreadSearchIndex, loadThreadItems],
+  );
 }
 
 function MentionMenu({ projectId }: { projectId: string }) {
   const editor = useBlockNoteEditor();
-  const { boards } = useAllBoards();
-  const { projects } = useProjects();
-  const manager = useDefaultCodexAppServerManager();
-  const threadLoadPromisesRef = useRef<Map<string, Promise<CodexThreadSummary[]>>>(new Map());
-  const archivedThreadProjectsLoadedRef = useRef<Set<string>>(new Set());
-
-  const loadProjectThreads = useCallback((targetProjectId: string) => {
-    const cachedThreads = manager.readProjectThreadSummaries(targetProjectId);
-    if (archivedThreadProjectsLoadedRef.current.has(targetProjectId)) return Promise.resolve(cachedThreads);
-
-    const cacheKey = `${targetProjectId}:includeArchived`;
-    const existingPromise = threadLoadPromisesRef.current.get(cacheKey);
-    if (existingPromise) return existingPromise;
-
-    const loadPromise = manager.loadThreads(targetProjectId, { includeArchived: true })
-      .then((threads) => {
-        archivedThreadProjectsLoadedRef.current.add(targetProjectId);
-        return threads;
-      })
-      .finally(() => {
-        threadLoadPromisesRef.current.delete(cacheKey);
-      });
-    threadLoadPromisesRef.current.set(cacheKey, loadPromise);
-    return loadPromise;
-  }, [manager]);
-
-  const getItems = useMemo(
-    () => async (query: string) => {
-      const cardItems: DefaultReactSuggestionItem[] = [];
-      const threadItems: DefaultReactSuggestionItem[] = [];
-
-      // Current project first, then others
-      const sortedEntries = [...boards.entries()].sort(([a], [b]) => {
-        if (a === projectId) return -1;
-        if (b === projectId) return 1;
-        return 0;
-      });
-
-      for (const [projId, board] of sortedEntries) {
-        for (const column of board.columns) {
-          for (const card of column.cards) {
-            cardItems.push({
-              title: card.title || "Untitled",
-              subtext: `${projId} / ${column.name}`,
-              aliases: [],
-              group: `Cards / ${projId}`,
-              badge: "@",
-              icon: <Link2 size={16} />,
-              onItemClick: () => {
-                insertBlock(editor, {
-                  type: "cardRef",
-                  props: { sourceProjectId: projId, cardId: card.id },
-                });
-              },
-            });
-          }
-        }
-      }
-
-      const sortedProjects = sortProjectsForMentions(projects, projectId);
-      const projectThreadEntries = await Promise.all(
-        sortedProjects.map(async (project) => {
-          try {
-            return {
-              project,
-              threads: await loadProjectThreads(project.id),
-            };
-          } catch {
-            return {
-              project,
-              threads: manager.readProjectThreadSummaries(project.id),
-            };
-          }
-        }),
-      );
-
-      for (const { project, threads } of projectThreadEntries) {
-        const sortedThreads = [...threads].sort((a, b) => {
-          if (a.archived !== b.archived) return a.archived ? 1 : -1;
-          return b.updatedAt - a.updatedAt;
-        });
-
-        for (const thread of sortedThreads) {
-          threadItems.push({
-            title: resolveThreadMentionTitle(thread),
-            subtext: resolveThreadMentionSubtext(thread, project),
-            aliases: [thread.threadId, thread.threadName ?? "", thread.threadPreview],
-            group: project.id === projectId ? "Threads" : `Threads / ${project.name || project.id}`,
-            badge: "@thread",
-            icon: <CodexThreadIcon className="size-4" />,
-            onItemClick: () => {
-              insertInlineContent(editor, [
-                {
-                  type: "threadMention",
-                  props: { uuid: thread.threadId },
-                },
-                " ",
-              ]);
-            },
-          });
-        }
-      }
-
-      return filterSuggestionItems([...threadItems, ...cardItems], query);
-    },
-    [boards, editor, loadProjectThreads, manager, projectId, projects],
+  const { boards, projects } = useAllBoards();
+  const cardItems = useMemo(
+    () => buildCommandPaletteCardItemsFromBoardSummaries({
+      projects,
+      boardMap: boards,
+      activeProjectId: projectId,
+    }),
+    [boards, projectId, projects],
   );
+  const cardSearchIndex = useCommandPaletteCardSearchIndex(cardItems);
+  const projectIdsForCardSearch = useMemo(
+    () => projects.map((project) => project.id),
+    [projects],
+  );
+  const getItems = useNfmMentionGetItems({
+    editor,
+    projectId,
+    cardItems,
+    cardSearchIndex,
+    projectIdsForCardSearch,
+  });
 
   return (
     <SuggestionMenuController

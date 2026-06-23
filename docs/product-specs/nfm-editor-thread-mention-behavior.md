@@ -1,7 +1,7 @@
 # NFM Editor Thread Mention Behavior
 
 Status: Active
-Last Updated: 2026-06-20
+Last Updated: 2026-06-24
 
 ## Summary
 
@@ -46,11 +46,13 @@ The mention references a Codex app-server thread/session id as an opaque string.
 ## Insertion
 
 - The NFM `@` suggestion menu includes thread mention rows alongside card references.
-- Thread rows prefer the current project, then other projects.
-- The row subtitle shows project and short thread id by default; active, waiting, approval, archived, and error states add a concise state label.
+- Thread rows use the same sidebar-wide chat search model as the command palette: non-archived sidebar chats from the current project, other projects, projectless chats, and sessionless chats are eligible.
+- Archived, ephemeral, and side-conversation chats do not appear in the picker.
+- Metadata search covers title, preview, project, cwd, and short/id fields with command-palette fuzzy and prefix ranking. Transcript content matches use the bounded local `codex:threads:palette:search-content` path and may add a compact snippet to the row tooltip.
+- The row subtitle shows project and short thread id by default; active, waiting, approval, and error states add a concise state label.
 - Idle and unknown-state threads do not show `Ready` or `Thread` as row state labels.
-- Archived threads remain searchable and show archived state.
 - Choosing a thread row inserts `threadMention` inline content and a trailing space.
+- Card rows use the same command-palette card search model: summary metadata is searched with MiniSearch ranking, and full-description hits come from bounded `cards:search` excerpts. Choosing a card row inserts the existing `cardRef` block shape.
 
 ## Prompt And Clipboard Behavior
 

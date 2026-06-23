@@ -8,7 +8,6 @@ import {
   cloneCommandPaletteCardFilters,
   filterCommandPaletteItems,
   hasActiveCommandPaletteCardFilters,
-  matchesCommandPaletteCardFilters,
   normalizeCommandPaletteCardFilters,
   readCommandPaletteCardFilters,
   type CommandMenuMode,
@@ -21,7 +20,6 @@ import {
 } from "../../lib/command-palette";
 import type { CommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
 import {
-  buildCommandPaletteQueryHighlightPreview,
   type CommandPaletteHighlightSegment,
 } from "../../lib/command-palette-highlight";
 import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
@@ -29,8 +27,10 @@ import {
   useCommandPaletteThreadContentSearch,
   useSelectedCommandPaletteChatResults,
 } from "../../lib/command-palette-chat-search";
-import { invoke } from "../../lib/api";
-import type { CardSearchResult } from "../../lib/types";
+import {
+  useCommandPaletteCardDescriptionSearch,
+  useSelectedCommandPaletteCardResults,
+} from "../../lib/command-palette-card-results";
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
 import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
@@ -171,13 +171,6 @@ function getCommandGlyph(id: string) {
     <CommandMenuReferenceIcon name="avatar" {...props} />
   );
   return (props: { className?: string }) => <CommandMenuReferenceIcon name="search" {...props} />;
-}
-
-function buildServerDescriptionSearchPreview(
-  excerpt: string,
-  query: string,
-): CommandPaletteCard["searchPreview"] {
-  return buildCommandPaletteQueryHighlightPreview(excerpt, query);
 }
 
 function CommandRow({
@@ -472,7 +465,6 @@ export function CommandPaletteSurface({
   const [query, setQuery] = useState("");
   const [cardFilters, setCardFilters] = useState<CommandPaletteCardFilters>(() => readCommandPaletteCardFilters());
   const [filterOpen, setFilterOpen] = useState(false);
-  const [descriptionSearchResults, setDescriptionSearchResults] = useState<CardSearchResult[]>([]);
   const deferredQuery = useDeferredValue(query);
   const threadContentSearchResults = useCommandPaletteThreadContentSearch({
     enabled: mode === "chats" && open,
@@ -517,10 +509,11 @@ export function CommandPaletteSurface({
     const selectedProjectIds = new Set(normalizedCardFilters.projectIds);
     return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
   }, [availableProjects, normalizedCardFilters.projectIds]);
-  const cardByProjectAndId = useMemo(
-    () => new Map(cards.map((item) => [`${item.projectId}:${item.card.id}`, item] as const)),
-    [cards],
-  );
+  const descriptionSearchResults = useCommandPaletteCardDescriptionSearch({
+    enabled: mode === "cards" && open,
+    query: deferredQuery,
+    projectIds: projectIdsForSearch,
+  });
   const results = useMemo(
     () => filterCommandPaletteItems({
       query: deferredQuery,
@@ -534,49 +527,13 @@ export function CommandPaletteSurface({
     }),
     [cardSearchIndex, cards, commands, deferredQuery, mode, normalizedCardFilters, threadSearchIndex, threads],
   );
-  const descriptionSearchCards = useMemo(() => {
-    if (mode !== "cards" || results.query.length === 0) {
-      return [];
-    }
-
-    return descriptionSearchResults.flatMap((result) => {
-      const item = cardByProjectAndId.get(`${result.projectId}:${result.cardId}`);
-      if (!item || !matchesCommandPaletteCardFilters(item, normalizedCardFilters)) {
-        return [];
-      }
-
-      return [{
-        ...item,
-        searchPreview: buildServerDescriptionSearchPreview(result.excerpt, results.query) ?? item.searchPreview,
-      }];
-    });
-  }, [cardByProjectAndId, descriptionSearchResults, mode, normalizedCardFilters, results.query]);
-  const visibleCards = useMemo(() => {
-    if (mode !== "cards" || results.query.length === 0 || descriptionSearchCards.length === 0) {
-      return results.cards;
-    }
-
-    const serverMatchesById = new Map(descriptionSearchCards.map((item) => [item.id, item] as const));
-    const merged = results.cards.map((item) => {
-      const serverMatch = serverMatchesById.get(item.id);
-      if (!serverMatch?.searchPreview || item.searchPreview) {
-        return item;
-      }
-
-      return {
-        ...item,
-        searchPreview: serverMatch.searchPreview,
-      };
-    });
-    const seenIds = new Set(merged.map((item) => item.id));
-    descriptionSearchCards.forEach((item) => {
-      if (seenIds.has(item.id)) return;
-      seenIds.add(item.id);
-      merged.push(item);
-    });
-
-    return merged.slice(0, 24);
-  }, [descriptionSearchCards, mode, results.cards, results.query]);
+  const visibleCards = useSelectedCommandPaletteCardResults({
+    query: deferredQuery,
+    cards,
+    cardFilters: normalizedCardFilters,
+    cardSearchIndex,
+    cardDescriptionSearchResults: descriptionSearchResults,
+  });
   const visibleThreads = useSelectedCommandPaletteChatResults({
     query: deferredQuery,
     threads,
@@ -655,39 +612,7 @@ export function CommandPaletteSurface({
     if (open) return;
     setQuery("");
     setSelectedIndex(0);
-    setDescriptionSearchResults((current) => current.length === 0 ? current : []);
   }, [open]);
-
-  useEffect(() => {
-    const rawQuery = deferredQuery.trimStart();
-    const queryText = rawQuery.trim();
-    if (mode !== "cards" || !open || queryText.length === 0 || projectIdsForSearch.length === 0) {
-      setDescriptionSearchResults((current) => current.length === 0 ? current : []);
-      return;
-    }
-
-    let cancelled = false;
-    void invoke("cards:search", {
-      projectIds: projectIdsForSearch,
-      query: queryText,
-      limit: 60,
-    })
-      .then((nextResults) => {
-        if (cancelled) return;
-        const safeResults = Array.isArray(nextResults) ? nextResults : [];
-        setDescriptionSearchResults((current) => (
-          current.length === 0 && safeResults.length === 0 ? current : safeResults
-        ));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setDescriptionSearchResults((current) => current.length === 0 ? current : []);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [deferredQuery, mode, open, projectIdsForSearch]);
 
   useEffect(() => {
     if (!open) return;

@@ -13,6 +13,7 @@ import { projectsListQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
 
 const PROJECTS_LIST_QUERY_KEY = queryKeys.projects.list();
+const EMPTY_PROJECTS: Project[] = [];
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
@@ -208,7 +209,7 @@ export function useProjects() {
   const queryError = projectsQuery.error ? getErrorMessage(projectsQuery.error) : null;
 
   return {
-    projects: projectsQuery.data ?? [],
+    projects: projectsQuery.data ?? EMPTY_PROJECTS,
     loading: projectsQuery.isPending,
     error: actionError ?? queryError,
     refresh: refreshProjects,
