@@ -1,4 +1,5 @@
 import { TableHandlesExtension } from "@blocknote/core/extensions";
+import { ReactNode } from "react";
 
 import { useComponentsContext } from "../../../../editor/ComponentsContext.js";
 import { useDictionary } from "../../../../i18n/dictionary.js";
@@ -9,8 +10,8 @@ import {
 
 export const AddButton = (
   props:
-    | { orientation: "row"; side: "above" | "below" }
-    | { orientation: "column"; side: "left" | "right" },
+    | { orientation: "row"; side: "above" | "below"; children?: ReactNode }
+    | { orientation: "column"; side: "left" | "right"; children?: ReactNode },
 ) => {
   const Components = useComponentsContext()!;
   const dict = useDictionary();
@@ -36,7 +37,7 @@ export const AddButton = (
         );
       }}
     >
-      {dict.table_handle[`add_${props.side}_menuitem`]}
+      {props.children ?? dict.table_handle[`add_${props.side}_menuitem`]}
     </Components.Generic.Menu.Item>
   );
 };

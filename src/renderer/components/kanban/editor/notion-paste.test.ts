@@ -33,6 +33,62 @@ describe("notion paste", () => {
     expect(inlineToText(toggle.children[0].content)).toBe("bb");
   });
 
+  test("maps Notion simple table roots to NFM tables", () => {
+    const blocks = extractNotionNfmBlocksFromPayload({
+      selection: {
+        roots: [
+          {
+            id: "table-1",
+            type: "table",
+            format: {
+              table_block_column_order: ["col-a", "col-b"],
+              table_block_column_header: true,
+              table_block_row_header: true,
+              table_block_column_format: {
+                "col-a": { width: 180, color: "blue_background" },
+              },
+            },
+            children: [
+              {
+                id: "row-1",
+                type: "table_row",
+                properties: {
+                  "col-a": [["Name"]],
+                  "col-b": [["Status"]],
+                },
+                format: { block_color: "gray_background" },
+              },
+              {
+                id: "row-2",
+                type: "table_row",
+                properties: {
+                  "col-a": [["Build"]],
+                  "col-b": [["Done", [["b"]]]],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(blocks).not.toBeNull();
+    if (!blocks) return;
+    expect(blocks.length).toBe(1);
+    expect(blocks[0]?.type).toBe("table");
+    if (blocks[0]?.type !== "table") return;
+
+    expect(blocks[0].headerRow).toBeTrue();
+    expect(blocks[0].headerColumn).toBeTrue();
+    expect(blocks[0].columns[0]?.width).toBe(180);
+    expect(blocks[0].columns[0]?.color).toBe("blue_bg");
+    expect(blocks[0].rows[0]?.color).toBe("gray_bg");
+    expect(inlineToText(blocks[0].rows[1]?.cells[0]?.content ?? [])).toBe("Build");
+    expect(blocks[0].rows[1]?.cells[1]?.content[0]?.type).toBe("text");
+    if (blocks[0].rows[1]?.cells[1]?.content[0]?.type !== "text") return;
+    expect(blocks[0].rows[1].cells[1].content[0].styles.bold).toBeTrue();
+  });
+
   test("extracts Notion payload from Chromium web-custom-data", () => {
     const notionPayload = createSampleNotionPayload();
     const binaryCustomData = encodeChromiumWebCustomData([

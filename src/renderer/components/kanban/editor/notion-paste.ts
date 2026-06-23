@@ -1,4 +1,4 @@
-import type { NfmBlock, NfmColor, NfmInlineContent, NfmStyleSet } from "../../../lib/nfm";
+import type { NfmBlock, NfmColor, NfmInlineContent, NfmStyleSet, NfmTable } from "../../../lib/nfm";
 import { nfmToBlockNote } from "../../../lib/nfm";
 
 export const CHROMIUM_WEB_CUSTOM_DATA_MIME = "org.chromium.web-custom-data";
@@ -255,6 +255,8 @@ function normalizeRootFromNormalizedNode(node: unknown): NotionTreeNode | null {
     text,
     title,
     children,
+    properties: asRecord(node.properties) ?? undefined,
+    format: asRecord(node.format) ?? undefined,
   };
 }
 
@@ -403,6 +405,12 @@ function mapNotionNodeToNfm(node: NotionTreeNode): NfmBlock | null {
         children,
       };
 
+    case "table":
+      return mapNotionTableToNfm(node);
+
+    case "table_row":
+      return null;
+
     case "callout":
       return {
         type: "callout",
@@ -425,6 +433,76 @@ function mapNotionNodeToNfm(node: NotionTreeNode): NfmBlock | null {
         children,
       };
   }
+}
+
+function mapNotionTableToNfm(node: NotionTreeNode): NfmTable | null {
+  const rows = node.children.filter((child) => child.type === "table_row");
+  if (rows.length === 0) return null;
+
+  const columnOrder = readStringArray(node.format?.table_block_column_order);
+  const derivedColumnIds = columnOrder.length > 0
+    ? columnOrder
+    : deriveTableColumnIds(rows);
+  if (derivedColumnIds.length === 0) return null;
+
+  return {
+    type: "table",
+    rows: rows.map((row) => ({
+      ...(mapNotionColor(asString(row.format?.block_color) ?? "") ? { color: mapNotionColor(asString(row.format?.block_color) ?? "") } : {}),
+      cells: derivedColumnIds.map((columnId) => ({
+        content: notionRichTextToInlineContent(row.properties?.[columnId]) ?? [],
+      })),
+    })),
+    columns: derivedColumnIds.map((columnId) => {
+      const format = resolveNotionTableColumnFormat(node.format, columnId);
+      const width = typeof format?.width === "number" && Number.isFinite(format.width) && format.width > 0
+        ? Math.floor(format.width)
+        : undefined;
+      const color = mapNotionColor(asString(format?.color) ?? "");
+      return {
+        ...(width !== undefined ? { width } : {}),
+        ...(color ? { color } : {}),
+      };
+    }),
+    ...(node.format?.table_block_row_header === true ? { headerRow: true } : {}),
+    ...(node.format?.table_block_column_header === true ? { headerColumn: true } : {}),
+    children: [],
+    sourceSyntax: "nfmTable",
+  };
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function deriveTableColumnIds(rows: NotionTreeNode[]): string[] {
+  const ordered = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row.properties ?? {})) {
+      ordered.add(key);
+    }
+  }
+  return Array.from(ordered);
+}
+
+function resolveNotionTableColumnFormat(
+  tableFormat: JsonRecord | undefined,
+  columnId: string,
+): JsonRecord | null {
+  const rawFormat = tableFormat?.table_block_column_format;
+  if (Array.isArray(rawFormat)) {
+    for (const item of rawFormat) {
+      const record = asRecord(item);
+      if (!record) continue;
+      const id = asString(record.id) ?? asString(record.column_id) ?? asString(record.columnId);
+      if (id === columnId) return record;
+    }
+    return null;
+  }
+
+  const formatRecord = asRecord(rawFormat);
+  return asRecord(formatRecord?.[columnId]);
 }
 
 function getNotionPropertyText(properties: JsonRecord | undefined, key: string): string {

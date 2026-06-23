@@ -21,7 +21,11 @@ export type NfmSideMenuActionKey =
   | "ask-ai"
   | "convert-divider-to-thread-section"
   | "table-header-row"
-  | "table-header-column";
+  | "table-header-column"
+  | "table-fit-width"
+  | "table-row-color"
+  | "table-column-color"
+  | "table-create-cards-from-rows";
 
 export type NfmSideMenuSubmenuKey = "turn-into" | "color" | "move-to";
 
@@ -283,6 +287,51 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
           enabled: input.isEditable,
           keywords: ["table"],
         },
+        ...(input.showMockActions
+          ? [
+              {
+                key: "table-fit-width",
+                label: "Fit table width",
+                kind: "action",
+                section: "table",
+                visualGroup: "table",
+                enabled: false,
+                mockReason: SIDE_MENU_MOCK_REASON,
+                keywords: ["resize", "fit", "page"],
+              },
+              {
+                key: "table-row-color",
+                label: "Row color",
+                kind: "action",
+                section: "table",
+                visualGroup: "table",
+                enabled: false,
+                mockReason: SIDE_MENU_MOCK_REASON,
+                keywords: ["table", "row", "background"],
+              },
+              {
+                key: "table-column-color",
+                label: "Column color",
+                kind: "action",
+                section: "table",
+                visualGroup: "table",
+                enabled: false,
+                mockReason: SIDE_MENU_MOCK_REASON,
+                keywords: ["table", "column", "background"],
+              },
+              {
+                key: "table-create-cards-from-rows",
+                label: "Create cards from rows",
+                kind: "action",
+                section: "table",
+                visualGroup: "nodex",
+                enabled: false,
+                mockReason: SIDE_MENU_MOCK_REASON,
+                badge: "Nodex",
+                keywords: ["table", "cards", "rows", "nodex"],
+              },
+            ] satisfies NfmSideMenuAction[]
+          : []),
       ]
     : [];
 

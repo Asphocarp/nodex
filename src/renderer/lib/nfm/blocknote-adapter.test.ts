@@ -22,6 +22,89 @@ function extractText(content: unknown): string {
 }
 
 describe("blocknote adapter", () => {
+  test("nfmToBlockNote maps GFM tables to BlockNote table content", () => {
+    const blocks = nfmToBlockNote(parseNfm("| A | B |\n| --- | ---: |\n| one | two |"));
+
+    expect(blocks.length).toBe(1);
+    expect(blocks[0].type).toBe("table");
+    const content = blocks[0].content as {
+      columnWidths?: unknown[];
+      headerRows?: number;
+      rows?: Array<{ cells?: Array<{ content?: unknown[]; props?: Record<string, unknown> }> }>;
+    };
+
+    expect(content.headerRows).toBe(1);
+    expect(content.columnWidths?.length).toBe(2);
+    expect(content.rows?.length).toBe(2);
+    expect(content.rows?.[0]?.cells?.[1]?.props?.textAlignment).toBe("right");
+    expect(extractText(content.rows?.[1]?.cells?.[0]?.content)).toBe("one");
+  });
+
+  test("blockNoteToNfm preserves table widths, headers, alignment, and cell content", () => {
+    const blocks = blockNoteToNfm(
+      asDoc([
+        {
+          type: "table",
+          props: {},
+          content: {
+            type: "tableContent",
+            columnWidths: [180, undefined],
+            headerRows: 1,
+            headerCols: 1,
+            rows: [
+              {
+                cells: [
+                  {
+                    type: "tableCell",
+                    props: {
+                      backgroundColor: "gray",
+                      textColor: "default",
+                      textAlignment: "center",
+                    },
+                    content: [{ type: "text", text: "Name", styles: {} }],
+                  },
+                  {
+                    type: "tableCell",
+                    props: {
+                      backgroundColor: "default",
+                      textColor: "default",
+                      textAlignment: "right",
+                    },
+                    content: [{ type: "text", text: "Score", styles: { bold: true } }],
+                  },
+                ],
+              },
+            ],
+          },
+          children: [],
+        },
+      ]),
+    );
+
+    expect(blocks.length).toBe(1);
+    expect(blocks[0]?.type).toBe("table");
+    if (blocks[0]?.type !== "table") return;
+
+    expect(blocks[0].headerRow).toBeTrue();
+    expect(blocks[0].headerColumn).toBeTrue();
+    expect(blocks[0].columns[0]?.width).toBe(180);
+    expect(blocks[0].columns[0]?.align).toBe("center");
+    expect(blocks[0].rows[0]?.cells[0]?.color).toBe("gray_bg");
+    expect(blocks[0].rows[0]?.cells[1]?.content[0]?.type).toBe("text");
+    if (blocks[0].rows[0]?.cells[1]?.content[0]?.type !== "text") return;
+    expect(blocks[0].rows[0].cells[1].content[0].styles.bold).toBeTrue();
+    expect(serializeNfm(blocks)).toBe(`<table header-row="true" header-column="true" fit-page-width="false">
+\t<colgroup>
+\t\t<col width="180" align="center" />
+\t\t<col align="right" />
+\t</colgroup>
+\t<tr>
+\t\t<td color="gray_bg">Name</td>
+\t\t<td>**Score**</td>
+\t</tr>
+</table>`);
+  });
+
   test("blockNoteToNfm converts empty paragraph to emptyBlock", () => {
     const blocks = blockNoteToNfm(
       asDoc([

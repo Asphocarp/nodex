@@ -256,6 +256,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Tag input suggests existing project tags while typing via native autocomplete options (excluding tags already on the current card)
 - BlockNote block editor for description (Notion-flavored Markdown)
 - NFM headings use a typography scale in-editor: H1 `1.875em`, H2 `1.5em`, H3 `1.25em`, H4 `1.125em`, all at `600` weight with `1.3` line-height relative to the editor body size
+- NFM descriptions support simple editable tables from GFM pipe-table syntax and the lossless NFM `<table>` extension. Tables render in Card Stage, inline toggle-list editors, read-only history previews, and raw NFM renderer surfaces; detailed behavior lives in [NFM Editor Table Block Behavior](./nfm-editor-table-block-behavior.md).
 - Card Stage toolbar includes a `Show raw` toggle that swaps the description area into a read-only raw NFM view of the current local draft for debugging, without changing card fields or save behavior.
 - BlockNote structural animations are mostly disabled in-editor (including indent/unindent depth transitions) to keep editing interactions immediate
 - NFM link labels are escape-normalized on parse, so repeated auto-save cycles remain idempotent (prevents exponential backslash growth on escaped markdown markers inside link text)

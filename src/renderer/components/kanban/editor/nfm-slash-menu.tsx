@@ -40,7 +40,7 @@ import {
 } from "./nfm-blocknote-floating-ui";
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
-import { CodexThreadIcon } from "@/components/shared/icons";
+import { CodexThreadIcon, NfmSideMenuTableHeaderIcon } from "@/components/shared/icons";
 import { CARD_STATUS_LABELS } from "../../../../shared/card-status";
 
 interface NfmSlashMenuProps {
@@ -95,6 +95,28 @@ function insertBlock(editor: unknown, block: Record<string, unknown>) {
 
 function insertInlineContent(editor: unknown, content: unknown[]) {
   (editor as UnsafeInlineContentEditor).insertInlineContent(content, { updateSelection: true });
+}
+
+function createDefaultNfmTableBlock() {
+  return {
+    type: "table",
+    content: {
+      type: "tableContent",
+      columnWidths: [undefined, undefined],
+      rows: Array.from({ length: 3 }, () => ({
+        cells: Array.from({ length: 2 }, () => ({
+          type: "tableCell",
+          props: {
+            backgroundColor: "default",
+            textColor: "default",
+            textAlignment: "left",
+          },
+          content: [],
+        })),
+      })),
+    },
+    children: [],
+  };
 }
 
 function normalizeSuggestionAliasHint(value: string) {
@@ -290,6 +312,19 @@ export function getNfmSlashMenuCustomItems(
   editor: unknown,
   projectId: string,
 ): DefaultReactSuggestionItem[] {
+  const tableItem = {
+    key: "table",
+    title: "Table",
+    subtext: "Insert a simple editable table",
+    aliases: ["table", "grid"],
+    group: "Basic blocks",
+    badge: "/table",
+    icon: <NfmSideMenuTableHeaderIcon className="size-4" />,
+    onItemClick: () => {
+      insertBlock(editor, createDefaultNfmTableBlock());
+    },
+  };
+
   const toggleListItem = {
     key: "toggle_list_inline_view",
     title: "Toggle List Inline View",
@@ -360,7 +395,7 @@ export function getNfmSlashMenuCustomItems(
     },
   };
 
-  return [toggleListItem, cardRefItem, threadSectionItem, agentConfigItem];
+  return [tableItem, toggleListItem, cardRefItem, threadSectionItem, agentConfigItem];
 }
 
 export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
@@ -368,7 +403,10 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
 
   const getItems = useMemo(
     () => async (query: string) => {
-      const defaults = getDefaultReactSlashMenuItems(editor);
+      const defaults = getDefaultReactSlashMenuItems(editor).filter((item) => {
+        const key = (item as NfmSuggestionItem).key;
+        return key !== "table" && item.title.toLocaleLowerCase() !== "table";
+      });
       return filterSuggestionItems([...defaults, ...getNfmSlashMenuCustomItems(editor, projectId)], query);
     },
     [editor, projectId],

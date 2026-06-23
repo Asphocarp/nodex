@@ -269,6 +269,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     checkListItem: defaultBlockSpecs.checkListItem,
     toggleListItem: defaultBlockSpecs.toggleListItem,
     codeBlock: createCodeBlockSpec(editorCodeBlockOptions),
+    table: defaultBlockSpecs.table,
     quote: defaultBlockSpecs.quote,
     divider: defaultBlockSpecs.divider,
     image: imageBlockSpec,
@@ -348,6 +349,12 @@ export function ReadonlyNfmBlockNotePreview({
       schema: readonlyNfmBlockNotePreviewSchema,
       initialContent: previewDocument.initialContent,
       resolveFileUrl: async (source) => resolveAssetSourceToHttpUrl(source),
+      tables: {
+        headers: true,
+        cellBackgroundColor: true,
+        cellTextColor: false,
+        splitCells: false,
+      },
     },
     [projectId, cardId, historyId, content],
   );

@@ -147,6 +147,30 @@ describe("nfm side menu model", () => {
     expect(rows.some(({ row }) => row.key === "table-header-column")).toBeFalse();
   });
 
+  test("adds disabled table parity mock rows in mock mode", () => {
+    const sections = buildNfmSideMenuSections({
+      currentBlockId: "table-1",
+      currentBlockType: "table",
+      selectionTitle: "Table",
+      selectedTopLevelBlockCount: 1,
+      isEditable: true,
+      canUseColor: true,
+      canSendBlocks: true,
+      hasConvertDividerToThreadSection: false,
+      isTableBlock: true,
+      canUseTableHeaders: true,
+      showMockActions: true,
+    });
+    const rows = flattenNfmSideMenuRows(sections);
+    const fitWidth = rows.find(({ row }) => row.key === "table-fit-width")?.row;
+    const createCards = rows.find(({ row }) => row.key === "table-create-cards-from-rows")?.row;
+
+    expect(fitWidth?.enabled).toBeFalse();
+    expect(typeof fitWidth?.mockReason).toBe("string");
+    expect(createCards?.badge).toBe("Nodex");
+    expect(createCards?.enabled).toBeFalse();
+  });
+
   test("resolves section titles from top-level selected block descriptors", () => {
     expect(resolveNfmSideMenuScopeTitle([])).toBe("Block");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "paragraph" }])).toBe("Text");

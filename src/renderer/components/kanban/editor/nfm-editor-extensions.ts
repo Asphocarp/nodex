@@ -3,6 +3,7 @@ import type { BlockNoteEditor } from "@blocknote/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "prosemirror-view";
 import { handleNotionPasteFromClipboard } from "./notion-paste";
+import { splitGfmTableRow } from "@/lib/nfm/table";
 import { getNfmSearchState, nfmSearchExtension } from "./search-extension";
 import { selectCurrentBlockContent } from "./select-block-shortcut";
 import { selectedImageBlockDecorationsExtension } from "./selected-image-block-decorations";
@@ -361,8 +362,35 @@ export function createNfmPasteHandler(): NfmPasteHandler {
       event.clipboardData,
     );
     if (handled) return true;
+    if (clipboardTextLooksLikeGfmTable(event.clipboardData?.getData("text/plain") ?? "")) {
+      return defaultPasteHandler({
+        prioritizeMarkdownOverHTML: true,
+        plainTextAsMarkdown: true,
+      });
+    }
     return defaultPasteHandler();
   };
 }
 
 export { getNfmSearchState };
+
+function clipboardTextLooksLikeGfmTable(text: string): boolean {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length < 2) return false;
+
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    const headerCells = splitGfmTableRow(lines[index]!);
+    const delimiterCells = splitGfmTableRow(lines[index + 1]!);
+    if (headerCells.length < 2 || headerCells.length !== delimiterCells.length) {
+      continue;
+    }
+    if (delimiterCells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))) {
+      return true;
+    }
+  }
+
+  return false;
+}

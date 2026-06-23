@@ -99,6 +99,7 @@ export * from "./components/TableHandles/TableCellButtonProps.js";
 
 export * from "./components/TableHandles/TableHandleMenu/DefaultButtons/AddButton.js";
 export * from "./components/TableHandles/TableHandleMenu/DefaultButtons/DeleteButton.js";
+export * from "./components/TableHandles/TableHandleMenu/DefaultButtons/TableHeaderButton.js";
 export * from "./components/TableHandles/TableHandleMenu/TableHandleMenu.js";
 export * from "./components/TableHandles/TableHandleMenu/TableHandleMenuProps.js";
 

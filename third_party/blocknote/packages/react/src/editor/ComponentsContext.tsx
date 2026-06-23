@@ -305,6 +305,7 @@ export type ComponentProps = {
         subTrigger?: boolean;
         icon?: ReactNode;
         checked?: boolean;
+        disabled?: boolean;
         onClick?: () => void;
       };
       Label: {

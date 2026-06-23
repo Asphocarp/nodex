@@ -121,6 +121,20 @@ For toggles and toggle headings, the children must be indented in order for them
 Divider:
 ---
 Table:
+Nodex supports GitHub-Flavored Markdown pipe table syntax for ordinary editable tables:
+| Name | Status | Score |
+| :--- | :---: | ---: |
+| Alpha | **Ready** | 10 |
+| Beta | Blocked | 2 |
+
+Pipe table rules:
+- The delimiter row is required and must have the same number of cells as the header row.
+- `:---`, `:---:`, and `---:` set left, center, and right column alignment.
+- Body rows with too few cells are padded with empty cells; extra body cells are ignored by the editor model.
+- Escape literal pipes inside cells as `\|`.
+- Pipe tables parse as `header-row="true"` because GFM tables always have a header row.
+
+Lossless table extension:
 <table fit-page-width?="true|false" header-row?="true|false" header-column?="true|false">
 	<colgroup>
 		<col color?="Color">
@@ -136,6 +150,7 @@ Table:
 	</tr>
 </table>
 Note: All table attributes are optional. If omitted, they default to "false".
+Nodex serializes a table with GFM syntax when possible. If the user enables a header column, fixed widths, fit-page-width, row/column/cell colors, or other state that GFM cannot represent, Nodex serializes that table with this lossless extension instead.
 Table structure:
 - <table>: Root element with optional attributes:
   - fit-page-width: Whether the table should fill the page width

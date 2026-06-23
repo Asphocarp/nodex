@@ -1,5 +1,6 @@
 import { getColspan, getRowspan, isTableCell } from "@blocknote/core";
 import { TableHandlesExtension } from "@blocknote/core/extensions";
+import { ReactNode } from "react";
 
 import { useComponentsContext } from "../../../../editor/ComponentsContext.js";
 import { useBlockNoteEditor } from "../../../../hooks/useBlockNoteEditor.js";
@@ -9,7 +10,7 @@ import {
   useExtensionState,
 } from "../../../../hooks/useExtension.js";
 
-export const SplitButton = () => {
+export const SplitButton = (props: { children?: ReactNode }) => {
   const Components = useComponentsContext()!;
   const dict = useDictionary();
   const editor = useBlockNoteEditor<any, any, any>();
@@ -50,7 +51,7 @@ export const SplitButton = () => {
         });
       }}
     >
-      {dict.table_handle.split_cell_menuitem}
+      {props.children ?? dict.table_handle.split_cell_menuitem}
     </Components.Generic.Menu.Item>
   );
 };

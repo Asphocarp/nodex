@@ -38,6 +38,7 @@ import { shouldReplaceNfmExternalContent } from "./nfm-external-content-sync";
 import type { Card, CodexPromptInput } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
 import { NfmSlashMenu } from "./nfm-slash-menu";
+import { NfmTableHandlesController } from "./nfm-table-handles";
 import {
   getNfmSearchState,
   goToNextNfmSearchMatch,
@@ -244,14 +245,17 @@ interface NfmEditorChange {
 }
 
 function isNfmEditorDocumentEmpty(
-  doc: Array<{ type?: string; content?: unknown[]; children?: unknown[] }>,
+  doc: Array<{ type?: string; content?: unknown; children?: unknown[] }>,
 ): boolean {
+  const [onlyBlock] = doc;
+  const inlineContent = Array.isArray(onlyBlock?.content) ? onlyBlock.content : [];
+
   return doc.length === 0
     || (
       doc.length === 1
-      && doc[0]?.type === "paragraph"
-      && (!doc[0].content || doc[0].content.length === 0)
-      && (!doc[0].children || doc[0].children.length === 0)
+      && onlyBlock?.type === "paragraph"
+      && inlineContent.length === 0
+      && (!onlyBlock.children || onlyBlock.children.length === 0)
     );
 }
 
@@ -664,6 +668,12 @@ export function NfmEditor({
       uploadFile,
       resolveFileUrl,
       pasteHandler,
+      tables: {
+        headers: true,
+        cellBackgroundColor: true,
+        cellTextColor: false,
+        splitCells: false,
+      },
       disableExtensions: [...NFM_DISABLED_EXTENSIONS, "link"],
       extensions,
       _tiptapOptions: {
@@ -2683,6 +2693,7 @@ export function NfmEditor({
                   linkToolbar={false}
                   slashMenu={false}
                   sideMenu={false}
+                  tableHandles={false}
                   data-theming-css-variables-demo
                 >
                   <NfmSideMenuOpenProvider>
@@ -2706,6 +2717,7 @@ export function NfmEditor({
                       }}
                     />
                     <NfmSlashMenu projectId={projectId} />
+                    <NfmTableHandlesController />
                   </NfmSideMenuOpenProvider>
                 </BlockNoteView>
               </NfmSideMenuRuntimeProvider>

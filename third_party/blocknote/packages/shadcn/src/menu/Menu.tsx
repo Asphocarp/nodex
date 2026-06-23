@@ -225,7 +225,7 @@ export const MenuItem = forwardRef<
   HTMLDivElement,
   ComponentProps["Generic"]["Menu"]["Item"]
 >((props, ref) => {
-  const { className, children, icon, checked, subTrigger, onClick, ...rest } =
+  const { className, children, icon, checked, disabled, subTrigger, onClick, ...rest } =
     props;
 
   assertEmpty(rest);
@@ -247,6 +247,7 @@ export const MenuItem = forwardRef<
         className={cn(className, "gap-1", checked ? "" : "px-2")}
         ref={ref}
         checked={checked}
+        disabled={disabled}
         onPointerDownCapture={preventMenuPointerFocusLoss}
         onClick={onClick}
         {...rest}
@@ -261,6 +262,7 @@ export const MenuItem = forwardRef<
     <ShadCNComponents.DropdownMenu.DropdownMenuItem
       className={className}
       ref={ref}
+      disabled={disabled}
       onPointerDownCapture={preventMenuPointerFocusLoss}
       onClick={onClick}
       {...rest}

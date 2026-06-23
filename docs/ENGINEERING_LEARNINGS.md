@@ -428,6 +428,8 @@ Editor-owned searchable popovers have a separate focus contract from ordinary ap
 
 Side-menu flyout submenus must be independent floating layers. The main action surface uses `overflow-hidden` to preserve rounded clipping and internal scrolling, so an `absolute left-full` submenu rendered as its child is mounted but visually clipped, making submenu clicks look like no-ops. Anchor submenu rows with the shared popover/dropdown facade and portal the flyout content outside the main surface; also include that portaled subtree in outside-click guards.
 
+BlockNote table-handle color menus hit the same class of bug through Radix DropdownMenu. `DropdownMenuContent` carries `overflow-y-auto overflow-x-hidden`, so a nested `DropdownMenuSubContent` rendered in place is clipped by its parent menu. Keep BlockNote/shadcn submenu content portaled, and keep the minimal `.bn-menu-dropdown` / `.bn-color-picker-dropdown` sizing rules valid outside the `.bn-shadcn` subtree because portaled submenu content may mount under `document.body`.
+
 ### `cardToggle` snapshots should carry both human-readable `meta` and machine-readable snapshot payload
 For round-trip drag (`card -> cardToggle -> card`), a serialized `meta` string alone is not enough to preserve full card properties (tags, assignee, due date, scheduled start/end, blocked state). Store an encoded snapshot payload alongside `meta`, update both when editable chips change (`priority`, `estimate`, `status`), and prefer snapshot defaults while applying `meta` token overrides on export back to Kanban.
 

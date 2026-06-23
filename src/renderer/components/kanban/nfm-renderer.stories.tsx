@@ -47,3 +47,28 @@ export const OrderedListNumbering: Story = {
     content: "99. Ninety-nine\n100. One hundred\n101. One hundred one",
   },
 };
+
+export const GfmTable: Story = {
+  args: {
+    content: "| Name | Status | Score |\n| :--- | :---: | ---: |\n| Alpha | **Ready** | 10 |\n| Beta | Blocked | 2 |",
+  },
+};
+
+export const LosslessTable: Story = {
+  args: {
+    content: `<table header-row="false" header-column="true" fit-page-width="true">
+\t<colgroup>
+\t\t<col width="180" color="blue_bg" align="right" />
+\t\t<col />
+\t</colgroup>
+\t<tr color="gray_bg">
+\t\t<td>Task</td>
+\t\t<td color="green_bg">Done</td>
+\t</tr>
+\t<tr>
+\t\t<td>Follow-up</td>
+\t\t<td>Pending</td>
+\t</tr>
+</table>`,
+  },
+};

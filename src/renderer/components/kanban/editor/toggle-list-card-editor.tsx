@@ -54,6 +54,7 @@ import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
+import { NfmTableHandlesController } from "./nfm-table-handles";
 import { ImagePreviewDialog } from "./image-preview-dialog";
 import {
   isSpaceShortcut,
@@ -286,6 +287,12 @@ export function ToggleListCardEditor({
       uploadFile,
       resolveFileUrl,
       pasteHandler,
+      tables: {
+        headers: true,
+        cellBackgroundColor: true,
+        cellTextColor: false,
+        splitCells: false,
+      },
       disableExtensions: [...NFM_DISABLED_EXTENSIONS, "link"],
       extensions,
       _tiptapOptions: {
@@ -1025,6 +1032,7 @@ export function ToggleListCardEditor({
           linkToolbar={false}
           slashMenu={false}
           sideMenu={false}
+          tableHandles={false}
           data-theming-css-variables-demo
         >
           <NfmSideMenuOpenProvider>
@@ -1048,6 +1056,7 @@ export function ToggleListCardEditor({
               }}
             />
             <NfmSlashMenu projectId={projectId} />
+            <NfmTableHandlesController />
           </NfmSideMenuOpenProvider>
         </BlockNoteView>
       </NfmEditorContextMenu>

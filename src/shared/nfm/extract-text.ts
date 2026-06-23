@@ -29,6 +29,14 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
       parts.push(block.code);
     }
 
+    if (block.type === "table") {
+      for (const row of block.rows) {
+        for (const cell of row.cells) {
+          collectInlineText(cell.content, parts);
+        }
+      }
+    }
+
     if (block.children.length === 0) continue;
     collectText(block.children, parts);
   }

@@ -6,6 +6,7 @@ import {
   StyleSchema,
 } from "@blocknote/core";
 import { TableHandlesExtension } from "@blocknote/core/extensions";
+import { ReactNode } from "react";
 
 import { useComponentsContext } from "../../../../editor/ComponentsContext.js";
 import { useBlockNoteEditor } from "../../../../hooks/useBlockNoteEditor.js";
@@ -20,6 +21,7 @@ export const TableHeaderRowButton = <
   S extends StyleSchema = DefaultStyleSchema,
 >(props: {
   orientation: "row" | "column";
+  children?: ReactNode;
 }) => {
   const Components = useComponentsContext()!;
   const dict = useDictionary();
@@ -64,7 +66,7 @@ export const TableHeaderRowButton = <
         });
       }}
     >
-      {dict.drag_handle.header_row_menuitem}
+      {props.children ?? dict.drag_handle.header_row_menuitem}
     </Components.Generic.Menu.Item>
   );
 };
@@ -74,6 +76,7 @@ export const TableHeaderColumnButton = <
   S extends StyleSchema = DefaultStyleSchema,
 >(props: {
   orientation: "row" | "column";
+  children?: ReactNode;
 }) => {
   const Components = useComponentsContext()!;
   const dict = useDictionary();
@@ -119,7 +122,7 @@ export const TableHeaderColumnButton = <
         });
       }}
     >
-      {dict.drag_handle.header_column_menuitem}
+      {props.children ?? dict.drag_handle.header_column_menuitem}
     </Components.Generic.Menu.Item>
   );
 };

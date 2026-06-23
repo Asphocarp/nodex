@@ -18,6 +18,7 @@ import type {
   NfmColor,
   NfmNumberedListItem,
   NfmStyleSet,
+  NfmTable,
 } from "@/lib/nfm/types";
 import { FileLinkAnchor } from "../shared/file-link-anchor";
 import { parseNfm } from "@/lib/nfm/parser";
@@ -243,6 +244,15 @@ function BlockComponent({
         />
       );
 
+    case "table":
+      return (
+        <NfmTableBlock
+          table={block}
+          projectWorkspacePath={projectWorkspacePath}
+          className={colorClass}
+        />
+      );
+
     case "callout":
       return (
         <div
@@ -349,6 +359,58 @@ function NumberedListItemContent({
       <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
       <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
     </li>
+  );
+}
+
+function NfmTableBlock({
+  table,
+  projectWorkspacePath,
+  className,
+}: {
+  table: NfmTable;
+  projectWorkspacePath?: string | null;
+  className?: string;
+}) {
+  return (
+    <div className={cn("nfm-render-table my-3 max-w-full overflow-x-auto", className)}>
+      <table className="border-collapse text-sm leading-5">
+        <tbody>
+          {table.rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.cells.map((cell, columnIndex) => {
+                const Tag = table.headerRow && rowIndex === 0 || table.headerColumn && columnIndex === 0
+                  ? "th"
+                  : "td";
+                const column = table.columns[columnIndex];
+                const color = cell.color ?? row.color ?? column?.color;
+                const style = {
+                  width: column?.width ? `${column.width}px` : undefined,
+                  textAlign: column?.align,
+                };
+                return (
+                  <Tag
+                    key={columnIndex}
+                    className={cn(
+                      "min-w-[120px] max-w-[240px] border border-token-border px-[9px] py-[7px] text-left align-top font-normal",
+                      (table.headerRow && rowIndex === 0) || (table.headerColumn && columnIndex === 0)
+                        ? "bg-token-foreground/5"
+                        : "",
+                      color ? nfmColorClass(color) : "",
+                    )}
+                    style={style}
+                  >
+                    <InlineList
+                      items={cell.content}
+                      projectWorkspacePath={projectWorkspacePath}
+                    />
+                  </Tag>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

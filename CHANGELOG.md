@@ -34,6 +34,7 @@ All notable changes to this project will be documented in this file.
 - Added a `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
 - Added NFM thread mentions so card descriptions can reference and open Codex threads with `<mention-thread uuid="..." />`, with the `@` picker using command-palette chat/card search for sidebar-wide chat mentions, content snippets, fuzzy card metadata, card description hits, current-project-first grouping, cleaner mention rows, and compact hover context.
 - Added a real `Send to chat` picker to the NFM text-selection menu, including sidebar-wide chat search with content snippets, project-labeled chat rows, current-session/current-section priority, current-session `New chat` targeting for empty sessions, project-level new-chat sending, and an app-level persisted `Send & wrap` mode with inline explanation.
+- Added simple table support to NFM descriptions, including GFM pipe-table parsing, lossless table serialization for header columns and widths, editable BlockNote tables, Notion simple-table paste, read-only previews, and tokenized Notion-style table chrome.
 
 ### Changed
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.

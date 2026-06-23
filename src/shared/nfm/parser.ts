@@ -13,6 +13,7 @@ import { NFM_COLORS } from "./types";
 import { isChildlessNfmBlockType } from "./childless";
 import { normalizeOrderedListStart } from "./ordered-list";
 import { parseInlineContent } from "./parser-inline";
+import { tryParseGfmTable, tryParseNfmTableXml } from "./table";
 import { getXmlAttr } from "./xml-attributes";
 
 /**
@@ -71,6 +72,13 @@ export function parseNfm(input: string): NfmBlock[] {
       continue;
     }
 
+    const gfmTable = tryParseGfmTable(lines, i, indent);
+    if (gfmTable) {
+      addBlock(gfmTable.block, indent);
+      i = gfmTable.nextLine;
+      continue;
+    }
+
     const codeFence = parseCodeFenceOpen(content);
     if (codeFence) {
       const codeLines: string[] = [];
@@ -103,6 +111,15 @@ export function parseNfm(input: string): NfmBlock[] {
       if (callout) {
         addBlock(callout.block, indent);
         i = callout.nextLine;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<table")) {
+      const table = tryParseNfmTableXml(lines, i, indent);
+      if (table) {
+        addBlock(table.block, indent);
+        i = table.nextLine;
         continue;
       }
     }

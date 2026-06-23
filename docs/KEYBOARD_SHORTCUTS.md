@@ -103,6 +103,15 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 | `> ` | Toggle list item |
 | `\| ` | Quote block |
 | `# `–`#### ` | Heading level 1–4 |
+| `/table` | Insert a 2x3 simple table from the slash menu |
+
+### Tables
+
+| Shortcut | Action |
+|----------|--------|
+| `Tab` | Move to the next table cell |
+| `Shift+Tab` | Move to the previous table cell |
+| `Enter` | Move to the cell below when editing table cell content |
 
 ### Navigation
 

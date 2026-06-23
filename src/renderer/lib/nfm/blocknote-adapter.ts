@@ -8,9 +8,14 @@ import type {
   NfmColor,
   NfmBgColor,
   NfmTextColor,
+  NfmTable,
+  NfmTableAlignment,
+  NfmTableCell,
+  NfmTableColumn,
 } from "./types";
 import { NFM_BG_COLORS, NFM_TEXT_COLORS } from "./types";
 import { normalizeOrderedListStart } from "../../../shared/nfm/ordered-list";
+import { normalizeTable } from "../../../shared/nfm/table";
 import { parseInlineContent } from "./parser-inline";
 import { serializeInlineContent } from "./serializer-inline";
 
@@ -131,6 +136,16 @@ function nfmBlockToBN(
         content: [{ type: "text", text: block.code, styles: {} }],
         children,
       };
+
+    case "table": {
+      const table = normalizeTable(block);
+      return {
+        type: "table",
+        props,
+        content: nfmTableToBN(table),
+        children: [],
+      };
+    }
 
     case "callout":
       return {
@@ -279,6 +294,44 @@ function nfmInlineToBN(items: NfmInlineContent[]): BNInlineContent[] {
   });
 }
 
+function nfmTableToBN(table: NfmTable): Record<string, unknown> {
+  return {
+    type: "tableContent",
+    columnWidths: table.columns.map((column) => column.width),
+    ...(table.headerRow ? { headerRows: 1 } : {}),
+    ...(table.headerColumn ? { headerCols: 1 } : {}),
+    rows: table.rows.map((row) => ({
+      cells: row.cells.map((cell, columnIndex) => {
+        const column = table.columns[columnIndex];
+        return {
+          type: "tableCell",
+          props: {
+            backgroundColor: tableCellBackgroundToBN(cell, row, column),
+            textColor: "default",
+            textAlignment: column?.align ?? "left",
+            ...(cell.colspan ? { colspan: cell.colspan } : {}),
+            ...(cell.rowspan ? { rowspan: cell.rowspan } : {}),
+          },
+          content: nfmInlineToBN(cell.content),
+        };
+      }),
+    })),
+  };
+}
+
+function tableCellBackgroundToBN(
+  cell: NfmTableCell,
+  row: { color?: NfmColor },
+  column: NfmTableColumn | undefined,
+): string {
+  const color = cell.color ?? row.color ?? column?.color;
+  if (!color) return "default";
+  if (NFM_BG_COLORS.includes(color as NfmBgColor)) {
+    return nfmBgToBlockNoteBackground(color as NfmBgColor);
+  }
+  return color;
+}
+
 function nfmStylesToBN(styles: NfmStyleSet): Record<string, boolean | string> {
   const result: Record<string, boolean | string> = {};
   if (styles.bold) result.bold = true;
@@ -409,6 +462,9 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       };
     }
 
+    case "table":
+      return bnTableToNfm(block, color);
+
     case "callout":
       return {
         type: "callout",
@@ -514,6 +570,97 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       }
       return null;
   }
+}
+
+function bnTableToNfm(
+  block: BNBlock,
+  color: NfmColor | undefined,
+): NfmTable {
+  const content = block.content ?? {};
+  const sourceRows = Array.isArray(content.rows) ? content.rows : [];
+  const rows = sourceRows.map((row: { cells?: unknown[] }) => ({
+    cells: Array.isArray(row.cells)
+      ? row.cells.map(readBNTableCell)
+      : [],
+  }));
+  const columnCount = Math.max(
+    Array.isArray(content.columnWidths) ? content.columnWidths.length : 0,
+    ...rows.map((row: { cells: NfmTableCell[] }) => row.cells.length),
+    1,
+  );
+  const columns = Array.from({ length: columnCount }, (_value, index) => {
+    const width = Array.isArray(content.columnWidths)
+      ? normalizePositiveNumber(content.columnWidths[index])
+      : undefined;
+    const align = resolveBNTableColumnAlignment(sourceRows, index);
+    return {
+      ...(width !== undefined ? { width } : {}),
+      ...(align ? { align } : {}),
+    };
+  });
+
+  return normalizeTable({
+    type: "table",
+    ...(color ? { color } : {}),
+    rows,
+    columns,
+    ...(normalizePositiveNumber(content.headerRows) !== undefined ? { headerRow: true } : {}),
+    ...(normalizePositiveNumber(content.headerCols) !== undefined ? { headerColumn: true } : {}),
+    children: [],
+  });
+}
+
+function readBNTableCell(cell: unknown): NfmTableCell {
+  if (Array.isArray(cell)) {
+    return { content: bnInlineToNfm(cell) };
+  }
+
+  if (!cell || typeof cell !== "object") {
+    return { content: [] };
+  }
+
+  const candidate = cell as {
+    content?: BNInlineContent[];
+    props?: Record<string, unknown>;
+  };
+  const color = propsToColor(candidate.props);
+  const colspan = normalizePositiveNumber(candidate.props?.colspan);
+  const rowspan = normalizePositiveNumber(candidate.props?.rowspan);
+
+  return {
+    content: bnInlineToNfm(candidate.content),
+    ...(color ? { color } : {}),
+    ...(colspan !== undefined && colspan > 1 ? { colspan } : {}),
+    ...(rowspan !== undefined && rowspan > 1 ? { rowspan } : {}),
+  };
+}
+
+function resolveBNTableColumnAlignment(
+  rows: unknown[],
+  columnIndex: number,
+): NfmTableAlignment | undefined {
+  const alignments = rows
+    .map((row) => {
+      if (!row || typeof row !== "object") return undefined;
+      const cells = (row as { cells?: unknown[] }).cells;
+      if (!Array.isArray(cells)) return undefined;
+      const cell = cells[columnIndex];
+      if (!cell || typeof cell !== "object" || Array.isArray(cell)) return undefined;
+      return normalizeTableAlignment(
+        (cell as { props?: Record<string, unknown> }).props?.textAlignment,
+      );
+    })
+    .filter((value): value is NfmTableAlignment => value !== undefined);
+
+  if (alignments.length === 0) return undefined;
+  const first = alignments[0];
+  if (first === "left") return undefined;
+  return alignments.every((alignment) => alignment === first) ? first : undefined;
+}
+
+function normalizeTableAlignment(value: unknown): NfmTableAlignment | undefined {
+  if (value === "left" || value === "center" || value === "right") return value;
+  return undefined;
 }
 
 /**
@@ -827,6 +974,12 @@ function normalizeBooleanString(value: unknown): boolean | undefined {
 function normalizeNonNegativeNumber(value: unknown): number | undefined {
   if (typeof value !== "number") return undefined;
   if (!Number.isFinite(value) || value < 0) return undefined;
+  return Math.floor(value);
+}
+
+function normalizePositiveNumber(value: unknown): number | undefined {
+  if (typeof value !== "number") return undefined;
+  if (!Number.isFinite(value) || value <= 0) return undefined;
   return Math.floor(value);
 }
 

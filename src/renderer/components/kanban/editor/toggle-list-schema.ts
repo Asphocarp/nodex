@@ -25,6 +25,7 @@ export const toggleListSchema = BlockNoteSchema.create({
     checkListItem: defaultBlockSpecs.checkListItem,
     toggleListItem: defaultBlockSpecs.toggleListItem,
     codeBlock: createCodeBlockSpec(editorCodeBlockOptions),
+    table: defaultBlockSpecs.table,
     quote: defaultBlockSpecs.quote,
     divider: defaultBlockSpecs.divider,
     image: imageBlockSpec,

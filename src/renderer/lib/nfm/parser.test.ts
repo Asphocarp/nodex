@@ -5,6 +5,78 @@ import { parseNfm } from "./parser";
 import { serializeNfm } from "./serializer";
 
 describe("NFM code fences", () => {
+  test("GFM tables parse and serialize with alignment", () => {
+    const input = "| Name | Status | Score |\n| :--- | :---: | ---: |\n| Alpha | **Ready** | 10 |\n| Beta | Blocked | 2 |";
+    const blocks = parseNfm(input);
+
+    expect(blocks.length).toBe(1);
+    expect(blocks[0]?.type).toBe("table");
+    if (blocks[0]?.type !== "table") return;
+
+    expect(blocks[0].headerRow).toBeTrue();
+    expect(blocks[0].columns.length).toBe(3);
+    expect(blocks[0].columns[0]?.align).toBe("left");
+    expect(blocks[0].columns[1]?.align).toBe("center");
+    expect(blocks[0].columns[2]?.align).toBe("right");
+    expect(blocks[0].rows.length).toBe(3);
+    expect(blocks[0].rows[1]?.cells[1]?.content[0]?.type).toBe("text");
+    if (blocks[0].rows[1]?.cells[1]?.content[0]?.type !== "text") return;
+    expect(blocks[0].rows[1].cells[1].content[0].styles.bold).toBeTrue();
+    expect(serializeNfm(blocks)).toBe(input);
+    expect(serializeClipboardText(blocks)).toBe("Name\tStatus\tScore\nAlpha\tReady\t10\nBeta\tBlocked\t2");
+  });
+
+  test("GFM tables preserve escaped pipes inside cells", () => {
+    const input = "| Key | Value |\n| --- | --- |\n| literal | a \\| b |";
+    const blocks = parseNfm(input);
+
+    expect(blocks[0]?.type).toBe("table");
+    if (blocks[0]?.type !== "table") return;
+    expect(blocks[0].rows[1]?.cells[1]?.content[0]?.type).toBe("text");
+    if (blocks[0].rows[1]?.cells[1]?.content[0]?.type !== "text") return;
+
+    expect(blocks[0].rows[1].cells[1].content[0].text).toBe("a | b");
+    expect(serializeNfm(blocks)).toBe(input);
+  });
+
+  test("GFM table delimiter mismatch falls back to paragraphs", () => {
+    const input = "| A | B |\n| --- |\n| value | value |";
+    const blocks = parseNfm(input);
+
+    expect(blocks.length).toBe(3);
+    expect(blocks[0]?.type).toBe("paragraph");
+    expect(blocks[1]?.type).toBe("paragraph");
+    expect(blocks[2]?.type).toBe("paragraph");
+  });
+
+  test("lossless NFM table syntax round-trips header column, width, and colors", () => {
+    const input = `<table header-row="false" header-column="true" fit-page-width="true">
+\t<colgroup>
+\t\t<col width="180" color="blue_bg" align="right" />
+\t\t<col />
+\t</colgroup>
+\t<tr color="gray_bg">
+\t\t<td>Task</td>
+\t\t<td color="green_bg">Done</td>
+\t</tr>
+</table>`;
+    const blocks = parseNfm(input);
+
+    expect(blocks.length).toBe(1);
+    expect(blocks[0]?.type).toBe("table");
+    if (blocks[0]?.type !== "table") return;
+
+    expect(blocks[0].headerRow).toBe(undefined);
+    expect(blocks[0].headerColumn).toBeTrue();
+    expect(blocks[0].fitPageWidth).toBeTrue();
+    expect(blocks[0].columns[0]?.width).toBe(180);
+    expect(blocks[0].columns[0]?.color).toBe("blue_bg");
+    expect(blocks[0].columns[0]?.align).toBe("right");
+    expect(blocks[0].rows[0]?.color).toBe("gray_bg");
+    expect(blocks[0].rows[0]?.cells[1]?.color).toBe("green_bg");
+    expect(serializeNfm(blocks)).toBe(input);
+  });
+
   test("serializeNfm uses a longer fence when code contains triple backticks", () => {
     const blocks = [
       {

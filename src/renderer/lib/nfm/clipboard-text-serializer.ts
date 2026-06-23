@@ -1,6 +1,7 @@
 import type { NfmBlock, NfmColor, NfmInlineContent } from "./types";
 import { isChildlessNfmBlockType } from "./childless";
 import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
+import { serializeNfmTablePlainText } from "../../../shared/nfm/table";
 
 /**
  * Serialize NFM blocks into structure-preserving plain text for clipboard
@@ -81,6 +82,11 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
           lines.push(prefix + codeLine);
         }
         lines.push(prefix + fence);
+        break;
+      }
+
+      case "table": {
+        lines.push(...serializeNfmTablePlainText(block, indent));
         break;
       }
 

@@ -2,6 +2,7 @@ import type { NfmBlock, NfmColor } from "./types";
 import { isChildlessNfmBlockType } from "./childless";
 import { resolveOrderedListStarts } from "./ordered-list";
 import { serializeInlineContent } from "./serializer-inline";
+import { serializeNfmTable } from "./table";
 import { escapeXmlAttr } from "./xml-attributes";
 
 export function serializeNfm(blocks: NfmBlock[]): string {
@@ -63,6 +64,10 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
           lines.push(prefix + codeLine);
         }
         lines.push(prefix + fence);
+        break;
+      }
+      case "table": {
+        lines.push(...serializeNfmTable(block, indent));
         break;
       }
       case "callout": {

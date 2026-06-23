@@ -121,6 +121,7 @@ export type NfmBlockType =
   | "toggle"
   | "blockquote"
   | "codeBlock"
+  | "table"
   | "callout"
   | "image"
   | "toggleListInlineView"
@@ -181,6 +182,36 @@ export interface NfmCodeBlock extends NfmBlockBase {
   type: "codeBlock";
   language: string;
   code: string;
+}
+
+export type NfmTableAlignment = "left" | "center" | "right";
+
+export interface NfmTableColumn {
+  width?: number;
+  color?: NfmColor;
+  align?: NfmTableAlignment;
+}
+
+export interface NfmTableCell {
+  content: NfmInlineContent[];
+  color?: NfmColor;
+  colspan?: number;
+  rowspan?: number;
+}
+
+export interface NfmTableRow {
+  cells: NfmTableCell[];
+  color?: NfmColor;
+}
+
+export interface NfmTable extends NfmBlockBase {
+  type: "table";
+  rows: NfmTableRow[];
+  columns: NfmTableColumn[];
+  headerRow?: boolean;
+  headerColumn?: boolean;
+  fitPageWidth?: boolean;
+  sourceSyntax?: "gfm" | "nfmTable";
 }
 
 export interface NfmCallout extends NfmBlockBase {
@@ -246,6 +277,7 @@ export type NfmBlock =
   | NfmToggle
   | NfmBlockquote
   | NfmCodeBlock
+  | NfmTable
   | NfmCallout
   | NfmImage
   | NfmToggleListInlineView
