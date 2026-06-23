@@ -200,6 +200,7 @@ import type {
   ProjectSession,
   ProjectSessionDbView,
   ProjectSessionForkResult,
+  ProjectSessionPanelEnsureRightLeafResult,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
   ProjectSessionThreadLink,
@@ -1358,13 +1359,33 @@ function resolveTerminalTabIndex(session: ProjectSession, tab: ProjectSessionTab
   return index >= 0 ? index + 1 : 1;
 }
 
-function resolveCardTabTargetLeafId(session: ProjectSession, sourceTabId: string | undefined): string | undefined {
-  if (!sourceTabId) return undefined;
-  const sourceTab = session.tabs.find((tab) => tab.id === sourceTabId && tab.panelId === "right");
-  if (!sourceTab) return undefined;
+function resolveDbCardSourceLeafId(session: ProjectSession, sourceTabId: string | undefined): string | null {
+  if (!sourceTabId) return null;
+  const sourceTab = session.tabs.find((tab) =>
+    tab.id === sourceTabId
+    && tab.panelId === "right"
+    && tab.kind === "db_view"
+  );
+  if (!sourceTab) return null;
   const sourceLeafId = findProjectSessionPanelLeafForTab(session.panels.right.layout, sourceTab.id)?.id;
+  return sourceLeafId ?? null;
+}
+
+function resolveCardTabTargetLeafId(session: ProjectSession, sourceTabId: string | undefined): string | undefined {
+  const sourceLeafId = resolveDbCardSourceLeafId(session, sourceTabId);
   if (!sourceLeafId) return undefined;
   return findNearestProjectSessionPanelLeafToRight(session.panels.right.layout, sourceLeafId) ?? undefined;
+}
+
+function shouldEnsureRightLeafForDbCardOpen(
+  session: ProjectSession,
+  sourceLeafId: string | null,
+  rightPanelFullWidth: boolean,
+): sourceLeafId is string {
+  if (!sourceLeafId) return false;
+  if (!rightPanelFullWidth) return false;
+  if (findNearestProjectSessionPanelLeafToRight(session.panels.right.layout, sourceLeafId)) return false;
+  return listProjectSessionPanelLeaves(session.panels.right.layout).length === 1;
 }
 
 function readCardStagePanelTabCardRef(tab: ProjectSessionTab | null | undefined): {
@@ -3712,7 +3733,16 @@ export function WorkbenchShell({
       return;
     }
 
-    const targetLeafId = resolveCardTabTargetLeafId(activeSession, options?.sourceTabId);
+    const sourceLeafId = resolveDbCardSourceLeafId(activeSession, options?.sourceTabId);
+    let targetLeafId = resolveCardTabTargetLeafId(activeSession, options?.sourceTabId);
+    if (!targetLeafId && shouldEnsureRightLeafForDbCardOpen(activeSession, sourceLeafId, rightPanelFullWidth)) {
+      const result = (await invoke("project-session-panels:ensure-right-leaf", {
+        sessionId: activeSession.id,
+        panelId: "right",
+        sourceLeafId,
+      })) as ProjectSessionPanelEnsureRightLeafResult | null;
+      targetLeafId = result?.leafId;
+    }
     const previewLeafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, "right");
     const matchingPreviewTab = getRenderablePanelPreviewTab(activeSession, "right", previewLeafId, previewTabsByPanel);
     if (
@@ -3764,6 +3794,7 @@ export function WorkbenchShell({
     pinPreviewTab,
     previewTabsByPanel,
     refreshProjectSessions,
+    rightPanelFullWidth,
     setActivePanelTab,
     updateActivePanel,
   ]);

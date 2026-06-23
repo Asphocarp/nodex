@@ -797,6 +797,18 @@ export interface ProjectSessionPanelSplitInput {
   preserveEmptyLeafIds?: string[];
 }
 
+export interface ProjectSessionPanelEnsureRightLeafInput {
+  sessionId: string;
+  panelId: PanelId;
+  sourceLeafId: string;
+}
+
+export interface ProjectSessionPanelEnsureRightLeafResult {
+  session: ProjectSession;
+  leafId: string;
+  created: boolean;
+}
+
 export interface ProjectSessionPanelMergeInput {
   sessionId: string;
   panelId: PanelId;

@@ -119,6 +119,8 @@ import type {
   ProjectSessionListOptions,
   ProjectSessionPanelState,
   ProjectSessionPanelActivateInput,
+  ProjectSessionPanelEnsureRightLeafInput,
+  ProjectSessionPanelEnsureRightLeafResult,
   ProjectSessionPanelMaximizeInput,
   ProjectSessionPanelMergeInput,
   ProjectSessionPanelResizeInput,
@@ -469,6 +471,10 @@ export interface IpcApi {
     result: ProjectSession | null;
   };
   "project-session-panels:split": { args: [input: ProjectSessionPanelSplitInput]; result: ProjectSession | null };
+  "project-session-panels:ensure-right-leaf": {
+    args: [input: ProjectSessionPanelEnsureRightLeafInput];
+    result: ProjectSessionPanelEnsureRightLeafResult | null;
+  };
   "project-session-panels:merge": { args: [input: ProjectSessionPanelMergeInput]; result: ProjectSession | null };
   "project-session-panels:activate": { args: [input: ProjectSessionPanelActivateInput]; result: ProjectSession | null };
   "project-session-panels:resize": { args: [input: ProjectSessionPanelResizeInput]; result: ProjectSession | null };

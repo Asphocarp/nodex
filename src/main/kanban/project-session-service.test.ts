@@ -16,6 +16,7 @@ import {
   createProjectSessionTab,
   deleteProjectSessionTab,
   detachProjectSessionThread,
+  ensureProjectSessionPanelLeafToRight,
   getProjectSession,
   listProjectSessionThreadOwners,
   activateProjectSessionPanelGroup,
@@ -869,6 +870,94 @@ describe("project session service", () => {
       expect(JSON.stringify(targetLeaf?.tabIds ?? [])).toBe(JSON.stringify([review.id, card.id]));
       expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).id).toBe(initialLeafId);
       expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe(card.id);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("ensures a right-side empty leaf and preserves full-width panel state", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Ensure right leaf" });
+      const dbTab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "db_view",
+        title: "DB View",
+        config: { projectId: projectId, view: "kanban" },
+      });
+      const before = updateProjectSessionPanel(session.id, "right", {
+        size: { widthPx: 777, fullWidth: true },
+      });
+      const sourceLeafId = before ? getProjectSessionPanelActiveLeaf(before.panels.right.layout).id : "main";
+
+      const ensured = ensureProjectSessionPanelLeafToRight({
+        sessionId: session.id,
+        panelId: "right",
+        sourceLeafId,
+      });
+      const updated = getProjectSession(session.id);
+      const leaves = updated ? listProjectSessionPanelLeaves(updated.panels.right.layout) : [];
+      const sourceLeaf = leaves.find((leaf) => leaf.id === sourceLeafId);
+      const targetLeaf = leaves.find((leaf) => leaf.id === ensured?.leafId);
+
+      expect(ensured?.created).toBeTrue();
+      expect(leaves.length).toBe(2);
+      expect(JSON.stringify(sourceLeaf?.tabIds ?? [])).toBe(JSON.stringify([dbTab.id]));
+      expect(JSON.stringify(targetLeaf?.tabIds ?? [])).toBe(JSON.stringify([]));
+      expect(updated?.panels.right.size.fullWidth).toBeTrue();
+      expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).id).toBe(ensured?.leafId ?? "");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("reuses an existing nearest right leaf instead of creating another one", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Reuse right leaf" });
+      const dbTab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "db_view",
+        title: "DB View",
+        config: { projectId: projectId, view: "kanban" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: projectId, terminalSessionId: "term-existing-right" },
+      });
+      const initial = getProjectSession(session.id);
+      const sourceLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
+      splitProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId: sourceLeafId,
+        side: "right",
+        tabId: shell.id,
+      });
+      const split = getProjectSession(session.id);
+      const rightLeaf = split
+        ? listProjectSessionPanelLeaves(split.panels.right.layout).find((leaf) => leaf.tabIds.includes(shell.id))
+        : null;
+
+      const ensured = ensureProjectSessionPanelLeafToRight({
+        sessionId: session.id,
+        panelId: "right",
+        sourceLeafId,
+      });
+      const updated = getProjectSession(session.id);
+
+      expect(ensured?.created).toBeFalse();
+      expect(ensured?.leafId).toBe(rightLeaf?.id ?? "");
+      expect(listProjectSessionPanelLeaves(updated!.panels.right.layout).length).toBe(2);
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(updated!.panels.right.layout))).toBe(
+        JSON.stringify([dbTab.id, shell.id]),
+      );
     });
 
     if (!ran) expect(true).toBeTrue();

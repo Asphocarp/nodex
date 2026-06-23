@@ -7,6 +7,7 @@ import {
   getProjectSessionPanelActiveLeaf,
   getProjectSessionPanelTopLeftLeafId,
   getProjectSessionPanelTopRightLeafId,
+  insertProjectSessionPanelLeaf,
   listProjectSessionPanelLeaves,
   makeProjectSessionPanelLayout,
   mergeProjectSessionPanelLeaf,
@@ -73,6 +74,39 @@ describe("project session panel layout", () => {
     expect(split.activeLeafId).toBe("leaf:right");
     expect(JSON.stringify(flattenProjectSessionPanelTabIds(split))).toBe(JSON.stringify(["one", "two"]));
     expect(getProjectSessionPanelActiveLeaf(split).activeTabId).toBe("two");
+  });
+
+  test("inserts an empty right sibling leaf without moving existing tabs", () => {
+    const layout = makeProjectSessionPanelLayout(["one"], "one");
+    const inserted = insertProjectSessionPanelLeaf(layout, {
+      leafId: "main",
+      side: "right",
+      newLeafId: "leaf:right",
+      newBranchId: "branch:root",
+    });
+    const leaves = listProjectSessionPanelLeaves(inserted);
+    const main = leaves.find((leaf) => leaf.id === "main");
+    const right = leaves.find((leaf) => leaf.id === "leaf:right");
+
+    expect(inserted.root.type).toBe("split");
+    expect(inserted.activeLeafId).toBe("leaf:right");
+    expect(JSON.stringify(main?.tabIds ?? [])).toBe(JSON.stringify(["one"]));
+    expect(JSON.stringify(right?.tabIds ?? [])).toBe(JSON.stringify([]));
+    expect(JSON.stringify(flattenProjectSessionPanelTabIds(inserted))).toBe(JSON.stringify(["one"]));
+  });
+
+  test("does not insert an empty leaf when the source leaf is missing", () => {
+    const layout = makeProjectSessionPanelLayout(["one"], "one");
+    const inserted = insertProjectSessionPanelLeaf(layout, {
+      leafId: "missing",
+      side: "right",
+      newLeafId: "leaf:right",
+      newBranchId: "branch:root",
+    });
+
+    expect(inserted.root.type).toBe("leaf");
+    expect(listProjectSessionPanelLeaves(inserted).length).toBe(1);
+    expect(JSON.stringify(flattenProjectSessionPanelTabIds(inserted))).toBe(JSON.stringify(["one"]));
   });
 
   test("moves a tab between leaves without duplicating ownership", () => {

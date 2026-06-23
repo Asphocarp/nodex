@@ -10,6 +10,7 @@ import type {
   ProjectSessionPanelNode,
   ProjectSessionPanelState,
   ProjectSessionPanelActivateInput,
+  ProjectSessionPanelEnsureRightLeafInput,
   ProjectSessionPanelMaximizeInput,
   ProjectSessionPanelMergeInput,
   ProjectSessionPanelResizeInput,
@@ -264,6 +265,12 @@ export const ProjectSessionPanelSplitInputSchema = z.object({
   tabId: z.string().min(1).optional(),
   preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
 }) satisfies z.ZodType<ProjectSessionPanelSplitInput>;
+
+export const ProjectSessionPanelEnsureRightLeafInputSchema = z.object({
+  sessionId: z.string().min(1),
+  panelId: PanelIdSchema,
+  sourceLeafId: z.string().min(1),
+}) satisfies z.ZodType<ProjectSessionPanelEnsureRightLeafInput>;
 
 export const ProjectSessionPanelMergeInputSchema = z.object({
   sessionId: z.string().min(1),

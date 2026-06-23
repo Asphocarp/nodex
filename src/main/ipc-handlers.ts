@@ -490,6 +490,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     projectSessionService.splitProjectSessionPanelGroup(input)
   );
 
+  registerHandle("project-session-panels:ensure-right-leaf", (_, input) =>
+    projectSessionService.ensureProjectSessionPanelLeafToRight(input)
+  );
+
   registerHandle("project-session-panels:merge", (_, input) =>
     projectSessionService.mergeProjectSessionPanelGroup(input)
   );

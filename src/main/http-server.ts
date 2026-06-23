@@ -747,6 +747,23 @@ app.post("/api/project-sessions/:sessionId/panels/:panelId/split", async (c) => 
   }
 });
 
+app.post("/api/project-sessions/:sessionId/panels/:panelId/ensure-right-leaf", async (c) => {
+  const body = await c.req.json();
+  try {
+    const panelId = c.req.param("panelId");
+    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
+    const result = projectSessionService.ensureProjectSessionPanelLeafToRight({
+      ...body,
+      sessionId: c.req.param("sessionId"),
+      panelId,
+    });
+    if (!result) return c.json({ error: "Not found" }, 404);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
 app.post("/api/project-sessions/:sessionId/panels/:panelId/merge", async (c) => {
   const body = await c.req.json();
   try {

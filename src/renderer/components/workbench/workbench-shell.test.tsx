@@ -44,6 +44,8 @@ import type {
   WorkbenchPanelTabCycleDirection,
 } from "../../../shared/window-navigation";
 import {
+  findNearestProjectSessionPanelLeafToRight,
+  insertProjectSessionPanelLeaf,
   makeProjectSessionPanelLayout,
   removeProjectSessionPanelTab,
   splitProjectSessionPanelLeaf,
@@ -1500,6 +1502,41 @@ function renderWorkbench({
       };
       sessionState = replaceSession(sessionState, updated);
       return updated;
+    }
+    if (channel === "project-session-panels:ensure-right-leaf") {
+      const input = (args[0] ?? {}) as {
+        sessionId: string;
+        panelId: ProjectSessionTab["panelId"];
+        sourceLeafId: string;
+      };
+      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      if (!session) return null;
+      const panel = session.panels[input.panelId];
+      const existingLeafId = findNearestProjectSessionPanelLeafToRight(panel.layout, input.sourceLeafId);
+      if (existingLeafId) {
+        return { session, leafId: existingLeafId, created: false };
+      }
+
+      const leafId = `leaf:auto-right:${invokeCalls.length}`;
+      const layout = insertProjectSessionPanelLeaf(panel.layout, {
+        leafId: input.sourceLeafId,
+        side: "right",
+        newLeafId: leafId,
+        newBranchId: `branch:auto-right:${invokeCalls.length}`,
+      });
+      const updated = {
+        ...session,
+        panels: {
+          ...session.panels,
+          [input.panelId]: {
+            ...panel,
+            collapsed: false,
+            layout,
+          },
+        },
+      };
+      sessionState = replaceSession(sessionState, updated);
+      return { session: updated, leafId, created: true };
     }
     if (channel === "project-session-panels:activate") {
       const input = (args[0] ?? {}) as {
@@ -6681,7 +6718,7 @@ describe("workbench session shell", () => {
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
   });
 
-  test("opens cards from the DB tab as renderer-local card-stage previews", async () => {
+  test("opens full-width single-group DB cards as renderer-local previews in a new right group", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -6700,12 +6737,27 @@ describe("workbench session shell", () => {
 
     const tab = screen.getByRole("tab", { name: "Card One" });
     expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBeTrue();
+    expect(Boolean(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")?.startsWith("right:leaf:auto-right:"))).toBeTrue();
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+    expect(invokeCalls.some((call) => call[0] === "project-session-panels:ensure-right-leaf")).toBeTrue();
+    expect(invokeCalls.some((call) => {
+      const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
+      return call[0] === "project-session-panels:update"
+        && call[1] === "session:alpha:database-view"
+        && call[2] === "right"
+        && input?.size?.fullWidth === false;
+    })).toBeFalse();
   });
 
-  test("opens durable DB card-stage tabs when requested by the Kanban card action", async () => {
-    const screen = renderWorkbench();
+  test("opens durable DB card-stage tabs in the active group when the right panel is not full-width", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({ rightFullWidth: false }),
+        ],
+      },
+    });
     await settleAsyncRender();
     await settleAsyncRender();
 
@@ -6745,6 +6797,42 @@ describe("workbench session shell", () => {
     const tab = screen.getByRole("tab", { name: "Card One" });
     expect(tab.closest('[data-app-shell-tab-preview="true"]')).toBe(null);
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
+    expect(invokeCalls.some((call) => call[0] === "project-session-panels:ensure-right-leaf")).toBeFalse();
+  });
+
+  test("creates a right group before opening durable DB card-stage tabs from full-width single-group DB tabs", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (
+        projectId: string,
+        cardId: string,
+        title?: string,
+        options?: { openMode?: "preview" | "durable" },
+      ) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+        { openMode: "durable" },
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const ensureCall = invokeCalls.find((call) => call[0] === "project-session-panels:ensure-right-leaf");
+    expect(ensureCall !== undefined).toBeTrue();
+    const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
+    expect(createCall !== undefined).toBeTrue();
+    const input = createCall?.[1] as { targetLeafId?: string } | undefined;
+    expect(Boolean(input?.targetLeafId?.startsWith("leaf:auto-right:"))).toBeTrue();
+
+    const tab = screen.getByRole("tab", { name: "Card One" });
+    expect(tab.closest('[data-app-shell-tab-preview="true"]')).toBe(null);
+    expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).toBe(`right:${input?.targetLeafId ?? ""}`);
   });
 
   test("pins card-stage previews after panel interaction", async () => {
@@ -6764,10 +6852,16 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const previewTabId = screen.getByRole("tab", { name: "Card One" })
+    const previewTab = screen.getByRole("tab", { name: "Card One" });
+    const previewTabId = previewTab
       .closest("[data-panel-tab-id]")
       ?.getAttribute("data-panel-tab-id");
+    const previewLeafId = previewTab
+      .closest("[data-panel-tab-row]")
+      ?.getAttribute("data-panel-tab-row")
+      ?.replace("right:", "");
     expect(typeof previewTabId).toBe("string");
+    expect(typeof previewLeafId).toBe("string");
 
     invokeCalls = [];
     const editor = screen.container.querySelector(".nfm-editor .ProseMirror");
@@ -6785,7 +6879,7 @@ describe("workbench session shell", () => {
       expect(input?.sessionId).toBe("session:alpha:database-view");
       expect(input?.projectId).toBe("alpha");
       expect(input?.panelId).toBe("right");
-      expect(input?.targetLeafId).toBe("main");
+      expect(input?.targetLeafId).toBe(previewLeafId);
       expect(input?.clientTabId).toBe(previewTabId);
       expect(input?.kind).toBe("card_stage");
       expect(input?.title).toBe("Card One");
@@ -7505,6 +7599,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+    expect(invokeCalls.some((call) => call[0] === "project-session-panels:ensure-right-leaf")).toBeFalse();
     expect(invokeCalls.some((call) => {
       const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
       return call[0] === "project-session-panels:update"
@@ -7585,6 +7680,7 @@ describe("workbench session shell", () => {
     expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBeTrue();
     expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).toBe("right:leaf:browser");
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+    expect(invokeCalls.some((call) => call[0] === "project-session-panels:ensure-right-leaf")).toBeFalse();
   });
 
   test("persists active tab changes through the session API", async () => {

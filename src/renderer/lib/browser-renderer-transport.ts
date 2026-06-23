@@ -355,6 +355,15 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.ok ? res.json() : null;
     }
+    case "project-session-panels:ensure-right-leaf": {
+      const [input] = args as [{ sessionId: string; panelId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/ensure-right-leaf`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
     case "project-session-panels:merge": {
       const [input] = args as [{ sessionId: string; panelId: string }];
       const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/merge`), {

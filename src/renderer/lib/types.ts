@@ -81,6 +81,7 @@ export type {
   ProjectSessionPanelLayout,
   ProjectSessionPanelState,
   ProjectSessionPanelNode,
+  ProjectSessionPanelEnsureRightLeafResult,
   ProjectSessionPanelSplitSide,
   ProjectSessionSplitBranch,
   ProjectSessionSplitLeaf,

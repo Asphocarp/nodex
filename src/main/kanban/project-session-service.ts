@@ -4,6 +4,7 @@ import { requireProjectId } from "./project-service";
 import {
   ProjectSessionCreateInputSchema,
   ProjectSessionPanelActivateInputSchema,
+  ProjectSessionPanelEnsureRightLeafInputSchema,
   ProjectSessionPanelLayoutSchema,
   ProjectSessionPanelMaximizeInputSchema,
   ProjectSessionPanelMergeInputSchema,
@@ -25,10 +26,12 @@ import {
 } from "../../shared/schemas/project-sessions";
 import {
   activateProjectSessionPanelLeaf,
+  findNearestProjectSessionPanelLeafToRight,
   findProjectSessionPanelLeaf,
   findProjectSessionPanelLeafForTab,
   flattenProjectSessionPanelTabIds,
   getProjectSessionPanelActiveLeaf,
+  insertProjectSessionPanelLeaf,
   listProjectSessionPanelLeaves,
   makeProjectSessionPanelLayout,
   mergeProjectSessionPanelLeaf,
@@ -50,6 +53,8 @@ import type {
   ProjectSessionPanelLayout,
   ProjectSessionPanelState,
   ProjectSessionPanelActivateInput,
+  ProjectSessionPanelEnsureRightLeafInput,
+  ProjectSessionPanelEnsureRightLeafResult,
   ProjectSessionPanelMaximizeInput,
   ProjectSessionPanelMergeInput,
   ProjectSessionPanelResizeInput,
@@ -1207,6 +1212,57 @@ export function splitProjectSessionPanelGroup(input: ProjectSessionPanelSplitInp
   };
   getDb().transaction(() => persistPanelStatesAndOrders(parsed.sessionId, panels, [parsed.panelId]))();
   return getProjectSession(parsed.sessionId);
+}
+
+export function ensureProjectSessionPanelLeafToRight(
+  input: ProjectSessionPanelEnsureRightLeafInput,
+): ProjectSessionPanelEnsureRightLeafResult | null {
+  const parsed = ProjectSessionPanelEnsureRightLeafInputSchema.parse(input);
+  const session = getProjectSession(parsed.sessionId);
+  if (!session) return null;
+
+  const panelTabIds = session.tabs.filter((tab) => tab.panelId === parsed.panelId).map((tab) => tab.id);
+  const layout = normalizeProjectSessionPanelLayout(
+    session.panels[parsed.panelId].layout,
+    panelTabIds,
+    { preferredActiveLeafId: parsed.sourceLeafId },
+  );
+  const sourceLeaf = findProjectSessionPanelLeaf(layout, parsed.sourceLeafId);
+  if (!sourceLeaf) return null;
+
+  const existingLeafId = findNearestProjectSessionPanelLeafToRight(layout, sourceLeaf.id);
+  if (existingLeafId) {
+    return {
+      session,
+      leafId: existingLeafId,
+      created: false,
+    };
+  }
+
+  const leafId = randomUUID();
+  const nextLayout = insertProjectSessionPanelLeaf(layout, {
+    leafId: sourceLeaf.id,
+    side: "right",
+    newLeafId: leafId,
+    newBranchId: randomUUID(),
+  });
+  const panels: Record<PanelId, ProjectSessionPanelState> = {
+    ...session.panels,
+    [parsed.panelId]: {
+      ...session.panels[parsed.panelId],
+      collapsed: false,
+      layout: nextLayout,
+    },
+  };
+
+  getDb().transaction(() => persistPanelStatesAndOrders(parsed.sessionId, panels, [parsed.panelId]))();
+  const nextSession = getProjectSession(parsed.sessionId);
+  if (!nextSession) return null;
+  return {
+    session: nextSession,
+    leafId,
+    created: true,
+  };
 }
 
 export function mergeProjectSessionPanelGroup(input: ProjectSessionPanelMergeInput): ProjectSession | null {

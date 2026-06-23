@@ -24,6 +24,13 @@ interface SplitPanelLeafInput {
   tabId?: string;
 }
 
+interface InsertPanelLeafInput {
+  leafId: string;
+  newLeafId: string;
+  newBranchId: string;
+  side: ProjectSessionPanelSplitSide;
+}
+
 interface MovePanelTabInput {
   tabId: string;
   targetLeafId?: string | null;
@@ -485,6 +492,44 @@ export function splitProjectSessionPanelLeaf(
     },
   );
   return next;
+}
+
+export function insertProjectSessionPanelLeaf(
+  layout: ProjectSessionPanelLayout,
+  input: InsertPanelLeafInput,
+): ProjectSessionPanelLayoutV2 {
+  const allTabIds = flattenProjectSessionPanelTabIds(layout);
+  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds, {
+    preferredActiveLeafId: input.leafId,
+  });
+  const targetLeaf = findProjectSessionPanelLeaf(normalized, input.leafId);
+  if (!targetLeaf) return normalized;
+
+  const newLeaf = makeLeaf(input.newLeafId, [], null);
+  const direction = input.side === "left" || input.side === "right" ? "horizontal" : "vertical";
+  const newBranch: ProjectSessionSplitBranch = {
+    type: "split",
+    id: input.newBranchId,
+    direction,
+    first: input.side === "left" || input.side === "up" ? newLeaf : targetLeaf,
+    second: input.side === "left" || input.side === "up" ? targetLeaf : newLeaf,
+    ratio: 0.5,
+  };
+  const root = replaceLeaf(normalized.root, targetLeaf.id, newBranch);
+
+  return normalizeProjectSessionPanelLayout(
+    {
+      ...normalized,
+      root,
+      activeLeafId: newLeaf.id,
+      mruLeafIds: [newLeaf.id, ...normalized.mruLeafIds],
+      maximizedLeafId: null,
+    },
+    allTabIds,
+    {
+      preferredActiveLeafId: newLeaf.id,
+    },
+  );
 }
 
 export function moveProjectSessionPanelTab(
