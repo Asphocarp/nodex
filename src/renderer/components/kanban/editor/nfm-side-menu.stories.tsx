@@ -96,11 +96,15 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
 interface SideMenuStorySurfaceProps {
   initialQuery?: string;
   initialSubmenu?: NfmSideMenuSubmenuKey | null;
+  selectionTitle?: string;
+  selectedTopLevelBlockCount?: number;
   canUseColor?: boolean;
   canSendBlocks?: boolean;
   currentBlockType?: string;
   isTableBlock?: boolean;
   canUseTableHeaders?: boolean;
+  footerPrimary?: string | null;
+  footerSecondary?: string | null;
   narrow?: boolean;
   moveToInitialQuery?: string;
   moveToLoading?: boolean;
@@ -110,11 +114,15 @@ interface SideMenuStorySurfaceProps {
 function SideMenuStorySurface({
   initialQuery = "",
   initialSubmenu = null,
+  selectionTitle = "Text",
+  selectedTopLevelBlockCount = 1,
   canUseColor = true,
   canSendBlocks = true,
   currentBlockType = "paragraph",
   isTableBlock = false,
   canUseTableHeaders = false,
+  footerPrimary = "Last edited locally",
+  footerSecondary = "Now",
   narrow = false,
   moveToInitialQuery = "",
   moveToLoading = false,
@@ -126,6 +134,8 @@ function SideMenuStorySurface({
   const baseSections = useMemo(() => buildNfmSideMenuSections({
     currentBlockId: "block-1",
     currentBlockType,
+    selectionTitle,
+    selectedTopLevelBlockCount,
     isEditable: true,
     canUseColor,
     canSendBlocks,
@@ -139,6 +149,8 @@ function SideMenuStorySurface({
     canUseTableHeaders,
     currentBlockType,
     isTableBlock,
+    selectedTopLevelBlockCount,
+    selectionTitle,
   ]);
   const sections = useMemo(() => filterNfmSideMenuSections(baseSections, query), [baseSections, query]);
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
@@ -157,8 +169,12 @@ function SideMenuStorySurface({
           turnIntoItems={[
             { key: "paragraph", label: "Text", type: "paragraph", enabled: true },
             { key: "heading-1", label: "Heading 1", type: "heading", props: { level: 1, isToggleable: false }, enabled: true },
+            { key: "toggle-heading-1", label: "Toggle heading 1", type: "heading", props: { level: 1, isToggleable: true }, enabled: true },
+            { key: "toggle-heading-2", label: "Toggle heading 2", type: "heading", props: { level: 2, isToggleable: true }, enabled: true },
+            { key: "toggle-heading-3", label: "Toggle heading 3", type: "heading", props: { level: 3, isToggleable: true }, enabled: true },
             { key: "bullet-list", label: "Bulleted list", type: "bulletListItem", enabled: true },
             { key: "code", label: "Code", type: "codeBlock", enabled: true },
+            { key: "callout", label: "Callout", type: "callout", enabled: true },
           ]}
           colorOptions={[
             { color: "default", label: "Default" },
@@ -174,8 +190,8 @@ function SideMenuStorySurface({
           sourceCardId="source-card"
           textColor="blue"
           backgroundColor="yellow"
-          footerPrimary="Last edited locally"
-          footerSecondary="Now"
+          footerPrimary={footerPrimary}
+          footerSecondary={footerSecondary}
           onQueryChange={(nextQuery) => {
             setQuery(nextQuery);
             setFocusedIndex(nextQuery ? 0 : -1);
@@ -227,6 +243,50 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const TextBlock: Story = {
+  args: {
+    selectionTitle: "Text",
+    currentBlockType: "paragraph",
+  },
+};
+
+export const CodeBlock: Story = {
+  args: {
+    selectionTitle: "Code",
+    currentBlockType: "codeBlock",
+  },
+};
+
+export const HeadingBlock: Story = {
+  args: {
+    selectionTitle: "Heading 2",
+    currentBlockType: "heading",
+  },
+};
+
+export const ThreeBlocks: Story = {
+  args: {
+    selectionTitle: "3 blocks",
+    selectedTopLevelBlockCount: 3,
+  },
+};
+
+export const CardReferenceBlock: Story = {
+  args: {
+    selectionTitle: "Card reference",
+    currentBlockType: "cardRef",
+  },
+};
+
+export const ReferenceMocks: Story = {};
+
+export const NoFooterMetadata: Story = {
+  args: {
+    footerPrimary: null,
+    footerSecondary: null,
+  },
+};
 
 export const SearchNoResults: Story = {
   args: {

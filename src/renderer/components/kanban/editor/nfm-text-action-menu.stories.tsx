@@ -238,6 +238,8 @@ function TextActionMoreHandoffStorySurface() {
   const baseSections = useMemo(() => buildNfmSideMenuSections({
     currentBlockId: "block-1",
     currentBlockType: "paragraph",
+    selectionTitle: "2 blocks",
+    selectedTopLevelBlockCount: 2,
     isEditable: true,
     canUseColor: true,
     canSendBlocks: true,

@@ -78,12 +78,14 @@ import {
   flattenNfmSideMenuRows,
   getInitialNfmSideMenuFocusIndex,
   moveNfmSideMenuFocus,
+  resolveNfmSideMenuScopeTitle,
   shouldRenderNfmSideMenuSeparatorBefore,
   type NfmSideMenuAction,
   type NfmSideMenuActionKey,
   type NfmSideMenuFlatRow,
   type NfmSideMenuSection,
   type NfmSideMenuSubmenuKey,
+  type NfmSideMenuTargetBlockDescriptor,
 } from "./nfm-side-menu-model";
 import {
   computeNfmSideMenuPosition,
@@ -236,8 +238,8 @@ interface NfmSideMenuSurfaceProps {
   sourceCardId: string | null;
   textColor: string;
   backgroundColor: string;
-  footerPrimary: string;
-  footerSecondary: string;
+  footerPrimary: string | null;
+  footerSecondary: string | null;
   onQueryChange: (query: string) => void;
   onFocusIndexChange: (index: number) => void;
   onMoveFocus: (direction: 1 | -1) => void;
@@ -334,11 +336,15 @@ const SIDE_MENU_TURN_INTO_DEFINITIONS = [
   { key: "heading-1", label: "Heading 1", type: "heading", props: { level: 1, isToggleable: false } },
   { key: "heading-2", label: "Heading 2", type: "heading", props: { level: 2, isToggleable: false } },
   { key: "heading-3", label: "Heading 3", type: "heading", props: { level: 3, isToggleable: false } },
+  { key: "toggle-heading-1", label: "Toggle heading 1", type: "heading", props: { level: 1, isToggleable: true } },
+  { key: "toggle-heading-2", label: "Toggle heading 2", type: "heading", props: { level: 2, isToggleable: true } },
+  { key: "toggle-heading-3", label: "Toggle heading 3", type: "heading", props: { level: 3, isToggleable: true } },
   { key: "bullet-list", label: "Bulleted list", type: "bulletListItem" },
   { key: "numbered-list", label: "Numbered list", type: "numberedListItem" },
   { key: "todo-list", label: "To-do list", type: "checkListItem" },
   { key: "toggle-list", label: "Toggle list", type: "toggleListItem" },
   { key: "quote", label: "Quote", type: "quote" },
+  { key: "callout", label: "Callout", type: "callout" },
   { key: "code", label: "Code", type: "codeBlock" },
 ] as const;
 
@@ -481,6 +487,14 @@ function getCurrentBlockId(block: SideMenuBlock) {
   return typeof block.id === "string" && block.id.length > 0 ? block.id : null;
 }
 
+function toSideMenuTargetBlockDescriptor(block: SideMenuBlock): NfmSideMenuTargetBlockDescriptor {
+  return {
+    id: getCurrentBlockId(block),
+    type: typeof block.type === "string" ? block.type : null,
+    props: block.props,
+  };
+}
+
 function getEditorEditable(editor: SideMenuEditorRuntime) {
   if (editor.isEditable === false) return false;
   if (editor.prosemirrorView?.editable === false) return false;
@@ -540,9 +554,15 @@ function getTurnIntoItems(editor: SideMenuEditorRuntime): NfmSideMenuTurnIntoIte
 }
 
 function getBlockTypeIcon(item: NfmSideMenuTurnIntoItem) {
-  if (item.key === "heading-1") return <NfmSideMenuHeadingBlockIcon level={1} />;
-  if (item.key === "heading-2") return <NfmSideMenuHeadingBlockIcon level={2} />;
-  if (item.key === "heading-3") return <NfmSideMenuHeadingBlockIcon level={3} />;
+  if (item.key === "heading-1" || item.key === "toggle-heading-1") {
+    return <NfmSideMenuHeadingBlockIcon level={1} />;
+  }
+  if (item.key === "heading-2" || item.key === "toggle-heading-2") {
+    return <NfmSideMenuHeadingBlockIcon level={2} />;
+  }
+  if (item.key === "heading-3" || item.key === "toggle-heading-3") {
+    return <NfmSideMenuHeadingBlockIcon level={3} />;
+  }
   if (item.key === "bullet-list") return <NfmSideMenuBulletedListBlockIcon />;
   if (item.key === "numbered-list") return <NfmSideMenuNumberedListBlockIcon />;
   if (item.key === "todo-list") return <NfmSideMenuCheckListBlockIcon />;
@@ -1292,13 +1312,15 @@ export function NfmSideMenuSurface({
             })}
           </div>
         </div>
-        <div className="px-1 pb-1 text-[12px] leading-4 text-token-description-foreground">
-          <NfmSideMenuSeparator kind="footer" />
-          <div className="px-2 py-1.5">
-            <div className="truncate">{footerPrimary}</div>
-            <div className="truncate">{footerSecondary}</div>
+        {footerPrimary || footerSecondary ? (
+          <div className="px-1 pb-1 text-[12px] leading-4 text-token-description-foreground">
+            <NfmSideMenuSeparator kind="footer" />
+            <div className="px-2 py-1.5">
+              {footerPrimary ? <div className="truncate">{footerPrimary}</div> : null}
+              {footerSecondary ? <div className="truncate">{footerSecondary}</div> : null}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1334,22 +1356,53 @@ function NfmSideMenuPopup({
   const [visible, setVisible] = useState(false);
 
   const block = openState?.block;
-  const currentBlockId = block ? getCurrentBlockId(block) : null;
-  const colorSupport = block ? supportsBlockColor(editor, block) : { text: false, background: false };
+  const selectedActionBlocks = useMemo(
+    () => (openState && block ? getSideMenuActionBlocks(openState, block) : []),
+    [block, openState],
+  );
+  const topLevelSelectedBlocks = useMemo(
+    () => getTopLevelSideMenuActionBlocks(selectedActionBlocks),
+    [selectedActionBlocks],
+  );
+  const selectedTopLevelBlock = topLevelSelectedBlocks[0] ?? block ?? null;
+  const currentBlockId = selectedTopLevelBlock ? getCurrentBlockId(selectedTopLevelBlock) : null;
+  const colorTargetBlocks = selectedActionBlocks.length > 0
+    ? selectedActionBlocks
+    : block ? [block] : [];
+  const colorSupport = useMemo(() => {
+    if (colorTargetBlocks.length === 0) return { text: false, background: false };
+
+    return colorTargetBlocks.reduce(
+      (acc, selectedBlock) => {
+        const selectedSupport = supportsBlockColor(editor, selectedBlock);
+        return {
+          text: acc.text && selectedSupport.text,
+          background: acc.background && selectedSupport.background,
+        };
+      },
+      { text: true, background: true },
+    );
+  }, [colorTargetBlocks, editor]);
   const runtimeSnapshot = runtime.getSnapshot();
+  const selectionTitle = useMemo(
+    () => resolveNfmSideMenuScopeTitle(topLevelSelectedBlocks.map(toSideMenuTargetBlockDescriptor)),
+    [topLevelSelectedBlocks],
+  );
   const isEditable = getEditorEditable(editor);
   const baseSections = useMemo(() => buildNfmSideMenuSections({
     currentBlockId,
-    currentBlockType: block?.type ?? null,
+    currentBlockType: selectedTopLevelBlock?.type ?? null,
+    selectionTitle,
+    selectedTopLevelBlockCount: topLevelSelectedBlocks.length,
     isEditable,
     canUseColor: colorSupport.text || colorSupport.background,
     canSendBlocks: runtimeSnapshot.canSendBlocks,
     hasConvertDividerToThreadSection: runtimeSnapshot.hasConvertDividerToThreadSection,
-    isTableBlock: block?.type === "table",
+    isTableBlock: selectedTopLevelBlock?.type === "table",
     canUseTableHeaders: editor.settings?.tables?.headers === true,
     showMockActions: import.meta.env.DEV,
   }), [
-    block?.type,
+    selectedTopLevelBlock?.type,
     colorSupport.background,
     colorSupport.text,
     currentBlockId,
@@ -1357,6 +1410,8 @@ function NfmSideMenuPopup({
     runtimeSnapshot.hasConvertDividerToThreadSection,
     isEditable,
     runtimeSnapshot.canSendBlocks,
+    selectionTitle,
+    topLevelSelectedBlocks.length,
   ]);
   const sections = useMemo(
     () => filterNfmSideMenuSections(baseSections, query),
@@ -1464,10 +1519,11 @@ function NfmSideMenuPopup({
 
   const executeAction = useCallback((key: NfmSideMenuActionKey) => {
     if (!block || !currentBlockId || !openState) return;
-    if (!isEditable) return;
 
     const selectedBlocks = getSideMenuActionBlocks(openState, block);
     const topLevelSelectedBlocks = getTopLevelSideMenuActionBlocks(selectedBlocks);
+
+    if (!isEditable) return;
 
     if (key === "duplicate") {
       const referenceBlock = topLevelSelectedBlocks[topLevelSelectedBlocks.length - 1] ?? block;
@@ -1639,8 +1695,8 @@ function NfmSideMenuPopup({
         sourceCardId={runtimeSnapshot.sourceCardId}
         textColor={toStringProp(block.props, "textColor")}
         backgroundColor={toStringProp(block.props, "backgroundColor")}
-        footerPrimary="Last edited locally"
-        footerSecondary="Now"
+        footerPrimary={null}
+        footerSecondary={null}
         onQueryChange={setQuery}
         onFocusIndexChange={setFocusedIndex}
         onMoveFocus={(direction) => {

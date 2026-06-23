@@ -94,10 +94,18 @@ function renderSideMenuSurface({
   initialQuery = "",
   initialFocusedIndex = -1,
   showMockActions = true,
+  selectionTitle = "Text",
+  selectedTopLevelBlockCount = 1,
+  footerPrimary = "Last edited locally",
+  footerSecondary = "Now",
 }: {
   initialQuery?: string;
   initialFocusedIndex?: number;
   showMockActions?: boolean;
+  selectionTitle?: string;
+  selectedTopLevelBlockCount?: number;
+  footerPrimary?: string | null;
+  footerSecondary?: string | null;
 } = {}) {
   const calls = {
     rows: [] as string[],
@@ -110,6 +118,8 @@ function renderSideMenuSurface({
   const baseSections = buildNfmSideMenuSections({
     currentBlockId: "block-1",
     currentBlockType: "paragraph",
+    selectionTitle,
+    selectedTopLevelBlockCount,
     isEditable: true,
     canUseColor: true,
     canSendBlocks: true,
@@ -145,8 +155,8 @@ function renderSideMenuSurface({
         sourceCardId="source-card"
         textColor="default"
         backgroundColor="default"
-        footerPrimary="Last edited locally"
-        footerSecondary="Now"
+        footerPrimary={footerPrimary}
+        footerSecondary={footerSecondary}
         onQueryChange={(nextQuery) => {
           calls.queries.push(nextQuery);
           query = nextQuery;
@@ -198,6 +208,8 @@ function StatefulSideMenuSurface({
   const baseSections = useMemo(() => buildNfmSideMenuSections({
     currentBlockId: "block-1",
     currentBlockType: "paragraph",
+    selectionTitle: "Text",
+    selectedTopLevelBlockCount: 1,
     isEditable: true,
     canUseColor: true,
     canSendBlocks: true,
@@ -415,12 +427,42 @@ describe("nfm side menu surface", () => {
     expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='group']").length).toBe(4);
     expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='footer']").length).toBe(1);
 
-    const copyLink = view.getByRole("option", { name: /Copy link to block/ });
-    expect(copyLink.getAttribute("aria-disabled")).toBe("true");
-    expect(copyLink.textContent?.includes("Mock")).toBeTrue();
+    const askAi = view.getByRole("option", { name: /Ask AI/ });
+    expect(askAi.getAttribute("aria-disabled")).toBe("true");
+    expect(askAi.textContent?.includes("Mock")).toBeTrue();
 
-    fireEvent.click(copyLink);
+    fireEvent.click(askAi);
     expect(calls.rows.length).toBe(0);
+  });
+
+  test("renders the dynamic section title while hiding block-link rows in production", () => {
+    const { view } = renderSideMenuSurface({
+      selectionTitle: "Code",
+      showMockActions: false,
+    });
+
+    expect(view.getByText("Code")).not.toBeNull();
+    expect(view.queryByRole("option", { name: /Copy link to block/ }) === null).toBeTrue();
+  });
+
+  test("renders the multi-block title while hiding copy-link rows in production", () => {
+    const { view } = renderSideMenuSurface({
+      selectionTitle: "3 blocks",
+      selectedTopLevelBlockCount: 3,
+      showMockActions: false,
+    });
+
+    expect(view.getByText("3 blocks")).not.toBeNull();
+    expect(view.queryByRole("option", { name: /Copy links to all/ }) === null).toBeTrue();
+  });
+
+  test("hides the footer when no real metadata is available", () => {
+    const { view } = renderSideMenuSurface({
+      footerPrimary: null,
+      footerSecondary: null,
+    });
+
+    expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='footer']").length).toBe(0);
   });
 
   test("hides reference mock rows in production contexts", () => {

@@ -38,6 +38,7 @@ import {
 } from "@/lib/window-sessions";
 import { AppStartupScreen } from "@/components/app-startup-screen";
 import { NodexToastProvider } from "@/components/ui/toast";
+import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import type {
   Project,
@@ -566,6 +567,22 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     [],
   );
 
+  const handleCardDeepLinkHandled = useCallback(
+    (payload: { projectId: string; cardId: string }) => {
+      setPendingDeepLinkOpen((current) => {
+        if (!current) return null;
+        if (
+          current.projectId !== payload.projectId ||
+          current.cardId !== payload.cardId
+        ) {
+          return current;
+        }
+        return null;
+      });
+    },
+    [],
+  );
+
   const handleOpenProjectPicker = useCallback(() => {
     setProjectPickerOpenTick((tick) => tick + 1);
   }, []);
@@ -660,7 +677,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     projectId: string,
     cardId: string,
     _titleSnapshot?: string,
-    options?: {
+    options?: OpenCardStageOptions & {
       setDbProjectId?: string;
       activeCardsTabId?: string;
       activeRecentSessionId?: string | null;
@@ -969,16 +986,6 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [navigateToDbView, pendingReminderOpen, resolvedDbProjectId, resolvedView]);
 
   useEffect(() => {
-    if (!pendingDeepLinkOpen) return;
-    if (pendingDeepLinkOpen.projectId !== resolvedDbProjectId) return;
-
-    void navigateToCard(pendingDeepLinkOpen.projectId, pendingDeepLinkOpen.cardId, undefined, {
-      setDbProjectId: pendingDeepLinkOpen.projectId,
-    });
-    setPendingDeepLinkOpen(null);
-  }, [navigateToCard, pendingDeepLinkOpen, resolvedDbProjectId]);
-
-  useEffect(() => {
     if (!pendingSessionDeepLinkOpen) return;
     if (activeProjectSessionId !== pendingSessionDeepLinkOpen.sessionId) return;
     setPendingSessionDeepLinkOpen(null);
@@ -1176,8 +1183,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       cardStageCloseRef={cardStageCloseRef}
       cardStagePersistRef={cardStagePersistRef}
       pendingReminderOpen={pendingReminderOpen}
+      pendingCardDeepLinkOpen={pendingDeepLinkOpen}
       pendingSessionOpen={pendingSessionDeepLinkOpen}
       onReminderHandled={handleReminderHandled}
+      onCardDeepLinkHandled={handleCardDeepLinkHandled}
       onOpenProjectSessionInNewWindow={handleOpenProjectSessionInNewWindow}
       openCardStage={navigateToCard}
       setDbProject={setDbProjectState}

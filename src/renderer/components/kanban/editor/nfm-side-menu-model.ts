@@ -29,7 +29,7 @@ export interface NfmSideMenuAction {
   key: NfmSideMenuActionKey;
   label: string;
   kind: NfmSideMenuActionKind;
-  section: "reference" | "nodex" | "table";
+  section: "selection" | "nodex" | "table";
   visualGroup: NfmSideMenuVisualGroup;
   enabled: boolean;
   mockReason?: string;
@@ -40,14 +40,22 @@ export interface NfmSideMenuAction {
 }
 
 export interface NfmSideMenuSection {
-  key: "text" | "nodex" | "table";
+  key: "selection" | "nodex" | "table";
   label: string;
   rows: NfmSideMenuAction[];
+}
+
+export interface NfmSideMenuTargetBlockDescriptor {
+  id: string | null;
+  type: string | null;
+  props?: Record<string, unknown>;
 }
 
 export interface NfmSideMenuModelInput {
   currentBlockId: string | null;
   currentBlockType: string | null;
+  selectionTitle: string;
+  selectedTopLevelBlockCount: number;
   isEditable: boolean;
   canUseColor: boolean;
   canSendBlocks: boolean;
@@ -156,6 +164,50 @@ const REFERENCE_ACTIONS: readonly Omit<NfmSideMenuAction, "section" | "enabled" 
   },
 ] as const;
 
+function toNumberProp(props: Record<string, unknown> | undefined, key: string) {
+  const value = props?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function toBooleanProp(props: Record<string, unknown> | undefined, key: string) {
+  const value = props?.[key];
+  return typeof value === "boolean" ? value : false;
+}
+
+function resolveSingleBlockScopeTitle(block: NfmSideMenuTargetBlockDescriptor) {
+  if (block.type === "paragraph") return "Text";
+  if (block.type === "codeBlock") return "Code";
+  if (block.type === "heading") {
+    const level = toNumberProp(block.props, "level");
+    const normalizedLevel = level === 1 || level === 2 || level === 3 ? level : 1;
+    return toBooleanProp(block.props, "isToggleable")
+      ? `Toggle heading ${normalizedLevel}`
+      : `Heading ${normalizedLevel}`;
+  }
+  if (block.type === "bulletListItem") return "Bulleted list";
+  if (block.type === "numberedListItem") return "Numbered list";
+  if (block.type === "checkListItem") return "To-do list";
+  if (block.type === "toggleListItem") return "Toggle list";
+  if (block.type === "quote") return "Quote";
+  if (block.type === "divider") return "Divider";
+  if (block.type === "image") return "Image";
+  if (block.type === "callout") return "Callout";
+  if (block.type === "table") return "Table";
+  if (block.type === "cardRef") return "Card reference";
+  if (block.type === "cardToggle") return "Card";
+  if (block.type === "toggleListInlineView") return "Toggle list view";
+  if (block.type === "threadSection") return "Thread section";
+  return "Block";
+}
+
+export function resolveNfmSideMenuScopeTitle(
+  blocks: readonly NfmSideMenuTargetBlockDescriptor[],
+) {
+  if (blocks.length === 0) return "Block";
+  if (blocks.length > 1) return `${blocks.length} blocks`;
+  return resolveSingleBlockScopeTitle(blocks[0]!);
+}
+
 function enabledForReferenceAction(
   action: Pick<NfmSideMenuAction, "key">,
   input: NfmSideMenuModelInput,
@@ -178,9 +230,13 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
     if (isMockAction && !input.showMockActions) return [];
 
     const enabled = enabledForReferenceAction(action, input);
+    const label = action.key === "copy-link-to-block" && input.selectedTopLevelBlockCount > 1
+      ? "Copy links to all"
+      : action.label;
     return [{
       ...action,
-      section: "reference" as const,
+      label,
+      section: "selection" as const,
       enabled: isMockAction ? false : enabled,
       mockReason: isMockAction ? SIDE_MENU_MOCK_REASON : undefined,
     }];
@@ -190,6 +246,7 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
   if (
     input.currentBlockId
     && input.currentBlockType === "divider"
+    && input.selectedTopLevelBlockCount === 1
     && input.hasConvertDividerToThreadSection
   ) {
     nodexRows.push({
@@ -206,6 +263,7 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
   const tableRows: NfmSideMenuAction[] = input.currentBlockId
     && input.isTableBlock
     && input.canUseTableHeaders
+    && input.selectedTopLevelBlockCount === 1
     ? [
         {
           key: "table-header-row",
@@ -229,7 +287,7 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
     : [];
 
   const sections: NfmSideMenuSection[] = [
-    { key: "text", label: "Text", rows: referenceRows },
+    { key: "selection", label: input.selectionTitle, rows: referenceRows },
     { key: "nodex", label: "Nodex", rows: nodexRows },
     { key: "table", label: "Table", rows: tableRows },
   ];

@@ -17,6 +17,12 @@ describe("card deeplink", () => {
     expect(target?.cardId).toBe("card-42");
   });
 
+  test("parses card deeplinks while ignoring unsupported block query targets", () => {
+    const target = parseCardDeepLink("nodex://cards/card-42?block=block-1");
+
+    expect(target?.cardId).toBe("card-42");
+  });
+
   test("parses alternate empty-host card deeplinks", () => {
     const target = parseCardDeepLink("nodex:///cards/card-42");
 

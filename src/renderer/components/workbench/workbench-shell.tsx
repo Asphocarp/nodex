@@ -63,6 +63,7 @@ import {
 import { CommandPalette } from "./workbench-shell-deps";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
+import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarProjectsSectionActions } from "./sidebar-projects-section-actions";
 import {
@@ -581,6 +582,14 @@ interface WorkbenchShellProps {
     cardId: string;
     occurrenceStart: string;
   } | null;
+  pendingCardDeepLinkOpen?: {
+    projectId: string;
+    cardId: string;
+  } | null;
+  onCardDeepLinkHandled?: (payload: {
+    projectId: string;
+    cardId: string;
+  }) => void;
   pendingSessionOpen?: {
     projectId: string | null;
     sessionId: string;
@@ -592,7 +601,12 @@ interface WorkbenchShellProps {
     view: SupportedDbView,
     update: (prev: DbViewPrefs) => DbViewPrefs,
   ) => void;
-  openCardStage: (projectId: string, cardId: string, titleSnapshot?: string) => void;
+  openCardStage: (
+    projectId: string,
+    cardId: string,
+    titleSnapshot?: string,
+    options?: OpenCardStageOptions,
+  ) => void;
   onReminderHandled?: (payload: {
     projectId: string;
     cardId: string;
@@ -1408,6 +1422,8 @@ export function WorkbenchShell({
   cardStagePersistRef,
   cardStageSessionSnapshotRef,
   pendingReminderOpen,
+  pendingCardDeepLinkOpen,
+  onCardDeepLinkHandled,
   pendingSessionOpen,
   setDbProject,
   setSearchQuery,
@@ -3676,7 +3692,7 @@ export function WorkbenchShell({
 
   const openCardTab = useCallback<OpenCardTabHandler>(async (projectId, cardId, titleSnapshot, options) => {
     if (!activeSession || activeSession.projectId === null) {
-      openCardStage(projectId, cardId, titleSnapshot);
+      openCardStage(projectId, cardId, titleSnapshot, options);
       return;
     }
     const sessionProjectId = activeSession.projectId;
@@ -3732,7 +3748,11 @@ export function WorkbenchShell({
       ...(targetLeafId ? { targetLeafId } : {}),
       kind: "card_stage",
       title: titleSnapshot || cardId,
-      config: { projectId, cardId, titleSnapshot },
+      config: {
+        projectId,
+        cardId,
+        titleSnapshot,
+      },
     });
     await ensureActivePanelOpenWithoutRefresh("right");
     await refreshProjectSessions(sessionProjectId);
@@ -3747,6 +3767,29 @@ export function WorkbenchShell({
     setActivePanelTab,
     updateActivePanel,
   ]);
+
+  useEffect(() => {
+    if (!pendingCardDeepLinkOpen) return;
+    if (pendingCardDeepLinkOpen.projectId !== dbProjectId) return;
+
+    let cancelled = false;
+    void (async () => {
+      await openCardTab(
+        pendingCardDeepLinkOpen.projectId,
+        pendingCardDeepLinkOpen.cardId,
+        undefined,
+        {
+          openMode: "durable",
+        },
+      );
+      if (cancelled) return;
+      onCardDeepLinkHandled?.(pendingCardDeepLinkOpen);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dbProjectId, onCardDeepLinkHandled, openCardTab, pendingCardDeepLinkOpen]);
 
   const ensureBlankSessionForProject = useCallback(async (
     projectId: string,
