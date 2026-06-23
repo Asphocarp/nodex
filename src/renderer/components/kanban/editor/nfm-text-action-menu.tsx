@@ -13,10 +13,13 @@ import {
   forwardRef,
   type ComponentPropsWithoutRef,
   type CSSProperties,
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
+  useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -54,7 +57,6 @@ import {
 import {
   NodexPopover,
   NodexPopoverAnchor,
-  NodexPopoverContent,
 } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
@@ -78,6 +80,7 @@ import {
   NfmCreateLinkButton,
   type NfmCreateLinkTriggerProps,
 } from "./nfm-link-toolbar";
+import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import { NfmSendToThreadMenu } from "./nfm-send-to-thread-menu";
@@ -100,6 +103,7 @@ import {
   type TextActionNodexRow,
 } from "./nfm-text-action-menu-model";
 import { useNfmTextActionMenuRuntime } from "./nfm-text-action-menu-runtime";
+import { useNfmShowSelection } from "./nfm-show-selection";
 
 interface TextActionBlockTypeItem {
   key: string;
@@ -122,6 +126,10 @@ interface TextActionMenuSnapshot {
   canUseBackgroundColor: boolean;
   canClearFormat: boolean;
 }
+
+type TextActionActionPopoverKey = "send-to-thread" | "move-to";
+
+const NFM_TEXT_ACTION_MENU_SELECTION_KEY = "nfmTextActionMenuActionPopover";
 
 interface TextActionMoveToMenuRenderProps {
   sourceProjectId: string | null;
@@ -189,6 +197,7 @@ export interface NfmTextActionMenuSurfaceProps {
   onNodexRow: (row: TextActionNodexRow) => void;
   onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
   onSendBlocksToThread?: (request: NfmSendToThreadRequest) => Promise<void> | void;
+  onSelectionHoldChange?: (active: boolean) => void;
   renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
   renderSendToThreadMenu?: (props: TextActionSendToThreadMenuRenderProps) => ReactNode;
 }
@@ -1112,12 +1121,17 @@ function TextActionMoveToRow({
   onOpenChange: (open: boolean) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
+  const restoringRowFocusRef = useRef(false);
   const enabled = row.enabled && Boolean(onMoveBlocksToDestination);
 
   const closeAndRestoreFocus = () => {
     onOpenChange(false);
     requestAnimationFrame(() => {
+      restoringRowFocusRef.current = true;
       rowRef.current?.focus();
+      requestAnimationFrame(() => {
+        restoringRowFocusRef.current = false;
+      });
     });
   };
 
@@ -1154,6 +1168,7 @@ function TextActionMoveToRow({
             if (enabled) onOpenChange(true);
           }}
           onFocus={() => {
+            if (restoringRowFocusRef.current) return;
             if (enabled) onOpenChange(true);
           }}
           onClick={() => {
@@ -1161,20 +1176,19 @@ function TextActionMoveToRow({
           }}
         />
       </NodexPopoverAnchor>
-      <NodexPopoverContent
+      <NfmEditorPopoverContent
         side="right"
         align="start"
         sideOffset={6}
         alignOffset={-4}
         aria-label="Move to"
-        onCloseAutoFocus={(event) => event.preventDefault()}
         className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
         style={{ width: 330 }}
       >
         {renderMoveToMenu?.(menuProps) ?? (
           <NfmMoveToMenu {...menuProps} />
         )}
-      </NodexPopoverContent>
+      </NfmEditorPopoverContent>
     </NodexPopover>
   );
 }
@@ -1199,12 +1213,17 @@ function TextActionSendToThreadRow({
   onOpenChange: (open: boolean) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
+  const restoringRowFocusRef = useRef(false);
   const enabled = row.enabled && Boolean(projectId) && Boolean(onSendBlocksToThread);
 
   const closeAndRestoreFocus = () => {
     onOpenChange(false);
     requestAnimationFrame(() => {
+      restoringRowFocusRef.current = true;
       rowRef.current?.focus();
+      requestAnimationFrame(() => {
+        restoringRowFocusRef.current = false;
+      });
     });
   };
 
@@ -1242,6 +1261,7 @@ function TextActionSendToThreadRow({
             if (enabled) onOpenChange(true);
           }}
           onFocus={() => {
+            if (restoringRowFocusRef.current) return;
             if (enabled) onOpenChange(true);
           }}
           onClick={() => {
@@ -1249,20 +1269,19 @@ function TextActionSendToThreadRow({
           }}
         />
       </NodexPopoverAnchor>
-      <NodexPopoverContent
+      <NfmEditorPopoverContent
         side="right"
         align="start"
         sideOffset={6}
         alignOffset={-4}
         aria-label="Send to chat"
-        onCloseAutoFocus={(event) => event.preventDefault()}
         className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
         style={{ width: 330 }}
       >
         {renderSendToThreadMenu?.(menuProps) ?? (
           <NfmSendToThreadMenu {...menuProps} />
         )}
-      </NodexPopoverContent>
+      </NfmEditorPopoverContent>
     </NodexPopover>
   );
 }
@@ -1277,6 +1296,7 @@ function TextActionAiPane({
   onNodexRow,
   onMoveBlocksToDestination,
   onSendBlocksToThread,
+  onActionPopoverOpenChange,
   renderMoveToMenu,
   renderSendToThreadMenu,
 }: Pick<
@@ -1292,8 +1312,29 @@ function TextActionAiPane({
   | "onSendBlocksToThread"
   | "renderMoveToMenu"
   | "renderSendToThreadMenu"
->) {
-  const [activePopover, setActivePopover] = useState<"send-to-thread" | "move-to" | null>(null);
+> & {
+  onActionPopoverOpenChange?: (open: boolean) => void;
+}) {
+  const [activePopover, setActivePopover] = useState<TextActionActionPopoverKey | null>(null);
+
+  useEffect(() => {
+    onActionPopoverOpenChange?.(activePopover !== null);
+  }, [activePopover, onActionPopoverOpenChange]);
+
+  useEffect(() => () => {
+    onActionPopoverOpenChange?.(false);
+  }, [onActionPopoverOpenChange]);
+
+  const setActionPopoverOpen = (
+    popover: TextActionActionPopoverKey,
+    nextOpen: boolean,
+  ) => {
+    setActivePopover((currentPopover) => {
+      if (nextOpen) return popover;
+      if (currentPopover !== popover) return currentPopover;
+      return null;
+    });
+  };
 
   return (
     <div className="relative">
@@ -1315,7 +1356,7 @@ function TextActionAiPane({
                     onSendBlocksToThread={onSendBlocksToThread}
                     renderSendToThreadMenu={renderSendToThreadMenu}
                     open={activePopover === "send-to-thread"}
-                    onOpenChange={(nextOpen) => setActivePopover(nextOpen ? "send-to-thread" : null)}
+                    onOpenChange={(nextOpen) => setActionPopoverOpen("send-to-thread", nextOpen)}
                   />
                 );
               }
@@ -1330,7 +1371,7 @@ function TextActionAiPane({
                     onMoveBlocksToDestination={onMoveBlocksToDestination}
                     renderMoveToMenu={renderMoveToMenu}
                     open={activePopover === "move-to"}
-                    onOpenChange={(nextOpen) => setActivePopover(nextOpen ? "move-to" : null)}
+                    onOpenChange={(nextOpen) => setActionPopoverOpen("move-to", nextOpen)}
                   />
                 );
               }
@@ -1418,10 +1459,58 @@ export function NfmTextActionMenuSurface({
   onNodexRow,
   onMoveBlocksToDestination,
   onSendBlocksToThread,
+  onSelectionHoldChange,
   renderMoveToMenu,
   renderSendToThreadMenu,
 }: NfmTextActionMenuSurfaceProps) {
   const showAiPane = showReferenceMocks || nodexRows.length > 0;
+  const [toolbarFocusWithin, setToolbarFocusWithin] = useState(false);
+  const [actionPopoverOpen, setActionPopoverOpen] = useState(false);
+  const actionPopoverCloseFrameRef = useRef<number | null>(null);
+  const selectionHoldActive = toolbarFocusWithin || actionPopoverOpen;
+
+  useEffect(() => () => {
+    if (actionPopoverCloseFrameRef.current === null) return;
+    cancelAnimationFrame(actionPopoverCloseFrameRef.current);
+  }, []);
+
+  useEffect(() => {
+    onSelectionHoldChange?.(selectionHoldActive);
+  }, [onSelectionHoldChange, selectionHoldActive]);
+
+  useEffect(() => () => {
+    onSelectionHoldChange?.(false);
+  }, [onSelectionHoldChange]);
+
+  const handleToolbarFocusCapture = () => {
+    setToolbarFocusWithin(true);
+  };
+
+  const handleToolbarBlurCapture = (event: FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+
+    setToolbarFocusWithin(false);
+  };
+
+  const handleActionPopoverOpenChange = useCallback((open: boolean) => {
+    if (actionPopoverCloseFrameRef.current !== null) {
+      cancelAnimationFrame(actionPopoverCloseFrameRef.current);
+      actionPopoverCloseFrameRef.current = null;
+    }
+
+    if (open) {
+      setActionPopoverOpen(true);
+      return;
+    }
+
+    actionPopoverCloseFrameRef.current = requestAnimationFrame(() => {
+      actionPopoverCloseFrameRef.current = null;
+      setActionPopoverOpen(false);
+    });
+  }, []);
 
   return (
     <div className="pointer-events-none p-4" contentEditable={false}>
@@ -1429,6 +1518,8 @@ export function NfmTextActionMenuSurface({
         className="pointer-events-auto flex w-[192px] flex-col items-stretch overflow-hidden rounded-[14px] bg-token-dropdown-background p-2 text-[14px] leading-[1.2] text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-xl"
         role="toolbar"
         aria-label="Text actions"
+        onFocusCapture={handleToolbarFocusCapture}
+        onBlurCapture={handleToolbarBlurCapture}
       >
         <TextActionBlockTypeMenu
           currentBlockTypeLabel={currentBlockTypeLabel}
@@ -1551,6 +1642,7 @@ export function NfmTextActionMenuSurface({
             onNodexRow={onNodexRow}
             onMoveBlocksToDestination={onMoveBlocksToDestination}
             onSendBlocksToThread={onSendBlocksToThread}
+            onActionPopoverOpenChange={handleActionPopoverOpenChange}
             renderMoveToMenu={renderMoveToMenu}
             renderSendToThreadMenu={renderSendToThreadMenu}
           />
@@ -1568,12 +1660,17 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
   });
   const runtime = useNfmTextActionMenuRuntime();
   const sideMenuOpenController = useNfmSideMenuOpenController();
+  const [selectionHoldActive, setSelectionHoldActive] = useState(false);
   const snapshot = useEditorState({
     editor,
     selector: ({ editor }) => createTextActionMenuSnapshot(
       editor as unknown as TextActionSnapshotEditor,
     ),
   });
+  useNfmShowSelection(
+    snapshot.eligible && selectionHoldActive,
+    NFM_TEXT_ACTION_MENU_SELECTION_KEY,
+  );
 
   const nodexRows = useMemo(
     () => resolveNodexTextActionRows({
@@ -1700,6 +1797,7 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       onNodexRow={handleNodexRow}
       onMoveBlocksToDestination={handleMoveBlocksToDestination}
       onSendBlocksToThread={handleSendBlocksToThread}
+      onSelectionHoldChange={setSelectionHoldActive}
     />
   );
 }

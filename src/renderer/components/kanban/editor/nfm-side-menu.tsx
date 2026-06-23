@@ -67,9 +67,9 @@ import {
 import {
   NodexPopover,
   NodexPopoverAnchor,
-  NodexPopoverContent,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import {
@@ -781,15 +781,13 @@ function NfmSideMenuRow({
       <NodexPopoverAnchor asChild>
         {rowElement}
       </NodexPopoverAnchor>
-      <NodexPopoverContent
+      <NfmEditorPopoverContent
         side="right"
         align="start"
         sideOffset={6}
         alignOffset={-4}
         aria-label={row.label}
         data-nfm-side-menu-submenu="true"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onCloseAutoFocus={(event) => event.preventDefault()}
         className={cn(
           "text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl",
           isMoveToSubmenu
@@ -799,7 +797,7 @@ function NfmSideMenuRow({
         style={{ width: submenuWidth }}
       >
         {submenuContent}
-      </NodexPopoverContent>
+      </NfmEditorPopoverContent>
     </NodexPopover>
   );
 }
@@ -1069,22 +1067,20 @@ function NfmSideMenuSubmenu({
                 Card in
               </NfmSideMenuSubmenuRow>
             </NodexPopoverAnchor>
-            <NodexPopoverContent
+            <NfmEditorPopoverContent
               side="right"
               align="start"
               sideOffset={6}
               alignOffset={-4}
               aria-label="Card in"
               data-nfm-side-menu-submenu="true"
-              onOpenAutoFocus={(event) => event.preventDefault()}
-              onCloseAutoFocus={(event) => event.preventDefault()}
               className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
               style={{ width: 330 }}
             >
               {renderMoveToMenu?.(cardInMenuProps) ?? (
                 <NfmMoveToMenu {...cardInMenuProps} />
               )}
-            </NodexPopoverContent>
+            </NfmEditorPopoverContent>
           </NodexPopover>
         </div>
       ) : null}

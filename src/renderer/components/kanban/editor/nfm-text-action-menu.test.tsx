@@ -150,6 +150,7 @@ function renderTextActionMenu(
     nodexRows: [] as string[],
     moveDestinations: [] as NfmMoveToDestination[],
     sendRequests: [] as NfmSendToThreadRequest[],
+    selectionHoldStates: [] as boolean[],
   };
 
   const view = render(
@@ -227,6 +228,9 @@ function renderTextActionMenu(
         onSendBlocksToThread={(request) => {
           actions.sendRequests.push(request);
         }}
+        onSelectionHoldChange={(active) => {
+          actions.selectionHoldStates.push(active);
+        }}
         {...props}
       />
     </NodexTooltipProvider>,
@@ -249,6 +253,15 @@ describe("nfm text action menu surface", () => {
       });
       await settleAsyncRender();
     });
+  }
+
+  function installFocusProbe() {
+    const focusProbe = document.createElement("button");
+    focusProbe.type = "button";
+    focusProbe.textContent = "Focus probe";
+    document.body.appendChild(focusProbe);
+    focusProbe.focus();
+    return focusProbe;
   }
 
   test("renders the fixture-level action hierarchy with inactive reference mocks", () => {
@@ -754,8 +767,109 @@ describe("nfm text action menu surface", () => {
     expect(cardDestination.cardId).toBe("target-card");
   });
 
-  test("keeps only one Nodex action popover open", async () => {
+  test("hover-opening the send-to-chat picker does not autofocus search", async () => {
+    const focusProbe = installFocusProbe();
+    try {
+      const { view } = renderTextActionMenu({
+        renderSendToThreadMenu: (props) => (
+          <NfmSendToThreadMenuSurface
+            {...props}
+            threadItems={SEND_TO_THREAD_THREADS}
+            enableThreadContentSearch={false}
+          />
+        ),
+      });
+
+      await act(async () => {
+        fireEvent.pointerEnter(view.getByRole("button", { name: "Send to chat" }));
+        await settleAsyncRender();
+      });
+
+      const searchInput = view.getByRole("combobox", { name: "Search threads" });
+      expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBeTrue();
+      expect(document.activeElement === focusProbe).toBeTrue();
+      expect(document.activeElement === searchInput).toBeFalse();
+    } finally {
+      focusProbe.remove();
+    }
+  });
+
+  test("focus-opening the move-to picker keeps focus on the action row", async () => {
     const { view } = renderTextActionMenu({
+      renderMoveToMenu: (props) => (
+        <NfmMoveToMenuSurface
+          {...props}
+          projects={MOVE_TO_PROJECTS}
+          boardMap={MOVE_TO_BOARD_MAP}
+          loading={false}
+          loadError={null}
+        />
+      ),
+    });
+    const moveRow = view.getByRole("button", { name: "Move to" });
+
+    await act(async () => {
+      moveRow.focus();
+      fireEvent.focus(moveRow);
+      await settleAsyncRender();
+    });
+
+    const searchInput = view.getByRole("combobox", { name: "Move blocks to" });
+    expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBeTrue();
+    expect(document.activeElement === moveRow).toBeTrue();
+    expect(document.activeElement === searchInput).toBeFalse();
+  });
+
+  test("reports selection preservation while an action picker is active", async () => {
+    const focusProbe = installFocusProbe();
+    try {
+      const { actions, view } = renderTextActionMenu({
+        renderSendToThreadMenu: (props) => (
+          <NfmSendToThreadMenuSurface
+            {...props}
+            threadItems={SEND_TO_THREAD_THREADS}
+            enableThreadContentSearch={false}
+          />
+        ),
+      });
+
+      await act(async () => {
+        fireEvent.pointerEnter(view.getByRole("button", { name: "Send to chat" }));
+        await settleAsyncRender();
+      });
+
+      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBeTrue();
+
+      const searchInput = view.getByRole("combobox", { name: "Search threads" });
+      await act(async () => {
+        searchInput.focus();
+        fireEvent.focus(searchInput);
+        await settleAsyncRender();
+      });
+      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBeTrue();
+
+      await act(async () => {
+        fireEvent.keyDown(searchInput, { key: "Escape" });
+        await settleAsyncRender();
+      });
+
+      expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBeTrue();
+
+      await act(async () => {
+        const sendRow = view.getByRole("button", { name: "Send to chat" });
+        fireEvent.blur(sendRow, { relatedTarget: focusProbe });
+        focusProbe.focus();
+        await settleAsyncRender();
+      });
+
+      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBeFalse();
+    } finally {
+      focusProbe.remove();
+    }
+  });
+
+  test("keeps only one Nodex action popover open", async () => {
+    const { actions, view } = renderTextActionMenu({
       renderSendToThreadMenu: (props) => (
         <NfmSendToThreadMenuSurface
           {...props}
@@ -787,6 +901,13 @@ describe("nfm text action menu surface", () => {
 
     expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBeTrue();
     expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBeTrue();
+
+    const firstActiveIndex = actions.selectionHoldStates.indexOf(true);
+    const inactiveAfterFirstActive = actions.selectionHoldStates
+      .slice(firstActiveIndex + 1)
+      .some((active) => !active);
+    expect(firstActiveIndex >= 0).toBeTrue();
+    expect(inactiveAfterFirstActive).toBeFalse();
   });
 
   test("shows hover tooltips for icon-only formatting buttons", async () => {
