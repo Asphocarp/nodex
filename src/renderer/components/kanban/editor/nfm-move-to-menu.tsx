@@ -57,15 +57,13 @@ export interface NfmMoveToMenuSurfaceProps extends NfmMoveToMenuProps {
 const MOVE_TO_MENU_LOAD_DELAY_MS = 400;
 const MOVE_TO_MENU_ERROR = "Something went wrong";
 const MOVE_TO_ROW_BASE_PADDING_X = 6;
-const MOVE_TO_ROW_DISCLOSURE_SLOT_WIDTH = 20;
 const MOVE_TO_ROW_GAP = 6;
 const MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH = 22;
 const MOVE_TO_ROW_COLUMN_ICON_SLOT_WIDTH = 18;
 const MOVE_TO_ROW_COLUMN_PADDING_LEFT =
   MOVE_TO_ROW_BASE_PADDING_X
-  + MOVE_TO_ROW_DISCLOSURE_SLOT_WIDTH
-  + MOVE_TO_ROW_GAP
   + MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH
+  + MOVE_TO_ROW_GAP
   - MOVE_TO_ROW_COLUMN_ICON_SLOT_WIDTH;
 
 function getMoveToRowDomId(listboxId: string, index: number) {
@@ -204,23 +202,36 @@ function NfmMoveToResultRow({
         onAccept(row);
       }}
     >
-      {row.kind === "db" ? (
-        <span className="flex size-5 shrink-0 items-center justify-center text-token-description-foreground">
-          <NfmSideMenuChevronRightIcon
-            className={cn(
-              "size-3 transition-transform duration-150 ease-out",
-              row.expanded ? "rotate-90" : "rotate-0",
-            )}
-          />
-        </span>
-      ) : null}
       <span
         className={cn(
-          "flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground",
+          "relative flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground",
           row.kind === "db-column" && "w-[18px]",
         )}
       >
-        <MoveToRowIcon row={row} />
+        {row.kind === "db" ? (
+          <>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute inset-0 flex items-center justify-center",
+                "group-hover:opacity-0 group-focus-visible:opacity-0",
+                focused && "opacity-0",
+              )}
+            >
+              <MoveToRowIcon row={row} />
+            </span>
+            <NfmSideMenuChevronRightIcon
+              className={cn(
+                "icon-2xs opacity-0 transition-transform duration-150 ease-out",
+                "group-hover:opacity-100 group-focus-visible:opacity-100",
+                focused && "opacity-100",
+                row.expanded ? "rotate-90" : "rotate-0",
+              )}
+            />
+          </>
+        ) : (
+          <MoveToRowIcon row={row} />
+        )}
       </span>
       <span className="min-w-0 flex-1 truncate">
         {getMoveToRowLabel(row)}
