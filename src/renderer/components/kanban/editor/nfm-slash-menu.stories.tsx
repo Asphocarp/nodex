@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DefaultReactSuggestionItem, SuggestionMenuProps } from "@blocknote/react";
 import { FileText, Heading1, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { NfmSuggestionMenuSurface } from "./nfm-slash-menu";
+import { CodexThreadIcon } from "@/components/shared/icons";
+import { NfmSuggestionMenuSurface, type NfmSuggestionItem } from "./nfm-slash-menu";
 
 const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
   {
@@ -61,32 +62,45 @@ const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
   },
 ];
 
-const MENTION_ITEMS: DefaultReactSuggestionItem[] = [
+const MENTION_ITEMS: NfmSuggestionItem[] = [
+  {
+    title: "Prioritize mention picker results",
+    subtext: "Nodex / Running / current-project snippet match",
+    tooltipContent: "Nodex / Running / current-project snippet match",
+    aliases: [],
+    group: "Current project",
+    hint: null,
+    icon: <CodexThreadIcon className="size-4" />,
+    onItemClick: () => undefined,
+  },
   {
     title: "Refine slash menu polish",
-    subtext: "default / In Progress",
+    subtext: "Nodex / In progress / card description match",
+    tooltipContent: "Nodex / In progress / card description match",
     aliases: [],
-    group: "default",
-    badge: "@",
-    icon: <Link2 size={16} />,
+    group: "Current project",
+    hint: null,
+    icon: <FileText className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
   {
     title: "Codex image input thread-section coverage",
-    subtext: "default / Done",
+    subtext: "Desktop",
+    tooltipContent: "Desktop / Transcript search hit",
     aliases: [],
-    group: "default",
-    badge: "@",
-    icon: <Link2 size={16} />,
+    group: "Chats",
+    hint: null,
+    icon: <CodexThreadIcon className="size-4" />,
     onItemClick: () => undefined,
   },
   {
     title: "Workspace restoration edge cases",
-    subtext: "desktop / Draft",
+    subtext: "Desktop / Backlog",
+    tooltipContent: "Desktop / Backlog / description search hit",
     aliases: [],
-    group: "desktop",
-    badge: "@",
-    icon: <Link2 size={16} />,
+    group: "Cards",
+    hint: null,
+    icon: <FileText className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
   },
 ];
@@ -122,7 +136,7 @@ const meta = {
     layout: "centered",
     docs: {
       description: {
-        component: "Compact Nodex-native BlockNote suggestion menu surface used by NFM slash commands and card mentions.",
+        component: "Compact Nodex-native BlockNote suggestion menu surface used by NFM slash commands and mentions.",
       },
     },
   },

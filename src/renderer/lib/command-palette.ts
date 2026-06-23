@@ -483,6 +483,31 @@ function compareScoredCommands(left: ScoredCommand, right: ScoredCommand): numbe
   return left.item.title.localeCompare(right.item.title);
 }
 
+function compareActiveProjectItems(
+  left: { inActiveProject: boolean },
+  right: { inActiveProject: boolean },
+): number {
+  if (left.inActiveProject === right.inActiveProject) return 0;
+  return left.inActiveProject ? -1 : 1;
+}
+
+export function prioritizeActiveProjectItems<T extends { inActiveProject: boolean }>(
+  items: readonly T[],
+): T[] {
+  const activeItems: T[] = [];
+  const otherItems: T[] = [];
+  items.forEach((item) => {
+    if (item.inActiveProject) {
+      activeItems.push(item);
+      return;
+    }
+
+    otherItems.push(item);
+  });
+
+  return [...activeItems, ...otherItems];
+}
+
 function compareDefaultCards(left: CommandPaletteCard, right: CommandPaletteCard): number {
   if (left.inActiveProject !== right.inActiveProject) {
     return left.inActiveProject ? -1 : 1;
@@ -504,6 +529,10 @@ function compareDefaultCards(left: CommandPaletteCard, right: CommandPaletteCard
 function compareScoredCards(left: ScoredCard, right: ScoredCard): number {
   if (right.score !== left.score) return right.score - left.score;
   return compareDefaultCards(left.item, right.item);
+}
+
+function compareScoredCardsWithActiveProjectPriority(left: ScoredCard, right: ScoredCard): number {
+  return compareActiveProjectItems(left.item, right.item) || compareScoredCards(left, right);
 }
 
 function compareDefaultThreads(left: CommandPaletteThread, right: CommandPaletteThread): number {
@@ -531,6 +560,10 @@ function compareScoredThreads(left: ScoredThread, right: ScoredThread): number {
   return compareDefaultThreads(left.item, right.item);
 }
 
+function compareScoredThreadsWithActiveProjectPriority(left: ScoredThread, right: ScoredThread): number {
+  return compareActiveProjectItems(left.item, right.item) || compareScoredThreads(left, right);
+}
+
 export function filterCommandPaletteItems(input: {
   query: string;
   mode: CommandMenuMode;
@@ -543,10 +576,12 @@ export function filterCommandPaletteItems(input: {
   commandLimit?: number;
   cardLimit?: number;
   threadLimit?: number;
+  preferActiveProject?: boolean;
 }): CommandPaletteResults {
   const query = normalizeCommandPaletteSearchText(input.query.trimStart());
   const tokens = tokenizeSearchQuery(query);
   const cardFilters = input.cardFilters ?? getDefaultCommandPaletteCardFilters();
+  const preferActiveProject = input.preferActiveProject ?? false;
 
   if (input.mode === "root") {
     const commands = input.commands
@@ -573,11 +608,10 @@ export function filterCommandPaletteItems(input: {
             ? createCommandPaletteThreadSearchIndex(threadItems).search(query)
             : input.threadSearchIndex?.search(query) ?? []
         )
-          .sort(compareScoredThreads)
+          .sort(preferActiveProject ? compareScoredThreadsWithActiveProjectPriority : compareScoredThreads)
           .slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT)
           .map(({ item }) => item)
-      : threadItems
-          .slice()
+      : (preferActiveProject ? prioritizeActiveProjectItems(threadItems) : threadItems.slice())
           .slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT);
 
     return {
@@ -606,7 +640,7 @@ export function filterCommandPaletteItems(input: {
           : input.cardSearchIndex?.search(query) ?? []
       )
         .filter(({ item }) => matchesCommandPaletteCardFilters(item, cardFilters))
-        .sort(compareScoredCards)
+        .sort(preferActiveProject ? compareScoredCardsWithActiveProjectPriority : compareScoredCards)
         .slice(0, input.cardLimit ?? DEFAULT_CARD_LIMIT)
         .map(({ item }) => item)
     : input.cards

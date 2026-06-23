@@ -133,6 +133,57 @@ describe("command palette card result selection", () => {
     expect(results[0]?.searchPreview?.excerpt.includes("vector clocks")).toBeTrue();
   });
 
+  test("can prioritize active-project description hits before final result limits", () => {
+    const activeProjectCard = makePaletteCard({
+      card: makeCard({
+        id: "active-content-only",
+        title: "General implementation note",
+        descriptionPreview: "No local metadata match.",
+      }),
+      inActiveProject: true,
+    });
+    const otherProjectCard = makePaletteCard({
+      projectId: "ops",
+      projectName: "Ops",
+      card: makeCard({
+        id: "other-metadata",
+        title: "Approval heuristic",
+      }),
+      inActiveProject: false,
+    });
+    const cards = [otherProjectCard, activeProjectCard];
+    const cardSearchIndex = createCommandPaletteCardSearchIndex(cards);
+    const cardDescriptionSearchResults = [
+      makeDescriptionResult({
+        projectId: activeProjectCard.projectId,
+        cardId: activeProjectCard.card.id,
+        excerpt: "Approval heuristic appears only in the active card body.",
+      }),
+    ];
+
+    const defaultResults = selectCommandPaletteCardResults({
+      query: "approval heuristic",
+      cards,
+      cardSearchIndex,
+      cardDescriptionSearchResults,
+      metadataCardLimit: 1,
+      mergedCardLimit: 1,
+    });
+    const prioritizedResults = selectCommandPaletteCardResults({
+      query: "approval heuristic",
+      cards,
+      cardSearchIndex,
+      cardDescriptionSearchResults,
+      metadataCardLimit: 1,
+      mergedCardLimit: 1,
+      preferActiveProject: true,
+    });
+
+    expect(defaultResults[0]?.card.id).toBe("other-metadata");
+    expect(prioritizedResults[0]?.card.id).toBe("active-content-only");
+    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active card body")).toBeTrue();
+  });
+
   test("keeps current-project and board-order fallbacks for empty card queries", () => {
     const projects = [
       makeProject("ops", "Ops"),

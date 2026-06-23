@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke, subscribeCommandPaletteThreadIndexUpdates } from "./api";
 import {
   filterCommandPaletteItems,
+  prioritizeActiveProjectItems,
   type CommandPaletteThread,
 } from "./command-palette";
 import {
@@ -213,12 +214,14 @@ export function selectCommandPaletteChatResults({
   threadSearchIndex,
   threadContentSearchResults,
   threadLimit = DEFAULT_THREAD_LIMIT,
+  preferActiveProject = false,
 }: {
   query: string;
   threads: CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   threadContentSearchResults?: CommandPaletteThreadContentSearchResult[];
   threadLimit?: number;
+  preferActiveProject?: boolean;
 }): CommandPaletteThread[] {
   const results = filterCommandPaletteItems({
     query,
@@ -228,6 +231,7 @@ export function selectCommandPaletteChatResults({
     threads,
     threadSearchIndex,
     threadLimit,
+    preferActiveProject,
   });
 
   if (results.query.length === 0 || !threadContentSearchResults || threadContentSearchResults.length === 0) {
@@ -268,7 +272,8 @@ export function selectCommandPaletteChatResults({
     merged.push(item);
   });
 
-  return merged.slice(0, threadLimit);
+  return (preferActiveProject ? prioritizeActiveProjectItems(merged) : merged)
+    .slice(0, threadLimit);
 }
 
 export function useSelectedCommandPaletteChatResults({
@@ -277,12 +282,14 @@ export function useSelectedCommandPaletteChatResults({
   threadSearchIndex,
   threadContentSearchResults,
   threadLimit,
+  preferActiveProject,
 }: {
   query: string;
   threads: CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   threadContentSearchResults?: CommandPaletteThreadContentSearchResult[];
   threadLimit?: number;
+  preferActiveProject?: boolean;
 }): CommandPaletteThread[] {
   return useMemo(
     () => selectCommandPaletteChatResults({
@@ -291,7 +298,8 @@ export function useSelectedCommandPaletteChatResults({
       threadSearchIndex,
       threadContentSearchResults,
       threadLimit,
+      preferActiveProject,
     }),
-    [query, threadContentSearchResults, threadLimit, threadSearchIndex, threads],
+    [preferActiveProject, query, threadContentSearchResults, threadLimit, threadSearchIndex, threads],
   );
 }

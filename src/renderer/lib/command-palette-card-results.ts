@@ -4,6 +4,7 @@ import {
   filterCommandPaletteItems,
   getDefaultCommandPaletteCardFilters,
   matchesCommandPaletteCardFilters,
+  prioritizeActiveProjectItems,
   type CommandPaletteCard,
   type CommandPaletteCardFilters,
 } from "./command-palette";
@@ -97,6 +98,7 @@ export function selectCommandPaletteCardResults({
   cardDescriptionSearchResults,
   metadataCardLimit = DEFAULT_METADATA_CARD_LIMIT,
   mergedCardLimit = DEFAULT_MERGED_CARD_LIMIT,
+  preferActiveProject = false,
 }: {
   query: string;
   cards: CommandPaletteCard[];
@@ -105,6 +107,7 @@ export function selectCommandPaletteCardResults({
   cardDescriptionSearchResults?: readonly CardSearchResult[];
   metadataCardLimit?: number;
   mergedCardLimit?: number;
+  preferActiveProject?: boolean;
 }): CommandPaletteCard[] {
   const filters = cardFilters ?? getDefaultCommandPaletteCardFilters();
   const results = filterCommandPaletteItems({
@@ -115,6 +118,7 @@ export function selectCommandPaletteCardResults({
     cardFilters: filters,
     cardSearchIndex,
     cardLimit: metadataCardLimit,
+    preferActiveProject,
   });
 
   if (results.query.length === 0 || !cardDescriptionSearchResults || cardDescriptionSearchResults.length === 0) {
@@ -157,7 +161,8 @@ export function selectCommandPaletteCardResults({
     merged.push(item);
   });
 
-  return merged.slice(0, mergedCardLimit);
+  return (preferActiveProject ? prioritizeActiveProjectItems(merged) : merged)
+    .slice(0, mergedCardLimit);
 }
 
 export function useCommandPaletteCardDescriptionSearch({
@@ -213,6 +218,7 @@ export function useSelectedCommandPaletteCardResults({
   cardDescriptionSearchResults,
   metadataCardLimit,
   mergedCardLimit,
+  preferActiveProject,
 }: {
   query: string;
   cards: CommandPaletteCard[];
@@ -221,6 +227,7 @@ export function useSelectedCommandPaletteCardResults({
   cardDescriptionSearchResults?: readonly CardSearchResult[];
   metadataCardLimit?: number;
   mergedCardLimit?: number;
+  preferActiveProject?: boolean;
 }): CommandPaletteCard[] {
   return useMemo(
     () => selectCommandPaletteCardResults({
@@ -231,6 +238,7 @@ export function useSelectedCommandPaletteCardResults({
       cardDescriptionSearchResults,
       metadataCardLimit,
       mergedCardLimit,
+      preferActiveProject,
     }),
     [
       cardDescriptionSearchResults,
@@ -239,6 +247,7 @@ export function useSelectedCommandPaletteCardResults({
       cards,
       mergedCardLimit,
       metadataCardLimit,
+      preferActiveProject,
       query,
     ],
   );

@@ -47,9 +47,11 @@ The mention references a Codex app-server thread/session id as an opaque string.
 
 - The NFM `@` suggestion menu includes thread mention rows alongside card references.
 - Thread rows use the same sidebar-wide chat search model as the command palette: non-archived sidebar chats from the current project, other projects, projectless chats, and sessionless chats are eligible.
+- The picker treats the editor's own `projectId` as the active project. Matching current-project chats and cards are rendered first in one `Current project` group, with chats before cards and each type preserving its selector order. Other chats, including projectless chats, follow in `Chats`; other cards follow in `Cards`.
 - Archived, ephemeral, and side-conversation chats do not appear in the picker.
-- Metadata search covers title, preview, project, cwd, and short/id fields with command-palette fuzzy and prefix ranking. Transcript content matches use the bounded local `codex:threads:palette:search-content` path and may add a compact snippet to the row tooltip.
-- The row subtitle shows project and short thread id by default; active, waiting, approval, and error states add a concise state label.
+- Metadata search covers title, preview, project, cwd, and short/id fields with command-palette fuzzy and prefix ranking. Transcript content matches use the bounded local `codex:threads:palette:search-content` path and may add a compact snippet to the item tooltip.
+- Mention rows render only the item title in the picker row and do not show right-side `@thread` or `@` syntax hints; slash-menu rows keep their syntax/shortcut hints.
+- Mention tooltips show only compact context, such as project, column, actionable state, and an optional search snippet. They do not concatenate raw thread ids, card ids, cwd paths, or long mixed metadata strings.
 - Idle and unknown-state threads do not show `Ready` or `Thread` as row state labels.
 - Choosing a thread row inserts `threadMention` inline content and a trailing space.
 - Card rows use the same command-palette card search model: summary metadata is searched with MiniSearch ranking, and full-description hits come from bounded `cards:search` excerpts. Choosing a card row inserts the existing `cardRef` block shape.

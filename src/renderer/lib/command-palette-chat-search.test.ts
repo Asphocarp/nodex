@@ -90,6 +90,54 @@ describe("command palette chat result selection", () => {
     expect(results[0]?.searchPreview?.excerpt.includes("approval heuristic")).toBeTrue();
   });
 
+  test("can prioritize active-project content hits before final result limits", () => {
+    const activeProjectThread = makeThread({
+      threadId: "thr-active-content",
+      id: "thread:thr-active-content",
+      title: "General chat",
+      preview: "No matching metadata here.",
+      inActiveProject: true,
+      updatedAt: 100,
+    });
+    const otherProjectThread = makeThread({
+      threadId: "thr-other-metadata",
+      id: "thread:thr-other-metadata",
+      projectId: "project-2",
+      projectName: "Other",
+      title: "Approval heuristic",
+      inActiveProject: false,
+      updatedAt: 200,
+    });
+    const threads = [otherProjectThread, activeProjectThread];
+    const threadSearchIndex = createCommandPaletteThreadSearchIndex(threads);
+    const threadContentSearchResults = [
+      makeContentResult({
+        threadId: "thr-active-content",
+        snippet: "Approval heuristic appears only in the active transcript.",
+      }),
+    ];
+
+    const defaultResults = selectCommandPaletteChatResults({
+      query: "approval heuristic",
+      threads,
+      threadSearchIndex,
+      threadContentSearchResults,
+      threadLimit: 1,
+    });
+    const prioritizedResults = selectCommandPaletteChatResults({
+      query: "approval heuristic",
+      threads,
+      threadSearchIndex,
+      threadContentSearchResults,
+      threadLimit: 1,
+      preferActiveProject: true,
+    });
+
+    expect(defaultResults[0]?.threadId).toBe("thr-other-metadata");
+    expect(prioritizedResults[0]?.threadId).toBe("thr-active-content");
+    expect(prioritizedResults[0]?.searchPreview?.excerpt.includes("active transcript")).toBeTrue();
+  });
+
   test("keeps metadata preview when content search also returns the same chat", () => {
     const thread = makeThread({
       threadId: "thr-preview",

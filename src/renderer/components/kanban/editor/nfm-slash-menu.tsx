@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core/extensions";
 import {
   SuggestionMenuController,
@@ -7,7 +7,7 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from "@blocknote/react";
-import { Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
+import { FileText, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
 import {
   NodexDropdownActionRow,
   NodexDropdownMessage,
@@ -41,6 +41,7 @@ import {
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 import { CodexThreadIcon } from "@/components/shared/icons";
+import { CARD_STATUS_LABELS } from "../../../../shared/card-status";
 
 interface NfmSlashMenuProps {
   projectId: string;
@@ -48,8 +49,10 @@ interface NfmSlashMenuProps {
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
 type UnsafeBlock = Parameters<typeof insertOrUpdateBlockForSlashMenu>[1];
-type NfmSuggestionItem = DefaultReactSuggestionItem & {
+export type NfmSuggestionItem = DefaultReactSuggestionItem & {
   key?: string;
+  hint?: string | null;
+  tooltipContent?: ReactNode | null;
 };
 type UnsafeInlineContentEditor = {
   insertInlineContent: (content: unknown[], options?: { updateSelection?: boolean }) => void;
@@ -133,7 +136,13 @@ export function scrollElementIntoContainerView(container: HTMLElement, element: 
 }
 
 export function resolveNfmSuggestionHint(item: DefaultReactSuggestionItem) {
-  const key = (item as NfmSuggestionItem).key;
+  const nfmItem = item as NfmSuggestionItem;
+  if (nfmItem.hint !== undefined) {
+    const explicitHint = nfmItem.hint?.trim();
+    return explicitHint || null;
+  }
+
+  const key = nfmItem.key;
   if (key) {
     const syntaxHint = SUGGESTION_SYNTAX_HINT_BY_KEY[key];
     if (syntaxHint) return syntaxHint;
@@ -148,6 +157,9 @@ export function resolveNfmSuggestionHint(item: DefaultReactSuggestionItem) {
 }
 
 function resolveSuggestionTooltipContent(item: DefaultReactSuggestionItem) {
+  const tooltipContent = (item as NfmSuggestionItem).tooltipContent;
+  if (tooltipContent !== undefined) return tooltipContent;
+
   if (!item.subtext) return null;
 
   return (
@@ -379,6 +391,10 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
 // @ mention for cards and Codex threads
 // ---------------------------------------------------------------------------
 
+const CURRENT_PROJECT_MENTION_GROUP = "Current project";
+const CHAT_MENTION_GROUP = "Chats";
+const CARD_MENTION_GROUP = "Cards";
+
 type ThreadMentionSubtextInput = {
   threadId: string;
   projectId: string | null;
@@ -388,13 +404,43 @@ type ThreadMentionSubtextInput = {
   archived?: boolean;
 };
 
+function resolveMentionSearchPreviewExcerpt(
+  searchPreview: CommandPaletteCard["searchPreview"] | CommandPaletteThread["searchPreview"] | undefined,
+): string | null {
+  const excerpt = searchPreview?.excerpt?.replace(/\s+/g, " ").trim();
+  return excerpt || null;
+}
+
 function appendMentionSearchPreviewSubtext(
   baseSubtext: string,
   searchPreview: CommandPaletteCard["searchPreview"] | CommandPaletteThread["searchPreview"] | undefined,
 ): string {
-  const excerpt = searchPreview?.excerpt?.replace(/\s+/g, " ").trim();
+  const excerpt = resolveMentionSearchPreviewExcerpt(searchPreview);
   if (!excerpt) return baseSubtext;
   return `${baseSubtext} / ${excerpt}`;
+}
+
+function buildMentionTooltipContent(
+  contextText: string,
+  searchPreview: CommandPaletteCard["searchPreview"] | CommandPaletteThread["searchPreview"] | undefined,
+): ReactNode {
+  const excerpt = resolveMentionSearchPreviewExcerpt(searchPreview);
+  if (!contextText && !excerpt) return null;
+
+  return (
+    <div className="max-w-72 space-y-1 text-sm leading-5">
+      {contextText ? (
+        <div className="text-token-foreground">
+          {contextText}
+        </div>
+      ) : null}
+      {excerpt ? (
+        <div className="text-token-description-foreground">
+          {excerpt}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function resolveThreadMentionTitle(thread: CommandPaletteThread): string {
@@ -408,39 +454,54 @@ function resolveThreadMentionTitle(thread: CommandPaletteThread): string {
   return firstPreviewLine || formatThreadMentionShortUuid(thread.threadId);
 }
 
+function resolveThreadMentionStateLabel(thread: Pick<ThreadMentionSubtextInput, "archived" | "statusType" | "statusActiveFlags">): string {
+  if (thread.archived) return "Archived";
+  if (thread.statusType === "systemError") return "Error";
+  if (thread.statusActiveFlags.includes("waitingOnApproval")) return "Needs approval";
+  if (thread.statusActiveFlags.includes("waitingOnUserInput")) return "Waiting";
+  if (thread.statusType === "active") return "Running";
+  return "";
+}
+
 export function resolveThreadMentionSubtext(thread: ThreadMentionSubtextInput, project: Pick<Project, "id" | "name"> | null): string {
   const projectLabel = project?.name?.trim()
     || project?.id
     || thread.projectName?.trim()
     || thread.projectId
     || "Chats";
-  const stateLabel = thread.archived
-    ? "Archived"
-    : thread.statusType === "systemError"
-      ? "Error"
-      : thread.statusActiveFlags.includes("waitingOnApproval")
-        ? "Needs approval"
-        : thread.statusActiveFlags.includes("waitingOnUserInput")
-        ? "Waiting"
-        : thread.statusType === "active"
-          ? "Running"
-          : "";
+  const stateLabel = resolveThreadMentionStateLabel(thread);
   return [projectLabel, stateLabel, formatThreadMentionShortUuid(thread.threadId)]
     .filter(Boolean)
     .join(" / ");
 }
 
-function resolveCardMentionSubtext(item: CommandPaletteCard): string {
-  const stateLabel = item.card.status.replace(/_/g, " ");
-  const baseSubtext = [item.projectName, item.columnName, stateLabel, item.card.id]
+function resolveCardMentionContext(item: CommandPaletteCard): string {
+  const columnName = item.columnName.trim();
+  const stateLabel = CARD_STATUS_LABELS[item.card.status];
+  const shouldShowStateLabel = normalizeMentionContextPart(columnName) !== normalizeMentionContextPart(stateLabel);
+
+  return [item.projectName, columnName, shouldShowStateLabel ? stateLabel : ""]
     .filter(Boolean)
     .join(" / ");
-  return appendMentionSearchPreviewSubtext(baseSubtext, item.searchPreview);
+}
+
+function normalizeMentionContextPart(value: string): string {
+  return value.trim().replace(/[_\s-]+/g, " ").toLowerCase();
+}
+
+function resolveCardMentionSubtext(item: CommandPaletteCard): string {
+  return appendMentionSearchPreviewSubtext(resolveCardMentionContext(item), item.searchPreview);
+}
+
+function resolveThreadMentionContext(item: CommandPaletteThread): string {
+  const projectLabel = item.projectName?.trim() || (item.projectless ? "Projectless chat" : CHAT_MENTION_GROUP);
+  const stateLabel = resolveThreadMentionStateLabel(item);
+  return [projectLabel, stateLabel].filter(Boolean).join(" / ");
 }
 
 function resolveCommandPaletteThreadMentionSubtext(item: CommandPaletteThread): string {
   return appendMentionSearchPreviewSubtext(
-    resolveThreadMentionSubtext(item, null),
+    resolveThreadMentionContext(item),
     item.searchPreview,
   );
 }
@@ -465,14 +526,17 @@ export function buildNfmThreadMentionInlineContent(item: CommandPaletteThread): 
 export function buildNfmCardMentionSuggestionItem(
   editor: unknown,
   item: CommandPaletteCard,
-): DefaultReactSuggestionItem {
+  options: { group?: string } = {},
+): NfmSuggestionItem {
+  const contextText = resolveCardMentionContext(item);
   return {
     title: item.card.title || "Untitled",
     subtext: resolveCardMentionSubtext(item),
     aliases: [],
-    group: "Cards",
-    badge: "@",
-    icon: <Link2 size={16} />,
+    group: options.group ?? CARD_MENTION_GROUP,
+    hint: null,
+    tooltipContent: buildMentionTooltipContent(contextText, item.searchPreview),
+    icon: <FileText className="size-4" aria-hidden="true" />,
     onItemClick: () => {
       insertBlock(editor, buildNfmCardMentionBlock(item));
     },
@@ -482,18 +546,39 @@ export function buildNfmCardMentionSuggestionItem(
 export function buildNfmThreadMentionSuggestionItem(
   editor: unknown,
   item: CommandPaletteThread,
-): DefaultReactSuggestionItem {
+  options: { group?: string } = {},
+): NfmSuggestionItem {
+  const contextText = resolveThreadMentionContext(item);
   return {
     title: resolveThreadMentionTitle(item),
     subtext: resolveCommandPaletteThreadMentionSubtext(item),
     aliases: [],
-    group: "Chats",
-    badge: "@thread",
+    group: options.group ?? CHAT_MENTION_GROUP,
+    hint: null,
+    tooltipContent: buildMentionTooltipContent(contextText, item.searchPreview),
     icon: <CodexThreadIcon className="size-4" />,
     onItemClick: () => {
       insertInlineContent(editor, buildNfmThreadMentionInlineContent(item));
     },
   };
+}
+
+function partitionMentionResultsByActiveProject<T extends { inActiveProject: boolean }>(
+  items: readonly T[],
+): { activeProjectItems: T[]; otherItems: T[] } {
+  const activeProjectItems: T[] = [];
+  const otherItems: T[] = [];
+
+  items.forEach((item) => {
+    if (item.inActiveProject) {
+      activeProjectItems.push(item);
+      return;
+    }
+
+    otherItems.push(item);
+  });
+
+  return { activeProjectItems, otherItems };
 }
 
 export function buildNfmMentionSuggestionItems({
@@ -505,9 +590,36 @@ export function buildNfmMentionSuggestionItems({
   cardResults: readonly CommandPaletteCard[];
   threadResults: readonly CommandPaletteThread[];
 }): DefaultReactSuggestionItem[] {
+  const {
+    activeProjectItems: activeProjectThreads,
+    otherItems: otherThreads,
+  } = partitionMentionResultsByActiveProject(threadResults);
+  const {
+    activeProjectItems: activeProjectCards,
+    otherItems: otherCards,
+  } = partitionMentionResultsByActiveProject(cardResults);
+
   return [
-    ...threadResults.map((item) => buildNfmThreadMentionSuggestionItem(editor, item)),
-    ...cardResults.map((item) => buildNfmCardMentionSuggestionItem(editor, item)),
+    ...activeProjectThreads.map((item) => buildNfmThreadMentionSuggestionItem(
+      editor,
+      item,
+      { group: CURRENT_PROJECT_MENTION_GROUP },
+    )),
+    ...activeProjectCards.map((item) => buildNfmCardMentionSuggestionItem(
+      editor,
+      item,
+      { group: CURRENT_PROJECT_MENTION_GROUP },
+    )),
+    ...otherThreads.map((item) => buildNfmThreadMentionSuggestionItem(
+      editor,
+      item,
+      { group: CHAT_MENTION_GROUP },
+    )),
+    ...otherCards.map((item) => buildNfmCardMentionSuggestionItem(
+      editor,
+      item,
+      { group: CARD_MENTION_GROUP },
+    )),
   ];
 }
 
@@ -648,6 +760,7 @@ export function useNfmMentionGetItems({
         cardDescriptionSearchResults,
         metadataCardLimit: 24,
         mergedCardLimit: 24,
+        preferActiveProject: true,
       });
       const threadResults = currentLoaders.selectChatResults({
         query,
@@ -655,6 +768,7 @@ export function useNfmMentionGetItems({
         threadSearchIndex: getThreadSearchIndex(threadItems),
         threadContentSearchResults,
         threadLimit: 24,
+        preferActiveProject: true,
       });
 
       return buildNfmMentionSuggestionItems({

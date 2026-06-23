@@ -225,8 +225,12 @@ describe("NfmSlashMenu", () => {
 
     expect(cardItem.group).toBe("Cards");
     expect(cardItem.subtext?.includes("Description-only vector clock")).toBeTrue();
+    expect(cardItem.subtext?.includes("card-snippet")).toBeFalse();
+    expect(resolveNfmSuggestionHint(cardItem)).toBe(null);
     expect(threadItem.group).toBe("Chats");
     expect(threadItem.subtext?.includes("Transcript-only approval heuristic")).toBeTrue();
+    expect(threadItem.subtext?.includes("thr-snippet")).toBeFalse();
+    expect(resolveNfmSuggestionHint(threadItem)).toBe(null);
   });
 
   test("mention payload helpers preserve cardRef and threadMention storage shapes", () => {
@@ -249,7 +253,62 @@ describe("NfmSlashMenu", () => {
     expect(threadContent[1]).toBe(" ");
   });
 
-  test("mention suggestion mapping keeps chat results before card results without substring filtering", () => {
+  test("mention suggestion mapping groups current-project chats and cards first", () => {
+    const items = buildNfmMentionSuggestionItems({
+      editor: {},
+      threadResults: [
+        makePaletteThread({
+          threadId: "other-thread",
+          id: "thread:other-thread",
+          title: "Other project thread",
+          projectId: "project-2",
+          projectName: "Beta",
+          inActiveProject: false,
+        }),
+        makePaletteThread({
+          threadId: "active-thread",
+          id: "thread:active-thread",
+          title: "Current project thread",
+          inActiveProject: true,
+        }),
+        makePaletteThread({
+          threadId: "projectless-thread",
+          id: "thread:projectless-thread",
+          title: "Projectless thread",
+          projectId: null,
+          projectName: null,
+          projectless: true,
+          inActiveProject: false,
+        }),
+      ],
+      cardResults: [
+        makePaletteCard({
+          projectId: "project-2",
+          projectName: "Beta",
+          card: makeCard({ id: "other-card", title: "Other project card" }),
+          inActiveProject: false,
+        }),
+        makePaletteCard({
+          card: makeCard({ id: "active-card", title: "Current project card" }),
+          inActiveProject: true,
+        }),
+      ],
+    });
+
+    expect(items.length).toBe(5);
+    expect(items[0]?.title).toBe("Current project thread");
+    expect(items[0]?.group).toBe("Current project");
+    expect(items[1]?.title).toBe("Current project card");
+    expect(items[1]?.group).toBe("Current project");
+    expect(items[2]?.title).toBe("Other project thread");
+    expect(items[2]?.group).toBe("Chats");
+    expect(items[3]?.title).toBe("Projectless thread");
+    expect(items[3]?.group).toBe("Chats");
+    expect(items[4]?.title).toBe("Other project card");
+    expect(items[4]?.group).toBe("Cards");
+  });
+
+  test("mention suggestion mapping preserves search-preview-only matches without substring filtering", () => {
     const items = buildNfmMentionSuggestionItems({
       editor: {},
       threadResults: [makePaletteThread({
@@ -272,9 +331,9 @@ describe("NfmSlashMenu", () => {
     });
 
     expect(items.length).toBe(2);
-    expect(items[0]?.group).toBe("Chats");
+    expect(items[0]?.group).toBe("Current project");
     expect(items[0]?.subtext?.includes("Only transcript content")).toBeTrue();
-    expect(items[1]?.group).toBe("Cards");
+    expect(items[1]?.group).toBe("Current project");
     expect(items[1]?.subtext?.includes("Only card description")).toBeTrue();
   });
 
@@ -519,5 +578,88 @@ describe("NfmSlashMenu", () => {
     expect(tooltip?.textContent?.includes("Paragraph")).toBeFalse();
     const tooltipLayer = tooltip?.closest('[data-radix-popper-content-wrapper]') as HTMLElement | null;
     expect(tooltipLayer?.style.zIndex).toBe(String(NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX));
+  });
+
+  test("mention tooltips keep only compact context and search snippets", async () => {
+    const rawCwd = "/tmp/project";
+    const items = [
+      buildNfmThreadMentionSuggestionItem({}, makePaletteThread({
+        threadId: "raw-thread-id",
+        cwd: rawCwd,
+        title: "Searchable thread",
+        searchPreview: {
+          source: "content",
+          excerpt: "Compact transcript snippet.",
+          segments: [{ text: "Compact transcript snippet.", highlight: true }],
+        },
+      })),
+      buildNfmCardMentionSuggestionItem({}, makePaletteCard({
+        card: makeCard({ id: "raw-card-id", title: "Searchable card" }),
+        searchPreview: {
+          excerpt: "Compact card snippet.",
+          segments: [{ text: "Compact card snippet.", highlight: true }],
+        },
+      })),
+    ];
+    const view = renderSuggestionMenu(
+      {
+        items,
+        loadingState: "loaded",
+        selectedIndex: 0,
+        onItemClick: () => undefined,
+      },
+    );
+
+    expect(view.queryByText("Compact transcript snippet.")).toBe(null);
+
+    const row = view.container.querySelector("#bn-suggestion-menu-item-0") as HTMLElement | null;
+    expect(row).not.toBeNull();
+    if (!row) return;
+
+    await act(async () => {
+      fireEvent.focus(row);
+      await settleAsyncRender();
+    });
+
+    const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
+    expect(tooltip).not.toBeNull();
+    const tooltipText = tooltip?.textContent ?? "";
+    expect(tooltipText.includes("Alpha")).toBeTrue();
+    expect(tooltipText.includes("Compact transcript snippet.")).toBeTrue();
+    expect(tooltipText.includes("raw-thread-id")).toBeFalse();
+    expect(tooltipText.includes("raw-card-id")).toBeFalse();
+    expect(tooltipText.includes(rawCwd)).toBeFalse();
+  });
+
+  test("card mention tooltips suppress duplicate column and status labels", async () => {
+    const item = buildNfmCardMentionSuggestionItem({}, makePaletteCard({
+      columnName: "Draft",
+      card: makeCard({ id: "draft-card", title: "Draft card", status: "draft" }),
+    }));
+    const view = renderSuggestionMenu(
+      {
+        items: [item],
+        loadingState: "loaded",
+        selectedIndex: 0,
+        onItemClick: () => undefined,
+      },
+    );
+
+    expect(item.subtext).toBe("Alpha / Draft");
+
+    const row = view.container.querySelector("#bn-suggestion-menu-item-0") as HTMLElement | null;
+    expect(row).not.toBeNull();
+    if (!row) return;
+
+    await act(async () => {
+      fireEvent.focus(row);
+      await settleAsyncRender();
+    });
+
+    const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
+    expect(tooltip).not.toBeNull();
+    const tooltipText = tooltip?.textContent ?? "";
+    expect(tooltipText.includes("Alpha / Draft")).toBeTrue();
+    expect(tooltipText.includes("Draft / draft")).toBeFalse();
   });
 });

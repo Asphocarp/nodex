@@ -158,8 +158,8 @@ describe("useNfmMentionGetItems", () => {
 
     expect(firstItems.length).toBe(2);
     expect(secondItems.length).toBe(2);
-    expect(firstItems[0]?.group).toBe("Chats");
-    expect(firstItems[1]?.group).toBe("Cards");
+    expect(firstItems[0]?.group).toBe("Current project");
+    expect(firstItems[1]?.group).toBe("Current project");
     expect(cardDescriptionSearchCalls).toBe(2);
     expect(threadListCalls).toBe(1);
   });
