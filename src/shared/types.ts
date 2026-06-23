@@ -388,7 +388,6 @@ export type ProjectSessionTabKind =
   | "files";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
-  "db_view",
   "review",
 ] as const satisfies readonly ProjectSessionTabKind[];
 

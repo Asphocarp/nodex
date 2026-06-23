@@ -808,13 +808,13 @@ function getBrowserTabIcon(tab: ProjectSessionTab): ComponentType<{ className?: 
   return getTabIcon(tab.kind);
 }
 
-function resolveCardStageTabChromeContext(
+function resolveProjectTargetTabChromeContext(
   tab: ProjectSessionRenderableTab,
   activeSession: ProjectSession,
   projects: readonly Project[],
 ): Pick<AppShellTabItem, "contextLabel" | "titleLabel" | "tooltip"> {
   if (isSideChatPanelTab(tab) || isMcpAppPanelTab(tab)) return {};
-  if (tab.kind !== "card_stage") return {};
+  if (tab.kind !== "db_view" && tab.kind !== "card_stage") return {};
   if (!("projectId" in tab.config)) return {};
 
   const targetProjectId = tab.config.projectId;
@@ -835,6 +835,14 @@ function resolveCardStageTabChromeContext(
       </div>
     ),
   };
+}
+
+function findDbViewTabForProject(session: ProjectSession, projectId: string): ProjectSessionTab | null {
+  return session.tabs.find((tab) =>
+    tab.kind === "db_view"
+    && "projectId" in tab.config
+    && tab.config.projectId === projectId
+  ) ?? null;
 }
 
 function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId): boolean {
@@ -4056,6 +4064,15 @@ export function WorkbenchShell({
   ) => {
     if (!activeSession || activeSession.projectId === null) return;
     const sessionProjectId = activeSession.projectId;
+    const existing = findDbViewTabForProject(activeSession, projectId);
+    if (existing) {
+      const existingLeafId = resolveLeafIdForPanelTab(activeSession, existing.panelId, existing.id);
+      await setActivePanelTab(existing.panelId, existing.id, {
+        leafId: existingLeafId,
+        openPanel: true,
+      });
+      return;
+    }
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
@@ -4068,7 +4085,7 @@ export function WorkbenchShell({
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
     await refreshProjectSessions(sessionProjectId);
-  }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
+  }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions, setActivePanelTab]);
 
   const openCardStageFromPanelPicker = useCallback(async (
     destination: Extract<PanelDestination, { kind: "card" }>,
@@ -4680,7 +4697,7 @@ export function WorkbenchShell({
     } satisfies PanelGroupTabsByPanel;
     if (!activeSession) return empty;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
-      const chromeContext = resolveCardStageTabChromeContext(tab, activeSession, projects);
+      const chromeContext = resolveProjectTargetTabChromeContext(tab, activeSession, projects);
       const keepMounted = !isSideChatPanelTab(tab)
         && !isMcpAppPanelTab(tab)
         && tab.kind === "card_stage";
@@ -5440,6 +5457,26 @@ export function WorkbenchShell({
           const showNodexSeparator = isNodexPanelOptionAction(action)
             && !isNodexPanelOptionAction(actions[index - 1] ?? action);
           const item = (() => {
+            const shouldCreateCurrentProjectDbView = action.kind === "db_view"
+              && activeSession.projectId !== null
+              && !findDbViewTabForProject(activeSession, activeSession.projectId);
+            if (shouldCreateCurrentProjectDbView) {
+              return (
+                <NodexDropdownItem
+                  leftSlot={<Icon className="icon-sm" />}
+                  keyboardShortcut={resolvePanelActionShortcutLabel(action, isMacPlatform, commandKeymapState)}
+                  onSelect={() => {
+                    void (async () => {
+                      await activatePanelGroup(panelId, leafId);
+                      await createManualTab("db_view", panelId, leafId);
+                    })();
+                  }}
+                >
+                  {action.label}
+                </NodexDropdownItem>
+              );
+            }
+
             if (isPanelDestinationAction(action)) {
               const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "card-only";
               const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open card stage";
@@ -5455,6 +5492,7 @@ export function WorkbenchShell({
                     scope={scope}
                     ariaLabel={ariaLabel}
                     placeholder={placeholder}
+                    currentProjectId={activeSession.projectId}
                     onClose={() => {
                       setOpenPanelNewTabMenuKey(null);
                     }}
@@ -6041,6 +6079,11 @@ export function WorkbenchShell({
                                 projects={projects}
                                 isMac={isMacPlatform}
                                 commandKeymapState={commandKeymapState}
+                                currentProjectId={activeSession.projectId}
+                                currentProjectDbViewExists={
+                                  activeSession.projectId !== null
+                                  && Boolean(findDbViewTabForProject(activeSession, activeSession.projectId))
+                                }
                                 onAction={(kind) => {
                                   if (kind === "side_chat") {
                                     void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
@@ -6053,7 +6096,7 @@ export function WorkbenchShell({
                                   }
                                   void (async () => {
                                     await activatePanelGroup("right", leafId);
-                                    await createManualTab(kind, "right");
+                                    await createManualTab(kind, "right", leafId);
                                   })();
                                 }}
                                 onOpenDestination={async (destination) => {
@@ -6123,6 +6166,8 @@ export function WorkbenchShell({
                               projects={projects}
                               isMac={isMacPlatform}
                               commandKeymapState={commandKeymapState}
+                              currentProjectId={activeSession.projectId}
+                              currentProjectDbViewExists={false}
                               onAction={(kind) => {
                                 if (kind === "side_chat") {
                                   void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
@@ -6135,7 +6180,7 @@ export function WorkbenchShell({
                                 }
                                 void (async () => {
                                   await activatePanelGroup("bottom", leafId);
-                                  await createManualTab(kind, "bottom");
+                                  await createManualTab(kind, "bottom", leafId);
                                 })();
                               }}
                               onOpenDestination={async (destination) => {
@@ -7147,12 +7192,14 @@ function PanelDestinationActionMenu({
   projects,
   isMac,
   commandKeymapState,
+  currentProjectId,
   onOpenDestination,
 }: {
   action: PanelNewTabAction & { kind: "db_view" | "card_stage" };
   projects: readonly Project[];
   isMac: boolean;
   commandKeymapState?: CommandKeymapState | null;
+  currentProjectId?: string | null;
   onOpenDestination: (destination: PanelDestination) => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
@@ -7174,6 +7221,7 @@ function PanelDestinationActionMenu({
         scope={scope}
         ariaLabel={ariaLabel}
         placeholder={placeholder}
+        currentProjectId={currentProjectId}
         onClose={() => {
           setOpen(false);
         }}
@@ -7191,6 +7239,8 @@ function EmptyRightPane({
   projects,
   isMac,
   commandKeymapState,
+  currentProjectId,
+  currentProjectDbViewExists,
   onAction,
   onOpenDestination,
 }: {
@@ -7198,12 +7248,26 @@ function EmptyRightPane({
   projects: readonly Project[];
   isMac: boolean;
   commandKeymapState?: CommandKeymapState | null;
+  currentProjectId?: string | null;
+  currentProjectDbViewExists: boolean;
   onAction: (kind: PanelNewTabActionKind) => void;
   onOpenDestination: (destination: PanelDestination) => Promise<void> | void;
 }) {
   const codexActions = actions.filter((action) => !isNodexPanelOptionAction(action));
   const nodexActions = actions.filter(isNodexPanelOptionAction);
   const renderAction = (action: PanelNewTabAction) => {
+    if (action.kind === "db_view" && !currentProjectDbViewExists) {
+      return (
+        <PanelActionCard
+          key={action.kind}
+          action={action}
+          isMac={isMac}
+          commandKeymapState={commandKeymapState}
+          onClick={() => onAction(action.kind)}
+        />
+      );
+    }
+
     if (isPanelDestinationAction(action)) {
       return (
         <PanelDestinationActionMenu
@@ -7212,6 +7276,7 @@ function EmptyRightPane({
           projects={projects}
           isMac={isMac}
           commandKeymapState={commandKeymapState}
+          currentProjectId={currentProjectId}
           onOpenDestination={onOpenDestination}
         />
       );

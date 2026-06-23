@@ -39,6 +39,7 @@ interface PanelDestinationPickerProps {
   scope?: PanelDestinationPickerScope;
   ariaLabel?: string;
   placeholder?: string;
+  currentProjectId?: string | null;
 }
 
 export interface PanelDestinationPickerSurfaceProps extends PanelDestinationPickerProps {
@@ -224,6 +225,7 @@ export function PanelDestinationPicker({
   scope,
   ariaLabel,
   placeholder,
+  currentProjectId,
 }: PanelDestinationPickerProps) {
   const {
     boards,
@@ -242,6 +244,7 @@ export function PanelDestinationPicker({
       scope={scope}
       ariaLabel={ariaLabel}
       placeholder={placeholder}
+      currentProjectId={currentProjectId}
     />
   );
 }
@@ -255,6 +258,7 @@ export function PanelDestinationPickerSurface({
   scope = "all",
   ariaLabel = "Open panel tab",
   placeholder = "Open DB or card…",
+  currentProjectId = null,
   onAccept,
   onClose,
 }: PanelDestinationPickerSurfaceProps) {
@@ -307,8 +311,9 @@ export function PanelDestinationPickerSurface({
       query: deferredQuery,
       searchResult,
       scope,
+      currentProjectId,
     }),
-    [boardMap, deferredQuery, projects, scope, searchResult],
+    [boardMap, currentProjectId, deferredQuery, projects, scope, searchResult],
   );
   const rows = useMemo(() => flattenPanelDestinationRows(sections), [sections]);
   const resolvedFocusedRowId = resolvePanelDestinationFocusedRowId(

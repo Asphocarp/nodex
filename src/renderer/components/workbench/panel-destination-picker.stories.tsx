@@ -87,11 +87,13 @@ function PanelDestinationPickerStory({
   loadError = null,
   initialQuery = "",
   scope = "all",
+  currentProjectId = "nodex",
 }: {
   loading?: boolean;
   loadError?: string | null;
   initialQuery?: string;
   scope?: "all" | "db-only" | "card-only";
+  currentProjectId?: string | null;
 }) {
   const [accepted, setAccepted] = useState<PanelDestination | null>(null);
 
@@ -105,6 +107,7 @@ function PanelDestinationPickerStory({
           loadError={loadError}
           initialQuery={initialQuery}
           scope={scope}
+          currentProjectId={currentProjectId}
           onClose={() => undefined}
           onAccept={(destination) => {
             setAccepted(destination);
@@ -151,6 +154,13 @@ export const DbOnly: Story = {
 export const CardOnly: Story = {
   args: {
     scope: "card-only",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Card-only add-tab picker groups the current project's cards before cards from other projects.",
+      },
+    },
   },
 };
 

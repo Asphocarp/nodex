@@ -871,6 +871,14 @@ function findSingletonTab(session: ProjectSession, kind: ProjectSessionTabCreate
   return session.tabs.find((tab) => tab.kind === kind) ?? null;
 }
 
+function findDbViewTabForProject(session: ProjectSession, targetProjectId: string): ProjectSessionTab | null {
+  return session.tabs.find((tab) =>
+    tab.kind === "db_view"
+    && "projectId" in tab.config
+    && tab.config.projectId === targetProjectId
+  ) ?? null;
+}
+
 export function createProjectSessionTab(input: ProjectSessionTabCreateInput): ProjectSessionTab {
   const parsed = ProjectSessionTabCreateInputSchema.parse(input);
   const projectId = ensureProjectExists(parsed.projectId);
@@ -890,6 +898,18 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
     });
     persistPanelStates(parsed.sessionId, panels);
     return getProjectSession(parsed.sessionId)?.tabs.find((tab) => tab.id === existingSingleton.id) ?? existingSingleton;
+  }
+
+  if (parsed.kind === "db_view") {
+    const targetProjectId = ensureProjectExists(parsed.config.projectId);
+    const existingDbView = findDbViewTabForProject(session, targetProjectId);
+    if (existingDbView) {
+      const panels = updatePanelStateForTabs(session, existingDbView.panelId, session.tabs, existingDbView.id, {
+        collapsed: false,
+      });
+      persistPanelStates(parsed.sessionId, panels);
+      return getProjectSession(parsed.sessionId)?.tabs.find((tab) => tab.id === existingDbView.id) ?? existingDbView;
+    }
   }
 
   const database = getDb();

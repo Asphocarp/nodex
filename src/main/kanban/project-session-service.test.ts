@@ -533,9 +533,10 @@ describe("project session service", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("returns existing fixed tabs instead of creating duplicate singleton tabs", async () => {
+  test("dedupes DB tabs by target project and singleton tabs by kind", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Fixed tabs" });
+      const betaProject = createProject({ name: "Beta", sources: ["/tmp/beta"] });
 
       const dbView = createProjectSessionTab({
         sessionId: session.id,
@@ -554,6 +555,15 @@ describe("project session service", () => {
         config: { projectId: projectId, view: "list" },
       });
       expect(duplicateDbView.id).toBe(dbView.id);
+      const betaDbView = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "db_view",
+        title: "Beta DB View",
+        config: { projectId: betaProject.id, view: "kanban" },
+      });
+      expect(betaDbView.id === dbView.id).toBeFalse();
 
       const review = createProjectSessionTab({
         sessionId: session.id,
@@ -610,7 +620,7 @@ describe("project session service", () => {
       expect(terminalOne.id === terminalTwo.id).toBeFalse();
 
       const updated = getProjectSession(session.id);
-      expect(updated?.tabs.filter((tab) => tab.kind === "db_view").length).toBe(1);
+      expect(updated?.tabs.filter((tab) => tab.kind === "db_view").length).toBe(2);
       expect(updated?.tabs.filter((tab) => tab.kind === "review").length).toBe(1);
       expect(updated?.tabs.filter((tab) => tab.kind === "browser").length).toBe(2);
       expect(updated?.tabs.filter((tab) => tab.kind === "terminal").length).toBe(2);

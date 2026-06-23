@@ -116,6 +116,52 @@ describe("panel destination picker model", () => {
     expect(flattenPanelDestinationRows(cardOnly).map((row) => row.kind).join(",")).toBe("card,card,card");
   });
 
+  test("groups card-only rows with the current project first", () => {
+    const sections = buildPanelDestinationSections({
+      projects: PROJECTS,
+      boardMap: BOARD_MAP,
+      query: "",
+      scope: "card-only",
+      currentProjectId: "beta",
+    });
+    const rows = flattenPanelDestinationRows(sections);
+
+    expect(sections.map((section) => section.label).join(",")).toBe("Current project,Other projects");
+    expect(rows.map((row) => row.id).join(",")).toBe(
+      "panel-card:beta:runtime,panel-card:alpha:command-palette,panel-card:alpha:notes",
+    );
+  });
+
+  test("keeps search ranking inside current-project card groups", () => {
+    const sections = buildPanelDestinationSections({
+      projects: PROJECTS,
+      boardMap: BOARD_MAP,
+      query: "polish",
+      scope: "card-only",
+      currentProjectId: "beta",
+    });
+    const rows = flattenPanelDestinationRows(sections);
+
+    expect(sections.map((section) => section.label).join(",")).toBe("Current project,Other projects");
+    expect(rows.map((row) => row.id).join(",")).toBe(
+      "panel-card:beta:runtime,panel-card:alpha:command-palette",
+    );
+  });
+
+  test("omits the current-project group when it has no card matches", () => {
+    const sections = buildPanelDestinationSections({
+      projects: PROJECTS,
+      boardMap: BOARD_MAP,
+      query: "runtime",
+      scope: "card-only",
+      currentProjectId: "alpha",
+    });
+    const rows = flattenPanelDestinationRows(sections);
+
+    expect(sections.map((section) => section.label).join(",")).toBe("Other projects");
+    expect(rows.map((row) => row.id).join(",")).toBe("panel-card:beta:runtime");
+  });
+
   test("uses shared fuzzy search semantics for card rows", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,

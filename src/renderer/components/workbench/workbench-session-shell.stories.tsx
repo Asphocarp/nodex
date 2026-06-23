@@ -1150,7 +1150,7 @@ export const SingletonFilteredActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Session with DB View, Browser, and Review already present; DB View and Review filter as singletons while Browser remains available for more tabs.",
+        story: "Session with DB View, Browser, and Review already present; Review filters as a singleton while DB View stays available for other project DBs and Browser remains available for more tabs.",
       },
     },
   },

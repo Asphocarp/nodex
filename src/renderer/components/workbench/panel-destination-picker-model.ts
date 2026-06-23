@@ -46,8 +46,8 @@ export interface PanelDestinationCardRow {
 export type PanelDestinationRow = PanelDestinationDbRow | PanelDestinationCardRow;
 
 export interface PanelDestinationSection {
-  key: "db" | "card";
-  label: "DB" | "Card";
+  key: "db" | "card" | "current-card" | "other-card";
+  label: "DB" | "Card" | "Current project" | "Other projects";
   rows: PanelDestinationRow[];
 }
 
@@ -58,6 +58,7 @@ export interface BuildPanelDestinationSectionsInput {
   searchResult?: NfmMoveToSearchResult | null;
   scope?: PanelDestinationPickerScope;
   cardLimit?: number;
+  currentProjectId?: string | null;
 }
 
 const DEFAULT_CARD_LIMIT = 60;
@@ -97,6 +98,81 @@ function createCardRowFromSearchHit(hit: NfmMoveToCardSearchHit): PanelDestinati
   };
 }
 
+function createCardRowFromSummary(
+  project: Project,
+  column: BoardSummary["columns"][number],
+  card: BoardSummary["columns"][number]["cards"][number],
+): PanelDestinationCardRow {
+  const cardTitle = card.title || "Untitled";
+  return {
+    kind: "card",
+    id: `panel-card:${project.id}:${card.id}`,
+    projectId: project.id,
+    projectName: project.name || "Untitled",
+    projectIcon: project.icon,
+    columnId: column.id,
+    columnName: column.name,
+    cardId: card.id,
+    cardTitle,
+    destination: {
+      kind: "card",
+      projectId: project.id,
+      columnId: column.id,
+      cardId: card.id,
+      titleSnapshot: cardTitle,
+    },
+  };
+}
+
+function orderProjectsForCardPicker(
+  projects: readonly Project[],
+  currentProjectId: string | null | undefined,
+): readonly Project[] {
+  if (!currentProjectId) return projects;
+
+  const currentProject = projects.find((project) => project.id === currentProjectId);
+  if (!currentProject) return projects;
+
+  return [
+    currentProject,
+    ...projects.filter((project) => project.id !== currentProjectId),
+  ];
+}
+
+function limitCardRowsWithCurrentProjectFirst(
+  rows: readonly PanelDestinationCardRow[],
+  currentProjectId: string,
+  cardLimit: number,
+): PanelDestinationCardRow[] {
+  const currentProjectRows = rows.filter((row) => row.projectId === currentProjectId);
+  const otherProjectRows = rows.filter((row) => row.projectId !== currentProjectId);
+  return [
+    ...currentProjectRows,
+    ...otherProjectRows,
+  ].slice(0, cardLimit);
+}
+
+function createCardSections(
+  rows: readonly PanelDestinationCardRow[],
+  currentProjectId: string | null | undefined,
+  groupCurrentProject: boolean,
+): PanelDestinationSection[] {
+  if (!groupCurrentProject || !currentProjectId) {
+    return [{ key: "card", label: "Card", rows: [...rows] }];
+  }
+
+  const currentProjectRows = rows.filter((row) => row.projectId === currentProjectId);
+  const otherProjectRows = rows.filter((row) => row.projectId !== currentProjectId);
+  return [
+    ...(currentProjectRows.length > 0
+      ? [{ key: "current-card", label: "Current project", rows: currentProjectRows } as const]
+      : []),
+    ...(otherProjectRows.length > 0
+      ? [{ key: "other-card", label: "Other projects", rows: otherProjectRows } as const]
+      : []),
+  ];
+}
+
 function resolveSearchResult({
   projects,
   boardMap,
@@ -122,6 +198,7 @@ export function buildPanelDestinationSections({
   searchResult,
   scope = "all",
   cardLimit = DEFAULT_CARD_LIMIT,
+  currentProjectId = null,
 }: BuildPanelDestinationSectionsInput): PanelDestinationSection[] {
   const normalizedQuery = normalizeSearchText(query);
   const resolvedSearchResult = resolveSearchResult({
@@ -132,6 +209,7 @@ export function buildPanelDestinationSections({
   });
   const includeDb = scope === "all" || scope === "db-only";
   const includeCards = scope === "all" || scope === "card-only";
+  const groupCurrentProjectCards = scope === "card-only" && currentProjectId !== null;
   const dbRows: PanelDestinationDbRow[] = [];
   const cardRows: PanelDestinationCardRow[] = [];
 
@@ -147,45 +225,38 @@ export function buildPanelDestinationSections({
   if (includeCards) {
     if (normalizedQuery && resolvedSearchResult) {
       cardRows.push(
-        ...resolvedSearchResult.cardHits
-          .slice(0, cardLimit)
-          .map(createCardRowFromSearchHit),
+        ...(groupCurrentProjectCards && currentProjectId
+          ? limitCardRowsWithCurrentProjectFirst(
+              resolvedSearchResult.cardHits.map(createCardRowFromSearchHit),
+              currentProjectId,
+              cardLimit,
+            )
+          : resolvedSearchResult.cardHits
+              .slice(0, cardLimit)
+              .map(createCardRowFromSearchHit)),
       );
     } else {
-      for (const project of projects) {
+      for (const project of orderProjectsForCardPicker(projects, groupCurrentProjectCards ? currentProjectId : null)) {
         const board = boardMap.get(project.id);
-        const projectName = project.name || "Untitled";
         for (const column of board?.columns ?? []) {
           for (const card of column.cards) {
             if (cardRows.length >= cardLimit) break;
-            const cardTitle = card.title || "Untitled";
-            cardRows.push({
-              kind: "card",
-              id: `panel-card:${project.id}:${card.id}`,
-              projectId: project.id,
-              projectName,
-              projectIcon: project.icon,
-              columnId: column.id,
-              columnName: column.name,
-              cardId: card.id,
-              cardTitle,
-              destination: {
-                kind: "card",
-                projectId: project.id,
-                columnId: column.id,
-                cardId: card.id,
-                titleSnapshot: cardTitle,
-              },
-            });
+            cardRows.push(createCardRowFromSummary(project, column, card));
           }
+          if (cardRows.length >= cardLimit) break;
         }
+        if (cardRows.length >= cardLimit) break;
       }
     }
   }
 
   const sections: PanelDestinationSection[] = [];
   if (includeDb) sections.push({ key: "db", label: "DB", rows: dbRows });
-  if (includeCards) sections.push({ key: "card", label: "Card", rows: cardRows });
+  if (includeCards) {
+    sections.push(
+      ...createCardSections(cardRows, currentProjectId, groupCurrentProjectCards),
+    );
+  }
   return sections;
 }
 

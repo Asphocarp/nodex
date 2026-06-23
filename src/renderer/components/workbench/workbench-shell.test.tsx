@@ -1562,8 +1562,33 @@ function renderWorkbench({
       };
       const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
       if (!session) return null;
-      if (["db_view", "review", "browser"].includes(input.kind)) {
+      if (input.kind === "review") {
         const existing = session.tabs.find((tab) => tab.kind === input.kind);
+        if (existing) {
+          const panel = session.panels[existing.panelId];
+          sessionState = replaceSession(sessionState, {
+            ...session,
+            panels: {
+              ...session.panels,
+              [existing.panelId]: {
+                ...panel,
+                collapsed: false,
+                layout: makePanelLayout(
+                  session.tabs.filter((tab) => tab.panelId === existing.panelId).map((tab) => tab.id),
+                  existing.id,
+                ),
+              },
+            },
+          });
+          return existing;
+        }
+      }
+      if (input.kind === "db_view" && "projectId" in input.config) {
+        const existing = session.tabs.find((tab) =>
+          tab.kind === "db_view"
+          && "projectId" in tab.config
+          && tab.config.projectId === input.config.projectId
+        );
         if (existing) {
           const panel = session.panels[existing.panelId];
           sessionState = replaceSession(sessionState, {
@@ -4932,9 +4957,9 @@ describe("workbench session shell", () => {
     expect(menuText.indexOf("DB View") < menuText.indexOf("Card Stage")).toBeTrue();
   });
 
-  test("empty right panel DB View action uses the panel destination picker", async () => {
+  test("empty right panel DB View action creates the current project tab directly", async () => {
     const emptySession = makeSession({
-      id: "session:alpha:db-picker",
+      id: "session:alpha:db-direct",
       tabs: [],
       rightLayout: makePanelLayout([], null),
     });
@@ -4945,31 +4970,89 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     await pointerActivate(screen.getByRole("button", { name: /DB View/ }));
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("dialog", { name: "Open DB view" })).toBe(null);
+    const createCall = invokeCalls.find((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"db_view"')
+    );
+    expect(createCall !== undefined).toBeTrue();
+    expect(JSON.stringify(createCall?.[1]).includes('"targetLeafId"')).toBeTrue();
+    expect(JSON.stringify((createCall?.[1] as { config?: unknown } | undefined)?.config)).toBe(
+      JSON.stringify({ projectId: "alpha", view: "kanban" }),
+    );
+  });
+
+  test("right panel DB View action opens the picker after the current project DB exists", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: { alpha: [makeSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    const dbViewText = within(menu).getByText("DB View");
+    const dbViewItem = dbViewText.closest('[role="menuitem"]');
+    if (!(dbViewItem instanceof HTMLElement)) {
+      throw new Error("Expected DB View menu item");
+    }
+    await act(async () => {
+      fireEvent.pointerMove(dbViewItem, { pointerType: "mouse" });
+      fireEvent.keyDown(dbViewItem, { key: "ArrowRight" });
+      await Promise.resolve();
+    });
+
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Open DB view" }) !== null).toBeTrue();
     });
-    expect(screen.getByRole("combobox", { name: "Open DB view" }) !== null).toBeTrue();
     expect(screen.getByRole("option", { name: /Alpha/ }) !== null).toBeTrue();
+    expect(screen.getByRole("option", { name: /Beta/ }) !== null).toBeTrue();
 
+    invokeCalls = [];
     await act(async () => {
       fireEvent.click(screen.getByRole("option", { name: /Alpha/ }));
       await Promise.resolve();
     });
     await settleAsyncRender();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
 
+    const betaMenu = await openPanelMenu(screen, "Open side panel tab");
+    const betaDbViewText = within(betaMenu).getByText("DB View");
+    const betaDbViewItem = betaDbViewText.closest('[role="menuitem"]');
+    if (!(betaDbViewItem instanceof HTMLElement)) {
+      throw new Error("Expected DB View menu item");
+    }
+    await act(async () => {
+      fireEvent.pointerMove(betaDbViewItem, { pointerType: "mouse" });
+      fireEvent.keyDown(betaDbViewItem, { key: "ArrowRight" });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Open DB view" }) !== null).toBeTrue();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: /Beta/ }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
       && JSON.stringify(call[1]).includes('"kind":"db_view"')
+      && JSON.stringify(call[1]).includes('"projectId":"beta"')
     )).toBeTrue();
+    expect(screen.getByRole("tab", { name: /Beta project, DB View/ }) !== null).toBeTrue();
   });
 
-  test("empty right panel Card Stage action uses the panel destination picker", async () => {
+  test("empty right panel Card Stage action groups current-project cards before other projects", async () => {
     const emptySession = makeSession({
       id: "session:alpha:card-picker",
       tabs: [],
       rightLayout: makePanelLayout([], null),
     });
     const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
       sessionsByProject: { alpha: [emptySession] },
     });
     await settleAsyncRender();
@@ -4980,13 +5063,19 @@ describe("workbench session shell", () => {
       expect(screen.getByRole("dialog", { name: "Open card stage" }) !== null).toBeTrue();
     });
     expect(screen.getByRole("combobox", { name: "Open card stage" }) !== null).toBeTrue();
-    expect(screen.getByText("Card") !== null).toBeTrue();
+    expect(screen.getByText("Current project") !== null).toBeTrue();
+    expect(screen.getByText("Other projects") !== null).toBeTrue();
 
     await waitFor(() => {
       expect(screen.getByRole("option", { name: /Card One/ }) !== null).toBeTrue();
+      expect(screen.getByRole("option", { name: /Beta Card/ }) !== null).toBeTrue();
     });
+    const dialogText = textContent(screen.getByRole("dialog", { name: "Open card stage" }));
+    expect(dialogText.indexOf("Current project") < dialogText.indexOf("Other projects")).toBeTrue();
+    expect(dialogText.indexOf("Card One") < dialogText.indexOf("Beta Card")).toBeTrue();
+
     await act(async () => {
-      fireEvent.click(screen.getByRole("option", { name: /Card One/ }));
+      fireEvent.click(screen.getByRole("option", { name: /Beta Card/ }));
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -4994,7 +5083,8 @@ describe("workbench session shell", () => {
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
       && JSON.stringify(call[1]).includes('"kind":"card_stage"')
-      && JSON.stringify(call[1]).includes('"cardId":"card-1"')
+      && JSON.stringify(call[1]).includes('"projectId":"beta"')
+      && JSON.stringify(call[1]).includes('"cardId":"card-beta"')
     )).toBeTrue();
   });
 
@@ -5072,7 +5162,7 @@ describe("workbench session shell", () => {
     expect(discardSideChatCalls[0] ?? "").toBe("side-thread-1");
   });
 
-  test("plus menu hides singleton actions that already exist while keeping Browser multi-tab", async () => {
+  test("plus menu keeps DB and Browser available while hiding singleton Review", async () => {
     const browserTab = makeSessionTab({
       id: "session:alpha:database-view:browser",
       sessionId: "session:alpha:database-view",
@@ -5105,7 +5195,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     const menu = screen.getByRole("menu");
-    expect(within(menu).queryByText("DB View")).toBe(null);
+    expect(within(menu).getByText("DB View") !== null).toBeTrue();
     expect(within(menu).getByText("Card Stage") !== null).toBeTrue();
     expect(within(menu).getByText("Browser") !== null).toBeTrue();
     expect(within(menu).queryByText("Review")).toBe(null);
