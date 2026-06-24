@@ -2137,6 +2137,115 @@ function setWindowInnerWidthForTest(width: number): void {
   });
 }
 
+function installSessionContentMeasurementForTest({
+  width,
+  height,
+}: {
+  width: number;
+  height: number;
+}): {
+  flushResizeObservers: () => void;
+  restore: () => void;
+} {
+  const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+  const originalResizeObserver = globalThis.ResizeObserver;
+  const observers = new Set<{
+    callback: ResizeObserverCallback;
+    instance: ResizeObserver;
+    targets: Set<Element>;
+  }>();
+  const makeRect = (targetWidth: number, targetHeight: number): DOMRect => ({
+    x: 0,
+    y: 0,
+    width: targetWidth,
+    height: targetHeight,
+    top: 0,
+    right: targetWidth,
+    bottom: targetHeight,
+    left: 0,
+    toJSON: () => ({}),
+  }) as DOMRect;
+  const isMeasuredSessionContent = (element: Element): boolean =>
+    element instanceof HTMLElement
+    && element.querySelector('[data-testid="session-thread-page"]') !== null
+    && element.querySelector('[data-testid="session-right-panel"]') !== null;
+
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    writable: true,
+    value(this: HTMLElement) {
+      if (!isMeasuredSessionContent(this)) {
+        return originalGetBoundingClientRect.call(this);
+      }
+      return this.isConnected ? makeRect(width, height) : makeRect(0, 0);
+    },
+  });
+
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: class ResizeObserver {
+      private readonly observerRecord: {
+        callback: ResizeObserverCallback;
+        instance: ResizeObserver;
+        targets: Set<Element>;
+      };
+
+      constructor(callback: ResizeObserverCallback) {
+        this.observerRecord = {
+          callback,
+          instance: this as ResizeObserver,
+          targets: new Set(),
+        };
+        observers.add(this.observerRecord);
+      }
+
+      observe(target: Element) {
+        this.observerRecord.targets.add(target);
+      }
+
+      unobserve(target: Element) {
+        this.observerRecord.targets.delete(target);
+      }
+
+      disconnect() {
+        this.observerRecord.targets.clear();
+        observers.delete(this.observerRecord);
+      }
+    } as typeof ResizeObserver,
+  });
+
+  return {
+    flushResizeObservers: () => {
+      for (const observer of observers) {
+        const entries = [...observer.targets].map((target) => ({
+          target,
+          contentRect: target.getBoundingClientRect(),
+        }) as ResizeObserverEntry);
+        if (entries.length === 0) continue;
+        observer.callback(entries, observer.instance);
+      }
+    },
+    restore: () => {
+      observers.clear();
+      Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+        configurable: true,
+        writable: true,
+        value: originalGetBoundingClientRect,
+      });
+      if (typeof originalResizeObserver === "undefined") {
+        Reflect.deleteProperty(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserver }, "ResizeObserver");
+        return;
+      }
+      Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        writable: true,
+        value: originalResizeObserver,
+      });
+    },
+  };
+}
+
 async function moveSidebarPointer(clientX: number, clientY = 80): Promise<void> {
   await act(async () => {
     window.dispatchEvent(new MouseEvent("pointermove", {
@@ -3369,6 +3478,52 @@ describe("workbench session shell", () => {
 
     expect(screen.container.querySelector('[data-testid="settings-route-shell"]')).toBe(null);
     expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
+  });
+
+  test("restores full-width right-panel geometry after returning from settings", async () => {
+    const measurement = installSessionContentMeasurementForTest({ width: 850, height: 640 });
+    try {
+      const screen = renderWorkbench();
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const rightPanel = screen.getByTestId("session-right-panel");
+      expect(rightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
+      expect(rightPanel.getAttribute("style")?.includes("width: 850px")).toBeTrue();
+
+      const settingsButton = screen.container.querySelector('button[title="Settings"]');
+      if (!(settingsButton instanceof HTMLElement)) {
+        throw new Error("Expected a sidebar settings button");
+      }
+      await act(async () => {
+        fireEvent.click(settingsButton);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      await act(async () => {
+        measurement.flushResizeObservers();
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Back to app"));
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const restoredRightPanel = screen.getByTestId("session-right-panel");
+      const restoredThreadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+      const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
+      expect(restoredRightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
+      expect(restoredRightPanel.getAttribute("style")?.includes("width: 850px")).toBeTrue();
+      expect(restoredThreadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
+      expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
+    } finally {
+      measurement.restore();
+    }
   });
 
   test("restores the DB toolbar controls inside session DB tabs", async () => {

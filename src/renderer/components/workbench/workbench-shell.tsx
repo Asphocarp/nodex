@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1540,8 +1541,8 @@ export function WorkbenchShell({
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
   const [shellNavigationHistory, setShellNavigationHistory] = useState(readWorkbenchShellNavigationHistoryState);
+  const [sessionContentElement, setSessionContentElement] = useState<HTMLDivElement | null>(null);
   const workbenchRootRef = useRef<HTMLDivElement | null>(null);
-  const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarPointerRef = useRef<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
   // Non-pointer inputs for sidebar auto-reveal, mirrored into a ref so the
@@ -1847,7 +1848,7 @@ export function WorkbenchShell({
     sessionContentHeight,
   );
   const rightPanelTargetWidth = rightPanelFullWidth
-    ? Math.max(sessionContentWidth, regularRightPanelWidth)
+    ? Math.max(rightPanelSizingWidth, regularRightPanelWidth)
     : regularRightPanelWidth;
   const rightPanelMotion = useCodexAnimatedPanelState({
     open: sidePanelOpen,
@@ -2143,31 +2144,42 @@ export function WorkbenchShell({
     void refreshAllSessions();
   }, [refreshAllSessions]);
 
-  useEffect(() => {
-    const contentElement = sessionContentRef.current;
-    if (!contentElement) return undefined;
+  const measureSessionContent = useEffectEvent(() => {
+    if (!sessionContentElement) {
+      setSessionContentWidth((current) => current === 0 ? current : 0);
+      setSessionContentHeight((current) => current === 0 ? current : 0);
+      return;
+    }
 
-    const measure = () => {
-      const rect = contentElement.getBoundingClientRect();
-      setSessionContentWidth(rect.width);
-      setSessionContentHeight(rect.height);
-    };
+    const rect = sessionContentElement.getBoundingClientRect();
+    setSessionContentWidth((current) => current === rect.width ? current : rect.width);
+    setSessionContentHeight((current) => current === rect.height ? current : rect.height);
+  });
 
-    measure();
+  const setSessionContentRef = useCallback((node: HTMLDivElement | null) => {
+    setSessionContentElement(node);
+  }, []);
+
+  useLayoutEffect(() => {
+    measureSessionContent();
+
+    if (!sessionContentElement) return undefined;
 
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measure);
+      window.addEventListener("resize", measureSessionContent);
       return () => {
-        window.removeEventListener("resize", measure);
+        window.removeEventListener("resize", measureSessionContent);
       };
     }
 
-    const resizeObserver = new ResizeObserver(measure);
-    resizeObserver.observe(contentElement);
+    const resizeObserver = new ResizeObserver(() => {
+      measureSessionContent();
+    });
+    resizeObserver.observe(sessionContentElement);
     return () => {
       resizeObserver.disconnect();
     };
-  }, [activeSession?.id]);
+  }, [activeSession?.id, measureSessionContent, sessionContentElement]);
 
   useEffect(() => {
     const measure = () => {
@@ -6041,7 +6053,7 @@ export function WorkbenchShell({
             )}
           >
             {activeSession ? (
-              <div ref={sessionContentRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div ref={setSessionContentRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                   <section
                     data-testid="session-thread-page"
