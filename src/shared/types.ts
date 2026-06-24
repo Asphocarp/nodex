@@ -2455,6 +2455,8 @@ export type CodexEvent =
       type: "threadStartProgress";
       projectId: string | null;
       sessionId: string | null;
+      runInTarget: CardRunInTarget;
+      threadId?: string | null;
       phase: CodexThreadStartProgressPhase;
       message: string;
       stream?: CodexThreadStartProgressStream;
@@ -2496,6 +2498,8 @@ export type CodexSharedObject =
       value: {
         projectId: string | null;
         sessionId: string | null;
+        runInTarget: CardRunInTarget;
+        threadId?: string | null;
         phase: CodexThreadStartProgressPhase;
         message: string;
         stream?: CodexThreadStartProgressStream;

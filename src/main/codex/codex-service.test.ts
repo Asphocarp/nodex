@@ -5381,6 +5381,138 @@ describe("codex-service startThreadForSession", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("emits session thread start progress for local project starts", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Local session" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const events: CodexEvent[] = [];
+
+      (service as unknown as {
+        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      }).on("event", (event) => {
+        events.push(event);
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_session_local",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_local",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        await service.startThreadForSession({
+          projectId: defaultProjectId,
+          sessionId: session.id,
+          prompt: "Start local session",
+          runInTarget: "localProject",
+          skipAutoTitleGeneration: true,
+        });
+
+        const progressEvents = events.filter(
+          (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
+        );
+        expect(progressEvents.some((event) =>
+          event.sessionId === session.id
+          && event.runInTarget === "localProject"
+          && event.phase === "startingThread"
+        )).toBeTrue();
+        expect(progressEvents.some((event) =>
+          event.sessionId === session.id
+          && event.threadId === "thr_session_local"
+          && event.phase === "ready"
+        )).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("emits failed session thread start progress for local project failures", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Local failure" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const events: CodexEvent[] = [];
+
+      (service as unknown as {
+        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      }).on("event", (event) => {
+        events.push(event);
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          throw new Error("local start failed");
+        }
+        return {};
+      };
+
+      try {
+        let message = "";
+        try {
+          await service.startThreadForSession({
+            projectId: defaultProjectId,
+            sessionId: session.id,
+            prompt: "Start local session",
+            runInTarget: "localProject",
+            skipAutoTitleGeneration: true,
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+
+        expect(message).toBe("local start failed");
+        const progressEvents = events.filter(
+          (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
+        );
+        expect(progressEvents.some((event) =>
+          event.sessionId === session.id
+          && event.runInTarget === "localProject"
+          && event.phase === "failed"
+          && event.message === "Message could not be sent."
+        )).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("starts a session thread in a managed worktree when requested", async () => {
     const ran = await withTempDatabase(async () => {
       const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-worktree-repo-"));
@@ -5474,8 +5606,22 @@ describe("codex-service startThreadForSession", () => {
         const progressEvents = events.filter(
           (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
         );
-        expect(progressEvents.some((event) => event.sessionId === session.id && event.phase === "creatingWorktree")).toBeTrue();
-        expect(progressEvents.some((event) => event.sessionId === session.id && event.phase === "ready")).toBeTrue();
+        expect(progressEvents.some((event) =>
+          event.sessionId === session.id
+          && event.runInTarget === "newWorktree"
+          && event.phase === "creatingWorktree"
+        )).toBeTrue();
+        expect(progressEvents.some((event) =>
+          event.sessionId === session.id
+          && event.runInTarget === "newWorktree"
+          && event.phase === "startingThread"
+        )).toBeTrue();
+        expect(progressEvents.some((event) =>
+          event.sessionId === session.id
+          && event.runInTarget === "newWorktree"
+          && event.threadId === "thr_session_worktree"
+          && event.phase === "ready"
+        )).toBeTrue();
       } finally {
         await service.shutdown();
         fs.rmSync(repoPath, { recursive: true, force: true });

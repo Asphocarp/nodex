@@ -7672,7 +7672,7 @@ function SessionThreadPage({
           worktreeStartMode,
           worktreeBranchPrefix,
         }}
-        threadStartProgress={summary ? null : threadStartProgress}
+        threadStartProgress={threadStartProgress}
         activeThreadId={summary?.threadId ?? null}
         activeThreadSummary={summary}
         availableModels={codexControl.availableModels}

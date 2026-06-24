@@ -65,6 +65,7 @@ let cleanBackgroundTerminalsCalls: string[] = [];
 let startSideChatCalls: unknown[] = [];
 let discardSideChatCalls: string[] = [];
 let sideChatConversations: Record<string, Record<string, unknown>> = {};
+let mockThreadStartProgress: unknown = null;
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
 const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
 const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
@@ -510,7 +511,7 @@ mock.module("@/features/local-conversation", () => ({
   },
   useCodexAppServerControl: () => mockCodexControl,
   useConversation: (threadId: string | null) => threadId ? sideChatConversations[threadId] ?? null : null,
-  useCodexThreadStartProgress: () => null,
+  useCodexThreadStartProgress: () => mockThreadStartProgress,
   useLocalConversationAccount: () => null,
   useLocalConversationConnection: () => ({ status: "connected", retries: 0 }),
 }));
@@ -1973,6 +1974,7 @@ beforeEach(() => {
   startSideChatCalls = [];
   discardSideChatCalls = [];
   sideChatConversations = {};
+  mockThreadStartProgress = null;
   mockInvokeImpl = null;
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
@@ -3602,6 +3604,29 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(JSON.stringify(props?.activeThreadSummary).includes('"projectId":"alpha"')).toBeTrue();
+  });
+
+  test("passes session start progress to an attached empty thread stage", async () => {
+    mockThreadStartProgress = {
+      projectId: "alpha",
+      sessionId: "session:alpha:thread",
+      runInTarget: "localProject",
+      threadId: "thread-alpha",
+      phase: "startingThread",
+      message: "Sending message…",
+      outputText: "",
+      updatedAt: 10,
+    };
+    renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread" })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(props?.threadStartProgress)).toBe(JSON.stringify(mockThreadStartProgress));
   });
 
   test("uses the global app header as the only top title row", async () => {

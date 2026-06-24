@@ -482,6 +482,8 @@ interface ResolvedThreadRunLocation {
 }
 
 interface ThreadStartProgressUpdate {
+  runInTarget?: CardRunInTarget;
+  threadId?: string | null;
   phase: CodexThreadStartProgressPhase;
   message: string;
   stream?: CodexThreadStartProgressStream;
@@ -2175,6 +2177,8 @@ export class CodexService extends EventEmitter {
           value: {
             projectId: event.projectId,
             sessionId: event.sessionId,
+            runInTarget: event.runInTarget,
+            threadId: event.threadId,
             phase: event.phase,
             message: event.message,
             stream: event.stream,
@@ -2721,6 +2725,8 @@ export class CodexService extends EventEmitter {
   private emitThreadStartProgress(input: {
     projectId: string;
     sessionId: string | null;
+    runInTarget: CardRunInTarget;
+    threadId?: string | null;
     phase: CodexThreadStartProgressPhase;
     message: string;
     stream?: CodexThreadStartProgressStream;
@@ -2731,6 +2737,8 @@ export class CodexService extends EventEmitter {
       type: "threadStartProgress",
       projectId: input.projectId,
       sessionId: input.sessionId,
+      runInTarget: input.runInTarget,
+      threadId: input.threadId,
       phase: input.phase,
       message: input.message,
       stream: input.stream,
@@ -6163,18 +6171,29 @@ export class CodexService extends EventEmitter {
       throw new Error("Thread project must match the owning session project");
     }
 
-    const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
-    const prompt = preparedPrompt.promptText;
-    const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
-    const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
-    const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
-    const explicitThreadName = input.threadName
-      ? normalizeCodexManualThreadTitle(input.threadName)
-      : null;
     const startedAt = Date.now();
-    const hasThreadStartProgress = input.runInTarget === "newWorktree";
+    const requestedRunInTarget = input.runInTarget ?? "localProject";
+    let progressRunInTarget = requestedRunInTarget;
+    let progressThreadId: string | null = null;
+
+    this.emitThreadStartProgress({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      runInTarget: requestedRunInTarget,
+      phase: "startingThread",
+      message: "Sending message…",
+      clearOutput: true,
+    });
 
     try {
+      const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
+      const prompt = preparedPrompt.promptText;
+      const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
+      const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
+      const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
+      const explicitThreadName = input.threadName
+        ? normalizeCodexManualThreadTitle(input.threadName)
+        : null;
       const runLocation = await this.resolveSessionThreadRunLocation({
         projectId: input.projectId,
         sessionId: input.sessionId,
@@ -6184,16 +6203,17 @@ export class CodexService extends EventEmitter {
         runInEnvironmentPath: input.runInEnvironmentPath,
         worktreeStartMode: input.worktreeStartMode,
         worktreeBranchPrefix: input.worktreeBranchPrefix,
-        onProgress: hasThreadStartProgress
-          ? (update) => {
-              this.emitThreadStartProgress({
-                projectId: input.projectId,
-                sessionId: input.sessionId,
-                ...update,
-              });
-            }
-          : undefined,
+        onProgress: (update) => {
+          this.emitThreadStartProgress({
+            projectId: input.projectId,
+            sessionId: input.sessionId,
+            ...update,
+            runInTarget: update.runInTarget ?? "newWorktree",
+            threadId: update.threadId,
+          });
+        },
       });
+      progressRunInTarget = runLocation.runInTarget;
       const resolvedPermissionState = await this.readPermissionState(input.projectId);
       const effectivePermissionState = this.resolvePermissionStateForRequest(
         resolvedPermissionState,
@@ -6224,6 +6244,18 @@ export class CodexService extends EventEmitter {
         promptPreview: previewText(prompt),
       });
 
+      this.emitThreadStartProgress({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        runInTarget: runLocation.runInTarget,
+        phase: "startingThread",
+        message: "Sending message…",
+        stream: runLocation.runInTarget === "newWorktree" ? "info" : undefined,
+        outputDelta: runLocation.runInTarget === "newWorktree"
+          ? "[info] Starting Codex thread\n"
+          : undefined,
+      });
+
       const threadStartParams: ThreadStartParams = {
         cwd: runLocation.cwd,
         model: effectiveModel ?? null,
@@ -6243,6 +6275,7 @@ export class CodexService extends EventEmitter {
       if (!link) {
         throw new Error("Codex thread/start returned an invalid thread payload");
       }
+      progressThreadId = link.threadId;
       this.setThreadPermissionFields(link.threadId, {
         approvalPolicy: threadStart.approvalPolicy,
         approvalsReviewer: threadStart.approvalsReviewer,
@@ -6254,6 +6287,19 @@ export class CodexService extends EventEmitter {
         sessionId: input.sessionId,
         threadId: link.threadId,
         cwd: runLocation.cwd,
+      });
+
+      this.emitThreadStartProgress({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        runInTarget: runLocation.runInTarget,
+        threadId: link.threadId,
+        phase: "startingThread",
+        message: "Sending message…",
+        stream: runLocation.runInTarget === "newWorktree" ? "info" : undefined,
+        outputDelta: runLocation.runInTarget === "newWorktree"
+          ? "[info] Codex thread created. Sending first message\n"
+          : undefined,
       });
 
       if (explicitThreadName) {
@@ -6308,28 +6354,29 @@ export class CodexService extends EventEmitter {
       };
       const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
       const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
-      if (startedTurn) {
-        const observedTurn: CodexTurnSummary = {
-          ...startedTurn,
-          turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
-        };
-        this.mergeTurn(link.threadId, observedTurn);
-        const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
-          preparedPrompt.inputItems,
-          `optimistic:${observedTurn.turnId}`,
-        );
-        this.seedTurnWithOptimisticUserMessage(
-          link.threadId,
-          observedTurn.turnId,
-          prompt,
-          optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
-        );
-        this.logger.info("Started first Codex turn for project session", {
-          threadId: link.threadId,
-          turnId: observedTurn.turnId,
-          durationMs: Date.now() - startedAt,
-        });
+      if (!startedTurn) {
+        throw new Error("Codex turn/start returned an invalid turn payload");
       }
+      const observedTurn: CodexTurnSummary = {
+        ...startedTurn,
+        turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+      };
+      this.mergeTurn(link.threadId, observedTurn);
+      const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
+        preparedPrompt.inputItems,
+        `optimistic:${observedTurn.turnId}`,
+      );
+      this.seedTurnWithOptimisticUserMessage(
+        link.threadId,
+        observedTurn.turnId,
+        prompt,
+        optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
+      );
+      this.logger.info("Started first Codex turn for project session", {
+        threadId: link.threadId,
+        turnId: observedTurn.turnId,
+        durationMs: Date.now() - startedAt,
+      });
       this.markThreadAsActive(link.threadId);
       this.emitThreadStreamSnapshotFromRecord(link.threadId);
 
@@ -6345,16 +6392,16 @@ export class CodexService extends EventEmitter {
         cwd: runLocation.cwd,
         durationMs: Date.now() - startedAt,
       });
-      if (hasThreadStartProgress) {
-        this.emitThreadStartProgress({
-          projectId: input.projectId,
-          sessionId: input.sessionId,
-          phase: "ready",
-          message: "Worktree ready.",
-          stream: "info",
-          outputDelta: "[info] Worktree ready.\n",
-        });
-      }
+      this.emitThreadStartProgress({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        runInTarget: runLocation.runInTarget,
+        threadId: link.threadId,
+        phase: "ready",
+        message: runLocation.runInTarget === "newWorktree" ? "Worktree ready." : "Message sent.",
+        stream: runLocation.runInTarget === "newWorktree" ? "info" : undefined,
+        outputDelta: runLocation.runInTarget === "newWorktree" ? "[info] Worktree ready.\n" : undefined,
+      });
       return detail;
     } catch (error) {
       this.logger.error("Failed to start Codex thread for project session", {
@@ -6363,17 +6410,19 @@ export class CodexService extends EventEmitter {
         durationMs: Date.now() - startedAt,
         error,
       });
-      if (hasThreadStartProgress) {
-        const detail = error instanceof Error ? error.message : String(error);
-        this.emitThreadStartProgress({
-          projectId: input.projectId,
-          sessionId: input.sessionId,
-          phase: "failed",
-          message: "Worktree setup failed.",
-          stream: "stderr",
-          outputDelta: `[stderr] ${detail}\n`,
-        });
-      }
+      const detail = error instanceof Error ? error.message : String(error);
+      this.emitThreadStartProgress({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        runInTarget: progressRunInTarget,
+        threadId: progressThreadId,
+        phase: "failed",
+        message: progressRunInTarget === "newWorktree"
+          ? "Worktree setup failed."
+          : "Message could not be sent.",
+        stream: "stderr",
+        outputDelta: progressRunInTarget === "newWorktree" ? `[stderr] ${detail}\n` : undefined,
+      });
       throw error;
     }
   }

@@ -5,6 +5,7 @@ import type {
   CodexConversationServerRequest,
   CodexConversationTurn,
   CodexThreadStatusType,
+  CardRunInTarget,
 } from "../../../lib/types";
 import type { ThreadBodyModel } from "../thread-stage-types";
 import { buildTurnRenderModel } from "./build-turn-render-model";
@@ -30,6 +31,8 @@ interface BuildThreadBodyModelInput {
   } | null;
   isCloudNewThreadTarget: boolean;
   threadStartProgress: {
+    runInTarget: CardRunInTarget;
+    threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;
@@ -172,8 +175,9 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
   const conversation = buildBodyConversation(normalized);
   const resumeState = normalized.resumeState;
   const isArchivedThread = Boolean(normalized.activeThreadId && normalized.archived);
-  const showThreadStartProgressPanel = Boolean(
-    normalized.isNewThreadTab && !conversation && normalized.newThreadTarget && normalized.threadStartProgress,
+  const hasThreadStartProgress = Boolean(normalized.threadStartProgress);
+  const showDetachedThreadStartProgressPanel = Boolean(
+    normalized.isNewThreadTab && !conversation && normalized.newThreadTarget && hasThreadStartProgress,
   );
 
   if (isArchivedThread) {
@@ -195,6 +199,19 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
 
   if (!conversation) {
     if (normalized.activeThreadId && resumeState) {
+      if (hasThreadStartProgress) {
+        return {
+          threadId: normalized.activeThreadId,
+          turnCount: 0,
+          hasAboveComposerBlocks: false,
+          isThreadRunning: false,
+          activeTurnId: null,
+          latestTurnId: null,
+          showThreadStartProgressPanel: true,
+          emptyState: { type: "none" },
+        };
+      }
+
       return {
         threadId: normalized.activeThreadId,
         turnCount: 0,
@@ -223,7 +240,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,
-        showThreadStartProgressPanel,
+        showThreadStartProgressPanel: showDetachedThreadStartProgressPanel,
         emptyState: {
           type: "newThread",
           title: "Start a new thread",
@@ -243,7 +260,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: null,
-      showThreadStartProgressPanel,
+      showThreadStartProgressPanel: showDetachedThreadStartProgressPanel,
       emptyState: {
         type: "noThread",
         title: "No thread selected",
@@ -253,6 +270,19 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
   }
 
   if (conversation.resumeState !== "resumed") {
+    if (hasThreadStartProgress) {
+      return {
+        threadId: conversation.threadId,
+        turnCount: 0,
+        hasAboveComposerBlocks: false,
+        isThreadRunning: false,
+        activeTurnId: null,
+        latestTurnId: null,
+        showThreadStartProgressPanel: true,
+        emptyState: { type: "none" },
+      };
+    }
+
     return {
       threadId: conversation.threadId,
       turnCount: 0,
@@ -283,6 +313,19 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
     conversation.statusType === "active" || activeTurnId !== null;
 
   if (visibleTurnCount === 0) {
+    if (hasThreadStartProgress) {
+      return {
+        threadId: conversation.threadId,
+        turnCount: 0,
+        hasAboveComposerBlocks: false,
+        isThreadRunning,
+        activeTurnId,
+        latestTurnId,
+        showThreadStartProgressPanel: true,
+        emptyState: { type: "none" },
+      };
+    }
+
     return {
       threadId: conversation.threadId,
       turnCount: 0,
@@ -290,7 +333,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
       isThreadRunning,
       activeTurnId,
       latestTurnId,
-      showThreadStartProgressPanel,
+      showThreadStartProgressPanel: false,
       emptyState: {
         type: "emptyThread",
         title: "No messages yet",
@@ -311,7 +354,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
     isThreadRunning,
     activeTurnId,
     latestTurnId,
-    showThreadStartProgressPanel,
+    showThreadStartProgressPanel: false,
     emptyState: { type: "none" },
   };
 }

@@ -31,6 +31,7 @@ import type {
 
 export type ThreadStageStoryPresetId =
   | "new-thread"
+  | "session-starting-local"
   | "existing-empty"
   | "resuming"
   | "streaming"
@@ -190,6 +191,11 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
     id: "new-thread",
     name: "New Thread",
     description: "Empty new-thread state with the real footer and branch controls still mounted.",
+  },
+  {
+    id: "session-starting-local",
+    name: "Session Starting",
+    description: "Attached session while the first local-project message is being sent.",
   },
   {
     id: "existing-empty",
@@ -1902,6 +1908,33 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         activeThreadSummary: null,
         conversation: null,
         knownConversationsById: {},
+      },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "session-starting-local") {
+    const conversation = buildStoryConversation({
+      statusType: "idle",
+      turns: [],
+      updatedAt: 12_000,
+    });
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+        threadStartProgress: {
+          runInTarget: "localProject",
+          threadId: conversation.threadId,
+          phase: "startingThread",
+          message: "Sending message…",
+          outputText: "",
+          updatedAt: 12_001,
+        },
       },
       transportCard,
       permissionDescription,

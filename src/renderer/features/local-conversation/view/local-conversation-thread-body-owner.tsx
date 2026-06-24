@@ -28,6 +28,7 @@ import {
 } from "@/lib/thread-fork-confirm-settings";
 import { cn } from "../../../lib/utils";
 import type {
+  CardRunInTarget,
   CodexConversationCapabilityFlags,
   CodexConversationResumeState,
   CodexConversationServerRequest,
@@ -117,6 +118,8 @@ function ThreadStartProgressPanel({
   setupProgressLogRef,
 }: {
   progress: NonNullable<{
+    runInTarget: CardRunInTarget;
+    threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;
@@ -125,8 +128,43 @@ function ThreadStartProgressPanel({
   outputText: string;
   setupProgressLogRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const isWorktreeProgress =
+    progress.runInTarget === "newWorktree" ||
+    progress.phase === "creatingWorktree" ||
+    progress.phase === "runningSetup";
   const activePhaseIndex = resolvePhaseIndex(progress.phase);
   const isFailed = progress.phase === "failed";
+
+  if (!isWorktreeProgress) {
+    return (
+      <div className="w-full max-w-95 px-6 text-center">
+        <div
+          className={cn(
+            "inline-flex min-h-8 items-center gap-2 rounded-full border-[0.5px] px-3 py-1.5 text-sm font-medium",
+            isFailed
+              ? "border-(--destructive)/25 bg-(--destructive)/8 text-(--destructive)"
+              : "border-(--border) bg-(--background-secondary) text-(--foreground-secondary)",
+          )}
+        >
+          {isFailed ? (
+            <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-(--destructive)/15 text-[11px] leading-none">
+              !
+            </span>
+          ) : progress.phase === "ready" ? (
+            <CheckmarkIcon className="size-3.5 shrink-0 text-(--accent-blue)" />
+          ) : (
+            <SpinnerIcon className="size-3.5 shrink-0 text-(--foreground-tertiary)" />
+          )}
+          <span>{progress.message || (isFailed ? "Message could not be sent." : "Sending message…")}</span>
+        </div>
+        {isFailed && outputText.trim().length > 0 ? (
+          <pre className="scrollbar-token mt-3 max-h-32 overflow-auto rounded-lg border-[0.5px] border-(--border) bg-(--background-secondary) p-3 text-left font-mono text-xs/relaxed wrap-break-word whitespace-pre-wrap text-(--foreground-tertiary)">
+            {outputText}
+          </pre>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-140 px-4">
@@ -229,6 +267,8 @@ interface LocalConversationThreadBodyOwnerProps {
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
+    runInTarget: CardRunInTarget;
+    threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;

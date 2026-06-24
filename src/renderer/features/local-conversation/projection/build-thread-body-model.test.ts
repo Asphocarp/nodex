@@ -152,4 +152,47 @@ describe("buildThreadBodyModel", () => {
       expect(model.emptyState.title).toBe("Archived thread");
     }
   });
+
+  test("shows session start progress for a resumed empty thread", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({
+        turns: [],
+        resumeState: "resumed",
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: {
+        runInTarget: "localProject",
+        threadId: "thread_1",
+        phase: "startingThread",
+        message: "Sending message…",
+        outputText: "",
+        updatedAt: 10,
+      },
+    });
+
+    expect(model.showThreadStartProgressPanel).toBeTrue();
+    expect(model.emptyState.type).toBe("none");
+  });
+
+  test("keeps true resumed empty threads as empty", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({
+        turns: [],
+        resumeState: "resumed",
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.emptyState.type).toBe("emptyThread");
+  });
 });

@@ -370,6 +370,62 @@ describe("LocalConversationThreadBody", () => {
     expect(Boolean(queryByText("Assistant message"))).toBeFalse();
   });
 
+  test("renders compact local-project thread start progress without worktree steps", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const { getByText, queryByText } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({
+            conversation: buildConversation({ turns: [] }),
+            threadStartProgress: {
+              runInTarget: "localProject",
+              threadId: "thread_1",
+              phase: "startingThread",
+              message: "Sending message…",
+              outputText: "",
+              updatedAt: 10,
+            },
+          })}
+          actions={buildActions()}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(getByText("Sending message…"))).toBeTrue();
+    expect(Boolean(queryByText("Worktree"))).toBeFalse();
+    expect(Boolean(queryByText("Setup"))).toBeFalse();
+    expect(Boolean(queryByText("No messages yet"))).toBeFalse();
+  });
+
+  test("keeps the new-worktree start progress steps and log output", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const { getByText } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({
+            conversation: buildConversation({ turns: [] }),
+            threadStartProgress: {
+              runInTarget: "newWorktree",
+              threadId: "thread_1",
+              phase: "runningSetup",
+              message: "Preparing worktree…",
+              outputText: "setup log\n",
+              updatedAt: 10,
+            },
+          })}
+          actions={buildActions()}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(getByText("Worktree"))).toBeTrue();
+    expect(Boolean(getByText("Setup"))).toBeTrue();
+    expect(Boolean(getByText("Thread"))).toBeTrue();
+    expect(Boolean(getByText("setup log"))).toBeTrue();
+  });
+
   test("shows archived thread restore action without rendering transcript content", async () => {
     const restoreCalls: Array<{ threadId: string; projectId: string }> = [];
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");

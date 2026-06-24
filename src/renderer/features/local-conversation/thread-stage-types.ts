@@ -80,6 +80,8 @@ export interface ThreadStageRouteInput {
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   newThreadStartInSelector?: NewChatStartInSelectorModel | null;
   threadStartProgress: {
+    runInTarget: CardRunInTarget;
+    threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;
@@ -578,6 +580,8 @@ export interface ThreadBodySurfaceModel {
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
+    runInTarget: CardRunInTarget;
+    threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
     outputText: string;

@@ -15,6 +15,7 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexBackgroundTerminalRow,
+  CardRunInTarget,
   CodexConversationSource,
   CodexConversationCapabilityFlags,
   CodexConversationChildMembership,
@@ -176,6 +177,8 @@ type UserInputRequestListener = (payload: {
 interface CodexThreadStartProgressState {
   projectId: string | null;
   sessionId: string | null;
+  runInTarget: CardRunInTarget;
+  threadId?: string | null;
   phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
   message: string;
   outputText: string;
@@ -1065,13 +1068,42 @@ export class CodexAppServerManager {
     model?: string;
     reasoningEffort?: CodexThreadSettings["reasoningEffort"];
   }): Promise<CodexThreadDetail> {
-    await this.loadPermissionState(input.projectId);
-    const detail = (await invoke("codex:thread:start-for-session", {
-      ...input,
-      permissionMode: this.readPermissionMode(input.projectId),
-    })) as CodexThreadDetail;
+    const runInTarget = input.runInTarget ?? "localProject";
+    const progressTargetKey = getThreadStartProgressTargetKey(input.projectId, input.sessionId);
+    this.applyThreadStartProgress({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      runInTarget,
+      threadId: null,
+      phase: "startingThread",
+      message: "Sending message…",
+      clearOutput: true,
+      updatedAt: Date.now(),
+    });
 
-    return detail;
+    try {
+      await this.loadPermissionState(input.projectId);
+      const detail = (await invoke("codex:thread:start-for-session", {
+        ...input,
+        permissionMode: this.readPermissionMode(input.projectId),
+      })) as CodexThreadDetail;
+
+      return detail;
+    } catch (error) {
+      const currentProgress = this.threadStartProgressByTarget.get(progressTargetKey);
+      if (currentProgress?.phase !== "failed") {
+        this.applyThreadStartProgress({
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          runInTarget,
+          threadId: currentProgress?.threadId ?? null,
+          phase: "failed",
+          message: "Message could not be sent.",
+          updatedAt: Date.now(),
+        });
+      }
+      throw error;
+    }
   }
 
   async startSideChat(input: CodexSideChatStartInput): Promise<CodexSideChatStartResult> {
@@ -1748,6 +1780,8 @@ export class CodexAppServerManager {
     const nextState: CodexThreadStartProgressState = {
       projectId: event.projectId,
       sessionId: event.sessionId,
+      runInTarget: event.runInTarget,
+      threadId: event.threadId,
       phase: event.phase,
       message: event.message,
       outputText: mergedOutput.outputText,
@@ -2534,6 +2568,8 @@ function areThreadStartProgressStatesEqual(
   return (
     left.projectId === right.projectId
     && left.sessionId === right.sessionId
+    && left.runInTarget === right.runInTarget
+    && left.threadId === right.threadId
     && left.phase === right.phase
     && left.message === right.message
     && left.outputText === right.outputText
@@ -2900,6 +2936,8 @@ export function useCodexThreadStartProgress(
       return {
         projectId: progress.projectId,
         sessionId: progress.sessionId,
+        runInTarget: progress.runInTarget,
+        threadId: progress.threadId,
         phase: progress.phase,
         message: progress.message,
         outputText: progress.outputText,
@@ -2948,10 +2986,8 @@ export function useCodexAppServerControl(activeProjectId: string) {
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
-    await manager.loadPermissionState(input.projectId);
     const detail = await manager.startThreadForSession({
       ...input,
-      permissionMode: manager.readPermissionMode(input.projectId),
       model: input.model ?? resolvedSettings.model,
       reasoningEffort: resolvedSettings.reasoningEffort,
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),

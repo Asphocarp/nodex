@@ -306,6 +306,89 @@ describe("local-conversation-store", () => {
     expect(invokeRecords.some((record) => record.channel === "codex:thread:title:generate")).toBeFalse();
   });
 
+  test("seeds session thread start progress before invoking main", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    let resolveStart: (value: CodexConversationSnapshot) => void = () => {
+      throw new Error("Expected pending start resolver");
+    };
+    startThreadForSessionResult = new Promise<CodexConversationSnapshot>((resolve) => {
+      resolveStart = resolve;
+    });
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const startPromise = manager.startThreadForSession({
+      projectId: "project-1",
+      sessionId: "session-1",
+      prompt: "Start immediately",
+      runInTarget: "localProject",
+    });
+
+    const seeded = manager.readThreadStartProgress("project-1", "session-1");
+    expect(Boolean(seeded)).toBeTrue();
+    expect(seeded?.phase).toBe("startingThread");
+    expect(seeded?.runInTarget).toBe("localProject");
+    expect(seeded?.message).toBe("Sending message…");
+
+    resolveStart(buildConversation("thread-start", "project-1"));
+    await startPromise;
+  });
+
+  test("shared thread start progress updates keep target metadata across selectors", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      useCodexThreadStartProgress,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    function Probe() {
+      const progress = useCodexThreadStartProgress("project-1", "session-1");
+      return createElement(
+        "div",
+        null,
+        `${progress?.runInTarget ?? "none"}:${progress?.threadId ?? "none"}:${progress?.phase ?? "none"}`,
+      );
+    }
+
+    const { container } = render(createElement(LocalConversationProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+    expect(textContent(container)).toBe("none:none:none");
+
+    await act(async () => {
+      hostMessageListener?.({
+        type: "sharedObjectUpdated",
+        hostId: "default",
+        object: {
+          objectType: "threadStartProgress",
+          objectId: "project-1:session-1",
+          value: {
+            projectId: "project-1",
+            sessionId: "session-1",
+            runInTarget: "newWorktree",
+            threadId: "thread-1",
+            phase: "startingThread",
+            message: "Sending message…",
+            updatedAt: 10,
+          },
+        },
+      });
+    });
+    await settleAsyncRender();
+
+    expect(textContent(container)).toBe("newWorktree:thread-1:startingThread");
+  });
+
   test("hydrates account and connection through the external store bootstrap", async () => {
     invokeCalls = [];
     hostMessageListener = null;
@@ -738,6 +821,8 @@ describe("local-conversation-store", () => {
           value: {
             projectId: "project-1",
             sessionId: "session-1",
+            runInTarget: "newWorktree",
+            threadId: "thread-1",
             phase: "runningSetup",
             message: "Running setup",
             outputDelta: "hello",
