@@ -432,6 +432,9 @@ Editor-owned searchable popovers have a separate focus contract from ordinary ap
 
 Side-menu flyout submenus must be independent floating layers. The main action surface uses `overflow-hidden` to preserve rounded clipping and internal scrolling, so an `absolute left-full` submenu rendered as its child is mounted but visually clipped, making submenu clicks look like no-ops. Anchor submenu rows with the shared popover/dropdown facade and portal the flyout content outside the main surface; also include that portaled subtree in outside-click guards.
 
+### NFM block action menu positioning needs a live anchor and mounted measurement
+The block action menu opened from the BlockNote side-menu drag handle must stay anchored through the floating-controller lifecycle, not through one static `getBoundingClientRect()` snapshot. Computing fixed coordinates before the action surface is mounted can only guess its height, so the first open can drift and then appear to repair itself after scroll or resize forces another measurement. Keep this popup on a live Floating UI reference with `autoUpdate`, prefer the current block DOM as the shortcut/Text Action anchor, and use a static fallback rect only when that DOM cannot be resolved.
+
 BlockNote table-handle color menus hit the same class of bug through Radix DropdownMenu. `DropdownMenuContent` carries `overflow-y-auto overflow-x-hidden`, so a nested `DropdownMenuSubContent` rendered in place is clipped by its parent menu. Keep BlockNote/shadcn submenu content portaled, and keep the minimal `.bn-menu-dropdown` / `.bn-color-picker-dropdown` sizing rules valid outside the `.bn-shadcn` subtree because portaled submenu content may mount under `document.body`.
 
 ### `cardToggle` snapshots should carry both human-readable `meta` and machine-readable snapshot payload

@@ -89,7 +89,7 @@ import type {
   NfmSendToThreadRequest,
 } from "./nfm-send-to-thread-menu-model";
 import { useNfmSideMenuOpenController } from "./nfm-side-menu";
-import type { NfmSideMenuRect } from "./nfm-side-menu-position";
+import type { NfmSideMenuRect } from "./nfm-side-menu-anchor";
 import {
   isBlockLevelSelection,
   resolveNodexTextActionRows,

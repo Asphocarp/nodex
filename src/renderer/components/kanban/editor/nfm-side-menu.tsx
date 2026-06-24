@@ -15,7 +15,13 @@ import {
   useEditorState,
   useExtension,
   useExtensionState,
+  type FloatingUIOptions,
 } from "@blocknote/react";
+import {
+  offset,
+  shift,
+  size,
+} from "@floating-ui/react";
 import {
   Plus,
 } from "lucide-react";
@@ -27,7 +33,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -37,7 +42,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   CheckmarkIcon,
   CodeBracketsIcon,
@@ -70,6 +74,10 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
+import {
+  NfmFloatingPopover,
+  type NfmPopoverReference,
+} from "./nfm-floating-popover";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import {
@@ -88,11 +96,14 @@ import {
   type NfmSideMenuTargetBlockDescriptor,
 } from "./nfm-side-menu-model";
 import {
-  computeNfmSideMenuPosition,
+  createNfmSideMenuElementReference,
+  resolveNfmSideMenuReference,
+  NFM_SIDE_MENU_GAP,
+  NFM_SIDE_MENU_MAX_HEIGHT_VH,
+  NFM_SIDE_MENU_VIEWPORT_MARGIN,
   NFM_SIDE_MENU_WIDTH,
-  type NfmSideMenuPosition,
   type NfmSideMenuRect,
-} from "./nfm-side-menu-position";
+} from "./nfm-side-menu-anchor";
 import { useNfmSideMenuRuntime } from "./nfm-side-menu-runtime";
 import {
   applySideMenuSelectionIntent,
@@ -162,7 +173,7 @@ interface SideMenuDragStartEvent {
 
 interface NfmSideMenuOpenState {
   block: SideMenuBlock;
-  anchorRect: NfmSideMenuRect;
+  reference: NfmPopoverReference;
   returnFocusElement: HTMLElement | null;
   outsidePressIgnoreElement: HTMLElement | null;
   selectionIntent: SideMenuSelectionIntent;
@@ -172,7 +183,7 @@ export type NfmSideMenuCloseReason = "action" | "escape" | "editor-outside-point
 
 interface NfmSideMenuOpenBlockInput {
   block: SideMenuBlock;
-  anchorRect: NfmSideMenuRect;
+  reference: NfmPopoverReference;
   returnFocusElement: HTMLElement | null;
   outsidePressIgnoreElement?: HTMLElement | null;
   selectionIntent?: SideMenuSelectionIntent | null;
@@ -1352,7 +1363,6 @@ function NfmSideMenuPopup({
   const [query, setQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [activeSubmenu, setActiveSubmenu] = useState<NfmSideMenuSubmenuKey | null>(null);
-  const [position, setPosition] = useState<NfmSideMenuPosition | null>(null);
   const [visible, setVisible] = useState(false);
 
   const block = openState?.block;
@@ -1440,7 +1450,6 @@ function NfmSideMenuPopup({
     setQuery("");
     setFocusedIndex(-1);
     setActiveSubmenu(null);
-    setPosition(null);
     onClose();
   }, [clearCloseTimer, onClose]);
 
@@ -1581,30 +1590,6 @@ function NfmSideMenuPopup({
     setActiveSubmenu(null);
   }, [flatRows, query]);
 
-  useLayoutEffect(() => {
-    if (!openState) return;
-
-    const updatePosition = () => {
-      setPosition(computeNfmSideMenuPosition({
-        anchorRect: openState.anchorRect,
-        menuHeight: popupRef.current?.getBoundingClientRect().height,
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight,
-        },
-      }));
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [openState]);
-
   useEffect(() => {
     if (!openState || !visible) return;
 
@@ -1651,32 +1636,83 @@ function NfmSideMenuPopup({
     });
   }, [openState, visible]);
 
-  if (!openState || !block || !position) return null;
-
-  return createPortal(
-    <div
-      ref={popupRef}
-      className="fixed z-50 origin-[var(--nfm-side-menu-origin)] opacity-100 transition-[opacity,transform] duration-200 ease-[ease] motion-reduce:transition-none"
-      style={{
-        left: position.left,
-        top: position.top,
-        width: NFM_SIDE_MENU_WIDTH,
-        maxHeight: position.maxHeight,
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? "auto" : "none",
-        transform: `scale(${visible ? 1 : SIDE_MENU_CLOSED_SCALE})`,
+  const floatingUIOptions = useMemo<FloatingUIOptions>(() => ({
+    useFloatingOptions: {
+      open: Boolean(openState && visible),
+      placement: "left",
+      strategy: "fixed",
+      transform: false,
+      middleware: [
+        offset(NFM_SIDE_MENU_GAP),
+        shift({ padding: NFM_SIDE_MENU_VIEWPORT_MARGIN }),
+        size({
+          padding: NFM_SIDE_MENU_VIEWPORT_MARGIN,
+          apply({ availableHeight, elements }) {
+            const availableMaxHeight = Math.max(0, availableHeight);
+            const viewportMaxHeight = typeof window === "undefined"
+              ? availableMaxHeight
+              : Math.max(0, window.innerHeight * NFM_SIDE_MENU_MAX_HEIGHT_VH);
+            elements.floating.style.maxHeight = `${Math.min(availableMaxHeight, viewportMaxHeight)}px`;
+          },
+        }),
+      ],
+    },
+    focusManagerProps: {
+      disabled: true,
+    },
+    useDismissProps: {
+      enabled: false,
+    },
+    useTransitionStylesProps: {
+      duration: prefersReducedMotion()
+        ? { open: 0, close: 0 }
+        : { open: SIDE_MENU_MOTION_DURATION_MS, close: SIDE_MENU_MOTION_DURATION_MS },
+      initial: {
+        opacity: 0,
+        transform: `scale(${SIDE_MENU_CLOSED_SCALE})`,
+      },
+      open: {
+        opacity: 1,
+        transform: "scale(1)",
+      },
+      close: {
+        opacity: 0,
+        transform: `scale(${SIDE_MENU_CLOSED_SCALE})`,
+      },
+      common: {
+        transformOrigin: "right center",
         transitionDelay: `${SIDE_MENU_MOTION_DELAY_MS}ms`,
-        "--nfm-side-menu-origin": position.transformOrigin,
-      } as CSSProperties}
-      contentEditable={false}
-      data-nfm-side-menu-popup="true"
-      data-state={visible ? "open" : "closed"}
-      onTransitionEnd={(event) => {
+        transitionTimingFunction: "ease",
+      },
+    },
+    elementProps: {
+      className: "fixed z-50 opacity-100 transition-[opacity,transform] duration-200 ease-[ease] motion-reduce:transition-none",
+      style: {
+        width: NFM_SIDE_MENU_WIDTH,
+        maxHeight: "70vh",
+        pointerEvents: visible ? "auto" : "none",
+        zIndex: 50,
+      } as CSSProperties,
+      contentEditable: false,
+      "data-nfm-side-menu-popup": "true",
+      "data-state": visible ? "open" : "closed",
+      onTransitionEnd: (event) => {
         if (event.target !== event.currentTarget) return;
         if (event.propertyName !== "opacity") return;
         if (visible) return;
         finalizeClose();
-      }}
+      },
+    },
+  }), [finalizeClose, openState, visible]);
+
+  if (!openState || !block) return null;
+
+  return (
+    <NfmFloatingPopover
+      reference={openState.reference}
+      portalElement={null}
+      floatingRef={popupRef}
+      {...floatingUIOptions}
     >
       <NfmSideMenuSurface
         sections={sections}
@@ -1737,30 +1773,8 @@ function NfmSideMenuPopup({
           close("action");
         }}
       />
-    </div>,
-    document.body,
+    </NfmFloatingPopover>
   );
-}
-
-function resolveShortcutAnchorRect(
-  editor: SideMenuEditorRuntime,
-  block: SideMenuBlock,
-): NfmSideMenuRect | null {
-  const blockId = getCurrentBlockId(block);
-  const root = editor.prosemirrorView?.dom;
-  const cssEscape = globalThis.CSS?.escape ?? ((value: string) => value.replace(/["\\]/g, "\\$&"));
-  const blockElement = blockId && root
-    ? root.querySelector<HTMLElement>(`.bn-block[data-id="${cssEscape(blockId)}"]`)
-    : null;
-  const rect = blockElement?.getBoundingClientRect();
-  if (!rect) return null;
-
-  return {
-    left: rect.left - 8,
-    top: rect.top,
-    width: 18,
-    height: Math.min(Math.max(rect.height, 24), 40),
-  };
 }
 
 export function useNfmSideMenuOpenController() {
@@ -1800,7 +1814,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
 
   const openForBlock = useCallback(({
     block,
-    anchorRect,
+    reference,
     returnFocusElement,
     outsidePressIgnoreElement = null,
     selectionIntent,
@@ -1820,7 +1834,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
 
     setOpenState({
       block,
-      anchorRect,
+      reference,
       returnFocusElement,
       outsidePressIgnoreElement,
       selectionIntent: resolvedSelectionIntent,
@@ -1833,14 +1847,16 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
       ?? editor.getTextCursorPosition?.().block;
     if (!block) return false;
 
-    const anchorRect = resolveShortcutAnchorRect(editor, block)
-      ?? input.anchorRect
-      ?? null;
-    if (!anchorRect) return false;
+    const reference = resolveNfmSideMenuReference({
+      root: editor.prosemirrorView?.dom ?? null,
+      blockId: getCurrentBlockId(block),
+      fallbackRect: input.anchorRect,
+    });
+    if (!reference) return false;
 
     return openForBlock({
       block,
-      anchorRect,
+      reference,
       returnFocusElement: input.returnFocusElement ?? editor.prosemirrorView?.dom ?? null,
       outsidePressIgnoreElement: input.outsidePressIgnoreElement ?? null,
     });
@@ -1970,19 +1986,14 @@ export function NfmSideMenu() {
     selectionIntent?: SideMenuSelectionIntent | null,
   ) => {
     if (!block) return;
-    const rect = triggerWrapperRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const triggerElement = triggerWrapperRef.current;
+    if (!triggerElement) return;
 
     sideMenuOpenController.openForBlock({
       block,
-      anchorRect: {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-      },
+      reference: createNfmSideMenuElementReference(triggerElement),
       returnFocusElement,
-      outsidePressIgnoreElement: triggerWrapperRef.current,
+      outsidePressIgnoreElement: triggerElement,
       selectionIntent,
       freezeSideMenu: true,
     });

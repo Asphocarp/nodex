@@ -1,6 +1,7 @@
 import {
   autoUpdate,
   FloatingFocusManager,
+  FloatingPortal,
   useDismiss,
   useFloating,
   useHover,
@@ -9,7 +10,7 @@ import {
   useTransitionStatus,
   useTransitionStyles,
 } from "@floating-ui/react";
-import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, type HTMLAttributes, type ReactNode, type Ref } from "react";
 import type { FloatingUIOptions } from "@blocknote/react";
 
 export type NfmPopoverReference =
@@ -52,6 +53,8 @@ export function getMountedBoundingClientRectCache(reference: NfmPopoverReference
 export function NfmFloatingPopover(
   props: FloatingUIOptions & {
     reference?: NfmPopoverReference;
+    portalElement?: HTMLElement | null;
+    floatingRef?: Ref<HTMLDivElement>;
     children: ReactNode;
   },
 ) {
@@ -72,7 +75,7 @@ export function NfmFloatingPopover(
   const { getFloatingProps } = useInteractions([dismiss, hover]);
   const innerHTML = useRef("");
   const ref = useRef<HTMLDivElement>(null);
-  const mergedRefs = useMergeRefs([ref, refs.setFloating]);
+  const mergedRefs = useMergeRefs([ref, refs.setFloating, props.floatingRef]);
 
   useEffect(() => {
     if (!props.reference) return;
@@ -109,36 +112,45 @@ export function NfmFloatingPopover(
     style: {
       display: "flex",
       ...props.elementProps?.style,
-      zIndex: `calc(var(--bn-ui-base-z-index) + ${props.elementProps?.style?.zIndex || 0})`,
+      zIndex: `calc(var(--bn-ui-base-z-index, 0) + ${props.elementProps?.style?.zIndex ?? 0})`,
       ...floatingStyles,
       ...styles,
     },
     ...getFloatingProps(),
   };
 
+  const renderWithPortal = (node: ReactNode) => {
+    if (props.portalElement === undefined) return node;
+
+    const root = props.portalElement ?? (typeof document === "undefined" ? null : document.body);
+    if (!root) return false;
+
+    return <FloatingPortal root={root}>{node}</FloatingPortal>;
+  };
+
   if (status === "close") {
-    return (
+    return renderWithPortal(
       <div
         ref={mergedRefs}
         {...mergedProps}
         dangerouslySetInnerHTML={{ __html: innerHTML.current }}
-      />
+      />,
     );
   }
 
   if (!props.focusManagerProps?.disabled) {
-    return (
+    return renderWithPortal(
       <FloatingFocusManager {...props.focusManagerProps} context={context}>
         <div ref={mergedRefs} {...mergedProps}>
           {props.children}
         </div>
-      </FloatingFocusManager>
+      </FloatingFocusManager>,
     );
   }
 
-  return (
+  return renderWithPortal(
     <div ref={mergedRefs} {...mergedProps}>
       {props.children}
-    </div>
+    </div>,
   );
 }
