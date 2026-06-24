@@ -1,7 +1,7 @@
 # Architecture
 
 ## Overview
-Nodex is a local-first kanban platform for coordinating coding-agent work. The Electron main process hosts SQLite state, an embedded HTTP API, and a Codex app-server runtime so CLI clients, browser clients, and the desktop renderer all operate on the same data model while Codex Threads run Electron-first.
+Nodex is a local-first, block-based agent orchestrator for coordinating coding-agent work. The Electron main process hosts SQLite state, an embedded HTTP interface, and a Codex app-server runtime so CLI clients, browser clients, and the desktop renderer all operate on the same product model while Codex Threads run Electron-first.
 
 ## Codemap
 
@@ -24,16 +24,13 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `ipc-handlers.ts`: mirrors core operations through IPC, including lightweight board-summary fetches, on-demand card detail/search channels, project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
 - `ipc-safe-send.ts`: centralized one-way renderer notification helper for main-process IPC fanout. It checks `BrowserWindow`/`webContents` lifetime before sending, treats disposed-frame races as debug-only lifecycle skips, and rate-limits unexpected send warnings.
 - `clipboard-paste-inspector.ts`: best-effort Electron clipboard inspection for pasted absolute file/folder paths across supported native formats.
-- `kanban/db-service.ts`: SQLite CRUD, lightweight board-summary/detail/search read models, move logic, project lifecycle, atomic block-drop import (`sourceUpdates + card creates`), and atomic card-to-editor move drop (`target updates + source delete`) grouped in one transaction.
-- `kanban/project-session-service.ts`: SQLite CRUD for project-owned and projectless sessions, project-local archive/unread state, legacy session pin mirrors, right/bottom session panels, session-attached tabs, optional session-thread links, ordering, v2 recursive panel layout JSON, derived display titles, and derived flat tab-order compatibility. Project creation seeds a normal pinned `Database View` session with a right-panel DB tab.
-- `kanban/history-service.ts`: undo/redo and change history records, including grouped undo/redo via `history.group_id` and description hydration from revision ids.
-- `kanban/description-revision-service.ts`: top-level NFM block hashing, revision delta/snapshot storage, description reconstruction, and revision/blob garbage collection.
-- `kanban/recurrence-service.ts`: recurrence expansion, exception application, and next-occurrence computation.
-- `kanban/reminder-service.ts`: runtime reminder scheduler, startup/resume catch-up, receipts, and snoozes.
-- `kanban/backup-service.ts`: whole-store backup/restore and scheduler.
-- `kanban/schema.ts`: latest-schema bootstrap and the future-ready schema version/migration framework, including project session tables and the one-time migration from legacy Overview rows to normal `Database View` sessions.
-- `kanban/card-input-validation.ts`: shared write validation used by all mutation paths.
-- `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${KANBAN_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics.
+- `local-store/config.ts`, `database.ts`, `schema.ts`, `notifier.ts`: local profile resolution, SQLite connection/init, schema migrations, and main-process change fanout. `database.ts` also performs the one-time `kanban.db` to `nodex.db` filename migration before SQLite opens.
+- `local-store/projects.ts` and `project-sessions.ts`: project CRUD, source-folder run context, project-owned/projectless sessions, session panel layouts, tabs, thread links, ordering, archive/unread state, and derived display titles. Project creation seeds a normal pinned `Database View` session with a right-panel DB tab.
+- `local-store/cards.ts`, `board-read-model.ts`, and `card-occurrences.ts`: card writes, move/drop transactions, lightweight board-summary/detail/search read models, and Calendar occurrence actions. Kanban is only one DB view over these card records.
+- `local-store/history.ts`, `description-revisions.ts`, and `recurrence.ts`: undo/redo, change history, description revision storage/reconstruction, recurrence expansion, and recurrence exception helpers.
+- `local-store/reminders.ts`, `backups.ts`, `assets.ts`, `canvas.ts`, and `sql-inspection.ts`: reminder scheduling, whole-store backup/restore, managed asset storage, canvas persistence, and read-only SQLite inspection.
+- `local-store/card-input-validation.ts`: shared write validation used by all mutation paths.
+- `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${NODEX_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics.
 - `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
 - `terminal-manager.ts`: integrated terminal owner for session terminal ids, including typed `terminal-*` IPC, xterm attach snapshots, owner checks, 16k buffer retention, node-pty local backend lifecycle, restart actions, and `read_thread_terminal` snapshot lookup.
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
@@ -86,8 +83,8 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 ## Data and Event Flow
 1. Renderer issues a command through `lib/api.ts`.
 2. Transport resolves to IPC or HTTP based on runtime.
-3. Main process writes through `db-service`, recurrence helpers, and records history.
-4. `db-notifier` emits `board-changed` for board/card changes, `project-sessions-changed` for session-tree changes, or `projects-changed` for project-list/order/pin changes.
+3. Main process writes through local-store concept modules such as `cards`, `projects`, `project-sessions`, recurrence helpers, and history.
+4. `notifier` emits `board-changed` for board/card changes, `project-sessions-changed` for session-tree changes, or `projects-changed` for project-list/order/pin changes.
 5. Electron main broadcasts change events to all open windows through the safe IPC sender; direct `webContents.send` fanout is not allowed outside that helper because renderer reload/close can dispose frames between lookup and send. Board and session renderer subscriptions filter by `projectId`; project-list subscriptions are global.
 6. Renderer shared project stores (`kanban-store`) receive IPC/SSE board-change signals and dedupe refresh work per project. Workbench session lists receive IPC/SSE session-change signals and reload the affected project sessions. Low-frequency server state managed by TanStack Query invalidates its centralized keys from subscriptions such as `projects-changed`, board changes, and Git branch changes.
 7. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
@@ -195,7 +192,7 @@ Workbench reopen flow:
 ### Observability and Debugging
 - History records capture create/update/move/delete deltas.
 - Backend services can emit structured logs (JSON lines) with child-scoped context for HTTP, integrated terminal, backup/reminder, and Codex runtime flows.
-- Backend logs persist under `${KANBAN_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics, with bounded serialization and sensitive-field redaction for debugging without dumping raw secrets.
+- Backend logs persist under `${NODEX_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics, with bounded serialization and sensitive-field redaction for debugging without dumping raw secrets.
 - Renderer telemetry can emit opt-in Statsig product events through a central helper. Statsig loads only when enabled, uses anonymous Stable ID identity, flushes on app close, and keeps web analytics behind a separate filtered AutoCapture opt-in.
 - Detailed logging reference: `docs/product-specs/backend-logging-spec.md`.
 - Editor subsystems include focused tests for parser, keyboard behavior, and sync edge cases.

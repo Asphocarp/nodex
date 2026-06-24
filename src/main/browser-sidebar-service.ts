@@ -25,7 +25,7 @@ import {
 } from "../shared/browser-sidebar";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../shared/browser-url";
 import { getLogger, type BackendLogger } from "./logging/logger";
-import * as projectSessionService from "./kanban/project-session-service";
+import * as projectSessionService from "./local-store/project-sessions";
 import { safeBroadcastToWindows } from "./ipc-safe-send";
 
 type BrowserUseCommand = Extract<BrowserSidebarCommand, {

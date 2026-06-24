@@ -30,7 +30,7 @@ The logger is implemented in [src/main/logging/logger.ts](src/main/logging/logge
 
 When file logging is enabled, backend logs are written under:
 
-`$KANBAN_DIR/logs`
+`$NODEX_DIR/logs`
 
 Default file naming:
 
@@ -41,7 +41,7 @@ Important properties:
 - One JSON object per line.
 - Files are appended to for the current day.
 - Old files are pruned by retention policy.
-- The active profile is determined by the same `KANBAN_DIR` resolution used elsewhere in the app.
+- The active profile is determined by the same `NODEX_DIR` resolution used elsewhere in the app.
 
 ## Default Runtime Behavior
 
@@ -85,7 +85,7 @@ Supported variables:
 - `NODEX_LOG_FILE`
   - enables/disables file sink
 - `NODEX_LOG_DIR`
-  - overrides the default `${KANBAN_DIR}/logs` directory
+  - overrides the default `${NODEX_DIR}/logs` directory
   - relative paths resolve from `process.cwd()`
 - `NODEX_LOG_RETENTION_DAYS`
   - default: `14`
@@ -277,7 +277,7 @@ Codex-specific logging policy:
 
 ### Backup
 
-[src/main/kanban/backup-service.ts](src/main/kanban/backup-service.ts) logs:
+[src/main/local-store/backups.ts](src/main/local-store/backups.ts) logs:
 
 - queued backup creation
 - backup creation success/failure
@@ -288,7 +288,7 @@ Codex-specific logging policy:
 
 ### Reminders
 
-[src/main/kanban/reminder-service.ts](src/main/kanban/reminder-service.ts) logs:
+[src/main/local-store/reminders.ts](src/main/local-store/reminders.ts) logs:
 
 - scheduler start/stop
 - per-tick summary
@@ -343,7 +343,7 @@ Bad candidates:
 
 Recommended workflow:
 
-1. Find the relevant day file in `${KANBAN_DIR}/logs`.
+1. Find the relevant day file in `${NODEX_DIR}/logs`.
 2. Filter for `subsystem":"codex"`.
 3. Narrow by `threadId`, `turnId`, `projectId`, or `cardId`.
 4. Reconstruct the sequence:

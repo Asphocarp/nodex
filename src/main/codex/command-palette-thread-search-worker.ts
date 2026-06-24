@@ -1,5 +1,5 @@
 import { parentPort } from "node:worker_threads";
-import { closeDatabase } from "../kanban/db-service";
+import { closeDatabase } from "../local-store/database";
 import { CommandPaletteThreadSearchService } from "./command-palette-thread-search-service";
 import type {
   ThreadSearchWorkerMessage,

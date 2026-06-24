@@ -1,0 +1,1 @@
+export { getLocalStoreDir } from "./config";

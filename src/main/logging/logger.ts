@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getKanbanDir } from "../kanban/config";
+import { getLocalStoreDir } from "../local-store/config";
 
 export type BackendLogLevelName = "trace" | "debug" | "info" | "warn" | "error" | "silent";
 
@@ -85,7 +85,7 @@ function parseLevel(value: string | undefined): BackendLogLevelName {
 }
 
 function createLoggerConfig(): LoggerConfig {
-  const defaultLogDir = path.join(getKanbanDir(), "logs");
+  const defaultLogDir = path.join(getLocalStoreDir(), "logs");
   const configuredLogDir = process.env.NODEX_LOG_DIR?.trim();
   const defaultSinkEnabled = !IS_TEST_RUNTIME && !IS_PACKAGED_RUNTIME;
 

@@ -164,7 +164,7 @@ export function finalizeTurnTranscriptState(
 
 export function resolveThreadPreviewFromTranscript(
   transcript: CodexTranscriptEntry[],
-  fallback: string,
+  fallback: string | null | undefined,
 ): string {
   for (const entry of transcript) {
     const candidate = entry.markdownText?.trim();
@@ -172,7 +172,7 @@ export function resolveThreadPreviewFromTranscript(
     return candidate;
   }
 
-  const fallbackPreview = fallback.trim();
+  const fallbackPreview = (fallback ?? "").trim();
   if (fallbackPreview) return fallbackPreview;
 
   for (const entry of transcript) {

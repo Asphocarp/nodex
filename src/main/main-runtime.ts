@@ -20,24 +20,25 @@ import type {
 import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { startHttpServer } from "./http-server";
-import { findCardLocationById, initializeDatabase } from "./kanban/db-service";
-import * as projectSessionService from "./kanban/project-session-service";
-import { dbNotifier } from "./kanban/db-notifier";
+import { findCardLocationById } from "./local-store/cards";
+import { initializeDatabase } from "./local-store/database";
+import * as projectSessionService from "./local-store/project-sessions";
+import { dbNotifier } from "./local-store/notifier";
 import {
   configureAutoBackupScheduler,
   stopAutoBackupScheduler,
-} from "./kanban/backup-service";
-import { getAssetsPathPrefix } from "./kanban/asset-service";
-import { runReminderTick, snoozeReminder, startReminderScheduler } from "./kanban/reminder-service";
+} from "./local-store/backups";
+import { getAssetsPathPrefix } from "./local-store/assets";
+import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
 import {
   getAppUpdateSettings,
   getBackupSettings,
   getCommandKeymapState,
-  getKanbanDir,
+  getLocalStoreDir,
   getWindowRestoreSettings,
   getPort,
-} from "./kanban/config";
+} from "./local-store/config";
 import { codexService } from "./codex/codex-service";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { parseCardDeepLink, parseSessionDeepLink } from "../shared/card-deeplink";
@@ -1033,7 +1034,7 @@ export async function runMainAppStartup(
     packaged: app.isPackaged,
     platform: process.platform,
     pid: process.pid,
-    kanbanDir: getKanbanDir(),
+    localStoreDir: getLocalStoreDir(),
   });
   registerDeepLinkProtocol();
   // Packaged macOS builds use the bundle icon; dev still needs an explicit Dock icon override.

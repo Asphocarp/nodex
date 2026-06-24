@@ -3,10 +3,15 @@ import { performance } from "node:perf_hooks";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
-import * as dbService from "./kanban/db-service";
-import * as projectSessionService from "./kanban/project-session-service";
-import * as backupService from "./kanban/backup-service";
-import * as canvasService from "./kanban/canvas-service";
+import * as backupService from "./local-store/backups";
+import * as boardReadModel from "./local-store/board-read-model";
+import * as canvasService from "./local-store/canvas";
+import * as cardOccurrences from "./local-store/card-occurrences";
+import * as cardsStore from "./local-store/cards";
+import * as historyStore from "./local-store/history";
+import * as projectSessionService from "./local-store/project-sessions";
+import * as projectsStore from "./local-store/projects";
+import * as sqlInspection from "./local-store/sql-inspection";
 import { terminalManager } from "./terminal-manager";
 import {
   getAppUpdateSettings,
@@ -26,8 +31,8 @@ import {
   updateTelemetrySettings,
   updateThreadNotificationSettings,
   updateWindowRestoreSettings,
-} from "./kanban/config";
-import { resolveAssetPath } from "./kanban/asset-service";
+} from "./local-store/config";
+import { resolveAssetPath } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
 import { openFileLinkTarget } from "./file-link-opener";
@@ -39,7 +44,7 @@ import {
   readWorkspacePathsExist,
   writeWorkspaceFile,
 } from "./workspace-files-service";
-import { dbNotifier } from "./kanban/db-notifier";
+import { dbNotifier } from "./local-store/notifier";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
@@ -327,30 +332,30 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   // Projects
-  registerHandle("projects:list", () => dbService.listProjects());
+  registerHandle("projects:list", () => projectsStore.listProjects());
 
   registerHandle("projects:get", (_, projectId: string) =>
-    dbService.getProject(projectId)
+    projectsStore.getProject(projectId)
   );
 
   registerHandle("projects:create", (_, input) =>
-    dbService.createProject(input)
+    projectsStore.createProject(input)
   );
 
   registerHandle("projects:update", (_, projectId: string, updates) =>
-    dbService.updateProject(projectId, updates)
+    projectsStore.updateProject(projectId, updates)
   );
 
   registerHandle("projects:reorder", (_, input) =>
-    dbService.reorderProjects(input)
+    projectsStore.reorderProjects(input)
   );
 
   registerHandle("projects:set-pinned", (_, projectId: string, input) =>
-    dbService.setProjectPinned(projectId, input)
+    projectsStore.setProjectPinned(projectId, input)
   );
 
   registerHandle("projects:set-pinned-order", (_, input) =>
-    dbService.setPinnedProjectOrder(input)
+    projectsStore.setPinnedProjectOrder(input)
   );
 
   registerHandle("projects:pick-source-root", async (event) => {
@@ -370,7 +375,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("projects:delete", (_, projectId: string) =>
-    dbService.deleteProject(projectId)
+    projectsStore.deleteProject(projectId)
   );
 
   // Project sessions
@@ -544,7 +549,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   // Board
   registerHandle("board:summary:get", async (_, projectId: string) => {
     const startedAt = performance.now();
-    const board = await dbService.getBoardSummary(projectId);
+    const board = await boardReadModel.getBoardSummary(projectId);
     ipcPayloadLogger.info("board summary payload served", {
       channel: "board:summary:get",
       projectId,
@@ -558,7 +563,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   // Cards
   registerHandle("cards:details:get", async (_, projectId, input) => {
     const startedAt = performance.now();
-    const cards = await dbService.getCardsDetails(projectId, input);
+    const cards = await boardReadModel.getCardsDetails(projectId, input);
     ipcPayloadLogger.info("card details payload served", {
       channel: "cards:details:get",
       projectId,
@@ -572,7 +577,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("cards:search", async (_, input) => {
     const startedAt = performance.now();
-    const results = await dbService.searchCards(input);
+    const results = await boardReadModel.searchCards(input);
     ipcPayloadLogger.info("card search payload served", {
       channel: "cards:search",
       projectCount: input.projectIds.length,
@@ -584,11 +589,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("card:create", (_, projectId, columnId, input, sessionId?, placement?) =>
-    dbService.createCard(projectId, columnId, input, sessionId, placement)
+    cardsStore.createCard(projectId, columnId, input, sessionId, placement)
   );
 
   registerHandle("card:update", async (_, projectId, columnId, cardId, updates, sessionId?, expectedRevision?) => {
-    return dbService.updateCard(
+    return cardsStore.updateCard(
       projectId,
       columnId || undefined,
       cardId,
@@ -599,25 +604,25 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("card:get", (_, projectId: string, cardId: string, status?: string) =>
-    dbService.getCard(projectId, cardId, status as Parameters<typeof dbService.getCard>[2])
+    cardsStore.getCard(projectId, cardId, status as Parameters<typeof cardsStore.getCard>[2])
   );
 
   registerHandle("card:delete", (_, projectId, columnId, cardId, sessionId?) =>
-    dbService.deleteCard(projectId, columnId || undefined, cardId, sessionId)
+    cardsStore.deleteCard(projectId, columnId || undefined, cardId, sessionId)
   );
 
   registerHandle("card:move", async (_, input) => {
-    const result = await dbService.moveCard(input);
+    const result = await cardsStore.moveCard(input);
     return result === "moved";
   });
 
   registerHandle("card:move-many", async (_, input) => {
-    const result = await dbService.moveCards(input);
+    const result = await cardsStore.moveCards(input);
     return result === "moved";
   });
 
   registerHandle("card:move-to-project", async (_, input) => {
-    const result = await dbService.moveCardToProject(input);
+    const result = await cardsStore.moveCardToProject(input);
     if (result === "wrong_column") throw new Error("Card is no longer in the expected column");
     if (result === "not_found") throw new Error("Card not found");
     if (result === "target_project_not_found") throw new Error("Target project not found");
@@ -625,70 +630,70 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("card:import-block-drop", (_, projectId: string, input, sessionId?: string) =>
-    dbService.importBlockDropAsCards(projectId, input, sessionId)
+    cardsStore.importBlockDropAsCards(projectId, input, sessionId)
   );
 
   registerHandle("card:move-drop-to-editor", (_, projectId: string, input, sessionId?: string) =>
-    dbService.moveCardDropToEditor(projectId, input, sessionId)
+    cardsStore.moveCardDropToEditor(projectId, input, sessionId)
   );
 
   registerHandle("calendar:occurrences", (_, projectId: string, windowStart: Date, windowEnd: Date, searchQuery?: string) =>
-    dbService.listCalendarOccurrences(projectId, windowStart, windowEnd, searchQuery).then((occurrences) => ({ occurrences }))
+    cardOccurrences.listCalendarOccurrences(projectId, windowStart, windowEnd, searchQuery).then((occurrences) => ({ occurrences }))
   );
 
   registerHandle("card:occurrence:complete", (_, projectId: string, input, sessionId?: string) =>
-    dbService.completeCardOccurrence(projectId, input, sessionId)
+    cardOccurrences.completeCardOccurrence(projectId, input, sessionId)
   );
 
   registerHandle("card:occurrence:skip", (_, projectId: string, input, sessionId?: string) =>
-    dbService.skipCardOccurrence(projectId, input, sessionId)
+    cardOccurrences.skipCardOccurrence(projectId, input, sessionId)
   );
 
   registerHandle("card:occurrence:update", (_, projectId: string, input, sessionId?: string) =>
-    dbService.updateCardOccurrence(projectId, input, sessionId)
+    cardOccurrences.updateCardOccurrence(projectId, input, sessionId)
   );
 
   // History
   registerHandle("history:recent", (_, projectId: string, sessionId?: string) => {
-    const entries = dbService.getRecentHistory(projectId);
-    const state = dbService.getUndoRedoState(projectId, sessionId);
+    const entries = historyStore.getRecentHistory(projectId);
+    const state = historyStore.getUndoRedoState(projectId, sessionId);
     return { ...state, entries };
   });
 
   registerHandle("history:card", (_, projectId: string, cardId: string) => {
-    const entries = dbService.getCardHistoryPanelEntries(projectId, cardId);
+    const entries = historyStore.getCardHistoryPanelEntries(projectId, cardId);
     return { entries };
   });
 
   registerHandle("history:card-version-preview", (_, projectId: string, cardId: string, historyId: number) =>
-    dbService.getCardHistoryVersionPreview(projectId, cardId, historyId)
+    historyStore.getCardHistoryVersionPreview(projectId, cardId, historyId)
   );
 
   registerHandle("history:undo", (_, projectId: string, sessionId?: string) =>
-    dbService.undoLatest(projectId, sessionId)
+    historyStore.undoLatest(projectId, sessionId)
   );
 
   registerHandle("history:redo", (_, projectId: string, sessionId?: string) =>
-    dbService.redoLatest(projectId, sessionId)
+    historyStore.redoLatest(projectId, sessionId)
   );
 
   registerHandle("history:revert", (_, projectId: string, historyId: number, sessionId?: string) =>
-    dbService.revertEntry(projectId, historyId, sessionId)
+    historyStore.revertEntry(projectId, historyId, sessionId)
   );
 
   registerHandle("history:restore", (_, projectId: string, cardId: string, historyId: number, sessionId?: string) =>
-    dbService.restoreToEntry(projectId, cardId, historyId, sessionId)
+    historyStore.restoreToEntry(projectId, cardId, historyId, sessionId)
   );
 
   // Database introspection
   registerHandle("db:schema", (_event, projectId: string) => {
     void projectId;
-    return dbService.getSchema();
+    return sqlInspection.getSchema();
   });
 
   registerHandle("db:query", (_, projectId: string, sql: string, params?: unknown[]) => {
     void projectId;
-    return dbService.executeReadOnlyQuery(sql, params as (string | number | null)[] | undefined);
+    return sqlInspection.executeReadOnlyQuery(sql, params as (string | number | null)[] | undefined);
   });
 
   // Backups

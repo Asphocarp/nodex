@@ -64,7 +64,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Each restored window resumes its own active project/session/tab, pane state, DB view, open card context, selected thread context, workbench layout, and saved window bounds
 - Windows opened while another window is already open start from the requesting window's current layout and then diverge as independent window sessions
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
-- Desktop single-instance behavior is scoped per resolved server profile (`KANBAN_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
+- Desktop single-instance behavior is scoped per resolved server profile (`NODEX_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
 - Packaged macOS launches from outside `/Applications` show a native prompt to move Nodex into Applications, continue from the current location, or quit before the app runtime starts.
 - Project-local session pins, archived state, unread state, durable tab state, no-thread fallback labels, right/bottom panel collapse/size/split layout, active leaf, active tab, and derived flat tab ordering are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, transient focus history, and temporary side-chat tabs. The `Database View` row is ordinary starter content: it starts pinned for new projects but can be renamed, unpinned, archived, deleted, opened in a new window, and shown in the normal session row context menu.
 - Codex thread metadata lives in `codex_threads`, where `project_id` is nullable. Durable local chat ownership lives in `project_session_threads`; cards can reference or mention threads but do not own them. Attached session row titles use `threadName || threadPreview || noThreadFallbackTitle || "New thread"`; blank sessions use `noThreadFallbackTitle || "New thread"`. `noThreadFallbackTitle` is not a thread title authority.
@@ -201,7 +201,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Supported DB view filter/sort/display settings persist per project and per view in renderer localStorage
 
 #### 4. SQLite Database Storage
-- Single `kanban.db` file in kanban directory
+- Single `nodex.db` file in the local store directory
 - Atomic transactions for data integrity
 - Schema v26 with UUID-v7 card ids, description revision storage, Codex thread-link metadata keyed by `thread_id`, recurring reminder state, and project-scoped realtime/history state
 
@@ -362,7 +362,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Global in-app toast notifications after undo/redo actions and other transient editor/review feedback
 
 #### 9. Whole-Store Backups
-- Manual backup creation via CLI/API (`kanban.db` + `assets/`)
+- Manual backup creation via CLI/API (`nodex.db` + `assets/`)
 - Automatic backups every 6 hours with retention of latest 28 auto backups
 - Restore requires explicit confirmation and creates a pre-restore safety backup by default
 - Backup artifacts are stored under `~/.nodex/backups/<backup-id>/` with a versioned `manifest.json`
@@ -498,7 +498,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - **Block Editor**: BlockNote (@blocknote/core, @blocknote/react, @blocknote/shadcn)
 - **Description Format**: [Notion-flavored Markdown (NFM)](../references/notion-flavored-markdown-spec.md) with custom parser/serializer
 - **HTTP Server**: Hono (embedded in main process)
-- **HTTP Server Port**: Configurable via `[server].port` / `KANBAN_PORT` (default 51283)
+- **HTTP Server Port**: Configurable via `[server].port` / `NODEX_PORT` (default 51283)
 - **Drag & Drop**: @atlaskit/pragmatic-drag-and-drop, @atlaskit/pragmatic-drag-and-drop-auto-scroll
 - **Database**: better-sqlite3 (in main process)
 - **Real-Time**: IPC events (Electron) / SSE (browser fallback)
@@ -520,8 +520,8 @@ nodex/
 │   └── workflows/
 │       └── release.yml         # CI/CD: build + publish on git tag push (v*)
 ├── ~/.nodex/                  # Default storage directory
-│   ├── kanban.db               # SQLite database
-│   ├── kanban.db-wal           # Write-ahead log
+│   ├── nodex.db               # SQLite database
+│   ├── nodex.db-wal           # Write-ahead log
 │   ├── assets/                 # Uploaded images
 │   └── backups/                # Whole-store backup snapshots (db + assets)
 ├── electron.vite.config.ts     # electron-vite config (main, preload, renderer)
@@ -544,15 +544,19 @@ nodex/
 │   │   ├── main-runtime.ts     # BrowserWindow, IPC registration, HTTP server
 │   │   ├── ipc-handlers.ts     # ipcMain.handle() registrations
 │   │   ├── http-server.ts      # Hono HTTP server (configured port) for CLI + browser
-│   │   └── kanban/
-│   │       ├── config.ts       # Configuration (KANBAN_DIR + backup env)
-│   │       ├── asset-service.ts # Image upload/storage/read helpers
-│   │       ├── backup-service.ts # Backup create/list/restore + auto scheduler
-│   │       ├── card-input-validation.ts # Card write validation across HTTP + IPC
-│   │       ├── db-service.ts   # SQLite CRUD (projects + cards)
-│   │       ├── db-notifier.ts  # EventEmitter for changes
+│   │   └── local-store/
+│   │       ├── config.ts       # Configuration (NODEX_DIR + backup env)
+│   │       ├── database.ts     # SQLite connection, init, and legacy filename migration
+│   │       ├── projects.ts     # Project CRUD and run context
+│   │       ├── project-sessions.ts # Session tree, tabs, and thread links
+│   │       ├── cards.ts        # Card writes and move/drop transactions
+│   │       ├── board-read-model.ts # Board summary/detail/search reads
+│   │       ├── card-occurrences.ts # Calendar occurrence actions
+│   │       ├── backups.ts      # Backup create/list/restore + auto scheduler
+│   │       ├── assets.ts       # Image/resource upload, storage, and read helpers
+│   │       ├── notifier.ts     # EventEmitter for local-store changes
 │   │       ├── schema.ts       # Latest database schema bootstrap + version guard
-│   │       └── history-service.ts  # History tracking logic
+│   │       └── history.ts      # History tracking and undo/redo logic
 │   ├── preload/
 │   │   └── index.ts            # contextBridge: exposes window.api (invoke, on, serverUrl, assetPathPrefix)
 │   └── renderer/               # React SPA (Vite dev server on port 51284)
@@ -992,7 +996,7 @@ nodex serve --dev                # Development mode
 ```
 
 Server options:
-- `[kanban-path]` - Path to kanban directory (default: `~/.nodex`)
+- `[local-store-path]` - path to local store directory (default: `~/.nodex`)
 - `-p, --port <port>` - Port to run on (default: 51283)
 - `--dev` - Run in development mode with hot reload
 
@@ -1091,7 +1095,7 @@ TOML config for both agent and server settings. Resolution order (later wins):
 1. Defaults
 2. `~/.nodex/config.toml` (user-level, auto-generated if no config exists)
 3. `.nodex/config.toml` walked up from CWD (project-level overrides user-level)
-4. Env vars: `NODEX_*` for agent, `KANBAN_*` for server
+4. Env vars: `NODEX_*` for agent and server settings
 5. CLI flags: `--url`, `--session-id`, `--project`, `--port`, `[path]`
 
 ```toml
@@ -1115,12 +1119,12 @@ history_retention = 1000
 
 ### Server Environment Variables
 ```bash
-KANBAN_DIR=~/.nodex     # Kanban directory (default: ~/.nodex)
-KANBAN_PORT=51283        # Port (default: 51283)
-KANBAN_BACKUP_AUTO_ENABLED=false   # Enable auto backups (default: false)
-KANBAN_BACKUP_INTERVAL_HOURS=6    # Auto backup interval in hours (default: 6)
-KANBAN_BACKUP_RETENTION=28        # Auto backup retention count (default: 28)
-KANBAN_HISTORY_RETENTION=1000    # Max history entries per project (default: 1000, 0 = unlimited)
+NODEX_DIR=~/.nodex     # Local store directory (default: ~/.nodex)
+NODEX_PORT=51283        # Port (default: 51283)
+NODEX_BACKUP_AUTO_ENABLED=false   # Enable auto backups (default: false)
+NODEX_BACKUP_INTERVAL_HOURS=6    # Auto backup interval in hours (default: 6)
+NODEX_BACKUP_RETENTION=28        # Auto backup retention count (default: 28)
+NODEX_HISTORY_RETENTION=1000    # Max history entries per project (default: 1000, 0 = unlimited)
 NODEX_SENTRY_ENABLED=false       # Enable opt-in Sentry diagnostics (default: false)
 SENTRY_DSN=...                   # Override the Sentry DSN
 SENTRY_ENVIRONMENT=production    # Override diagnostics environment
@@ -1137,7 +1141,7 @@ NODEX_TELEMETRY_AUTOCAPTURE_ENABLED=false # Enable filtered Statsig web analytic
 
 These can also be set via the `[server]` section in config.toml. Env vars override TOML values.
 
-In the desktop app, Settings -> Backups updates `~/.nodex/config.toml` `[server]` backup fields and reapplies the auto-backup scheduler immediately. If `KANBAN_BACKUP_*` environment variables are set, those values remain effective and the UI marks the overridden fields.
+In the desktop app, Settings -> Backups updates `~/.nodex/config.toml` `[server]` backup fields and reapplies the auto-backup scheduler immediately. If `NODEX_BACKUP_*` environment variables are set, those values remain effective and the UI marks the overridden fields.
 
 In the desktop app, Settings -> General -> `App updates` updates the user-level `~/.nodex/config.toml` `[server].app_updates_auto_check_enabled` flag. Browser mode and unpackaged/non-macOS runtimes report updater support as unavailable and do not perform background checks.
 
@@ -1288,7 +1292,7 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 - **WAL mode**: Good concurrent read performance
 
 ### Why Multi-Project in One Database?
-- **Single file**: One `kanban.db` contains all projects, easy to manage
+- **Single file**: One `nodex.db` contains all projects, easy to manage
 - **Foreign keys with CASCADE**: Deleting a project automatically cleans up all related data
 - **Shared schema**: No duplicate table definitions across databases
 - **Atomic cross-project queries**: SQL can query across projects if needed
@@ -1323,7 +1327,7 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 - **WAL-safe snapshots**: `db.backup(...)` captures consistent state from a live WAL database
 - **Atomic backup directories**: Stage in temp dir and rename into place
 - **Restore safety**: Auto pre-restore safety backup and rollback staging protect against failed restores
-- **Whole-store recovery**: Backups include both `kanban.db` and `assets/`
+- **Whole-store recovery**: Backups include both `nodex.db` and `assets/`
 
 ### Why Stable Asset URIs?
 - **Port-independent storage**: NFM descriptions stay valid even if server host/port changes
@@ -1348,7 +1352,7 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 
 ### Why Write Limits in App Layer?
 - **Stops runaway growth early**: Field-level validation blocks exponential-content bugs before they hit SQLite/history
-- **Transport consistency**: `db-service` validation protects both HTTP and Electron IPC writes
+- **Transport consistency**: `local-store/card-input-validation` protects both HTTP and Electron IPC writes
 - **Resource protection**: Route-level body caps reject oversized requests with `413` before JSON parsing/DB work
 - **Operational simplicity**: Limits live in shared constants, so values stay consistent across modules
 

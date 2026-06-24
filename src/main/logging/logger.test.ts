@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const ORIGINAL_ENV = {
-  KANBAN_DIR: process.env.KANBAN_DIR,
+  NODEX_DIR: process.env.NODEX_DIR,
   NODEX_LOG_LEVEL: process.env.NODEX_LOG_LEVEL,
   NODEX_LOG_FILE: process.env.NODEX_LOG_FILE,
   NODEX_LOG_CONSOLE: process.env.NODEX_LOG_CONSOLE,
@@ -18,8 +18,8 @@ async function importLoggerModule() {
 }
 
 function restoreEnv(): void {
-  if (ORIGINAL_ENV.KANBAN_DIR === undefined) delete process.env.KANBAN_DIR;
-  else process.env.KANBAN_DIR = ORIGINAL_ENV.KANBAN_DIR;
+  if (ORIGINAL_ENV.NODEX_DIR === undefined) delete process.env.NODEX_DIR;
+  else process.env.NODEX_DIR = ORIGINAL_ENV.NODEX_DIR;
 
   if (ORIGINAL_ENV.NODEX_LOG_LEVEL === undefined) delete process.env.NODEX_LOG_LEVEL;
   else process.env.NODEX_LOG_LEVEL = ORIGINAL_ENV.NODEX_LOG_LEVEL;
@@ -39,7 +39,7 @@ function restoreEnv(): void {
 
 async function withTempLoggerEnv(run: (root: string) => Promise<void>): Promise<void> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
-  process.env.KANBAN_DIR = root;
+  process.env.NODEX_DIR = root;
   process.env.NODEX_LOG_LEVEL = "info";
   process.env.NODEX_LOG_FILE = "true";
   process.env.NODEX_LOG_CONSOLE = "false";
@@ -124,7 +124,7 @@ describe("backend logger", () => {
   test("does not write production packaged logs unless a sink is explicitly enabled", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
     const logDir = path.join(root, "logs");
-    process.env.KANBAN_DIR = root;
+    process.env.NODEX_DIR = root;
     process.env.NODEX_INTERNAL_APP_PACKAGED = "true";
     process.env.NODEX_LOG_LEVEL = "info";
     process.env.NODEX_LOG_DIR = logDir;
@@ -148,7 +148,7 @@ describe("backend logger", () => {
   test("allows packaged file logging when explicitly enabled", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
     const logDir = path.join(root, "logs");
-    process.env.KANBAN_DIR = root;
+    process.env.NODEX_DIR = root;
     process.env.NODEX_INTERNAL_APP_PACKAGED = "true";
     process.env.NODEX_LOG_LEVEL = "info";
     process.env.NODEX_LOG_FILE = "true";

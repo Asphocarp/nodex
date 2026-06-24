@@ -171,4 +171,10 @@ describe("resolveThreadPreviewFromTranscript", () => {
 
     expect(preview).toBe("Only assistant text");
   });
+
+  test("treats a missing fallback as empty", () => {
+    const preview = resolveThreadPreviewFromTranscript([], undefined);
+
+    expect(preview).toBe("");
+  });
 });

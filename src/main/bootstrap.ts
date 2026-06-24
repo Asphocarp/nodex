@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { configureInstanceScopePaths } from "./instance-scope";
-import { resolveBootstrapKanbanDir } from "./bootstrap-config";
+import { resolveBootstrapLocalStoreDir } from "./bootstrap-config";
 import { BootstrapRuntimeEventQueue } from "./bootstrap-events";
 import { writeBootstrapLog } from "./bootstrap-log";
-import { getDiagnosticsSettings } from "./kanban/config";
+import { getDiagnosticsSettings } from "./local-store/config";
 import {
   captureMainException,
   initializeMainSentry,
@@ -17,8 +17,8 @@ import type { MainRuntimeController } from "./main-runtime";
 
 process.env.NODEX_INTERNAL_APP_PACKAGED = app.isPackaged ? "true" : "false";
 
-const kanbanDir = resolveBootstrapKanbanDir();
-configureInstanceScopePaths(app, kanbanDir);
+const localStoreDir = resolveBootstrapLocalStoreDir();
+configureInstanceScopePaths(app, localStoreDir);
 
 const runtimeQueue = new BootstrapRuntimeEventQueue();
 
@@ -36,7 +36,7 @@ function logBootstrap(
   fields: Record<string, unknown> = {},
 ): void {
   const defaultSinkEnabled = !app.isPackaged;
-  writeBootstrapLog(kanbanDir, level, message, fields, {
+  writeBootstrapLog(localStoreDir, level, message, fields, {
     consoleEnabled: parseBooleanEnv(process.env.NODEX_LOG_CONSOLE, defaultSinkEnabled),
     fileEnabled: parseBooleanEnv(process.env.NODEX_LOG_FILE, defaultSinkEnabled),
   });

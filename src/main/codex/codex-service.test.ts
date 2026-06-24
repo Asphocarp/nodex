@@ -23,22 +23,19 @@ import type {
   ProjectSessionForkResult,
 } from "../../shared/types";
 import { applyCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
-import {
-  closeDatabase,
-  createProject,
-  initializeDatabase,
-} from "../kanban/db-service";
+import { closeDatabase, initializeDatabase } from "../local-store/database";
+import { createProject } from "../local-store/projects";
 import {
   dbNotifier,
   type ProjectSessionsChangeEvent,
-} from "../kanban/db-notifier";
+} from "../local-store/notifier";
 import {
   createProjectSession,
   createProjectSessionTab,
   getProjectSession,
   listProjectSessions,
   upsertProjectSessionThreadLink,
-} from "../kanban/project-session-service";
+} from "../local-store/project-sessions";
 import { CodexRpcError } from "./codex-app-server-client";
 import {
   getCodexThread,
@@ -324,7 +321,7 @@ let defaultProjectId = "";
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   closeDatabase();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-service-"));
-  process.env.KANBAN_DIR = tempDir;
+  process.env.NODEX_DIR = tempDir;
 
   try {
     await initializeDatabase();
@@ -332,7 +329,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     if (isUnsupportedSqliteError(error)) {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.KANBAN_DIR;
+      delete process.env.NODEX_DIR;
       return false;
     }
     throw error;
@@ -346,7 +343,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   } finally {
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.KANBAN_DIR;
+    delete process.env.NODEX_DIR;
   }
 }
 
@@ -6094,11 +6091,11 @@ describe("codex-service startThreadForSession", () => {
 
   test("lists managed worktrees once per path when reused by multiple threads", async () => {
     const ran = await withTempDatabase(async () => {
-      const kanbanDir = process.env.KANBAN_DIR;
-      if (!kanbanDir) {
-        throw new Error("KANBAN_DIR was not set by withTempDatabase");
+      const localStoreDir = process.env.NODEX_DIR;
+      if (!localStoreDir) {
+        throw new Error("NODEX_DIR was not set by withTempDatabase");
       }
-      const sharedPath = path.join(kanbanDir, "worktrees", "reuse", defaultProjectId);
+      const sharedPath = path.join(localStoreDir, "worktrees", "reuse", defaultProjectId);
       fs.mkdirSync(sharedPath, { recursive: true });
 
       const olderLinkedAt = "2026-03-01T00:00:00.000Z";
@@ -6135,13 +6132,13 @@ describe("codex-service startThreadForSession", () => {
 
   test("deletes managed worktree directory and unlinks all threads that point to that path", async () => {
     const ran = await withTempDatabase(async () => {
-      const kanbanDir = process.env.KANBAN_DIR;
-      if (!kanbanDir) {
-        throw new Error("KANBAN_DIR was not set by withTempDatabase");
+      const localStoreDir = process.env.NODEX_DIR;
+      if (!localStoreDir) {
+        throw new Error("NODEX_DIR was not set by withTempDatabase");
       }
 
-      const sharedPath = path.join(kanbanDir, "worktrees", "delete", defaultProjectId);
-      const otherPath = path.join(kanbanDir, "worktrees", "keep", defaultProjectId);
+      const sharedPath = path.join(localStoreDir, "worktrees", "delete", defaultProjectId);
+      const otherPath = path.join(localStoreDir, "worktrees", "keep", defaultProjectId);
       fs.mkdirSync(sharedPath, { recursive: true });
       fs.mkdirSync(otherPath, { recursive: true });
 
@@ -6182,15 +6179,15 @@ describe("codex-service startThreadForSession", () => {
 
   test("removes git worktree metadata when deleting a managed worktree", async () => {
     const ran = await withTempDatabase(async () => {
-      const kanbanDir = process.env.KANBAN_DIR;
-      if (!kanbanDir) {
-        throw new Error("KANBAN_DIR was not set by withTempDatabase");
+      const localStoreDir = process.env.NODEX_DIR;
+      if (!localStoreDir) {
+        throw new Error("NODEX_DIR was not set by withTempDatabase");
       }
 
       const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-delete-worktree-repo-"));
       initializeGitRepository(repositoryPath);
 
-      const managedPath = path.join(kanbanDir, "worktrees", "git-remove", defaultProjectId);
+      const managedPath = path.join(localStoreDir, "worktrees", "git-remove", defaultProjectId);
       fs.mkdirSync(path.dirname(managedPath), { recursive: true });
       execFileSync("git", ["worktree", "add", "--detach", managedPath, "main"], { cwd: repositoryPath });
 

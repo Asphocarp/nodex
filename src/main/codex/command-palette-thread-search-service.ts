@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { getDb } from "../kanban/db-service";
+import { getDb } from "../local-store/database";
 import type {
   CodexConversationSnapshot,
   CodexThreadDetail,

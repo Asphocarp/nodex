@@ -1,1 +1,0 @@
-export { getKanbanDir } from "./config";

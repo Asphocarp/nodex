@@ -7,7 +7,7 @@
 - Provide safe recovery paths for destructive operations.
 
 ## Data Durability Model
-- SQLite runs in WAL mode (`db-service.ts`) for resilient write/read behavior.
+- SQLite runs in WAL mode (`local-store/database.ts`) for resilient write/read behavior.
 - SQLite schema version state is tracked in `PRAGMA user_version`.
 - SQLite file reclamation runs with `PRAGMA auto_vacuum = INCREMENTAL`; startup migration applies `VACUUM` when switching to that mode, and history pruning opportunistically runs `PRAGMA incremental_vacuum`.
 - Card and history writes are wrapped in transactions for atomicity.
@@ -21,15 +21,15 @@
 - Project rename updates linked Codex rows transactionally with project metadata updates.
 
 ## Backup and Restore
-- Whole-store backups include `kanban.db` and asset files.
-- Manual and scheduled backups are managed by `backup-service.ts`.
+- Whole-store backups include `nodex.db` and asset files.
+- Manual and scheduled backups are managed by `local-store/backups.ts`.
 - Restore requires explicit confirmation and supports pre-restore safety backup.
 
 ## Sync and Event Delivery
 - Electron path: DB change notifier -> main-process fanout to all open windows -> IPC event -> hook refresh.
 - Electron one-way fanout must go through `ipc-safe-send`. Renderer frames can be disposed during window reload/close between `BrowserWindow` lookup and `webContents.send`; lifecycle send failures are treated as debug-level skips, while unexpected send failures are warning-rate-limited so one broken window cannot create a log storm.
 - Electron startup path: the main process starts through a small bootstrap entry that resolves the profile dir, scopes Electron storage, queues early deep links/second-instance events, and then dynamically loads the application runtime. Renderer windows still block behind the preload-driven initialization screen until runtime initialization resolves.
-- Electron single-instance lock scope is profile-aware: bootstrap sets `userData`/`sessionData` under resolved `KANBAN_DIR` before calling `requestSingleInstanceLock`, so independently configured installs can run concurrently.
+- Electron single-instance lock scope is profile-aware: bootstrap sets `userData`/`sessionData` under resolved `NODEX_DIR` before calling `requestSingleInstanceLock`, so independently configured installs can run concurrently.
 - Packaged macOS startup first checks whether the app is running from `/Applications`; if not, users can move it there through Electron's native `moveToApplicationsFolder`, continue from the current location, or quit.
 - Browser path: DB change notifier -> SSE stream -> hook refresh.
 - Renderer applies short mutation cooldown to reduce stale refresh races.
@@ -45,7 +45,7 @@
 - Reconciliation owns session re-home semantics. If a linked session has no tabs and the thread's cwd now resolves to a different project/projectless scope, the session ownership and thread link move in place. If the linked session has project-scoped tabs, Nodex archives the old session, detaches the old link, and creates a replacement session in the new scope so project-specific panel state is not silently rewritten.
 - Renderer sidebar sync triggers are mount force sync, focus/visibility stale sync, a focused visible 15-second heartbeat, debounced host-message stale sync, direct `sidebarSyncUpdated` host-message application, project/source force sync, and session-only read sync. Renderer focus refetch applies to the pinned-thread query with a short 5-second freshness window; pinned queries are not responsible for discovering external chats.
 - Codex client startup is handshake-gated (`initialize` + `initialized`) and reconnects with backoff on unexpected child exit.
-- Backend observability includes structured JSON-line logs under `${KANBAN_DIR}/logs` for unpackaged/dev runs, covering HTTP requests, app lifecycle, integrated terminal sessions, backup/reminder jobs, and Codex client/service flows (thread start, turn start, approvals, user-input, reconnects, worktree setup). Packaged builds leave backend file and console logging off by default unless explicitly enabled through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
+- Backend observability includes structured JSON-line logs under `${NODEX_DIR}/logs` for unpackaged/dev runs, covering HTTP requests, app lifecycle, integrated terminal sessions, backup/reminder jobs, and Codex client/service flows (thread start, turn start, approvals, user-input, reconnects, worktree setup). Packaged builds leave backend file and console logging off by default unless explicitly enabled through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
 - Remote crash diagnostics are optional and separate from local logs. Sentry initializes only when diagnostics are enabled through Settings, `[server].diagnostics_enabled`, or `NODEX_SENTRY_ENABLED`; warn/error backend log entries may become scrubbed breadcrumbs, but Nodex does not ship raw JSONL logs to Sentry in v1. Renderer Session Replay initializes only when the separate Replay opt-in is also enabled, using the configured replay sample rates.
 - Remote product telemetry is optional and separate from local logs and Sentry diagnostics. The renderer dynamically loads Statsig only when telemetry is enabled through Settings, `[server].telemetry_enabled`, or `NODEX_TELEMETRY_ENABLED`; queued Statsig events flush through the app-close flush coordinator before Electron close. Filtered Statsig web analytics initializes only when the separate AutoCapture opt-in is enabled, and Nodex does not initialize Statsig Session Replay.
 - Detailed logging behavior, configuration, and extension guidelines live in `docs/product-specs/backend-logging-spec.md`.
@@ -55,7 +55,7 @@
 - Invalid inputs fail at validation boundary with actionable errors.
 - Not-found resources return `404` from API routes.
 - Current builds migrate supported SQLite schema versions forward at startup and fail fast only for unsupported or unknown schema versions. Project-session title migrations include a conservative shape repair for supported databases that are missing `project_sessions.no_thread_fallback_title`.
-- Runtime import/startup failures are handled in bootstrap by destroying any windows, writing a bootstrap log entry under `${KANBAN_DIR}/logs`, showing a native `Nodex failed to start` dialog, and quitting.
+- Runtime import/startup failures are handled in bootstrap by destroying any windows, writing a bootstrap log entry under `${NODEX_DIR}/logs`, showing a native `Nodex failed to start` dialog, and quitting.
 - Stale card writes with `expectedRevision` return typed conflict payloads (`status: "conflict"`; HTTP `409`) and do not apply partial updates.
 - Backup restore failures surface explicit error responses.
 - Reminder delivery is at-least-once at scheduler level, then effectively exactly-once per `(project_id, card_id, occurrence_start, offset)` via receipt uniqueness.

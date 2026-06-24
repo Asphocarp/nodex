@@ -100,12 +100,12 @@ function loadServerConfig() {
   }
 
   // Env vars override TOML
-  if (process.env.KANBAN_DIR) server.dir = process.env.KANBAN_DIR;
-  if (process.env.KANBAN_PORT) server.port = parseInt(process.env.KANBAN_PORT, 10);
-  if (process.env.KANBAN_BACKUP_AUTO_ENABLED !== undefined) server.backup_auto_enabled = parseBooleanEnvCli(process.env.KANBAN_BACKUP_AUTO_ENABLED);
-  if (process.env.KANBAN_BACKUP_INTERVAL_HOURS) server.backup_interval_hours = parseInt(process.env.KANBAN_BACKUP_INTERVAL_HOURS, 10);
-  if (process.env.KANBAN_BACKUP_RETENTION) server.backup_retention = parseInt(process.env.KANBAN_BACKUP_RETENTION, 10);
-  if (process.env.KANBAN_HISTORY_RETENTION) server.history_retention = parseInt(process.env.KANBAN_HISTORY_RETENTION, 10);
+  if (process.env.NODEX_DIR) server.dir = process.env.NODEX_DIR;
+  if (process.env.NODEX_PORT) server.port = parseInt(process.env.NODEX_PORT, 10);
+  if (process.env.NODEX_BACKUP_AUTO_ENABLED !== undefined) server.backup_auto_enabled = parseBooleanEnvCli(process.env.NODEX_BACKUP_AUTO_ENABLED);
+  if (process.env.NODEX_BACKUP_INTERVAL_HOURS) server.backup_interval_hours = parseInt(process.env.NODEX_BACKUP_INTERVAL_HOURS, 10);
+  if (process.env.NODEX_BACKUP_RETENTION) server.backup_retention = parseInt(process.env.NODEX_BACKUP_RETENTION, 10);
+  if (process.env.NODEX_HISTORY_RETENTION) server.history_retention = parseInt(process.env.NODEX_HISTORY_RETENTION, 10);
 
   return server;
 }
@@ -215,12 +215,12 @@ function loadConfigWithSources() {
   if (process.env.NODEX_SESSION_ID) fields.sessionId = { value: process.env.NODEX_SESSION_ID, source: "env NODEX_SESSION_ID" };
   if (process.env.NODEX_PROJECT) fields.project = { value: process.env.NODEX_PROJECT, source: "env NODEX_PROJECT" };
 
-  if (process.env.KANBAN_DIR) fields["server.dir"] = { value: process.env.KANBAN_DIR, source: "env KANBAN_DIR" };
-  if (process.env.KANBAN_PORT) fields["server.port"] = { value: parseInt(process.env.KANBAN_PORT, 10), source: "env KANBAN_PORT" };
-  if (process.env.KANBAN_BACKUP_AUTO_ENABLED !== undefined) fields["server.backup_auto_enabled"] = { value: parseBooleanEnvCli(process.env.KANBAN_BACKUP_AUTO_ENABLED), source: "env KANBAN_BACKUP_AUTO_ENABLED" };
-  if (process.env.KANBAN_BACKUP_INTERVAL_HOURS) fields["server.backup_interval_hours"] = { value: parseInt(process.env.KANBAN_BACKUP_INTERVAL_HOURS, 10), source: "env KANBAN_BACKUP_INTERVAL_HOURS" };
-  if (process.env.KANBAN_BACKUP_RETENTION) fields["server.backup_retention"] = { value: parseInt(process.env.KANBAN_BACKUP_RETENTION, 10), source: "env KANBAN_BACKUP_RETENTION" };
-  if (process.env.KANBAN_HISTORY_RETENTION) fields["server.history_retention"] = { value: parseInt(process.env.KANBAN_HISTORY_RETENTION, 10), source: "env KANBAN_HISTORY_RETENTION" };
+  if (process.env.NODEX_DIR) fields["server.dir"] = { value: process.env.NODEX_DIR, source: "env NODEX_DIR" };
+  if (process.env.NODEX_PORT) fields["server.port"] = { value: parseInt(process.env.NODEX_PORT, 10), source: "env NODEX_PORT" };
+  if (process.env.NODEX_BACKUP_AUTO_ENABLED !== undefined) fields["server.backup_auto_enabled"] = { value: parseBooleanEnvCli(process.env.NODEX_BACKUP_AUTO_ENABLED), source: "env NODEX_BACKUP_AUTO_ENABLED" };
+  if (process.env.NODEX_BACKUP_INTERVAL_HOURS) fields["server.backup_interval_hours"] = { value: parseInt(process.env.NODEX_BACKUP_INTERVAL_HOURS, 10), source: "env NODEX_BACKUP_INTERVAL_HOURS" };
+  if (process.env.NODEX_BACKUP_RETENTION) fields["server.backup_retention"] = { value: parseInt(process.env.NODEX_BACKUP_RETENTION, 10), source: "env NODEX_BACKUP_RETENTION" };
+  if (process.env.NODEX_HISTORY_RETENTION) fields["server.history_retention"] = { value: parseInt(process.env.NODEX_HISTORY_RETENTION, 10), source: "env NODEX_HISTORY_RETENTION" };
 
   return { fields, homeConfigPath, projectConfigPath };
 }
@@ -1603,7 +1603,7 @@ Config: .nodex/config.toml (CWD walk-up, then ~/.nodex/config.toml)
   port = 51283
 
 Env vars: NODEX_URL, NODEX_SESSION_ID, NODEX_PROJECT
-Server env vars: KANBAN_DIR, KANBAN_PORT, KANBAN_BACKUP_*
+Server env vars: NODEX_DIR, NODEX_PORT, NODEX_BACKUP_*
 
 File Input: Use @filepath or @- for stdin
   nodex add backlog "Task" -d @./plan.md
@@ -1765,7 +1765,7 @@ function printCommandHelp(cmd) {
     --yes                Required confirmation for restore
     --no-safety-backup   Skip automatic pre-restore safety backup`,
 
-    serve: `Usage: nodex serve [kanban-path] [options]
+    serve: `Usage: nodex serve [local-store-path] [options]
 
   Start the Nodex server.
 
@@ -1806,7 +1806,7 @@ function printCommandHelp(cmd) {
     2. User-level:    ~/.nodex/config.toml
     3. Project-level: .nodex/config.toml (walked up from CWD)
     4. Env vars:      NODEX_URL, NODEX_SESSION_ID, NODEX_PROJECT
-                      KANBAN_DIR, KANBAN_PORT, KANBAN_BACKUP_*
+                      NODEX_DIR, NODEX_PORT, NODEX_BACKUP_*
     5. CLI flags:     --url, --session-id, --project, --port, [path]
 
   Use [server] section for dir, port, backup settings.
@@ -1889,17 +1889,17 @@ async function cmdServe(args) {
     process.exit(1);
   }
 
-  const kanbanDir = resolve(process.cwd(), serveArgs.path);
+  const localStoreDir = resolve(process.cwd(), serveArgs.path);
 
-  if (!existsSync(kanbanDir)) {
-    console.log(`Creating kanban directory: ${kanbanDir}`);
-    mkdirSync(kanbanDir, { recursive: true });
+  if (!existsSync(localStoreDir)) {
+    console.log(`Creating local store directory: ${localStoreDir}`);
+    mkdirSync(localStoreDir, { recursive: true });
   }
 
   const packageRoot = resolve(__dirname, "..");
 
   console.log(`Starting Nodex...`);
-  console.log(`  Kanban directory: ${kanbanDir}`);
+  console.log(`  Local store directory: ${localStoreDir}`);
   console.log(`  Port: ${serveArgs.port}`);
   console.log(`  Mode: ${serveArgs.dev ? "development" : "production"}`);
 
@@ -1909,17 +1909,17 @@ async function cmdServe(args) {
   const serverCfg = loadServerConfig();
   const env = {
     ...process.env,
-    KANBAN_DIR: kanbanDir,
-    KANBAN_PORT: String(serveArgs.port),
+    NODEX_DIR: localStoreDir,
+    NODEX_PORT: String(serveArgs.port),
   };
-  if (serverCfg.backup_auto_enabled !== undefined && !process.env.KANBAN_BACKUP_AUTO_ENABLED)
-    env.KANBAN_BACKUP_AUTO_ENABLED = String(serverCfg.backup_auto_enabled);
-  if (serverCfg.backup_interval_hours !== undefined && !process.env.KANBAN_BACKUP_INTERVAL_HOURS)
-    env.KANBAN_BACKUP_INTERVAL_HOURS = String(serverCfg.backup_interval_hours);
-  if (serverCfg.backup_retention !== undefined && !process.env.KANBAN_BACKUP_RETENTION)
-    env.KANBAN_BACKUP_RETENTION = String(serverCfg.backup_retention);
-  if (serverCfg.history_retention !== undefined && !process.env.KANBAN_HISTORY_RETENTION)
-    env.KANBAN_HISTORY_RETENTION = String(serverCfg.history_retention);
+  if (serverCfg.backup_auto_enabled !== undefined && !process.env.NODEX_BACKUP_AUTO_ENABLED)
+    env.NODEX_BACKUP_AUTO_ENABLED = String(serverCfg.backup_auto_enabled);
+  if (serverCfg.backup_interval_hours !== undefined && !process.env.NODEX_BACKUP_INTERVAL_HOURS)
+    env.NODEX_BACKUP_INTERVAL_HOURS = String(serverCfg.backup_interval_hours);
+  if (serverCfg.backup_retention !== undefined && !process.env.NODEX_BACKUP_RETENTION)
+    env.NODEX_BACKUP_RETENTION = String(serverCfg.backup_retention);
+  if (serverCfg.history_retention !== undefined && !process.env.NODEX_HISTORY_RETENTION)
+    env.NODEX_HISTORY_RETENTION = String(serverCfg.history_retention);
 
   let child;
   if (serveArgs.dev) {

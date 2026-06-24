@@ -3,10 +3,15 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
-import * as dbService from "./kanban/db-service";
-import * as projectSessionService from "./kanban/project-session-service";
-import * as backupService from "./kanban/backup-service";
-import * as canvasService from "./kanban/canvas-service";
+import * as backupService from "./local-store/backups";
+import * as boardReadModel from "./local-store/board-read-model";
+import * as canvasService from "./local-store/canvas";
+import * as cardOccurrences from "./local-store/card-occurrences";
+import * as cardsStore from "./local-store/cards";
+import * as historyStore from "./local-store/history";
+import * as projectSessionService from "./local-store/project-sessions";
+import * as projectsStore from "./local-store/projects";
+import * as sqlInspection from "./local-store/sql-inspection";
 import {
   getBackupSettings,
   getHistorySettings,
@@ -16,8 +21,8 @@ import {
   updateHistorySettings,
   updateTelemetrySettings,
   updateThreadNotificationSettings,
-} from "./kanban/config";
-import { dbNotifier } from "./kanban/db-notifier";
+} from "./local-store/config";
+import { dbNotifier } from "./local-store/notifier";
 import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
@@ -44,7 +49,7 @@ import {
   saveUploadedResource,
   saveUploadedImage,
   isSupportedImageMimeType,
-} from "./kanban/asset-service";
+} from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { getLogger } from "./logging/logger";
 import {
@@ -468,7 +473,7 @@ export function normalizeCardMoveDropBody(
 // === Project routes ===
 
 app.get("/api/projects", (c) => {
-  const projects = dbService.listProjects();
+  const projects = projectsStore.listProjects();
   return c.json({ projects });
 });
 
@@ -479,7 +484,7 @@ app.post("/api/projects", async (c) => {
     if (legacyField) {
       return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
     }
-    const project = dbService.createProject({
+    const project = projectsStore.createProject({
       name: typeof body.name === "string" ? body.name : undefined,
       description: typeof body.description === "string" ? body.description : undefined,
       icon: typeof body.icon === "string" ? body.icon : undefined,
@@ -494,7 +499,7 @@ app.post("/api/projects", async (c) => {
 app.put("/api/projects/order", async (c) => {
   const body = await c.req.json();
   try {
-    const projects = dbService.reorderProjects(ProjectOrderInputSchema.parse(body));
+    const projects = projectsStore.reorderProjects(ProjectOrderInputSchema.parse(body));
     return c.json({ projects });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -504,7 +509,7 @@ app.put("/api/projects/order", async (c) => {
 app.put("/api/projects/pinned-order", async (c) => {
   const body = await c.req.json();
   try {
-    const projects = dbService.setPinnedProjectOrder(ProjectPinnedOrderInputSchema.parse(body));
+    const projects = projectsStore.setPinnedProjectOrder(ProjectPinnedOrderInputSchema.parse(body));
     return c.json({ projects });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -512,7 +517,7 @@ app.put("/api/projects/pinned-order", async (c) => {
 });
 
 app.get("/api/projects/:projectId", (c) => {
-  const project = dbService.getProject(c.req.param("projectId"));
+  const project = projectsStore.getProject(c.req.param("projectId"));
   if (!project) return c.json({ error: "Not found" }, 404);
   return c.json(project);
 });
@@ -525,7 +530,7 @@ app.put("/api/projects/:projectId", async (c) => {
     if (legacyField) {
       return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
     }
-    const result = dbService.updateProject(projectId, {
+    const result = projectsStore.updateProject(projectId, {
       name: typeof body.name === "string" ? body.name : undefined,
       description: typeof body.description === "string" ? body.description : undefined,
       icon: typeof body.icon === "string" ? body.icon : undefined,
@@ -541,7 +546,7 @@ app.put("/api/projects/:projectId", async (c) => {
 app.put("/api/projects/:projectId/pinned", async (c) => {
   const body = await c.req.json();
   try {
-    const result = dbService.setProjectPinned(
+    const result = projectsStore.setProjectPinned(
       c.req.param("projectId"),
       ProjectPinnedInputSchema.parse(body),
     );
@@ -553,7 +558,7 @@ app.put("/api/projects/:projectId/pinned", async (c) => {
 });
 
 app.delete("/api/projects/:projectId", (c) => {
-  const success = dbService.deleteProject(c.req.param("projectId"));
+  const success = projectsStore.deleteProject(c.req.param("projectId"));
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
@@ -634,7 +639,7 @@ app.put("/api/projects/:projectId/sessions/pinned-order", async (c) => {
   const body = await c.req.json();
   try {
     const sessions = projectSessionService.setPinnedProjectSessionOrder(projectId, body);
-    const canonicalProjectId = sessions[0]?.projectId ?? dbService.getProject(projectId)?.id ?? projectId;
+    const canonicalProjectId = sessions[0]?.projectId ?? projectsStore.getProject(projectId)?.id ?? projectId;
     dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "pin");
     return c.json({ sessions });
   } catch (err) {
@@ -856,7 +861,7 @@ app.put("/api/projects/:projectId/sessions/reorder", async (c) => {
       projectId,
       orderedSessionIds.filter((item: unknown): item is string => typeof item === "string"),
     );
-    const canonicalProjectId = sessions[0]?.projectId ?? dbService.getProject(projectId)?.id ?? projectId;
+    const canonicalProjectId = sessions[0]?.projectId ?? projectsStore.getProject(projectId)?.id ?? projectId;
     dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "reorder");
     return c.json({ sessions });
   } catch (err) {
@@ -1000,7 +1005,7 @@ app.delete("/api/project-sessions/:sessionId/thread", (c) => {
 
 app.get("/api/projects/:projectId/board-summary", async (c) => {
   const startedAt = Date.now();
-  const board = await dbService.getBoardSummary(c.req.param("projectId"));
+  const board = await boardReadModel.getBoardSummary(c.req.param("projectId"));
   logger.info("board summary payload served", {
     channel: "GET /api/projects/:projectId/board-summary",
     projectId: c.req.param("projectId"),
@@ -1025,7 +1030,7 @@ app.post("/api/projects/:projectId/board", cardWriteBodyLimit, async (c) => {
     }
     const normalizedSessionId = typeof sessionId === "string" ? sessionId : undefined;
     const normalizedPlacement: CardCreatePlacement = placement === "top" ? "top" : "bottom";
-    const card = await dbService.createCard(
+    const card = await cardsStore.createCard(
       projectId,
       normalizedStatus,
       input as unknown as CardInput,
@@ -1151,7 +1156,7 @@ app.get("/api/projects/:projectId/card", async (c) => {
   const status = parseOptionalCardStatus(c.req.query("status") || undefined);
   const cardId = c.req.query("cardId");
   if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const result = await dbService.getCard(projectId, cardId, status);
+  const result = await cardsStore.getCard(projectId, cardId, status);
   if (!result) return c.json({ error: "Not found" }, 404);
   return c.json(result);
 });
@@ -1164,7 +1169,7 @@ app.post("/api/projects/:projectId/cards/details", async (c) => {
     return c.json({ error: "Missing cardIds" }, 400);
   }
   const cardIds = body.cardIds.filter((cardId): cardId is string => typeof cardId === "string");
-  const cards = await dbService.getCardsDetails(projectId, { cardIds } satisfies CardsDetailsInput);
+  const cards = await boardReadModel.getCardsDetails(projectId, { cardIds } satisfies CardsDetailsInput);
   logger.info("card details payload served", {
     channel: "POST /api/projects/:projectId/cards/details",
     projectId,
@@ -1187,7 +1192,7 @@ app.post("/api/cards/search", async (c) => {
     query: body.query,
     limit: typeof body.limit === "number" ? body.limit : undefined,
   };
-  const results = await dbService.searchCards(input);
+  const results = await boardReadModel.searchCards(input);
   logger.info("card search payload served", {
     channel: "POST /api/cards/search",
     projectCount: input.projectIds.length,
@@ -1218,7 +1223,7 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
       && Number.isInteger(expectedRevision)
       ? expectedRevision
       : undefined;
-    const result = await dbService.updateCard(
+    const result = await cardsStore.updateCard(
       projectId,
       normalizedStatus,
       cardId,
@@ -1244,7 +1249,7 @@ app.delete("/api/projects/:projectId/card", async (c) => {
   const cardId = c.req.query("cardId");
   const sessionId = c.req.query("sessionId") || undefined;
   if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const success = await dbService.deleteCard(projectId, status, cardId, sessionId);
+  const success = await cardsStore.deleteCard(projectId, status, cardId, sessionId);
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
@@ -1258,7 +1263,7 @@ app.get("/api/projects/:projectId/calendar/occurrences", async (c) => {
   try {
     const start = parseRequiredDate("start", startRaw);
     const end = parseRequiredDate("end", endRaw);
-    const occurrences = await dbService.listCalendarOccurrences(projectId, start, end, searchQuery);
+    const occurrences = await cardOccurrences.listCalendarOccurrences(projectId, start, end, searchQuery);
     return c.json({ occurrences });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1277,7 +1282,7 @@ app.post("/api/projects/:projectId/card-occurrence/complete", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: body.source as CardOccurrenceActionInput["source"],
     };
-    const result = await dbService.completeCardOccurrence(
+    const result = await cardOccurrences.completeCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1301,7 +1306,7 @@ app.post("/api/projects/:projectId/card-occurrence/skip", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: body.source as CardOccurrenceActionInput["source"],
     };
-    const result = await dbService.skipCardOccurrence(
+    const result = await cardOccurrences.skipCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1329,7 +1334,7 @@ app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c
       scope: body.scope as CardOccurrenceUpdateInput["scope"],
       updates: updates as CardOccurrenceUpdateInput["updates"],
     };
-    const result = await dbService.updateCardOccurrence(
+    const result = await cardOccurrences.updateCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1347,7 +1352,7 @@ app.get("/api/projects/:projectId/column", async (c) => {
   const projectId = c.req.param("projectId");
   const columnId = parseOptionalCardStatus(c.req.query("id"));
   if (!columnId) return c.json({ error: "Missing id" }, 400);
-  const column = await dbService.readColumn(projectId, columnId);
+  const column = await boardReadModel.readColumn(projectId, columnId);
   return c.json(column);
 });
 
@@ -1356,7 +1361,7 @@ app.get("/api/projects/:projectId/column", async (c) => {
 app.put("/api/projects/:projectId/move", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
-  const result = await dbService.moveCard({ ...body, projectId });
+  const result = await cardsStore.moveCard({ ...body, projectId });
   if (result === "wrong_column") {
     return c.json({ error: "Card is no longer in the expected column" }, 409);
   }
@@ -1367,7 +1372,7 @@ app.put("/api/projects/:projectId/move", async (c) => {
 app.put("/api/projects/:projectId/move-many", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
-  const result = await dbService.moveCards({ ...body, projectId });
+  const result = await cardsStore.moveCards({ ...body, projectId });
   if (result === "wrong_column") {
     return c.json({ error: "One or more cards are no longer in the expected column" }, 409);
   }
@@ -1396,7 +1401,7 @@ app.post("/api/projects/:projectId/card-move-to-project", async (c) => {
       targetStatus: parseOptionalCardStatus(body.targetStatus),
     };
 
-    const result = await dbService.moveCardToProject(input);
+    const result = await cardsStore.moveCardToProject(input);
     if (result === "wrong_column") {
       return c.json({ error: "Card is no longer in the expected column" }, 409);
     }
@@ -1420,7 +1425,7 @@ app.post("/api/projects/:projectId/card-import-block-drop", cardWriteBodyLimit, 
   const input = normalizeBlockDropImportBody({ ...body });
   delete input.sessionId;
   try {
-    const result = await dbService.importBlockDropAsCards(
+    const result = await cardsStore.importBlockDropAsCards(
       projectId,
       input as unknown as BlockDropImportInput,
       sessionId,
@@ -1439,7 +1444,7 @@ app.post("/api/projects/:projectId/card-move-drop-to-editor", cardWriteBodyLimit
   const input = normalizeCardMoveDropBody({ ...body });
   delete input.sessionId;
   try {
-    const result = await dbService.moveCardDropToEditor(
+    const result = await cardsStore.moveCardDropToEditor(
       projectId,
       input as unknown as CardDropMoveToEditorInput,
       sessionId,
@@ -1470,7 +1475,7 @@ app.put(
   }),
   async (c) => {
     const projectId = c.req.param("projectId");
-    if (!dbService.getProject(projectId)) {
+    if (!projectsStore.getProject(projectId)) {
       return c.json({ error: "Project not found" }, 404);
     }
     const body = await c.req.json();
@@ -1542,7 +1547,7 @@ app.get("/api/projects/events", (c) => {
 });
 
 app.get("/api/projects/:projectId/events", (c) => {
-  const projectId = dbService.getProject(c.req.param("projectId"))?.id ?? c.req.param("projectId");
+  const projectId = projectsStore.getProject(c.req.param("projectId"))?.id ?? c.req.param("projectId");
 
   const stream = new ReadableStream({
     start(controller) {
@@ -1610,8 +1615,8 @@ app.get("/api/projects/:projectId/history", (c) => {
   const limit = Number.isInteger(parsedLimit) && parsedLimit >= 0 ? parsedLimit : 20;
   const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
 
-  const entries = dbService.getRecentHistory(projectId, limit, offset);
-  const state = dbService.getUndoRedoState(projectId, sessionId);
+  const entries = historyStore.getRecentHistory(projectId, limit, offset);
+  const state = historyStore.getUndoRedoState(projectId, sessionId);
   return c.json({ ...state, entries });
 });
 
@@ -1619,7 +1624,7 @@ app.get("/api/projects/:projectId/history/card", (c) => {
   const projectId = c.req.param("projectId");
   const cardId = c.req.query("cardId");
   if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const entries = dbService.getCardHistoryPanelEntries(projectId, cardId);
+  const entries = historyStore.getCardHistoryPanelEntries(projectId, cardId);
   return c.json({ entries });
 });
 
@@ -1631,7 +1636,7 @@ app.get("/api/projects/:projectId/history/card-version-preview", (c) => {
   if (!cardId || !Number.isInteger(historyId)) {
     return c.json({ error: "Missing cardId or invalid historyId" }, 400);
   }
-  return c.json(dbService.getCardHistoryVersionPreview(projectId, cardId, historyId));
+  return c.json(historyStore.getCardHistoryVersionPreview(projectId, cardId, historyId));
 });
 
 // === Revert/Restore routes ===
@@ -1642,7 +1647,7 @@ app.post("/api/projects/:projectId/history/revert", async (c) => {
   const historyId = body.historyId;
   if (typeof historyId !== "number") return c.json({ error: "Missing or invalid historyId" }, 400);
   const sessionId = body.sessionId;
-  return c.json(dbService.revertEntry(projectId, historyId, sessionId));
+  return c.json(historyStore.revertEntry(projectId, historyId, sessionId));
 });
 
 app.post("/api/projects/:projectId/history/restore", async (c) => {
@@ -1652,7 +1657,7 @@ app.post("/api/projects/:projectId/history/restore", async (c) => {
   if (!cardId || typeof historyId !== "number") {
     return c.json({ error: "Missing cardId or invalid historyId" }, 400);
   }
-  return c.json(dbService.restoreToEntry(projectId, cardId, historyId, sessionId));
+  return c.json(historyStore.restoreToEntry(projectId, cardId, historyId, sessionId));
 });
 
 // === Undo/Redo routes ===
@@ -1661,27 +1666,27 @@ app.post("/api/projects/:projectId/undo", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   const sessionId = body.sessionId;
-  return c.json(dbService.undoLatest(projectId, sessionId));
+  return c.json(historyStore.undoLatest(projectId, sessionId));
 });
 
 app.post("/api/projects/:projectId/redo", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   const sessionId = body.sessionId;
-  return c.json(dbService.redoLatest(projectId, sessionId));
+  return c.json(historyStore.redoLatest(projectId, sessionId));
 });
 
 // === Schema/Query routes ===
 
 app.get("/api/projects/:projectId/schema", () => {
-  const schema = dbService.getSchema();
+  const schema = sqlInspection.getSchema();
   return Response.json(schema);
 });
 
 app.post("/api/projects/:projectId/query", async (c) => {
   const body = await c.req.json();
   try {
-    const result = dbService.executeReadOnlyQuery(body.sql, body.params);
+    const result = sqlInspection.executeReadOnlyQuery(body.sql, body.params);
     return c.json(result);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);

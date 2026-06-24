@@ -18,7 +18,7 @@ function serializeError(value: unknown): unknown {
 }
 
 export function writeBootstrapLog(
-  kanbanDir: string,
+  localStoreDir: string,
   level: BootstrapLogLevel,
   message: string,
   fields: Record<string, unknown> = {},
@@ -38,7 +38,7 @@ export function writeBootstrapLog(
 
   if (fileEnabled) {
     try {
-      const logDir = path.join(kanbanDir, "logs");
+      const logDir = path.join(localStoreDir, "logs");
       mkdirSync(logDir, { recursive: true });
       appendFileSync(
         path.join(logDir, `bootstrap-${entry.ts.slice(0, 10)}.log`),

@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { closeDatabase, createProject, initializeDatabase, updateProject } from "../kanban/db-service";
+import { closeDatabase, initializeDatabase } from "../local-store/database";
+import { createProject, updateProject } from "../local-store/projects";
 import {
   getCodexThread,
   listPinnedCodexThreadIds,
@@ -24,14 +25,14 @@ let projectId = "";
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   closeDatabase();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-links-"));
-  process.env.KANBAN_DIR = tempDir;
+  process.env.NODEX_DIR = tempDir;
   try {
     await initializeDatabase();
   } catch (error) {
     if (isUnsupportedSqliteError(error)) {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.KANBAN_DIR;
+      delete process.env.NODEX_DIR;
       return false;
     }
     throw error;
@@ -45,7 +46,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   } finally {
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.KANBAN_DIR;
+    delete process.env.NODEX_DIR;
   }
 }
 

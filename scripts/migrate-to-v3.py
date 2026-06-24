@@ -4,7 +4,7 @@ Migrate Nodex database from schema v1/v2 (no projects) to v3 (multi-project).
 
 Usage:
     python scripts/migrate-to-v3.py <old-db-path> <new-db-path>
-    python scripts/migrate-to-v3.py ~/.nodex/kanban.db ~/.nodex/kanban-v3.db
+    python scripts/migrate-to-v3.py ~/.nodex/nodex.db ~/.nodex/nodex-v3.db
 
 All existing cards and history are assigned to a "default" project.
 """

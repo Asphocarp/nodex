@@ -144,7 +144,7 @@ import {
   MAX_PROJECT_SESSION_TITLE_LENGTH,
   ProjectSessionForkInputSchema,
 } from "../../shared/schemas/project-sessions";
-import * as projectSessionService from "../kanban/project-session-service";
+import * as projectSessionService from "../local-store/project-sessions";
 import {
   buildPermissionModeConfigEdits,
   buildThreadPermissionOverrides,
@@ -165,11 +165,14 @@ import {
   resolveCodexItemPrimaryIdentityKey,
 } from "../../shared/codex-item-identity";
 import { mergeOrderedStringIds, upsertOrderedStringId } from "../../shared/codex-turn-order";
-import * as dbService from "../kanban/db-service";
-import { dbNotifier } from "../kanban/db-notifier";
-import { resolveProjectRunContext } from "../kanban/project-service";
-import { resolveAssetPath } from "../kanban/asset-service";
-import { getKanbanDir } from "../kanban/config";
+import { dbNotifier } from "../local-store/notifier";
+import {
+  getProject,
+  listProjects,
+  resolveProjectRunContext,
+} from "../local-store/projects";
+import { resolveAssetPath } from "../local-store/assets";
+import { getLocalStoreDir } from "../local-store/config";
 import {
   getCodexThread,
   listPinnedCodexThreadIds,
@@ -2737,7 +2740,7 @@ export class CodexService extends EventEmitter {
 
     let workspaceRoots: string[] = [];
     try {
-      const project = dbService.getProject(projectId);
+      const project = getProject(projectId);
       workspaceRoots = project?.sources.map((source) => source.root).filter((root) => root.trim().length > 0) ?? [];
     } catch (error) {
       if (!isUnavailableSqliteBindingError(error)) {
@@ -3363,7 +3366,7 @@ export class CodexService extends EventEmitter {
   }): Promise<SidebarThreadSyncMetadata> {
     await this.ensureClientReady();
 
-    const projects = dbService.listProjects();
+    const projects = listProjects();
     const archivedFilters = input.includeArchived ? [false, true] : [false];
     const metadata = createSidebarThreadSyncMetadata();
 
@@ -3714,7 +3717,7 @@ export class CodexService extends EventEmitter {
       if (!thread || thread.archived || thread.ephemeral || thread.source?.sideConversation) continue;
       seenThreadIds.add(item.threadId);
 
-      const project = item.projectId ? dbService.getProject(item.projectId) : null;
+      const project = item.projectId ? getProject(item.projectId) : null;
       summaries.push({
         threadId: item.threadId,
         sessionId: item.sessionId,
@@ -3825,7 +3828,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listWorktreeEnvironments(projectId: string): Promise<WorktreeEnvironmentOption[]> {
-    const project = dbService.getProject(projectId);
+    const project = getProject(projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!workspacePath) return [];
     try {
@@ -3836,7 +3839,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listWorktreeEnvironmentConfigs(projectId: string): Promise<WorktreeEnvironmentConfigRecord[]> {
-    const project = dbService.getProject(projectId);
+    const project = getProject(projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!workspacePath) return [];
 
@@ -3851,7 +3854,7 @@ export class CodexService extends EventEmitter {
     projectId: string,
     configPath?: string | null,
   ): Promise<WorktreeEnvironmentSettingsSnapshot> {
-    const project = dbService.getProject(projectId);
+    const project = getProject(projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!project || !workspacePath) {
       throw new Error("Project source folder is required for local environments.");
@@ -3868,7 +3871,7 @@ export class CodexService extends EventEmitter {
   async saveWorktreeEnvironmentConfig(
     input: UpdateWorktreeEnvironmentConfigInput,
   ): Promise<WorktreeEnvironmentSettingsSnapshot> {
-    const project = dbService.getProject(input.projectId);
+    const project = getProject(input.projectId);
     const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!project || !workspacePath) {
       throw new Error("Project source folder is required for local environments.");
@@ -3882,7 +3885,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {
-    const managedRoot = path.resolve(getKanbanDir(), "worktrees");
+    const managedRoot = path.resolve(getLocalStoreDir(), "worktrees");
     const links = listCodexThreadLinks({ includeArchived: true });
     const recordsByPath = links.reduce<Map<string, ManagedWorktreeRecord>>((acc, link) => {
       const cwd = link.cwd?.trim();
@@ -3897,7 +3900,7 @@ export class CodexService extends EventEmitter {
         return acc;
       }
 
-      const project = link.projectId ? dbService.getProject(link.projectId) : null;
+      const project = link.projectId ? getProject(link.projectId) : null;
       const sessionLink = projectSessionService.getProjectSessionThreadLink(link.threadId);
       const session = sessionLink?.sessionId ? projectSessionService.getProjectSession(sessionLink.sessionId) : null;
 
@@ -3923,7 +3926,7 @@ export class CodexService extends EventEmitter {
 
   /** Remove a managed worktree directory. Returns true if deletion was performed. */
   async deleteManagedWorktree(threadId: string): Promise<boolean> {
-    const managedRoot = path.resolve(getKanbanDir(), "worktrees");
+    const managedRoot = path.resolve(getLocalStoreDir(), "worktrees");
     const link = this.getThreadLinkSafely(threadId);
     if (!link) return false;
 
@@ -4196,7 +4199,7 @@ export class CodexService extends EventEmitter {
   private createProjectlessThreadWorkspace(projectId: string): string {
     const context = this.resolveProjectRuntimeContext(projectId);
     const workspacePath = path.resolve(
-      getKanbanDir(),
+      getLocalStoreDir(),
       "projectless-workspaces",
       context.canonicalProjectId,
       randomUUID(),
@@ -4267,7 +4270,7 @@ export class CodexService extends EventEmitter {
 
     const createdWorktree = await createManagedWorktree({
       repositoryPath: workspacePath,
-      serverDir: getKanbanDir(),
+      serverDir: getLocalStoreDir(),
       projectId: projectContext.canonicalProjectId,
       targetId: input.sessionId,
       threadTitle: input.threadTitle?.trim() || input.sessionTitle?.trim() || input.sessionId,
@@ -8707,7 +8710,7 @@ export class CodexService extends EventEmitter {
           : null;
 
       const result = this.upsertSidebarThreadFromAppServerThread(thread, {
-        projects: dbService.listProjects(),
+        projects: listProjects(),
         includeArchived: false,
         reason: "host-message",
       });

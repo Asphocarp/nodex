@@ -3,11 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CodexThreadDetail, CommandPaletteThreadSummary } from "../../shared/types";
-import {
-  closeDatabase,
-  initializeDatabase,
-} from "../kanban/db-service";
-import { getDb } from "../kanban/database";
+import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
 import { upsertCodexThread } from "./codex-link-repository";
 import { CommandPaletteThreadSearchService } from "./command-palette-thread-search-service";
 import {
@@ -23,7 +19,7 @@ function isUnsupportedSqliteError(error: unknown): boolean {
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   closeDatabase();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-thread-search-service-"));
-  process.env.KANBAN_DIR = tempDir;
+  process.env.NODEX_DIR = tempDir;
 
   try {
     await initializeDatabase();
@@ -31,7 +27,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     if (isUnsupportedSqliteError(error)) {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.KANBAN_DIR;
+      delete process.env.NODEX_DIR;
       return false;
     }
     throw error;
@@ -43,7 +39,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   } finally {
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.KANBAN_DIR;
+    delete process.env.NODEX_DIR;
   }
 }
 

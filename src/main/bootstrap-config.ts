@@ -11,7 +11,7 @@ interface BootstrapRootTomlConfig extends Record<string, unknown> {
   server?: BootstrapServerTomlConfig;
 }
 
-export interface ResolveBootstrapKanbanDirOptions {
+export interface ResolveBootstrapLocalStoreDirOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
@@ -52,7 +52,7 @@ function expandTilde(inputPath: string, homeDir: string): string {
   return inputPath;
 }
 
-export function resolveBootstrapKanbanDir(options: ResolveBootstrapKanbanDirOptions = {}): string {
+export function resolveBootstrapLocalStoreDir(options: ResolveBootstrapLocalStoreDirOptions = {}): string {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const envHome = env.HOME?.trim();
@@ -60,7 +60,7 @@ export function resolveBootstrapKanbanDir(options: ResolveBootstrapKanbanDirOpti
   const exists = options.exists ?? existsSync;
   const readFile = options.readFile ?? ((filePath) => readFileSync(filePath, "utf8"));
 
-  const envDir = env.KANBAN_DIR?.trim();
+  const envDir = env.NODEX_DIR?.trim();
   if (envDir) {
     return path.isAbsolute(envDir) ? envDir : path.resolve(cwd, envDir);
   }

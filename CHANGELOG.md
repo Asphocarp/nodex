@@ -37,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Added simple table support to NFM descriptions, including GFM pipe-table parsing, lossless table serialization for header columns and widths, editable BlockNote tables, Notion simple-table paste, read-only previews, and tokenized Notion-style table chrome.
 
 ### Changed
+- Renamed the main local-store server environment variables from `KANBAN_*` to `NODEX_*` and the SQLite database file from `kanban.db` to `nodex.db`; startup moves an existing legacy database file when no `nodex.db` exists.
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.
 - Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and unsupported parity rows are now development-only mock entries instead of production command results.
 - Production card and NFM editor action menus now hide reference-only mock rows; development and Storybook still show them as disabled `Mock` entries for parity work.
@@ -73,6 +74,7 @@ All notable changes to this project will be documented in this file.
 - Right-panel DB View and Card Stage actions now use the same dense searchable picker chrome as NFM move-to, scoped to DB or card destinations.
 
 ### Removed
+- Removed the old `KANBAN_*` server environment variable aliases.
 - Removed the floating Manage Projects popover entry points.
 - Removed legacy project slugs, project-level workspace paths, and runtime alias compatibility from the project model.
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.

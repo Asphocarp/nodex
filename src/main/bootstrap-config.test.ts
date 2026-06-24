@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
-import { resolveBootstrapKanbanDir } from "./bootstrap-config";
+import { resolveBootstrapLocalStoreDir } from "./bootstrap-config";
 
 function makeVirtualFs(files: Record<string, string>) {
   return {
@@ -9,13 +9,13 @@ function makeVirtualFs(files: Record<string, string>) {
   };
 }
 
-describe("resolveBootstrapKanbanDir", () => {
-  test("prefers KANBAN_DIR and resolves relative env paths from cwd", () => {
+describe("resolveBootstrapLocalStoreDir", () => {
+  test("prefers NODEX_DIR and resolves relative env paths from cwd", () => {
     const cwd = "/workspace/project";
 
-    expect(resolveBootstrapKanbanDir({
+    expect(resolveBootstrapLocalStoreDir({
       cwd,
-      env: { KANBAN_DIR: "relative-data" },
+      env: { NODEX_DIR: "relative-data" },
       homeDir: "/home/user",
     })).toBe(path.join(cwd, "relative-data"));
   });
@@ -27,7 +27,7 @@ describe("resolveBootstrapKanbanDir", () => {
       "/workspace/project/.nodex/config.toml": "[server]\ndir = \"project-data\"\n",
     });
 
-    expect(resolveBootstrapKanbanDir({
+    expect(resolveBootstrapLocalStoreDir({
       cwd,
       env: {},
       homeDir: "/home/user",
@@ -41,7 +41,7 @@ describe("resolveBootstrapKanbanDir", () => {
       "/home/user/.nodex/config.toml": "[server]\ndir = \"~/custom-nodex\"\n",
     });
 
-    expect(resolveBootstrapKanbanDir({
+    expect(resolveBootstrapLocalStoreDir({
       cwd: "/workspace/project",
       env: {},
       homeDir: "/home/user",
@@ -49,7 +49,7 @@ describe("resolveBootstrapKanbanDir", () => {
       readFile: files.readFile,
     })).toBe("/home/user/custom-nodex");
 
-    expect(resolveBootstrapKanbanDir({
+    expect(resolveBootstrapLocalStoreDir({
       cwd: "/workspace/project",
       env: {},
       homeDir: "/home/user",

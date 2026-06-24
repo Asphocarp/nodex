@@ -9,8 +9,8 @@ import {
   CodexThreadStatusTypeSchema,
 } from "../../shared/schemas/codex";
 import { parseJsonStringWithSchema } from "../../shared/schemas/storage";
-import { getDb } from "../kanban/db-service";
-import { requireProjectId } from "../kanban/project-service";
+import { getDb } from "../local-store/database";
+import { requireProjectId } from "../local-store/projects";
 
 interface DbCodexThread {
   project_id: string | null;

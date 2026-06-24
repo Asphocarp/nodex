@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ClipboardWriteImageResult } from "../shared/ipc-api";
 import { parseAssetSource } from "../shared/assets";
-import { resolveAssetPath } from "./kanban/asset-service";
+import { resolveAssetPath } from "./local-store/assets";
 
 const require = createRequire(import.meta.url);
 
