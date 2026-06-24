@@ -54,7 +54,7 @@
 - Oversized card payloads return HTTP `413` before DB work.
 - Invalid inputs fail at validation boundary with actionable errors.
 - Not-found resources return `404` from API routes.
-- Current builds expect the latest SQLite schema; explicit older schema versions fail fast during startup with an unsupported-version error instead of attempting in-app migrations.
+- Current builds migrate supported SQLite schema versions forward at startup and fail fast only for unsupported or unknown schema versions. Project-session title migrations include a conservative shape repair for supported databases that are missing `project_sessions.no_thread_fallback_title`.
 - Runtime import/startup failures are handled in bootstrap by destroying any windows, writing a bootstrap log entry under `${KANBAN_DIR}/logs`, showing a native `Nodex failed to start` dialog, and quitting.
 - Stale card writes with `expectedRevision` return typed conflict payloads (`status: "conflict"`; HTTP `409`) and do not apply partial updates.
 - Backup restore failures surface explicit error responses.

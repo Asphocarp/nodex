@@ -85,6 +85,8 @@ Project sessions are Workbench containers, not Codex thread-title records. Keep 
 
 Auto-title scheduling belongs with the main-process thread lifecycle, not the renderer session row. Start it after app-server `thread/start` returns the durable thread id and before the first durable `turn/start`; apply the generated thread name through the same local thread metadata projection and `thread/name/set` path as remote `thread/name/updated`. Renderer rows should only consume derived `displayTitle`.
 
+Project-session title migrations should be target-shape driven, not only `user_version` driven. Supported 30+ databases can carry partially applied local schema state, so migrations that rename `project_sessions.title` to `no_thread_fallback_title` must first inspect `PRAGMA table_info(project_sessions)`, repair the target column from the old title when available, and only then run later table rebuilds or startup seeding.
+
 ### Sidebar external-thread discovery must be continuous app-server reconciliation
 The sidebar snapshot query is not a discovery loop. `codex:sidebar:snapshot({ refresh:false })` exists so SQLite can render a cold-start read model, while external CLI/VSCode/app-server-created chats must enter through `codex:sidebar:sync` or app-server notifications. Regressions appear when host messages or focus events only invalidate the `refresh:false` query: the row may exist in `codex_threads`, but the matching inactive project session cache stays stale until the user clicks `Start new chat in <project>`.
 

@@ -20,7 +20,7 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 46;
+export const CURRENT_SCHEMA_VERSION = 47;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -29,6 +29,7 @@ const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V33 =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder', 'side_chat_placeholder'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
 const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
+const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
   "thread_search_units_fts",
@@ -64,23 +65,24 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45, 46];
-  if (currentVersion === 40) return [41, 42, 43, 44, 45, 46];
-  if (currentVersion === 41) return [42, 43, 44, 45, 46];
-  if (currentVersion === 42) return [43, 44, 45, 46];
-  if (currentVersion === 43) return [44, 45, 46];
-  if (currentVersion === 44) return [45, 46];
-  if (currentVersion === 45) return [46];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 40) return [41, 42, 43, 44, 45, 46, 47];
+  if (currentVersion === 41) return [42, 43, 44, 45, 46, 47];
+  if (currentVersion === 42) return [43, 44, 45, 46, 47];
+  if (currentVersion === 43) return [44, 45, 46, 47];
+  if (currentVersion === 44) return [45, 46, 47];
+  if (currentVersion === 45) return [46, 47];
+  if (currentVersion === 46) return [47];
   return null;
 }
 
@@ -496,6 +498,44 @@ function tableExists(db: Database.Database, tableName: string): boolean {
   `).get(tableName));
 }
 
+function sqlStringLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function ensureProjectSessionsNoThreadFallbackTitle(db: Database.Database): void {
+  if (!tableExists(db, "project_sessions")) return;
+  if (tableHasColumn(db, "project_sessions", "no_thread_fallback_title")) return;
+
+  const defaultTitle = sqlStringLiteral(DEFAULT_NO_THREAD_FALLBACK_TITLE);
+  db.exec(`
+    ALTER TABLE project_sessions
+      ADD COLUMN no_thread_fallback_title TEXT NOT NULL DEFAULT ${defaultTitle};
+  `);
+
+  if (tableHasColumn(db, "project_sessions", "title")) {
+    db.exec(`
+      UPDATE project_sessions
+      SET no_thread_fallback_title = COALESCE(NULLIF(TRIM(title), ''), ${defaultTitle});
+    `);
+  }
+}
+
+function projectSessionNoThreadFallbackSelectExpression(db: Database.Database): string {
+  const fallbackTitle = sqlStringLiteral(DEFAULT_NO_THREAD_FALLBACK_TITLE);
+  const candidates = [
+    tableHasColumn(db, "project_sessions", "no_thread_fallback_title")
+      ? "NULLIF(TRIM(no_thread_fallback_title), '')"
+      : null,
+    tableHasColumn(db, "project_sessions", "title")
+      ? "NULLIF(TRIM(title), '')"
+      : null,
+  ].filter((candidate): candidate is string => candidate !== null);
+
+  return candidates.length === 0
+    ? fallbackTitle
+    : `COALESCE(${candidates.join(", ")}, ${fallbackTitle})`;
+}
+
 interface LegacyCardThreadOwnershipRow {
   threadId: string;
   projectId: string | null;
@@ -586,15 +626,52 @@ function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void
   const rows = readLegacyCardThreadOwnershipRows(db);
   if (rows.length === 0) return;
 
+  ensureProjectSessionsNoThreadFallbackTitle(db);
+
   const projectExists = db.prepare("SELECT 1 FROM projects WHERE id = ?");
   const threadExists = db.prepare("SELECT 1 FROM codex_threads WHERE thread_id = ?");
   const existingThreadSession = db.prepare("SELECT session_id FROM project_session_threads WHERE thread_id = ?");
   const maxOrder = db.prepare('SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?');
+  const hasNoThreadFallbackTitle = tableHasColumn(db, "project_sessions", "no_thread_fallback_title");
+  const hasLegacyTitle = tableHasColumn(db, "project_sessions", "title");
+  const hasOverview = tableHasColumn(db, "project_sessions", "is_overview");
+  const sessionColumns = [
+    "id",
+    "project_id",
+    ...(hasNoThreadFallbackTitle ? ["no_thread_fallback_title"] : []),
+    ...(hasLegacyTitle ? ["title"] : []),
+    ...(hasOverview ? ["is_overview"] : []),
+    '"order"',
+    "pinned",
+    "pinned_order",
+    "archived",
+    "archived_at",
+    "unread",
+    "left_pane_collapsed",
+    "panel_state_json",
+    "created_at",
+    "updated_at",
+  ];
+  const sessionValuePlaceholders = [
+    "?",
+    "?",
+    ...(hasNoThreadFallbackTitle ? ["?"] : []),
+    ...(hasLegacyTitle ? ["?"] : []),
+    ...(hasOverview ? ["0"] : []),
+    "?",
+    "0",
+    "NULL",
+    "0",
+    "NULL",
+    "0",
+    "0",
+    "?",
+    "?",
+    "?",
+  ];
   const insertSession = db.prepare(`
-    INSERT INTO project_sessions (
-      id, project_id, no_thread_fallback_title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
-      panel_state_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
+    INSERT INTO project_sessions (${sessionColumns.join(", ")})
+    VALUES (${sessionValuePlaceholders.join(", ")})
   `);
   const insertLink = db.prepare(`
     INSERT OR IGNORE INTO project_session_threads (session_id, thread_id, linked_at)
@@ -616,10 +693,12 @@ function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void
       const order = nextOrderByProject.get(projectId)
         ?? (((maxOrder.get(projectId) as { maxOrder: number | null } | undefined)?.maxOrder ?? -1) + 1);
       nextOrderByProject.set(projectId, order + 1);
-      insertSession.run(
+      const sessionTitle = resolveMigratedThreadSessionTitle(row);
+      const sessionArgs = [
         sessionId,
         projectId,
-        resolveMigratedThreadSessionTitle(row),
+        ...(hasNoThreadFallbackTitle ? [sessionTitle] : []),
+        ...(hasLegacyTitle ? [sessionTitle] : []),
         order,
         makePanelStateJson({
           rightTabIds: [],
@@ -628,7 +707,8 @@ function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void
         }),
         now,
         now,
-      );
+      ];
+      insertSession.run(...sessionArgs);
       insertLink.run(sessionId, row.threadId, linkedAt);
     }
   });
@@ -1439,6 +1519,7 @@ function migrateSchema39To40(db: Database.Database): void {
 function migrateSchema40To41(db: Database.Database): void {
   db.pragma("foreign_keys = OFF");
   try {
+    ensureProjectSessionsNoThreadFallbackTitle(db);
     migrateLegacyCardThreadOwnershipToSessions(db);
     rebuildCodexThreadsWithoutCardId(db);
     db.exec("DROP TABLE IF EXISTS codex_card_threads");
@@ -1450,10 +1531,14 @@ function migrateSchema40To41(db: Database.Database): void {
 }
 
 function migrateSchema41To42(db: Database.Database): void {
-  if (!tableHasColumn(db, "project_sessions", "title")) {
+  const hasTitleColumn = tableHasColumn(db, "project_sessions", "title");
+  if (!hasTitleColumn) {
+    ensureProjectSessionsNoThreadFallbackTitle(db);
     setUserVersion(db, 42);
     return;
   }
+
+  const fallbackTitleExpression = projectSessionNoThreadFallbackSelectExpression(db);
 
   db.pragma("foreign_keys = OFF");
   try {
@@ -1488,7 +1573,7 @@ function migrateSchema41To42(db: Database.Database): void {
         panel_state_json, created_at, updated_at
       )
       SELECT
-        id, project_id, title, is_overview, "order",
+        id, project_id, ${fallbackTitleExpression}, is_overview, "order",
         pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
         panel_state_json, created_at, updated_at
       FROM project_sessions;
@@ -1512,6 +1597,8 @@ function migrateSchema41To42(db: Database.Database): void {
 }
 
 function migrateSchema42To43(db: Database.Database): void {
+  ensureProjectSessionsNoThreadFallbackTitle(db);
+
   db.pragma("foreign_keys = OFF");
   try {
     db.exec(`
@@ -1659,6 +1746,8 @@ function convertLegacyOverviewToDatabaseViewSession(
 }
 
 function migrateSchema43To44(db: Database.Database): void {
+  ensureProjectSessionsNoThreadFallbackTitle(db);
+
   db.pragma("foreign_keys = OFF");
   try {
     const now = new Date().toISOString();
@@ -1831,6 +1920,11 @@ function migrateSchema45To46(db: Database.Database): void {
   setUserVersion(db, 46);
 }
 
+function migrateSchema46To47(db: Database.Database): void {
+  ensureProjectSessionsNoThreadFallbackTitle(db);
+  setUserVersion(db, 47);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1963,6 +2057,14 @@ function runMigrations(
       }
       migrateSchema45To46(db);
       fromVersion = 46;
+      continue;
+    }
+    if (target === 47) {
+      if (fromVersion !== 46) {
+        throw new Error(`Unsupported Nodex database migration target 47 from ${fromVersion}`);
+      }
+      migrateSchema46To47(db);
+      fromVersion = 47;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
