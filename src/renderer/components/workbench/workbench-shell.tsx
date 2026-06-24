@@ -39,6 +39,7 @@ import {
 import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
+import { CardStageToolbar } from "@/components/kanban/card-stage/toolbar";
 import { HistoryPanel } from "./workbench-history-panel";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import {
@@ -106,7 +107,9 @@ import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { invoke } from "@/lib/api";
 import { useKanban } from "@/lib/use-kanban";
 import { useCardDetail } from "@/lib/card-detail-store";
+import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
 import { cn } from "@/lib/utils";
+import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
   makeDefaultSidebarTopLevelSectionsPrefs,
   normalizeSidebarTopLevelSectionOrder,
@@ -8359,6 +8362,14 @@ function CardStageSessionTab({
     cardSummary?.revision,
   );
   const card = detail.card;
+  const cardLoadError = !card && detail.error && detail.error !== "Card not found"
+    ? detail.error
+    : null;
+  const cardHydrating = !card && (
+    kanban.loading
+    || detail.loading
+    || !detail.error
+  );
   const availableTags = useMemo(() => {
     const tags = new Set<string>();
     for (const column of kanban.board?.columns ?? []) {
@@ -8405,11 +8416,17 @@ function CardStageSessionTab({
     );
   }
 
-  if (kanban.loading && !card) {
+  if (cardHydrating) {
+    return <CardStageSessionSkeleton titleSnapshot={tab.config.titleSnapshot} />;
+  }
+
+  if (cardLoadError) {
     return (
       <CardStageSessionNotice
-        title="Loading card"
-        description={tab.config.titleSnapshot ? `Opening ${tab.config.titleSnapshot}.` : "Opening the selected card."}
+        title="Could not load card"
+        description={tab.config.titleSnapshot
+          ? `Nodex could not load ${tab.config.titleSnapshot} in ${project.name}. ${cardLoadError}`
+          : `Nodex could not load this card in ${project.name}. ${cardLoadError}`}
       />
     );
   }
@@ -8429,14 +8446,6 @@ function CardStageSessionTab({
 
   const columnId = cardSummary?.status ?? card?.status ?? "draft";
   const columnName = KANBAN_STATUS_LABELS[columnId] ?? columnId;
-
-  if (!card && (detail.loading || cardSummary)) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
-        Loading card...
-      </div>
-    );
-  }
 
   return (
     <>
@@ -8496,6 +8505,114 @@ function CardStageSessionTab({
         }}
       />
     </>
+  );
+}
+
+function CardStageSkeletonBlock({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn("animate-pulse rounded-md bg-token-foreground/5", className)}
+      aria-hidden="true"
+    />
+  );
+}
+
+function CardStageSessionSkeleton({ titleSnapshot }: { titleSnapshot?: string }) {
+  const title = titleSnapshot?.trim();
+  const label = titleSnapshot?.trim()
+    ? `Loading ${titleSnapshot}`
+    : "Loading card";
+  const limitMainContentWidth = readCardStageContentWidthPreference();
+  const contentGutterClassName = "px-[calc(var(--spacing)*18)]";
+  const contentShellClassName = cn(
+    "mx-auto w-full",
+    limitMainContentWidth && "max-w-[var(--pane-content-max-width)]",
+  );
+
+  return (
+    <div
+      className="flex h-full w-full flex-col bg-(--background) select-none"
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+    >
+      <CardStageToolbar
+        saving={false}
+        disabled={true}
+        historyPanelActive={false}
+        limitMainContentWidth={limitMainContentWidth}
+        showRawContent={false}
+        onClose={() => undefined}
+        onDelete={() => undefined}
+        onToggleContentWidth={() => undefined}
+        onToggleShowRawContent={() => undefined}
+        onToggleHistoryPanel={() => undefined}
+      />
+
+      <div
+        className="scrollbar-token min-h-0 flex-1 overflow-y-auto"
+        style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
+      >
+        <div className={contentGutterClassName}>
+          <div className={contentShellClassName}>
+            <div className="h-toolbar-sm" />
+
+            {title ? (
+              <div
+                className={cn(
+                  "min-h-8 w-full px-0.5 pt-0.75",
+                  "text-xl/snug-plus font-bold text-(--foreground)",
+                )}
+              >
+                {title}
+              </div>
+            ) : (
+              <CardStageSkeletonBlock className="h-8 w-3/4 max-w-xl" />
+            )}
+
+            <div className="h-2" />
+
+            <div className="mb-3" aria-hidden="true">
+              <div className="grid w-fit grid-cols-[auto_auto_auto_auto] gap-x-4 gap-y-1">
+                {["Priority", "Status", "Estimates", "Due date"].map((property) => (
+                  <div key={property} className="flex h-6 items-center">
+                    <div className="flex items-center gap-0.5 rounded-sm px-1.5">
+                      <CardStageSkeletonBlock className="h-3.5 w-3.5 rounded-sm" />
+                      <span className="text-sm/4.5 font-medium text-(--foreground-secondary)">
+                        {property}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex h-7.5 items-center px-1.5">
+                  <CardStageSkeletonBlock className="h-5 w-14 rounded-sm" />
+                </div>
+                <div className="flex h-7.5 items-center px-1.5">
+                  <CardStageSkeletonBlock className="h-5 w-24 rounded-sm" />
+                </div>
+                <div className="flex h-7.5 items-center px-1.5">
+                  <CardStageSkeletonBlock className="h-5 w-14 rounded-sm" />
+                </div>
+                <div className="flex h-7.5 items-center px-1.5">
+                  <CardStageSkeletonBlock className="h-5 w-18 rounded-sm" />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 pb-8" aria-hidden="true">
+              <div className="space-y-2.5">
+                <CardStageSkeletonBlock className="h-4 w-full" />
+                <CardStageSkeletonBlock className="h-4 w-11/12" />
+                <CardStageSkeletonBlock className="h-4 w-4/5" />
+                <div className="h-2" />
+                <CardStageSkeletonBlock className="h-4 w-10/12" />
+                <CardStageSkeletonBlock className="h-4 w-7/12" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

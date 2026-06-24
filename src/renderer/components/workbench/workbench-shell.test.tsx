@@ -1112,6 +1112,7 @@ function renderWorkbench({
   panelTabCycleRequest = null,
   panelTabCloseRequest = null,
   onNavigationStateChange,
+  cardGetOverride = null,
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
@@ -1125,6 +1126,7 @@ function renderWorkbench({
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
+  cardGetOverride?: ((projectId: string, cardId: string) => Promise<unknown> | unknown) | null;
 } = {}) {
   let sessionState = sessionsByProject;
   const buildSidebarSnapshot = () => ({
@@ -1288,7 +1290,12 @@ function renderWorkbench({
       };
     }
     if (channel === "card:get") {
+      const projectId = String(args[0] ?? "");
       const cardId = String(args[1] ?? "");
+      if (cardGetOverride) {
+        const overridden = cardGetOverride(projectId, cardId);
+        if (overridden !== undefined) return overridden;
+      }
       if (cardId === "card-beta") {
         return {
           id: "card-beta",
@@ -7322,6 +7329,94 @@ describe("workbench session shell", () => {
         && typeof input.config.terminalSessionId === "string"
         && input.config.terminalSessionId.startsWith("session:session:alpha:database-view:terminal:");
     })).toBeTrue();
+  });
+
+  test("shows a card-stage skeleton while card detail hydration is pending", async () => {
+    let resolveCardDetail!: (value: unknown) => void;
+    const pendingCardDetail = new Promise<unknown>((resolve) => {
+      resolveCardDetail = resolve;
+    });
+    const session = makeSession({
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha")],
+      sessionsByProject: { alpha: [session] },
+      cardGetOverride: (_projectId, cardId) => cardId === "card-1"
+        ? pendingCardDetail
+        : undefined,
+    });
+    await settleAsyncRender();
+
+    const loadingShell = screen.getByRole("status", { name: "Loading Card One" });
+    expect(loadingShell !== null).toBeTrue();
+    expect(within(loadingShell).getByRole("button", { name: "Close" }).hasAttribute("disabled")).toBeTrue();
+    expect(within(loadingShell).getByRole("button", { name: "History" }).hasAttribute("disabled")).toBeTrue();
+    expect(screen.queryByText("Card not found") === null).toBeTrue();
+    expect(screen.queryByText("Card:card-1") === null).toBeTrue();
+
+    await act(async () => {
+      resolveCardDetail({
+        id: "card-1",
+        projectId: "alpha",
+        status: "in_progress",
+        title: "Card One",
+        description: "",
+        tags: [],
+        archived: false,
+        agentBlocked: false,
+        created: new Date("2026-06-07T00:00:00.000Z"),
+        order: 0,
+        revision: 1,
+      });
+      await pendingCardDetail;
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByText("Card:card-1") !== null).toBeTrue();
+    expect(screen.queryByRole("status", { name: "Loading Card One" }) === null).toBeTrue();
+    expect(screen.queryByText("Card not found") === null).toBeTrue();
+  });
+
+  test("renders card detail load failures as load errors instead of missing cards", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha")],
+      sessionsByProject: { alpha: [session] },
+      cardGetOverride: (_projectId, cardId) => {
+        if (cardId !== "card-1") return undefined;
+        throw new Error("Database is unavailable");
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByText("Could not load card") !== null).toBeTrue();
+    expect(screen.getByText(/Database is unavailable/) !== null).toBeTrue();
+    expect(screen.queryByText("Card not found") === null).toBeTrue();
+    expect(screen.queryByRole("button", { name: "Close tab" }) === null).toBeTrue();
   });
 
   test("renders a missing card-stage state instead of a blank tab", async () => {

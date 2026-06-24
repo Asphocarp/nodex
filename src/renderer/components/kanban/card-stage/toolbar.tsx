@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 interface CardStageToolbarProps {
   saving: boolean;
+  disabled?: boolean;
   historyPanelActive: boolean;
   limitMainContentWidth: boolean;
   showRawContent: boolean;
@@ -22,6 +23,7 @@ const cardStageToolbarButtonHover =
 
 export function CardStageToolbar({
   saving,
+  disabled = false,
   historyPanelActive,
   limitMainContentWidth,
   showRawContent,
@@ -39,11 +41,13 @@ export function CardStageToolbar({
             type="button"
             aria-label="Close"
             data-app-shell-preview-pin-suppressed="true"
+            disabled={disabled}
             onClick={onClose}
             className={cn(
               cardStageToolbarButtonChrome,
               "text-(--foreground-secondary)",
               cardStageToolbarButtonHover,
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
             )}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -56,11 +60,13 @@ export function CardStageToolbar({
           <button
             type="button"
             aria-label="Copy deeplink"
+            disabled={disabled}
             className={cn(
               cardStageToolbarButtonChrome,
               "text-(--foreground-tertiary)",
               cardStageToolbarButtonHover,
               "hover:text-(--foreground-secondary)",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -89,6 +95,7 @@ export function CardStageToolbar({
             onClick={onToggleShowRawContent}
             aria-pressed={showRawContent}
             aria-label="Show raw"
+            disabled={disabled}
             className={cn(
               cardStageToolbarButtonChrome,
               showRawContent
@@ -96,6 +103,7 @@ export function CardStageToolbar({
                 : "text-(--foreground-tertiary)",
               cardStageToolbarButtonHover,
               "hover:text-(--foreground-secondary)",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <CodeBracketsIcon className="icon-xs shrink-0" />
@@ -108,6 +116,7 @@ export function CardStageToolbar({
             onClick={onToggleContentWidth}
             aria-pressed={!limitMainContentWidth}
             aria-label="Full width"
+            disabled={disabled}
             className={cn(
               cardStageToolbarButtonChrome,
               !limitMainContentWidth
@@ -115,6 +124,7 @@ export function CardStageToolbar({
                 : "text-(--foreground-tertiary)",
               cardStageToolbarButtonHover,
               "hover:text-(--foreground-secondary)",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -135,6 +145,7 @@ export function CardStageToolbar({
             onClick={onToggleHistoryPanel}
             aria-pressed={historyPanelActive}
             aria-label="History"
+            disabled={disabled}
             className={cn(
               cardStageToolbarButtonChrome,
               historyPanelActive
@@ -142,6 +153,7 @@ export function CardStageToolbar({
                 : "text-(--foreground-tertiary)",
               cardStageToolbarButtonHover,
               "hover:text-(--foreground-secondary)",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -161,11 +173,13 @@ export function CardStageToolbar({
             onClick={onDelete}
             aria-label="Delete"
             data-app-shell-preview-pin-suppressed="true"
+            disabled={disabled}
             className={cn(
               cardStageToolbarButtonChrome,
               "text-(--foreground-tertiary)",
               cardStageToolbarButtonHover,
               "hover:text-(--destructive)",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

@@ -18,7 +18,7 @@ import {
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
-  activeTab: "browser" | "terminal" | "db" | "card" | "cross-project-card" | "missing-card" | "review" | "empty";
+  activeTab: "browser" | "terminal" | "db" | "card" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   rightPanelGroups: "single" | "split";
@@ -57,7 +57,7 @@ const meta = {
   argTypes: {
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db", "card", "cross-project-card", "missing-card", "review", "empty"],
+      options: ["browser", "terminal", "db", "card", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
     },
     thread: {
       control: "inline-radio",
@@ -159,11 +159,33 @@ const STORY_BOARD: BoardSummary = {
           agentBlocked: false,
           created: new Date(CREATED_AT),
           order: 0,
+          revision: 1,
         },
       ],
     },
   ],
 };
+
+function buildStoryCardDetail(projectId: string, cardId: string) {
+  if (cardId !== "card-1") return null;
+  const crossProject = projectId === "codex-readable";
+
+  return {
+    id: cardId,
+    projectId,
+    status: "in_progress",
+    archived: false,
+    title: crossProject ? "Readable pack review" : "Workbench redesign",
+    description: crossProject
+      ? "Review the readable Codex pack from the current Nodex session."
+      : "Tighten the workbench shell while preserving project-scoped panel tabs.",
+    tags: crossProject ? ["review"] : ["shell"],
+    agentBlocked: false,
+    created: new Date(CREATED_AT),
+    order: 0,
+    revision: 1,
+  };
+}
 
 function makeTab(
   overrides: Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">,
@@ -308,6 +330,8 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     ? "Readable pack review"
     : args.activeTab === "missing-card"
       ? "Missing project card"
+      : args.activeTab === "loading-card"
+        ? "Loading project card"
       : args.longNames
         ? "Rewrite the project-session workbench shell while preserving card thread links"
         : "Workbench redesign";
@@ -326,7 +350,11 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       order: 1,
       config: {
         projectId: cardProjectId,
-        cardId: args.activeTab === "missing-card" ? "missing-card" : "card-1",
+        cardId: args.activeTab === "missing-card"
+          ? "missing-card"
+          : args.activeTab === "loading-card"
+            ? "loading-card"
+            : "card-1",
         titleSnapshot: cardTitle,
       },
     }),
@@ -359,7 +387,12 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     : baseTabs;
   const activeTabId = (() => {
     if (args.activeTab === "db") return "tab:db";
-    if (args.activeTab === "card" || args.activeTab === "cross-project-card" || args.activeTab === "missing-card") {
+    if (
+      args.activeTab === "card"
+      || args.activeTab === "cross-project-card"
+      || args.activeTab === "missing-card"
+      || args.activeTab === "loading-card"
+    ) {
       return "tab:card";
     }
     if (args.activeTab === "terminal") return "tab:terminal";
@@ -686,6 +719,22 @@ function installStoryApi(
         if (channel === "board:summary:get") {
           return STORY_BOARD;
         }
+        if (channel === "card:get") {
+          const projectId = String(args[0] ?? "nodex");
+          const cardId = String(args[1] ?? "");
+          if (cardId === "loading-card") {
+            return new Promise<never>(() => {});
+          }
+          return buildStoryCardDetail(projectId, cardId);
+        }
+        if (channel === "cards:details:get") {
+          const projectId = String(args[0] ?? "nodex");
+          const input = (args[1] ?? {}) as { cardIds?: string[] };
+          return (input.cardIds ?? []).flatMap((cardId) => {
+            const card = buildStoryCardDetail(projectId, cardId);
+            return card ? [card] : [];
+          });
+        }
         if (channel === "project-session-panels:update") {
           const sessionId = String(args[0]);
           const panelId = args[1] === "bottom" ? "bottom" : "right";
@@ -997,6 +1046,19 @@ export const MissingCardStageTab: Story = {
     docs: {
       description: {
         story: "Card Stage tab whose saved card id no longer exists; it should render a clear missing state instead of a blank panel.",
+      },
+    },
+  },
+};
+
+export const LoadingCardStageTab: Story = {
+  args: {
+    activeTab: "loading-card",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Card Stage tab while the saved card detail is still hydrating; it keeps the shell stable with a disabled toolbar and localized property/editor skeletons instead of the missing-card state.",
       },
     },
   },
