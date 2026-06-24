@@ -15,6 +15,7 @@ export interface ToolComponentProps {
   execSummaryTone?: "default" | "muted";
   hideHeader?: boolean;
   showExecSummaryIcon?: boolean;
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 

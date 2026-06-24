@@ -83,6 +83,7 @@ export interface ThreadLeafBlockProps {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   allowInProgressTurnDiff?: boolean;
   assistantAfter?: ReactNode;
@@ -96,6 +97,7 @@ export interface ThreadSpecialBlockProps {
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
@@ -574,6 +576,7 @@ export function ThreadPendingMcpToolCallsBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenThread,
   onOpenMcpAppSidePanel,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -622,6 +625,7 @@ export function ThreadPendingMcpToolCallsBlock({
               projectWorkspacePath={projectWorkspacePath}
               threadCwd={threadCwd}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               nestedInCollapsedActivity
             />
@@ -639,6 +643,7 @@ export function ThreadDynamicToolCallGroupBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenThread,
   onOpenMcpAppSidePanel,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -688,6 +693,7 @@ export function ThreadDynamicToolCallGroupBlock({
               projectWorkspacePath={projectWorkspacePath}
               threadCwd={threadCwd}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               nestedInCollapsedActivity
             />
@@ -705,6 +711,7 @@ function renderCollapsedActivityEntry({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenThread,
   onOpenMcpAppSidePanel,
 }: {
   entry: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"][number];
@@ -713,6 +720,7 @@ function renderCollapsedActivityEntry({
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }) {
   const sharedProps = {
@@ -721,6 +729,7 @@ function renderCollapsedActivityEntry({
     projectWorkspacePath,
     threadCwd,
     onOpenTurnDiffReview,
+    onOpenThread,
     onOpenMcpAppSidePanel,
   };
 
@@ -922,6 +931,7 @@ export function ThreadCollapsedToolActivityBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenThread,
   onOpenMcpAppSidePanel,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -1019,6 +1029,7 @@ export function ThreadCollapsedToolActivityBlock({
                   projectWorkspacePath,
                   threadCwd,
                   onOpenTurnDiffReview,
+                  onOpenThread,
                   onOpenMcpAppSidePanel,
                 })}
               </div>
@@ -1048,6 +1059,7 @@ export function ThreadToolSurfaceBlock({
   block,
   projectWorkspacePath,
   threadCwd,
+  onOpenThread,
   onOpenMcpAppSidePanel,
   nestedInCollapsedActivity = false,
 }: ThreadLeafBlockProps) {
@@ -1070,6 +1082,7 @@ export function ThreadToolSurfaceBlock({
       execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
       hideHeader={nestedInCollapsedActivity && block.type === "webSearch"}
       showExecSummaryIcon={!nestedInCollapsedActivity}
+      onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
   );

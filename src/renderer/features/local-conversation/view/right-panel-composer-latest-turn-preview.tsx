@@ -25,6 +25,7 @@ interface RightPanelComposerLatestTurnPreviewProps {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
@@ -47,6 +48,7 @@ export function RightPanelComposerLatestTurnPreview({
   onForkFromTurn,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenThread,
   onOpenMcpAppSidePanel,
 }: RightPanelComposerLatestTurnPreviewProps) {
   const workedForLabel = useWorkedForLabelText({
@@ -109,6 +111,7 @@ export function RightPanelComposerLatestTurnPreview({
               onForkFromTurn={onForkFromTurn}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
               onOpenSideChat={onOpenSideChat}
+              onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               allowInProgressTurnDiff={true}
             />

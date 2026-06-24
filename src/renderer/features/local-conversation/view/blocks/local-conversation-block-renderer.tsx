@@ -41,6 +41,7 @@ interface ThreadBlockRendererProps {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   allowInProgressTurnDiff?: boolean;
 }
@@ -57,6 +58,7 @@ export function ThreadBlockRenderer({
   onForkFromTurn,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenThread,
   onOpenMcpAppSidePanel,
   allowInProgressTurnDiff = false,
 }: ThreadBlockRendererProps) {
@@ -93,6 +95,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
@@ -107,6 +110,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
@@ -121,6 +125,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
@@ -153,6 +158,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
@@ -244,6 +250,7 @@ export function ThreadBlockRenderer({
                   onForkFromTurn={onForkFromTurn}
                   onOpenTurnDiffReview={onOpenTurnDiffReview}
                   onOpenSideChat={onOpenSideChat}
+                  onOpenThread={onOpenThread}
                   onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
                   allowInProgressTurnDiff={allowInProgressTurnDiff}
                 />

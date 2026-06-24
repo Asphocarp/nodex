@@ -31,6 +31,7 @@ interface LocalConversationTurnEntryProps {
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onRendered?: (turnId: string) => void;
 }
@@ -50,6 +51,7 @@ function LocalConversationTurnEntryComponent({
   onForkTurnMessage,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenThread,
   onOpenMcpAppSidePanel,
   onRendered,
 }: LocalConversationTurnEntryProps) {
@@ -93,6 +95,7 @@ function LocalConversationTurnEntryComponent({
         onForkFromTurn={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenSideChat={onOpenSideChat}
+        onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     </div>
@@ -118,6 +121,7 @@ export const LocalConversationTurnEntry = memo(
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
     && left.onOpenSideChat === right.onOpenSideChat
+    && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
     && left.onRendered === right.onRendered,
 );

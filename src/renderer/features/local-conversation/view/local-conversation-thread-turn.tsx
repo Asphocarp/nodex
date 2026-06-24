@@ -29,6 +29,7 @@ interface ThreadTurnProps {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
@@ -102,6 +103,7 @@ export function ThreadTurn({
   onForkFromTurn,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenThread,
   onOpenMcpAppSidePanel,
 }: ThreadTurnProps) {
   const shouldAllowAgentBodyCollapse =
@@ -130,6 +132,7 @@ export function ThreadTurn({
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
       onOpenSideChat={onOpenSideChat}
+      onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
   );
@@ -145,6 +148,7 @@ export function ThreadTurn({
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
       onOpenSideChat={onOpenSideChat}
+      onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
   );

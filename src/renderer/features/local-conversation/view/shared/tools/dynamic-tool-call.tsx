@@ -58,16 +58,25 @@ function DynamicToolOutput({ call }: { call: CodexDynamicToolCallView }) {
   );
 }
 
-function openCodexAppCreatedThreadResult(result: ReturnType<typeof parseCodexAppCreateThreadResult>) {
+function openCodexAppCreatedThreadResult(
+  result: ReturnType<typeof parseCodexAppCreateThreadResult>,
+  onOpenThread?: ToolComponentProps["onOpenThread"],
+) {
   if (!result) return;
   if (typeof result.threadId === "string") {
-    window.location.hash = `#/threads/${encodeURIComponent(result.threadId)}`;
+    void onOpenThread?.(result.threadId);
     return;
   }
   window.location.hash = `#/worktrees/pending/${encodeURIComponent(result.pendingWorktreeId)}`;
 }
 
-function CodexAppCreatedThreadCard({ call }: { call: CodexDynamicToolCallView }) {
+function CodexAppCreatedThreadCard({
+  call,
+  onOpenThread,
+}: {
+  call: CodexDynamicToolCallView;
+  onOpenThread?: ToolComponentProps["onOpenThread"];
+}) {
   const result = parseCodexAppCreateThreadResult(call);
   if (!result) return null;
 
@@ -82,7 +91,7 @@ function CodexAppCreatedThreadCard({ call }: { call: CodexDynamicToolCallView })
         type="button"
         aria-label={ariaLabel}
         className="w-full cursor-interaction text-left hover:bg-token-list-hover-background/30 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset"
-        onClick={() => openCodexAppCreatedThreadResult(result)}
+        onClick={() => openCodexAppCreatedThreadResult(result, onOpenThread)}
       >
         <div className="flex min-w-0 items-center gap-2 px-1.5 py-1">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
@@ -102,9 +111,15 @@ function CodexAppCreatedThreadCard({ call }: { call: CodexDynamicToolCallView })
   );
 }
 
-function CodexAppMetaThreadToolCall({ call }: { call: CodexDynamicToolCallView }) {
+function CodexAppMetaThreadToolCall({
+  call,
+  onOpenThread,
+}: {
+  call: CodexDynamicToolCallView;
+  onOpenThread?: ToolComponentProps["onOpenThread"];
+}) {
   if (call.tool === "create_thread" && call.completed && call.success === true) {
-    const card = <CodexAppCreatedThreadCard call={call} />;
+    const card = <CodexAppCreatedThreadCard call={call} onOpenThread={onOpenThread} />;
     if (card) return card;
   }
 
@@ -124,7 +139,7 @@ function CodexAppMetaThreadToolCall({ call }: { call: CodexDynamicToolCallView }
   );
 }
 
-export function DynamicToolCall({ item }: ToolComponentProps) {
+export function DynamicToolCall({ item, onOpenThread }: ToolComponentProps) {
   const bodyId = useId();
   const call = item.dynamicToolCall ?? null;
   const [isExpanded, setIsExpanded] = useState(false);
@@ -133,7 +148,7 @@ export function DynamicToolCall({ item }: ToolComponentProps) {
   if (!call) return null;
 
   if (isCodexAppMetaThreadTool(call)) {
-    return <CodexAppMetaThreadToolCall call={call} />;
+    return <CodexAppMetaThreadToolCall call={call} onOpenThread={onOpenThread} />;
   }
 
   const label = resolveDynamicToolLabelFromName(call.tool);

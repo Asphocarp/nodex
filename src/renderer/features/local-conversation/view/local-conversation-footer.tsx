@@ -139,6 +139,7 @@ function LocalConversationFooterComponent({
       onForkFromTurn={actions.onForkFromTurn}
       onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
       onOpenSideChat={actions.onOpenSideChat}
+      onOpenThread={actions.onOpenThread}
       onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
     />
   ) : null;

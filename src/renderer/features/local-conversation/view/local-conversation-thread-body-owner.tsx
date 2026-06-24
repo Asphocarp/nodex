@@ -632,6 +632,7 @@ export function LocalConversationThreadBodyOwner({
           threadCwd={cwd}
           onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
           onOpenSideChat={actions.onOpenSideChat}
+          onOpenThread={actions.onOpenThread}
           onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
         />
       ) : null}
@@ -717,6 +718,7 @@ export function LocalConversationThreadBodyOwner({
                 onForkTurnMessage={handleForkFromTurn}
                 onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
                 onOpenSideChat={actions.onOpenSideChat}
+                onOpenThread={actions.onOpenThread}
                 onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
                 scrollElement={scrollElement}
                 onApiChange={(api) => {

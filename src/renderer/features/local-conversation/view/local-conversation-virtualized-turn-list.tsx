@@ -61,6 +61,7 @@ interface LocalConversationVirtualizedTurnListProps {
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onApiChange?: (api: LocalConversationVirtualizedTurnListApi | null) => void;
   scrollElement: HTMLDivElement | null;
@@ -99,6 +100,7 @@ interface MeasuredTurnProps {
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onHeightChange: (turnKey: string, turnIndex: number, nextHeight: number) => void;
 }
@@ -117,6 +119,7 @@ function MeasuredTurnComponent({
   onForkTurnMessage,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenThread,
   onOpenMcpAppSidePanel,
   onHeightChange,
 }: MeasuredTurnProps) {
@@ -182,6 +185,7 @@ function MeasuredTurnComponent({
         onForkTurnMessage={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenSideChat={onOpenSideChat}
+        onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     </div>
@@ -204,6 +208,7 @@ const MeasuredTurn = memo(
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
     && left.onOpenSideChat === right.onOpenSideChat
+    && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
     && left.onHeightChange === right.onHeightChange,
 );
@@ -221,6 +226,7 @@ export function LocalConversationVirtualizedTurnList({
   onForkTurnMessage,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenThread,
   onOpenMcpAppSidePanel,
   onApiChange,
   scrollElement,
@@ -503,6 +509,7 @@ export function LocalConversationVirtualizedTurnList({
               onForkTurnMessage={onForkTurnMessage}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
               onOpenSideChat={onOpenSideChat}
+              onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               onHeightChange={handleHeightChange}
             />

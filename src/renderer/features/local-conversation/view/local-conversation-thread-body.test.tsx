@@ -29,6 +29,47 @@ function buildAssistantEntry(
   };
 }
 
+function buildDynamicCreateThreadEntry(
+  overrides?: Partial<CodexConversationItem>,
+): CodexConversationItem {
+  const dynamicToolCall: NonNullable<CodexConversationItem["dynamicToolCall"]> = {
+    callId: "dynamic_create_thread",
+    namespace: "codex_app",
+    tool: "create_thread",
+    arguments: {
+      prompt: "Continue in a background chat",
+      target: { type: "projectless" },
+    },
+    status: "completed",
+    contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread-created\"}" }],
+    success: true,
+    durationMs: 8,
+    completed: true,
+  };
+
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "dynamic_create_thread",
+    entryId: "dynamic_create_thread",
+    type: "dynamicToolCall",
+    kind: "toolCall",
+    semanticKind: "dynamicToolCall",
+    status: "completed",
+    toolCall: {
+      subtype: "dynamic",
+      toolName: dynamicToolCall.tool,
+      server: dynamicToolCall.namespace ?? undefined,
+      args: dynamicToolCall.arguments,
+      result: dynamicToolCall.contentItems ?? undefined,
+    },
+    dynamicToolCall,
+    createdAt: 2,
+    updatedAt: 2,
+    ...overrides,
+  };
+}
+
 function buildUserEntry(
   overrides?: Partial<CodexConversationItem>,
 ): CodexConversationItem {
@@ -223,6 +264,39 @@ describe("LocalConversationThreadBody", () => {
     expect(
       Boolean(container.querySelector('input[aria-label="Find in thread"]')),
     ).toBeFalse();
+  });
+
+  test("opens the created chat from a create_thread tool card through stage actions", async () => {
+    const openedThreads: string[] = [];
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const dynamicEntry = buildDynamicCreateThreadEntry();
+    const conversation = buildConversation({
+      turns: [
+        buildTurn({
+          itemIds: ["user_1", dynamicEntry.itemId, "assistant_1"],
+          items: [buildUserEntry(), dynamicEntry, buildAssistantEntry()],
+        }),
+      ],
+    });
+
+    const view = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({ conversation })}
+          actions={buildActions({
+            onOpenThread: (threadId) => {
+              openedThreads.push(threadId);
+            },
+          })}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    fireEvent.click(view.getByRole("button", { name: "Open chat" }));
+
+    expect(openedThreads.join(",")).toBe("thread-created");
   });
 
   test("lets the shared scroll layout own viewport and content wrappers", async () => {
