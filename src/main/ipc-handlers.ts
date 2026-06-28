@@ -45,6 +45,7 @@ import {
   writeWorkspaceFile,
 } from "./workspace-files-service";
 import { dbNotifier } from "./local-store/notifier";
+import { cardMutationWriter } from "./card-mutation-writer";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
@@ -588,13 +589,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return results;
   });
 
-  registerHandle("card:create", (_, projectId, columnId, input, sessionId?, placement?) =>
-    cardsStore.createCard(projectId, columnId, input, sessionId, placement)
-  );
+  registerHandle("card:create", async (_, projectId, columnId, input, sessionId?, placement?) => {
+    const envelope = await cardMutationWriter.createCard(projectId, columnId, input, sessionId, placement);
+    return envelope.result;
+  });
 
   registerHandle("card:update", async (_, projectId, columnId, cardId, updates, sessionId?, expectedRevision?) => {
     const startedAt = performance.now();
-    const result = await cardsStore.updateCard(
+    const envelope = await cardMutationWriter.updateCard(
       projectId,
       columnId || undefined,
       cardId,
@@ -602,6 +604,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       sessionId,
       expectedRevision,
     );
+    const result = envelope.result;
     ipcPayloadLogger.info("card update ack served", {
       channel: "card:update",
       projectId,
@@ -613,6 +616,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         : undefined,
       approxPayloadBytes: approximatePayloadBytes(result),
       durationMs: Math.round(performance.now() - startedAt),
+      workerDurationMs: envelope.metrics.workerDurationMs,
+      queueWaitMs: envelope.metrics.queueWaitMs,
+      transactionMs: envelope.metrics.transactionMs,
+      mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
+      revisionKind: envelope.metrics.revisionKind,
     });
     return result;
   });
@@ -621,51 +629,57 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     cardsStore.getCard(projectId, cardId, status as Parameters<typeof cardsStore.getCard>[2])
   );
 
-  registerHandle("card:delete", (_, projectId, columnId, cardId, sessionId?) =>
-    cardsStore.deleteCard(projectId, columnId || undefined, cardId, sessionId)
-  );
+  registerHandle("card:delete", async (_, projectId, columnId, cardId, sessionId?) => {
+    const envelope = await cardMutationWriter.deleteCard(projectId, columnId || undefined, cardId, sessionId);
+    return envelope.result;
+  });
 
   registerHandle("card:move", async (_, input) => {
-    const result = await cardsStore.moveCard(input);
+    const { result } = await cardMutationWriter.moveCard(input);
     return result === "moved";
   });
 
   registerHandle("card:move-many", async (_, input) => {
-    const result = await cardsStore.moveCards(input);
+    const { result } = await cardMutationWriter.moveCards(input);
     return result === "moved";
   });
 
   registerHandle("card:move-to-project", async (_, input) => {
-    const result = await cardsStore.moveCardToProject(input);
+    const { result } = await cardMutationWriter.moveCardToProject(input);
     if (result === "wrong_column") throw new Error("Card is no longer in the expected column");
     if (result === "not_found") throw new Error("Card not found");
     if (result === "target_project_not_found") throw new Error("Target project not found");
     return result;
   });
 
-  registerHandle("card:import-block-drop", (_, projectId: string, input, sessionId?: string) =>
-    cardsStore.importBlockDropAsCards(projectId, input, sessionId)
-  );
+  registerHandle("card:import-block-drop", async (_, projectId: string, input, sessionId?: string) => {
+    const envelope = await cardMutationWriter.importBlockDropAsCards(projectId, input, sessionId);
+    return envelope.result;
+  });
 
-  registerHandle("card:move-drop-to-editor", (_, projectId: string, input, sessionId?: string) =>
-    cardsStore.moveCardDropToEditor(projectId, input, sessionId)
-  );
+  registerHandle("card:move-drop-to-editor", async (_, projectId: string, input, sessionId?: string) => {
+    const envelope = await cardMutationWriter.moveCardDropToEditor(projectId, input, sessionId);
+    return envelope.result;
+  });
 
   registerHandle("calendar:occurrences", (_, projectId: string, windowStart: Date, windowEnd: Date, searchQuery?: string) =>
     cardOccurrences.listCalendarOccurrences(projectId, windowStart, windowEnd, searchQuery).then((occurrences) => ({ occurrences }))
   );
 
-  registerHandle("card:occurrence:complete", (_, projectId: string, input, sessionId?: string) =>
-    cardOccurrences.completeCardOccurrence(projectId, input, sessionId)
-  );
+  registerHandle("card:occurrence:complete", async (_, projectId: string, input, sessionId?: string) => {
+    const envelope = await cardMutationWriter.completeCardOccurrence(projectId, input, sessionId);
+    return envelope.result;
+  });
 
-  registerHandle("card:occurrence:skip", (_, projectId: string, input, sessionId?: string) =>
-    cardOccurrences.skipCardOccurrence(projectId, input, sessionId)
-  );
+  registerHandle("card:occurrence:skip", async (_, projectId: string, input, sessionId?: string) => {
+    const envelope = await cardMutationWriter.skipCardOccurrence(projectId, input, sessionId);
+    return envelope.result;
+  });
 
-  registerHandle("card:occurrence:update", (_, projectId: string, input, sessionId?: string) =>
-    cardOccurrences.updateCardOccurrence(projectId, input, sessionId)
-  );
+  registerHandle("card:occurrence:update", async (_, projectId: string, input, sessionId?: string) => {
+    const envelope = await cardMutationWriter.updateCardOccurrence(projectId, input, sessionId);
+    return envelope.result;
+  });
 
   // History
   registerHandle("history:recent", (_, projectId: string, sessionId?: string) => {
@@ -683,21 +697,25 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     historyStore.getCardHistoryVersionPreview(projectId, cardId, historyId)
   );
 
-  registerHandle("history:undo", (_, projectId: string, sessionId?: string) =>
-    historyStore.undoLatest(projectId, sessionId)
-  );
+  registerHandle("history:undo", async (_, projectId: string, sessionId?: string) => {
+    const envelope = await cardMutationWriter.undoLatest(projectId, sessionId);
+    return envelope.result;
+  });
 
-  registerHandle("history:redo", (_, projectId: string, sessionId?: string) =>
-    historyStore.redoLatest(projectId, sessionId)
-  );
+  registerHandle("history:redo", async (_, projectId: string, sessionId?: string) => {
+    const envelope = await cardMutationWriter.redoLatest(projectId, sessionId);
+    return envelope.result;
+  });
 
-  registerHandle("history:revert", (_, projectId: string, historyId: number, sessionId?: string) =>
-    historyStore.revertEntry(projectId, historyId, sessionId)
-  );
+  registerHandle("history:revert", async (_, projectId: string, historyId: number, sessionId?: string) => {
+    const envelope = await cardMutationWriter.revertEntry(projectId, historyId, sessionId);
+    return envelope.result;
+  });
 
-  registerHandle("history:restore", (_, projectId: string, cardId: string, historyId: number, sessionId?: string) =>
-    historyStore.restoreToEntry(projectId, cardId, historyId, sessionId)
-  );
+  registerHandle("history:restore", async (_, projectId: string, cardId: string, historyId: number, sessionId?: string) => {
+    const envelope = await cardMutationWriter.restoreToEntry(projectId, cardId, historyId, sessionId);
+    return envelope.result;
+  });
 
   // Database introspection
   registerHandle("db:schema", (_event, projectId: string) => {

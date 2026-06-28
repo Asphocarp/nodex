@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { waitFor } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { createTestQueryClient, TestQueryProvider } from "@/test/query";
 import { installWindowApi } from "@/test/browser-globals";
-import type { BoardSummary, Project } from "./types";
+import type { BoardChangeEvent } from "../../shared/ipc-api";
+import type { BoardSummary, CardSummary, Project } from "./types";
 import { useAllBoards, useBoardsForProjects } from "./use-all-boards";
 
 let invokeCalls: unknown[][] = [];
@@ -43,6 +44,39 @@ function makeProject(id: string): Project {
     pinnedOrder: null,
     created: new Date("2026-01-01T00:00:00.000Z"),
     updated: new Date("2026-01-01T00:00:00.000Z"),
+  };
+}
+
+function makeCardSummary(): CardSummary {
+  return {
+    id: "card-1",
+    status: "in_progress",
+    archived: false,
+    title: "Event card",
+    priority: undefined,
+    estimate: undefined,
+    tags: [],
+    dueDate: undefined,
+    scheduledStart: undefined,
+    scheduledEnd: undefined,
+    isAllDay: undefined,
+    recurrence: undefined,
+    reminders: [],
+    scheduleTimezone: undefined,
+    assignee: undefined,
+    agentBlocked: false,
+    agentStatus: undefined,
+    runInTarget: undefined,
+    runInLocalPath: undefined,
+    runInBaseBranch: undefined,
+    runInWorktreePath: undefined,
+    runInEnvironmentPath: undefined,
+    revision: 2,
+    created: new Date("2026-06-24T00:00:00.000Z"),
+    order: 0,
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
   };
 }
 
@@ -134,6 +168,59 @@ describe("useBoardsForProjects", () => {
     expect(secondLoadedResult !== undefined).toBeTrue();
     if (!secondLoadedResult) return;
     expect(firstLoadedResult.boards).toBe(secondLoadedResult.boards);
+    expect(invokeCalls.length).toBe(1);
+  });
+
+  test("patches summary board events without refetching", async () => {
+    const snapshots: Array<ReturnType<typeof useBoardsForProjects>> = [];
+    const listeners: Array<(event: BoardChangeEvent) => void> = [];
+    const client = createTestQueryClient();
+
+    installWindowApi({
+      invoke: async (channel: string, ...args: unknown[]) => {
+        invokeCalls.push([channel, ...args]);
+        if (channel === "board:summary:get") return BOARD;
+        throw new Error(`Unexpected channel: ${channel}`);
+      },
+      on: (channel: string, callback: (event: BoardChangeEvent) => void) => {
+        if (channel === "board-changed") listeners.push(callback);
+        return () => {};
+      },
+    });
+
+    const view = render(
+      <TestQueryProvider client={client}>
+        <BoardsHarness snapshots={snapshots} />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      if (view.getByText("1").textContent !== "1") {
+        throw new Error("Expected board summary query to load.");
+      }
+    });
+    expect(invokeCalls.length).toBe(1);
+
+    const summary = makeCardSummary();
+    await act(async () => {
+      for (const listener of listeners) {
+        listener({
+          projectId: "project-1",
+          changeType: "update",
+          columnId: "in_progress",
+          status: "in_progress",
+          cardId: summary.id,
+          summary,
+        });
+      }
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const latest = snapshots.at(-1);
+      const firstCard = latest?.boards.get("project-1")?.columns[0]?.cards[0];
+      expect(firstCard?.title).toBe("Event card");
+    });
     expect(invokeCalls.length).toBe(1);
   });
 });

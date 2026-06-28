@@ -38,6 +38,14 @@ Full card bodies are loaded through explicit detail paths:
 
 This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Successful `card:update` acknowledgements carry only `CardSummary` plus revision metadata; conflict acknowledgements are the only update path that returns a full `Card`. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
 
+## Durable Save Worker
+
+Long-description saves must also avoid blocking the Electron main process. The ordinary `card:update` path routes through `CardMutationWriter`, which enqueues card-domain mutations into a single FIFO `worker_threads` writer. The worker opens its own SQLite connection, runs the synchronous `better-sqlite3` transaction, captures the local-store board mutation events, enriches them with `CardSummary` where possible, and returns the mutation result plus events and timing metrics after the write is durable.
+
+The toolbar `Saving...` text keeps its durable-ack meaning: it remains visible until the latest submitted save has been acknowledged by SQLite. The important boundary is that the main process is now awaiting an async worker response instead of running the SQLite transaction, description revision write, and history work on its own event loop. If a worker crashes or cannot start, the mutation fails and the Card Stage dirty state remains uncleared; there is no synchronous main-process fallback for card writes.
+
+After a successful worker ack, main republishes the captured `BoardChangeEvent[]`. Events with `summary` let `kanban-store` and `useAllBoards` patch their `BoardSummary` cache directly. Only events that cannot be represented locally fall back to a coalesced `board:summary:get` refetch. This keeps save acknowledgements, durable board notifications, and secondary board caches from reloading long descriptions or storming the summary endpoint while the user is typing.
+
 ## Editor-Side Features
 
 ### Dirty-First Change Handling
@@ -207,6 +215,8 @@ There are two separate timing layers:
 
 The first layer keeps typing responsive. The second layer limits backend/storage writes. They should stay separate. Do not use the persistence debounce as a substitute for editor serialization debounce, because serialization itself is the synchronous CPU cost on the typing path.
 
+The durable write layer is separate from both renderer timers. Card Stage may enqueue saves frequently enough to preserve the chosen durability semantics, but the Electron main process must only coordinate the async writer request and publish the returned events after the ack. Do not move card-description SQLite writes, history writes, or description-revision diffing back into main-process IPC/HTTP handlers.
+
 ## Invariants
 
 - `NfmEditor` must not serialize the whole document on every ordinary editor transaction.
@@ -218,6 +228,7 @@ The first layer keeps typing responsive. The second layer limits backend/storage
 - Suppressed external sync/drop paths must not emit user changes.
 - Card Stage save/has-changes logic must read the latest description ref, not stale React state.
 - Save requests must not clear freeform dirty flags until the returned card matches the current draft.
+- Card-domain durable writes must go through `CardMutationWriter`; there must be no synchronous Electron main-process card write fallback.
 - Active Card Stage editors must not use board-summary revision changes to automatically rehydrate and replace the full description.
 - Durable Card Stage tab switches must not remount the retained editor body while the tab remains open in the mounted panel leaf.
 - Preview-to-durable Card Stage promotion must preserve focus and selection because it keeps the same client tab id and retained wrapper identity.
@@ -225,6 +236,7 @@ The first layer keeps typing responsive. The second layer limits backend/storage
 - Kanban preview overlays must remain scoped by project/card.
 - Card Stage must not consume its own merged draft overlay through props.
 - Shared board snapshots must stay `BoardSummary`-only; successful description saves should merge the returned summary ack into board metadata and update the active card-detail cache from the submitted local draft plus acknowledged revision, without returning full descriptions or triggering a broad board refresh.
+- Board-change events carrying `CardSummary` should patch renderer board caches directly; ambiguous structure-only events may coalesce a summary refetch.
 
 ## Testing Expectations
 
@@ -256,6 +268,8 @@ Regression checks for related behavior should include:
 - BlockNote adapter tests
 - card draft store tests
 - Kanban store tests
+- card mutation writer tests
+- board summary event patch tests
 - board summary/detail/search tests
 - Card Stage render/controller tests
 

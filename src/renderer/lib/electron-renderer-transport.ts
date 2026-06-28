@@ -18,11 +18,11 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
     invoke(channel: string, ...args: unknown[]) {
       return bridge.invoke(channel, ...args);
     },
-    subscribeBoardChanges(projectId: string, callback: () => void) {
+    subscribeBoardChanges(projectId: string, callback: (event: BoardChangeEvent) => void) {
       return bridge.on("board-changed", (...args: unknown[]) => {
         const payload = args[0] as BoardChangeEvent | undefined;
         if (!payload || payload.projectId !== projectId) return;
-        callback();
+        callback(payload);
       });
     },
     subscribeProjectSessionChanges(

@@ -1,11 +1,12 @@
 import { browserRendererTransport } from "./browser-renderer-transport";
 import { createElectronRendererTransport, type ElectronRendererBridge } from "./electron-renderer-transport";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
+import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 export interface RendererTransport {
   kind: "browser" | "electron";
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-  subscribeBoardChanges: (projectId: string, callback: () => void) => () => void;
+  subscribeBoardChanges: (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
   subscribeProjectSessionChanges: (
     projectId: string | null,
     callback: (event: import("../../shared/ipc-api").ProjectSessionsChangeEvent) => void,

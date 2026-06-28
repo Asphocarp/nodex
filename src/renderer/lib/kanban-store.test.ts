@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { createKanbanStoreRegistry } from "./kanban-store";
 import { toCardSummary } from "../../shared/card-summary";
+import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 function createCardSummary(title = "Initial title"): CardSummary {
   return {
@@ -525,10 +526,10 @@ describe("kanban store", () => {
     expect(store.getSnapshot().cardIndex.has("card-1")).toBeTrue();
   });
 
-  test("mutation cooldown suppresses immediate board-change refreshes", async () => {
+  test("patches local board events and cooldowns ambiguous refreshes", async () => {
     const board = createBoard();
     let currentTime = 1_000;
-    const callbacks: { onBoardChange?: () => void } = {};
+    const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
     let boardFetchCount = 0;
 
     const registry = createKanbanStoreRegistry({
@@ -549,13 +550,33 @@ describe("kanban store", () => {
 
     expect(boardFetchCount).toBe(1);
 
+    const deleteEvent: BoardChangeEvent = {
+      projectId: "default",
+      changeType: "delete",
+      columnId: "draft",
+      status: "draft",
+      cardId: "card-1",
+    };
+
+    callbacks.onBoardChange?.(deleteEvent);
+    await waitForMicrotasks();
+    expect(boardFetchCount).toBe(1);
+    expect(store.getSnapshot().cardIndex.has("card-1")).toBeFalse();
+
+    const ambiguousEvent: BoardChangeEvent = {
+      projectId: "default",
+      changeType: "move",
+      columnId: "draft",
+      status: "draft",
+    };
+
     store.markMutation();
-    callbacks.onBoardChange?.();
+    callbacks.onBoardChange?.(ambiguousEvent);
     await waitForMicrotasks();
     expect(boardFetchCount).toBe(1);
 
     currentTime = 1_700;
-    callbacks.onBoardChange?.();
+    callbacks.onBoardChange?.(ambiguousEvent);
     await waitForMicrotasks();
     expect(boardFetchCount).toBe(2);
 

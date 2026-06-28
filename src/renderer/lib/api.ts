@@ -33,7 +33,7 @@ export async function invoke(
 
 export function subscribeBoardChanges(
   projectId: string,
-  callback: () => void,
+  callback: (event: import("../../shared/ipc-api").BoardChangeEvent) => void,
 ): () => void {
   return resolveRendererTransport().subscribeBoardChanges(projectId, callback);
 }

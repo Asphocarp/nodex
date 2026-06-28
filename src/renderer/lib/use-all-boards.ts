@@ -1,10 +1,13 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { subscribeBoardChanges } from "@/lib/api";
+import { applyBoardChangeEventToBoard } from "@/lib/board-summary-events";
 import { boardByProjectQueryOptions } from "@/lib/query-options";
 import { queryKeys } from "@/lib/query-keys";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useProjects } from "@/lib/use-projects";
+
+const BOARD_CHANGE_REFETCH_COALESCE_MS = 50;
 
 interface BoardSummaryQueryResult {
   data?: BoardSummary;
@@ -22,6 +25,7 @@ export function useBoardsForProjects(
 ) {
   const queryClient = useQueryClient();
   const projectIdsKey = projects.map((project) => project.id).join("\n");
+  const refetchTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const combineBoardResults = useCallback((results: readonly BoardSummaryQueryResult[]) => {
     const boards = new Map<string, BoardSummary>();
     let failedBoardCount = 0;
@@ -57,12 +61,32 @@ export function useBoardsForProjects(
     if (!projectIdsKey) return;
 
     const projectIds = projectIdsKey.split("\n");
-    const unsubscribes = projectIds.map((projectId) =>
-      subscribeBoardChanges(projectId, () => {
+    const scheduleRefetch = (projectId: string) => {
+      if (refetchTimersRef.current.has(projectId)) return;
+      const timer = setTimeout(() => {
+        refetchTimersRef.current.delete(projectId);
         void queryClient.invalidateQueries({
           queryKey: queryKeys.boards.byProject(projectId),
           exact: true,
         });
+      }, BOARD_CHANGE_REFETCH_COALESCE_MS);
+      refetchTimersRef.current.set(projectId, timer);
+    };
+    const unsubscribes = projectIds.map((projectId) =>
+      subscribeBoardChanges(projectId, (event) => {
+        let applied = false;
+        queryClient.setQueryData<BoardSummary | undefined>(
+          queryKeys.boards.byProject(projectId),
+          (current) => {
+            const next = applyBoardChangeEventToBoard(current, event);
+            if (!next) return current;
+            applied = true;
+            return next;
+          },
+        );
+        if (!applied) {
+          scheduleRefetch(projectId);
+        }
       }),
     );
 
@@ -70,8 +94,23 @@ export function useBoardsForProjects(
       for (const unsubscribe of unsubscribes) {
         unsubscribe();
       }
+      for (const projectId of projectIds) {
+        const timer = refetchTimersRef.current.get(projectId);
+        if (!timer) continue;
+        clearTimeout(timer);
+        refetchTimersRef.current.delete(projectId);
+      }
     };
   }, [projectIdsKey, queryClient]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of refetchTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      refetchTimersRef.current.clear();
+    };
+  }, []);
 
   return boardsQuery;
 }

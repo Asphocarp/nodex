@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import type { CardSummary } from "../../shared/types";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
 export type ProjectChangeType = "create" | "update" | "delete" | "reorder" | "pin";
@@ -17,7 +18,15 @@ export interface BoardChangeEvent {
   projectId: string;
   changeType: ChangeType;
   columnId: string;
+  status: string;
   cardId?: string;
+  summary?: CardSummary;
+  mutationId?: string;
+  metrics?: {
+    workerDurationMs?: number;
+    queueWaitMs?: number;
+    transactionMs?: number;
+  };
 }
 
 export interface ProjectSessionsChangeEvent {
@@ -39,8 +48,14 @@ class DatabaseNotifier extends EventEmitter {
     this.setMaxListeners(0);
   }
 
-  notifyChange(projectId: string, changeType: ChangeType, columnId: string, cardId?: string): void {
-    this.emit("board-changed", { projectId, changeType, columnId, cardId });
+  notifyChange(
+    projectId: string,
+    changeType: ChangeType,
+    columnId: string,
+    cardId?: string,
+    details?: Pick<BoardChangeEvent, "summary" | "mutationId" | "metrics">,
+  ): void {
+    this.emit("board-changed", { projectId, changeType, columnId, status: columnId, cardId, ...details });
   }
 
   notifyProjectsChanged(changeType: ProjectChangeType, projectId?: string): void {

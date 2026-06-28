@@ -130,6 +130,16 @@ Most entries also include child logger bindings and call-specific fields. Typica
 - `status`
 - `error`
 
+Card mutation acknowledgement logs may also include:
+
+- `workerDurationMs`: total time spent inside the card mutation worker for the request
+- `queueWaitMs`: time from main enqueue to worker execution/ack accounting
+- `transactionMs`: synchronous local-store mutation duration measured in the worker
+- `mainEventLoopLagMaxMs`: maximum main-process event-loop delay sampled while awaiting the worker ack
+- `descriptionBytes`: UTF-8 size for submitted description payloads when available
+- `summaryBytes`: approximate returned summary size when available
+- `revisionKind`: `snapshot` or `delta` for description revision writes when available
+
 Example:
 
 ```json

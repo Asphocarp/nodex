@@ -23,6 +23,7 @@ import {
   updateThreadNotificationSettings,
 } from "./local-store/config";
 import { dbNotifier } from "./local-store/notifier";
+import { cardMutationWriter } from "./card-mutation-writer";
 import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
@@ -34,6 +35,7 @@ import type {
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   CardDropMoveToEditorInput,
+  CardCreateInput,
   CardInput,
   CardSearchInput,
   CardsDetailsInput,
@@ -1030,10 +1032,10 @@ app.post("/api/projects/:projectId/board", cardWriteBodyLimit, async (c) => {
     }
     const normalizedSessionId = typeof sessionId === "string" ? sessionId : undefined;
     const normalizedPlacement: CardCreatePlacement = placement === "top" ? "top" : "bottom";
-    const card = await cardsStore.createCard(
+    const { result: card } = await cardMutationWriter.createCard(
       projectId,
       normalizedStatus,
-      input as unknown as CardInput,
+      input as unknown as CardCreateInput,
       normalizedSessionId,
       normalizedPlacement,
     );
@@ -1224,7 +1226,7 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
       ? expectedRevision
       : undefined;
     const startedAt = Date.now();
-    const result = await cardsStore.updateCard(
+    const envelope = await cardMutationWriter.updateCard(
       projectId,
       normalizedStatus,
       cardId,
@@ -1232,6 +1234,7 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
       normalizedSessionId,
       normalizedExpectedRevision,
     );
+    const result = envelope.result;
     logger.info("card update ack served", {
       route: "PUT /api/projects/:projectId/card",
       projectId,
@@ -1243,6 +1246,11 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
         : undefined,
       approxPayloadBytes: approximatePayloadBytes(result),
       durationMs: Date.now() - startedAt,
+      workerDurationMs: envelope.metrics.workerDurationMs,
+      queueWaitMs: envelope.metrics.queueWaitMs,
+      transactionMs: envelope.metrics.transactionMs,
+      mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
+      revisionKind: envelope.metrics.revisionKind,
     });
     if (result.status === "not_found") {
       return c.json(result, 404);
@@ -1262,7 +1270,7 @@ app.delete("/api/projects/:projectId/card", async (c) => {
   const cardId = c.req.query("cardId");
   const sessionId = c.req.query("sessionId") || undefined;
   if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const success = await cardsStore.deleteCard(projectId, status, cardId, sessionId);
+  const { result: success } = await cardMutationWriter.deleteCard(projectId, status, cardId, sessionId);
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
@@ -1295,7 +1303,7 @@ app.post("/api/projects/:projectId/card-occurrence/complete", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: body.source as CardOccurrenceActionInput["source"],
     };
-    const result = await cardOccurrences.completeCardOccurrence(
+    const { result } = await cardMutationWriter.completeCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1319,7 +1327,7 @@ app.post("/api/projects/:projectId/card-occurrence/skip", async (c) => {
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: body.source as CardOccurrenceActionInput["source"],
     };
-    const result = await cardOccurrences.skipCardOccurrence(
+    const { result } = await cardMutationWriter.skipCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1347,7 +1355,7 @@ app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c
       scope: body.scope as CardOccurrenceUpdateInput["scope"],
       updates: updates as CardOccurrenceUpdateInput["updates"],
     };
-    const result = await cardOccurrences.updateCardOccurrence(
+    const { result } = await cardMutationWriter.updateCardOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1374,7 +1382,7 @@ app.get("/api/projects/:projectId/column", async (c) => {
 app.put("/api/projects/:projectId/move", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
-  const result = await cardsStore.moveCard({ ...body, projectId });
+  const { result } = await cardMutationWriter.moveCard({ ...body, projectId });
   if (result === "wrong_column") {
     return c.json({ error: "Card is no longer in the expected column" }, 409);
   }
@@ -1385,7 +1393,7 @@ app.put("/api/projects/:projectId/move", async (c) => {
 app.put("/api/projects/:projectId/move-many", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
-  const result = await cardsStore.moveCards({ ...body, projectId });
+  const { result } = await cardMutationWriter.moveCards({ ...body, projectId });
   if (result === "wrong_column") {
     return c.json({ error: "One or more cards are no longer in the expected column" }, 409);
   }
@@ -1414,7 +1422,7 @@ app.post("/api/projects/:projectId/card-move-to-project", async (c) => {
       targetStatus: parseOptionalCardStatus(body.targetStatus),
     };
 
-    const result = await cardsStore.moveCardToProject(input);
+    const { result } = await cardMutationWriter.moveCardToProject(input);
     if (result === "wrong_column") {
       return c.json({ error: "Card is no longer in the expected column" }, 409);
     }
@@ -1438,7 +1446,7 @@ app.post("/api/projects/:projectId/card-import-block-drop", cardWriteBodyLimit, 
   const input = normalizeBlockDropImportBody({ ...body });
   delete input.sessionId;
   try {
-    const result = await cardsStore.importBlockDropAsCards(
+    const { result } = await cardMutationWriter.importBlockDropAsCards(
       projectId,
       input as unknown as BlockDropImportInput,
       sessionId,
@@ -1457,7 +1465,7 @@ app.post("/api/projects/:projectId/card-move-drop-to-editor", cardWriteBodyLimit
   const input = normalizeCardMoveDropBody({ ...body });
   delete input.sessionId;
   try {
-    const result = await cardsStore.moveCardDropToEditor(
+    const { result } = await cardMutationWriter.moveCardDropToEditor(
       projectId,
       input as unknown as CardDropMoveToEditorInput,
       sessionId,
@@ -1575,7 +1583,7 @@ app.get("/api/projects/:projectId/events", (c) => {
 
       const handler = (event: { projectId: string }) => {
         if (event.projectId === projectId) {
-          send(JSON.stringify({ event: "board-changed" }));
+          send(JSON.stringify({ event: "board-changed", ...event }));
         }
       };
       const sessionHandler = (event: { projectId: string }) => {
@@ -1660,7 +1668,8 @@ app.post("/api/projects/:projectId/history/revert", async (c) => {
   const historyId = body.historyId;
   if (typeof historyId !== "number") return c.json({ error: "Missing or invalid historyId" }, 400);
   const sessionId = body.sessionId;
-  return c.json(historyStore.revertEntry(projectId, historyId, sessionId));
+  const { result } = await cardMutationWriter.revertEntry(projectId, historyId, sessionId);
+  return c.json(result);
 });
 
 app.post("/api/projects/:projectId/history/restore", async (c) => {
@@ -1670,7 +1679,8 @@ app.post("/api/projects/:projectId/history/restore", async (c) => {
   if (!cardId || typeof historyId !== "number") {
     return c.json({ error: "Missing cardId or invalid historyId" }, 400);
   }
-  return c.json(historyStore.restoreToEntry(projectId, cardId, historyId, sessionId));
+  const { result } = await cardMutationWriter.restoreToEntry(projectId, cardId, historyId, sessionId);
+  return c.json(result);
 });
 
 // === Undo/Redo routes ===
@@ -1679,14 +1689,16 @@ app.post("/api/projects/:projectId/undo", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   const sessionId = body.sessionId;
-  return c.json(historyStore.undoLatest(projectId, sessionId));
+  const { result } = await cardMutationWriter.undoLatest(projectId, sessionId);
+  return c.json(result);
 });
 
 app.post("/api/projects/:projectId/redo", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   const sessionId = body.sessionId;
-  return c.json(historyStore.redoLatest(projectId, sessionId));
+  const { result } = await cardMutationWriter.redoLatest(projectId, sessionId);
+  return c.json(result);
 });
 
 // === Schema/Query routes ===

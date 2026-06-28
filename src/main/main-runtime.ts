@@ -31,6 +31,7 @@ import {
 import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
+import { cardMutationWriter } from "./card-mutation-writer";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -983,6 +984,7 @@ function shutdownMainRuntime(): void {
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
   terminalManager.killAll();
+  cardMutationWriter.shutdown();
   void codexService.shutdown();
   void shutdownMainSentry();
   void shutdownBackendLogger();

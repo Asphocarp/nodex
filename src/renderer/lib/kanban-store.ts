@@ -10,6 +10,8 @@ import {
   type BoardTransform,
 } from "./kanban-optimistic-ops";
 import { toCardSummary } from "../../shared/card-summary";
+import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
+import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 const MUTATION_COOLDOWN_MS = 500;
 
@@ -39,7 +41,7 @@ export interface OptimisticMutationResult<T> {
 type StoreListener = () => void;
 
 type InvokeFn = (channel: string, ...args: unknown[]) => Promise<unknown>;
-type SubscribeBoardChangesFn = (projectId: string, callback: () => void) => () => void;
+type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
 type NowFn = () => number;
 
 export interface KanbanStoreDependencies {
@@ -232,7 +234,7 @@ class KanbanProjectStore {
   applyRemoteCardSummary = (card: CardSummary): void => {
     if (!this.baseBoard) return;
 
-    const nextBoard = this.upsertCardSummary(this.baseBoard, card);
+    const nextBoard = upsertCardSummaryInBoard(this.baseBoard, card);
     if (nextBoard === this.baseBoard) return;
 
     this.baseBoard = nextBoard;
@@ -423,61 +425,6 @@ class KanbanProjectStore {
     this.optimisticEntries = nextEntries;
   }
 
-  private upsertCardSummary(board: BoardSummary, card: CardSummary): BoardSummary {
-    let existingColumnIndex = -1;
-    let existingCardIndex = -1;
-
-    for (let columnIndex = 0; columnIndex < board.columns.length; columnIndex += 1) {
-      const cardIndex = board.columns[columnIndex]?.cards.findIndex((candidate) => candidate.id === card.id) ?? -1;
-      if (cardIndex < 0) continue;
-      existingColumnIndex = columnIndex;
-      existingCardIndex = cardIndex;
-      break;
-    }
-
-    const targetColumnIndex = board.columns.findIndex((column) => column.id === card.status);
-    if (targetColumnIndex < 0) return board;
-
-    const nextColumns = board.columns.map((column, columnIndex) => {
-      if (columnIndex !== existingColumnIndex && columnIndex !== targetColumnIndex) return column;
-
-      if (existingColumnIndex === targetColumnIndex && columnIndex === targetColumnIndex) {
-        const existingCard = column.cards[existingCardIndex];
-        if (!existingCard) return column;
-        const nextCards = [...column.cards];
-        nextCards[existingCardIndex] = card;
-        return {
-          ...column,
-          cards: nextCards,
-        };
-      }
-
-      const withoutCard = columnIndex === existingColumnIndex
-        ? column.cards.filter((candidate) => candidate.id !== card.id)
-        : column.cards;
-
-      if (columnIndex !== targetColumnIndex) {
-        return withoutCard === column.cards
-          ? column
-          : {
-              ...column,
-              cards: withoutCard,
-            };
-      }
-
-      const nextCards = [...withoutCard, card].sort((left, right) => left.order - right.order);
-      return {
-        ...column,
-        cards: nextCards,
-      };
-    });
-
-    return {
-      ...board,
-      columns: nextColumns,
-    };
-  }
-
   private createEntry({
     kind,
     conflictKeys,
@@ -551,7 +498,15 @@ class KanbanProjectStore {
 
     this.unsubscribeBoardChanges = this.dependencies.subscribeBoardChanges(
       this.projectId,
-      () => {
+      (event) => {
+        const nextBoard = applyBoardChangeEventToBoard(this.baseBoard ?? undefined, event);
+        if (nextBoard) {
+          if (nextBoard !== this.baseBoard) {
+            this.baseBoard = nextBoard;
+            this.recomputeSnapshot();
+          }
+          return;
+        }
         if (this.shouldSkipRealtimeRefresh()) return;
         void this.fetchBoard();
       },

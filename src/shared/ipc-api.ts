@@ -93,6 +93,7 @@ import type {
   Card,
   CardInput,
   CardCreatePlacement,
+  CardSummary,
   CardsDetailsInput,
   CardSearchInput,
   CardSearchResult,
@@ -368,8 +369,16 @@ export interface QueryResult {
 export interface BoardChangeEvent {
   projectId: string;
   changeType: string;
+  columnId: Card["status"];
   status: Card["status"];
   cardId?: string;
+  summary?: CardSummary;
+  mutationId?: string;
+  metrics?: {
+    workerDurationMs?: number;
+    queueWaitMs?: number;
+    transactionMs?: number;
+  };
 }
 
 export type ProjectSessionChangeType =

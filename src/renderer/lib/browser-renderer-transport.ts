@@ -1516,7 +1516,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   }
 }
 
-function subscribeBoardChanges(projectId: string, callback: () => void): () => void {
+function subscribeBoardChanges(projectId: string, callback: (event: BoardChangeEvent) => void): () => void {
   if (typeof EventSource === "undefined") {
     return () => {};
   }
@@ -1527,7 +1527,7 @@ function subscribeBoardChanges(projectId: string, callback: () => void): () => v
     try {
       const data = JSON.parse(event.data) as BoardChangeEvent & { event?: string };
       if (data.event === "board-changed") {
-        callback();
+        callback(data);
       }
     } catch {
       // ignore parse errors
