@@ -143,6 +143,7 @@
 - For tooltips, do not locally override tooltip shell radius, padding, font sizing, or large `sideOffset` values.
 - Apply the same rule to dropdowns and popovers: do not hand-tune `sideOffset`, outline suppression, panel shadows, or raw Radix content chrome for ordinary menus. Prefer the shared `ui` defaults.
 - Prefer shared presets over local class bags. If a surface needs a recurring trigger/button/menu shape, add or reuse a preset on `ui/dropdown.tsx`, `ui/button.tsx`, or `ui/popover.tsx` instead of introducing feature-local constants such as `SELECT_TRIGGER`, `*_ACTION_BUTTON_CLASS_NAME`, or bespoke sidebar menu chrome.
+- Card Stage tabs should keep the tab surface full-width, but the scroll body uses a centered body lane: `mx-auto w-full max-w-(--card-stage-body-max-width) px-(--card-stage-body-gutter-inline)` while constrained. The `Full width` toolbar action must only remove that body-lane max width; it must not constrain or resize the right/bottom panel tab itself.
 - Facade APIs should stay component-shaped.
 - Do not expose a separate shared `Select` family. Common single-choice controls should be built from the shared dropdown facade in `src/renderer/components/ui/dropdown.tsx`; do not reintroduce `ui/select.tsx`, a selector-chrome shim, or a parallel select-only styling layer.
 - Selector-style pickers like branch/environment/project-folder choosers should compose `NodexDropdownMenu`, `NodexDropdownSearchInput`, `NodexDropdownSection`, `NodexDropdownItem`, and `NodexDropdownSeparator` directly.

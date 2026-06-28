@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { act } from "@testing-library/react";
 import { render, textContent } from "../../test/dom";
 import type { Card, CardUpdateMutationResult } from "@/lib/types";
-import { writeCardStageShowRawContentPreference } from "@/lib/card-stage-layout";
+import {
+  writeCardStageContentWidthPreference,
+  writeCardStageShowRawContentPreference,
+} from "@/lib/card-stage-layout";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
@@ -65,6 +68,7 @@ describe("card stage", () => {
   });
 
   test("renders the rich editor when raw mode is disabled", async () => {
+    writeCardStageContentWidthPreference(true);
     writeCardStageShowRawContentPreference(false);
     const { CardStage, CARD_STAGE_SCROLL_CONTAINER_TEST_ID } = await import("./card-stage");
     const { container, getByText, queryByText } = render(
@@ -92,6 +96,10 @@ describe("card stage", () => {
     const scrollContainer = container.querySelector(`[data-testid="${CARD_STAGE_SCROLL_CONTAINER_TEST_ID}"]`) as HTMLElement | null;
     expect(scrollContainer).not.toBeNull();
     expect(scrollContainer?.style.getPropertyValue("overflow-anchor")).toBe("none");
+    const body = container.querySelector('[data-card-stage-body="true"]');
+    expect(body).not.toBeNull();
+    expect(body?.getAttribute("data-card-stage-body-width")).toBe("constrained");
+    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBeTrue();
     const editorProps = lastNfmEditorProps as {
       flushHandleRef?: unknown;
       projectName?: unknown;
@@ -102,6 +110,47 @@ describe("card stage", () => {
     expect(editorProps?.projectName).toBe("Default");
     expect(editorProps?.sessionId).toBe("session-current");
     expect(editorProps?.canStartThreadInSession).toBe(true);
+  });
+
+  test("full width expands the body lane without changing the card-stage surface", async () => {
+    writeCardStageContentWidthPreference(true);
+    writeCardStageShowRawContentPreference(false);
+    const { CardStage } = await import("./card-stage");
+    const { container, getByRole } = render(
+      <NodexTooltipProvider>
+        <CardStage
+          onClose={() => undefined}
+          card={buildCard()}
+          columnId="in_progress"
+          columnName="In progress"
+          projectId="default"
+          availableTags={[]}
+          onUpdate={async () => buildUpdateAck()}
+          onPatch={() => undefined}
+          onDelete={async () => undefined}
+          onMove={async () => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    const surface = container.querySelector('[data-card-stage-surface="true"]');
+    const body = container.querySelector('[data-card-stage-body="true"]');
+    const fullWidthButton = getByRole("button", { name: "Full width" });
+
+    expect(surface).not.toBeNull();
+    expect(surface?.className.includes("w-full")).toBeTrue();
+    expect(body?.getAttribute("data-card-stage-body-width")).toBe("constrained");
+    expect(fullWidthButton.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      (fullWidthButton as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+
+    expect(surface?.className.includes("w-full")).toBeTrue();
+    expect(body?.getAttribute("data-card-stage-body-width")).toBe("full");
+    expect(body?.className.includes("max-w-(--card-stage-body-max-width)")).toBeFalse();
+    expect(fullWidthButton.getAttribute("aria-pressed")).toBe("true");
   });
 
   test("renders read-only raw content when raw mode is enabled", async () => {

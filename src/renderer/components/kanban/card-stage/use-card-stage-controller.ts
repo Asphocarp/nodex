@@ -90,7 +90,7 @@ interface UseCardStageControllerResult {
   collapsedPropertyCount: number;
   showCollapsedProperties: boolean;
   currentColumnName: string;
-  contentGutterClassName: string;
+  contentBodyClassName: string;
   contentShellClassName: string;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   descriptionFlushHandleRef: React.MutableRefObject<CardStageDescriptionFlushHandle | null>;
@@ -1368,11 +1368,11 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   const showCollapsedProperties = propertiesExpanded || collapsedPropertyCount === 0;
 
   const currentColumnName = KANBAN_STATUS_OPTIONS.find((status) => status.id === currentColumnId)?.name ?? columnName;
-  const contentGutterClassName = "px-[calc(var(--spacing)*18)]";
-  const contentShellClassName = [
-    "mx-auto w-full",
-    limitMainContentWidth ? "max-w-[var(--pane-content-max-width)]" : "",
+  const contentBodyClassName = [
+    "mx-auto w-full px-(--card-stage-body-gutter-inline)",
+    limitMainContentWidth ? "max-w-(--card-stage-body-max-width)" : "",
   ].filter(Boolean).join(" ");
+  const contentShellClassName = "w-full";
 
   const collapsedPropertyLabel = formatCardStageCollapsedPropertyCountLabel(
     collapsedPropertyCount,
@@ -1427,7 +1427,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     collapsedPropertyCount,
     showCollapsedProperties,
     currentColumnName,
-    contentGutterClassName,
+    contentBodyClassName,
     contentShellClassName,
     scrollContainerRef,
     descriptionFlushHandleRef,

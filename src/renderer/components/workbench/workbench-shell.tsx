@@ -8535,10 +8535,12 @@ function CardStageSessionSkeleton({ titleSnapshot }: { titleSnapshot?: string })
     ? `Loading ${titleSnapshot}`
     : "Loading card";
   const limitMainContentWidth = readCardStageContentWidthPreference();
-  const contentGutterClassName = "px-[calc(var(--spacing)*18)]";
+  const contentBodyClassName = cn(
+    "mx-auto w-full px-(--card-stage-body-gutter-inline)",
+    limitMainContentWidth && "max-w-(--card-stage-body-max-width)",
+  );
   const contentShellClassName = cn(
-    "mx-auto w-full",
-    limitMainContentWidth && "max-w-[var(--pane-content-max-width)]",
+    "w-full",
   );
 
   return (
@@ -8565,7 +8567,11 @@ function CardStageSessionSkeleton({ titleSnapshot }: { titleSnapshot?: string })
         className="scrollbar-token min-h-0 flex-1 overflow-y-auto"
         style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
       >
-        <div className={contentGutterClassName}>
+        <div
+          className={contentBodyClassName}
+          data-card-stage-body="true"
+          data-card-stage-body-width={limitMainContentWidth ? "constrained" : "full"}
+        >
           <div className={contentShellClassName}>
             <div className="h-toolbar-sm" />
 

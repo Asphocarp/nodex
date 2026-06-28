@@ -96,7 +96,7 @@ export function CardStage(props: CardStageProps) {
   if (!controller.card) return null;
 
   return (
-    <div className="flex h-full w-full flex-col bg-(--background)">
+    <div className="flex h-full w-full flex-col bg-(--background)" data-card-stage-surface="true">
       <CardStageToolbar
         saving={controller.saving}
         historyPanelActive={controller.historyPanelActive}
@@ -148,7 +148,11 @@ export function CardStage(props: CardStageProps) {
         data-testid={CARD_STAGE_SCROLL_CONTAINER_TEST_ID}
         style={CARD_STAGE_SCROLL_CONTAINER_STYLE}
       >
-        <div className={controller.contentGutterClassName}>
+        <div
+          className={controller.contentBodyClassName}
+          data-card-stage-body="true"
+          data-card-stage-body-width={controller.limitMainContentWidth ? "constrained" : "full"}
+        >
           <div className={controller.contentShellClassName}>
             <div className="h-toolbar-sm" />
 
