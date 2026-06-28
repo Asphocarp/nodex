@@ -396,6 +396,25 @@ function TextActionMoreHandoffStorySurface() {
   );
 }
 
+function CollapsedCursorNoToolbarStorySurface() {
+  return (
+    <NodexTooltipProvider>
+      <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+        <div className="w-[34rem] rounded-lg border-[0.5px] border-token-border bg-token-background/80 px-5 py-4 text-[15px] leading-7 shadow-sm">
+          <p className="text-token-foreground">
+            Schedule follow-up after reviewing the release notes
+            <span
+              aria-hidden="true"
+              className="mx-0.5 inline-block h-5 w-px translate-y-1 bg-token-charts-blue"
+            />
+            with the team.
+          </p>
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
 const meta = {
   title: "Kanban/Editor/Text Action Menu",
   component: TextActionMenuStorySurface,
@@ -646,6 +665,17 @@ export const MoreHandoffToBlockActions: Story = {
     docs: {
       description: {
         story: "Click More to replace the text-selection toolbar with the block side-menu action surface; dismissing it returns focus to the editor with the selected block scope still active.",
+      },
+    },
+  },
+};
+
+export const CollapsedCursorNoToolbar: Story = {
+  render: () => <CollapsedCursorNoToolbarStorySurface />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed rich-text cursor state: the NFM floating toolbar remains closed instead of falling back to the legacy formatting toolbar.",
       },
     },
   },

@@ -27,6 +27,7 @@ export interface TextActionMenuEligibilityInput {
   isTableCellSelection: boolean;
   isBlockSelection?: boolean;
   hasInlineContent: boolean;
+  selectedTextLength: number;
   selectionFrom: number;
   selectionTo: number;
 }
@@ -50,6 +51,7 @@ export function shouldUseTextActionMenu(input: TextActionMenuEligibilityInput): 
   if (input.isTableCellSelection) return false;
   if (input.isBlockSelection) return false;
   if (!input.hasInlineContent) return false;
+  if (input.selectedTextLength <= 0) return false;
   return input.selectionFrom !== input.selectionTo;
 }
 

@@ -24,7 +24,36 @@ import {
 import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
 import { useNfmSideMenuOpenController, type NfmSideMenuSelectionRange } from "./nfm-side-menu";
 
-type NfmFormattingToolbarFloatingMode = "text-action" | "legacy";
+export type NfmFormattingToolbarMode = "text-action" | "legacy";
+
+export type NfmFormattingToolbarPresentation =
+  | { open: false }
+  | {
+    open: true;
+    mode: NfmFormattingToolbarMode;
+    position: NfmSideMenuSelectionRange;
+  };
+
+export interface NfmFormattingToolbarSelectedBlockSnapshot {
+  type?: string;
+  content?: unknown;
+  props?: Record<string, unknown>;
+}
+
+export interface NfmLegacyFormattingToolbarEligibilityInput {
+  isEditable: boolean;
+  isSelectionEmpty: boolean;
+  isTableCellSelection: boolean;
+  isBlockSelection: boolean;
+  selectedBlocks: NfmFormattingToolbarSelectedBlockSnapshot[];
+}
+
+interface NfmFormattingToolbarEligibilitySnapshot {
+  textAction: TextActionMenuEligibilityInput;
+  legacy: boolean;
+}
+
+type NfmFormattingToolbarComponent = FC<FormattingToolbarProps & { mode: NfmFormattingToolbarMode }>;
 
 function textAlignmentToPlacement(textAlignment: DefaultProps["textAlignment"]) {
   if (textAlignment === "center") return "top";
@@ -36,37 +65,99 @@ function resolveTextActionMenuEligibility(editor: {
   isEditable: boolean;
   prosemirrorState: {
     selection: {
+      empty: boolean;
       from: number;
       to: number;
     };
+    doc: {
+      textBetween: (from: number, to: number) => string;
+    };
   };
-  getSelection: () => { blocks: Array<{ content?: unknown }> } | undefined;
-  getTextCursorPosition: () => { block: { content?: unknown; props?: { textAlignment?: DefaultProps["textAlignment"] } } };
+  getSelection: () => { blocks: NfmFormattingToolbarSelectedBlockSnapshot[] } | undefined;
+  getTextCursorPosition: () => {
+    block: NfmFormattingToolbarSelectedBlockSnapshot & {
+      props?: { textAlignment?: DefaultProps["textAlignment"] } & Record<string, unknown>;
+    };
+  };
 }): TextActionMenuEligibilityInput {
   const selection = editor.prosemirrorState.selection;
   const selectedBlocks = editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block];
+  const selectedTextLength = selection.empty
+    ? 0
+    : editor.prosemirrorState.doc.textBetween(selection.from, selection.to).length;
 
   return {
     isEditable: editor.isEditable,
     isTableCellSelection: isTableCellSelection(selection as Parameters<typeof isTableCellSelection>[0]),
     isBlockSelection: isBlockLevelSelection(selection),
     hasInlineContent: selectedBlocks.some((block) => block.content !== undefined),
+    selectedTextLength,
     selectionFrom: selection.from,
     selectionTo: selection.to,
   };
 }
 
+function hasLegacyFormattingToolbarBlockActions(block: NfmFormattingToolbarSelectedBlockSnapshot): boolean {
+  if (block.type === "table") return true;
+  if (typeof block.props?.url === "string") return true;
+  return block.content === undefined;
+}
+
+export function shouldUseNfmLegacyFormattingToolbar(
+  input: NfmLegacyFormattingToolbarEligibilityInput,
+): boolean {
+  if (!input.isEditable) return false;
+  if (input.isTableCellSelection) return true;
+  if (input.isSelectionEmpty) return false;
+  return input.selectedBlocks.some(hasLegacyFormattingToolbarBlockActions);
+}
+
+function resolveFormattingToolbarEligibility(editor: {
+  isEditable: boolean;
+  prosemirrorState: {
+    selection: {
+      empty: boolean;
+      from: number;
+      to: number;
+    };
+    doc: {
+      textBetween: (from: number, to: number) => string;
+    };
+  };
+  getSelection: () => { blocks: NfmFormattingToolbarSelectedBlockSnapshot[] } | undefined;
+  getTextCursorPosition: () => {
+    block: NfmFormattingToolbarSelectedBlockSnapshot & {
+      props?: { textAlignment?: DefaultProps["textAlignment"] } & Record<string, unknown>;
+    };
+  };
+}): NfmFormattingToolbarEligibilitySnapshot {
+  const selection = editor.prosemirrorState.selection;
+  const selectedBlocks = editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block];
+  const textAction = resolveTextActionMenuEligibility(editor);
+
+  return {
+    textAction,
+    legacy: shouldUseNfmLegacyFormattingToolbar({
+      isEditable: editor.isEditable,
+      isSelectionEmpty: selection.empty,
+      isTableCellSelection: textAction.isTableCellSelection,
+      isBlockSelection: Boolean(textAction.isBlockSelection),
+      selectedBlocks,
+    }),
+  };
+}
+
 export function resolveNfmFormattingToolbarFloatingMode(
   input: TextActionMenuEligibilityInput,
-): NfmFormattingToolbarFloatingMode {
+): NfmFormattingToolbarMode {
   return shouldUseTextActionMenu(input) ? "text-action" : "legacy";
 }
 
 export function resolveNfmFormattingToolbarEffectiveFloatingMode(input: {
   show: boolean;
-  currentMode: NfmFormattingToolbarFloatingMode;
-  lastVisibleMode: NfmFormattingToolbarFloatingMode;
-}): NfmFormattingToolbarFloatingMode {
+  currentMode: NfmFormattingToolbarMode;
+  lastVisibleMode: NfmFormattingToolbarMode;
+}): NfmFormattingToolbarMode {
   return input.show ? input.currentMode : input.lastVisibleMode;
 }
 
@@ -81,8 +172,38 @@ export function shouldSuppressNfmFormattingToolbarForSelection(input: {
     && input.selectionRange.to === input.suppressionRange.to;
 }
 
+export function resolveNfmFormattingToolbarPresentation(input: {
+  show: boolean;
+  selectionRange: NfmSideMenuSelectionRange;
+  suppressionRange: NfmSideMenuSelectionRange | null;
+  textActionEligibility: TextActionMenuEligibilityInput;
+  legacyEligibility: boolean;
+}): NfmFormattingToolbarPresentation {
+  if (!input.show) return { open: false };
+
+  if (shouldSuppressNfmFormattingToolbarForSelection(input)) {
+    return { open: false };
+  }
+
+  if (shouldUseTextActionMenu(input.textActionEligibility)) {
+    return {
+      open: true,
+      mode: "text-action",
+      position: input.selectionRange,
+    };
+  }
+
+  if (!input.legacyEligibility) return { open: false };
+
+  return {
+    open: true,
+    mode: "legacy",
+    position: input.selectionRange,
+  };
+}
+
 export function NfmFormattingToolbarController(props: {
-  formattingToolbar?: FC<FormattingToolbarProps>;
+  formattingToolbar?: NfmFormattingToolbarComponent;
   floatingUIOptions?: FloatingUIOptions;
   portalElement?: HTMLElement | null;
 }) {
@@ -117,24 +238,29 @@ export function NfmFormattingToolbarController(props: {
     editor,
     selector: ({ editor }) => resolveNfmFormattingToolbarFloatingMode(resolveTextActionMenuEligibility(editor)),
   });
-  const suppressFormattingToolbar = shouldSuppressNfmFormattingToolbarForSelection({
+  const toolbarEligibility = useEditorState({
+    editor,
+    selector: ({ editor }) => resolveFormattingToolbarEligibility(editor),
+  });
+  const presentation = resolveNfmFormattingToolbarPresentation({
     show,
     selectionRange,
     suppressionRange: sideMenuOpenController.formattingToolbarSuppressionRange,
+    textActionEligibility: toolbarEligibility.textAction,
+    legacyEligibility: toolbarEligibility.legacy,
   });
-  const effectiveShow = show && !suppressFormattingToolbar;
-  const lastVisibleFloatingModeRef = useRef<NfmFormattingToolbarFloatingMode>(floatingMode);
+  const lastVisibleFloatingModeRef = useRef<NfmFormattingToolbarMode>(floatingMode);
 
-  if (effectiveShow) {
-    lastVisibleFloatingModeRef.current = floatingMode;
+  if (presentation.open) {
+    lastVisibleFloatingModeRef.current = presentation.mode;
   }
 
   const effectiveFloatingMode = resolveNfmFormattingToolbarEffectiveFloatingMode({
-    show: effectiveShow,
-    currentMode: floatingMode,
+    show: presentation.open,
+    currentMode: presentation.open ? presentation.mode : floatingMode,
     lastVisibleMode: lastVisibleFloatingModeRef.current,
   });
-  const position = effectiveShow ? selectionRange : undefined;
+  const position = presentation.open ? presentation.position : undefined;
   const textActionFloatingOptions = effectiveFloatingMode === "text-action"
     ? NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS
     : undefined;
@@ -143,7 +269,7 @@ export function NfmFormattingToolbarController(props: {
     ...props.floatingUIOptions,
     ...textActionFloatingOptions,
     useFloatingOptions: {
-      open: effectiveShow,
+      open: presentation.open,
       onOpenChange: (open, _event, reason) => {
         formattingToolbar.store.setState(open);
 
@@ -172,14 +298,14 @@ export function NfmFormattingToolbarController(props: {
     },
   }), [
     editor,
-    effectiveShow,
     formattingToolbar.store,
     placement,
+    presentation.open,
     props.floatingUIOptions,
     textActionFloatingOptions,
   ]);
 
-  const Component = props.formattingToolbar ?? FormattingToolbar;
+  const Component = props.formattingToolbar;
 
   return (
     <PositionPopover
@@ -187,7 +313,9 @@ export function NfmFormattingToolbarController(props: {
       portalElement={props.portalElement}
       {...floatingUIOptions}
     >
-      {effectiveShow ? <Component /> : null}
+      {presentation.open ? (
+        Component ? <Component mode={presentation.mode} /> : <FormattingToolbar />
+      ) : null}
     </PositionPopover>
   );
 }

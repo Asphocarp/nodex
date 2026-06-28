@@ -86,6 +86,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Fixed Card Stage long-description saves so durable card writes run through a worker-backed writer and save acknowledgements stay summary-only, reducing input lag while `Saving...` is shown.
 - Fixed new Codex session rows so generated and manually renamed thread titles replace the initial `New thread` label in the sidebar.
+- Fixed the NFM text-selection toolbar so collapsing a rich-text selection to a cursor no longer reopens the legacy formatting toolbar.
 - Fixed the NFM side-menu `Card in` flyout so hovering the row opens the DB picker reliably.
 - Fixed card history retention so retained card versions stay previewable/restorable after pruning by preserving internal reconstruction checkpoints.
 - Fixed packaged production builds so backend logs are not written by default; diagnostics remain opt-in through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.

@@ -11,6 +11,7 @@ describe("nfm text action menu model", () => {
       isEditable: true,
       isTableCellSelection: false,
       hasInlineContent: true,
+      selectedTextLength: 5,
       selectionFrom: 3,
       selectionTo: 8,
     })).toBeTrue();
@@ -19,14 +20,25 @@ describe("nfm text action menu model", () => {
       isEditable: true,
       isTableCellSelection: false,
       hasInlineContent: true,
+      selectedTextLength: 0,
       selectionFrom: 3,
       selectionTo: 3,
     })).toBeFalse();
 
     expect(shouldUseTextActionMenu({
       isEditable: true,
+      isTableCellSelection: false,
+      hasInlineContent: true,
+      selectedTextLength: 0,
+      selectionFrom: 3,
+      selectionTo: 8,
+    })).toBeFalse();
+
+    expect(shouldUseTextActionMenu({
+      isEditable: true,
       isTableCellSelection: true,
       hasInlineContent: true,
+      selectedTextLength: 5,
       selectionFrom: 3,
       selectionTo: 8,
     })).toBeFalse();
@@ -36,6 +48,7 @@ describe("nfm text action menu model", () => {
       isTableCellSelection: false,
       isBlockSelection: true,
       hasInlineContent: true,
+      selectedTextLength: 5,
       selectionFrom: 3,
       selectionTo: 8,
     })).toBeFalse();

@@ -162,8 +162,12 @@ interface TextActionSnapshotEditor extends Pick<TextActionEditorAdapter, "schema
   };
   prosemirrorState: {
     selection: {
+      empty: boolean;
       from: number;
       to: number;
+    };
+    doc: {
+      textBetween: (from: number, to: number) => string;
     };
   };
   isEditable: boolean;
@@ -347,6 +351,9 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
   const selectedBlocks = editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block];
   const firstSelectedBlock = selectedBlocks[0];
   const hasInlineContent = selectedBlocks.some((block: { content?: unknown }) => block.content !== undefined);
+  const selectedTextLength = selection.empty
+    ? 0
+    : editor.prosemirrorState.doc.textBetween(selection.from, selection.to).length;
   const blockTypeItems = buildBlockTypeItems(editor, firstSelectedBlock);
   const activeStyles = editor.getActiveStyles() as Record<string, unknown>;
   const canUseTextColor = textActionHasStringStyle(editor, "textColor");
@@ -358,6 +365,7 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
       isTableCellSelection: isTableCellSelection(selection as Parameters<typeof isTableCellSelection>[0]),
       isBlockSelection: isBlockLevelSelection(selection),
       hasInlineContent,
+      selectedTextLength,
       selectionFrom: selection.from,
       selectionTo: selection.to,
     }),
@@ -1653,7 +1661,7 @@ export function NfmTextActionMenuSurface({
   );
 }
 
-export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
+export function NfmTextActionMenu() {
   const editor = useBlockNoteEditor();
   const formattingToolbar = useExtension(FormattingToolbarExtension, {
     editor,
@@ -1691,7 +1699,7 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
   );
 
   if (!snapshot.eligible) {
-    return <>{fallback}</>;
+    return null;
   }
 
   const selectBlockType = (item: TextActionBlockTypeItem) => {

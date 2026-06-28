@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { CopyImageButton } from "./copy-image-button";
 import { NfmCreateLinkButton } from "./nfm-link-toolbar";
 import { NfmTextActionMenu } from "./nfm-text-action-menu";
+import type { NfmFormattingToolbarMode } from "./nfm-formatting-toolbar-controller";
 
 const NFM_LEGACY_FORMATTING_TOOLBAR_OMITTED_KEYS = new Set([
   "textAlignLeftButton",
@@ -616,6 +617,11 @@ export function NfmLegacyFormattingToolbar() {
   );
 }
 
-export function NfmFormattingToolbar() {
-  return <NfmTextActionMenu fallback={<NfmLegacyFormattingToolbar />} />;
+export function NfmFormattingToolbar({
+  mode,
+}: {
+  mode: NfmFormattingToolbarMode;
+}) {
+  if (mode === "legacy") return <NfmLegacyFormattingToolbar />;
+  return <NfmTextActionMenu />;
 }
