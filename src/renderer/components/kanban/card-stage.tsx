@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { memo, type CSSProperties, type MutableRefObject } from "react";
 import { NfmEditor } from "./editor/nfm-editor";
 import { cn } from "@/lib/utils";
 import { CardStageInlinePropertyStrip } from "./card-stage/inline-property-strip";
@@ -6,7 +6,7 @@ import { CardStagePropertiesSection } from "./card-stage/properties-section";
 import { CardStageRawContent } from "./card-stage/raw-content";
 import { CardStageToolbar } from "./card-stage/toolbar";
 import { useCardStageController } from "./card-stage/use-card-stage-controller";
-import type { CardStageProps } from "./card-stage/types";
+import type { CardStageDescriptionFlushHandle, CardStageProps } from "./card-stage/types";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 
 export type { CardStageProps } from "./card-stage/types";
@@ -17,6 +17,78 @@ const CARD_STAGE_SCROLL_CONTAINER_STYLE = {
   ...RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
   overflowAnchor: "none",
 } satisfies CSSProperties;
+
+interface CardStageDescriptionEditorProps {
+  projectId: string;
+  projectName?: string | null;
+  projectWorkspacePath?: string | null;
+  cardId: string;
+  columnId: string;
+  content: string;
+  showRawContent: boolean;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+  flushHandleRef: MutableRefObject<CardStageDescriptionFlushHandle | null>;
+  sessionId?: string | null;
+  sessionThread: CardStageProps["sessionThread"];
+  canStartThreadInSession: CardStageProps["canStartThreadInSession"];
+  linkedCodexThreads: CardStageProps["linkedCodexThreads"];
+  onOpenCodexThread: CardStageProps["onOpenCodexThread"];
+  onStartNewSessionThreadFromEditor: CardStageProps["onStartNewSessionThreadFromEditor"];
+  onSendThreadSectionPrompt: CardStageProps["onSendThreadSectionPrompt"];
+  isActivePanelTab: boolean;
+}
+
+const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
+  projectId,
+  projectName,
+  projectWorkspacePath,
+  cardId,
+  columnId,
+  content,
+  showRawContent,
+  onChange,
+  onBlur,
+  flushHandleRef,
+  sessionId,
+  sessionThread,
+  canStartThreadInSession,
+  linkedCodexThreads,
+  onOpenCodexThread,
+  onStartNewSessionThreadFromEditor,
+  onSendThreadSectionPrompt,
+  isActivePanelTab,
+}: CardStageDescriptionEditorProps) {
+  if (showRawContent) {
+    return <CardStageRawContent content={content} />;
+  }
+
+  return (
+    <NfmEditor
+      key={`${projectId}:${cardId}`}
+      projectId={projectId}
+      projectName={projectName}
+      projectWorkspacePath={projectWorkspacePath}
+      content={content}
+      onChange={onChange}
+      onBlur={onBlur}
+      flushHandleRef={flushHandleRef}
+      sourceCardContext={{
+        cardId,
+        columnId,
+      }}
+      sessionId={sessionId}
+      sessionThread={sessionThread}
+      canStartThreadInSession={canStartThreadInSession}
+      linkedCodexThreads={linkedCodexThreads}
+      onOpenCodexThread={onOpenCodexThread}
+      onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
+      onSendThreadSectionPrompt={onSendThreadSectionPrompt}
+      isActivePanelTab={isActivePanelTab}
+      placeholder="Add a description..."
+    />
+  );
+});
 
 export function CardStage(props: CardStageProps) {
   const controller = useCardStageController(props);
@@ -119,33 +191,26 @@ export function CardStage(props: CardStageProps) {
             <CardStagePropertiesSection controller={controller} />
 
             <div className="pt-2 pb-8">
-              {controller.showRawContent ? (
-                <CardStageRawContent content={controller.description} />
-              ) : (
-                <NfmEditor
-                  key={`${props.projectId}:${controller.card.id}`}
-                  projectId={props.projectId}
-                  projectName={props.projectName}
-                  projectWorkspacePath={props.projectWorkspacePath}
-                  content={controller.description}
-                  onChange={controller.handleDescriptionChange}
-                  onBlur={controller.handleDescriptionBlur}
-                  flushHandleRef={controller.descriptionFlushHandleRef}
-                  sourceCardContext={{
-                    cardId: controller.card.id,
-                    columnId: controller.currentColumnId,
-                  }}
-                  sessionId={props.sessionId}
-                  sessionThread={props.sessionThread}
-                  canStartThreadInSession={props.canStartThreadInSession}
-                  linkedCodexThreads={props.linkedCodexThreads}
-                  onOpenCodexThread={props.onOpenCodexThread}
-                  onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
-                  onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
-                  isActivePanelTab={props.isActivePanelTab ?? true}
-                  placeholder="Add a description..."
-                />
-              )}
+              <CardStageDescriptionEditor
+                projectId={props.projectId}
+                projectName={props.projectName}
+                projectWorkspacePath={props.projectWorkspacePath}
+                cardId={controller.card.id}
+                columnId={controller.currentColumnId}
+                content={controller.description}
+                showRawContent={controller.showRawContent}
+                onChange={controller.handleDescriptionChange}
+                onBlur={controller.handleDescriptionBlur}
+                flushHandleRef={controller.descriptionFlushHandleRef}
+                sessionId={props.sessionId}
+                sessionThread={props.sessionThread}
+                canStartThreadInSession={props.canStartThreadInSession}
+                linkedCodexThreads={props.linkedCodexThreads}
+                onOpenCodexThread={props.onOpenCodexThread}
+                onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
+                onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
+                isActivePanelTab={props.isActivePanelTab ?? true}
+              />
             </div>
           </div>
         </div>

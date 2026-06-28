@@ -63,8 +63,8 @@ describe("card tag JSON resilience", () => {
       });
       expect(updated.status).toBe("updated");
       if (updated.status === "updated") {
-        expect(updated.card.title).toBe("Updated title");
-        expect(JSON.stringify(updated.card.tags ?? null)).toBe("[]");
+        expect(updated.summary.title).toBe("Updated title");
+        expect(JSON.stringify(updated.summary.tags ?? null)).toBe("[]");
       }
     });
 

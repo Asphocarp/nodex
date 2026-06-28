@@ -60,7 +60,10 @@ describe("card update revision conflict handling", () => {
       );
       expect(firstUpdate.status).toBe("updated");
       if (firstUpdate.status === "updated") {
-        expect(firstUpdate.card.revision).toBe(2);
+        expect(Object.hasOwn(firstUpdate, "card")).toBeFalse();
+        expect(Object.hasOwn(firstUpdate.summary, "description")).toBeFalse();
+        expect(firstUpdate.revision).toBe(2);
+        expect(firstUpdate.summary.title).toBe("First writer");
       }
 
       const staleUpdate = await updateCard(

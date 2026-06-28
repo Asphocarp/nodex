@@ -68,6 +68,30 @@ async function findCardOnBoard(projectId: string, cardId: string): Promise<Card 
 }
 
 describe("history description revisions", () => {
+  test("stores large description revisions as snapshots before allocating LCS tables", () => {
+    expect(descriptionRevisionService.shouldStoreDescriptionSnapshotRevision({
+      previousBlockCount: 600,
+      nextBlockCount: 600,
+      revisionsSinceSnapshot: 0,
+    })).toBeTrue();
+
+    expect(descriptionRevisionService.shouldStoreDescriptionSnapshotRevision({
+      previousBlockCount: 20,
+      nextBlockCount: 20,
+      revisionsSinceSnapshot: 0,
+      deltaPayloadLength: 10,
+      snapshotPayloadLength: 100,
+    })).toBeFalse();
+
+    expect(descriptionRevisionService.shouldStoreDescriptionSnapshotRevision({
+      previousBlockCount: 20,
+      nextBlockCount: 20,
+      revisionsSinceSnapshot: 0,
+      deltaPayloadLength: 100,
+      snapshotPayloadLength: 100,
+    })).toBeTrue();
+  });
+
   test("replays selected history entries as post-change versions", () => {
     const createdAt = new Date("2026-01-01T00:00:00Z");
     const cardSnapshot: Card = {

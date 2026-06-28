@@ -84,7 +84,7 @@ describe("nullable card priority", () => {
       expect(updated.status).toBe("updated");
       if (updated.status !== "updated") return;
 
-      expect(updated.card.priority ?? null).toBe(null);
+      expect(updated.summary.priority ?? null).toBe(null);
 
       const row = getDb().prepare("SELECT priority FROM cards WHERE id = ?").get(created.id) as
         | { priority: string | null }
@@ -109,7 +109,7 @@ describe("nullable card priority", () => {
       });
       expect(cleared.status).toBe("updated");
       if (cleared.status !== "updated") return;
-      expect(cleared.card.priority ?? null).toBe(null);
+      expect(cleared.summary.priority ?? null).toBe(null);
 
       const history = getRecentHistory(projectId, 10, 0);
       const clearEntry = history.find((entry) => entry.operation === "update");

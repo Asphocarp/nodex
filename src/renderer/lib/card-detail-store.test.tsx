@@ -111,6 +111,58 @@ describe("card detail store", () => {
     view.unmount();
   });
 
+  test("only notifies subscribers for the changed card detail key", async () => {
+    setCardDetail("project-1", buildCard({
+      id: "card-1",
+      title: "First title",
+      revision: 1,
+    }));
+    setCardDetail("project-1", buildCard({
+      id: "card-2",
+      title: "Second title",
+      revision: 1,
+    }));
+
+    let firstRenderCount = 0;
+    let secondRenderCount = 0;
+    function FirstHarness() {
+      firstRenderCount += 1;
+      const detail = useCardDetail("project-1", "card-1");
+      return <span data-testid="first-title">{detail.card?.title ?? "empty"}</span>;
+    }
+    function SecondHarness() {
+      secondRenderCount += 1;
+      const detail = useCardDetail("project-1", "card-2");
+      return <span data-testid="second-title">{detail.card?.title ?? "empty"}</span>;
+    }
+
+    const view = render(
+      <>
+        <FirstHarness />
+        <SecondHarness />
+      </>,
+    );
+    expect(view.getByTestId("first-title").textContent).toBe("First title");
+    expect(view.getByTestId("second-title").textContent).toBe("Second title");
+    expect(firstRenderCount).toBe(1);
+    expect(secondRenderCount).toBe(1);
+
+    await act(async () => {
+      setCardDetail("project-1", buildCard({
+        id: "card-1",
+        title: "Updated first title",
+        revision: 2,
+      }));
+      await Promise.resolve();
+    });
+
+    expect(view.getByTestId("first-title").textContent).toBe("Updated first title");
+    expect(view.getByTestId("second-title").textContent).toBe("Second title");
+    expect(firstRenderCount).toBe(2);
+    expect(secondRenderCount).toBe(1);
+    view.unmount();
+  });
+
   test("refetches cached detail when the requested revision is newer", async () => {
     let calls = 0;
     installWindowApi({

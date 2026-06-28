@@ -593,7 +593,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle("card:update", async (_, projectId, columnId, cardId, updates, sessionId?, expectedRevision?) => {
-    return cardsStore.updateCard(
+    const startedAt = performance.now();
+    const result = await cardsStore.updateCard(
       projectId,
       columnId || undefined,
       cardId,
@@ -601,6 +602,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       sessionId,
       expectedRevision,
     );
+    ipcPayloadLogger.info("card update ack served", {
+      channel: "card:update",
+      projectId,
+      cardId,
+      status: result.status,
+      changedFields: result.status === "updated" ? result.changedFields : undefined,
+      descriptionBytes: typeof updates.description === "string"
+        ? Buffer.byteLength(updates.description, "utf8")
+        : undefined,
+      approxPayloadBytes: approximatePayloadBytes(result),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return result;
   });
 
   registerHandle("card:get", (_, projectId: string, cardId: string, status?: string) =>

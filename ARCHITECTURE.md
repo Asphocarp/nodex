@@ -92,8 +92,9 @@ Nodex is a local-first, block-based agent orchestrator for coordinating coding-a
 Board read flow:
 1. High-frequency board consumers use `board:summary:get` / `/api/projects/:projectId/board-summary`, which returns `BoardSummary` and must not include `Card.description`.
 2. Consumers that need bodies request them by id with `card:get` or `cards:details:get`. Batch hydration should be limited to visible/selected cards.
-3. Description search runs in the main process through `cards:search`, returning project/card ids, status, score, and a bounded excerpt without returning full descriptions.
-4. Full-board reads are not exposed through IPC or HTTP. New board consumers must compose `BoardSummary` with explicit detail/search requests instead of adding a broad board payload.
+3. Card update success acknowledgements return a narrow `CardSummary` ack plus revision metadata; only `conflict` results return a full `Card` snapshot for recovery UI.
+4. Description search runs in the main process through `cards:search`, returning project/card ids, status, score, and a bounded excerpt without returning full descriptions.
+5. Full-board reads are not exposed through IPC or HTTP. New board consumers must compose `BoardSummary` with explicit detail/search requests instead of adding a broad board payload.
 
 Project sessions and sidebar flow:
 1. The renderer shell loads `codex:sidebar:snapshot({ refresh:false })` as the cold-start left-sidebar read model so SQLite can render immediately. External chat discovery is driven by `codex:sidebar:sync`, whose `read | stale | force` policies let the renderer force a mount/project-change reconciliation, run stale-gated focus/heartbeat/host-message reconciliation, or read only the SQLite snapshot for local session changes.
@@ -145,7 +146,7 @@ Workbench reopen flow:
 - Recurrence exceptions and reminder receipts are project-scoped and persisted in SQLite.
 - Completing an occurrence creates a `done` card with `archived = true`; archived cards stay out of board/sidebar/toggle-list flows but still surface in calendar occurrence queries.
 - `move` operations are claim-safe: optional `fromStatus` enables optimistic concurrency checks.
-- `card:update` supports optimistic concurrency claims with `expectedRevision`; stale claims return typed `conflict` with latest card snapshot and do not mutate DB state.
+- `card:update` supports optimistic concurrency claims with `expectedRevision`; successful writes return summary-only acknowledgements, while stale claims return typed `conflict` with latest card snapshot and do not mutate DB state.
 - Project-scoped data stays isolated (`project_id` on cards/history with cascading cleanup).
 - Renderer never accesses SQLite directly.
 - Custom editor behavior must preserve NFM round-trip fidelity.

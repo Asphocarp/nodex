@@ -264,6 +264,37 @@ describe("kanban store", () => {
     expect(Object.hasOwn(indexedCard ?? {}, "description")).toBeFalse();
   });
 
+  test("merges remote card summary acknowledgements without a full body", async () => {
+    const registry = createKanbanStoreRegistry({
+      invoke: async () => createBoard(),
+      subscribeBoardChanges: () => () => {},
+    });
+
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    store.applyRemoteCardSummary({
+      id: "card-1",
+      status: "draft",
+      archived: false,
+      title: "Ack title",
+      tags: [],
+      agentBlocked: false,
+      revision: 2,
+      created: new Date("2026-02-16T00:00:00.000Z"),
+      order: 0,
+      descriptionPreview: "Ack preview",
+      descriptionLength: 128,
+      hasDescription: true,
+    });
+
+    const indexedCard = store.getSnapshot().cardIndex.get("card-1");
+    expect(indexedCard?.title).toBe("Ack title");
+    expect(indexedCard?.descriptionPreview).toBe("Ack preview");
+    expect(indexedCard?.descriptionLength).toBe(128);
+    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBeFalse();
+  });
+
   test("local draft overlays do not bump card revision", async () => {
     const board = createBoard();
     const registry = createKanbanStoreRegistry({

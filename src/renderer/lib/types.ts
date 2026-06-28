@@ -11,6 +11,7 @@ export type {
   ClipboardPasteInspectionResult,
   CardInput,
   CardCreateInput,
+  CardUpdateField,
   CardUpdateResult,
   CardsDetailsInput,
   CardSearchInput,

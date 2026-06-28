@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { act } from "@testing-library/react";
 import { render, textContent } from "../../test/dom";
-import type { Card } from "@/lib/types";
+import type { Card, CardUpdateMutationResult } from "@/lib/types";
 import { writeCardStageShowRawContentPreference } from "@/lib/card-stage-layout";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
+let nfmEditorRenderCount = 0;
 
 mock.module("./editor/nfm-editor", () => ({
   NfmEditor: (props: Record<string, unknown>) => {
+    nfmEditorRenderCount += 1;
     lastNfmEditorProps = props;
     return <div>Mock editor</div>;
   },
@@ -36,10 +39,29 @@ function buildCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
+function buildUpdateAck(card: Card = buildCard({ revision: 2 })): CardUpdateMutationResult {
+  const { description, ...summary } = card;
+  return {
+    status: "updated",
+    projectId: "default",
+    cardId: card.id,
+    revision: card.revision ?? 2,
+    summary: {
+      ...summary,
+      descriptionPreview: description,
+      descriptionLength: description.length,
+      hasDescription: description.trim().length > 0,
+    },
+    changedFields: [],
+    didMutate: true,
+  };
+}
+
 describe("card stage", () => {
   beforeEach(() => {
     localStorage.clear();
     lastNfmEditorProps = null;
+    nfmEditorRenderCount = 0;
   });
 
   test("renders the rich editor when raw mode is disabled", async () => {
@@ -57,7 +79,7 @@ describe("card stage", () => {
           availableTags={[]}
           sessionId="session-current"
           canStartThreadInSession
-          onUpdate={async () => ({ status: "updated", card: {} as never })}
+          onUpdate={async () => buildUpdateAck()}
           onPatch={() => undefined}
           onDelete={async () => undefined}
           onMove={async () => undefined}
@@ -94,7 +116,7 @@ describe("card stage", () => {
           columnName="In progress"
           projectId="default"
           availableTags={[]}
-          onUpdate={async () => ({ status: "updated", card: {} as never })}
+          onUpdate={async () => buildUpdateAck()}
           onPatch={() => undefined}
           onDelete={async () => undefined}
           onMove={async () => undefined}
@@ -106,5 +128,55 @@ describe("card stage", () => {
     expect(getByText("Read-only").textContent).toBe("Read-only");
     expect(queryByText("Mock editor")).toBe(null);
     expect(textContent(container).includes("# Raw card")).toBeTrue();
+  });
+
+  test("does not rerender the rich editor when only saving state changes", async () => {
+    writeCardStageShowRawContentPreference(false);
+    const { CardStage } = await import("./card-stage");
+    let resolveUpdate: ((value: CardUpdateMutationResult) => void) | null = null;
+    const view = render(
+      <NodexTooltipProvider>
+        <CardStage
+          onClose={() => undefined}
+          card={buildCard()}
+          columnId="in_progress"
+          columnName="In progress"
+          projectId="default"
+          availableTags={[]}
+          onUpdate={async () => new Promise<CardUpdateMutationResult>((resolve) => {
+            resolveUpdate = resolve;
+          })}
+          onPatch={() => undefined}
+          onDelete={async () => undefined}
+          onMove={async () => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    const onChange = lastNfmEditorProps?.onChange as ((value: string) => void) | undefined;
+    const onBlur = lastNfmEditorProps?.onBlur as (() => void) | undefined;
+    expect(typeof onChange).toBe("function");
+    expect(typeof onBlur).toBe("function");
+    expect(nfmEditorRenderCount).toBe(1);
+
+    await act(async () => {
+      onChange?.("Updated body");
+      await Promise.resolve();
+    });
+    const renderCountAfterContentChange = nfmEditorRenderCount;
+
+    await act(async () => {
+      onBlur?.();
+      await Promise.resolve();
+    });
+
+    expect(view.getByText("Saving...").textContent).toBe("Saving...");
+    expect(nfmEditorRenderCount).toBe(renderCountAfterContentChange);
+
+    await act(async () => {
+      resolveUpdate?.(buildUpdateAck(buildCard({ description: "Updated body", revision: 2 })));
+      await Promise.resolve();
+    });
+    view.unmount();
   });
 });

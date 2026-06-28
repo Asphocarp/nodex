@@ -1223,6 +1223,7 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
       && Number.isInteger(expectedRevision)
       ? expectedRevision
       : undefined;
+    const startedAt = Date.now();
     const result = await cardsStore.updateCard(
       projectId,
       normalizedStatus,
@@ -1231,6 +1232,18 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
       normalizedSessionId,
       normalizedExpectedRevision,
     );
+    logger.info("card update ack served", {
+      route: "PUT /api/projects/:projectId/card",
+      projectId,
+      cardId,
+      status: result.status,
+      changedFields: result.status === "updated" ? result.changedFields : undefined,
+      descriptionBytes: typeof updates.description === "string"
+        ? Buffer.byteLength(updates.description, "utf8")
+        : undefined,
+      approxPayloadBytes: approximatePayloadBytes(result),
+      durationMs: Date.now() - startedAt,
+    });
     if (result.status === "not_found") {
       return c.json(result, 404);
     }

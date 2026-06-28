@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ReactNode } from "react";
 import { useCardStageController } from "./use-card-stage-controller";
 import type { CardStageProps } from "./types";
-import type { Card, CardInput, CardUpdateMutationResult } from "@/lib/types";
+import type { Card, CardInput, CardUpdateField, CardUpdateMutationResult, CardSummary } from "@/lib/types";
 import {
   getCardDraftOverlay,
   resetCardDraftStoreForTest,
@@ -47,6 +47,32 @@ function buildUpdatedCard(updates: Partial<CardInput>): Card {
   return card;
 }
 
+function toTestSummary(card: Card): CardSummary {
+  const { description, ...summary } = card;
+  return {
+    ...summary,
+    descriptionPreview: description,
+    descriptionLength: description.length,
+    hasDescription: description.trim().length > 0,
+  };
+}
+
+function buildUpdatedResult(updates: Partial<CardInput>): CardUpdateMutationResult {
+  const card = buildUpdatedCard(updates);
+  return {
+    status: "updated",
+    projectId: "project-1",
+    cardId: card.id,
+    revision: card.revision ?? 2,
+    summary: toTestSummary({
+      ...card,
+      revision: card.revision ?? 2,
+    }),
+    changedFields: Object.keys(updates) as CardUpdateField[],
+    didMutate: true,
+  };
+}
+
 function buildProps(overrides: Partial<CardStageProps> = {}): CardStageProps {
   const card = overrides.card === undefined ? buildCard() : overrides.card;
 
@@ -57,10 +83,7 @@ function buildProps(overrides: Partial<CardStageProps> = {}): CardStageProps {
     projectId: "project-1",
     availableTags: [],
     onClose: () => undefined,
-    onUpdate: async (_columnId, _cardId, updates): Promise<CardUpdateMutationResult> => ({
-      status: "updated",
-      card: buildUpdatedCard(updates),
-    }),
+    onUpdate: async (_columnId, _cardId, updates): Promise<CardUpdateMutationResult> => buildUpdatedResult(updates),
     onPatch: () => undefined,
     onDelete: async () => undefined,
     onMove: async () => undefined,
@@ -102,10 +125,7 @@ describe("useCardStageController", () => {
     const props = buildProps({
       onUpdate: async (_columnId, _cardId, updates) => {
         updatesSeen.push(updates);
-        return {
-          status: "updated",
-          card: buildUpdatedCard(updates),
-        };
+        return buildUpdatedResult(updates);
       },
     });
     const result = renderController(props);
@@ -177,10 +197,7 @@ describe("useCardStageController", () => {
     const result = renderController(buildProps({
       onUpdate: async (_columnId, _cardId, updates) => {
         updatesSeen.push(updates);
-        return {
-          status: "updated",
-          card: buildUpdatedCard(updates),
-        };
+        return buildUpdatedResult(updates);
       },
     }));
     await settleAsyncRender();
@@ -274,13 +291,7 @@ describe("useCardStageController", () => {
     expect(result.controller.description).toBe("Draft body");
 
     await act(async () => {
-      resolveUpdate?.({
-        status: "updated",
-        card: buildCard({
-          description: "Draft body",
-          revision: 2,
-        }),
-      });
+      resolveUpdate?.(buildUpdatedResult({ description: "Draft body" }));
       await Promise.resolve();
     });
     result.view.unmount();
@@ -301,10 +312,7 @@ describe("useCardStageController", () => {
             }),
           };
         }
-        return {
-          status: "updated",
-          card: buildUpdatedCard(updates),
-        };
+        return buildUpdatedResult(updates);
       },
     }));
     await settleAsyncRender();
@@ -387,10 +395,7 @@ describe("useCardStageController", () => {
       isActivePanelTab: true,
       onUpdate: async (_columnId, _cardId, updates) => {
         updatesSeen.push(updates);
-        return {
-          status: "updated",
-          card: buildUpdatedCard(updates),
-        };
+        return buildUpdatedResult(updates);
       },
     });
     const result = renderController(props);

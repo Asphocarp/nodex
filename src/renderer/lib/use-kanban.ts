@@ -38,7 +38,7 @@ import type {
 } from "./types";
 import { invoke } from "./api";
 import { getKanbanProjectStore } from "./kanban-store";
-import { setCardDetail } from "./card-detail-store";
+import { getCardDetail, setCardDetail } from "./card-detail-store";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -75,6 +75,25 @@ function normalizeOccurrenceUpdatesToCardPatch(
   if (Object.prototype.hasOwnProperty.call(input.updates, "reminders")) patch.reminders = input.updates.reminders;
   if (Object.prototype.hasOwnProperty.call(input.updates, "scheduleTimezone")) patch.scheduleTimezone = input.updates.scheduleTimezone;
   return patch;
+}
+
+function hasOwnField<T extends object>(value: T, field: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, field);
+}
+
+function buildCommittedCardDetailFromUpdate(
+  existing: Card | null,
+  result: Extract<CardUpdateResult, { status: "updated" }>,
+  updates: Partial<CardInput>,
+): Card | null {
+  if (!existing && !hasOwnField(updates, "description")) return null;
+
+  return {
+    ...result.summary,
+    description: hasOwnField(updates, "description")
+      ? updates.description ?? ""
+      : existing?.description ?? "",
+  };
 }
 
 export function useKanban(options: UseKanbanOptions) {
@@ -168,8 +187,15 @@ export function useKanban(options: UseKanbanOptions) {
       }
 
       if (result.status === "updated") {
-        setCardDetail(projectId, result.card);
-        store.applyRemoteCard(result.card);
+        const committedDetail = buildCommittedCardDetailFromUpdate(
+          getCardDetail(projectId, cardId),
+          result,
+          updates,
+        );
+        if (committedDetail) {
+          setCardDetail(projectId, committedDetail, { acceptEqualRevision: true });
+        }
+        store.applyRemoteCardSummary(result.summary);
         onMutation?.();
         return result;
       }

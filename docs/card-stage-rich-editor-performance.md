@@ -36,7 +36,7 @@ Full card bodies are loaded through explicit detail paths:
 - Toggle-list, inline toggle-list, and `cardRef` projections compute visible card ids from summary state, then hydrate those ids through `cards:details:get`.
 - Command palette description matches come from `cards:search`, which returns ids and bounded excerpts instead of full descriptions.
 
-This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
+This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Successful `card:update` acknowledgements carry only `CardSummary` plus revision metadata; conflict acknowledgements are the only update path that returns a full `Card`. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
 
 ## Editor-Side Features
 
@@ -139,7 +139,9 @@ Important paths:
 
 `handlePersist` first flushes pending editor content, then cancels pending field-save timers, then saves if there are changes. `handleSave` also flushes defensively before creating the update payload.
 
-Freeform dirty flags (`title`, `description`, `assignee`, `agentStatus`) must not be cleared when a save request is merely sent. They clear only when a successful acknowledgement returns a value that still matches the current local draft. If the user continues typing while a save is in flight, older acknowledgements and stale card-detail hydrations must leave the local draft intact.
+Freeform dirty flags (`title`, `description`, `assignee`, `agentStatus`) must not be cleared when a save request is merely sent. They clear only when a successful acknowledgement corresponds to a submitted value that still matches the current local draft. If the user continues typing while a save is in flight, older acknowledgements and stale card-detail hydrations must leave the local draft intact.
+
+Description persistence uses one in-flight save per mounted Card Stage. If a description save is already in flight, continued typing records only the latest pending serialized draft. When the active save is acknowledged, Card Stage immediately drains that latest pending value if it still differs from the last persisted description. The toolbar `Saving...` state means the latest queued/in-flight save has not yet been acknowledged by SQLite.
 
 ### Raw NFM View
 
@@ -222,7 +224,7 @@ The first layer keeps typing responsive. The second layer limits backend/storage
 - Freeform text edits must not call `onPatch`.
 - Kanban preview overlays must remain scoped by project/card.
 - Card Stage must not consume its own merged draft overlay through props.
-- Shared board snapshots must stay `BoardSummary`-only; description saves should merge returned full cards into summary metadata and the card-detail cache without triggering a broad board refresh.
+- Shared board snapshots must stay `BoardSummary`-only; successful description saves should merge the returned summary ack into board metadata and update the active card-detail cache from the submitted local draft plus acknowledged revision, without returning full descriptions or triggering a broad board refresh.
 
 ## Testing Expectations
 

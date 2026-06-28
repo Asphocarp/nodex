@@ -55,6 +55,26 @@ export interface DescriptionDeltaView {
 }
 
 const SNAPSHOT_INTERVAL = 20;
+export const DESCRIPTION_DELTA_MAX_LCS_CELLS = 250_000;
+
+export function shouldStoreDescriptionSnapshotRevision(input: {
+  previousBlockCount: number;
+  nextBlockCount: number;
+  revisionsSinceSnapshot: number;
+  deltaPayloadLength?: number;
+  snapshotPayloadLength?: number;
+}): boolean {
+  if (input.revisionsSinceSnapshot >= SNAPSHOT_INTERVAL - 1) return true;
+  if (input.previousBlockCount * input.nextBlockCount > DESCRIPTION_DELTA_MAX_LCS_CELLS) return true;
+  if (
+    input.deltaPayloadLength !== undefined
+    && input.snapshotPayloadLength !== undefined
+    && input.deltaPayloadLength >= input.snapshotPayloadLength
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export function createInitialDescriptionRevision(
   database: Database.Database,
@@ -80,15 +100,32 @@ export function createNextDescriptionRevision(
 ): number {
   const parentHashes = reconstructRevisionHashes(database, parentRevisionId);
   const nextHashes = upsertDescriptionBlocks(database, nextDescription);
-  const ops = computeDescriptionDeltaOps(parentHashes, nextHashes);
-  const deltaPayload = JSON.stringify(ops);
   const snapshotPayload = JSON.stringify(nextHashes);
   const revisionsSinceSnapshot = countRevisionsSinceSnapshot(database, parentRevisionId);
 
-  if (
-    revisionsSinceSnapshot >= SNAPSHOT_INTERVAL - 1
-    || deltaPayload.length >= snapshotPayload.length
-  ) {
+  if (shouldStoreDescriptionSnapshotRevision({
+    previousBlockCount: parentHashes.length,
+    nextBlockCount: nextHashes.length,
+    revisionsSinceSnapshot,
+    snapshotPayloadLength: snapshotPayload.length,
+  })) {
+    const result = database.prepare(`
+      INSERT INTO description_revisions (
+        card_id, parent_revision_id, kind, block_hashes_json, ops_json, created_at
+      ) VALUES (?, ?, 'snapshot', ?, NULL, ?)
+    `).run(cardId, parentRevisionId, snapshotPayload, createdAt);
+    return result.lastInsertRowid as number;
+  }
+
+  const ops = computeDescriptionDeltaOps(parentHashes, nextHashes);
+  const deltaPayload = JSON.stringify(ops);
+  if (shouldStoreDescriptionSnapshotRevision({
+    previousBlockCount: parentHashes.length,
+    nextBlockCount: nextHashes.length,
+    revisionsSinceSnapshot,
+    deltaPayloadLength: deltaPayload.length,
+    snapshotPayloadLength: snapshotPayload.length,
+  })) {
     const result = database.prepare(`
       INSERT INTO description_revisions (
         card_id, parent_revision_id, kind, block_hashes_json, ops_json, created_at

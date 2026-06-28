@@ -178,10 +178,17 @@ export interface CardCreateInput extends CardInput {
   id?: string;
 }
 
+export type CardUpdateField = keyof CardInput;
+
 export type CardUpdateResult =
   | {
       status: "updated";
-      card: Card;
+      projectId: string;
+      cardId: string;
+      revision: number;
+      summary: CardSummary;
+      changedFields: CardUpdateField[];
+      didMutate: boolean;
     }
   | {
       status: "conflict";

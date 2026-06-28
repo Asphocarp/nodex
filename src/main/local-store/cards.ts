@@ -14,6 +14,7 @@ import {
   type CardCreatePlacement,
   type CardCreateInput,
   type CardInput,
+  type CardUpdateField,
   type CardSearchInput,
   type CardSearchResult,
   type CardsDetailsInput,
@@ -270,6 +271,7 @@ interface CardUpdateMutation {
   values: (string | number | null)[];
   previousValues: CardHistoryValues;
   newValues: CardHistoryValues;
+  changedFields: CardUpdateField[];
   descriptionChanged: boolean;
 }
 
@@ -294,131 +296,152 @@ function buildCardUpdateMutation(
 ): CardUpdateMutation {
   const previousValues: CardHistoryValues = {};
   const newValues: CardHistoryValues = {};
+  const changedFields: CardUpdateField[] = [];
   const fields: string[] = [];
   const values: (string | number | null)[] = [];
   let descriptionChanged = false;
 
   if (updates.title !== undefined) {
+    changedFields.push("title");
     fields.push("title = ?");
     values.push(updates.title);
     previousValues.title = existing.title;
     newValues.title = updates.title;
   }
   if (updates.description !== undefined) {
+    changedFields.push("description");
     fields.push("description = ?");
     values.push(updates.description);
     descriptionChanged = true;
   }
   if (updates.priority !== undefined) {
+    changedFields.push("priority");
     fields.push("priority = ?");
     values.push(updates.priority ?? null);
     previousValues.priority = existing.priority as Card["priority"] | undefined;
     newValues.priority = updates.priority ?? null;
   }
   if (updates.estimate !== undefined) {
+    changedFields.push("estimate");
     fields.push("estimate = ?");
     values.push(updates.estimate || null);
     previousValues.estimate = existing.estimate as Card["estimate"] | undefined;
     newValues.estimate = updates.estimate ?? undefined;
   }
   if (updates.tags !== undefined) {
+    changedFields.push("tags");
     fields.push("tags = ?");
     values.push(JSON.stringify(updates.tags));
     previousValues.tags = parseTags(existing.tags);
     newValues.tags = updates.tags;
   }
   if (updates.dueDate !== undefined) {
+    changedFields.push("dueDate");
     fields.push("due_date = ?");
     values.push(updates.dueDate?.toISOString().split("T")[0] || null);
     previousValues.dueDate = existing.due_date ? new Date(existing.due_date) : undefined;
     newValues.dueDate = updates.dueDate ?? undefined;
   }
   if (updates.scheduledStart !== undefined) {
+    changedFields.push("scheduledStart");
     fields.push("scheduled_start = ?");
     values.push(updates.scheduledStart?.toISOString() ?? null);
     previousValues.scheduledStart = existing.scheduled_start ? new Date(existing.scheduled_start) : undefined;
     newValues.scheduledStart = updates.scheduledStart ?? undefined;
   }
   if (updates.scheduledEnd !== undefined) {
+    changedFields.push("scheduledEnd");
     fields.push("scheduled_end = ?");
     values.push(updates.scheduledEnd?.toISOString() ?? null);
     previousValues.scheduledEnd = existing.scheduled_end ? new Date(existing.scheduled_end) : undefined;
     newValues.scheduledEnd = updates.scheduledEnd ?? undefined;
   }
   if (updates.isAllDay !== undefined) {
+    changedFields.push("isAllDay");
     fields.push("is_all_day = ?");
     values.push(updates.isAllDay ? 1 : 0);
     previousValues.isAllDay = existing.is_all_day === 1;
     newValues.isAllDay = Boolean(updates.isAllDay);
   }
   if (updates.recurrence !== undefined) {
+    changedFields.push("recurrence");
     fields.push("recurrence_json = ?");
     values.push(updates.recurrence ? JSON.stringify(updates.recurrence) : null);
     previousValues.recurrence = parseRecurrence(existing.recurrence_json);
     newValues.recurrence = updates.recurrence ?? undefined;
   }
   if (updates.reminders !== undefined) {
+    changedFields.push("reminders");
     fields.push("reminders_json = ?");
     values.push(JSON.stringify(updates.reminders));
     previousValues.reminders = parseReminders(existing.reminders_json);
     newValues.reminders = updates.reminders;
   }
   if (updates.scheduleTimezone !== undefined) {
+    changedFields.push("scheduleTimezone");
     fields.push("schedule_timezone = ?");
     values.push(updates.scheduleTimezone?.trim() || null);
     previousValues.scheduleTimezone = existing.schedule_timezone || undefined;
     newValues.scheduleTimezone = updates.scheduleTimezone?.trim() || undefined;
   }
   if (updates.assignee !== undefined) {
+    changedFields.push("assignee");
     fields.push("assignee = ?");
     values.push(updates.assignee || null);
     previousValues.assignee = existing.assignee || undefined;
     newValues.assignee = updates.assignee;
   }
   if (updates.agentBlocked !== undefined) {
+    changedFields.push("agentBlocked");
     fields.push("agent_blocked = ?");
     values.push(updates.agentBlocked ? 1 : 0);
     previousValues.agentBlocked = existing.agent_blocked === 1;
     newValues.agentBlocked = updates.agentBlocked;
   }
   if (updates.agentStatus !== undefined) {
+    changedFields.push("agentStatus");
     fields.push("agent_status = ?");
     values.push(updates.agentStatus || null);
     previousValues.agentStatus = existing.agent_status || undefined;
     newValues.agentStatus = updates.agentStatus;
   }
   if (updates.runInTarget !== undefined) {
+    changedFields.push("runInTarget");
     fields.push("run_in_target = ?");
     values.push(toRunInTargetDbValue(updates.runInTarget));
     previousValues.runInTarget = parseRunInTarget(existing.run_in_target);
     newValues.runInTarget = updates.runInTarget;
   }
   if (updates.runInLocalPath !== undefined) {
+    changedFields.push("runInLocalPath");
     fields.push("run_in_local_path = ?");
     values.push(updates.runInLocalPath?.trim() || null);
     previousValues.runInLocalPath = existing.run_in_local_path || undefined;
     newValues.runInLocalPath = updates.runInLocalPath?.trim() || undefined;
   }
   if (updates.runInBaseBranch !== undefined) {
+    changedFields.push("runInBaseBranch");
     fields.push("run_in_base_branch = ?");
     values.push(updates.runInBaseBranch?.trim() || null);
     previousValues.runInBaseBranch = existing.run_in_base_branch || undefined;
     newValues.runInBaseBranch = updates.runInBaseBranch?.trim() || undefined;
   }
   if (updates.runInWorktreePath !== undefined) {
+    changedFields.push("runInWorktreePath");
     fields.push("run_in_worktree_path = ?");
     values.push(updates.runInWorktreePath?.trim() || null);
     previousValues.runInWorktreePath = existing.run_in_worktree_path || undefined;
     newValues.runInWorktreePath = updates.runInWorktreePath?.trim() || undefined;
   }
   if (updates.runInEnvironmentPath !== undefined) {
+    changedFields.push("runInEnvironmentPath");
     fields.push("run_in_environment_path = ?");
     values.push(updates.runInEnvironmentPath?.trim() || null);
     previousValues.runInEnvironmentPath = existing.run_in_environment_path || undefined;
     newValues.runInEnvironmentPath = updates.runInEnvironmentPath?.trim() || undefined;
   }
 
-  return { fields, values, previousValues, newValues, descriptionChanged };
+  return { fields, values, previousValues, newValues, changedFields, descriptionChanged };
 }
 
 function applyMoveFieldPatch(args: {
@@ -738,6 +761,7 @@ export async function updateCard(
       values,
       previousValues,
       newValues,
+      changedFields,
       descriptionChanged,
     } = buildCardUpdateMutation(existing, updates);
 
@@ -786,10 +810,15 @@ export async function updateCard(
     const updated = database
       .prepare("SELECT * FROM cards WHERE id = ?")
       .get(cardId) as DbCard;
+    const updatedCard = rowToCard(updated);
 
     return {
       status: "updated",
-      card: rowToCard(updated),
+      projectId: canonicalProjectId,
+      cardId,
+      revision: updatedCard.revision ?? existing.revision + (didMutate ? 1 : 0),
+      summary: toCardSummary(updatedCard),
+      changedFields,
       didMutate,
     } as const;
   })();
@@ -799,12 +828,17 @@ export async function updateCard(
   }
 
   if (result.didMutate) {
-    dbNotifier.notifyChange(canonicalProjectId, "update", result.card.status, cardId);
+    dbNotifier.notifyChange(canonicalProjectId, "update", result.summary.status, cardId);
   }
 
   return {
     status: "updated",
-    card: result.card,
+    projectId: result.projectId,
+    cardId: result.cardId,
+    revision: result.revision,
+    summary: result.summary,
+    changedFields: result.changedFields,
+    didMutate: result.didMutate,
   };
 }
 

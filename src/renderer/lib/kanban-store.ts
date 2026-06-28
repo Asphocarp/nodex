@@ -226,9 +226,13 @@ class KanbanProjectStore {
   };
 
   applyRemoteCard = (card: Card): void => {
+    this.applyRemoteCardSummary(toCardSummary(card));
+  };
+
+  applyRemoteCardSummary = (card: CardSummary): void => {
     if (!this.baseBoard) return;
 
-    const nextBoard = this.upsertCardSummary(this.baseBoard, toCardSummary(card));
+    const nextBoard = this.upsertCardSummary(this.baseBoard, card);
     if (nextBoard === this.baseBoard) return;
 
     this.baseBoard = nextBoard;
