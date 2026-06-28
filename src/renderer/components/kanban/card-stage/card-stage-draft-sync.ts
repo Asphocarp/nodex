@@ -24,14 +24,11 @@ export function shouldPublishCardStagePatch(updates: Partial<CardInput>): boolea
 export function buildCardStageDraftOverlay(
   card: Pick<Card, "title" | "description" | "assignee" | "agentStatus">,
   draft: CardStageTextDraftState,
-): Pick<Partial<CardInput>, "title" | "description" | "assignee" | "agentStatus"> {
-  const overlay: Pick<Partial<CardInput>, "title" | "description" | "assignee" | "agentStatus"> = {};
+): Pick<Partial<CardInput>, "title" | "assignee" | "agentStatus"> {
+  const overlay: Pick<Partial<CardInput>, "title" | "assignee" | "agentStatus"> = {};
 
   if (draft.title !== card.title) {
     overlay.title = draft.title;
-  }
-  if (draft.description !== (card.description ?? "")) {
-    overlay.description = draft.description;
   }
   if (draft.assignee !== (card.assignee ?? "")) {
     overlay.assignee = draft.assignee;

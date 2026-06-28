@@ -84,7 +84,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
-- Fixed Card Stage long-description saves so durable card writes run through a worker-backed writer and save acknowledgements stay summary-only, reducing input lag while `Saving...` is shown.
+- Fixed Card Stage long-description saves so description autosaves use staged chunk transport, durable writes run in the card worker, and board/search views read persisted summary indexes instead of reparsing full descriptions while `Saving...` is shown.
 - Fixed new Codex session rows so generated and manually renamed thread titles replace the initial `New thread` label in the sidebar.
 - Fixed the NFM text-selection toolbar so collapsing a rich-text selection to a cursor no longer reopens the legacy formatting toolbar.
 - Fixed the NFM side-menu `Card in` flyout so hovering the row opens the DB picker reliably.

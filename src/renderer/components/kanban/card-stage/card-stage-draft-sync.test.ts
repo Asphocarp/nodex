@@ -34,7 +34,7 @@ describe("card stage draft sync", () => {
       agentStatus: "waiting",
     }, {
       title: "Draft title",
-      description: "Persisted body",
+      description: "Draft body",
       assignee: "alex",
       agentStatus: "blocked",
     });

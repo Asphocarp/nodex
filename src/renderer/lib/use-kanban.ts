@@ -36,7 +36,7 @@ import type {
   MoveCardToProjectResult,
   MoveCardsInput,
 } from "./types";
-import { invoke } from "./api";
+import { invoke, updateCardDescription } from "./api";
 import { getKanbanProjectStore } from "./kanban-store";
 import { getCardDetail, setCardDetail } from "./card-detail-store";
 
@@ -153,12 +153,24 @@ export function useKanban(options: UseKanbanOptions) {
     ): Promise<CardUpdateMutationResult> => {
       const conflictKeys = conflictKeysForPatch(cardId, updates);
       const expectedRevision = store.getSnapshot().cardIndex.get(cardId)?.revision;
+      const descriptionOnlyUpdate = hasOwnField(updates, "description")
+        && Object.keys(updates).length === 1;
       const outcome = await store.runOptimisticMutation<CardUpdateResult>({
         kind: "card:update",
         conflictKeys,
         apply: buildPatchCardTransform(columnId, cardId, updates, { bumpRevision: true }),
-        runRemote: async () => (
-          (await invoke(
+        runRemote: async () => {
+          if (descriptionOnlyUpdate) {
+            return await updateCardDescription({
+              projectId,
+              columnId: columnId as Card["status"],
+              cardId,
+              description: updates.description ?? "",
+              sessionId,
+              expectedRevision,
+            });
+          }
+          return (await invoke(
             "card:update",
             projectId,
             columnId,
@@ -166,8 +178,8 @@ export function useKanban(options: UseKanbanOptions) {
             updates,
             sessionId,
             expectedRevision,
-          )) as CardUpdateResult
-        ),
+          )) as CardUpdateResult;
+        },
         refreshOnSuccess: false,
       });
 

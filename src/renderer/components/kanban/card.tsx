@@ -17,7 +17,6 @@ import { useCardPropertyPosition } from "./card-deps";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 import { mergeCardDraftOverlay, useCardDraftOverlay } from "../../lib/card-draft-store";
-import { summarizeCardDescription } from "../../../shared/card-summary";
 import { ChipPropertyEditor } from "./editor/chip-property-editor";
 import { CardContextMenu } from "./card-context-menu";
 import type { CardContextMenuProjectSummary } from "./card-context-menu-model";
@@ -367,14 +366,7 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
 }: ResolvedCardBodyProps) {
   const draftOverlay = useCardDraftOverlay(projectId, card.id);
   const resolvedCard = useMemo(
-    () => {
-      const merged = mergeCardDraftOverlay(card, draftOverlay) ?? card;
-      if (typeof draftOverlay?.description !== "string") return merged;
-      return {
-        ...merged,
-        ...summarizeCardDescription(draftOverlay.description),
-      };
-    },
+    () => mergeCardDraftOverlay(card, draftOverlay) ?? card,
     [card, draftOverlay],
   );
 

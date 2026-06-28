@@ -1,11 +1,12 @@
 import { parentPort } from "node:worker_threads";
 import { performance } from "node:perf_hooks";
+import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import { closeDatabase, getDb } from "./local-store/database";
 import { dbNotifier, type BoardChangeEvent as LocalBoardChangeEvent } from "./local-store/notifier";
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as historyStore from "./local-store/history";
-import { toCardSummary } from "../shared/card-summary";
 import type { BoardChangeEvent } from "../shared/ipc-api";
 import type { Card, CardSummary } from "../shared/types";
 import type {
@@ -50,6 +51,14 @@ function descriptionBytesForRequest(request: CardMutationWorkerRequest): number 
     return Buffer.byteLength(request.payload.updates.description, "utf8");
   }
 
+  if (request.type === "updateCardDescriptionFromFile") {
+    try {
+      return fs.statSync(request.payload.descriptionFilePath).size;
+    } catch {
+      return undefined;
+    }
+  }
+
   if (request.type === "importBlockDropAsCards") {
     const descriptions = [
       ...request.payload.input.cards.map((card) => card.description),
@@ -91,9 +100,9 @@ async function readEventSummary(event: BoardChangeEvent): Promise<CardSummary | 
   if (!shouldReadSummary(event)) return undefined;
   const cardId = event.cardId;
   if (!cardId) return undefined;
-  const card = await cardsStore.getCard(event.projectId, cardId, event.status);
-  if (!card) return undefined;
-  return toCardSummary(card);
+  const summary = cardsStore.syncCardReadModel(getDb(), cardId)
+    ?? cardsStore.readCardSummaryById(cardId);
+  return summary ?? undefined;
 }
 
 function normalizeEvent(event: LocalBoardChangeEvent): BoardChangeEvent {
@@ -152,6 +161,17 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.sessionId,
         request.payload.expectedRevision,
       );
+    case "updateCardDescriptionFromFile": {
+      const description = await fsp.readFile(request.payload.descriptionFilePath, "utf8");
+      return await cardsStore.updateCard(
+        request.payload.projectId,
+        request.payload.columnId,
+        request.payload.cardId,
+        { description },
+        request.payload.sessionId,
+        request.payload.expectedRevision,
+      );
+    }
     case "deleteCard":
       return await cardsStore.deleteCard(
         request.payload.projectId,
@@ -195,6 +215,12 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.input,
         request.payload.sessionId,
       );
+    case "getCardHistoryVersionPreview":
+      return historyStore.getCardHistoryVersionPreview(
+        request.payload.projectId,
+        request.payload.cardId,
+        request.payload.historyId,
+      );
     case "undoLatest":
       return historyStore.undoLatest(request.payload.projectId, request.payload.sessionId);
     case "redoLatest":
@@ -212,6 +238,8 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.historyId,
         request.payload.sessionId,
       );
+    case "backfillCardReadModel":
+      return cardsStore.backfillCardReadModelBatch(request.payload.limit);
     case "shutdown":
       closeDatabase();
       return undefined;
@@ -241,7 +269,10 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
       summaryBytes: result && typeof result === "object" && "summary" in result
         ? approximatePayloadBytes(result.summary)
         : undefined,
-      revisionKind: request.type === "updateCard" && "description" in request.payload.updates
+      revisionKind: (
+        (request.type === "updateCard" && "description" in request.payload.updates)
+        || request.type === "updateCardDescriptionFromFile"
+      )
         ? readLatestDescriptionRevisionKind(request.payload.cardId)
         : undefined,
       eventCount: 0,

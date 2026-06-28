@@ -855,6 +855,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   resolvePendingSessionDeepLink();
 
   startHttpServer(serverPort);
+  scheduleCardReadModelBackfill(1_000);
 
   const backupSettings = getBackupSettings();
   configureAutoBackupScheduler({
@@ -956,6 +957,30 @@ export interface MainRuntimeController {
 
 let runtimeLifecycleHandlersRegistered = false;
 let runtimeShutdownStarted = false;
+let cardReadModelBackfillTimer: ReturnType<typeof setTimeout> | null = null;
+
+const CARD_READ_MODEL_BACKFILL_BATCH_SIZE = 4;
+const CARD_READ_MODEL_BACKFILL_DELAY_MS = 500;
+
+function scheduleCardReadModelBackfill(delayMs = CARD_READ_MODEL_BACKFILL_DELAY_MS): void {
+  if (runtimeShutdownStarted) return;
+  if (cardReadModelBackfillTimer !== null) return;
+
+  cardReadModelBackfillTimer = setTimeout(() => {
+    cardReadModelBackfillTimer = null;
+    void cardMutationWriter.backfillCardReadModel(CARD_READ_MODEL_BACKFILL_BATCH_SIZE)
+      .then(({ result }) => {
+        if (result.remaining > 0) {
+          scheduleCardReadModelBackfill();
+        }
+      })
+      .catch((error) => {
+        logger.warn("Card read model backfill failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }, delayMs);
+}
 
 function handleSecondInstanceArgv(argv: string[]): boolean {
   const handledDeepLink = Boolean(extractDeepLinkFromArgv(argv));
@@ -983,6 +1008,10 @@ function shutdownMainRuntime(): void {
   appQuitRequested = true;
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
+  if (cardReadModelBackfillTimer !== null) {
+    clearTimeout(cardReadModelBackfillTimer);
+    cardReadModelBackfillTimer = null;
+  }
   terminalManager.killAll();
   cardMutationWriter.shutdown();
   void codexService.shutdown();

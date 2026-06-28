@@ -198,6 +198,14 @@ export type CardUpdateResult =
       status: "not_found";
     };
 
+export interface CardDescriptionUpdateStartInput {
+  projectId: string;
+  columnId?: Card["status"];
+  cardId: string;
+  sessionId?: string;
+  expectedRevision?: number;
+}
+
 export interface CardsDetailsInput {
   cardIds: string[];
 }

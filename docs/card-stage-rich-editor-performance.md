@@ -24,23 +24,25 @@ The rich-editor path is split into two phases:
 
 The debounce is controlled by `EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS` in `src/renderer/lib/timing.ts`. It is currently `250ms`.
 
-This means the editor can accept rapid typing with minimal Nodex-owned synchronous work. Card Stage and Kanban previews still catch up shortly after typing pauses, and important lifecycle paths flush immediately before reading or saving description data.
+This means the editor can accept rapid typing with minimal Nodex-owned synchronous work. Card Stage state catches up shortly after typing pauses, while Kanban description previews update only after the durable save acknowledgement carries a fresh `CardSummary`. Important lifecycle paths flush immediately before reading or saving description data.
 
 ## Board Read Model
 
-Card Stage typing must also avoid broad renderer data refreshes after persistence. The high-frequency board store now fetches `BoardSummary`, where each card carries only `descriptionPreview`, `descriptionLength`, and `hasDescription`. Full `description` bodies are not part of the shared board snapshot.
+Card Stage typing must also avoid broad renderer data refreshes after persistence. The high-frequency board store now fetches `BoardSummary`, where each card carries only persisted `descriptionPreview`, `descriptionLength`, and `hasDescription` columns. Full `description` bodies are not part of the shared board snapshot, and `board:summary:get` must not read or parse the `description` column.
 
 Full card bodies are loaded through explicit detail paths:
 
 - Card Stage hydrates the active card with `card:get`/`card-detail-store`.
 - Toggle-list, inline toggle-list, and `cardRef` projections compute visible card ids from summary state, then hydrate those ids through `cards:details:get`.
-- Command palette description matches come from `cards:search`, which returns ids and bounded excerpts instead of full descriptions.
+- Command palette description matches come from `cards:search`, which queries the card FTS read model and returns ids and bounded excerpts instead of full descriptions.
 
-This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Successful `card:update` acknowledgements carry only `CardSummary` plus revision metadata; conflict acknowledgements are the only update path that returns a full `Card`. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
+This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Successful `card:update` and `card:description:update:*` acknowledgements carry only `CardSummary` plus revision metadata; conflict acknowledgements are the only update path that returns a full `Card`. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
 
 ## Durable Save Worker
 
-Long-description saves must also avoid blocking the Electron main process. The ordinary `card:update` path routes through `CardMutationWriter`, which enqueues card-domain mutations into a single FIFO `worker_threads` writer. The worker opens its own SQLite connection, runs the synchronous `better-sqlite3` transaction, captures the local-store board mutation events, enriches them with `CardSummary` where possible, and returns the mutation result plus events and timing metrics after the write is durable.
+Long-description saves must also avoid blocking the Electron main process. Description-only Card Stage autosaves use the staged `card:description:update:*` transport: the renderer sends small chunks with yields between chunks, main appends them to a temporary file, and `CardMutationWriter` asks the worker to read that file and perform the durable update. Non-description card updates still use `card:update`.
+
+The writer enqueues card-domain mutations into a single FIFO `worker_threads` writer. The worker opens its own SQLite connection, runs the synchronous `better-sqlite3` transaction, captures the local-store board mutation events, refreshes the persisted summary/search read model, and returns the mutation result plus events and timing metrics after the write is durable.
 
 The toolbar `Saving...` text keeps its durable-ack meaning: it remains visible until the latest submitted save has been acknowledged by SQLite. The important boundary is that the main process is now awaiting an async worker response instead of running the SQLite transaction, description revision write, and history work on its own event loop. If a worker crashes or cannot start, the mutation fails and the Card Stage dirty state remains uncleared; there is no synchronous main-process fallback for card writes.
 
@@ -176,7 +178,7 @@ This prevents typing in Card Stage from invalidating the shared Kanban board sto
 
 ### Scoped Draft Overlay Store
 
-Kanban previews can still reflect local Card Stage drafts through `card-draft-store`. Card Stage writes a scoped overlay for the active project/card. Preview consumers for that card can merge the overlay into their display model.
+Kanban previews can still reflect small local Card Stage drafts through `card-draft-store`. Card Stage writes a scoped overlay for title, assignee, and agent status. Description is intentionally excluded so board cards never parse or carry the full draft body while the user types; description preview updates arrive from the durable ack `CardSummary`.
 
 This is a one-way graph:
 
@@ -229,11 +231,13 @@ The durable write layer is separate from both renderer timers. Card Stage may en
 - Card Stage save/has-changes logic must read the latest description ref, not stale React state.
 - Save requests must not clear freeform dirty flags until the returned card matches the current draft.
 - Card-domain durable writes must go through `CardMutationWriter`; there must be no synchronous Electron main-process card write fallback.
+- Description-only Card Stage autosaves must use staged `card:description:update:*`, not JSON `card:update`.
 - Active Card Stage editors must not use board-summary revision changes to automatically rehydrate and replace the full description.
 - Durable Card Stage tab switches must not remount the retained editor body while the tab remains open in the mounted panel leaf.
 - Preview-to-durable Card Stage promotion must preserve focus and selection because it keeps the same client tab id and retained wrapper identity.
 - Freeform text edits must not call `onPatch`.
 - Kanban preview overlays must remain scoped by project/card.
+- Kanban preview overlays must not include `description`.
 - Card Stage must not consume its own merged draft overlay through props.
 - Shared board snapshots must stay `BoardSummary`-only; successful description saves should merge the returned summary ack into board metadata and update the active card-detail cache from the submitted local draft plus acknowledged revision, without returning full descriptions or triggering a broad board refresh.
 - Board-change events carrying `CardSummary` should patch renderer board caches directly; ambiguous structure-only events may coalesce a summary refetch.

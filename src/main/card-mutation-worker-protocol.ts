@@ -1,5 +1,6 @@
 import type {
   BoardChangeEvent,
+  HistoryCardVersionPreview,
   UndoRedoResult,
 } from "../shared/ipc-api";
 import type {
@@ -34,6 +35,11 @@ export interface CardMutationMetrics {
 
 export type CardOccurrenceMutationResult = { success: boolean; error?: string };
 export type HistoryMutationResult = { success: boolean; error?: string };
+export type CardHistoryVersionPreviewResult = { preview: HistoryCardVersionPreview | null; error?: string };
+export interface CardReadModelBackfillResult {
+  updated: number;
+  remaining: number;
+}
 
 interface CardMutationWorkerRequestBase {
   id: number;
@@ -59,6 +65,17 @@ export type CardMutationWorkerRequest =
       columnId?: Card["status"];
       cardId: string;
       updates: Partial<CardInput>;
+      sessionId?: string;
+      expectedRevision?: number;
+    };
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "updateCardDescriptionFromFile";
+    payload: {
+      projectId: string;
+      columnId?: Card["status"];
+      cardId: string;
+      descriptionFilePath: string;
       sessionId?: string;
       expectedRevision?: number;
     };
@@ -125,6 +142,14 @@ export type CardMutationWorkerRequest =
     };
   })
   | (CardMutationWorkerRequestBase & {
+    type: "getCardHistoryVersionPreview";
+    payload: {
+      projectId: string;
+      cardId: string;
+      historyId: number;
+    };
+  })
+  | (CardMutationWorkerRequestBase & {
     type: "undoLatest";
     payload: {
       projectId: string;
@@ -156,6 +181,12 @@ export type CardMutationWorkerRequest =
     };
   })
   | (CardMutationWorkerRequestBase & {
+    type: "backfillCardReadModel";
+    payload: {
+      limit?: number;
+    };
+  })
+  | (CardMutationWorkerRequestBase & {
     type: "shutdown";
   });
 
@@ -171,6 +202,8 @@ export type CardMutationWorkerResult =
   | BlockDropImportResult
   | CardDropMoveToEditorResult
   | CardOccurrenceMutationResult
+  | CardReadModelBackfillResult
+  | CardHistoryVersionPreviewResult
   | UndoRedoResult
   | HistoryMutationResult
   | undefined;

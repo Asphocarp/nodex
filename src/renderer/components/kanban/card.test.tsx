@@ -33,9 +33,9 @@ async function renderCard(props: Record<string, unknown>) {
 }
 
 describe("kanban card", () => {
-  test("renders live draft overlay content for the matching project card", async () => {
+  test("renders live title draft overlay for the matching project card", async () => {
     resetCardDraftStoreForTest();
-    setCardDraftOverlay("default", "card-1", { description: "Draft body" });
+    setCardDraftOverlay("default", "card-1", { title: "Draft title" });
     const card = await renderCard({
       projectId: "default",
       card: {
@@ -54,7 +54,8 @@ describe("kanban card", () => {
       onClick: () => undefined,
     });
 
-    expect(textContent(card.container).includes("Draft body")).toBeTrue();
+    expect(textContent(card.container).includes("Draft title")).toBeTrue();
+    expect(textContent(card.container).includes("Task")).toBeFalse();
   });
 
   test("suppresses browser text selection on the card surface", async () => {

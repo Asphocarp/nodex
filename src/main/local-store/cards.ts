@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { assertUuidV7, createUuidV7 } from "../../shared/card-id";
 import {
   type BlockDropImportInput,
@@ -30,8 +30,9 @@ import {
   type RecurrenceConfig,
   type ReminderConfig,
 } from "../../shared/types";
-import { toCardSummary } from "../../shared/card-summary";
+import { summarizeCardDescription } from "../../shared/card-summary";
 import { extractPlainText } from "../../shared/nfm";
+import { tokenizeSearchQuery } from "../../shared/search-text";
 import {
   DEFAULT_CARD_STATUS,
   type CardStatus,
@@ -60,6 +61,10 @@ interface DbCard {
   archived: number;
   title: string;
   description: string;
+  description_preview: string;
+  description_length: number;
+  has_description: number;
+  description_read_model_revision: number;
   description_revision_id: number | null;
   priority: string | null;
   estimate: string | null;
@@ -83,6 +88,64 @@ interface DbCard {
   created: string;
   order: number;
 }
+
+type DbCardSummary = Omit<DbCard, "description" | "description_revision_id">;
+
+interface CardReadModelRow {
+  id: string;
+  project_id: string;
+  status: CardStatus;
+  archived: number;
+  title: string;
+  description: string;
+  priority: string | null;
+  estimate: string | null;
+  tags: string;
+  assignee: string | null;
+  agent_status: string | null;
+  revision: number;
+}
+
+interface CardSearchFtsRow {
+  project_id: string;
+  card_id: string;
+  status: CardStatus;
+  snippet: string;
+  rank: number;
+}
+
+const CARD_SUMMARY_SELECT_COLUMNS = `
+  id,
+  project_id,
+  status,
+  archived,
+  title,
+  description_preview,
+  description_length,
+  has_description,
+  description_read_model_revision,
+  priority,
+  estimate,
+  tags,
+  due_date,
+  scheduled_start,
+  scheduled_end,
+  is_all_day,
+  recurrence_json,
+  reminders_json,
+  schedule_timezone,
+  assignee,
+  agent_blocked,
+  agent_status,
+  run_in_target,
+  run_in_local_path,
+  run_in_base_branch,
+  run_in_worktree_path,
+  run_in_environment_path,
+  revision,
+  created,
+  "order"
+`;
 
 interface DbRecurrenceException {
   id: number;
@@ -132,8 +195,8 @@ function rowToCard(row: DbCard): Card {
     archived: row.archived === 1,
     title: row.title,
     description: row.description,
-    priority: row.priority as Card["priority"] | undefined,
-    estimate: row.estimate as Card["estimate"] | undefined,
+    priority: row.priority ? row.priority as Card["priority"] : undefined,
+    estimate: row.estimate ? row.estimate as Card["estimate"] : undefined,
     tags: parseTags(row.tags),
     dueDate: row.due_date ? new Date(row.due_date) : undefined,
     scheduledStart: row.scheduled_start ? new Date(row.scheduled_start) : undefined,
@@ -156,47 +219,209 @@ function rowToCard(row: DbCard): Card {
   };
 }
 
-function rowToCardSummary(row: DbCard): CardSummary {
-  return toCardSummary(rowToCard(row));
+function rowToCardSummary(row: DbCardSummary): CardSummary {
+  const runInTarget = parseRunInTarget(row.run_in_target);
+  return {
+    id: row.id,
+    status: row.status,
+    archived: row.archived === 1,
+    title: row.title,
+    descriptionPreview: row.description_preview,
+    descriptionLength: row.description_length,
+    hasDescription: row.has_description === 1,
+    priority: row.priority ? row.priority as Card["priority"] : undefined,
+    estimate: row.estimate ? row.estimate as Card["estimate"] : undefined,
+    tags: parseTags(row.tags),
+    dueDate: row.due_date ? new Date(row.due_date) : undefined,
+    scheduledStart: row.scheduled_start ? new Date(row.scheduled_start) : undefined,
+    scheduledEnd: row.scheduled_end ? new Date(row.scheduled_end) : undefined,
+    isAllDay: row.is_all_day === 1,
+    recurrence: parseRecurrence(row.recurrence_json),
+    reminders: parseReminders(row.reminders_json),
+    scheduleTimezone: row.schedule_timezone || undefined,
+    assignee: row.assignee || undefined,
+    agentBlocked: row.agent_blocked === 1,
+    agentStatus: row.agent_status || undefined,
+    runInTarget,
+    runInLocalPath: row.run_in_local_path || undefined,
+    runInBaseBranch: row.run_in_base_branch || undefined,
+    runInWorktreePath: row.run_in_worktree_path || undefined,
+    runInEnvironmentPath: row.run_in_environment_path || undefined,
+    revision: row.revision,
+    created: new Date(row.created),
+    order: row.order,
+  };
 }
 
-function normalizeSearchText(value: string | undefined): string {
-  return (value ?? "").trim().toLowerCase();
+function hashText(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
 }
 
-function buildSearchExcerpt(text: string, query: string, maxLength = 240): string {
-  const normalizedText = text.toLowerCase();
-  const normalizedQuery = query.toLowerCase();
-  const matchIndex = normalizedQuery.length > 0 ? normalizedText.indexOf(normalizedQuery) : -1;
-  if (text.length <= maxLength) return text;
-
-  const midpoint = matchIndex >= 0 ? matchIndex : 0;
-  const start = Math.max(0, midpoint - Math.floor(maxLength / 3));
-  const end = Math.min(text.length, start + maxLength);
-  const prefix = start > 0 ? "..." : "";
-  const suffix = end < text.length ? "..." : "";
-  return `${prefix}${text.slice(start, end).trim()}${suffix}`;
+function buildCardSearchText(row: CardReadModelRow, plainDescription: string): string {
+  const text = [
+    row.title,
+    parseTags(row.tags).join(" "),
+    row.assignee ?? "",
+    row.agent_status ?? "",
+    row.status,
+    row.id,
+    plainDescription,
+  ].join("\n").replace(/\s+/g, " ").trim();
+  const splitTokenText = text.replace(/[-_/@.:#]+/g, " ");
+  return `${text}\n${splitTokenText}`.replace(/\s+/g, " ").trim();
 }
 
-function scoreCardSearchMatch(row: DbCard, descriptionText: string, tokens: string[]): number {
-  const fields = [
-    { text: row.title, weight: 10 },
-    { text: row.tags, weight: 6 },
-    { text: row.assignee ?? "", weight: 4 },
-    { text: row.agent_status ?? "", weight: 3 },
-    { text: row.status, weight: 2 },
-    { text: descriptionText, weight: 1 },
-  ];
+function buildCardFtsMatchQuery(query: string): string | null {
+  const tokens = tokenizeSearchQuery(query)
+    .flatMap((token) => token.match(/[\p{L}\p{N}_]+/gu) ?? [])
+    .map((token) => token.trim().toLowerCase())
+    .filter((token, index, values) => token.length > 0 && values.indexOf(token) === index);
+  if (tokens.length === 0) return null;
+  return tokens.map((token) => `${token}*`).join(" ");
+}
 
-  let score = 0;
-  for (const token of tokens) {
-    const tokenScore = fields.reduce((sum, field) => (
-      normalizeSearchText(field.text).includes(token) ? sum + field.weight : sum
-    ), 0);
-    if (tokenScore === 0) return 0;
-    score += tokenScore;
+function normalizeFtsSnippet(snippet: string): string {
+  return snippet.replace(/\s+/g, " ").trim();
+}
+
+export function readCardSummaryById(
+  cardId: string,
+  database: Database.Database = getDb(),
+): CardSummary | null {
+  const row = database
+    .prepare(`SELECT ${CARD_SUMMARY_SELECT_COLUMNS} FROM cards WHERE id = ?`)
+    .get(cardId) as DbCardSummary | undefined;
+  return row ? rowToCardSummary(row) : null;
+}
+
+export function syncCardReadModel(
+  database: Database.Database,
+  cardId: string,
+): CardSummary | null {
+  const row = database.prepare(`
+    SELECT
+      id,
+      project_id,
+      status,
+      archived,
+      title,
+      description,
+      priority,
+      estimate,
+      tags,
+      assignee,
+      agent_status,
+      revision
+    FROM cards
+    WHERE id = ?
+  `).get(cardId) as CardReadModelRow | undefined;
+
+  if (!row) {
+    database.prepare("DELETE FROM card_search_units WHERE card_id = ?").run(cardId);
+    return null;
   }
-  return score;
+
+  const descriptionSummary = summarizeCardDescription(row.description);
+  const plainDescription = extractPlainText(row.description);
+  const indexedAt = Date.now();
+
+  database.prepare(`
+    UPDATE cards
+    SET
+      description_preview = ?,
+      description_length = ?,
+      has_description = ?,
+      description_read_model_revision = ?
+    WHERE id = ?
+  `).run(
+    descriptionSummary.descriptionPreview,
+    descriptionSummary.descriptionLength,
+    descriptionSummary.hasDescription ? 1 : 0,
+    row.revision,
+    cardId,
+  );
+
+  if (row.archived === 1) {
+    database.prepare("DELETE FROM card_search_units WHERE card_id = ?").run(cardId);
+    return readCardSummaryById(cardId, database);
+  }
+
+  const searchText = buildCardSearchText(row, plainDescription);
+  if (!searchText) {
+    database.prepare("DELETE FROM card_search_units WHERE card_id = ?").run(cardId);
+    return readCardSummaryById(cardId, database);
+  }
+
+  database.prepare(`
+    INSERT INTO card_search_units (
+      project_id,
+      card_id,
+      status,
+      text,
+      text_hash,
+      card_revision,
+      indexed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(card_id) DO UPDATE SET
+      project_id = excluded.project_id,
+      status = excluded.status,
+      text = excluded.text,
+      text_hash = excluded.text_hash,
+      card_revision = excluded.card_revision,
+      indexed_at = excluded.indexed_at
+  `).run(
+    row.project_id,
+    row.id,
+    row.status,
+    searchText,
+    hashText(searchText),
+    row.revision,
+    indexedAt,
+  );
+
+  return readCardSummaryById(cardId, database);
+}
+
+export function backfillCardReadModelBatch(limit = 20): {
+  updated: number;
+  remaining: number;
+} {
+  const database = getDb();
+  const batchLimit = Math.max(1, Math.min(Math.trunc(limit), 100));
+  const rows = database.prepare(`
+    SELECT id, project_id, status
+    FROM cards
+    WHERE description_read_model_revision <> revision
+    ORDER BY created DESC
+    LIMIT ?
+  `).all(batchLimit) as Array<{ id: string; project_id: string; status: CardStatus }>;
+
+  if (rows.length === 0) {
+    const remaining = database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM cards
+      WHERE description_read_model_revision <> revision
+    `).get() as { count: number };
+    return { updated: 0, remaining: remaining.count };
+  }
+
+  database.transaction(() => {
+    for (const row of rows) {
+      syncCardReadModel(database, row.id);
+      dbNotifier.notifyChange(row.project_id, "update", row.status, row.id);
+    }
+  })();
+
+  const remaining = database.prepare(`
+    SELECT COUNT(*) AS count
+    FROM cards
+    WHERE description_read_model_revision <> revision
+  `).get() as { count: number };
+
+  return {
+    updated: rows.length,
+    remaining: remaining.count,
+  };
 }
 
 function parseRunInTarget(value: string | null | undefined): Card["runInTarget"] {
@@ -514,9 +739,12 @@ export async function readSummaryColumn(projectId: string, columnId: CardStatus)
   if (!columnMeta) throw new Error(`Unknown column: ${columnId}`);
 
   const stmt = getDb().prepare(
-    'SELECT * FROM cards WHERE project_id = ? AND archived = 0 AND status = ? ORDER BY "order" ASC',
+    `SELECT ${CARD_SUMMARY_SELECT_COLUMNS}
+     FROM cards
+     WHERE project_id = ? AND archived = 0 AND status = ?
+     ORDER BY "order" ASC`,
   );
-  const rows = stmt.all(canonicalProjectId, columnId) as DbCard[];
+  const rows = stmt.all(canonicalProjectId, columnId) as DbCardSummary[];
 
   return {
     id: columnId,
@@ -563,34 +791,40 @@ export async function searchCards(input: CardSearchInput): Promise<CardSearchRes
   if (canonicalProjectIds.length === 0) return [];
 
   const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
-  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return [];
+  const matchQuery = buildCardFtsMatchQuery(query);
+  if (!matchQuery) return [];
 
   const placeholders = canonicalProjectIds.map(() => "?").join(", ");
-  const rows = getDb().prepare(
-    `SELECT * FROM cards
-     WHERE archived = 0 AND project_id IN (${placeholders})`,
-  ).all(...canonicalProjectIds) as DbCard[];
+  const rows = getDb().prepare(`
+    SELECT
+      u.project_id,
+      u.card_id,
+      c.status,
+      snippet(card_search_units_fts, 0, '\u0001', '\u0002', '...', 32) AS snippet,
+      bm25(card_search_units_fts) AS rank
+    FROM card_search_units_fts
+    JOIN card_search_units u ON u.rowid = card_search_units_fts.rowid
+    JOIN cards c ON c.id = u.card_id
+    WHERE card_search_units_fts MATCH ?
+      AND c.archived = 0
+      AND c.project_id IN (${placeholders})
+    ORDER BY rank ASC
+    LIMIT ?
+  `).all(
+    matchQuery,
+    ...canonicalProjectIds,
+    limit,
+  ) as CardSearchFtsRow[];
 
-  return rows
-    .flatMap((row): CardSearchResult[] => {
-      const descriptionText = extractPlainText(row.description);
-      const score = scoreCardSearchMatch(row, descriptionText, tokens);
-      if (score <= 0) return [];
-
-      return [{
-        projectId: row.project_id,
-        cardId: row.id,
-        status: row.status,
-        score,
-        excerpt: buildSearchExcerpt(descriptionText, query),
-      }];
-    })
-    .sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return left.cardId.localeCompare(right.cardId);
-    })
-    .slice(0, limit);
+  return rows.map((row, index): CardSearchResult => ({
+    projectId: row.project_id,
+    cardId: row.card_id,
+    status: row.status,
+    score: Math.max(1, 1_000_000 - index),
+    excerpt: normalizeFtsSnippet(row.snippet)
+      .replaceAll("\u0001", "")
+      .replaceAll("\u0002", ""),
+  }));
 }
 
 export async function createCard(
@@ -711,6 +945,8 @@ export async function createCard(
       sessionId,
     );
 
+    syncCardReadModel(database, id);
+
     return result;
   })();
 
@@ -807,17 +1043,16 @@ export async function updateCard(
       );
     }
 
-    const updated = database
-      .prepare("SELECT * FROM cards WHERE id = ?")
-      .get(cardId) as DbCard;
-    const updatedCard = rowToCard(updated);
+    const updatedSummary = didMutate
+      ? syncCardReadModel(database, cardId)
+      : readCardSummaryById(cardId, database);
 
     return {
       status: "updated",
       projectId: canonicalProjectId,
       cardId,
-      revision: updatedCard.revision ?? existing.revision + (didMutate ? 1 : 0),
-      summary: toCardSummary(updatedCard),
+      revision: updatedSummary?.revision ?? existing.revision + (didMutate ? 1 : 0),
+      summary: updatedSummary ?? rowToCardSummary(existing),
       changedFields,
       didMutate,
     } as const;

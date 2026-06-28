@@ -84,6 +84,7 @@ import type {
   CalendarOccurrence,
   ClipboardPasteInspectionResult,
   CardCreateInput,
+  CardDescriptionUpdateStartInput,
   CardUpdateResult,
   CardDropMoveToEditorInput,
   CardDropMoveToEditorResult,
@@ -516,6 +517,22 @@ export interface IpcApi {
       expectedRevision?: number,
     ];
     result: CardUpdateResult;
+  };
+  "card:description:update:start": {
+    args: [input: CardDescriptionUpdateStartInput];
+    result: { stagingId: string };
+  };
+  "card:description:update:chunk": {
+    args: [stagingId: string, chunk: string];
+    result: { ok: true; bytes: number };
+  };
+  "card:description:update:finish": {
+    args: [stagingId: string];
+    result: CardUpdateResult;
+  };
+  "card:description:update:abort": {
+    args: [stagingId: string];
+    result: boolean;
   };
   "card:get": {
     args: [projectId: string, cardId: string, status?: Card["status"]];

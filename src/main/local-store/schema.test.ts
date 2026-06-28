@@ -31,24 +31,25 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44,45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe("[45,46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(45))).toBe("[46,47]");
-    expect(JSON.stringify(getSchemaMigrationTargets(46))).toBe("[47]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44,45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe("[45,46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(45))).toBe("[46,47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(46))).toBe("[47,48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(47))).toBe("[48]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -78,6 +79,10 @@ describe("schema initialization", () => {
       expect(cardColumnNames.includes("revision")).toBeTrue();
       expect(cardColumnNames.includes("run_in_environment_path")).toBeTrue();
       expect(cardColumnNames.includes("description_revision_id")).toBeTrue();
+      expect(cardColumnNames.includes("description_preview")).toBeTrue();
+      expect(cardColumnNames.includes("description_length")).toBeTrue();
+      expect(cardColumnNames.includes("has_description")).toBeTrue();
+      expect(cardColumnNames.includes("description_read_model_revision")).toBeTrue();
       const priorityColumn = cardColumns.find((column) => column.name === "priority");
       expect(priorityColumn?.notnull).toBe(0);
       expect(priorityColumn?.dflt_value ?? null).toBe(null);
@@ -145,6 +150,8 @@ describe("schema initialization", () => {
       expect(tableNames.includes("thread_search_units")).toBeTrue();
       expect(tableNames.includes("thread_search_thread_state")).toBeTrue();
       expect(tableNames.includes("thread_search_units_fts")).toBeTrue();
+      expect(tableNames.includes("card_search_units")).toBeTrue();
+      expect(tableNames.includes("card_search_units_fts")).toBeTrue();
       expect(tableNames.includes("codex_thread_card_links")).toBeFalse();
       expect(tableNames.includes("card_history_snapshots")).toBeTrue();
       expect(tableColumnNames(db, "codex_threads").includes("card_id")).toBeFalse();
@@ -164,6 +171,13 @@ describe("schema initialization", () => {
           AND name = 'thread_search_units_ai'
       `).get();
       expect(threadSearchTrigger !== undefined).toBeTrue();
+      const cardSearchTrigger = db.prepare(`
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'trigger'
+          AND name = 'card_search_units_ai'
+      `).get();
+      expect(cardSearchTrigger !== undefined).toBeTrue();
 
       const sessionColumnNames = tableColumnNames(db, "project_sessions");
       expect(sessionColumnNames.includes("title")).toBeFalse();

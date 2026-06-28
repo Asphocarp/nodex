@@ -13,12 +13,10 @@ describe("card draft store", () => {
 
     setCardDraftOverlay("default", "card-1", {
       title: "Draft title",
-      description: "Draft body",
     });
 
     const stored = getCardDraftOverlay("default", "card-1");
     expect(stored?.title).toBe("Draft title");
-    expect(stored?.description).toBe("Draft body");
 
     clearCardDraftOverlay("default", "card-1");
     expect(getCardDraftOverlay("default", "card-1")).toBe(null);

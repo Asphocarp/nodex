@@ -170,7 +170,7 @@ describe("useCardStageController", () => {
     result.view.unmount();
   });
 
-  test("description drafts stay local and update the scoped preview overlay", async () => {
+  test("description drafts stay local without updating the scoped board overlay", async () => {
     resetCardDraftStoreForTest();
     let patchCount = 0;
     const result = renderController(buildProps({
@@ -187,7 +187,7 @@ describe("useCardStageController", () => {
 
     const overlay = getCardDraftOverlay("project-1", "card-1");
     expect(patchCount).toBe(0);
-    expect(overlay?.description).toBe("Draft body");
+    expect(overlay).toBe(null);
     result.view.unmount();
   });
 

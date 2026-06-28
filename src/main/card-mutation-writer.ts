@@ -33,6 +33,8 @@ import type {
   CardMutationWorkerResponse,
   CardMutationWorkerResult,
   CardOccurrenceMutationResult,
+  CardHistoryVersionPreviewResult,
+  CardReadModelBackfillResult,
   HistoryMutationResult,
 } from "./card-mutation-worker-protocol";
 
@@ -105,6 +107,20 @@ export class CardMutationWriter {
     return await this.executeTyped<CardUpdateResult>({
       type: "updateCard",
       payload: { projectId, columnId, cardId, updates, sessionId, expectedRevision },
+    });
+  }
+
+  async updateCardDescriptionFromFile(
+    projectId: string,
+    columnId: Card["status"] | undefined,
+    cardId: string,
+    descriptionFilePath: string,
+    sessionId?: string,
+    expectedRevision?: number,
+  ): Promise<CardMutationEnvelope<CardUpdateResult>> {
+    return await this.executeTyped<CardUpdateResult>({
+      type: "updateCardDescriptionFromFile",
+      payload: { projectId, columnId, cardId, descriptionFilePath, sessionId, expectedRevision },
     });
   }
 
@@ -238,6 +254,24 @@ export class CardMutationWriter {
     return await this.executeTyped<HistoryMutationResult>({
       type: "restoreToEntry",
       payload: { projectId, cardId, historyId, sessionId },
+    });
+  }
+
+  async getCardHistoryVersionPreview(
+    projectId: string,
+    cardId: string,
+    historyId: number,
+  ): Promise<CardMutationEnvelope<CardHistoryVersionPreviewResult>> {
+    return await this.executeTyped<CardHistoryVersionPreviewResult>({
+      type: "getCardHistoryVersionPreview",
+      payload: { projectId, cardId, historyId },
+    });
+  }
+
+  async backfillCardReadModel(limit?: number): Promise<CardMutationEnvelope<CardReadModelBackfillResult>> {
+    return await this.executeTyped<CardReadModelBackfillResult>({
+      type: "backfillCardReadModel",
+      payload: { limit },
     });
   }
 

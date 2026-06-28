@@ -21,7 +21,7 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 47;
+export const CURRENT_SCHEMA_VERSION = 48;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -33,6 +33,8 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "card_search_units_fts",
+  "card_search_units",
   "thread_search_units_fts",
   "thread_search_thread_state",
   "thread_search_units",
@@ -66,24 +68,25 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 40) return [41, 42, 43, 44, 45, 46, 47];
-  if (currentVersion === 41) return [42, 43, 44, 45, 46, 47];
-  if (currentVersion === 42) return [43, 44, 45, 46, 47];
-  if (currentVersion === 43) return [44, 45, 46, 47];
-  if (currentVersion === 44) return [45, 46, 47];
-  if (currentVersion === 45) return [46, 47];
-  if (currentVersion === 46) return [47];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 40) return [41, 42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 41) return [42, 43, 44, 45, 46, 47, 48];
+  if (currentVersion === 42) return [43, 44, 45, 46, 47, 48];
+  if (currentVersion === 43) return [44, 45, 46, 47, 48];
+  if (currentVersion === 44) return [45, 46, 47, 48];
+  if (currentVersion === 45) return [46, 47, 48];
+  if (currentVersion === 46) return [47, 48];
+  if (currentVersion === 47) return [48];
   return null;
 }
 
@@ -141,6 +144,10 @@ function createLatestSchema(db: Database.Database): void {
       archived INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
+      description_preview TEXT NOT NULL DEFAULT '',
+      description_length INTEGER NOT NULL DEFAULT 0,
+      has_description INTEGER NOT NULL DEFAULT 0,
+      description_read_model_revision INTEGER NOT NULL DEFAULT 0,
       description_revision_id INTEGER,
       priority TEXT,
       estimate TEXT,
@@ -171,6 +178,55 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_cards_project_archived_status ON cards(project_id, archived, status);
     CREATE INDEX IF NOT EXISTS idx_cards_project_archived_status_order ON cards(project_id, archived, status, "order");
     CREATE INDEX IF NOT EXISTS idx_cards_schedule ON cards(project_id, scheduled_start, scheduled_end);
+
+    CREATE TABLE IF NOT EXISTS card_search_units (
+      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      card_revision INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      UNIQUE(card_id),
+      CHECK (status IN ('draft', 'backlog', 'in_progress', 'in_review', 'done'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_card_search_units_project
+      ON card_search_units(project_id);
+    CREATE INDEX IF NOT EXISTS idx_card_search_units_card
+      ON card_search_units(card_id);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS card_search_units_fts USING fts5(
+      text,
+      content='card_search_units',
+      content_rowid='rowid',
+      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
+      prefix='2 3 4'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS card_search_units_ai
+      AFTER INSERT ON card_search_units
+      BEGIN
+        INSERT INTO card_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS card_search_units_ad
+      AFTER DELETE ON card_search_units
+      BEGIN
+        INSERT INTO card_search_units_fts(card_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS card_search_units_au
+      AFTER UPDATE ON card_search_units
+      BEGIN
+        INSERT INTO card_search_units_fts(card_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+        INSERT INTO card_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
 
     CREATE TABLE IF NOT EXISTS description_blocks (
       hash TEXT PRIMARY KEY,
@@ -1926,6 +1982,81 @@ function migrateSchema46To47(db: Database.Database): void {
   setUserVersion(db, 47);
 }
 
+function migrateSchema47To48(db: Database.Database): void {
+  if (!tableHasColumn(db, "cards", "description_preview")) {
+    db.exec("ALTER TABLE cards ADD COLUMN description_preview TEXT NOT NULL DEFAULT ''");
+  }
+  if (!tableHasColumn(db, "cards", "description_length")) {
+    db.exec("ALTER TABLE cards ADD COLUMN description_length INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!tableHasColumn(db, "cards", "has_description")) {
+    db.exec("ALTER TABLE cards ADD COLUMN has_description INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!tableHasColumn(db, "cards", "description_read_model_revision")) {
+    db.exec("ALTER TABLE cards ADD COLUMN description_read_model_revision INTEGER NOT NULL DEFAULT 0");
+  }
+
+  db.exec(`
+    UPDATE cards
+    SET
+      description_length = length(description),
+      has_description = CASE WHEN length(trim(description)) > 0 THEN 1 ELSE 0 END,
+      description_read_model_revision = 0
+    WHERE description_read_model_revision = 0;
+
+    CREATE TABLE IF NOT EXISTS card_search_units (
+      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      card_revision INTEGER NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      UNIQUE(card_id),
+      CHECK (status IN ('draft', 'backlog', 'in_progress', 'in_review', 'done'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_card_search_units_project
+      ON card_search_units(project_id);
+    CREATE INDEX IF NOT EXISTS idx_card_search_units_card
+      ON card_search_units(card_id);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS card_search_units_fts USING fts5(
+      text,
+      content='card_search_units',
+      content_rowid='rowid',
+      tokenize="unicode61 remove_diacritics 2 tokenchars '-_/@.:#'",
+      prefix='2 3 4'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS card_search_units_ai
+      AFTER INSERT ON card_search_units
+      BEGIN
+        INSERT INTO card_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS card_search_units_ad
+      AFTER DELETE ON card_search_units
+      BEGIN
+        INSERT INTO card_search_units_fts(card_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS card_search_units_au
+      AFTER UPDATE ON card_search_units
+      BEGIN
+        INSERT INTO card_search_units_fts(card_search_units_fts, rowid, text)
+        VALUES ('delete', old.rowid, old.text);
+        INSERT INTO card_search_units_fts(rowid, text)
+        VALUES (new.rowid, new.text);
+      END;
+  `);
+
+  setUserVersion(db, 48);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -2066,6 +2197,14 @@ function runMigrations(
       }
       migrateSchema46To47(db);
       fromVersion = 47;
+      continue;
+    }
+    if (target === 48) {
+      if (fromVersion !== 47) {
+        throw new Error(`Unsupported Nodex database migration target 48 from ${fromVersion}`);
+      }
+      migrateSchema47To48(db);
+      fromVersion = 48;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

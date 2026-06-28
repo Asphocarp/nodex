@@ -25,6 +25,13 @@ import {
 import { dbNotifier } from "./local-store/notifier";
 import { cardMutationWriter } from "./card-mutation-writer";
 import {
+  abortCardDescriptionStaging,
+  appendCardDescriptionChunk,
+  cleanupCardDescriptionStagingFile,
+  consumeCardDescriptionStaging,
+  startCardDescriptionStaging,
+} from "./card-description-staging";
+import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
   readGitBranchState,
@@ -1264,6 +1271,83 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
   }
 });
 
+app.put("/api/projects/:projectId/card/description", cardWriteBodyLimit, async (c) => {
+  const projectId = c.req.param("projectId");
+  const cardId = c.req.query("cardId");
+  if (typeof cardId !== "string" || cardId.length === 0) {
+    return c.json({ error: "Missing cardId" }, 400);
+  }
+
+  const status = parseOptionalCardStatus(c.req.query("status") || undefined);
+  const sessionId = c.req.query("sessionId") || undefined;
+  const expectedRevisionRaw = c.req.query("expectedRevision");
+  const expectedRevision = expectedRevisionRaw
+    ? Number.parseInt(expectedRevisionRaw, 10)
+    : undefined;
+  const normalizedExpectedRevision = Number.isInteger(expectedRevision)
+    ? expectedRevision
+    : undefined;
+  const startedAt = Date.now();
+  let stagingId: string | null = null;
+  let stagedFilePath: string | null = null;
+
+  try {
+    const description = await c.req.text();
+    const started = await startCardDescriptionStaging({
+      projectId,
+      columnId: status,
+      cardId,
+      sessionId,
+      expectedRevision: normalizedExpectedRevision,
+    });
+    stagingId = started.stagingId;
+    await appendCardDescriptionChunk(stagingId, description);
+    const staged = consumeCardDescriptionStaging(stagingId);
+    stagingId = null;
+    stagedFilePath = staged.filePath;
+
+    const envelope = await cardMutationWriter.updateCardDescriptionFromFile(
+      projectId,
+      status,
+      cardId,
+      staged.filePath,
+      sessionId,
+      normalizedExpectedRevision,
+    );
+    const result = envelope.result;
+    logger.info("card description update ack served", {
+      route: "PUT /api/projects/:projectId/card/description",
+      projectId,
+      cardId,
+      status: result.status,
+      descriptionBytes: staged.bytes,
+      approxPayloadBytes: approximatePayloadBytes(result),
+      durationMs: Date.now() - startedAt,
+      workerDurationMs: envelope.metrics.workerDurationMs,
+      queueWaitMs: envelope.metrics.queueWaitMs,
+      transactionMs: envelope.metrics.transactionMs,
+      mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
+      revisionKind: envelope.metrics.revisionKind,
+    });
+    if (result.status === "not_found") {
+      return c.json(result, 404);
+    }
+    if (result.status === "conflict") {
+      return c.json(result, 409);
+    }
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  } finally {
+    if (stagingId) {
+      await abortCardDescriptionStaging(stagingId);
+    }
+    if (stagedFilePath) {
+      await cleanupCardDescriptionStagingFile(stagedFilePath);
+    }
+  }
+});
+
 app.delete("/api/projects/:projectId/card", async (c) => {
   const projectId = c.req.param("projectId");
   const status = parseOptionalCardStatus(c.req.query("status") || undefined);
@@ -1649,7 +1733,7 @@ app.get("/api/projects/:projectId/history/card", (c) => {
   return c.json({ entries });
 });
 
-app.get("/api/projects/:projectId/history/card-version-preview", (c) => {
+app.get("/api/projects/:projectId/history/card-version-preview", async (c) => {
   const projectId = c.req.param("projectId");
   const cardId = c.req.query("cardId");
   const historyIdRaw = c.req.query("historyId");
@@ -1657,7 +1741,8 @@ app.get("/api/projects/:projectId/history/card-version-preview", (c) => {
   if (!cardId || !Number.isInteger(historyId)) {
     return c.json({ error: "Missing cardId or invalid historyId" }, 400);
   }
-  return c.json(historyStore.getCardHistoryVersionPreview(projectId, cardId, historyId));
+  const { result } = await cardMutationWriter.getCardHistoryVersionPreview(projectId, cardId, historyId);
+  return c.json(result);
 });
 
 // === Revert/Restore routes ===

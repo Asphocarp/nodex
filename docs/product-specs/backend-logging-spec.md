@@ -136,7 +136,7 @@ Card mutation acknowledgement logs may also include:
 - `queueWaitMs`: time from main enqueue to worker execution/ack accounting
 - `transactionMs`: synchronous local-store mutation duration measured in the worker
 - `mainEventLoopLagMaxMs`: maximum main-process event-loop delay sampled while awaiting the worker ack
-- `descriptionBytes`: UTF-8 size for submitted description payloads when available
+- `descriptionBytes`: UTF-8 size for submitted description payloads when available, including staged Card Stage description saves
 - `summaryBytes`: approximate returned summary size when available
 - `revisionKind`: `snapshot` or `delta` for description revision writes when available
 
@@ -226,6 +226,7 @@ This is intentional. Logs are for diagnosis, not full-fidelity archival.
 - request id via `x-nodex-request-id`
 - method, path, status, duration, origin
 - uncaught request failures through `app.onError(...)`
+- card mutation acknowledgements, including staged `PUT /api/projects/:projectId/card/description` writes
 
 Severity policy:
 
@@ -304,6 +305,17 @@ Codex-specific logging policy:
 - per-tick summary
 - snoozes
 - tick failures
+
+### Card Mutations
+
+[src/main/ipc-handlers.ts](src/main/ipc-handlers.ts), [src/main/http-server.ts](src/main/http-server.ts), and [src/main/card-mutation-writer.ts](src/main/card-mutation-writer.ts) log:
+
+- `card update ack served` for normal metadata updates through `card:update`
+- `card description update ack served` for staged long-description saves through `card:description:update:*` or `PUT /api/projects/:projectId/card/description`
+- worker queue, transaction, and main-event-loop lag metrics for durable card mutations
+- bounded payload sizes for update acknowledgements and summary payloads
+
+Description-save logs must never include the raw description body. They should include `descriptionBytes`, `workerDurationMs`, `queueWaitMs`, `transactionMs`, `mainEventLoopLagMaxMs`, and `revisionKind` when available so production lag reports can distinguish renderer transport cost, worker transaction time, and main-process scheduling delay.
 
 ## Using the Logger in New Backend Code
 
