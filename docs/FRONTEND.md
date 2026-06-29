@@ -121,6 +121,12 @@
 - Keep transcript animation split by subtype:
   - for expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
   - keep transcript expand/collapse subtype-owned; reuse the measured-height hook, but let each product surface own its own Motion wrapper and state machine
+- Keep turn-diff cards distinct from transcript accordions:
+  - completed `Edited N files` cards render a resource-card-style header plus compact file rows; individual file rows are buttons that open Review or, with Cmd/Ctrl, a right-side Files preview tab
+  - multi-file lists show three rows by default and use one `Show N more files` / `Collapse files` disclosure row; do not add per-file chevrons, measured-height inline accordion bodies, or row-local expand/collapse state
+  - single-file turn diffs use the basename in the header and omit the multi-file list; large multi-file rows show `Too large to render inline` rather than trying to mount inline diff content
+  - small-file hover previews are top-aligned over the row, size to the trigger width minus 64px clamped by Radix's available content width, content-size vertically up to the 420px available-height cap, and must be disabled whenever the right-side panel is open; do not render a right-side hover preview beside an already-open Review or Files panel
+  - streaming turn-diff summaries can use the short `0.15s` opacity fade because they are composer-adjacent status chips, not transcript accordion bodies
 - Keep transcript timing exact:
   - thread-body, transcript-special, and tool-call accordion surfaces should share one exported motion contract (`duration: 0.5`, `ease: [0.19, 1, 0.22, 1]`)
   - do not reintroduce local `0.18` / `easeOut` expand-collapse timings on command shells, composer lanes, or transcript accordions

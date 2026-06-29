@@ -168,9 +168,11 @@ interface LocalConversationVirtualizedTurnListProps {
     isLatestTurn: boolean;
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
   onApiChange?: (api: LocalConversationVirtualizedTurnListApi | null) => void;
   initialScrollOffset?: number | null;
   initialRestoreState?: VirtualizedTurnListRestoreState | null;
@@ -268,9 +270,11 @@ interface MeasuredTurnProps {
     isLatestTurn: boolean;
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
   constrainedHeightPx?: number;
   isLatestTurn: boolean;
   latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
@@ -290,9 +294,11 @@ function MeasuredTurnComponent({
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled = false,
   constrainedHeightPx,
   isLatestTurn,
   latestTurnFollowContentRef,
@@ -343,9 +349,11 @@ function MeasuredTurnComponent({
         onEditLastTurnMessage={onEditLastTurnMessage}
         onForkTurnMessage={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenSideChat={onOpenSideChat}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         latestTurnFollowContentRef={isLatestTurn ? latestTurnFollowContentRef : undefined}
       />
     </div>
@@ -379,9 +387,11 @@ const MeasuredTurn = memo(
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
+    && left.onOpenTurnDiffFileInSidePanel === right.onOpenTurnDiffFileInSidePanel
     && left.onOpenSideChat === right.onOpenSideChat
     && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
+    && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
     && left.constrainedHeightPx === right.constrainedHeightPx
     && left.isLatestTurn === right.isLatestTurn
     && left.latestTurnFollowContentRef === right.latestTurnFollowContentRef
@@ -401,9 +411,11 @@ function LocalConversationVirtualizedTurnListCore({
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled = false,
   onApiChange,
   initialScrollOffset,
   initialRestoreState = null,
@@ -1177,9 +1189,11 @@ function LocalConversationVirtualizedTurnListCore({
               onEditLastTurnMessage={onEditLastTurnMessage}
               onForkTurnMessage={onForkTurnMessage}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
               onOpenSideChat={onOpenSideChat}
               onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
               constrainedHeightPx={constrainedHeightPx}
               isLatestTurn={isLatestTurn}
               latestTurnFollowContentRef={observeLatestTurnFollowContent}

@@ -64,6 +64,11 @@ export interface ThreadSummaryPanelAuxiliaryRow {
   status?: string | null;
 }
 
+export interface ThreadTurnDiffFileSidePanelTarget {
+  path: string;
+  title: string;
+}
+
 export interface ThreadStageRouteInput {
   projectId: string;
   projectWorkspacePath?: string | null;
@@ -179,6 +184,7 @@ export interface ThreadStageActions {
   onToggleDesktopPet?: () => void;
   onUnarchiveThread: (threadId: string, projectId: string) => Promise<void>;
   onOpenTurnDiffReview: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: (target: ThreadTurnDiffFileSidePanelTarget) => void | Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string) => void;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;

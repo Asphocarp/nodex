@@ -20,7 +20,12 @@ function refreshSelectedTurnDiffTarget(
   const item = turn?.items.find((candidate) => (candidate.entryId ?? candidate.itemId) === selectedTurnDiff.entryId);
   if (!item || item.rawItem === null || typeof item.rawItem !== "object") return selectedTurnDiff;
 
-  const rawItem = item.rawItem as { unifiedDiff?: unknown; cwd?: unknown; showRevertButton?: unknown };
+  const rawItem = item.rawItem as {
+    unifiedDiff?: unknown;
+    cwd?: unknown;
+    showRevertButton?: unknown;
+    patchBatches?: unknown;
+  };
   if (typeof rawItem.unifiedDiff !== "string" || rawItem.unifiedDiff.trim().length === 0) {
     return selectedTurnDiff;
   }
@@ -34,6 +39,17 @@ function refreshSelectedTurnDiffTarget(
     patch: rawItem.unifiedDiff,
     cwd: cwd ?? null,
     showRevertButton: rawItem.showRevertButton === true,
+    patchBatches: Array.isArray(rawItem.patchBatches)
+      ? rawItem.patchBatches.flatMap((batch) => {
+          if (typeof batch !== "object" || batch === null) return [];
+          const batchCwd = (batch as { cwd?: unknown }).cwd;
+          const changes = (batch as { changes?: unknown }).changes;
+          return [{
+            cwd: typeof batchCwd === "string" && batchCwd.trim().length > 0 ? batchCwd : null,
+            changes: Array.isArray(changes) ? changes : [],
+          }];
+        })
+      : selectedTurnDiff.patchBatches,
   };
 }
 

@@ -94,6 +94,7 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   initialUiState?: ThreadBodyUiStateOverrides;
   rightPanelComposerOverlayEnabled?: boolean;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
+  turnDiffHoverPreviewDisabled?: boolean;
   summaryPanelMounted?: boolean;
   summaryPanelOpen?: boolean;
   summaryPanelHideImmediately?: boolean;
@@ -156,6 +157,7 @@ function ConnectedThreadStageBody({
   contentShiftX,
   footer,
   initialUiState,
+  turnDiffHoverPreviewDisabled = false,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
@@ -164,6 +166,7 @@ function ConnectedThreadStageBody({
   contentShiftX?: number;
   footer?: ReactNode;
   initialUiState?: ThreadBodyUiStateOverrides;
+  turnDiffHoverPreviewDisabled?: boolean;
 }) {
   const turns = useConversationTurns(activeThreadId);
   const conversationSnapshot = useConversation(activeThreadId);
@@ -256,6 +259,7 @@ function ConnectedThreadStageBody({
       contentShiftX={contentShiftX}
       footer={footer}
       initialUiState={initialUiState}
+      turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );
 }
@@ -269,6 +273,7 @@ function ConnectedThreadStageFooter({
   variant = "thread",
   rightPanelComposerOverlayEnabled = false,
   rightPanelComposerOverlayTarget = null,
+  turnDiffHoverPreviewDisabled = false,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
@@ -278,6 +283,7 @@ function ConnectedThreadStageFooter({
   variant?: "thread" | "newThreadHome";
   rightPanelComposerOverlayEnabled?: boolean;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
+  turnDiffHoverPreviewDisabled?: boolean;
 }) {
   const turns = useConversationTurns(activeThreadId);
   const conversationSnapshot = useConversation(activeThreadId);
@@ -494,6 +500,7 @@ function ConnectedThreadStageFooter({
         enabled: rightPanelComposerOverlayEnabled,
         target: rightPanelComposerOverlayTarget,
       }}
+      turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );
 }
@@ -531,6 +538,7 @@ export function ConnectedThreadStage({
   initialUiState,
   rightPanelComposerOverlayEnabled = false,
   rightPanelComposerOverlayTarget = null,
+  turnDiffHoverPreviewDisabled = false,
   summaryPanelMounted = false,
   summaryPanelOpen = false,
   summaryPanelHideImmediately = false,
@@ -600,6 +608,7 @@ export function ConnectedThreadStage({
             actions={actions}
             onErrorMessage={setErrorMessage}
             initialUiState={initialUiState}
+            turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
           />
         ) : null}
         footer={(
@@ -612,6 +621,7 @@ export function ConnectedThreadStage({
             variant="newThreadHome"
             rightPanelComposerOverlayEnabled={false}
             rightPanelComposerOverlayTarget={null}
+            turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
           />
         )}
         floatingContent={(
@@ -660,9 +670,11 @@ export function ConnectedThreadStage({
                 onErrorMessage={setErrorMessage}
                 rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled && !isSideChat}
                 rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
+                turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
               />
             )}
             initialUiState={initialUiState}
+            turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
           />
         )}
         floatingContent={(

@@ -7,10 +7,32 @@ import {
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../../test/dom";
-import type { CodexTranscriptEntry } from "../../../../lib/types";
+import type { CodexTranscriptEntry, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import { TurnDiffSurface, turnDiffSurfaceTestHelpers } from "./turn-diff-surface";
 
-function buildTurnDiffEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
+function diffForPath(path: string, oldText = "old", newText = "new"): string {
+  return [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    "@@ -1 +1 @@",
+    `-${oldText}`,
+    `+${newText}`,
+  ].join("\n");
+}
+
+function multiFileDiff(count: number): string {
+  return Array.from({ length: count }, (_, index) => {
+    const number = index + 1;
+    return diffForPath(`src/file-${number}.ts`, `old-${number}`, `new-${number}`);
+  }).join("\n");
+}
+
+function buildTurnDiffEntry(input?: {
+  unifiedDiff?: string;
+  rawItem?: Record<string, unknown>;
+  entry?: Partial<CodexTranscriptEntry>;
+}): CodexTranscriptEntry {
   return {
     threadId: "thread-1",
     turnId: "turn-1",
@@ -23,58 +45,18 @@ function buildTurnDiffEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTra
     rawItem: {
       type: "turn-diff",
       cwd: "/tmp/project",
-      unifiedDiff: [
-        "--- a/src/one.ts",
-        "+++ b/src/one.ts",
-        "@@ -1 +1 @@",
-        "-old",
-        "+new",
-        "--- a/src/two.ts",
-        "+++ b/src/two.ts",
-        "@@ -1 +1 @@",
-        "-old2",
-        "+new2",
-      ].join("\n"),
+      unifiedDiff: input?.unifiedDiff ?? multiFileDiff(2),
+      ...input?.rawItem,
     },
     createdAt: 1,
     updatedAt: 1,
-    ...overrides,
+    ...input?.entry,
   };
 }
 
-function buildSpanHeavyTurnDiffEntry(): CodexTranscriptEntry {
-  return buildTurnDiffEntry({
-    rawItem: {
-      type: "turn-diff",
-      cwd: "/tmp/project",
-      unifiedDiff: [
-        "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-        "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-        "@@ -3,11 +3,12 @@",
-        " import { LocalConversationFooter } from \"./local-conversation-footer\";",
-        " import { ThreadStageHeader } from \"./local-conversation-stage-header\";",
-        " import { LocalConversationThreadBody } from \"./local-conversation-thread-body\";",
-        "+import { StoryShell } from \"./thread-stage-dev-story\";",
-        " ",
-        " export function LocalConversationStageScreen({ model, actions, initialUiState }: ThreadStageScreenProps) {",
-        "   const [errorMessage, setErrorMessage] = useState<string | null>(null);",
-        " ",
-        "   return (",
-        "-    <div className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
-        "+    <StoryShell className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
-        "       <ThreadStageHeader model={model} actions={actions} onErrorMessage={setErrorMessage} />",
-        "       <LocalConversationThreadBody",
-        "@@ -22,6 +23,6 @@",
-        "         errorMessage={errorMessage}",
-        "         onErrorMessage={setErrorMessage}",
-        "       />",
-        "-    </div>",
-        "+    </StoryShell>",
-        "   );",
-        " }",
-      ].join("\n"),
-    },
-  });
+function findButtonByText(container: HTMLElement, text: string): HTMLButtonElement | null {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+    .find((button) => button.textContent?.includes(text)) ?? null;
 }
 
 describe("TurnDiffSurface", () => {
@@ -87,63 +69,181 @@ describe("TurnDiffSurface", () => {
     });
   });
 
-  test("renders a Codex-style edited-files card with collapsed per-file rows", () => {
+  test("renders the completed edited-files card collapsed to three rows", () => {
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
-          item={buildTurnDiffEntry()}
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(12) })}
           isInProgress={false}
           threadCwd="/tmp/project"
+          onOpenReview={() => undefined}
         />
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("Edited 2 files"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("+2"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("-2"))).toBeTrue();
-    expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(2);
+    expect(Boolean(container.textContent?.includes("Edited 12 files"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("+12"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("-12"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("src/file-1.ts"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("src/file-3.ts"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("src/file-4.ts"))).toBeFalse();
+    expect(Boolean(container.textContent?.includes("Show 9 more files"))).toBeTrue();
+    expect(Boolean(container.querySelector('button[aria-label="Review changed files"]'))).toBeTrue();
   });
 
-  test("opens file rows inline and keeps filename clicks from toggling the row", async () => {
-    const rows = turnDiffSurfaceTestHelpers.buildTurnDiffRows(buildTurnDiffEntry(), "/tmp/project", undefined);
-    expect(rows.length).toBe(2);
-    expect(rows[0]?.openPath ?? null).toBe("/tmp/project/src/one.ts");
-    expect(rows[0]?.openLine ?? null).toBe(1);
-
+  test("expands and collapses the file list disclosure without per-file accordions", async () => {
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
-          item={buildTurnDiffEntry()}
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(5) })}
           isInProgress={false}
           threadCwd="/tmp/project"
+          onOpenReview={() => undefined}
         />
       </TooltipProvider>,
     );
 
-    const filenameButton = container.querySelector('button[data-state="closed"]');
-    expect(Boolean(filenameButton)).toBeTrue();
-    fireEvent.click(filenameButton as HTMLElement);
+    const disclosure = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
+    expect(Boolean(disclosure)).toBeTrue();
+    fireEvent.click(disclosure as HTMLButtonElement);
     await settleAsyncRender();
 
-    expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(0);
+    expect(Boolean(container.textContent?.includes("src/file-5.ts"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Collapse files"))).toBeTrue();
+    expect(container.querySelectorAll('button[aria-expanded="true"]').length).toBe(1);
 
-    const summaryToggle = container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]')[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
-    fireEvent.click(summaryToggle as HTMLElement);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]') as HTMLButtonElement);
     await settleAsyncRender();
-
-    expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
-    const expandedRow = container.querySelector<HTMLElement>('[role="button"][aria-expanded="true"]')?.parentElement ?? null;
-    expect(Boolean(expandedRow)).toBeTrue();
-    expect(expandedRow?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
-    const diffHost = expandedRow?.querySelector<HTMLElement>("diffs-container.nodex-inline-diff") ?? null;
-    expect(Boolean(diffHost)).toBeTrue();
-    await waitFor(() => {
-      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("new"))).toBeTrue();
-    });
+    expect(Boolean(container.textContent?.includes("src/file-5.ts"))).toBeFalse();
   });
 
-  test("shows the compact streaming banner above the composer without inline rows", () => {
+  test("opens Review from header and focuses a file from row click", () => {
+    const openedTargets: CodexTurnDiffReviewTarget[] = [];
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(3) })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          reviewSource="selected-turn"
+          onOpenReview={(target) => {
+            openedTargets.push(target);
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
+    expect(openedTargets[0]?.source ?? null).toBe("selected-turn");
+    expect(openedTargets[0]?.path === null).toBeTrue();
+
+    fireEvent.click(findButtonByText(container, "src/file-2.ts") as HTMLButtonElement);
+    expect(openedTargets[1]?.path ?? null).toBe("src/file-2.ts");
+  });
+
+  test("cmd-click file rows opens the side panel instead of Review", () => {
+    let reviewOpenCount = 0;
+    let sidePanelPath = "";
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(3) })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          onOpenReview={() => {
+            reviewOpenCount += 1;
+          }}
+          onOpenFileInSidePanel={(target) => {
+            sidePanelPath = target.path;
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(findButtonByText(container, "src/file-1.ts") as HTMLButtonElement, { metaKey: true });
+    expect(reviewOpenCount).toBe(0);
+    expect(sidePanelPath).toBe("/tmp/project/src/file-1.ts");
+  });
+
+  test("suppresses hover preview wiring while preserving row Review clicks", () => {
+    const enabledView = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(3) })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          onOpenReview={() => undefined}
+        />
+      </TooltipProvider>,
+    );
+    const enabledRow = findButtonByText(enabledView.container, "src/file-1.ts") as HTMLButtonElement;
+    expect(enabledRow.getAttribute("data-state") ?? null).toBe("closed");
+    enabledView.unmount();
+
+    let focusedPath: string | null = null;
+    const disabledView = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(3) })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          disableHoverPreview
+          onOpenReview={(target) => {
+            focusedPath = target.path ?? null;
+          }}
+        />
+      </TooltipProvider>,
+    );
+    const disabledRow = findButtonByText(disabledView.container, "src/file-1.ts") as HTMLButtonElement;
+    expect(disabledRow.getAttribute("data-state") ?? null).toBe(null);
+
+    fireEvent.click(disabledRow);
+    expect(focusedPath).toBe("src/file-1.ts");
+  });
+
+  test("renders a single-file card without a multi-file list", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: diffForPath("src/one.ts") })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          onOpenReview={() => undefined}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.textContent?.includes("Edited one.ts"))).toBeTrue();
+    expect(container.querySelectorAll('button[aria-expanded]').length).toBe(0);
+    expect(Boolean(container.textContent?.includes("src/one.ts"))).toBeFalse();
+  });
+
+  test("shows a large-file fallback row in the multi-file list", () => {
+    const largeDiff = [
+      "diff --git a/src/huge.ts b/src/huge.ts",
+      "--- a/src/huge.ts",
+      "+++ b/src/huge.ts",
+      "@@ -1,5001 +1,5001 @@",
+      ...Array.from({ length: 5001 }, (_, index) => `-${index}`),
+      ...Array.from({ length: 5001 }, (_, index) => `+${index}`),
+      diffForPath("src/small.ts"),
+    ].join("\n");
+
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: largeDiff })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          onOpenReview={() => undefined}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.textContent?.includes("Too large to render inline"))).toBeTrue();
+  });
+
+  test("shows the streaming summary with the in-progress state attribute", () => {
     let reviewTargetPatch = "";
     const { container } = render(
       <TooltipProvider>
@@ -159,79 +259,72 @@ describe("TurnDiffSurface", () => {
     );
 
     expect(Boolean(container.textContent?.includes("2 files changed"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("Review"))).toBeTrue();
-    expect(container.querySelectorAll('[role="button"][aria-expanded]').length).toBe(0);
-    const liveSurface = container.querySelector<HTMLElement>('[codex\\.turn_diff\\.state="in_progress"]');
-    expect(Boolean(liveSurface)).toBeTrue();
-    expect(Boolean(liveSurface?.querySelector("[data-diff-stat-digit-place]"))).toBeTrue();
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBeTrue();
 
-    const reviewButton = container.querySelector('button[aria-label="Review changes"]');
-    expect(Boolean(reviewButton)).toBeTrue();
-    fireEvent.click(reviewButton as HTMLElement);
-    expect(reviewTargetPatch.includes("src/one.ts")).toBeTrue();
+    fireEvent.click(container.querySelector("button") as HTMLButtonElement);
+    expect(reviewTargetPatch.includes("src/file-1.ts")).toBeTrue();
   });
 
-  test("derives per-file stats from actual changed lines instead of hunk span counts", () => {
-    const rows = turnDiffSurfaceTestHelpers.buildTurnDiffRows(buildSpanHeavyTurnDiffEntry(), "/tmp/project", undefined);
-    expect(rows.length).toBe(1);
-    expect(rows[0]?.additions ?? null).toBe(3);
-    expect(rows[0]?.deletions ?? null).toBe(2);
+  test("parses Codex-style file stats including quoted paths and duplicate file headers", () => {
+    const stats = turnDiffSurfaceTestHelpers.parseUnifiedDiffFileStats([
+      'diff --git "a/src/weird file.ts" "b/src/weird file.ts"',
+      "--- a/src/weird file.ts",
+      "+++ b/src/weird file.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "diff --git a/src/weird file.ts b/src/weird file.ts",
+      "--- a/src/weird file.ts",
+      "+++ b/src/weird file.ts",
+      "@@ -2 +2 @@",
+      "-old2",
+      "+new2",
+    ].join("\n"));
+
+    expect(stats.length).toBe(1);
+    expect(stats[0]?.path ?? null).toBe("src/weird file.ts");
+    expect(stats[0]?.additions ?? null).toBe(2);
+    expect(stats[0]?.deletions ?? null).toBe(2);
   });
 
-  test("falls back when a file diff is too large to render inline", async () => {
-    const largeDiff = [
-      "--- a/src/huge.ts",
-      "+++ b/src/huge.ts",
-      "@@ -1,5001 +1,5001 @@",
-      ...Array.from({ length: 5001 }, (_, index) => `-${index}`),
-      ...Array.from({ length: 5001 }, (_, index) => `+${index}`),
-    ].join("\n");
+  test("builds patch batches from patchBatches and falls back only when they are absent", () => {
+    const payload = {
+      unifiedDiff: diffForPath("src/fallback.ts"),
+      patchBatches: [{
+        cwd: "/tmp/one",
+        changes: [{
+          path: "src/one.ts",
+          type: "update",
+          unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+          movePath: null,
+        }],
+      }],
+    };
 
-    const { container } = render(
-      <TooltipProvider>
-        <TurnDiffSurface
-          item={buildTurnDiffEntry({
-            rawItem: {
-              type: "turn-diff",
-              cwd: "/tmp/project",
-              unifiedDiff: largeDiff,
-            },
-          })}
-          isInProgress={false}
-          threadCwd="/tmp/project"
-          onOpenReview={() => {}}
-        />
-      </TooltipProvider>,
-    );
+    const batches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches(payload, "/tmp/project");
+    expect(batches.length).toBe(1);
+    expect(batches[0]?.cwd ?? null).toBe("/tmp/one");
+    expect(Boolean(batches[0]?.diff.includes("src/one.ts"))).toBeTrue();
 
-    const summaryToggle = container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]')[0] ?? null;
-    expect(Boolean(summaryToggle)).toBeTrue();
-    fireEvent.click(summaryToggle as HTMLElement);
-    await settleAsyncRender();
+    const fallbackBatches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches({
+      unifiedDiff: diffForPath("src/fallback.ts"),
+    }, "/tmp/project");
+    expect(fallbackBatches.length).toBe(1);
+    expect(fallbackBatches[0]?.cwd ?? null).toBe("/tmp/project");
 
-    expect(Boolean(container.textContent?.includes("Too large to render inline"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("Review changes"))).toBeTrue();
+    const emptyPatchBatches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches({
+      unifiedDiff: diffForPath("src/fallback.ts"),
+      patchBatches: [],
+    }, "/tmp/project");
+    expect(emptyPatchBatches.length).toBe(0);
   });
 
-  test("builds an explicit review target for the selected turn diff", () => {
-    const target = turnDiffSurfaceTestHelpers.buildTurnDiffReviewTarget(
-      buildTurnDiffEntry(),
-      "/tmp/project",
-      undefined,
-    );
-
-    expect(target?.type ?? null).toBe("turnDiff");
-    expect(target?.threadId ?? null).toBe("thread-1");
-    expect(target?.turnId ?? null).toBe("turn-1");
-    expect(target?.cwd ?? null).toBe("/tmp/project");
-  });
-
-  test("toggles revert and reapply when showRevertButton is enabled", async () => {
-    const invokeCalls: Array<[string, unknown]> = [];
+  test("uses undo reverse order, reapply forward order, and thread_diff operation source", async () => {
+    const invokePayloads: unknown[] = [];
     installWindowApi({
       invoke: async (channel: string, payload: unknown) => {
-        invokeCalls.push([channel, payload]);
         if (channel === "git:apply-patch") {
+          invokePayloads.push(payload);
           return {
             status: "success",
             appliedPaths: ["src/one.ts"],
@@ -246,22 +339,17 @@ describe("TurnDiffSurface", () => {
       on: () => () => { },
     });
 
-    const view = render(
+    const { container, baseElement } = render(
       <NodexToastProvider>
         <TooltipProvider>
           <TurnDiffSurface
             item={buildTurnDiffEntry({
               rawItem: {
-                type: "turn-diff",
-                cwd: "/tmp/project",
-                unifiedDiff: [
-                  "--- a/src/one.ts",
-                  "+++ b/src/one.ts",
-                  "@@ -1 +1 @@",
-                  "-old",
-                  "+new",
-                ].join("\n"),
                 showRevertButton: true,
+                patchBatches: [
+                  { cwd: "/tmp/one", changes: [{ path: "src/one.ts", type: "update", unifiedDiff: "@@ -1 +1 @@\n-old\n+new", movePath: null }] },
+                  { cwd: "/tmp/two", changes: [{ path: "src/two.ts", type: "update", unifiedDiff: "@@ -1 +1 @@\n-old\n+new", movePath: null }] },
+                ],
               },
             })}
             isInProgress={false}
@@ -271,20 +359,60 @@ describe("TurnDiffSurface", () => {
       </NodexToastProvider>,
     );
 
-    const undoButton = view.container.querySelector('button[aria-label="Undo"]');
-    expect(Boolean(undoButton)).toBeTrue();
-    fireEvent.click(undoButton as HTMLElement);
-    await settleAsyncRender();
+    fireEvent.click(findButtonByText(container, "Undo") as HTMLButtonElement);
+    await waitFor(() => {
+      expect(Boolean(baseElement.textContent?.includes("Changes reverted"))).toBeTrue();
+    });
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"cwd\":\"/tmp/two\"")).toBeTrue();
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"revert\":true")).toBeTrue();
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"operationSource\":\"thread_diff\"")).toBeTrue();
 
-    expect(invokeCalls[0]?.[0] ?? null).toBe("git:apply-patch");
-    expect(Boolean(String(JSON.stringify(invokeCalls[0]?.[1] ?? {})).includes("\"revert\":true"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Reverted thread changes."))).toBeTrue();
+    fireEvent.click(findButtonByText(container, "Reapply") as HTMLButtonElement);
+    await waitFor(() => {
+      expect(Boolean(baseElement.textContent?.includes("Changes reapplied"))).toBeTrue();
+    });
+    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"cwd\":\"/tmp/one\"")).toBeTrue();
+    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"revert\":false")).toBeTrue();
+  });
 
-    const reapplyButton = view.container.querySelector('button[aria-label="Reapply"]');
-    expect(Boolean(reapplyButton)).toBeTrue();
-    fireEvent.click(reapplyButton as HTMLElement);
-    await settleAsyncRender();
+  test("opens a patch failure dialog with applied skipped and conflicted paths", async () => {
+    installWindowApi({
+      invoke: async (channel: string) => {
+        if (channel === "git:apply-patch") {
+          return {
+            status: "error",
+            appliedPaths: ["src/applied.ts"],
+            skippedPaths: ["src/skipped.ts"],
+            conflictedPaths: ["src/conflict.ts"],
+            errorCode: "applyFailed",
+            errorMessage: "patch failed",
+          };
+        }
+        return true;
+      },
+      on: () => () => { },
+    });
 
-    expect(Boolean(String(JSON.stringify(invokeCalls[1]?.[1] ?? {})).includes("\"revert\":false"))).toBeTrue();
+    const { container, baseElement } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({
+            rawItem: {
+              showRevertButton: true,
+            },
+          })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(findButtonByText(container, "Undo") as HTMLButtonElement);
+    await waitFor(() => {
+      expect(Boolean(baseElement.textContent?.includes("Failed to revert changes"))).toBeTrue();
+    });
+    expect(Boolean(baseElement.textContent?.includes("Applied cleanly (1)"))).toBeTrue();
+    expect(Boolean(baseElement.textContent?.includes("Skipped (1)"))).toBeTrue();
+    expect(Boolean(baseElement.textContent?.includes("Conflicts (1)"))).toBeTrue();
   });
 });

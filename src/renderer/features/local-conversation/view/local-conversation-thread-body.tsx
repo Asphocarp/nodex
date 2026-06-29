@@ -17,6 +17,7 @@ interface LocalConversationThreadBodyProps {
   contentShiftX?: number;
   footer?: ReactNode;
   initialUiState?: ThreadBodyUiStateOverrides;
+  turnDiffHoverPreviewDisabled?: boolean;
 }
 
 function LocalConversationThreadBodyComponent({
@@ -26,6 +27,7 @@ function LocalConversationThreadBodyComponent({
   contentShiftX = 0,
   footer,
   initialUiState,
+  turnDiffHoverPreviewDisabled = false,
 }: LocalConversationThreadBodyProps) {
   return (
     <EnsureLocalConversationThreadScrollController>
@@ -51,6 +53,7 @@ function LocalConversationThreadBodyComponent({
           actions={actions}
           onErrorMessage={onErrorMessage}
           initialUiState={initialUiState}
+          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         />
       </LocalConversationThreadScrollLayout>
     </EnsureLocalConversationThreadScrollController>
@@ -65,6 +68,7 @@ export const LocalConversationThreadBody = memo(
     && left.contentShiftX === right.contentShiftX
     && left.footer === right.footer
     && left.initialUiState === right.initialUiState
+    && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
     && left.model.searchOpenTick === right.model.searchOpenTick
     && left.model.projectWorkspacePath === right.model.projectWorkspacePath
     && left.model.threadStartProgress === right.model.threadStartProgress

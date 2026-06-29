@@ -24,9 +24,11 @@ interface RightPanelComposerLatestTurnPreviewProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
 }
 
 const RIGHT_PANEL_LATEST_TURN_MAX_HEIGHT_BY_STATE: Record<
@@ -47,9 +49,11 @@ export function RightPanelComposerLatestTurnPreview({
   onEditLastUserTurn,
   onForkFromTurn,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled = false,
 }: RightPanelComposerLatestTurnPreviewProps) {
   const workedForLabel = useWorkedForLabelText({
     timing: turn?.workedForTiming ?? null,
@@ -110,10 +114,12 @@ export function RightPanelComposerLatestTurnPreview({
               onEditLastUserTurn={onEditLastUserTurn}
               onForkFromTurn={onForkFromTurn}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
               onOpenSideChat={onOpenSideChat}
               onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               allowInProgressTurnDiff={true}
+              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
             />
           ))}
         </div>

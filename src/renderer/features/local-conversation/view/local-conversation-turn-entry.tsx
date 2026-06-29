@@ -30,9 +30,11 @@ interface LocalConversationTurnEntryProps {
     isLatestTurn: boolean;
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
   onRendered?: (turnId: string) => void;
   latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
 }
@@ -51,9 +53,11 @@ function LocalConversationTurnEntryComponent({
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled = false,
   onRendered,
   latestTurnFollowContentRef,
 }: LocalConversationTurnEntryProps) {
@@ -97,9 +101,11 @@ function LocalConversationTurnEntryComponent({
         onEditLastUserTurn={onEditLastTurnMessage}
         onForkFromTurn={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenSideChat={onOpenSideChat}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         latestTurnFollowContentRef={latestTurnFollowContentRef}
       />
     </div>
@@ -124,9 +130,11 @@ export const LocalConversationTurnEntry = memo(
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
+    && left.onOpenTurnDiffFileInSidePanel === right.onOpenTurnDiffFileInSidePanel
     && left.onOpenSideChat === right.onOpenSideChat
     && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
+    && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
     && left.onRendered === right.onRendered
     && left.latestTurnFollowContentRef === right.latestTurnFollowContentRef,
 );

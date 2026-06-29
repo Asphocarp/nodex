@@ -1659,6 +1659,13 @@ export interface CodexFileChangeView {
   diffs: string[];
 }
 
+export interface CodexTurnDiffPatchBatch {
+  cwd: string | null;
+  changes: unknown[];
+}
+
+export type CodexTurnDiffReviewSource = "last-turn" | "selected-turn";
+
 export interface CodexTurnDiffReviewTarget {
   type: "turnDiff";
   threadId: string;
@@ -1667,6 +1674,9 @@ export interface CodexTurnDiffReviewTarget {
   patch: string;
   cwd: string | null;
   showRevertButton: boolean;
+  path?: string | null;
+  patchBatches?: CodexTurnDiffPatchBatch[];
+  source?: CodexTurnDiffReviewSource;
 }
 
 export interface CodexToolCallView {
@@ -2240,6 +2250,7 @@ export interface GitApplyPatchInput {
   diff: string;
   target: GitApplyPatchTarget;
   revert?: boolean;
+  operationSource?: "thread_diff" | "review";
 }
 
 export interface GitApplyPatchResult {

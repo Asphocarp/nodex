@@ -166,6 +166,8 @@ export type {
   CodexFileChange,
   CodexFileChangeView,
   CodexItemView,
+  CodexTurnDiffPatchBatch,
+  CodexTurnDiffReviewSource,
   CodexTurnDiffReviewTarget,
   CodexApprovalRequest,
   CodexApprovalDecision,

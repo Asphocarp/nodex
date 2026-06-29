@@ -1524,8 +1524,14 @@ export function ReviewDiffPanel({
       return;
     }
 
-    setSource("selected-turn");
-  }, [selectedTurnDiff?.entryId, selectedTurnDiff?.patch]);
+    setSource(selectedTurnDiff.source ?? "selected-turn");
+  }, [selectedTurnDiff?.entryId, selectedTurnDiff?.patch, selectedTurnDiff?.source]);
+
+  useEffect(() => {
+    const path = selectedTurnDiff?.path?.trim() ?? "";
+    if (path.length === 0) return;
+    setSelectedPath(path);
+  }, [selectedTurnDiff?.entryId, selectedTurnDiff?.path, selectedTurnDiff?.source]);
 
   useEffect(() => {
     if (source !== "commit" || commitSha) return;

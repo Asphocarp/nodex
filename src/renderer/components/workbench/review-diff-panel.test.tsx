@@ -375,6 +375,75 @@ describe("review diff panel", () => {
     expect(container.querySelector('[data-file-diff="src/selected.ts"]')).not.toBeNull();
   });
 
+  test("uses selected turn diff source and focuses the target path", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const scrollTargets: string[] = [];
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function scrollIntoViewForTest() {
+      const reviewPath = this.getAttribute("data-review-path");
+      if (reviewPath) scrollTargets.push(reviewPath);
+    };
+
+    try {
+      const { container } = render(
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversation={buildConversation()}
+            projectWorkspacePath="/tmp/codex"
+            selectedTurnDiff={{
+              type: "turnDiff",
+              threadId: "thr_review",
+              turnId: "turn_1",
+              entryId: "turn-diff:turn_1",
+              patch: "diff --git a/src/selected.ts b/src/selected.ts\nindex 1111111..2222222 100644\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-export const selected = false;\n+export const selected = true;\n",
+              cwd: "/tmp/codex",
+              showRevertButton: true,
+              path: "src/selected.ts",
+              source: "selected-turn",
+            }}
+          />
+        </NodexTooltipProvider>,
+      );
+
+      await waitFor(() => {
+        expect(scrollTargets.includes("src/selected.ts")).toBeTrue();
+      });
+      expect(container.querySelector('[data-review-path="src/selected.ts"]')).not.toBeNull();
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  test("keeps last-turn source while focusing a selected path", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+
+    const { container } = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+          selectedTurnDiff={{
+            type: "turnDiff",
+            threadId: "thr_review",
+            turnId: "turn_1",
+            entryId: "turn-diff:turn_1",
+            patch: "diff --git a/src/selected.ts b/src/selected.ts\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-old\n+new\n",
+            cwd: "/tmp/codex",
+            showRevertButton: true,
+            path: "src/example.ts",
+            source: "last-turn",
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container).includes("example.ts")).toBeTrue();
+    expect(textContent(container).includes("selected.ts")).toBeFalse();
+    expect(container.querySelector('[data-review-path="src/example.ts"]')).not.toBeNull();
+  });
+
   test("opens the file tree when requested", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
 

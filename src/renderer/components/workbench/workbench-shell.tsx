@@ -4023,6 +4023,14 @@ export function WorkbenchShell({
     void createManualTab("review", "right");
   }, [createManualTab]);
 
+  const openTurnDiffFileInSidePanel = useCallback<NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>>(async (target) => {
+    await openWorkspaceFileTab({
+      path: target.path,
+      title: target.title,
+      panelId: "right",
+    });
+  }, [openWorkspaceFileTab]);
+
   const forkSessionFromTurn = useCallback(async (input: {
     threadId: string;
     turnId: string;
@@ -4857,6 +4865,8 @@ export function WorkbenchShell({
                 onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
                 onOpenThread={openAttachedThreadSession}
                 onOpenTurnDiffReview={openTurnDiffReview}
+                onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                turnDiffHoverPreviewDisabled={sidePanelOpen}
               />
             );
           }
@@ -4978,6 +4988,7 @@ export function WorkbenchShell({
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
     openTurnDiffReview,
+    openTurnDiffFileInSidePanel,
     pendingReminderOpen,
     projects,
     recreateSideChatPanelTab,
@@ -6092,6 +6103,8 @@ export function WorkbenchShell({
                         onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
                         onOpenThread={openAttachedThreadSession}
                         onOpenTurnDiffReview={openTurnDiffReview}
+                        onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                        turnDiffHoverPreviewDisabled={sidePanelOpen}
                         onForkSessionFromTurn={forkSessionFromTurn}
                         accountActions={codexAccountActions}
                         worktreeStartMode={worktreeStartMode}
@@ -7484,6 +7497,8 @@ function SessionThreadPage({
   onQueueingEnabledChange,
   onOpenThread,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
+  turnDiffHoverPreviewDisabled,
   onForkSessionFromTurn,
   accountActions,
   worktreeStartMode,
@@ -7511,6 +7526,8 @@ function SessionThreadPage({
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+  onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
+  turnDiffHoverPreviewDisabled: boolean;
   onForkSessionFromTurn: NonNullable<ThreadActionControllerInput["onForkSessionFromTurn"]>;
   accountActions: ReturnType<typeof useCodexAccountActions>;
   worktreeStartMode: WorktreeStartMode;
@@ -7592,6 +7609,7 @@ function SessionThreadPage({
     onQueueingEnabledChange,
     onOpenThread,
     onOpenTurnDiffReview,
+    onOpenTurnDiffFileInSidePanel,
     onForkSessionFromTurn,
     currentSessionProjectId: projectId,
     projectId: effectiveProjectId,
@@ -7622,6 +7640,7 @@ function SessionThreadPage({
     onQueueingEnabledChange,
     onOpenThread,
     onOpenTurnDiffReview,
+    onOpenTurnDiffFileInSidePanel,
     onForkSessionFromTurn,
     onRequestProjectPickerOpen,
     onOpenLocalEnvironmentsSettings,
@@ -7693,6 +7712,7 @@ function SessionThreadPage({
         summaryBrowserRows={summaryBrowserRows}
         rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
         rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         actions={actions}
       />
     </div>
@@ -7739,6 +7759,8 @@ function SideChatSessionTab({
   onQueueingEnabledChange,
   onOpenThread,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
+  turnDiffHoverPreviewDisabled,
 }: {
   tab: SideChatPanelTab;
   activeSession: ProjectSession;
@@ -7749,6 +7771,8 @@ function SideChatSessionTab({
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+  onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
+  turnDiffHoverPreviewDisabled: boolean;
 }) {
   const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
   const conversation = useConversation(tab.threadId);
@@ -7774,6 +7798,7 @@ function SideChatSessionTab({
     onQueueingEnabledChange,
     onOpenThread,
     onOpenTurnDiffReview,
+    onOpenTurnDiffFileInSidePanel,
     currentSessionProjectId: activeSession.projectId ?? tab.projectId,
     projectId: tab.projectId,
     onNewThreadProjectChange: () => undefined,
@@ -7792,6 +7817,7 @@ function SideChatSessionTab({
     onOpenMcpAppSidePanel,
     onOpenThread,
     onOpenTurnDiffReview,
+    onOpenTurnDiffFileInSidePanel,
     onQueueingEnabledChange,
     onRefreshSessions,
     selectedCollaborationMode,
@@ -7837,6 +7863,7 @@ function SideChatSessionTab({
           parentThreadId: tab.parentThreadId,
           tabTitle: tab.title,
         }}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         actions={actions}
       />
     </div>

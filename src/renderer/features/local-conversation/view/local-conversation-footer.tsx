@@ -27,6 +27,7 @@ interface LocalConversationFooterProps {
     enabled: boolean;
     target: HTMLElement | null;
   };
+  turnDiffHoverPreviewDisabled?: boolean;
 }
 
 function LocalConversationFooterChrome({
@@ -64,6 +65,7 @@ function LocalConversationFooterComponent({
   onErrorMessage,
   variant = "thread",
   rightPanelComposerOverlay,
+  turnDiffHoverPreviewDisabled = false,
 }: LocalConversationFooterProps) {
   const {
     addScrollListener,
@@ -231,9 +233,11 @@ function LocalConversationFooterComponent({
       onEditLastUserTurn={actions.onEditLastUserTurn}
       onForkFromTurn={actions.onForkFromTurn}
       onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+      onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
       onOpenSideChat={actions.onOpenSideChat}
       onOpenThread={actions.onOpenThread}
       onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+      turnDiffHoverPreviewDisabled={rightPanelOverlayEnabled || turnDiffHoverPreviewDisabled}
     />
   ) : null;
 

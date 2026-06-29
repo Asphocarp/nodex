@@ -19,6 +19,7 @@ export interface ThreadActionControllerInput {
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
   onOpenThread: (threadId: string) => void;
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
   onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
   onForkSessionFromTurn?: (input: {
@@ -189,6 +190,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       await input.onRefreshProjectSessions(projectId);
     },
     onOpenTurnDiffReview: input.onOpenTurnDiffReview,
+    ...(input.onOpenTurnDiffFileInSidePanel ? { onOpenTurnDiffFileInSidePanel: input.onOpenTurnDiffFileInSidePanel } : {}),
     onConsumeComposerIntent: input.codexControl.consumeComposerIntent,
     onOpenThread: input.onOpenThread,
     onCleanBackgroundTerminals: async (threadId) => {

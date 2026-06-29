@@ -49,9 +49,11 @@ interface LocalConversationAboveComposerPortalProps {
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
 }
 
 export function LocalConversationAboveComposerPortal({
@@ -61,9 +63,11 @@ export function LocalConversationAboveComposerPortal({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled = false,
 }: LocalConversationAboveComposerPortalProps) {
   const host = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID);
   if (blocks.length === 0) return null;
@@ -80,10 +84,12 @@ export function LocalConversationAboveComposerPortal({
           projectWorkspacePath={projectWorkspacePath}
           threadCwd={threadCwd}
           onOpenTurnDiffReview={onOpenTurnDiffReview}
+          onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
           onOpenSideChat={onOpenSideChat}
           onOpenThread={onOpenThread}
           onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
           allowInProgressTurnDiff={true}
+          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         />
       ))}
     </div>,

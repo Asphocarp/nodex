@@ -40,10 +40,12 @@ interface ThreadBlockRendererProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   allowInProgressTurnDiff?: boolean;
+  turnDiffHoverPreviewDisabled?: boolean;
 }
 
 export function ThreadBlockRenderer({
@@ -57,10 +59,12 @@ export function ThreadBlockRenderer({
   onEditLastUserTurn,
   onForkFromTurn,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
   allowInProgressTurnDiff = false,
+  turnDiffHoverPreviewDisabled = false,
 }: ThreadBlockRendererProps) {
   if (block.type === "explorationGroup") {
     return (
@@ -95,8 +99,10 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
     );
   }
@@ -110,8 +116,10 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
     );
   }
@@ -125,8 +133,10 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
     );
   }
@@ -158,8 +168,10 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
     );
   }
@@ -181,7 +193,9 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         allowInProgressTurnDiff={allowInProgressTurnDiff}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
     );
   }
@@ -249,10 +263,12 @@ export function ThreadBlockRenderer({
                   onEditLastUserTurn={onEditLastUserTurn}
                   onForkFromTurn={onForkFromTurn}
                   onOpenTurnDiffReview={onOpenTurnDiffReview}
+                  onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
                   onOpenSideChat={onOpenSideChat}
                   onOpenThread={onOpenThread}
                   onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
                   allowInProgressTurnDiff={allowInProgressTurnDiff}
+                  turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
                 />
               ))}
             </div>

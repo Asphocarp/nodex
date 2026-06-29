@@ -13,7 +13,7 @@ import {
   ThreadPendingMcpToolCallsBlock,
 } from "../../blocks/local-conversation-block-leaves";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-view-constants";
-import { TurnDiffSurface } from "../turn-diff-surface";
+import { TurnDiffPatchFailureDialog, TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
 import { DynamicToolCall } from "./dynamic-tool-call";
 import { McpToolCall } from "./mcp-tool-call";
@@ -523,13 +523,32 @@ function buildTurnDiffItem(
       type: "turn-diff",
       cwd: "/workspace/nodex",
       unifiedDiff,
-      patchBatches: [{
-        cwd: "/workspace/nodex",
-        changes: [],
-      }],
       showRevertButton,
     },
   };
+}
+
+function buildStoryDiffFile(path: string, additions: number, deletions: number): string {
+  return [
+    `diff --git a/${path} b/${path}`,
+    "index 1111111..2222222 100644",
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,${Math.max(1, deletions)} +1,${Math.max(1, additions)} @@`,
+    ...Array.from({ length: deletions }, (_, index) => `-export const removed${index} = ${index};`),
+    ...Array.from({ length: additions }, (_, index) => `+export const added${index} = ${index};`),
+  ].join("\n");
+}
+
+function buildDistributedTurnDiff(fileCount: number, additions: number, deletions: number): string {
+  return Array.from({ length: fileCount }, (_, index) => {
+    const addBase = Math.floor(additions / fileCount);
+    const delBase = Math.floor(deletions / fileCount);
+    const fileAdditions = addBase + (index < additions % fileCount ? 1 : 0);
+    const fileDeletions = delBase + (index < deletions % fileCount ? 1 : 0);
+    const suffix = String(index + 1).padStart(2, "0");
+    return buildStoryDiffFile(`src/renderer/feature-${suffix}.tsx`, fileAdditions, fileDeletions);
+  }).join("\n");
 }
 
 const meta = {
@@ -896,6 +915,7 @@ export const TurnDiff: Story = {
           isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
+          onOpenReview={() => undefined}
         />
       </ConversationStorySurface>
     </StorySurface>
@@ -925,6 +945,7 @@ export const TurnDiffWithRevert: Story = {
           isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
+          onOpenReview={() => undefined}
         />
       </ConversationStorySurface>
     </StorySurface>
@@ -934,26 +955,36 @@ export const TurnDiffWithRevert: Story = {
 export const TurnDiffMultiFileCompleted: Story = {
   render: () => (
     <StorySurface
-      title="Turn Diff Multi-File Completed"
-      description="Completed turn-diff payload with patch batches and multiple embedded file rows."
+      title="Turn Diff Edited 12 Files"
+      description="Completed turn-diff payload matching the Codex Electron edited-files fixture: 12 files, three visible rows, and Show 9 more files."
     >
       <ConversationStorySurface>
         <TurnDiffSurface
-          item={buildTurnDiffItem("turn-diff-multi-file", [
-            "--- a/src/one.ts",
-            "+++ b/src/one.ts",
-            "@@ -1 +1 @@",
-            "-console.log('one');",
-            "+console.log('ONE');",
-            "--- a/src/two.ts",
-            "+++ b/src/two.ts",
-            "@@ -1 +1 @@",
-            "-console.log('two');",
-            "+console.log('TWO');",
-          ].join("\n"))}
+          item={buildTurnDiffItem("turn-diff-multi-file", buildDistributedTurnDiff(12, 467, 348))}
           isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
+          onOpenReview={() => undefined}
+          onOpenFileInSidePanel={() => undefined}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const TurnDiffSingleFile: Story = {
+  render: () => (
+    <StorySurface
+      title="Turn Diff Single File"
+      description="Single-file turn-diff card uses the basename in the title and omits the multi-file list."
+    >
+      <ConversationStorySurface>
+        <TurnDiffSurface
+          item={buildTurnDiffItem("turn-diff-single-file", buildStoryDiffFile("src/renderer/single-file.tsx", 4, 2))}
+          isInProgress={false}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+          onOpenReview={() => undefined}
         />
       </ConversationStorySurface>
     </StorySurface>
@@ -969,14 +1000,62 @@ export const TurnDiffLargeDiffFallback: Story = {
       <ConversationStorySurface>
         <TurnDiffSurface
           item={buildTurnDiffItem("turn-diff-large", [
+            "diff --git a/src/large.ts b/src/large.ts",
             "--- a/src/large.ts",
             "+++ b/src/large.ts",
             "@@ -1,5200 +1,5200 @@",
             ...Array.from({ length: 5201 }, (_, index) => `+export const value${index} = ${index};`),
+            buildStoryDiffFile("src/small.ts", 2, 1),
           ].join("\n"))}
           isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
+          onOpenReview={() => undefined}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const TurnDiffPatchFailure: Story = {
+  render: () => (
+    <StorySurface
+      title="Turn Diff Patch Failure"
+      description="Failure dialog shown when Undo/Reapply cannot apply every path cleanly."
+    >
+      <ConversationStorySurface>
+        <TurnDiffPatchFailureDialog
+          failure={{
+            action: "undo",
+            result: {
+              status: "error",
+              appliedPaths: ["src/applied.ts"],
+              skippedPaths: ["src/skipped.ts"],
+              conflictedPaths: ["src/conflict.ts"],
+              errorCode: "applyFailed",
+              errorMessage: "patch failed",
+            },
+          }}
+          onClose={() => undefined}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const TurnDiffInProgress: Story = {
+  render: () => (
+    <StorySurface
+      title="Turn Diff In Progress"
+      description="Streaming turn-diff summary used above the composer while Codex is still working."
+    >
+      <ConversationStorySurface>
+        <TurnDiffSurface
+          item={buildTurnDiffItem("turn-diff-in-progress", buildDistributedTurnDiff(4, 34, 18))}
+          isInProgress
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+          onOpenReview={() => undefined}
         />
       </ConversationStorySurface>
     </StorySurface>

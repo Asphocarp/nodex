@@ -292,6 +292,7 @@ interface LocalConversationThreadBodyOwnerProps {
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
   initialUiState?: ThreadBodyUiStateOverrides;
+  turnDiffHoverPreviewDisabled?: boolean;
 }
 
 export function LocalConversationThreadBodyOwner({
@@ -311,6 +312,7 @@ export function LocalConversationThreadBodyOwner({
   actions,
   onErrorMessage,
   initialUiState,
+  turnDiffHoverPreviewDisabled = false,
 }: LocalConversationThreadBodyOwnerProps) {
   const {
     getLastScrollDistanceFromBottomPx,
@@ -807,9 +809,11 @@ export function LocalConversationThreadBodyOwner({
           projectWorkspacePath={projectWorkspacePath}
           threadCwd={cwd}
           onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+          onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
           onOpenSideChat={actions.onOpenSideChat}
           onOpenThread={actions.onOpenThread}
           onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         />
       ) : null}
       <div className="flex flex-col">
@@ -893,9 +897,11 @@ export function LocalConversationThreadBodyOwner({
                 onEditLastTurnMessage={handleEditLastUserTurn}
                 onForkTurnMessage={handleForkFromTurn}
                 onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+                onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
                 onOpenSideChat={actions.onOpenSideChat}
                 onOpenThread={actions.onOpenThread}
                 onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+                turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
                 initialScrollOffset={initialRestoreSnapshot?.distanceFromBottomPx ?? 0}
                 initialRestoreState={initialRestoreSnapshot?.virtualizedTurnList ?? null}
                 initialLatestTurnRestoreState={initialRestoreSnapshot?.latestTurn ?? null}

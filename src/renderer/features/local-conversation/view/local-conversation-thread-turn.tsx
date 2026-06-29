@@ -28,9 +28,11 @@ interface ThreadTurnProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
   latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
 }
 
@@ -103,9 +105,11 @@ export function ThreadTurn({
   onEditLastUserTurn,
   onForkFromTurn,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled = false,
   latestTurnFollowContentRef,
 }: ThreadTurnProps) {
   const shouldAllowAgentBodyCollapse =
@@ -133,9 +137,11 @@ export function ThreadTurn({
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
+      onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
       onOpenSideChat={onOpenSideChat}
       onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+      turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );
 
@@ -149,9 +155,11 @@ export function ThreadTurn({
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
+      onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
       onOpenSideChat={onOpenSideChat}
       onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+      turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );
 

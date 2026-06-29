@@ -1,7 +1,28 @@
-import { parsePatchFiles } from "@pierre/diffs";
-import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { motion } from "motion/react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
+import {
+  ChevronDownIcon,
+  CodexContentSearchDiffIcon,
+  CodexShortcutResetIcon,
+  ReviewRefreshIcon,
+} from "@/components/shared/icons";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogDescription,
+  NodexDialogFooter,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -9,206 +30,65 @@ import {
   getNodexDiffOptions,
 } from "../../../../lib/diff-presentation";
 import { resolveInvokeTransport } from "../../../../lib/renderer-transport";
-import { useFileLinkOpener } from "../../../../lib/use-file-link-opener";
 import { useTheme } from "../../../../lib/use-theme";
-import type { CodexTranscriptEntry, CodexTurnDiffReviewTarget, GitApplyPatchResult } from "../../../../lib/types";
+import type {
+  CodexTranscriptEntry,
+  CodexTurnDiffReviewSource,
+  CodexTurnDiffReviewTarget,
+  GitApplyPatchResult,
+} from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
-import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
-import { useMeasuredElementHeight } from "./use-measured-element-height";
 import {
-  Chevron,
-  AnimatedDiffStats,
-  DiffStats,
-  FilenameButton,
-  normalizePathSegments,
-  resolveOpenPath,
-  stripPatchPrefix,
-  summarizeDiff,
-  summarizeFileDiffMetadata,
-} from "./tools/diff-file-shared";
+  TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT,
+  buildTurnDiffApplyBatches,
+  buildTurnDiffReviewTarget,
+  buildTurnDiffRows,
+  extractTurnDiffPayload,
+  getTurnDiffDisclosureLabel,
+  getTurnDiffTitle,
+  getVisibleTurnDiffRows,
+  isLargeTurnDiffFile,
+  normalizeTurnDiffBasePath,
+  parseUnifiedDiffFileStats,
+  summarizeTurnDiffRows,
+  type TurnDiffRowModel,
+  type TurnDiffSummary,
+} from "./turn-diff-model";
+import { DiffStats } from "./tools/diff-file-shared";
 import { InlineFileDiff } from "./tools/inline-file-diff";
 
-const TURN_DIFF_MAX_INLINE_LINES = 5000;
+export type TurnDiffPatchAction = "undo" | "reapply";
 
-interface TurnDiffPayload {
-  unifiedDiff: string;
-  cwd?: string;
-  showRevertButton?: boolean;
+export interface TurnDiffPatchFailure {
+  action: TurnDiffPatchAction;
+  result: GitApplyPatchResult;
 }
 
-interface TurnDiffSummary {
-  fileCount: number;
-  additions: number;
-  deletions: number;
+export interface TurnDiffFileSidePanelTarget {
+  path: string;
+  title: string;
 }
 
-interface TurnDiffRowModel {
-  key: string;
-  displayPath: string | null;
-  openPath: string | null;
-  openLine?: number;
-  fileDiff: FileDiffMetadata | null;
-  additions: number;
-  deletions: number;
-  isTooLarge: boolean;
-}
+const TURN_DIFF_PREVIEW_TOOLTIP_WIDTH =
+  "clamp(0px, calc(var(--radix-tooltip-trigger-width, 0px) - 64px), var(--radix-tooltip-content-available-width, 100vw))";
 
-function extractTurnDiffPayload(item: CodexTranscriptEntry): TurnDiffPayload | null {
-  const rawItem = item.rawItem;
-  if (typeof rawItem !== "object" || rawItem === null) return null;
+const TURN_DIFF_PREVIEW_TOOLTIP_MAX_HEIGHT =
+  "min(420px, var(--radix-tooltip-content-available-height, 420px), calc(100vh - 16px))";
 
-  const unifiedDiff = (rawItem as { unifiedDiff?: unknown }).unifiedDiff;
-  if (typeof unifiedDiff !== "string" || unifiedDiff.trim().length === 0) return null;
-
-  const cwd = (rawItem as { cwd?: unknown }).cwd;
-  const showRevertButton = (rawItem as { showRevertButton?: unknown }).showRevertButton;
-
-  return {
-    unifiedDiff,
-    cwd: typeof cwd === "string" && cwd.trim().length > 0 ? cwd : undefined,
-    showRevertButton: showRevertButton === true,
-  };
-}
-
-function normalizeBasePath(
-  payload: TurnDiffPayload | null,
-  threadCwd: string | undefined,
-  projectWorkspacePath: string | undefined,
-): string | null {
-  const basePath = payload?.cwd ?? threadCwd ?? projectWorkspacePath ?? null;
-  if (!basePath) return null;
-  const normalizedPath = normalizePathSegments(basePath);
-  return normalizedPath.length > 0 ? normalizedPath : null;
-}
-
-function buildTurnDiffReviewTarget(
-  item: CodexTranscriptEntry,
-  threadCwd: string | undefined,
-  projectWorkspacePath: string | undefined,
-): CodexTurnDiffReviewTarget | null {
-  const payload = extractTurnDiffPayload(item);
-  if (!payload) return null;
-
-  return {
-    type: "turnDiff",
-    threadId: item.threadId,
-    turnId: item.turnId,
-    entryId: item.entryId ?? item.itemId,
-    patch: payload.unifiedDiff,
-    cwd: normalizeBasePath(payload, threadCwd, projectWorkspacePath),
-    showRevertButton: payload.showRevertButton === true,
-  };
-}
-
-function resolveOpenLine(fileDiff: FileDiffMetadata | null): number | undefined {
-  const firstHunk = fileDiff?.hunks[0];
-  if (!firstHunk) return undefined;
-
-  const line = firstHunk.additionStart > 0 ? firstHunk.additionStart : firstHunk.deletionStart;
-  return line > 0 ? line : 1;
-}
-
-function exceedsInlineThreshold(fileDiff: FileDiffMetadata): boolean {
-  const summary = summarizeFileDiffMetadata(fileDiff);
-  return Math.max(
-    fileDiff.unifiedLineCount,
-    fileDiff.splitLineCount,
-    summary.additions + summary.deletions,
-  ) > TURN_DIFF_MAX_INLINE_LINES;
-}
-
-function buildTurnDiffRows(
-  item: CodexTranscriptEntry,
-  threadCwd: string | undefined,
-  projectWorkspacePath: string | undefined,
-): TurnDiffRowModel[] {
-  const payload = extractTurnDiffPayload(item);
-  if (!payload) return [];
-
-  const basePath = normalizeBasePath(payload, threadCwd, projectWorkspacePath);
-  let parsedFiles: FileDiffMetadata[] = [];
-
-  try {
-    parsedFiles = parsePatchFiles(payload.unifiedDiff).flatMap((patch) => patch.files);
-  } catch {
-    parsedFiles = [];
-  }
-
-  if (parsedFiles.length === 0) {
-    const summary = summarizeDiff(payload.unifiedDiff);
-    return [{
-      key: item.entryId ?? item.itemId,
-      displayPath: null,
-      openPath: null,
-      fileDiff: null,
-      additions: summary.additions,
-      deletions: summary.deletions,
-      isTooLarge: false,
-    }];
-  }
-
-  return parsedFiles.map((fileDiff, index) => {
-    const displayPath = stripPatchPrefix(fileDiff.name ?? fileDiff.prevName ?? `file-${index + 1}.txt`);
-    const summary = summarizeFileDiffMetadata(fileDiff);
-
-    return {
-      key: `${item.entryId ?? item.itemId}:${displayPath}:${index}`,
-      displayPath,
-      openPath: resolveOpenPath(displayPath, basePath),
-      openLine: resolveOpenLine(fileDiff),
-      fileDiff,
-      additions: summary.additions,
-      deletions: summary.deletions,
-      isTooLarge: exceedsInlineThreshold(fileDiff),
-    };
-  });
-}
-
-function summarizeRows(rows: TurnDiffRowModel[], fallbackDiff: string | undefined): TurnDiffSummary {
-  if (rows.length === 0) {
-    const fallbackSummary = summarizeDiff(fallbackDiff);
-    return {
-      fileCount: 0,
-      additions: fallbackSummary.additions,
-      deletions: fallbackSummary.deletions,
-    };
-  }
-
-  return rows.reduce(
-    (summary, row) => ({
-      fileCount: summary.fileCount + 1,
-      additions: summary.additions + row.additions,
-      deletions: summary.deletions + row.deletions,
-    }),
-    { fileCount: 0, additions: 0, deletions: 0 },
-  );
-}
-
-function TurnDiffEditedLabel({
-  fileCount,
-  firstPath,
-}: {
-  fileCount: number;
-  firstPath: string | null;
-}) {
-  const fileName = firstPath?.split("/").filter(Boolean).at(-1) ?? null;
-  const label =
-    fileCount <= 0
-      ? "Edited files"
-      : fileCount === 1 && fileName
-        ? `Edited ${fileName}`
-        : `Edited ${fileCount} ${fileCount === 1 ? "file" : "files"}`;
-
-  return (
-    <span className="text-size-chat min-w-0 truncate py-2 text-token-input-foreground">
-      {label}
-    </span>
-  );
-}
+const TURN_DIFF_PREVIEW_TOOLTIP_STYLE: CSSProperties = {
+  width: TURN_DIFF_PREVIEW_TOOLTIP_WIDTH,
+  maxWidth: TURN_DIFF_PREVIEW_TOOLTIP_WIDTH,
+  maxHeight: TURN_DIFF_PREVIEW_TOOLTIP_MAX_HEIGHT,
+};
 
 function ReviewChangesIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="icon-2xs translate-y-[1px] text-token-input-placeholder-foreground transition-colors group-hover:text-token-foreground" fill="none" aria-hidden="true">
+    <svg
+      viewBox="0 0 20 20"
+      className="icon-2xs translate-y-[1px] text-token-input-placeholder-foreground transition-colors group-hover:text-token-foreground"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M14.3349 13.3301V6.60645L5.47065 15.4707C5.21095 15.7304 4.78895 15.7304 4.52925 15.4707C4.26955 15.211 4.26955 14.789 4.52925 14.5293L13.3935 5.66504H6.66011C6.29284 5.66504 5.99507 5.36727 5.99507 5C5.99507 4.63273 6.29284 4.33496 6.66011 4.33496H14.9999L15.1337 4.34863C15.4369 4.41057 15.665 4.67857 15.665 5V13.3301C15.6649 13.6973 15.3672 13.9951 14.9999 13.9951C14.6327 13.9951 14.335 13.6973 14.3349 13.3301Z"
         fill="currentColor"
@@ -217,52 +97,169 @@ function ReviewChangesIcon() {
   );
 }
 
-function turnDiffActionButtonClassName(tone: "default" | "destructive" = "default"): string {
-  return cn(
-    "group text-size-chat inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 text-token-input-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-    tone === "destructive" ? "hover:bg-token-charts-red/10" : "hover:bg-token-foreground/5",
-  );
-}
-
-function TurnDiffActionButton({
+function TurnDiffToolbarButton({
   label,
+  icon,
+  disabled,
   onClick,
-  tone = "default",
-  disabled = false,
 }: {
   label: string;
-  onClick: () => void;
-  tone?: "default" | "destructive";
+  icon?: "undo" | "reapply";
   disabled?: boolean;
+  onClick: () => void;
 }) {
+  const Icon = icon === "undo"
+    ? CodexShortcutResetIcon
+    : icon === "reapply"
+      ? ReviewRefreshIcon
+      : null;
+
   return (
     <button
       type="button"
-      className={turnDiffActionButtonClassName(tone)}
-      onClick={onClick}
-      aria-label={label}
+      className="text-size-chat inline-flex h-7 cursor-interaction items-center gap-1 rounded-md border border-token-border bg-token-main-surface-primary px-2 text-token-foreground transition-colors hover:bg-token-list-hover-background focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
       disabled={disabled}
+      onClick={onClick}
     >
+      {Icon ? <Icon className="icon-xs" /> : null}
       <span>{label}</span>
-      <ReviewChangesIcon />
     </button>
   );
 }
 
-function TurnDiffLiveReviewButton({
-  onClick,
+function TurnDiffPathLabel({ path }: { path: string }) {
+  const slashIndex = path.lastIndexOf("/");
+  const directory = slashIndex >= 0 ? path.slice(0, slashIndex + 1) : "";
+  const base = slashIndex >= 0 ? path.slice(slashIndex + 1) : path;
+
+  return (
+    <span className="flex min-w-0 flex-1 items-center">
+      <span className="sr-only">{path}</span>
+      <span className="flex min-w-0 flex-1 items-center" aria-hidden="true">
+        {directory.length > 0 ? (
+          <span className="min-w-0 truncate text-token-description-foreground">{directory}</span>
+        ) : null}
+        <span className="max-w-full shrink-0 truncate text-token-foreground">{base}</span>
+      </span>
+    </span>
+  );
+}
+
+function TurnDiffPreview({
+  row,
+  diffHostClassName,
+  diffHostStyle,
+  diffOptions,
 }: {
-  onClick: () => void;
+  row: TurnDiffRowModel;
+  diffHostClassName: string;
+  diffHostStyle: CSSProperties;
+  diffOptions: ReturnType<typeof getNodexDiffOptions>;
+}) {
+  if (!row.fileDiff || row.isTooLarge) return null;
+
+  return (
+    <div className="border-token-border bg-token-dropdown-background pointer-events-auto flex min-h-0 max-h-full w-full flex-col overflow-hidden rounded-lg border shadow-xl focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset">
+      <div className="text-size-chat flex h-9 w-full shrink-0 items-center gap-2 border-b border-token-border bg-token-dropdown-background px-4 py-[var(--turn-diff-row-padding-y)] text-left extension:bg-token-input-background">
+        <TurnDiffPathLabel path={row.displayPath} />
+        <DiffStats additions={row.additions} deletions={row.deletions} className="ml-auto shrink-0 text-size-chat" />
+      </div>
+      <div className="max-h-96 min-h-0 flex-1 overflow-y-auto [contain:layout_paint]">
+        <InlineFileDiff
+          fileDiff={row.fileDiff}
+          className={diffHostClassName}
+          style={diffHostStyle}
+          options={diffOptions}
+          displayPath={row.displayPath}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TurnDiffFileRow({
+  row,
+  onOpenReview,
+  onOpenFileInSidePanel,
+  disableHoverPreview,
+  diffHostClassName,
+  diffHostStyle,
+  diffOptions,
+}: {
+  row: TurnDiffRowModel;
+  onOpenReview: (() => void) | null;
+  onOpenFileInSidePanel?: (target: TurnDiffFileSidePanelTarget) => void | Promise<void>;
+  disableHoverPreview?: boolean;
+  diffHostClassName: string;
+  diffHostStyle: CSSProperties;
+  diffOptions: ReturnType<typeof getNodexDiffOptions>;
+}) {
+  const button = (
+    <button
+      type="button"
+      className="text-size-chat flex h-9 w-full cursor-interaction items-center gap-2 bg-token-main-surface-primary/70 px-[var(--thread-resource-card-row-padding-x)] py-[var(--turn-diff-row-padding-y)] text-left hover:bg-token-list-hover-background/60 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset extension:bg-token-input-background/70 extension:hover:bg-token-list-hover-background/60"
+      onClick={(event: MouseEvent<HTMLButtonElement>) => {
+        if ((event.metaKey || event.ctrlKey) && row.openPath && onOpenFileInSidePanel) {
+          void onOpenFileInSidePanel({ path: row.openPath, title: row.fileName });
+          return;
+        }
+        onOpenReview?.();
+      }}
+    >
+      <TurnDiffPathLabel path={row.displayPath} />
+      {row.isTooLarge ? (
+        <span className="text-token-description-foreground/80 shrink-0 max-[720px]:hidden">
+          Too large to render inline
+        </span>
+      ) : null}
+      <DiffStats additions={row.additions} deletions={row.deletions} className="ml-auto shrink-0 text-size-chat" />
+    </button>
+  );
+
+  return (
+    <NodexTooltip
+      delayDuration={800}
+      disabled={disableHoverPreview || !row.fileDiff || row.isTooLarge}
+      surface="rich"
+      interactive
+      side="top"
+      align="center"
+      sideOffset={0}
+      tooltipClassName="flex overflow-visible p-0"
+      tooltipBodyClassName="h-full w-full"
+      style={TURN_DIFF_PREVIEW_TOOLTIP_STYLE}
+      tooltipContent={(
+        <TurnDiffPreview
+          row={row}
+          diffHostClassName={diffHostClassName}
+          diffHostStyle={diffHostStyle}
+          diffOptions={diffOptions}
+        />
+      )}
+    >
+      {button}
+    </NodexTooltip>
+  );
+}
+
+function TurnDiffDisclosureRow({
+  expanded,
+  fileCount,
+  onToggle,
+}: {
+  expanded: boolean;
+  fileCount: number;
+  onToggle: () => void;
 }) {
   return (
     <button
       type="button"
-      className="group text-size-chat flex shrink-0 cursor-interaction items-center gap-1 text-token-input-foreground focus-visible:outline-none"
-      onClick={onClick}
-      aria-label="Review changes"
+      className="text-size-chat flex h-9 w-full cursor-interaction items-center px-[var(--thread-resource-card-row-padding-x)] py-[var(--turn-diff-row-padding-y)] text-left text-token-text-primary hover:bg-token-list-hover-background/30 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset"
+      aria-expanded={expanded}
+      onClick={onToggle}
     >
-      <span className="hidden @[320px]:inline">Review changes</span>
-      <span className="@[320px]:hidden">Review</span>
+      <span className="min-w-0 truncate">{getTurnDiffDisclosureLabel(fileCount, expanded)}</span>
+      <ChevronDownIcon className={cn("ml-auto icon-2xs text-token-description-foreground transition-transform duration-150", expanded && "rotate-180")} />
     </button>
   );
 }
@@ -276,139 +273,107 @@ function TurnDiffBanner({
 }) {
   return (
     <div
-      className="bg-token-input-background/70 text-token-foreground border-token-border/80 relative overflow-clip border-x border-t backdrop-blur-sm transition-colors first:rounded-t-2xl"
+      className="relative overflow-hidden"
       {...{ "codex.turn_diff.state": "in_progress" }}
     >
-      <div className="flex flex-col">
-        <div className="flex w-full items-center justify-between gap-1.5 py-1.5 pr-2 pl-3 text-sm font-normal">
-          <div className="text-size-chat @container flex w-full min-w-0 items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-1">
-              <span className="block min-w-0 truncate text-token-input-placeholder-foreground">
-                {summary.fileCount <= 0
-                  ? "Files changed"
-                  : `${summary.fileCount} ${summary.fileCount === 1 ? "file" : "files"} changed`}
-              </span>
-              <AnimatedDiffStats additions={summary.additions} deletions={summary.deletions} />
-            </div>
-            {onReview ? (
-              <div className="flex min-w-fit shrink-0 items-center gap-1.5 select-none sm:ml-auto">
-                <TurnDiffLiveReviewButton onClick={onReview} />
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        className="text-size-chat flex min-w-0 items-center gap-1.5 px-3 py-1.5 text-token-description-foreground"
+      >
+        <button
+          type="button"
+          className="inline-flex min-w-0 cursor-interaction items-center gap-1.5 rounded-md focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none disabled:cursor-default"
+          disabled={!onReview}
+          onClick={() => onReview?.()}
+        >
+          <span className="min-w-0 truncate">
+            {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
+          </span>
+          {summary.additions > 0 || summary.deletions > 0 ? (
+            <>
+              <span className="text-token-description-foreground/60" aria-hidden="true">•</span>
+              <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+            </>
+          ) : null}
+        </button>
+      </motion.div>
     </div>
   );
 }
 
-function TurnDiffEmbeddedRow({
-  row,
-  openerId,
-  diffHostClassName,
-  diffHostStyle,
-  diffOptions,
-  onReview,
+export function TurnDiffPatchFailureDialog({
+  failure,
+  onClose,
 }: {
-  row: TurnDiffRowModel;
-  openerId: string;
-  diffHostClassName: string;
-  diffHostStyle: CSSProperties;
-  diffOptions: ReturnType<typeof getNodexDiffOptions>;
-  onReview: (() => void) | null;
+  failure: TurnDiffPatchFailure | null;
+  onClose: () => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
-  const openFileTransport = useMemo(() => resolveInvokeTransport("shell:open-file-link"), []);
+  if (failure === null) return null;
 
-  function openFile() {
-    if (!row.openPath) return;
-    void openFileTransport.invoke("shell:open-file-link", {
-      path: row.openPath,
-      ...(row.openLine ? { line: row.openLine } : {}),
-    }, openerId);
-  }
+  const result = failure?.result ?? null;
+  const action = failure?.action ?? "undo";
+  const isUndo = action === "undo";
+  const notGitRepo = result?.errorCode === "notGitRepo";
+  const appliedCount = result?.appliedPaths.length ?? 0;
+  const skippedCount = result?.skippedPaths.length ?? 0;
+  const conflictedCount = result?.conflictedPaths.length ?? 0;
+
+  const title = notGitRepo
+    ? (isUndo ? "Undo requires a Git repository" : "Reapply requires a Git repository")
+    : result?.status === "partial-success"
+      ? (isUndo ? "Some changes reverted" : "Some changes reapplied")
+      : appliedCount === 0 && skippedCount === 0 && conflictedCount === 0
+        ? (isUndo ? "No changes reverted" : "No changes reapplied")
+        : (isUndo ? "Failed to revert changes" : "Failed to reapply changes");
+  const description = notGitRepo
+    ? "This action only works when running in a Git repository."
+    : `There were issues ${isUndo ? "reverting" : "reapplying"} some files.`;
 
   return (
-    <div
-      className="group/file-diff flex flex-col overflow-clip bg-token-foreground/5"
-      style={{
-        "--codex-diffs-surface":
-          "color-mix(in srgb, var(--color-token-side-bar-background) 97%, var(--color-token-foreground))",
-      } as CSSProperties}
-    >
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={isExpanded}
-        className="cursor-interaction select-none focus-visible:outline-none bg-token-side-bar-background"
-        onClick={() => setIsExpanded((current) => !current)}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          setIsExpanded((current) => !current);
-        }}
-      >
-        <div className="bg-token-foreground/5">
-          <div className="group text-size-chat @container/diff-header relative flex items-center gap-2 pt-1 pr-1 pb-1 pl-3">
-            <div className="text-size-chat flex min-w-0 items-center gap-2 pb-0.5 text-token-text-primary">
-              {row.displayPath ? (
-                <FilenameButton
-                  displayPath={row.displayPath}
-                  onOpen={row.openPath ? openFile : null}
-                  dataState={isExpanded ? "open" : "closed"}
-                  className="min-w-0 cursor-interaction truncate text-start text-token-text-primary select-text [direction:rtl]"
-                />
-              ) : (
-                <span className="min-w-0 truncate text-start text-token-text-primary">Changed file</span>
-              )}
-              <DiffStats additions={row.additions} deletions={row.deletions} className="ml-auto shrink-0 text-size-chat" />
-              <Chevron expanded={isExpanded} className="opacity-100" />
-            </div>
+    <NodexDialog open onOpenChange={(open) => {
+      if (!open) onClose();
+    }}>
+      <NodexDialogContent className="max-w-xl rounded-2xl" showCloseButton={false}>
+        <NodexDialogHeader>
+          <NodexDialogTitle>{title}</NodexDialogTitle>
+          <NodexDialogDescription>{description}</NodexDialogDescription>
+        </NodexDialogHeader>
+        {result ? (
+          <div className="flex max-h-[50vh] flex-col gap-3 overflow-y-auto text-sm">
+            {result.errorMessage ? (
+              <div className="rounded-lg border border-token-border bg-token-main-surface-primary p-3 text-token-description-foreground">
+                Git apply error: {result.errorMessage}
+              </div>
+            ) : null}
+            <PatchPathGroup title={`Applied cleanly (${appliedCount})`} paths={result.appliedPaths} />
+            <PatchPathGroup title={`Skipped (${skippedCount})`} paths={result.skippedPaths} />
+            <PatchPathGroup title={`Conflicts (${conflictedCount})`} paths={result.conflictedPaths} />
           </div>
-        </div>
-      </div>
-      <motion.div
-        initial={false}
-        animate={{
-          height: isExpanded ? elementHeightPx : 0,
-          opacity: isExpanded ? 1 : 0,
-        }}
-        transition={CODEX_THREAD_ACCORDION_TRANSITION}
-        className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
-        data-thread-find-skip={isExpanded ? undefined : true}
-        style={{
-          pointerEvents: isExpanded ? "auto" : "none",
-        }}
-      >
-        <div ref={elementRef}>
-          <div className="bg-token-editor-background border-t border-token-border">
-            {row.isTooLarge ? (
-              <div className="text-token-description-foreground/80 flex flex-col items-center justify-center gap-2 px-4 py-5 text-size-chat">
-                <span>Too large to render inline</span>
-                {onReview ? (
-                  <TurnDiffActionButton label="Review changes" onClick={onReview} />
-                ) : null}
-              </div>
-            ) : row.fileDiff ? (
-              <div className="overflow-hidden">
-                <InlineFileDiff
-                  fileDiff={row.fileDiff}
-                  className={cn(diffHostClassName, "max-h-[320px] overflow-y-auto")}
-                  style={diffHostStyle}
-                  options={diffOptions}
-                  displayPath={row.displayPath}
-                />
-              </div>
-            ) : (
-              <div className="text-token-description-foreground/80 flex items-center justify-center px-4 py-5 text-size-chat">
-                No diff preview available
-              </div>
-            )}
-          </div>
-        </div>
-      </motion.div>
-    </div>
+        ) : null}
+        <NodexDialogFooter>
+          <NodexButton variant="outline" onClick={onClose}>Close</NodexButton>
+        </NodexDialogFooter>
+      </NodexDialogContent>
+    </NodexDialog>
+  );
+}
+
+function PatchPathGroup({ title, paths }: { title: string; paths: string[] }) {
+  if (paths.length === 0) return null;
+
+  return (
+    <section className="flex flex-col gap-1">
+      <h3 className="text-xs font-medium text-token-description-foreground">{title}</h3>
+      <ul className="rounded-lg border border-token-border bg-token-main-surface-primary">
+        {paths.map((path) => (
+          <li key={path} className="border-b border-token-border px-3 py-2 last:border-b-0">
+            <code className="text-xs text-token-foreground">{path}</code>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -417,130 +382,219 @@ export function TurnDiffSurface({
   isInProgress,
   projectWorkspacePath,
   threadCwd,
+  reviewSource = "last-turn",
   onOpenReview,
+  onOpenFileInSidePanel,
+  disableHoverPreview = false,
 }: {
   item: CodexTranscriptEntry;
   isInProgress: boolean;
   projectWorkspacePath?: string;
   threadCwd?: string;
+  reviewSource?: CodexTurnDiffReviewSource;
   onOpenReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenFileInSidePanel?: (target: TurnDiffFileSidePanelTarget) => void | Promise<void>;
+  disableHoverPreview?: boolean;
 }) {
   const payload = extractTurnDiffPayload(item);
   const rows = useMemo(() => buildTurnDiffRows(item, threadCwd, projectWorkspacePath), [item, projectWorkspacePath, threadCwd]);
-  const summary = useMemo(() => summarizeRows(rows, payload?.unifiedDiff), [payload?.unifiedDiff, rows]);
+  const summary = useMemo(() => summarizeTurnDiffRows(rows), [rows]);
   const reviewTarget = useMemo(
-    () => buildTurnDiffReviewTarget(item, threadCwd, projectWorkspacePath),
-    [item, projectWorkspacePath, threadCwd],
+    () => buildTurnDiffReviewTarget({
+      item,
+      threadCwd,
+      projectWorkspacePath,
+      source: reviewSource,
+    }),
+    [item, projectWorkspacePath, reviewSource, threadCwd],
   );
+  const basePath = useMemo(() => normalizeTurnDiffBasePath(payload, threadCwd, projectWorkspacePath), [payload, projectWorkspacePath, threadCwd]);
+  const applyBatches = useMemo(() => buildTurnDiffApplyBatches(payload, basePath), [basePath, payload]);
   const { resolved } = useTheme();
-  const { opener } = useFileLinkOpener();
   const diffOptions = useMemo(() => getNodexDiffOptions(resolved, true), [resolved]);
   const diffHostStyle = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
   const diffHostClassName = NODEX_DIFF_HOST_CLASS;
-  const [isPatchApplied, setIsPatchApplied] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [lastPatchAction, setLastPatchAction] = useState<{
+    action: TurnDiffPatchAction;
+    unifiedDiff: string;
+  } | null>(null);
   const [patchActionInFlight, setPatchActionInFlight] = useState(false);
+  const [failure, setFailure] = useState<TurnDiffPatchFailure | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const patchTransport = useMemo(() => resolveInvokeTransport("git:apply-patch"), []);
 
   useEffect(() => {
-    setIsPatchApplied(true);
+    setExpanded(false);
+    setLastPatchAction(null);
     setPatchActionInFlight(false);
-  }, [reviewTarget?.entryId, reviewTarget?.patch]);
+    setFailure(null);
+  }, [reviewTarget?.entryId, payload?.unifiedDiff]);
 
-  if (!payload || (summary.fileCount === 0 && summary.additions === 0 && summary.deletions === 0)) {
-    return null;
-  }
+  if (!payload || summary.fileCount === 0) return null;
 
-  const handleOpenReview = reviewTarget && onOpenReview
-    ? () => {
-        onOpenReview(reviewTarget);
+  const nextPatchAction: TurnDiffPatchAction =
+    lastPatchAction?.unifiedDiff === payload.unifiedDiff && lastPatchAction.action === "undo"
+      ? "reapply"
+      : "undo";
+
+  const handleOpenReview = onOpenReview && reviewTarget
+    ? (path?: string | null) => {
+        onOpenReview({
+          ...reviewTarget,
+          path: path ?? (summary.fileCount === 1 ? rows[0]?.displayPath ?? null : null),
+        });
       }
     : null;
 
-  const handleTogglePatch = reviewTarget?.showRevertButton && reviewTarget.cwd
-    ? async () => {
-        setPatchActionInFlight(true);
-        try {
-          const result = await patchTransport.invoke("git:apply-patch", {
-            cwd: reviewTarget.cwd,
-            diff: reviewTarget.patch,
-            target: "unstaged",
-            revert: isPatchApplied,
-          }) as GitApplyPatchResult;
+  const handleToggleExpanded = () => {
+    const previousTop = rootRef.current?.getBoundingClientRect().top ?? null;
+    setExpanded((current) => !current);
+    if (previousTop === null) return;
+    requestAnimationFrame(() => {
+      const nextTop = rootRef.current?.getBoundingClientRect().top ?? null;
+      if (nextTop === null) return;
+      if (typeof window.scrollBy !== "function") return;
+      window.scrollBy({ top: nextTop - previousTop, behavior: "auto" });
+    });
+  };
 
-          if (result.status === "success") {
-            setIsPatchApplied((current) => !current);
-            toast.success(isPatchApplied ? "Reverted thread changes." : "Reapplied thread changes.", {
-              id: "turn-diff-notice",
-            });
-            return;
-          }
+  const handlePatchAction = async () => {
+    if (patchActionInFlight || applyBatches.length === 0) return;
 
-          toast.danger(
-            result.status === "partial-success"
-              ? "Partially applied thread patch. Review the workspace before continuing."
-              : (result.errorMessage ?? "Could not apply thread patch."),
-            {
-              id: "turn-diff-notice",
-            },
-          );
-        } catch (error) {
-          toast.danger(error instanceof Error ? error.message : "Could not apply thread patch.", {
-            id: "turn-diff-notice",
-          });
-        } finally {
-          setPatchActionInFlight(false);
+    const orderedBatches = nextPatchAction === "undo" ? [...applyBatches].reverse() : applyBatches;
+    setPatchActionInFlight(true);
+    try {
+      for (const batch of orderedBatches) {
+        const result = await patchTransport.invoke("git:apply-patch", {
+          cwd: batch.cwd,
+          diff: batch.diff,
+          target: "unstaged",
+          revert: nextPatchAction === "undo",
+          operationSource: "thread_diff",
+        }) as GitApplyPatchResult;
+
+        if (result.status !== "success") {
+          setFailure({ action: nextPatchAction, result });
+          return;
         }
       }
-    : null;
+
+      setLastPatchAction({ action: nextPatchAction, unifiedDiff: payload.unifiedDiff });
+      toast.success(nextPatchAction === "undo" ? "Changes reverted" : "Changes reapplied", {
+        id: "turn-diff-notice",
+      });
+    } catch (error) {
+      setFailure({
+        action: nextPatchAction,
+        result: {
+          status: "error",
+          appliedPaths: [],
+          skippedPaths: [],
+          conflictedPaths: [],
+          errorCode: null,
+          errorMessage: error instanceof Error ? error.message : "Could not apply patch.",
+        },
+      });
+    } finally {
+      setPatchActionInFlight(false);
+    }
+  };
 
   if (isInProgress) {
-    return <TurnDiffBanner summary={summary} onReview={handleOpenReview} />;
+    return <TurnDiffBanner summary={summary} onReview={handleOpenReview ? () => handleOpenReview() : null} />;
   }
 
+  const visibleRows = getVisibleTurnDiffRows(rows, expanded);
+  const shouldShowFileList = summary.fileCount > 1;
+
   return (
-    <div className="mb-2 flex max-w-full flex-col overflow-hidden rounded-lg border border-token-border bg-token-dropdown-background/50 text-base text-token-foreground shadow-sm extension:bg-token-input-background/50 [--turn-diff-row-padding-x:0.75rem] [--turn-diff-row-padding-y:0.25rem]">
-      <div className="group/turn-diff-header relative flex items-center gap-2 focus-within:[&_.turn-diff-default-subtitle]:hidden hover:[&_.turn-diff-default-subtitle]:hidden focus-within:[&_.turn-diff-hover-subtitle]:inline-flex hover:[&_.turn-diff-hover-subtitle]:inline-flex">
-        <div className="flex w-full min-w-0 flex-nowrap items-center gap-1 pr-1 pl-3">
-          <TurnDiffEditedLabel fileCount={summary.fileCount} firstPath={rows[0]?.displayPath ?? null} />
-          {summary.fileCount > 1 ? (
-            <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat" />
+    <>
+      <div
+        ref={rootRef}
+        className="mb-2 flex max-w-full flex-col overflow-hidden rounded-lg bg-token-dropdown-background/50 text-base text-token-foreground extension:bg-token-input-background/50 [--thread-resource-card-row-padding-x:0.75rem] [--turn-diff-row-padding-y:0.25rem]"
+      >
+        <div className="group/turn-diff-header relative focus-within:[&_.turn-diff-default-subtitle]:hidden hover:[&_.turn-diff-default-subtitle]:hidden focus-within:[&_.turn-diff-hover-subtitle]:inline-flex hover:[&_.turn-diff-hover-subtitle]:inline-flex">
+          {handleOpenReview ? (
+            <button
+              type="button"
+              aria-label="Review changed files"
+              className="absolute inset-0 cursor-interaction bg-transparent group-hover/turn-diff-header:bg-token-list-hover-background/30 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset"
+              onClick={() => handleOpenReview()}
+            />
           ) : null}
-          <div className="flex-1" />
-          <div className="pointer-events-auto flex items-center gap-2">
-            {handleTogglePatch ? (
-              <TurnDiffActionButton
-                label={isPatchApplied ? "Undo" : "Reapply"}
-                onClick={() => {
-                  void handleTogglePatch();
-                }}
-                tone={isPatchApplied ? "destructive" : "default"}
-                disabled={patchActionInFlight}
-              />
-            ) : null}
-            {handleOpenReview ? (
-              <TurnDiffActionButton label="Review" onClick={handleOpenReview} disabled={patchActionInFlight} />
-            ) : null}
+          <div className="relative z-10 flex w-full min-w-0 items-center gap-3 px-[var(--thread-resource-card-row-padding-x)] py-1.5 pointer-events-none">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
+              <CodexContentSearchDiffIcon className="icon-sm" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col justify-center">
+              <div className="text-size-chat min-w-0 truncate text-token-text-primary">
+                {getTurnDiffTitle(summary, rows[0]?.displayPath ?? null)}
+              </div>
+              <div className="text-size-chat-sm min-h-5 min-w-0 text-token-description-foreground">
+                <span className="turn-diff-default-subtitle inline-flex min-w-0 items-center">
+                  <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+                </span>
+                <span className="turn-diff-hover-subtitle hidden min-w-0 items-center gap-1 text-token-description-foreground">
+                  <span>Review changes</span>
+                  <ReviewChangesIcon />
+                </span>
+              </div>
+            </div>
+            <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
+              {reviewTarget?.showRevertButton && applyBatches.length > 0 ? (
+                <TurnDiffToolbarButton
+                  label={nextPatchAction === "undo" ? "Undo" : "Reapply"}
+                  icon={nextPatchAction}
+                  disabled={patchActionInFlight}
+                  onClick={() => {
+                    void handlePatchAction();
+                  }}
+                />
+              ) : null}
+              {handleOpenReview ? (
+                <TurnDiffToolbarButton label="Review" disabled={patchActionInFlight} onClick={() => handleOpenReview()} />
+              ) : null}
+            </div>
           </div>
         </div>
+        {shouldShowFileList ? (
+          <div className="flex flex-col border-t border-token-border [--codex-diffs-header-padding-x:var(--thread-resource-card-row-padding-x)] [--codex-diffs-header-padding-y:var(--turn-diff-row-padding-y)] [--codex-diffs-surface-override:color-mix(in_oklab,var(--color-token-dropdown-background)_50%,transparent)] extension:[--codex-diffs-surface-override:color-mix(in_oklab,var(--color-token-input-background)_50%,transparent)]">
+            {visibleRows.map((row) => (
+              <TurnDiffFileRow
+                key={row.key}
+                row={row}
+                onOpenReview={handleOpenReview ? () => handleOpenReview(row.displayPath) : null}
+                onOpenFileInSidePanel={onOpenFileInSidePanel}
+                disableHoverPreview={disableHoverPreview}
+                diffHostClassName={diffHostClassName}
+                diffHostStyle={diffHostStyle}
+                diffOptions={diffOptions}
+              />
+            ))}
+            {summary.fileCount > TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT ? (
+              <TurnDiffDisclosureRow
+                expanded={expanded}
+                fileCount={summary.fileCount}
+                onToggle={handleToggleExpanded}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      <div className="flex flex-col divide-y-[0.5px] divide-token-border">
-        {rows.map((row) => (
-          <TurnDiffEmbeddedRow
-            key={row.key}
-            row={row}
-            openerId={opener}
-            diffHostClassName={diffHostClassName}
-            diffHostStyle={diffHostStyle}
-            diffOptions={diffOptions}
-            onReview={row.isTooLarge ? handleOpenReview : null}
-          />
-        ))}
-      </div>
-    </div>
+      <TurnDiffPatchFailureDialog failure={failure} onClose={() => setFailure(null)} />
+    </>
   );
 }
 
 export const turnDiffSurfaceTestHelpers = {
-  buildTurnDiffRows,
+  buildTurnDiffApplyBatches,
   buildTurnDiffReviewTarget,
+  buildTurnDiffRows,
+  extractTurnDiffPayload,
+  getTurnDiffDisclosureLabel,
+  getTurnDiffTitle,
+  isLargeTurnDiffFile,
+  parseUnifiedDiffFileStats,
+  summarizeTurnDiffRows,
 };

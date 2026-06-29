@@ -1066,9 +1066,9 @@ describe("ThreadTurnDiffBlock", () => {
     );
 
     getByText("2 files changed");
-    expect(Boolean(container.textContent?.includes("Review"))).toBeTrue();
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBeTrue();
     expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(0);
-    fireEvent.click(container.querySelector('button[aria-label="Review changes"]') as HTMLElement);
+    fireEvent.click(container.querySelector("button") as HTMLElement);
     expect(selectedTurnId).toBe("turn-1");
   });
 

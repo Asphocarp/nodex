@@ -82,10 +82,12 @@ export interface ThreadLeafBlockProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   allowInProgressTurnDiff?: boolean;
+  turnDiffHoverPreviewDisabled?: boolean;
   assistantAfter?: ReactNode;
 }
 
@@ -96,9 +98,11 @@ export interface ThreadSpecialBlockProps {
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
 }
 
 interface ExplorationDisplayLine {
@@ -576,8 +580,10 @@ export function ThreadPendingMcpToolCallsBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -625,8 +631,10 @@ export function ThreadPendingMcpToolCallsBlock({
               projectWorkspacePath={projectWorkspacePath}
               threadCwd={threadCwd}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
               onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
               nestedInCollapsedActivity
             />
           ))}
@@ -643,8 +651,10 @@ export function ThreadDynamicToolCallGroupBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -693,8 +703,10 @@ export function ThreadDynamicToolCallGroupBlock({
               projectWorkspacePath={projectWorkspacePath}
               threadCwd={threadCwd}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
               onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
               nestedInCollapsedActivity
             />
           ))}
@@ -711,8 +723,10 @@ function renderCollapsedActivityEntry({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled,
 }: {
   entry: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"][number];
   isLatestTurn: boolean;
@@ -720,8 +734,10 @@ function renderCollapsedActivityEntry({
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  turnDiffHoverPreviewDisabled?: boolean;
 }) {
   const sharedProps = {
     isLatestTurn,
@@ -729,8 +745,10 @@ function renderCollapsedActivityEntry({
     projectWorkspacePath,
     threadCwd,
     onOpenTurnDiffReview,
+    onOpenTurnDiffFileInSidePanel,
     onOpenThread,
     onOpenMcpAppSidePanel,
+    turnDiffHoverPreviewDisabled,
   };
 
   if (entry.type === "explorationGroup") return <ThreadExplorationBodyOnly entries={entry.entries} />;
@@ -931,8 +949,10 @@ export function ThreadCollapsedToolActivityBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isBodyMounted, setIsBodyMounted] = useState(false);
@@ -1029,8 +1049,10 @@ export function ThreadCollapsedToolActivityBlock({
                   projectWorkspacePath,
                   threadCwd,
                   onOpenTurnDiffReview,
+                  onOpenTurnDiffFileInSidePanel,
                   onOpenThread,
                   onOpenMcpAppSidePanel,
+                  turnDiffHoverPreviewDisabled,
                 })}
               </div>
             ))}
@@ -1090,11 +1112,14 @@ export function ThreadToolSurfaceBlock({
 
 export function ThreadTurnDiffBlock({
   block,
+  isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
   allowInProgressTurnDiff = false,
+  turnDiffHoverPreviewDisabled = false,
 }: ThreadLeafBlockProps) {
   const { settings } = useCodexThreadSettings();
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
@@ -1107,7 +1132,10 @@ export function ThreadTurnDiffBlock({
       isInProgress={isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
+      reviewSource={isLatestTurn ? "last-turn" : "selected-turn"}
       onOpenReview={onOpenTurnDiffReview}
+      onOpenFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+      disableHoverPreview={turnDiffHoverPreviewDisabled}
     />
   );
 }
