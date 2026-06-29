@@ -77,6 +77,7 @@ interface TestableCodexService {
   }) => Promise<CommandPaletteThreadContentSearchResult[]>;
   requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   requestConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+  loadOlderThreadTurns: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
   resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
@@ -2532,8 +2533,146 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(detail?.threadId ?? "").toBe("thr_resume_patch_streaming");
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("thread/resume");
-        const resumeConfig = (requests[0]?.params as { config?: Record<string, unknown> })?.config ?? {};
+        const resumeParams = requests[0]?.params as {
+          config?: Record<string, unknown>;
+          excludeTurns?: boolean;
+          initialTurnsPage?: {
+            limit?: number;
+            sortDirection?: string;
+            itemsView?: string;
+          };
+        };
+        expect(resumeParams.excludeTurns).toBeTrue();
+        expect(resumeParams.initialTurnsPage?.limit ?? 0).toBe(50);
+        expect(resumeParams.initialTurnsPage?.sortDirection ?? "").toBe("desc");
+        expect(resumeParams.initialTurnsPage?.itemsView ?? "").toBe("full");
+        const resumeConfig = resumeParams.config ?? {};
         expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("resume bootstraps the latest turn page and loads older turns through thread/turns/list", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          return {
+            thread: {
+              id: "thr_paged_history",
+              preview: "recent prompt",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1711278000,
+              updatedAt: 1711278060,
+              status: { type: "idle" },
+              path: "/tmp/paged-history/rollout.jsonl",
+              cwd: "/tmp/paged-history",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Paged history",
+              turns: [],
+            },
+            model: "gpt-5.4",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd: "/tmp/paged-history",
+            runtimeWorkspaceRoots: [],
+            instructionSources: [],
+            approvalPolicy: "never",
+            approvalsReviewer: "user",
+            sandbox: { mode: "read-only" },
+            activePermissionProfile: null,
+            reasoningEffort: null,
+            initialTurnsPage: {
+              data: [
+                {
+                  id: "turn_recent",
+                  status: "completed",
+                  itemsView: "full",
+                  error: null,
+                  startedAt: 1711278050,
+                  completedAt: 1711278060,
+                  durationMs: 10_000,
+                  items: [
+                    {
+                      id: "user_recent",
+                      type: "userMessage",
+                      content: [{ type: "text", text: "recent prompt" }],
+                    },
+                  ],
+                },
+              ],
+              nextCursor: "cursor-older",
+              backwardsCursor: "cursor-newer",
+            },
+          };
+        }
+        if (method === "thread/turns/list") {
+          return {
+            data: [
+              {
+                id: "turn_older",
+                status: "completed",
+                itemsView: "full",
+                error: null,
+                startedAt: 1711278000,
+                completedAt: 1711278010,
+                durationMs: 10_000,
+                items: [
+                  {
+                    id: "user_older",
+                    type: "userMessage",
+                    content: [{ type: "text", text: "older prompt" }],
+                  },
+                ],
+              },
+            ],
+            nextCursor: null,
+            backwardsCursor: "cursor-recent",
+          };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        const initialConversation = await service.requestConversationResume("thr_paged_history");
+        expect(initialConversation).not.toBeNull();
+        expect(initialConversation?.turns.length ?? 0).toBe(1);
+        expect(initialConversation?.turns[0]?.turnId ?? "").toBe("turn_recent");
+        expect(initialConversation?.turnPagination?.olderCursor ?? null).toBe("cursor-older");
+
+        const fullConversation = await service.loadOlderThreadTurns("thr_paged_history");
+        expect(fullConversation?.turns.length ?? 0).toBe(2);
+        expect(fullConversation?.turns[0]?.turnId ?? "").toBe("turn_older");
+        expect(fullConversation?.turns[1]?.turnId ?? "").toBe("turn_recent");
+        expect(fullConversation?.turnPagination?.historyComplete ?? false).toBeTrue();
+        expect(requests.map((request) => request.method).join(",")).toBe("thread/resume,thread/turns/list");
+        const olderParams = requests[1]?.params as {
+          cursor?: string;
+          limit?: number;
+          sortDirection?: string;
+          itemsView?: string;
+        };
+        expect(olderParams.cursor ?? "").toBe("cursor-older");
+        expect(olderParams.limit ?? 0).toBe(50);
+        expect(olderParams.sortDirection ?? "").toBe("desc");
+        expect(olderParams.itemsView ?? "").toBe("full");
       } finally {
         await service.shutdown();
       }

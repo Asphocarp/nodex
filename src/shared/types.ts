@@ -20,6 +20,7 @@ import type {
   ReviewStartResponse as CodexAppServerReviewStartResponse,
   ReviewTarget as CodexAppServerReviewTarget,
   ThreadItem as CodexAppServerThreadItem,
+  TurnItemsView as CodexAppServerTurnItemsView,
   UserInput as CodexAppServerUserInput,
 } from "@nodex/codex-app-server-protocol/v2";
 
@@ -1861,6 +1862,14 @@ export interface CodexConversationTurn extends CodexTurnSummary {
   items: CodexConversationItem[];
 }
 
+export interface CodexConversationTurnPagination {
+  olderCursor: string | null;
+  backwardsCursor: string | null;
+  historyComplete: boolean;
+  loadedTurnCount: number;
+  itemsView: CodexAppServerTurnItemsView;
+}
+
 export type CodexApprovalKind = "command" | "file";
 export type CodexNetworkApprovalContext = ProtocolNetworkApprovalContext;
 
@@ -2422,6 +2431,7 @@ export type CodexConversationLiveRequest = CodexConversationServerRequest;
 export interface CodexConversationSnapshot extends CodexThreadSummary {
   latestCollaborationMode?: CodexCollaborationModeState;
   resumeState: CodexConversationResumeState;
+  turnPagination?: CodexConversationTurnPagination;
   turns: CodexConversationTurn[];
   requests: CodexConversationServerRequest[];
   queuedFollowUps: CodexQueuedFollowUp[];

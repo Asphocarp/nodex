@@ -87,6 +87,34 @@ describe("buildCodexConversationSnapshot", () => {
     expect(snapshot.turns[0]?.items[1]?.itemId).toBe("user_1");
     expect(snapshot.requests[0]?.requestId).toBe("approval_1");
     expect(snapshot.capabilityFlags.canSearch).toBeTrue();
+    expect(snapshot.turnPagination?.historyComplete ?? false).toBeTrue();
+    expect(snapshot.turnPagination?.loadedTurnCount ?? 0).toBe(1);
+  });
+
+  test("preserves protocol-backed turn pagination metadata", () => {
+    const snapshot = buildCodexConversationSnapshot({
+      detail: buildThreadDetail(),
+      resumeState: "resumed",
+      requests: [],
+      capabilityFlags: {
+        canEditLastUserTurn: true,
+        canForkFromTurn: true,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+      turnPagination: {
+        olderCursor: "cursor-older",
+        backwardsCursor: "cursor-newer",
+        historyComplete: false,
+        loadedTurnCount: 50,
+        itemsView: "full",
+      },
+    });
+
+    expect(snapshot.turnPagination?.olderCursor ?? null).toBe("cursor-older");
+    expect(snapshot.turnPagination?.backwardsCursor ?? null).toBe("cursor-newer");
+    expect(snapshot.turnPagination?.historyComplete ?? true).toBeFalse();
+    expect(snapshot.turnPagination?.itemsView ?? "summary").toBe("full");
   });
 
   test("appends unknown turn entries after known itemIds using transcript fallback order", () => {

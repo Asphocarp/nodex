@@ -49,10 +49,12 @@ import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/Thr
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
+import type { ThreadTurnsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadTurnsListResponse";
 import type { ThreadUnarchiveResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnarchiveResponse";
 import type { ThreadUnsubscribeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnsubscribeResponse";
 import type { ReviewStartParams } from "@nodex/codex-app-server-protocol/v2/ReviewStartParams";
 import type { ReviewStartResponse } from "@nodex/codex-app-server-protocol/v2/ReviewStartResponse";
+import type { Turn } from "@nodex/codex-app-server-protocol/v2/Turn";
 import type { TurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
 import type { TurnStartResponse } from "@nodex/codex-app-server-protocol/v2/TurnStartResponse";
 import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2/TurnSteerParams";
@@ -77,6 +79,7 @@ import type {
   CodexConversationResumeState,
   CodexConversationServerRequest,
   CodexConversationSnapshot,
+  CodexConversationTurnPagination,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
@@ -163,6 +166,10 @@ import {
   mergeCodexItemView,
   resolveCodexItemPrimaryIdentityKey,
 } from "../../shared/codex-item-identity";
+import {
+  mergeCodexTranscriptSnapshots,
+  mergeCodexTurnSummary,
+} from "../../shared/codex-thread-detail-reducer";
 import { mergeOrderedStringIds, upsertOrderedStringId } from "../../shared/codex-turn-order";
 import { dbNotifier } from "../local-store/notifier";
 import {
@@ -546,6 +553,7 @@ interface CodexConversationRecord {
   planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
   queuedFollowUps: CodexQueuedFollowUp[];
   pendingSteers: CodexPendingSteer[];
+  turnPagination: CodexConversationTurnPagination;
   latestCollaborationMode: CodexCollaborationModeState;
   resumeState: CodexConversationResumeState;
   streamRole: CodexConversationStreamRole;
@@ -588,6 +596,15 @@ const OUTPUT_DELTA_FLUSH_MS = 50;
 const MAX_COMMAND_OUTPUT_CHARS = 20_000;
 const TRUNCATED_OUTPUT_PREFIX = "[output truncated]\n";
 const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
+const THREAD_TURNS_PAGE_SIZE = 50;
+const THREAD_TURNS_PAGE_ITEMS_VIEW = "full" as const;
+const COMPLETE_TURN_PAGINATION: CodexConversationTurnPagination = {
+  olderCursor: null,
+  backwardsCursor: null,
+  historyComplete: true,
+  loadedTurnCount: 0,
+  itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
+};
 const THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD = "thread-follower-command-approval-decision";
 const THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD = "thread-follower-file-approval-decision";
 const AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE = "automatic-approval-review";
@@ -2302,6 +2319,7 @@ export class CodexService extends EventEmitter {
       planImplementationRequestsByTurnId: new Map<string, CodexPlanImplementationServerRequest>(),
       queuedFollowUps: [],
       pendingSteers: [],
+      turnPagination: COMPLETE_TURN_PAGINATION,
       latestCollaborationMode: this.buildDefaultCollaborationModeState(),
       resumeState: "resumed",
       streamRole: null,
@@ -5558,7 +5576,46 @@ export class CodexService extends EventEmitter {
     return nextEntry;
   }
 
-  private setConversationRecordDetail(detail: CodexThreadDetail): void {
+  private buildCompleteTurnPagination(loadedTurnCount: number): CodexConversationTurnPagination {
+    return {
+      ...COMPLETE_TURN_PAGINATION,
+      loadedTurnCount,
+    };
+  }
+
+  private normalizeTurnPagination(
+    pagination: CodexConversationTurnPagination,
+    loadedTurnCount: number,
+  ): CodexConversationTurnPagination {
+    return {
+      olderCursor: pagination.olderCursor,
+      backwardsCursor: pagination.backwardsCursor,
+      historyComplete: pagination.historyComplete,
+      loadedTurnCount,
+      itemsView: pagination.itemsView,
+    };
+  }
+
+  private buildTurnPaginationFromPage(
+    page: NonNullable<ThreadResumeResponse["initialTurnsPage"]> | ThreadTurnsListResponse,
+    loadedTurnCount: number,
+  ): CodexConversationTurnPagination {
+    return {
+      olderCursor: page.nextCursor,
+      backwardsCursor: page.backwardsCursor,
+      historyComplete: page.nextCursor === null,
+      loadedTurnCount,
+      itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
+    };
+  }
+
+  private setConversationRecordDetail(
+    detail: CodexThreadDetail,
+    options?: {
+      preserveTurnPagination?: boolean;
+      turnPagination?: CodexConversationTurnPagination | null;
+    },
+  ): void {
     const record = this.ensureConversationRecord(detail.threadId);
     const retainedTurnIds = new Set(detail.turns.map((turn) => turn.turnId));
     this.clearThreadPendingRequestsForRemovedTurns(detail.threadId, retainedTurnIds);
@@ -5574,6 +5631,11 @@ export class CodexService extends EventEmitter {
       turns: [...detail.turns],
       transcript: [...detail.transcript],
     };
+    record.turnPagination = options?.turnPagination
+      ? this.normalizeTurnPagination(options.turnPagination, detail.turns.length)
+      : options?.preserveTurnPagination
+        ? this.normalizeTurnPagination(record.turnPagination, detail.turns.length)
+        : this.buildCompleteTurnPagination(detail.turns.length);
     record.itemsByTurn = new Map<string, Map<string, CodexItemView>>();
   }
 
@@ -5581,21 +5643,15 @@ export class CodexService extends EventEmitter {
     this.setConversationRecordDetail(detail);
   }
 
-  private buildThreadDetailFromRead(thread: unknown): CodexThreadDetail | null {
-    if (typeof thread !== "object" || thread === null) return null;
-    const candidate = thread as Record<string, unknown>;
-
-    if (typeof candidate.id !== "string") return null;
-    const threadId = candidate.id;
-
-    const link = this.getThreadLinkSafely(threadId);
-    if (!link) return null;
-
-    const turns = Array.isArray(candidate.turns) ? candidate.turns : [];
+  private buildThreadTimelineFromTurns(
+    threadId: string,
+    rawTurns: readonly unknown[],
+  ): Pick<CodexThreadDetail, "turns" | "transcript"> {
     const turnSummaries: CodexTurnSummary[] = [];
     const itemViews: CodexItemView[] = [];
+    const fallbackCwd = this.getThreadLinkSafely(threadId)?.cwd ?? null;
 
-    for (const turn of turns) {
+    for (const turn of rawTurns) {
       const turnSummary = this.asTurnSummary(threadId, turn);
       if (!turnSummary) continue;
       turnSummaries.push(turnSummary);
@@ -5629,7 +5685,6 @@ export class CodexService extends EventEmitter {
         }));
       }
 
-      const fallbackCwd = this.getThreadLinkSafely(threadId)?.cwd ?? null;
       const patchBatches = this.buildPatchBatchesFromItems(turnItemViews, fallbackCwd);
       const synthesizedDiff = this.buildUnifiedDiffFromPatchItems(turnItemViews);
       const turnDiff = patchBatches.length > 0 ? (synthesizedDiff ?? turnSummary.diff) : turnSummary.diff;
@@ -5644,21 +5699,41 @@ export class CodexService extends EventEmitter {
       }
     }
 
-    const transcript = buildTranscriptFromBootstrapEvents({
-      items: itemViews,
-      source: "live",
-    });
+    return {
+      turns: turnSummaries,
+      transcript: buildTranscriptFromBootstrapEvents({
+        items: itemViews,
+        source: "live",
+      }),
+    };
+  }
+
+  private buildThreadDetailFromRead(
+    thread: unknown,
+    options?: { turnsOverride?: readonly Turn[] | readonly unknown[] },
+  ): CodexThreadDetail | null {
+    if (typeof thread !== "object" || thread === null) return null;
+    const candidate = thread as Record<string, unknown>;
+
+    if (typeof candidate.id !== "string") return null;
+    const threadId = candidate.id;
+
+    const link = this.getThreadLinkSafely(threadId);
+    if (!link) return null;
+
+    const turns = options?.turnsOverride ?? (Array.isArray(candidate.turns) ? candidate.turns : []);
+    const timeline = this.buildThreadTimelineFromTurns(threadId, turns);
 
     const existingRecord = this.getMaybeConversationRecord(threadId);
     return {
       ...link,
-      threadPreview: resolveThreadPreviewFromTranscript(transcript, link.threadPreview),
+      threadPreview: resolveThreadPreviewFromTranscript(timeline.transcript, link.threadPreview),
       approvalPolicy: existingRecord?.detail?.approvalPolicy ?? null,
       approvalsReviewer: existingRecord?.detail?.approvalsReviewer ?? null,
       sandbox: existingRecord?.detail?.sandbox ?? null,
       latestCollaborationMode: existingRecord?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
-      turns: turnSummaries,
-      transcript,
+      turns: timeline.turns,
+      transcript: timeline.transcript,
     };
   }
 
@@ -6599,14 +6674,60 @@ export class CodexService extends EventEmitter {
     const permissionState = await this.readPermissionState(threadRef?.projectId ?? null);
     const resumeParams: ThreadResumeParams = {
       threadId,
+      excludeTurns: true,
+      initialTurnsPage: {
+        limit: THREAD_TURNS_PAGE_SIZE,
+        sortDirection: "desc",
+        itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
+      },
       config: buildCodexThreadConfigOverrides(),
       ...buildThreadPermissionOverrides({
         permissionState,
       }),
     };
-    const result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", resumeParams);
+    let result: ThreadResumeResponse;
+    let usedPagedResume = true;
+    try {
+      result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", resumeParams);
+    } catch (error) {
+      usedPagedResume = false;
+      this.logger.warn("Paged Codex thread resume failed; falling back to full resume", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const fallbackResumeParams: ThreadResumeParams = {
+        threadId,
+        config: buildCodexThreadConfigOverrides(),
+        ...buildThreadPermissionOverrides({
+          permissionState,
+        }),
+      };
+      result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", fallbackResumeParams);
+    }
     this.upsertLinkFromThread(result.thread);
-    const liveDetail = this.buildThreadDetailFromRead(result.thread);
+    const rawInitialTurnsPage = usedPagedResume ? result.initialTurnsPage : null;
+    const initialTurnsPage = rawInitialTurnsPage ?? null;
+    const initialTurns = initialTurnsPage?.data.length
+      ? [...initialTurnsPage.data].reverse()
+      : null;
+    let initialTurnsPageForPagination = initialTurnsPage;
+    let liveDetail = this.buildThreadDetailFromRead(
+      result.thread,
+      initialTurns ? { turnsOverride: initialTurns } : undefined,
+    );
+    if (
+      usedPagedResume
+      && (
+        rawInitialTurnsPage === null
+        || (initialTurnsPage !== null && initialTurnsPage.data.length === 0 && initialTurnsPage.nextCursor !== null)
+      )
+    ) {
+      this.logger.warn("Paged Codex thread resume returned no initial turns; falling back to full thread read", {
+        threadId,
+      });
+      liveDetail = await this.readThreadWithTurnsFlag(threadId, true);
+      initialTurnsPageForPagination = null;
+    }
     if (!liveDetail) return null;
     this.setThreadPermissionFields(threadId, {
       approvalPolicy: result.approvalPolicy,
@@ -6615,7 +6736,11 @@ export class CodexService extends EventEmitter {
     });
 
     const detail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
-    this.setConversationRecordDetail(detail);
+    this.setConversationRecordDetail(detail, {
+      turnPagination: initialTurnsPageForPagination
+        ? this.buildTurnPaginationFromPage(initialTurnsPageForPagination, detail.turns.length)
+        : this.buildCompleteTurnPagination(detail.turns.length),
+    });
     this.persistThreadDetailSummary(detail);
 
     record.isStreaming = true;
@@ -6671,6 +6796,106 @@ export class CodexService extends EventEmitter {
       }
       this.emitThreadStreamSnapshotFromRecord(threadId);
       throw error;
+    }
+  }
+
+  private prependOlderTurnPageToDetail(
+    existingDetail: CodexThreadDetail,
+    page: ThreadTurnsListResponse,
+  ): CodexThreadDetail {
+    const pageTimeline = this.buildThreadTimelineFromTurns(
+      existingDetail.threadId,
+      [...page.data].reverse(),
+    );
+    const existingTurnsById = new Map(existingDetail.turns.map((turn) => [turn.turnId, turn]));
+    const seenTurnIds = new Set<string>();
+    const mergedTurns: CodexTurnSummary[] = [];
+
+    for (const incomingTurn of pageTimeline.turns) {
+      const existingTurn = existingTurnsById.get(incomingTurn.turnId);
+      seenTurnIds.add(incomingTurn.turnId);
+      mergedTurns.push(existingTurn
+        ? mergeCodexTurnSummary(incomingTurn, existingTurn)
+        : incomingTurn);
+    }
+
+    for (const existingTurn of existingDetail.turns) {
+      if (seenTurnIds.has(existingTurn.turnId)) continue;
+      mergedTurns.push(existingTurn);
+    }
+
+    const transcript = mergeCodexTranscriptSnapshots(
+      pageTimeline.transcript,
+      existingDetail.transcript,
+    );
+
+    return {
+      ...existingDetail,
+      threadPreview: resolveThreadPreviewFromTranscript(transcript, existingDetail.threadPreview),
+      turns: mergedTurns,
+      transcript,
+    };
+  }
+
+  private async fallbackToFullTurnHistory(threadId: string, reason: string): Promise<CodexConversationSnapshot | null> {
+    this.logger.warn("Falling back to full Codex thread history", {
+      threadId,
+      reason,
+    });
+    const detail = await this.readThreadWithTurnsFlag(threadId, true);
+    if (!detail) return null;
+    const snapshot = this.serializeConversationSnapshot(threadId);
+    if (snapshot) {
+      this.emitThreadStreamSnapshot(threadId, snapshot);
+    }
+    return snapshot;
+  }
+
+  async loadOlderThreadTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
+    await this.ensureClientReady();
+    const record = this.ensureConversationRecord(threadId);
+    const detail = this.ensureConversationDetail(threadId);
+    if (!detail) return null;
+
+    const pagination = record.turnPagination;
+    if (pagination.historyComplete || pagination.olderCursor === null) {
+      record.turnPagination = this.buildCompleteTurnPagination(detail.turns.length);
+      return this.serializeConversationSnapshot(threadId);
+    }
+
+    try {
+      const page = await this.client.request<"thread/turns/list", ThreadTurnsListResponse>("thread/turns/list", {
+        threadId,
+        cursor: pagination.olderCursor,
+        limit: THREAD_TURNS_PAGE_SIZE,
+        sortDirection: "desc",
+        itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
+      });
+      if (page.data.length === 0) {
+        record.turnPagination = this.buildCompleteTurnPagination(detail.turns.length);
+        const snapshot = this.serializeConversationSnapshot(threadId);
+        if (snapshot) {
+          this.emitThreadStreamSnapshot(threadId, snapshot);
+        }
+        return snapshot;
+      }
+
+      const mergedDetail = this.prependOlderTurnPageToDetail(detail, page);
+      this.setConversationRecordDetail(mergedDetail, {
+        turnPagination: this.buildTurnPaginationFromPage(page, mergedDetail.turns.length),
+      });
+      this.persistThreadDetailSummary(mergedDetail);
+      const snapshot = this.serializeConversationSnapshot(threadId);
+      if (snapshot) {
+        this.emitThreadStreamSnapshot(threadId, snapshot);
+      }
+      return snapshot;
+    } catch (error) {
+      this.logger.warn("Failed to load older Codex thread turns", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.fallbackToFullTurnHistory(threadId, "older-page-failed");
     }
   }
 
@@ -9766,6 +9991,7 @@ export class CodexService extends EventEmitter {
       ? this.serializeThreadDetail(threadId)
       : (this.bootstrapConversationRecordFromSession(threadId) ?? this.serializeThreadDetail(threadId));
     if (!detail) return null;
+    const record = this.ensureConversationRecord(threadId);
     const requests = this.listPendingConversationRequests(threadId);
 
     return buildCodexConversationSnapshot({
@@ -9775,6 +10001,7 @@ export class CodexService extends EventEmitter {
       queuedFollowUps: this.listQueuedFollowUps(threadId),
       pendingSteers: this.listPendingSteers(threadId),
       capabilityFlags: this.buildConversationCapabilityFlags(detail, requests),
+      turnPagination: this.normalizeTurnPagination(record.turnPagination, detail.turns.length),
     });
   }
 

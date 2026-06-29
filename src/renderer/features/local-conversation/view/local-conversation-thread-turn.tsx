@@ -31,6 +31,7 @@ interface ThreadTurnProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
 }
 
 function ThreadGap() {
@@ -105,6 +106,7 @@ export function ThreadTurn({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  latestTurnFollowContentRef,
 }: ThreadTurnProps) {
   const shouldAllowAgentBodyCollapse =
     turn.hasRenderableAgentBodyEntries
@@ -175,6 +177,7 @@ export function ThreadTurn({
               <AnimatePresence initial={false}>
                 {effectiveAgentBodyCollapsed ? null : (
                   <motion.div
+                    ref={latestTurnFollowContentRef}
                     key="agent-body"
                     initial={CODEX_THREAD_DIVIDER_ENTER_INITIAL}
                     animate={CODEX_THREAD_DIVIDER_ENTER_ANIMATE}

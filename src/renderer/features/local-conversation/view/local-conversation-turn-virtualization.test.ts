@@ -18,6 +18,7 @@ import {
   resolveTurnCenterDistanceFromBottom,
   resolveVirtualizedTurnViewportState,
   resolveVisibleTurnRangeFromBottomDistance,
+  shouldLoadOlderThreadTurns,
   shouldShowThreadScrollToBottomControl,
 } from "./local-conversation-turn-virtualization";
 
@@ -359,5 +360,66 @@ describe("latest turn follow helpers", () => {
         scrollDistanceFromBottomPx: 130,
       }),
     ).toBeTrue();
+  });
+});
+
+describe("older turn loading helper", () => {
+  test("loads when the viewport approaches the oldest rendered content", () => {
+    expect(
+      shouldLoadOlderThreadTurns({
+        historyComplete: false,
+        isLoading: false,
+        scrollDistanceFromBottomPx: 4_400,
+        turnsBottomInsetPx: 0,
+        totalHeightPx: 5_000,
+        viewportHeightPx: 320,
+      }),
+    ).toBeTrue();
+
+    expect(
+      shouldLoadOlderThreadTurns({
+        historyComplete: false,
+        isLoading: false,
+        scrollDistanceFromBottomPx: 4_000,
+        turnsBottomInsetPx: 0,
+        totalHeightPx: 5_000,
+        viewportHeightPx: 320,
+      }),
+    ).toBeFalse();
+  });
+
+  test("accounts for list bottom inset and suppresses complete or in-flight loads", () => {
+    expect(
+      shouldLoadOlderThreadTurns({
+        historyComplete: false,
+        isLoading: false,
+        scrollDistanceFromBottomPx: 4_600,
+        turnsBottomInsetPx: 220,
+        totalHeightPx: 5_000,
+        viewportHeightPx: 320,
+      }),
+    ).toBeTrue();
+
+    expect(
+      shouldLoadOlderThreadTurns({
+        historyComplete: true,
+        isLoading: false,
+        scrollDistanceFromBottomPx: 4_600,
+        turnsBottomInsetPx: 220,
+        totalHeightPx: 5_000,
+        viewportHeightPx: 320,
+      }),
+    ).toBeFalse();
+
+    expect(
+      shouldLoadOlderThreadTurns({
+        historyComplete: false,
+        isLoading: true,
+        scrollDistanceFromBottomPx: 4_600,
+        turnsBottomInsetPx: 220,
+        totalHeightPx: 5_000,
+        viewportHeightPx: 320,
+      }),
+    ).toBeFalse();
   });
 });

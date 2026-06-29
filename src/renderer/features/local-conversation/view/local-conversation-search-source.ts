@@ -19,7 +19,10 @@ export interface LocalConversationSearchSource {
   routeContextId: string;
   getTurns: () => LocalConversationSearchSourceTurn[];
   scrollAdapter: {
-    scrollToTurn: (turnKey: string) => Promise<void>;
+    scrollToTurn: (
+      turnKey: string,
+      options?: { signal?: AbortSignal },
+    ) => Promise<void>;
     getTurnContainer: (turnKey: string) => HTMLElement | null;
   };
 }

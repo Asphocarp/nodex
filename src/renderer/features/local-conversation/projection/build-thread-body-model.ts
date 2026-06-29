@@ -15,6 +15,7 @@ interface BuildThreadBodyModelInput {
   activeThreadId: string | null;
   threadId: string | null;
   turns: CodexConversationTurn[];
+  turnPagination?: CodexConversationSnapshot["turnPagination"] | null;
   requests: CodexConversationServerRequest[];
   resumeState: CodexConversationResumeState | null;
   statusType: CodexThreadStatusType | null;
@@ -60,6 +61,7 @@ function normalizeBuildThreadBodyModelInput(input: ThreadBodyModelInput): BuildT
       activeThreadId: input.activeThreadId,
       threadId: input.conversation?.threadId ?? input.activeThreadId,
       turns: input.conversation?.turns ?? [],
+      turnPagination: input.conversation?.turnPagination ?? null,
       requests: input.conversation?.requests ?? [],
       resumeState: input.conversation?.resumeState ?? null,
       statusType: input.conversation?.statusType ?? null,
@@ -103,6 +105,7 @@ function buildBodyConversation(input: BuildThreadBodyModelInput) {
     latestCollaborationMode: undefined,
     resumeState: input.resumeState ?? "needs_resume",
     turns: input.turns,
+    turnPagination: input.turnPagination ?? undefined,
     requests: input.requests,
     queuedFollowUps: [],
     pendingSteers: [],

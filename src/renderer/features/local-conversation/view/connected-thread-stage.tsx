@@ -166,6 +166,7 @@ function ConnectedThreadStageBody({
   initialUiState?: ThreadBodyUiStateOverrides;
 }) {
   const turns = useConversationTurns(activeThreadId);
+  const conversationSnapshot = useConversation(activeThreadId);
   const requests = useConversationRequests(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
   const resumeState = useConversationResumeState(activeThreadId);
@@ -182,6 +183,7 @@ function ConnectedThreadStageBody({
         activeThreadId,
         threadId: activeThreadId,
         turns,
+        turnPagination: conversationSnapshot?.turnPagination ?? null,
         requests,
         resumeState,
         statusType,
@@ -199,6 +201,7 @@ function ConnectedThreadStageBody({
       activeThreadId,
       archived,
       capabilityFlags,
+      conversationSnapshot?.turnPagination,
       input.isNewThreadTab,
       input.newThreadTarget,
       input.threadStartProgress,
@@ -216,6 +219,7 @@ function ConnectedThreadStageBody({
       threadId: activeThreadId,
       cwd,
       turns,
+      turnPagination: conversationSnapshot?.turnPagination ?? null,
       requests,
       resumeState,
       statusType,
@@ -230,6 +234,7 @@ function ConnectedThreadStageBody({
       activeThreadId,
       body,
       capabilityFlags,
+      conversationSnapshot?.turnPagination,
       cwd,
       input.projectId,
       input.projectWorkspacePath,

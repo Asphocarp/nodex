@@ -21,6 +21,7 @@ import type {
   CodexMcpServerElicitationAction,
   CodexConversationSnapshot,
   CodexConversationTurn,
+  CodexConversationTurnPagination,
   CodexModelOption,
   CodexPermissionMode,
   CodexPromptInput,
@@ -598,6 +599,7 @@ export interface ThreadBodySurfaceModel {
   threadId: string | null;
   cwd: string | null;
   turns: CodexConversationTurn[];
+  turnPagination?: CodexConversationTurnPagination | null;
   requests: CodexConversationServerRequest[];
   resumeState: CodexConversationResumeState | null;
   statusType: CodexThreadStatusType | null;

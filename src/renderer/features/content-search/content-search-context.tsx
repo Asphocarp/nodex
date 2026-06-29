@@ -44,6 +44,10 @@ export interface ContentSearchLocalSource {
   domain: ContentSearchLocalDomain;
   contextId: string;
   search: (query: string, limit: number) => Promise<ContentSearchLocalResult> | ContentSearchLocalResult;
+  ensureVisible?: (
+    match: ContentSearchLocalMatch,
+    options: { signal: AbortSignal },
+  ) => Promise<void> | void;
   activate: (match: ContentSearchLocalMatch, query: string) => Promise<void> | void;
   clear: () => void;
 }
@@ -120,6 +124,7 @@ export function ContentSearchProvider({
   const sourcesRef = useRef(new Map<ContentSearchLocalDomain, ContentSearchLocalSource>());
   const browserTargetRef = useRef<ContentSearchBrowserTarget | null>(null);
   const searchSequenceRef = useRef(0);
+  const activeEnsureAbortRef = useRef<AbortController | null>(null);
   const lastOpenRequestTickRef = useRef(openRequest?.tick ?? 0);
   const lastDomainRef = useRef<ContentSearchDomain>("conversation");
   const [sourceVersion, setSourceVersion] = useState(0);
@@ -169,6 +174,8 @@ export function ContentSearchProvider({
   }, []);
 
   const close = useCallback(() => {
+    activeEnsureAbortRef.current?.abort();
+    activeEnsureAbortRef.current = null;
     for (const source of sourcesRef.current.values()) {
       source.clear();
     }
@@ -374,7 +381,27 @@ export function ContentSearchProvider({
       source?.clear();
       return;
     }
-    void source.activate(match, result.query);
+    activeEnsureAbortRef.current?.abort();
+    const controller = new AbortController();
+    activeEnsureAbortRef.current = controller;
+
+    void (async () => {
+      try {
+        await source.ensureVisible?.(match, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        await source.activate(match, result.query);
+      } catch {
+        if (!controller.signal.aborted) {
+          source.clear();
+        }
+      }
+    })();
+    return () => {
+      controller.abort();
+      if (activeEnsureAbortRef.current === controller) {
+        activeEnsureAbortRef.current = null;
+      }
+    };
   }, [state.activeIndexByDomain, state.domain, state.open, state.resultByDomain, sourceVersion]);
 
   const labelInput: ContentSearchLabelInput = {

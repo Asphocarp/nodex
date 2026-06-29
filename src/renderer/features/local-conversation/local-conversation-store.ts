@@ -740,6 +740,7 @@ export class CodexAppServerManager {
   private readonly loadedThreadSummariesByProject = new Set<string>();
   private readonly threadSummaryLoadsInFlightByProject = new Map<string, Promise<CodexThreadSummary[]>>();
   private readonly conversationsById = new Map<string, CodexConversationSnapshot>();
+  private readonly olderTurnLoadsInFlightByThread = new Map<string, Promise<CodexConversationSnapshot | null>>();
   private readonly primaryConversationRequestByThread = new Map<string, CodexConversationLiveRequest | null>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly composerIntentsByThread = new Map<string, CodexComposerIntent>();
@@ -1061,6 +1062,27 @@ export class CodexAppServerManager {
       this.streamRoles.set(threadId, "owner");
     }
     return conversation;
+  }
+
+  requestThreadOlderTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
+    const existing = this.olderTurnLoadsInFlightByThread.get(threadId);
+    if (existing) return existing;
+
+    const loadPromise = (async () => {
+      const conversation = (await invoke("codex:thread:turns:load-older", threadId)) as CodexConversationSnapshot | null;
+      if (conversation) {
+        this.applyConversationSnapshot(threadId, conversation);
+      }
+      return conversation;
+    })();
+
+    this.olderTurnLoadsInFlightByThread.set(threadId, loadPromise);
+    void loadPromise.finally(() => {
+      if (this.olderTurnLoadsInFlightByThread.get(threadId) === loadPromise) {
+        this.olderTurnLoadsInFlightByThread.delete(threadId);
+      }
+    });
+    return loadPromise;
   }
 
   async startThreadForSession(input: CodexThreadStartForSessionInput & {
@@ -2591,6 +2613,10 @@ export function requestLocalConversationSnapshot(threadId: string): Promise<Code
 
 export function requestLocalConversationResume(threadId: string): Promise<CodexConversationSnapshot | null> {
   return getDefaultLocalConversationManager().requestThreadStreamResume(threadId);
+}
+
+export function requestLocalConversationOlderTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
+  return getDefaultLocalConversationManager().requestThreadOlderTurns(threadId);
 }
 
 export function setLocalConversationComposerIntent(threadId: string, composerIntent: CodexComposerIntent): void {

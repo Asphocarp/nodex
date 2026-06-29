@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { animate, motion, useMotionValue, useReducedMotion, type MotionValue } from "motion/react";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type { VisibleConversationTurnEntry } from "../selectors";
@@ -28,6 +29,7 @@ import {
   resolveThreadLatestTurnPhase,
   resolveTurnCenterDistanceFromBottom,
   resolveVirtualizedTurnViewportState,
+  shouldLoadOlderThreadTurns,
   THREAD_NEAR_BOTTOM_THRESHOLD_PX,
   type VirtualizedLatestTurnRestoreState,
   type ThreadLatestTurnFollowState,
@@ -38,8 +40,9 @@ import { useLocalConversationThreadScrollController } from "./local-conversation
 import { LocalConversationTurnEntry } from "./local-conversation-turn-entry";
 
 const TURN_GAP_PX = 12;
-const OVERSCAN_TURNS = 6;
+const OVERSCAN_TURNS = 2;
 const COLLAPSED_VISIBLE_TURNS = 3;
+const RESPONSE_SPACER_TRANSITION = { type: "spring", bounce: 0, duration: 0.5 } as const;
 
 function readScrollPaddingBottomPx(element: HTMLElement | null): number {
   if (element === null || typeof window === "undefined") return 0;
@@ -106,6 +109,9 @@ interface LocalConversationVirtualizedTurnListProps {
   onRestoreStateChange?: (state: VirtualizedTurnListRestoreState | null) => void;
   onLatestTurnRestoreStateChange?: (state: VirtualizedLatestTurnRestoreState | null) => void;
   onVisibleContentReady?: () => void;
+  onLoadOlderTurns?: () => Promise<"continue" | "stop">;
+  isHistoryComplete?: boolean;
+  isOlderHistoryLoading?: boolean;
   latestTurnSynchronousMeasurementKey?: string | number;
   scrollElement: HTMLDivElement | null;
   className?: string;
@@ -137,6 +143,12 @@ interface MeasuredTurnProps {
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onHeightChange: (turnKey: string, turnIndex: number, nextHeight: number) => void;
+  onLatestTurnFollowContentHeightChange?: (
+    heightPx: number,
+    turnElement: HTMLElement | null,
+  ) => void;
+  isLatestTurn: boolean;
+  latestTurnY: MotionValue<number> | null;
 }
 
 function MeasuredTurnComponent({
@@ -156,8 +168,12 @@ function MeasuredTurnComponent({
   onOpenThread,
   onOpenMcpAppSidePanel,
   onHeightChange,
+  onLatestTurnFollowContentHeightChange,
+  isLatestTurn,
+  latestTurnY,
 }: MeasuredTurnProps) {
   const elementRef = useRef<HTMLDivElement | null>(null);
+  const [followContentElement, setFollowContentElement] = useState<HTMLDivElement | null>(null);
 
   const handleElementRef = useCallback(
     (element: HTMLDivElement | null) => {
@@ -168,6 +184,13 @@ function MeasuredTurnComponent({
     [entry.turnKey, onHeightChange, turnIndex],
   );
 
+  const handleLatestTurnFollowContentRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      setFollowContentElement(element);
+    },
+    [],
+  );
+
   useLayoutEffect(() => {
     const element = elementRef.current;
     if (!element || typeof ResizeObserver === "undefined") return;
@@ -175,6 +198,12 @@ function MeasuredTurnComponent({
     let frameHandle: number | null = null;
     const measureHeight = () => {
       onHeightChange(entry.turnKey, turnIndex, element.offsetHeight);
+      if (isLatestTurn && followContentElement) {
+        onLatestTurnFollowContentHeightChange?.(
+          followContentElement.offsetHeight,
+          element,
+        );
+      }
     };
     const scheduleMeasure = () => {
       if (frameHandle !== null) return;
@@ -189,6 +218,9 @@ function MeasuredTurnComponent({
       scheduleMeasure();
     });
     observer.observe(element);
+    if (isLatestTurn && followContentElement) {
+      observer.observe(followContentElement);
+    }
 
     return () => {
       observer.disconnect();
@@ -196,11 +228,19 @@ function MeasuredTurnComponent({
         window.cancelAnimationFrame(frameHandle);
       }
     };
-  }, [entry.turnKey, onHeightChange, turnIndex]);
+  }, [
+    entry.turnKey,
+    followContentElement,
+    isLatestTurn,
+    onHeightChange,
+    onLatestTurnFollowContentHeightChange,
+    turnIndex,
+  ]);
 
-  return (
+  const turnContent = (
     <div
       ref={handleElementRef}
+      className="[&_[data-virtualized-turn-content]]:[content-visibility:visible]"
       data-thread-turn-id={entry.turnKey}
       data-turn-key={entry.turnKey}
     >
@@ -225,9 +265,18 @@ function MeasuredTurnComponent({
         onOpenSideChat={onOpenSideChat}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        latestTurnFollowContentRef={
+          isLatestTurn ? handleLatestTurnFollowContentRef : undefined
+        }
       />
     </div>
   );
+
+  return latestTurnY ? (
+    <motion.div style={{ y: latestTurnY }}>
+      {turnContent}
+    </motion.div>
+  ) : turnContent;
 }
 
 const MeasuredTurn = memo(
@@ -248,7 +297,10 @@ const MeasuredTurn = memo(
     && left.onOpenSideChat === right.onOpenSideChat
     && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
-    && left.onHeightChange === right.onHeightChange,
+    && left.onHeightChange === right.onHeightChange
+    && left.onLatestTurnFollowContentHeightChange === right.onLatestTurnFollowContentHeightChange
+    && left.isLatestTurn === right.isLatestTurn
+    && left.latestTurnY === right.latestTurnY,
 );
 
 export function LocalConversationVirtualizedTurnList({
@@ -272,10 +324,14 @@ export function LocalConversationVirtualizedTurnList({
   onRestoreStateChange,
   onLatestTurnRestoreStateChange,
   onVisibleContentReady,
+  onLoadOlderTurns,
+  isHistoryComplete = true,
+  isOlderHistoryLoading = false,
   latestTurnSynchronousMeasurementKey,
   scrollElement,
   className,
 }: LocalConversationVirtualizedTurnListProps) {
+  const prefersReducedMotion = useReducedMotion();
   const {
     adjustForMeasuredTurnHeightDelta,
     addScrollListener,
@@ -295,6 +351,14 @@ export function LocalConversationVirtualizedTurnList({
   const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
   const initialLatestTurnKey = entries[entries.length - 1]?.turnKey ?? null;
   const [responseSpacerHeightPx, setResponseSpacerHeightPx] = useState(0);
+  const responseSpacerHeightMotion = useMotionValue(0);
+  const latestTurnYMotion = useMotionValue(0);
+  const [latestTurnFollowContentHeightPx, setLatestTurnFollowContentHeightPx] = useState<number | null>(
+    () =>
+      initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
+        ? initialLatestTurnRestoreState.latestTurnFollowContentHeightPx
+        : null,
+  );
   const [latestTurnFollowState, setLatestTurnFollowState] =
     useState<ThreadLatestTurnFollowState>(() =>
       initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
@@ -329,7 +393,9 @@ export function LocalConversationVirtualizedTurnList({
   const measuredHeightsRef = useRef(measuredHeights);
   const pendingScrollResolvers = useRef(new Map<number, () => void>());
   const pendingScrollRequestId = useRef(0);
+  const olderHistoryLoadInFlightRef = useRef(false);
   const responseSpacerHeightPxRef = useRef(0);
+  const latestTurnFollowContentHeightPxRef = useRef(latestTurnFollowContentHeightPx);
   const latestTurnFollowStateRef = useRef(latestTurnFollowState);
   const latestTurnPhaseRef = useRef(resolveThreadLatestTurnPhase(entries[entries.length - 1]?.turn ?? null));
   const latestTurnKeyRef = useRef(initialLatestTurnKey);
@@ -355,17 +421,39 @@ export function LocalConversationVirtualizedTurnList({
   latestVirtualViewportStateRef.current = virtualViewportState;
   measuredHeightsRef.current = measuredHeights;
   responseSpacerHeightPxRef.current = responseSpacerHeightPx;
+  latestTurnFollowContentHeightPxRef.current = latestTurnFollowContentHeightPx;
   latestTurnFollowStateRef.current = latestTurnFollowState;
 
   const latestTurnEntry = entries[entries.length - 1] ?? null;
   const latestTurnKey = latestTurnEntry?.turnKey ?? null;
   const latestTurnPhase = resolveThreadLatestTurnPhase(latestTurnEntry?.turn ?? null);
 
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      responseSpacerHeightMotion.set(responseSpacerHeightPx);
+      return;
+    }
+
+    const controls = animate(
+      responseSpacerHeightMotion,
+      responseSpacerHeightPx,
+      RESPONSE_SPACER_TRANSITION,
+    );
+    return () => {
+      controls.stop();
+    };
+  }, [
+    prefersReducedMotion,
+    responseSpacerHeightMotion,
+    responseSpacerHeightPx,
+  ]);
+
   const scrollResponseSpacerToBottom = useCallback(() => {
     setResponseSpacerHeightPx(0);
+    latestTurnYMotion.set(0);
     setScrollMode("stickToBottom");
     scrollToBottom();
-  }, [scrollToBottom, setScrollMode]);
+  }, [latestTurnYMotion, scrollToBottom, setScrollMode]);
 
   useEffect(() => {
     if (responseSpacerHeightPx <= 0) {
@@ -431,6 +519,8 @@ export function LocalConversationVirtualizedTurnList({
 
     if (latestTurnKey === null) {
       setResponseSpacerHeightPx(0);
+      setLatestTurnFollowContentHeightPx(null);
+      latestTurnYMotion.set(0);
       setLatestTurnFollowState((current) =>
         resolveThreadLatestTurnFollowState(current, { type: "latest_turn_removed" }),
       );
@@ -445,6 +535,7 @@ export function LocalConversationVirtualizedTurnList({
 
     if (!placement.shouldPlaceLatestTurn) {
       setResponseSpacerHeightPx(0);
+      latestTurnYMotion.set(0);
       setScrollMode("user");
       scrollToDistanceFromBottomPx(placement.distanceFromBottomPx, "auto");
       return;
@@ -455,11 +546,19 @@ export function LocalConversationVirtualizedTurnList({
       viewportHeightPx: scrollElement?.clientHeight ?? viewportState.viewportHeightPx,
     });
     setResponseSpacerHeightPx(responseSpacerHeightPx);
+    latestTurnYMotion.set(responseSpacerHeightPx);
+    if (!prefersReducedMotion) {
+      animate(latestTurnYMotion, 0, RESPONSE_SPACER_TRANSITION);
+    } else {
+      latestTurnYMotion.set(0);
+    }
     setScrollMode("stickToBottom");
     scrollToDistanceFromBottomPx(0, "auto");
   }, [
     consumePendingLatestTurnSubmitPlacement,
     latestTurnKey,
+    latestTurnYMotion,
+    prefersReducedMotion,
     scrollElement,
     scrollToDistanceFromBottomPx,
     setScrollMode,
@@ -525,6 +624,34 @@ export function LocalConversationVirtualizedTurnList({
     if (scrollElement === null || listRoot === null) return;
     notifyContentLayout();
   }, [listRoot, notifyContentLayout, scrollElement]);
+
+  useEffect(() => {
+    if (!onLoadOlderTurns || isHistoryComplete || isOlderHistoryLoading) return;
+    if (olderHistoryLoadInFlightRef.current) return;
+    if (layout.totalHeightPx <= 0 || viewportState.viewportHeightPx <= 0) return;
+
+    if (!shouldLoadOlderThreadTurns({
+      historyComplete: isHistoryComplete,
+      isLoading: isOlderHistoryLoading,
+      scrollDistanceFromBottomPx: viewportState.scrollDistanceFromBottomPx,
+      totalHeightPx: layout.totalHeightPx,
+      turnsBottomInsetPx: viewportState.turnsBottomInsetPx,
+      viewportHeightPx: viewportState.viewportHeightPx,
+    })) return;
+
+    olderHistoryLoadInFlightRef.current = true;
+    void onLoadOlderTurns().finally(() => {
+      olderHistoryLoadInFlightRef.current = false;
+    });
+  }, [
+    isHistoryComplete,
+    isOlderHistoryLoading,
+    layout.totalHeightPx,
+    onLoadOlderTurns,
+    viewportState.scrollDistanceFromBottomPx,
+    viewportState.turnsBottomInsetPx,
+    viewportState.viewportHeightPx,
+  ]);
 
   useLayoutEffect(() => {
     if (scrollElement === null) return;
@@ -676,6 +803,54 @@ export function LocalConversationVirtualizedTurnList({
     ],
   );
 
+  const handleLatestTurnFollowContentHeightChange = useCallback(
+    (heightPx: number, turnElement: HTMLElement | null) => {
+      setLatestTurnFollowContentHeightPx((current) =>
+        current !== null && Math.abs(current - heightPx) < 1 ? current : heightPx,
+      );
+
+      const latestTurnPhase = latestTurnPhaseRef.current;
+      if (latestTurnPhase !== "prework") return;
+
+      const scrollPaddingBottomPx = readScrollPaddingBottomPx(scrollElement);
+      const fallbackOverflowPx = resolveResponseSpacerBottomViewportOverflowPx({
+        distanceFromBottomPx: scrollDistanceFromBottomPxRef.current,
+        responseSpacerHeightPx: responseSpacerHeightPxRef.current,
+        scrollPaddingBottomPx,
+      });
+      const followContentOverflowPx = scrollElement && turnElement
+        ? Math.max(
+            0,
+            (turnElement.getBoundingClientRect().bottom - scrollElement.getBoundingClientRect().bottom)
+              / readCodexWindowZoom(scrollElement)
+              + scrollPaddingBottomPx,
+          )
+        : fallbackOverflowPx;
+      const nextFollowState = resolveThreadLatestTurnFollowState(
+        latestTurnFollowStateRef.current,
+        {
+          type: "latest_turn_follow_content_changed",
+          followContentOverflowPx,
+          latestTurnPhase,
+        },
+      );
+      if (nextFollowState === latestTurnFollowStateRef.current) return;
+
+      latestTurnFollowStateRef.current = nextFollowState;
+      setLatestTurnFollowState(nextFollowState);
+      if (nextFollowState.followMode === "prework_follow") {
+        latestTurnYMotion.set(0);
+        setResponseSpacerHeightPx(0);
+        scrollToDistanceFromBottomPx(0, "auto");
+      }
+    },
+    [
+      latestTurnYMotion,
+      scrollElement,
+      scrollToDistanceFromBottomPx,
+    ],
+  );
+
   useLayoutEffect(() => {
     if (latestTurnSynchronousMeasurementKey == null || listRoot === null) return;
     const latestTurnKey = entries[entries.length - 1]?.turnKey;
@@ -766,17 +941,16 @@ export function LocalConversationVirtualizedTurnList({
 
     onLatestTurnRestoreStateChange({
       followState: latestTurnFollowState,
-      latestTurnFollowContentHeightPx:
-        responseSpacerHeightPx > 0 ? responseSpacerHeightPx : null,
+      latestTurnFollowContentHeightPx,
       latestTurnHeightPx: measuredHeights[latestTurnKey] ?? null,
       turnKey: latestTurnKey,
     });
   }, [
+    latestTurnFollowContentHeightPx,
     latestTurnFollowState,
     latestTurnKey,
     measuredHeights,
     onLatestTurnRestoreStateChange,
-    responseSpacerHeightPx,
   ]);
 
   useLayoutEffect(() => {
@@ -963,15 +1137,22 @@ export function LocalConversationVirtualizedTurnList({
               onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               onHeightChange={handleHeightChange}
+              onLatestTurnFollowContentHeightChange={handleLatestTurnFollowContentHeightChange}
+              isLatestTurn={visibleRange.startIndex + index === entries.length - 1}
+              latestTurnY={
+                visibleRange.startIndex + index === entries.length - 1
+                  ? latestTurnYMotion
+                  : null
+              }
             />
           ))}
         </div>
       </div>
       {responseSpacerHeightPx > 0 ? (
-        <div
+        <motion.div
           aria-hidden="true"
           className="shrink-0"
-          style={{ height: `${responseSpacerHeightPx}px` }}
+          style={{ height: responseSpacerHeightMotion }}
         />
       ) : null}
     </>

@@ -123,6 +123,7 @@ export type {
   CodexThreadDetail,
   CodexConversationItem,
   CodexConversationTurn,
+  CodexConversationTurnPagination,
   CodexConversationServerRequest,
   CodexConversationLiveRequest,
   CodexConversationSource,

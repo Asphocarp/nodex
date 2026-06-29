@@ -903,6 +903,10 @@ export interface IpcApi {
     args: [threadId: string];
     result: CodexConversationSnapshot | null;
   };
+  "codex:thread:turns:load-older": {
+    args: [threadId: string];
+    result: CodexConversationSnapshot | null;
+  };
   "codex:thread:name:set": {
     args: [threadId: string, name: string];
     result: boolean;

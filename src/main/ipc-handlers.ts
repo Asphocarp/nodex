@@ -1415,6 +1415,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.requestConversationResume(threadId)
   );
 
+  registerHandle("codex:thread:turns:load-older", (_, threadId: string) =>
+    codexService.loadOlderThreadTurns(threadId)
+  );
+
   registerHandle("codex:thread:name:set", (_, threadId: string, name: string) =>
     codexService.setThreadName(threadId, name)
   );

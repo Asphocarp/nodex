@@ -204,6 +204,7 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
   if (
     method === "thread/read"
     || method === "thread/resume"
+    || method === "thread/turns/list"
     || method === "thread/archive"
     || method === "thread/unarchive"
     || method === "thread/delete"
@@ -214,6 +215,10 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
     return {
       threadId: typeof candidate.threadId === "string" ? candidate.threadId : null,
       includeTurns: typeof candidate.includeTurns === "boolean" ? candidate.includeTurns : undefined,
+      hasCursor: typeof candidate.cursor === "string" && candidate.cursor.length > 0 ? true : undefined,
+      limit: typeof candidate.limit === "number" ? candidate.limit : undefined,
+      sortDirection: typeof candidate.sortDirection === "string" ? candidate.sortDirection : undefined,
+      itemsView: typeof candidate.itemsView === "string" ? candidate.itemsView : undefined,
     };
   }
 

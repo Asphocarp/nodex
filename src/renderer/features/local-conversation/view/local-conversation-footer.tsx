@@ -160,6 +160,17 @@ function LocalConversationFooterComponent({
           throw error;
         }
       },
+      onSendQueuedFollowUpNow: async (...args) => {
+        const prepared = prepareExistingThreadPlacement();
+        try {
+          await actions.onSendQueuedFollowUpNow(...args);
+        } catch (error) {
+          if (prepared) {
+            clearPendingLatestTurnSubmitPlacement();
+          }
+          throw error;
+        }
+      },
     };
   }, [
     actions,

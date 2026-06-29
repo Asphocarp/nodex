@@ -16,6 +16,7 @@ let invokeRecords: Array<{ channel: string; args: unknown[] }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 let threadListByProject: Record<string, CodexThreadSummary[]> = {};
 let startThreadForSessionResult: unknown = null;
+let olderThreadTurnsResult: Promise<CodexConversationSnapshot | null> | CodexConversationSnapshot | null = null;
 const generatedThreadTitleResult: unknown = { title: null };
 const generatedThreadTitleError: Error | null = null;
 
@@ -109,6 +110,10 @@ mock.module("./local-conversation-deps", () => ({
 
     if (channel === "codex:thread:start-for-session") {
       return startThreadForSessionResult;
+    }
+
+    if (channel === "codex:thread:turns:load-older") {
+      return olderThreadTurnsResult;
     }
 
     if (channel === "codex:thread:title:generate") {
@@ -236,6 +241,47 @@ function dispatchThreadSnapshot(message: CodexHostMessage): void {
 }
 
 describe("local-conversation-store", () => {
+  test("dedupes older-turn loads and applies the returned paged snapshot", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    let resolveOlderTurns: (conversation: CodexConversationSnapshot | null) => void = () => {};
+    olderThreadTurnsResult = new Promise<CodexConversationSnapshot | null>((resolve) => {
+      resolveOlderTurns = resolve;
+    });
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const firstLoad = manager.requestThreadOlderTurns("thread-older");
+    const secondLoad = manager.requestThreadOlderTurns("thread-older");
+
+    expect(String(invokeCalls.filter((call) => call === "codex:thread:turns:load-older").length)).toBe("1");
+
+    resolveOlderTurns({
+      ...buildConversation("thread-older", "project-1"),
+      turnPagination: {
+        olderCursor: "cursor-older",
+        backwardsCursor: "cursor-newer",
+        historyComplete: false,
+        loadedTurnCount: 50,
+        itemsView: "full",
+      },
+    });
+    await firstLoad;
+    await secondLoad;
+
+    const conversation = manager.readConversation("thread-older");
+    expect(conversation?.turnPagination?.olderCursor ?? null).toBe("cursor-older");
+    expect(conversation?.turnPagination?.historyComplete ?? true).toBeFalse();
+    manager.destroy();
+    olderThreadTurnsResult = null;
+  });
+
   test("leaves session-start auto-title generation to main", async () => {
     invokeCalls = [];
     invokeRecords = [];

@@ -39,6 +39,7 @@ function LocalConversationThreadBodyComponent({
           threadId={model.threadId}
           cwd={model.cwd}
           turns={model.turns}
+          turnPagination={model.turnPagination ?? null}
           requests={model.requests}
           resumeState={model.resumeState}
           capabilityFlags={model.capabilityFlags}
@@ -75,6 +76,7 @@ export const LocalConversationThreadBody = memo(
     && left.model.statusType === right.model.statusType
     && left.model.parentTurns === right.model.parentTurns
     && left.model.turns === right.model.turns
+    && left.model.turnPagination === right.model.turnPagination
     && left.model.requests === right.model.requests
     && left.model.capabilityFlags === right.model.capabilityFlags,
 );

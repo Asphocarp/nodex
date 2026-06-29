@@ -34,6 +34,7 @@ interface LocalConversationTurnEntryProps {
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onRendered?: (turnId: string) => void;
+  latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
 }
 
 function LocalConversationTurnEntryComponent({
@@ -54,6 +55,7 @@ function LocalConversationTurnEntryComponent({
   onOpenThread,
   onOpenMcpAppSidePanel,
   onRendered,
+  latestTurnFollowContentRef,
 }: LocalConversationTurnEntryProps) {
   onRendered?.(turn.turnId);
   const turnModel = useMemo(
@@ -78,6 +80,7 @@ function LocalConversationTurnEntryComponent({
   return (
     <div
       data-content-search-turn-key={turnSearchKey}
+      data-virtualized-turn-content="true"
     >
       <ThreadTurn
         turn={turnModel}
@@ -97,6 +100,7 @@ function LocalConversationTurnEntryComponent({
         onOpenSideChat={onOpenSideChat}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        latestTurnFollowContentRef={latestTurnFollowContentRef}
       />
     </div>
   );
@@ -123,5 +127,6 @@ export const LocalConversationTurnEntry = memo(
     && left.onOpenSideChat === right.onOpenSideChat
     && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
-    && left.onRendered === right.onRendered,
+    && left.onRendered === right.onRendered
+    && left.latestTurnFollowContentRef === right.latestTurnFollowContentRef,
 );

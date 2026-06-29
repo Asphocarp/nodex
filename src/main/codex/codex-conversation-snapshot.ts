@@ -10,6 +10,7 @@ import type {
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurn,
+  CodexConversationTurnPagination,
   CodexThreadDetail,
   CodexTranscriptEntry,
 } from "../../shared/types";
@@ -79,6 +80,7 @@ export function buildCodexConversationSnapshot(input: {
   backgroundTerminalRows?: CodexBackgroundTerminalRow[];
   childMemberships?: CodexConversationChildMembership[];
   capabilityFlags: CodexConversationCapabilityFlags;
+  turnPagination?: CodexConversationTurnPagination;
 }): CodexConversationSnapshot {
   const { transcript, ...detail } = input.detail;
   void transcript;
@@ -87,6 +89,13 @@ export function buildCodexConversationSnapshot(input: {
     ...detail,
     latestCollaborationMode: input.detail.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE,
     resumeState: input.resumeState,
+    turnPagination: input.turnPagination ?? {
+      olderCursor: null,
+      backwardsCursor: null,
+      historyComplete: true,
+      loadedTurnCount: input.detail.turns.length,
+      itemsView: "full",
+    },
     turns: input.detail.turns.map((turn) => buildCodexConversationTurn(input.detail, turn)),
     requests: [...input.requests].sort((left, right) => left.createdAt - right.createdAt),
     queuedFollowUps: [...(input.queuedFollowUps ?? [])].sort((left, right) => left.createdAt - right.createdAt),

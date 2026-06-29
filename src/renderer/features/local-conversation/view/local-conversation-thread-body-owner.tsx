@@ -33,8 +33,10 @@ import type {
   CodexConversationResumeState,
   CodexConversationServerRequest,
   CodexConversationTurn,
+  CodexConversationTurnPagination,
   CodexThreadStatusType,
 } from "../../../lib/types";
+import { requestLocalConversationOlderTurns } from "../local-conversation-store";
 import { selectVisibleConversationTurnEntries } from "../selectors";
 import type {
   ThreadBodyModel,
@@ -271,6 +273,7 @@ interface LocalConversationThreadBodyOwnerProps {
   threadId: string | null;
   cwd: string | null;
   turns: CodexConversationTurn[];
+  turnPagination: CodexConversationTurnPagination | null;
   requests: CodexConversationServerRequest[];
   resumeState: CodexConversationResumeState | null;
   capabilityFlags: CodexConversationCapabilityFlags;
@@ -297,6 +300,7 @@ export function LocalConversationThreadBodyOwner({
   threadId,
   cwd,
   turns,
+  turnPagination,
   requests,
   resumeState,
   capabilityFlags,
@@ -347,6 +351,7 @@ export function LocalConversationThreadBodyOwner({
   } | null>(null);
   const [isForkSubmitting, setIsForkSubmitting] = useState(false);
   const [isRestoringArchivedThread, setIsRestoringArchivedThread] = useState(false);
+  const [isOlderHistoryLoading, setIsOlderHistoryLoading] = useState(false);
   const [isDeferredBodyReady, setIsDeferredBodyReady] = useState(
     () =>
       !threadId ||
@@ -372,6 +377,7 @@ export function LocalConversationThreadBodyOwner({
             linkedAt: "",
             latestCollaborationMode: undefined,
             resumeState: resumeState ?? "needs_resume",
+            turnPagination: turnPagination ?? undefined,
             turns,
             requests,
             queuedFollowUps: [],
@@ -381,7 +387,7 @@ export function LocalConversationThreadBodyOwner({
             capabilityFlags,
           }
         : null,
-    [capabilityFlags, cwd, requests, resumeState, statusType, threadId, turns],
+    [capabilityFlags, cwd, requests, resumeState, statusType, threadId, turnPagination, turns],
   );
 
   const latestTurnId = body.latestTurnId;
@@ -497,6 +503,21 @@ export function LocalConversationThreadBodyOwner({
     [writeRestoreSnapshot],
   );
 
+  const handleLoadOlderTurns = useCallback(async () => {
+    const targetThreadId = threadId ?? body.threadId;
+    if (!targetThreadId || turnPagination?.historyComplete === true) {
+      return "stop";
+    }
+
+    setIsOlderHistoryLoading(true);
+    try {
+      const snapshot = await requestLocalConversationOlderTurns(targetThreadId);
+      return snapshot?.turnPagination?.historyComplete === true ? "stop" : "continue";
+    } finally {
+      setIsOlderHistoryLoading(false);
+    }
+  }, [body.threadId, threadId, turnPagination?.historyComplete]);
+
   useEffect(
     () => () => {
       writeRestoreSnapshot();
@@ -510,7 +531,8 @@ export function LocalConversationThreadBodyOwner({
         routeContextId: body.threadId ? `conversation:${body.threadId}` : "unavailable",
         getTurns: () => currentTurnEntriesRef.current,
         scrollAdapter: {
-          scrollToTurn: async (turnKey) => {
+          scrollToTurn: async (turnKey, options) => {
+            if (options?.signal?.aborted) return;
             const turnId = currentTurnEntriesRef.current.find(
               (entry) => entry.turnKey === turnKey,
             )?.turnId;
@@ -524,10 +546,13 @@ export function LocalConversationThreadBodyOwner({
                   resolve();
                 });
               });
+              if (options?.signal?.aborted) return;
             }
             const api = listApiRef.current;
             if (!api) return;
             await api.scrollToKey(turnKey);
+            if (options?.signal?.aborted) return;
+            await nextAnimationFrame();
           },
           getTurnContainer: (turnKey) =>
             contentRootRef.current?.querySelector<HTMLElement>(
@@ -667,14 +692,15 @@ export function LocalConversationThreadBodyOwner({
         capped,
       };
     },
-    async activate(match, query) {
+    async ensureVisible(match, { signal }) {
       if (!isConversationSearchMatchMeta(match.meta)) return;
       const turnKey = turnKeyByTurnId.get(match.meta.turnId);
       if (turnKey) {
-        await searchSource.scrollAdapter.scrollToTurn(turnKey);
-        await nextAnimationFrame();
+        await searchSource.scrollAdapter.scrollToTurn(turnKey, { signal });
       }
-
+    },
+    activate(match, query) {
+      if (!isConversationSearchMatchMeta(match.meta)) return;
       const root = contentRootRef.current;
       if (!root) return;
       const result = applyContentSearchDomMarks({
@@ -903,6 +929,9 @@ export function LocalConversationThreadBodyOwner({
                 latestTurnSynchronousMeasurementKey={body.latestTurnId ?? body.turnCount}
                 onLatestTurnRestoreStateChange={handleLatestTurnRestoreStateChange}
                 onRestoreStateChange={handleVirtualizedTurnRestoreStateChange}
+                onLoadOlderTurns={handleLoadOlderTurns}
+                isHistoryComplete={turnPagination?.historyComplete ?? true}
+                isOlderHistoryLoading={isOlderHistoryLoading}
                 scrollElement={scrollElement}
                 onApiChange={(api) => {
                   listApiRef.current = api;
