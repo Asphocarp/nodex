@@ -84,7 +84,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Manual visual parity fixture for the left-side user-message navigation rail: long thread, hover tooltip, output pills, current marker, and drag scrub affordance.",
+          "Manual visual parity fixture for the left-side user-message navigation rail: long thread, mounted and missing-target reveal, hover tooltip, output pills, current marker, reduced-motion checks, and drag scrub affordance.",
       },
     },
   },

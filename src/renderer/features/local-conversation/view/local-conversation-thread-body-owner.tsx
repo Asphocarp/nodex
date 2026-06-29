@@ -54,6 +54,15 @@ import { LocalConversationForkFromTurnDialog } from "./local-conversation-fork-f
 import {
   useLocalConversationThreadScrollController,
 } from "./local-conversation-thread-scroll-controller";
+import {
+  readLocalConversationVirtualizedTurnRestoreSnapshot,
+  writeLocalConversationVirtualizedTurnRestoreSnapshot,
+  type LocalConversationVirtualizedTurnRestoreSnapshot,
+} from "./local-conversation-virtualized-turn-restore-store";
+import type {
+  VirtualizedLatestTurnRestoreState,
+  VirtualizedTurnListRestoreState,
+} from "./local-conversation-turn-virtualization";
 import { LocalConversationResumeLoader } from "./shared/local-conversation-resume-loader";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
 import { createLocalConversationSearchSource } from "./local-conversation-search-source";
@@ -300,13 +309,34 @@ export function LocalConversationThreadBodyOwner({
   initialUiState,
 }: LocalConversationThreadBodyOwnerProps) {
   const {
+    getLastScrollDistanceFromBottomPx,
     maybeStickToBottom,
     scrollElement,
+    scrollToDistanceFromBottomPx,
     setScrollMode,
   } = useLocalConversationThreadScrollController();
+  const restoreSnapshotRef = useRef<{
+    snapshot: LocalConversationVirtualizedTurnRestoreSnapshot | null;
+    threadId: string | null;
+  } | null>(null);
+  if (restoreSnapshotRef.current?.threadId !== threadId) {
+    restoreSnapshotRef.current = {
+      snapshot: readLocalConversationVirtualizedTurnRestoreSnapshot(threadId),
+      threadId,
+    };
+  }
+  const initialRestoreSnapshot = restoreSnapshotRef.current.snapshot;
   const setupProgressLogRef = useRef<HTMLDivElement>(null);
   const contentRootRef = useRef<HTMLDivElement | null>(null);
   const listApiRef = useRef<LocalConversationVirtualizedTurnListApi | null>(null);
+  const virtualizedTurnRestoreStateRef =
+    useRef<VirtualizedTurnListRestoreState | null>(
+      initialRestoreSnapshot?.virtualizedTurnList ?? null,
+    );
+  const latestTurnRestoreStateRef =
+    useRef<VirtualizedLatestTurnRestoreState | null>(
+      initialRestoreSnapshot?.latestTurn ?? null,
+    );
   const [collapsedAgentBodyByTurnId, setCollapsedAgentBodyByTurnId] = useState<
     Record<string, boolean>
   >(() => initialUiState?.collapsedAgentBodyByTurnId ?? {});
@@ -417,6 +447,63 @@ export function LocalConversationThreadBodyOwner({
   const currentTurnEntriesRef = useRef(turnEntries);
   currentTurnEntriesRef.current = turnEntries;
 
+  useEffect(() => {
+    virtualizedTurnRestoreStateRef.current =
+      initialRestoreSnapshot?.virtualizedTurnList ?? null;
+    latestTurnRestoreStateRef.current =
+      initialRestoreSnapshot?.latestTurn ?? null;
+  }, [
+    body.threadId,
+    initialRestoreSnapshot?.latestTurn,
+    initialRestoreSnapshot?.virtualizedTurnList,
+  ]);
+
+  const writeRestoreSnapshot = useCallback(
+    (input?: {
+      latestTurn?: VirtualizedLatestTurnRestoreState | null;
+      virtualizedTurnList?: VirtualizedTurnListRestoreState | null;
+    }) => {
+      if (!threadId) return;
+      const latestTurn =
+        input && "latestTurn" in input
+          ? input.latestTurn ?? null
+          : latestTurnRestoreStateRef.current;
+      const virtualizedTurnList =
+        input && "virtualizedTurnList" in input
+          ? input.virtualizedTurnList ?? null
+          : virtualizedTurnRestoreStateRef.current;
+      writeLocalConversationVirtualizedTurnRestoreSnapshot(threadId, {
+        distanceFromBottomPx: getLastScrollDistanceFromBottomPx(),
+        latestTurn,
+        virtualizedTurnList,
+      });
+    },
+    [getLastScrollDistanceFromBottomPx, threadId],
+  );
+
+  const handleVirtualizedTurnRestoreStateChange = useCallback(
+    (state: VirtualizedTurnListRestoreState | null) => {
+      virtualizedTurnRestoreStateRef.current = state;
+      writeRestoreSnapshot({ virtualizedTurnList: state });
+    },
+    [writeRestoreSnapshot],
+  );
+
+  const handleLatestTurnRestoreStateChange = useCallback(
+    (state: VirtualizedLatestTurnRestoreState | null) => {
+      latestTurnRestoreStateRef.current = state;
+      writeRestoreSnapshot({ latestTurn: state });
+    },
+    [writeRestoreSnapshot],
+  );
+
+  useEffect(
+    () => () => {
+      writeRestoreSnapshot();
+    },
+    [writeRestoreSnapshot],
+  );
+
   const searchSource = useMemo(
     () =>
       createLocalConversationSearchSource({
@@ -440,7 +527,7 @@ export function LocalConversationThreadBodyOwner({
             }
             const api = listApiRef.current;
             if (!api) return;
-            await api.scrollToKey(turnKey, undefined, "auto");
+            await api.scrollToKey(turnKey);
           },
           getTurnContainer: (turnKey) =>
             contentRootRef.current?.querySelector<HTMLElement>(
@@ -452,9 +539,29 @@ export function LocalConversationThreadBodyOwner({
   );
 
   useEffect(() => {
+    const restoredDistanceFromBottomPx =
+      initialRestoreSnapshot?.distanceFromBottomPx ?? 0;
+    if (restoredDistanceFromBottomPx > 0) {
+      setScrollMode("user");
+      const frameHandle = window.requestAnimationFrame(() => {
+        scrollToDistanceFromBottomPx(restoredDistanceFromBottomPx, "auto");
+      });
+      return () => {
+        window.cancelAnimationFrame(frameHandle);
+      };
+    }
+
     setScrollMode("stickToBottom");
     maybeStickToBottom();
-  }, [body.threadId, maybeStickToBottom, setScrollMode]);
+    return undefined;
+  }, [
+    body.threadId,
+    initialRestoreSnapshot?.distanceFromBottomPx,
+    maybeStickToBottom,
+    scrollElement,
+    scrollToDistanceFromBottomPx,
+    setScrollMode,
+  ]);
 
   useEffect(() => {
     clearContentSearchMarks(contentRootRef.current);
@@ -676,7 +783,6 @@ export function LocalConversationThreadBodyOwner({
         await api.scrollToKey(
           item.turnKey,
           (turnElement) => turnElement.querySelector<HTMLElement>(unitSelector),
-          "auto",
         );
         await nextAnimationFrame();
       }
@@ -792,6 +898,11 @@ export function LocalConversationThreadBodyOwner({
                 onOpenSideChat={actions.onOpenSideChat}
                 onOpenThread={actions.onOpenThread}
                 onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+                initialRestoreState={initialRestoreSnapshot?.virtualizedTurnList ?? null}
+                initialLatestTurnRestoreState={initialRestoreSnapshot?.latestTurn ?? null}
+                latestTurnSynchronousMeasurementKey={body.latestTurnId ?? body.turnCount}
+                onLatestTurnRestoreStateChange={handleLatestTurnRestoreStateChange}
+                onRestoreStateChange={handleVirtualizedTurnRestoreStateChange}
                 scrollElement={scrollElement}
                 onApiChange={(api) => {
                   listApiRef.current = api;

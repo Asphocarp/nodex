@@ -1,10 +1,26 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { act } from "@testing-library/react";
+import { useEffect } from "react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render } from "../../../test/dom";
 import {
   EnsureLocalConversationThreadScrollController,
   LocalConversationThreadScrollLayout,
+  useLocalConversationThreadScrollController,
+  type LocalConversationThreadScrollControllerValue,
 } from "./local-conversation-thread-scroll-controller";
+
+function ControllerProbe({
+  onController,
+}: {
+  onController: (controller: LocalConversationThreadScrollControllerValue) => void;
+}) {
+  const controller = useLocalConversationThreadScrollController();
+  useEffect(() => {
+    onController(controller);
+  }, [controller, onController]);
+  return null;
+}
 
 describe("LocalConversationThreadScrollLayout", () => {
   const originalResizeObserver = globalThis.ResizeObserver;
@@ -137,5 +153,62 @@ describe("LocalConversationThreadScrollLayout", () => {
 
     expect(Boolean(footer)).toBeTrue();
     expect(scrollContainer?.style.getPropertyValue("--thread-scroll-padding-bottom")).toBe("64px");
+  });
+
+  test("records pending latest-turn placement against response spacer height", async () => {
+    let controller: LocalConversationThreadScrollControllerValue | null = null;
+    const view = render(
+      <EnsureLocalConversationThreadScrollController>
+        <LocalConversationThreadScrollLayout>
+          <ControllerProbe
+            onController={(nextController) => {
+              controller = nextController;
+            }}
+          />
+          <div style={{ height: "1000px" }}>Thread content</div>
+        </LocalConversationThreadScrollLayout>
+      </EnsureLocalConversationThreadScrollController>,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const scrollContainer = view.container.querySelector(
+      "[data-local-conversation-thread-body='true']",
+    ) as HTMLDivElement | null;
+    expect(scrollContainer !== null).toBeTrue();
+    if (!scrollContainer || controller === null) return;
+
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      value: 1000,
+    });
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      value: 500,
+    });
+    let scrollTopValue = -280;
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get: () => scrollTopValue,
+      set: (value: number) => {
+        scrollTopValue = value;
+      },
+    });
+
+    await act(async () => {
+      controller?.registerResponseSpacerState({
+        getHeightPx: () => 100,
+        scrollToBottom: () => {},
+      });
+      await Promise.resolve();
+    });
+
+    const placement = controller.prepareLatestTurnSubmitPlacement();
+    expect(placement?.distanceFromBottomPx ?? 0).toBe(280);
+    expect(placement?.scrollHeightPx ?? 0).toBe(1000);
+    expect(placement?.shouldPlaceLatestTurn ?? false).toBeTrue();
+    expect(controller.consumePendingLatestTurnSubmitPlacement()?.distanceFromBottomPx ?? 0).toBe(280);
+    expect(controller.consumePendingLatestTurnSubmitPlacement() === null).toBeTrue();
   });
 });

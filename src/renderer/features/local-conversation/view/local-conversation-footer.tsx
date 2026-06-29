@@ -1,9 +1,10 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DownArrowIcon } from "@/components/shared/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
 import { selectVisibleConversationTurnEntries } from "../selectors";
 import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
+import { shouldShowThreadScrollToBottomControl } from "./local-conversation-turn-virtualization";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import {
   LocalConversationAboveComposerPortalHost,
@@ -64,8 +65,18 @@ function LocalConversationFooterComponent({
   variant = "thread",
   rightPanelComposerOverlay,
 }: LocalConversationFooterProps) {
-  const { isScrolledFromBottom, scrollToBottom } =
-    useLocalConversationThreadScrollController();
+  const {
+    addScrollListener,
+    clearPendingLatestTurnSubmitPlacement,
+    getLastScrollDistanceFromBottomPx,
+    isScrolledFromBottom,
+    prepareLatestTurnSubmitPlacement,
+    responseSpacerState,
+    scrollToBottom,
+  } = useLocalConversationThreadScrollController();
+  const [scrollDistanceFromBottomPx, setScrollDistanceFromBottomPx] = useState(
+    () => getLastScrollDistanceFromBottomPx(),
+  );
   const [latestTurnPreviewState, setLatestTurnPreviewState] =
     useState<RightPanelLatestTurnPreviewState>("preview");
   const isResumingActiveThread = !model.isNewThreadTab && model.resumeState !== null && model.resumeState !== "resumed";
@@ -99,11 +110,82 @@ function LocalConversationFooterComponent({
 
     setLatestTurnPreviewState("preview");
   }, [latestTurn?.turnId, rightPanelOverlayEnabled]);
+  useEffect(
+    () => addScrollListener(setScrollDistanceFromBottomPx),
+    [addScrollListener],
+  );
 
+  const actionsWithSubmitPlacement = useMemo<ThreadStageActions>(() => {
+    const prepareExistingThreadPlacement = () => {
+      if (model.threadId === null || model.conversation === null) return false;
+      prepareLatestTurnSubmitPlacement();
+      return true;
+    };
+
+    return {
+      ...actions,
+      onSendPrompt: async (...args) => {
+        const prepared = prepareExistingThreadPlacement();
+        try {
+          await actions.onSendPrompt(...args);
+        } catch (error) {
+          if (prepared) {
+            clearPendingLatestTurnSubmitPlacement();
+          }
+          throw error;
+        }
+      },
+      onSteerPrompt: async (...args) => {
+        const prepared = prepareExistingThreadPlacement();
+        try {
+          await actions.onSteerPrompt(...args);
+        } catch (error) {
+          if (prepared) {
+            clearPendingLatestTurnSubmitPlacement();
+          }
+          throw error;
+        }
+      },
+      onEnqueueQueuedFollowUp: async (...args) => {
+        const prepared = prepareExistingThreadPlacement();
+        try {
+          await actions.onEnqueueQueuedFollowUp(...args);
+          if (prepared) {
+            clearPendingLatestTurnSubmitPlacement();
+          }
+        } catch (error) {
+          if (prepared) {
+            clearPendingLatestTurnSubmitPlacement();
+          }
+          throw error;
+        }
+      },
+    };
+  }, [
+    actions,
+    clearPendingLatestTurnSubmitPlacement,
+    model.conversation,
+    model.threadId,
+    prepareLatestTurnSubmitPlacement,
+  ]);
+
+  const responseSpacerHeightPx = responseSpacerState?.getHeightPx() ?? null;
   const showCatchUpControl =
     model.threadId !== null &&
     model.body.turnCount > 0 &&
-    isScrolledFromBottom;
+    shouldShowThreadScrollToBottomControl({
+      isScrollToTopEnabled: responseSpacerState !== null,
+      isScrolledFromBottom,
+      responseSpacerHeightPx,
+      scrollDistanceFromBottomPx,
+    });
+  const handleCatchUpClick = useCallback(() => {
+    if (responseSpacerState) {
+      responseSpacerState.scrollToBottom();
+      return;
+    }
+    scrollToBottom();
+  }, [responseSpacerState, scrollToBottom]);
   const catchUpControl = (
     <div className="relative h-0">
       <AnimatePresence initial={false}>
@@ -118,7 +200,7 @@ function LocalConversationFooterComponent({
             <button
               type="button"
               aria-label="Scroll to latest message"
-              onClick={scrollToBottom}
+              onClick={handleCatchUpClick}
               className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-token-border bg-token-background text-token-foreground shadow-card-md hover:bg-token-foreground/5"
             >
               <DownArrowIcon className="size-4" />
@@ -156,7 +238,7 @@ function LocalConversationFooterComponent({
         {catchUpControl}
         <LocalConversationFooterChrome
           model={model}
-          actions={actions}
+          actions={actionsWithSubmitPlacement}
           errorMessage={errorMessage}
           onErrorMessage={onErrorMessage}
           latestTurnPreview={latestTurnPreview}
@@ -180,7 +262,7 @@ function LocalConversationFooterComponent({
       {catchUpControl}
       <LocalConversationFooterChrome
         model={model}
-        actions={actions}
+        actions={actionsWithSubmitPlacement}
         errorMessage={errorMessage}
         onErrorMessage={onErrorMessage}
       />
