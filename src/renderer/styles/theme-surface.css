@@ -46,6 +46,11 @@
 }
 
 @supports (corner-shape: superellipse(1.5)) {
+  :root,
+  :host {
+    --codex-corner-shape: superellipse(1.5);
+  }
+
   .rounded-md,
   .rounded-lg,
   .rounded-xl,

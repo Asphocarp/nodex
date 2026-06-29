@@ -170,7 +170,8 @@
 - Keep thread-footer width ownership outside the composer shell:
   - `LocalConversationThreadScrollLayout` owns the scroll viewport, `pt-(--thread-content-top-inset)`, `flex flex-col-reverse`, the shared `mx-auto w-full max-w-(--thread-content-max-width) px-toolbar` content width, and the sticky footer inside the scroll container
   - `px-toolbar` must resolve through `--padding-toolbar: calc(var(--spacing) * 4)`, leaving a 736px readable lane inside the 48rem thread max-width
-  - the footer wrapper owns `max-w-[var(--thread-composer-max-width)]` and `px-panel`, while the scroll layout measures footer height and writes `--thread-scroll-padding-bottom` as `footerHeight + 16px`
+  - the footer wrapper uses the same `max-w-(--thread-content-max-width) px-toolbar` readable lane as thread content, while the scroll layout measures footer height and writes `--thread-scroll-padding-bottom` as `footerHeight + 16px`
+  - composer surface corners use `border-radius: var(--radius-3xl)` plus `corner-shape: var(--codex-corner-shape)`, where supported `--codex-corner-shape` resolves to `superellipse(1.5)`; do not replace this with plain rounded corners
   - the floating summary panel stays mounted for attached threads while normal overlay width changes only set `open=false`; reserve `hideImmediately` for the overlay popover-open branch
   - the fixed above-composer block host (`above-composer-portal`) and the queue/background lane host (`above-composer-queue-portal`) both stay in footer ownership as siblings directly above `LocalConversationComposerShell`; inline mode renders them in the sticky footer wrapper, while full-width eligible right-panel tabs render the same ordered hosts inside `RightPanelComposerOverlay`
   - `LocalConversationComposerShell` should stay a pure stack/layout switcher

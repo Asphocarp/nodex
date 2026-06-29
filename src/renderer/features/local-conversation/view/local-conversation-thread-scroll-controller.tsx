@@ -742,7 +742,7 @@ export const LocalConversationThreadScrollLayout = forwardRef<
             <div
               ref={footerRef}
               data-thread-scroll-footer="true"
-              className="sticky bottom-0 z-10 mt-auto w-full pb-2"
+              className="sticky bottom-0 z-10 mt-auto w-full pb-4"
             >
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 flex h-full w-full justify-center pt-4">
                 <div className="z-0 h-full w-full bg-gradient-to-t from-token-main-surface-primary via-token-main-surface-primary extension:from-token-bg-primary extension:via-token-bg-primary" />

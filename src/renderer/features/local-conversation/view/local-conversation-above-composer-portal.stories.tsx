@@ -278,7 +278,7 @@ function AboveComposerStoryFrame({
       </div>
       <TooltipProvider>
         <div className="flex-1" />
-        <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
+        <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
           <LocalConversationAboveComposerPortalHost conversationId={model.footerModel.threadId} />
           <LocalConversationAboveComposerQueuePortalHost conversationId={model.footerModel.threadId} />
           <LocalConversationAboveComposerPortal

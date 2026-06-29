@@ -264,7 +264,7 @@ function LocalConversationFooterComponent({
 
   if (isResumingActiveThread) {
     return (
-      <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel"}>
+      <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"}>
         {catchUpControl}
         <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
         <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
@@ -273,7 +273,7 @@ function LocalConversationFooterComponent({
   }
 
   return (
-    <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel"}>
+    <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"}>
       {catchUpControl}
       <LocalConversationFooterChrome
         model={model}

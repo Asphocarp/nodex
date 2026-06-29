@@ -108,7 +108,7 @@ describe("LocalConversationComposerShell", () => {
     const model = buildComposerShellModel();
     const view = render(
       <TooltipProvider>
-        <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
+        <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
           <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
           <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
           <LocalConversationComposerShell
