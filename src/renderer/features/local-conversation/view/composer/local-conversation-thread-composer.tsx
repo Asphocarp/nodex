@@ -1,6 +1,5 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { handleFormSubmit } from "@/lib/forms";
 import {
   formatCodexModelLabel,
   formatCodexReasoningEffortLabel,
@@ -70,6 +69,7 @@ import {
   type ComposerPromptEditorHandle,
   type ComposerPromptEditorKeyboardEvent,
 } from "./composer-prompt-editor";
+import { useThreadComposerPromptHistoryRecall } from "./thread-composer-prompt-history";
 import { InlineSlashCommandMenu } from "./slash-command-menu/inline-slash-command-menu";
 import { ExpandedSlashCommandDialog } from "./slash-command-menu/expanded-slash-command-dialog";
 import { buildComposerSlashCommands } from "./slash-command-menu/slash-command-registry";
@@ -138,7 +138,7 @@ function renderModelSelectorLabel(input: {
     <span className="flex min-w-0 items-center gap-1 tabular-nums">
       {showFastModeIndicator ? (
         <span data-fast-mode-indicator="true">
-          <CodexFastModeIcon className="text-token-link-foreground" />
+          <CodexFastModeIcon className="icon-2xs text-token-link-foreground shrink-0" />
         </span>
       ) : null}
       <span className="truncate whitespace-nowrap">{label}</span>
@@ -337,7 +337,7 @@ function ComposerAddContextDropdown({
       triggerButton={(
         <button
           type="button"
-          className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none focus:outline-none enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
+          className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer px-2 py-0 text-sm leading-[18px] aspect-square items-center justify-center !px-0"
           aria-label={triggerLabel}
           title={triggerLabel}
           disabled={disabled}
@@ -536,7 +536,7 @@ function renderModelMenuLabel(input: {
   return (
     <span className="flex min-w-0 items-center gap-1 tabular-nums">
       {input.showFastIndicator && input.serviceTier === "fast" ? (
-        <CodexFastModeIcon className="text-token-link-foreground" />
+        <CodexFastModeIcon className="icon-2xs text-token-link-foreground shrink-0" />
       ) : null}
       <span className="truncate whitespace-nowrap">
         {formatCodexModelLabel(input.modelId, input.availableModels)}
@@ -617,13 +617,13 @@ function IntelligenceSelectorDropdown({
         <button
           type="button"
           aria-label="Select Codex model and reasoning"
-          className="border-token-border no-drag cursor-interaction flex h-token-button-composer min-w-0 items-center gap-1 rounded-full border border-transparent px-2 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none focus:outline-none enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
+          className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer px-2 py-0 text-sm leading-[18px] min-w-0"
         >
           <span className="flex max-w-40 min-w-0 items-center gap-1.5">
             <span className="flex min-w-0 items-center gap-1 tabular-nums">
-              <span className="min-w-0 max-w-24 truncate whitespace-nowrap text-token-foreground">{modelLabel}</span>
+              <span className="truncate whitespace-nowrap text-token-foreground">{modelLabel}</span>
             </span>
-            <span className="shrink-0 text-token-description-foreground">{reasoningLabel}</span>
+            <span className="_labelSm_z984f_2 shrink-0 text-token-description-foreground">{reasoningLabel}</span>
           </span>
           <ChevronDownIcon className="icon-2xs text-token-input-placeholder-foreground" />
         </button>
@@ -739,6 +739,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [slashDialogOpen, setSlashDialogOpen] = useState(false);
   const [desktopPetVisible, setDesktopPetVisible] = useState(false);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
+  const resetPromptHistorySelectionRef = useRef<() => void>(() => {});
   const dictationShortcutActiveRef = useRef(false);
   const attachmentGenerationRef = useRef(0);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
@@ -757,6 +759,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     setImageAttachments([]);
     setSkillMentions([]);
   }, [incrementAttachmentGeneration]);
+  const recordSuccessfulPromptSubmit = useCallback((text: string) => {
+    appendPromptToHistoryRef.current(text);
+    resetPromptHistorySelectionRef.current();
+  }, []);
 
   const submitPrompt = useCallback(async (
     input: {
@@ -804,6 +810,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
               }
             : undefined,
         });
+        recordSuccessfulPromptSubmit(sideChatPrompt);
         input.reset?.();
         resetComposerAttachments();
       } catch {
@@ -868,6 +875,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           promptInput,
         });
       }
+      recordSuccessfulPromptSubmit(nextPrompt);
       input.reset?.();
       resetComposerAttachments();
     } catch (error) {
@@ -884,6 +892,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     model.newThreadTarget,
     model.selectedCollaborationMode,
     onErrorMessage,
+    recordSuccessfulPromptSubmit,
     resetComposerAttachments,
   ]);
 
@@ -1236,6 +1245,51 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const slashMenuOpen = slashTrigger.active || nestedSlashCommand !== null;
   const highlightedSlashCommandId = slashHighlight.commandId;
   const highlightedSlashCommandSource = slashHighlight.source;
+  const promptHistoryScopeKey = model.conversation?.threadId
+    ?? model.threadId
+    ?? model.newThreadTarget?.sessionId
+    ?? model.projectId
+    ?? null;
+  const selectLatestQueuedFollowUpForArrowUp = useCallback((): boolean => {
+    if (prompt.trim().length !== 0 || hasAttachments || slashMenuOpen || busyAction !== null) {
+      return false;
+    }
+
+    const threadId = model.conversation?.threadId ?? model.threadId;
+    if (!threadId) return false;
+
+    const latestQueuedFollowUp = model.composerShell.queuedFollowUpRows.at(-1);
+    if (!latestQueuedFollowUp) return false;
+
+    void actions.onEditQueuedFollowUp({
+      threadId,
+      followUpId: latestQueuedFollowUp.followUpId,
+      prompt: latestQueuedFollowUp.prompt,
+      promptInput: latestQueuedFollowUp.promptInput,
+    });
+    return true;
+  }, [
+    actions,
+    busyAction,
+    hasAttachments,
+    model.composerShell.queuedFollowUpRows,
+    model.conversation?.threadId,
+    model.threadId,
+    prompt,
+    slashMenuOpen,
+  ]);
+  const {
+    appendPromptToHistory,
+    handlePromptHistoryKeyDown,
+    resetHistorySelection,
+  } = useThreadComposerPromptHistoryRecall({
+    editorRef: promptEditorRef,
+    scopeKey: promptHistoryScopeKey,
+    composerText: prompt,
+    selectLatestQueuedFollowUp: selectLatestQueuedFollowUpForArrowUp,
+  });
+  appendPromptToHistoryRef.current = appendPromptToHistory;
+  resetPromptHistorySelectionRef.current = resetHistorySelection;
 
   useEffect(() => {
     if (!slashMenuOpen) {
@@ -1352,6 +1406,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       }
     }
 
+    if (handlePromptHistoryKeyDown(event)) {
+      return true;
+    }
+
     const hasMultilinePrompt = prompt.includes("\n");
     const isComposing = "nativeEvent" in event
       ? event.nativeEvent.isComposing
@@ -1404,6 +1462,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     model.isThreadRunning,
     model.newThreadTarget,
     nestedSlashCommand,
+    handlePromptHistoryKeyDown,
     prompt,
     promptForm,
     selectSlashCommand,
@@ -1483,22 +1542,59 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             {dictationToastMessage}
           </button>
         ) : null}
-        <form
-          className="relative z-10 flex flex-col overflow-y-auto rounded-3xl bg-token-input-background/90 backdrop-blur-lg extension:border extension:border-token-border/50 electron:ring electron:ring-black/10 electron:shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] electron:dark:bg-token-dropdown-background"
-          onSubmit={(event) => handleFormSubmit(event, promptForm.handleSubmit)}
-        >
-          <div className="relative z-10">
-            <div className="px-2 py-1.5">
-              <div className="flex w-full flex-wrap items-center justify-start gap-1" />
+        <div className="composer-surface-chrome relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+            <div className="_attachmentsDefault_1u8sk_2" data-composer-attachments="true">
+              {hasAttachments ? (
+                <div className="composer-attachment-surface flex flex-wrap items-center gap-1">
+                  {imageAttachments.map((attachment) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                      onClick={() => handleRemoveImageAttachment(attachment.id)}
+                      title={`Remove ${attachment.filename}`}
+                    >
+                      <span className="size-3 rounded-sm bg-token-text-link-foreground/20" />
+                      <span className="min-w-0 truncate">{attachment.filename}</span>
+                      <span className="text-token-description-foreground">x</span>
+                    </button>
+                  ))}
+                  {fileAttachments.map((attachment) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                      onClick={() => handleRemoveFileAttachment(attachment.id)}
+                      title={`Remove ${attachment.label}`}
+                    >
+                      <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                      <span className="min-w-0 truncate">{attachment.label}</span>
+                      <span className="text-token-description-foreground">x</span>
+                    </button>
+                  ))}
+                  {skillMentions.map((attachment) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                      onClick={() => handleRemoveSkillMention(attachment.id)}
+                      title={`Remove ${attachment.name}`}
+                    >
+                      <ComposerPluginsIcon className="size-3 text-token-description-foreground" />
+                      <span className="min-w-0 truncate">{attachment.name}</span>
+                      <span className="text-token-description-foreground">x</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
-            <div className="mb-2 grow px-3">
-              <div
-                data-composer-prompt-frame="true"
-                className="h-auto max-h-[25dvh] min-h-[4dvh] overflow-hidden text-token-foreground"
-              >
+            <div className="contents">
+              <div className="mb-1 flex-grow overflow-y-auto px-3">
                 <ComposerPromptEditor
                   ref={promptEditorRef}
+                  data-composer-prompt-frame="true"
                   value={prompt}
                   placeholder={promptPlaceholder}
                   disabled={isPromptEditorDisabled}
@@ -1510,50 +1606,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                 />
               </div>
             </div>
-
-            {hasAttachments ? (
-              <div className="mb-2 flex flex-wrap items-center gap-1 px-3" data-composer-attachments="true">
-                {imageAttachments.map((attachment) => (
-                  <button
-                    key={attachment.id}
-                    type="button"
-                    className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                    onClick={() => handleRemoveImageAttachment(attachment.id)}
-                    title={`Remove ${attachment.filename}`}
-                  >
-                    <span className="size-3 rounded-sm bg-token-text-link-foreground/20" />
-                    <span className="min-w-0 truncate">{attachment.filename}</span>
-                    <span className="text-token-description-foreground">x</span>
-                  </button>
-                ))}
-                {fileAttachments.map((attachment) => (
-                  <button
-                    key={attachment.id}
-                    type="button"
-                    className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                    onClick={() => handleRemoveFileAttachment(attachment.id)}
-                    title={`Remove ${attachment.label}`}
-                  >
-                    <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                    <span className="min-w-0 truncate">{attachment.label}</span>
-                    <span className="text-token-description-foreground">x</span>
-                  </button>
-                ))}
-                {skillMentions.map((attachment) => (
-                  <button
-                    key={attachment.id}
-                    type="button"
-                    className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                    onClick={() => handleRemoveSkillMention(attachment.id)}
-                    title={`Remove ${attachment.name}`}
-                  >
-                    <ComposerPluginsIcon className="size-3 text-token-description-foreground" />
-                    <span className="min-w-0 truncate">{attachment.name}</span>
-                    <span className="text-token-description-foreground">x</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
 
             {errorMessage && <div className="px-3 pb-2 text-xs text-(--destructive)">{errorMessage}</div>}
 
@@ -1606,7 +1658,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             ) : (
               <div
                 data-composer-form-footer="true"
-                className="mb-2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] px-2 select-none"
+                className="_footer_1u8sk_2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] select-none mb-2 px-2"
               >
                 <div className="flex min-w-0 items-center gap-[5px]">
                   <ComposerAddContextDropdown
@@ -1633,82 +1685,89 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
                 <div className="flex items-center" />
 
-                <div className="flex min-w-0 items-center justify-end gap-2 w-full">
-                  <ContextWindowIndicator
-                    state={contextWindowIndicatorState}
-                    account={model.account}
-                    className="ml-0"
-                    showFallbackLabel={false}
-                  />
-                  <IntelligenceSelectorDropdown
-                    model={model}
-                    serviceTier={serviceTierSettings.serviceTier}
-                    onServiceTierChange={(nextTier) => setServiceTier(nextTier, "composer_menu")}
-                    actions={actions}
-                  />
-                  {isDictationSupported ? (
-                    <NodexTooltip
-                      tooltipContent={<span className="text-token-foreground">Click to dictate or hold</span>}
-                      shortcut={model.dictation.shortcutLabel}
-                      side="top"
-                      sideOffset={4}
-                    >
-                      <button
-                        type="button"
-                        className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none transition-colors duration-100 focus:outline-none enabled:hover:bg-token-list-hover-background enabled:hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
-                        aria-label="Dictate"
-                        onClick={() => {
-                          void startDictation();
-                        }}
-                        disabled={model.dictation.isRealtimeVoiceActive}
+                <div className="flex min-w-0 items-center justify-end w-full">
+                  <div className="flex min-w-0 flex-1 justify-end">
+                    <div className="flex min-w-0 items-center gap-1">
+                      <ContextWindowIndicator
+                        state={contextWindowIndicatorState}
+                        account={model.account}
+                        showFallbackLabel={false}
+                      />
+                      <IntelligenceSelectorDropdown
+                        model={model}
+                        serviceTier={serviceTierSettings.serviceTier}
+                        onServiceTierChange={(nextTier) => setServiceTier(nextTier, "composer_menu")}
+                        actions={actions}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isDictationSupported ? (
+                      <NodexTooltip
+                        tooltipContent={<span className="text-token-foreground">Click to dictate or hold</span>}
+                        shortcut={model.dictation.shortcutLabel}
+                        side="top"
+                        sideOffset={4}
                       >
-                        {isTranscribing ? (
-                          <SpinnerIcon className="icon-xs" />
-                        ) : (
-                          <MicIcon className="icon-xs" />
-                        )}
-                      </button>
-                    </NodexTooltip>
-                  ) : null}
+                        <button
+                          type="button"
+                          className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none transition-colors duration-100 focus:outline-none enabled:hover:bg-token-list-hover-background enabled:hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
+                          aria-label="Dictate"
+                          onClick={() => {
+                            void startDictation();
+                          }}
+                          disabled={model.dictation.isRealtimeVoiceActive}
+                        >
+                          {isTranscribing ? (
+                            <SpinnerIcon className="icon-xs" />
+                          ) : (
+                            <MicIcon className="icon-xs" />
+                          )}
+                        </button>
+                      </NodexTooltip>
+                    ) : null}
 
-                  <NodexTooltip
-                    tooltipContent={composerActionTooltip}
-                    side="top"
-                    tooltipBodyClassName={cn(
-                      composerActionState.action === "stop" || !model.isThreadRunning
-                        ? "text-center text-pretty"
-                        : "max-w-none",
-                    )}
-                  >
-                    <span className="inline-flex">
-                      <button
-                        type={composerActionState.action === "stop" ? "button" : "submit"}
-                        className={cn(
-                          "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
-                          (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
-                          isSendPending && "cursor-wait",
-                        )}
-                        onClick={composerActionState.action === "stop" ? () => void handleInterrupt() : undefined}
-                        disabled={composerActionState.action === "stop"
-                          ? composerActionState.disabled
-                          : composerActionState.disabled || !canRunPrimaryAction}
-                        aria-label={composerActionState.label}
-                      >
-                        {isSendPending ? (
-                          <SpinnerIcon className="icon-sm" />
-                        ) : composerActionState.action === "stop" ? (
-                          <StopIcon className="icon-xs" />
-                        ) : (
-                          <UpArrowIcon className="icon-sm" />
-                        )}
-                      </button>
-                    </span>
-                  </NodexTooltip>
+                    <NodexTooltip
+                      tooltipContent={composerActionTooltip}
+                      side="top"
+                      tooltipBodyClassName={cn(
+                        composerActionState.action === "stop" || !model.isThreadRunning
+                          ? "text-center text-pretty"
+                          : "max-w-none",
+                      )}
+                    >
+                      <span className="inline-flex">
+                        <button
+                          type="button"
+                          className={cn(
+                            "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
+                            (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
+                            isSendPending && "cursor-wait",
+                          )}
+                          onClick={composerActionState.action === "stop"
+                            ? () => void handleInterrupt()
+                            : () => void promptForm.handleSubmit()}
+                          disabled={composerActionState.action === "stop"
+                            ? composerActionState.disabled
+                            : composerActionState.disabled || !canRunPrimaryAction}
+                          aria-label={composerActionState.label}
+                        >
+                          {isSendPending ? (
+                            <SpinnerIcon className="icon-sm" />
+                          ) : composerActionState.action === "stop" ? (
+                            <StopIcon className="icon-xs" />
+                          ) : (
+                            <UpArrowIcon className="icon-sm" />
+                          )}
+                        </button>
+                      </span>
+                    </NodexTooltip>
+                  </div>
                 </div>
               </div>
             )}
           </div>
-        </form>
+        </div>
       </div>
 
       {shouldShowThreadComposerStatusStrip(model) ? (

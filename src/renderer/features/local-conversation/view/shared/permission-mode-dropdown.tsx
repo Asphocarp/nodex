@@ -56,9 +56,9 @@ function PermissionModeMenuIcon({
   mode: CodexPermissionMode;
   className?: string;
 }) {
-  if (mode === "auto" || mode === "guardian-approvals") return <PermissionDefaultIcon className={cn("shrink-0", className)} />;
-  if (mode === "full-access") return <PermissionFullAccessIcon className={cn("shrink-0", className)} />;
-  return <ConfigStatusIcon className={cn("shrink-0", className)} />;
+  if (mode === "auto" || mode === "guardian-approvals") return <PermissionDefaultIcon className={cn("icon-xs shrink-0", className)} />;
+  if (mode === "full-access") return <PermissionFullAccessIcon className={cn("icon-xs shrink-0", className)} />;
+  return <ConfigStatusIcon className={cn("icon-xs shrink-0", className)} />;
 }
 
 export function PermissionModeDropdown({
@@ -85,19 +85,16 @@ export function PermissionModeDropdown({
         <button
           type="button"
           aria-label="Permission mode"
-          className={cn(
-            "border-token-border no-drag cursor-interaction flex h-token-button-composer-sm min-w-0 items-center gap-1 rounded-full border border-transparent px-1.5 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none focus:outline-none enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background",
-            accentFullAccess && "text-token-editor-warning-foreground hover:text-token-editor-warning-foreground",
-          )}
+          className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px] min-w-0"
         >
           <PermissionModeMenuIcon
             mode={selectedMode}
             className={accentFullAccess ? "text-token-editor-warning-foreground" : undefined}
           />
-          <span className={cn("max-w-40 truncate text-left text-token-editor-warning-foreground", !accentFullAccess && "text-token-text-tertiary")}>
+          <span className={cn("_labelXs_z984f_2 max-w-40 truncate whitespace-nowrap text-left text-token-editor-warning-foreground", !accentFullAccess && "text-token-text-tertiary")}>
             {formatPermissionModeLabel(selectedMode)}
           </span>
-          <ChevronDownIcon className={accentFullAccess ? "icon-2xs text-token-editor-warning-foreground" : "icon-2xs text-token-input-placeholder-foreground"} />
+          <ChevronDownIcon className={accentFullAccess ? "icon-2xs shrink-0 text-token-editor-warning-foreground" : "icon-2xs text-token-input-placeholder-foreground"} />
         </button>
       )}
       side="top"

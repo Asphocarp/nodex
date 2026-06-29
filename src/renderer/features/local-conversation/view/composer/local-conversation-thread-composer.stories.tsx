@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
+import { writeAtom } from "@/lib/persisted-atom-store";
 import type {
   CodexCollaborationModeKind,
   CodexModelOption,
@@ -14,6 +16,7 @@ import {
   type ThreadStageStoryControls,
 } from "../thread-stage-story-fixtures";
 import { ThreadComposer } from "./local-conversation-thread-composer";
+import { PROMPT_HISTORY_ATOM_KEY } from "./thread-composer-prompt-history";
 
 interface ComposerSendButtonStoryProps {
   isQueueingEnabled: boolean;
@@ -29,6 +32,7 @@ interface ComposerSendButtonStoryProps {
   threadState: "existingThread" | "newChat";
   surfaceWidth: "normal" | "narrow";
   addContextState: "default" | "ideConnected" | "plugins";
+  seedPromptHistory: boolean;
 }
 
 const LONG_PROMPT_STORY_DRAFT = Array.from(
@@ -260,6 +264,20 @@ function buildActions(): ThreadStageActions {
 }
 
 function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
+  useEffect(() => {
+    void writeAtom(
+      PROMPT_HISTORY_ATOM_KEY,
+      args.seedPromptHistory
+        ? {
+            thread_storybook: [
+              "Re-run the composer prompt history parity checklist.",
+              "Apply the latest queued follow-up before restoring history.",
+            ],
+          }
+        : [],
+    );
+  }, [args.seedPromptHistory]);
+
   if (typeof localStorage !== "undefined") {
     if (args.initialServiceTier === "fast") {
       localStorage.setItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY, "fast");
@@ -309,6 +327,7 @@ const meta = {
     threadState: "existingThread",
     surfaceWidth: "normal",
     addContextState: "default",
+    seedPromptHistory: false,
   },
   argTypes: {
     isQueueingEnabled: {
@@ -358,6 +377,9 @@ const meta = {
     addContextState: {
       control: "radio",
       options: ["default", "ideConnected", "plugins"],
+    },
+    seedPromptHistory: {
+      control: "boolean",
     },
   },
   parameters: {
@@ -447,6 +469,23 @@ export const RunningQueueFastTier: Story = {
     composerEnterBehavior: "enter",
     draftPrompt: "Queue this after the current tool-call batch finishes.",
     initialServiceTier: "fast",
+  },
+};
+
+export const PromptHistoryAndQueuedFollowUpRecall: Story = {
+  args: {
+    isQueueingEnabled: true,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    seedPromptHistory: true,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Seeds thread-scoped prompt history while the streaming fixture also exposes a queued follow-up; ArrowUp should consume the latest queued follow-up before restoring history.",
+      },
+    },
   },
 };
 

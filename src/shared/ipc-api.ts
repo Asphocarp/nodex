@@ -404,6 +404,13 @@ export interface ProjectsChangeEvent {
   changeType: "create" | "update" | "delete" | "reorder" | "pin";
 }
 
+export type PersistedAtomState = Record<string, unknown>;
+
+export interface PersistedAtomUpdate {
+  key: string;
+  value: unknown;
+}
+
 export interface GitBranchState {
   currentBranch: string | null;
   defaultBranch: string | null;
@@ -421,6 +428,8 @@ export interface WorkspacePickDirectoryInput {
 }
 
 export interface IpcApi {
+  "persisted-atom:sync-request": { args: []; result: PersistedAtomState };
+  "persisted-atom:update": { args: [update: PersistedAtomUpdate]; result: PersistedAtomState };
   "projects:list": { args: []; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
   "projects:create": { args: [input: ProjectCreateInput]; result: Project };
@@ -1044,6 +1053,7 @@ export interface IpcApi {
 }
 
 export interface IpcEvents {
+  "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;

@@ -8,7 +8,7 @@ import {
   COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
   type CommandKeymapState,
 } from "../../shared/command-keybindings";
-import type { BoardChangeEvent, ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
+import type { BoardChangeEvent, PersistedAtomUpdate, ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -95,6 +95,13 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
       return bridge.on("codex:threads:palette:index-updated", (...args: unknown[]) => {
         const payload = args[0] as CommandPaletteThreadIndexUpdatedEvent | undefined;
         if (!payload || typeof payload.generation !== "number") return;
+        callback(payload);
+      });
+    },
+    subscribePersistedAtomUpdates(callback: (update: PersistedAtomUpdate) => void) {
+      return bridge.on("persisted-atom:updated", (...args: unknown[]) => {
+        const payload = args[0] as PersistedAtomUpdate | undefined;
+        if (!payload || typeof payload.key !== "string") return;
         callback(payload);
       });
     },

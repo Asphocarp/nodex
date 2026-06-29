@@ -9,6 +9,10 @@ import * as canvasService from "./local-store/canvas";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
 import * as historyStore from "./local-store/history";
+import {
+  readPersistedAtomState,
+  updatePersistedAtom,
+} from "./local-store/persisted-atoms";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
 import * as sqlInspection from "./local-store/sql-inspection";
@@ -337,6 +341,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
   codexService.on("threadSearchIndexUpdated", (event) => {
     safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:threads:palette:index-updated", [event]);
+  });
+
+  registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
+  registerHandle("persisted-atom:update", (_, update) => {
+    const state = updatePersistedAtom(update);
+    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "persisted-atom:updated", [update]);
+    return state;
   });
 
   // Projects

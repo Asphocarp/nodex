@@ -6,7 +6,6 @@ import type { ContextWindowIndicatorState } from "@/lib/codex-context-window";
 const PROMPT_TEXTAREA_MAX_VIEWPORT_RATIO = 0.25;
 const FALLBACK_PROMPT_TEXTAREA_MAX_HEIGHT_PX = 220;
 const CONTEXT_RING_RADIUS = 5;
-const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
 const WHOLE_TOKEN_FORMATTER = new Intl.NumberFormat("en-US");
 
 export function resolvePromptTextareaMaxHeightPx(): number {
@@ -90,9 +89,32 @@ export function ContextWindowIndicator({
   className?: string;
   showFallbackLabel?: boolean;
 }) {
-  const dashOffset = CONTEXT_RING_CIRCUMFERENCE * (1 - state.percentFull / 100);
+  const dashOffset = Math.max(0, 100 - state.percentFull);
   const shouldShowFallbackLabel = showFallbackLabel && state.status !== "ready";
   const showAutoCompaction = shouldShowAutoCompactionNote(account);
+  const ring = (
+    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
+      <circle cx="6" cy="6" r={CONTEXT_RING_RADIUS} stroke="currentColor" strokeWidth="2" fill="none" opacity="0.16" />
+      <circle
+        cx="6"
+        cy="6"
+        r={CONTEXT_RING_RADIUS}
+        stroke="currentColor"
+        strokeWidth="2"
+        opacity={state.status === "unavailable" ? 0 : 1}
+        strokeLinecap="round"
+        fill="none"
+        pathLength="100"
+        strokeDasharray="100"
+        strokeDashoffset={dashOffset}
+        className=""
+        transform="rotate(-90 6 6)"
+        style={{
+          transition: "stroke-dashoffset 120ms ease-out, opacity 120ms ease-out",
+        }}
+      />
+    </svg>
+  );
 
   return (
     <NodexTooltip
@@ -104,36 +126,31 @@ export function ContextWindowIndicator({
       )}
       side="top"
     >
-      <button
-        type="button"
-        aria-label={contextWindowAriaLabel(state)}
-        className={cn(
-          "ml-2 inline-flex items-center gap-1 rounded-full text-token-description-foreground outline-none focus-visible:ring-2 focus-visible:ring-(--ring)",
-          className,
-        )}
-      >
-        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
-          <circle cx="6" cy="6" r={CONTEXT_RING_RADIUS} stroke="currentColor" strokeWidth="2" fill="none" opacity="0.16" />
-          <circle
-            cx="6"
-            cy="6"
-            r={CONTEXT_RING_RADIUS}
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            fill="none"
-            strokeDasharray={CONTEXT_RING_CIRCUMFERENCE}
-            strokeDashoffset={dashOffset}
-            transform="rotate(-90 6 6)"
-            opacity={state.status === "unavailable" ? 0 : 1}
-          />
-        </svg>
-        {shouldShowFallbackLabel ? (
-          <span className="composer-footer__label--sm select-none whitespace-nowrap text-sm text-token-input-placeholder-foreground opacity-60">
-            0%
-          </span>
-        ) : null}
-      </button>
+      {!showFallbackLabel ? (
+        <span
+          aria-label={contextWindowAriaLabel(state)}
+          className={cn("icon-xs inline-flex items-center justify-center text-token-description-foreground", className)}
+          role="img"
+        >
+          {ring}
+        </span>
+      ) : (
+        <button
+          type="button"
+          aria-label={contextWindowAriaLabel(state)}
+          className={cn(
+            "ml-2 inline-flex items-center gap-1 rounded-full text-token-description-foreground outline-none focus-visible:ring-2 focus-visible:ring-(--ring)",
+            className,
+          )}
+        >
+          {ring}
+          {shouldShowFallbackLabel ? (
+            <span className="composer-footer__label--sm select-none whitespace-nowrap text-sm text-token-input-placeholder-foreground opacity-60">
+              0%
+            </span>
+          ) : null}
+        </button>
+      )}
     </NodexTooltip>
   );
 }

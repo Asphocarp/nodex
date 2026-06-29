@@ -8,7 +8,6 @@ import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, Plugin, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { cn } from "@/lib/utils";
 import type { ComposerSlashTriggerState } from "./slash-command-menu/slash-command-types";
 import { detectComposerSlashTrigger, inactiveSlashTrigger } from "./slash-command-menu/slash-command-filter";
 
@@ -33,11 +32,15 @@ const promptSchema = new Schema({
 export interface ComposerPromptEditorHandle {
   focus: () => void;
   focusAtEnd: () => void;
+  setText: (text: string) => string;
+  setPromptText: (text: string) => string;
   insertText: (text: string) => string;
   replaceTextRange: (range: { from: number; to: number; text: string }) => string;
   clearRange: (range: { from: number; to: number }) => string;
   getSelection: () => { from: number; to: number } | null;
   getText: () => string;
+  getPersistedText: () => string;
+  isCursorAtEnd: () => boolean;
 }
 
 interface ComposerPromptEditorProps {
@@ -47,6 +50,7 @@ interface ComposerPromptEditorProps {
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent) => boolean;
   onSlashTriggerChange?: (state: ComposerSlashTriggerState) => void;
+  "data-composer-prompt-frame"?: "true";
   className?: string;
 }
 
@@ -81,6 +85,10 @@ function promptTextOffsetToDocPosition(doc: ProseMirrorNode, offset: number): nu
 
 function isPromptDocEmpty(doc: ProseMirrorNode): boolean {
   return readPromptDocText(doc).length === 0;
+}
+
+function getPromptDocEndSelection(doc: ProseMirrorNode) {
+  return TextSelection.atEnd(doc);
 }
 
 function createPromptPlaceholderPlugin(placeholderRef: { current: string }): Plugin {
@@ -119,6 +127,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     onChange,
     onKeyDown,
     onSlashTriggerChange,
+    "data-composer-prompt-frame": dataComposerPromptFrame,
     className,
   }, ref) {
     const mountRef = useRef<HTMLDivElement | null>(null);
@@ -157,6 +166,20 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       });
     };
 
+    const setText = (text: string) => {
+      const view = viewRef.current;
+      if (!view) {
+        onChangeRef.current(text);
+        return text;
+      }
+
+      const transaction = view.state.tr.replaceWith(0, view.state.doc.content.size, buildPromptDoc(text).content);
+      transaction.setSelection(getPromptDocEndSelection(transaction.doc)).scrollIntoView();
+      view.dispatch(transaction);
+      emitSlashTriggerState(view);
+      return readPromptDocText(view.state.doc);
+    };
+
     const replaceTextRange = (range: { from: number; to: number; text: string }) => {
       const view = viewRef.current;
       if (!view) {
@@ -180,10 +203,11 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       focusAtEnd: () => {
         const view = viewRef.current;
         if (!view) return;
-        const selection = TextSelection.create(view.state.doc, view.state.doc.content.size - 1);
-        view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
+        view.dispatch(view.state.tr.setSelection(getPromptDocEndSelection(view.state.doc)).scrollIntoView());
         view.focus();
       },
+      setText,
+      setPromptText: setText,
       insertText: (text: string) => {
         const view = viewRef.current;
         if (!view) {
@@ -211,6 +235,27 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         const view = viewRef.current;
         return view ? readPromptDocText(view.state.doc) : valueRef.current;
       },
+      getPersistedText: () => {
+        const view = viewRef.current;
+        return view ? readPromptDocText(view.state.doc) : valueRef.current;
+      },
+      isCursorAtEnd: () => {
+        const view = viewRef.current;
+        if (!view || !view.state.selection.empty) return false;
+
+        const domSelection = view.dom.ownerDocument.getSelection();
+        if (!domSelection || !domSelection.isCollapsed || domSelection.rangeCount === 0) return false;
+        if (!domSelection.anchorNode || !view.dom.contains(domSelection.anchorNode)) return false;
+
+        const endPosition = getPromptDocEndSelection(view.state.doc).from;
+        if (view.state.selection.from !== endPosition) return false;
+
+        try {
+          return view.posAtDOM(domSelection.anchorNode, domSelection.anchorOffset) === endPosition;
+        } catch {
+          return true;
+        }
+      },
     }), []);
 
     useEffect(() => {
@@ -223,6 +268,8 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         attributes: {
           "data-virtualkeyboard": "true",
           "data-codex-composer": "true",
+          spellcheck: "true",
+          translate: "no",
           style: "font-size: var(--codex-chat-font-size); height: auto; resize: none; min-height: 2.75rem;",
         },
         handleKeyDown: (_view, event) => onKeyDownRef.current(event),
@@ -294,11 +341,12 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
 
     return (
       <div
-        className={cn(
-          "text-size-chat [&_.ProseMirror]:focus-visible:outline-none text-token-foreground h-auto max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:min-h-[2rem] [&_.ProseMirror]:resize-none [&_.ProseMirror_p]:m-0 [&_.ProseMirror]:leading-5",
-          disabled && "opacity-60",
+        data-composer-prompt-frame={dataComposerPromptFrame}
+        className={[
+          "text-size-chat [&_.ProseMirror]:focus-visible:outline-none text-token-foreground h-auto max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:min-h-[2rem] [&_.ProseMirror]:resize-none [&_.ProseMirror_p]:m-0 text-base [&_.ProseMirror]:leading-5",
+          disabled ? "opacity-60" : null,
           className,
-        )}
+        ].filter(Boolean).join(" ")}
         ref={mountRef}
       />
     );

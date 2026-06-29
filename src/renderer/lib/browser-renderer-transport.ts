@@ -1684,6 +1684,13 @@ function subscribeCommandPaletteThreadIndexUpdates(
   return () => {};
 }
 
+function subscribePersistedAtomUpdates(
+  callback: (update: import("../../shared/ipc-api").PersistedAtomUpdate) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 async function getWindowFocusState(): Promise<boolean> {
   return typeof document !== "undefined" ? document.visibilityState !== "hidden" : true;
 }
@@ -1720,6 +1727,7 @@ export const browserRendererTransport = {
   subscribeAppUpdateStatus,
   subscribeCommandKeymapChanges,
   subscribeCommandPaletteThreadIndexUpdates,
+  subscribePersistedAtomUpdates,
   getWindowFocusState,
   subscribeWindowFocusChanges,
 };

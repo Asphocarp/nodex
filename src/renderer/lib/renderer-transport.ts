@@ -25,6 +25,9 @@ export interface RendererTransport {
   subscribeCommandPaletteThreadIndexUpdates: (
     callback: (event: import("../../shared/types").CommandPaletteThreadIndexUpdatedEvent) => void,
   ) => () => void;
+  subscribePersistedAtomUpdates: (
+    callback: (update: import("../../shared/ipc-api").PersistedAtomUpdate) => void,
+  ) => () => void;
   getWindowFocusState: () => Promise<boolean>;
   subscribeWindowFocusChanges: (callback: (isFocused: boolean) => void) => () => void;
 }
