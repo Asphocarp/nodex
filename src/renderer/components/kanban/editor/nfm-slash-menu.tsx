@@ -7,7 +7,7 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from "@blocknote/react";
-import { FileText, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
+import { Bell, CalendarDays, Clock, FileText, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
 import {
   NodexDropdownActionRow,
   NodexDropdownMessage,
@@ -42,6 +42,13 @@ import { createEmptyThreadSectionBlock } from "./thread-section";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 import { CodexThreadIcon, NfmSideMenuTableHeaderIcon } from "@/components/shared/icons";
 import { CARD_STATUS_LABELS } from "../../../../shared/card-status";
+import {
+  buildDateMentionQueryMatches,
+  isDateMentionQuery,
+  type DateMentionQueryMatch,
+} from "@/lib/nfm/date-mention";
+import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
+import { dateMentionPayloadToProps } from "./date-mention-chip";
 
 interface NfmSlashMenuProps {
   projectId: string;
@@ -430,6 +437,8 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
 // ---------------------------------------------------------------------------
 
 const CURRENT_PROJECT_MENTION_GROUP = "Current project";
+const DATE_MENTION_GROUP = "Dates";
+const REMINDER_MENTION_GROUP = "Reminders";
 const CHAT_MENTION_GROUP = "Chats";
 const CARD_MENTION_GROUP = "Cards";
 
@@ -561,6 +570,51 @@ export function buildNfmThreadMentionInlineContent(item: CommandPaletteThread): 
   ];
 }
 
+export function buildNfmDateMentionInlineContent(payload: NfmDateMentionInlineContent): unknown[] {
+  return [
+    {
+      type: "dateMention",
+      props: dateMentionPayloadToProps(payload),
+    },
+    " ",
+  ];
+}
+
+export function buildNfmDateMentionSuggestionItem(
+  editor: unknown,
+  match: DateMentionQueryMatch,
+): NfmSuggestionItem {
+  const isReminder = match.group === "Reminders";
+  const Icon = isReminder ? Bell : match.key === "date:now" ? Clock : CalendarDays;
+  return {
+    key: match.key,
+    title: match.title,
+    subtext: match.subtext,
+    aliases: match.aliases,
+    group: isReminder ? REMINDER_MENTION_GROUP : DATE_MENTION_GROUP,
+    hint: match.aliases[0] ? `@${match.aliases[0]}` : "@date",
+    tooltipContent: (
+      <div className="max-w-64 text-sm leading-5 text-token-foreground">
+        {match.subtext}
+      </div>
+    ),
+    icon: <Icon className="size-4" aria-hidden="true" />,
+    onItemClick: () => {
+      insertInlineContent(editor, buildNfmDateMentionInlineContent(match.payload));
+    },
+  };
+}
+
+export function buildNfmDateMentionSuggestionItems(
+  editor: unknown,
+  query: string,
+  now = new Date(),
+): NfmSuggestionItem[] {
+  return buildDateMentionQueryMatches(query, now).map((match) =>
+    buildNfmDateMentionSuggestionItem(editor, match),
+  );
+}
+
 export function buildNfmCardMentionSuggestionItem(
   editor: unknown,
   item: CommandPaletteCard,
@@ -621,10 +675,12 @@ function partitionMentionResultsByActiveProject<T extends { inActiveProject: boo
 
 export function buildNfmMentionSuggestionItems({
   editor,
+  query = "",
   cardResults,
   threadResults,
 }: {
   editor: unknown;
+  query?: string;
   cardResults: readonly CommandPaletteCard[];
   threadResults: readonly CommandPaletteThread[];
 }): DefaultReactSuggestionItem[] {
@@ -636,8 +692,7 @@ export function buildNfmMentionSuggestionItems({
     activeProjectItems: activeProjectCards,
     otherItems: otherCards,
   } = partitionMentionResultsByActiveProject(cardResults);
-
-  return [
+  const currentProjectItems = [
     ...activeProjectThreads.map((item) => buildNfmThreadMentionSuggestionItem(
       editor,
       item,
@@ -648,6 +703,9 @@ export function buildNfmMentionSuggestionItems({
       item,
       { group: CURRENT_PROJECT_MENTION_GROUP },
     )),
+  ];
+  const dateItems = buildNfmDateMentionSuggestionItems(editor, query);
+  const otherMentionItems = [
     ...otherThreads.map((item) => buildNfmThreadMentionSuggestionItem(
       editor,
       item,
@@ -659,6 +717,10 @@ export function buildNfmMentionSuggestionItems({
       { group: CARD_MENTION_GROUP },
     )),
   ];
+
+  return isDateMentionQuery(query)
+    ? [...dateItems, ...currentProjectItems, ...otherMentionItems]
+    : [...currentProjectItems, ...dateItems, ...otherMentionItems];
 }
 
 interface NfmMentionSearchState {
@@ -811,6 +873,7 @@ export function useNfmMentionGetItems({
 
       return buildNfmMentionSuggestionItems({
         editor: currentEditor,
+        query,
         cardResults,
         threadResults,
       });

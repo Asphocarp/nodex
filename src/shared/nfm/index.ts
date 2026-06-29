@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./date-mention";
 export { parseNfm } from "./parser";
 export { parseInlineContent } from "./parser-inline";
 export { serializeNfm } from "./serializer";

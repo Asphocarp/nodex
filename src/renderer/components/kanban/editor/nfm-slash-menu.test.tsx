@@ -6,6 +6,7 @@ import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   buildNfmCardMentionBlock,
   buildNfmCardMentionSuggestionItem,
+  buildNfmDateMentionInlineContent,
   buildNfmMentionSuggestionItems,
   buildNfmThreadMentionInlineContent,
   buildNfmThreadMentionSuggestionItem,
@@ -295,17 +296,21 @@ describe("NfmSlashMenu", () => {
       ],
     });
 
-    expect(items.length).toBe(5);
+    expect(items.length).toBe(7);
     expect(items[0]?.title).toBe("Current project thread");
     expect(items[0]?.group).toBe("Current project");
     expect(items[1]?.title).toBe("Current project card");
     expect(items[1]?.group).toBe("Current project");
-    expect(items[2]?.title).toBe("Other project thread");
-    expect(items[2]?.group).toBe("Chats");
-    expect(items[3]?.title).toBe("Projectless thread");
-    expect(items[3]?.group).toBe("Chats");
-    expect(items[4]?.title).toBe("Other project card");
-    expect(items[4]?.group).toBe("Cards");
+    expect(items[2]?.title).toBe("Today");
+    expect(items[2]?.group).toBe("Dates");
+    expect(items[3]?.title).toBe("Now");
+    expect(items[3]?.group).toBe("Dates");
+    expect(items[4]?.title).toBe("Other project thread");
+    expect(items[4]?.group).toBe("Chats");
+    expect(items[5]?.title).toBe("Projectless thread");
+    expect(items[5]?.group).toBe("Chats");
+    expect(items[6]?.title).toBe("Other project card");
+    expect(items[6]?.group).toBe("Cards");
   });
 
   test("mention suggestion mapping preserves search-preview-only matches without substring filtering", () => {
@@ -330,11 +335,42 @@ describe("NfmSlashMenu", () => {
       })],
     });
 
-    expect(items.length).toBe(2);
+    expect(items.length).toBe(4);
     expect(items[0]?.group).toBe("Current project");
     expect(items[0]?.subtext?.includes("Only transcript content")).toBeTrue();
     expect(items[1]?.group).toBe("Current project");
     expect(items[1]?.subtext?.includes("Only card description")).toBeTrue();
+    expect(items[2]?.title).toBe("Today");
+    expect(items[3]?.title).toBe("Now");
+  });
+
+  test("date mention suggestions are first for date-like queries and insert inline content", () => {
+    const items = buildNfmMentionSuggestionItems({
+      editor: {},
+      query: "today",
+      threadResults: [makePaletteThread({ title: "Current project thread" })],
+      cardResults: [makePaletteCard({ card: makeCard({ title: "Current project card" }) })],
+    });
+
+    expect(items.length > 0).toBeTrue();
+    expect(items[0]?.title).toBe("Today");
+    expect(items[0]?.group).toBe("Dates");
+    expect(items[1]?.title).toBe("Remind today");
+    expect(items[1]?.group).toBe("Reminders");
+    expect(items[2]?.title).toBe("Current project thread");
+
+    const inlineContent = buildNfmDateMentionInlineContent({
+      type: "dateMention",
+      start: "2026-06-28",
+      format: "relative",
+    }) as Array<{ type?: string; props?: Record<string, string> } | string>;
+    const first = inlineContent[0];
+    expect(typeof first === "string").toBeFalse();
+    if (typeof first === "string") return;
+    expect(first.type).toBe("dateMention");
+    expect(first.props?.start).toBe("2026-06-28");
+    expect(first.props?.format).toBe("relative");
+    expect(inlineContent[1]).toBe(" ");
   });
 
   test("agent config item inserts a plan-mode chip", () => {

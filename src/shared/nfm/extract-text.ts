@@ -1,4 +1,5 @@
 import type { NfmBlock, NfmInlineContent } from "./types";
+import { formatDateMentionPlainText } from "./date-mention";
 import { parseNfm } from "./parser";
 
 export function extractPlainText(nfm: string, maxLength?: number): string {
@@ -56,6 +57,11 @@ function collectInlineText(items: NfmInlineContent[], parts: string[]): void {
 
     if (item.type === "threadMention") {
       parts.push(item.uuid);
+      continue;
+    }
+
+    if (item.type === "dateMention") {
+      parts.push(formatDateMentionPlainText(item));
     }
   }
 }

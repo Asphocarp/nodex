@@ -17,6 +17,7 @@ import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
 import { formatAttachmentBytes } from "./attachment-chip-format";
+import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-chip";
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
 import { createCalloutBlock } from "./callout-block";
 import { createCardToggleBlockSpec } from "./card-toggle-block";
@@ -283,6 +284,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     ...defaultInlineContentSpecs,
     attachment: createReadonlyAttachmentInlineContentSpec(),
     agentConfig: createReadonlyAgentConfigInlineContentSpec(),
+    dateMention: createReadonlyDateMentionInlineContentSpec(),
     threadMention: createReadonlyThreadMentionInlineContentSpec(),
   },
   styleSpecs: defaultStyleSpecs,

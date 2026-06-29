@@ -184,6 +184,7 @@
     "prosemirror-highlight": "0.15.2",
     "prosemirror-view": "1.41.9",
     "react": "19.2.7",
+    "react-day-picker": "^10.0.1",
     "react-dom": "19.2.7",
     "remark-breaks": "^4.0.0",
     "streamdown": "2.5.0",

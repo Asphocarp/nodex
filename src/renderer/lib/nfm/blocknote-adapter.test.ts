@@ -257,6 +257,24 @@ describe("blocknote adapter", () => {
     expect(blocks[0].content[0].styles.color).toBe(undefined);
   });
 
+  test("date mention inline content round-trips between NFM and BlockNote", () => {
+    const nfm = '<mention-date start="2026-06-28T09:30:00+08:00" end="2026-06-29T10:45:00+08:00" tz="Asia/Shanghai" format="relative" time-format="24h" reminder="hour:1" />';
+    const blockNoteBlocks = nfmToBlockNote(parseNfm(nfm));
+
+    expect(blockNoteBlocks.length).toBe(1);
+    expect(blockNoteBlocks[0].type).toBe("paragraph");
+    const content = blockNoteBlocks[0].content as Array<{ type?: string; props?: Record<string, unknown> }>;
+    expect(content[0]?.type).toBe("dateMention");
+    expect(content[0]?.props?.start).toBe("2026-06-28T09:30:00+08:00");
+    expect(content[0]?.props?.end).toBe("2026-06-29T10:45:00+08:00");
+    expect(content[0]?.props?.tz).toBe("Asia/Shanghai");
+    expect(content[0]?.props?.timeFormat).toBe("24h");
+    expect(content[0]?.props?.reminder).toBe("hour:1");
+
+    const roundTrip = serializeNfm(blockNoteToNfm(asDoc(blockNoteBlocks)));
+    expect(roundTrip).toBe(nfm);
+  });
+
   test("block background color BN → NFM maps to _bg suffix", () => {
     const blocks = blockNoteToNfm(
       asDoc([

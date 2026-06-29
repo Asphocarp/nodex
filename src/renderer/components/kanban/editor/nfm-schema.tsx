@@ -11,6 +11,7 @@ import { createAttachmentInlineContentSpec } from "./attachment-chip";
 import { createCalloutBlock } from "./callout-block";
 import { createCardToggleBlockSpec } from "./card-toggle-block";
 import { createCardRefBlockSpec } from "./card-ref-block";
+import { createDateMentionInlineContentSpec } from "./date-mention-chip";
 import { imageBlockSpec } from "./image-block";
 import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
@@ -39,6 +40,7 @@ export const nfmSchema = BlockNoteSchema.create({
     ...defaultInlineContentSpecs,
     agentConfig: createAgentConfigInlineContentSpec(),
     attachment: createAttachmentInlineContentSpec(),
+    dateMention: createDateMentionInlineContentSpec(),
     threadMention: createThreadMentionInlineContentSpec(),
   },
   styleSpecs: defaultStyleSpecs,

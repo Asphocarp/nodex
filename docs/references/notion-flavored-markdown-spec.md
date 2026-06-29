@@ -65,6 +65,11 @@ So an alternative self-closing format is also supported: <mention-user url="{{UR
 Nodex extension for Codex thread references:
 <mention-thread uuid="{{CODEX_THREAD_ID}}" />
 The `uuid` attribute is the opaque Codex app-server thread/session id. It is required after trimming whitespace, is serialized as the only attribute, and is not regex-validated. Missing or empty `uuid` values remain plain text instead of creating structured mention content. In copy output and thread-section prompts, thread mentions serialize as `[Thread: {{CODEX_THREAD_ID}}]` and do not inject the referenced thread transcript.
+Nodex extension for inline date mentions:
+<mention-date start="YYYY-MM-DD" format="relative" />
+<mention-date start="YYYY-MM-DDTHH:mm:ss+08:00" tz="IANA_TIME_ZONE" format="relative" time-format="12h" reminder="minute:0" />
+<mention-date start="YYYY-MM-DD" end="YYYY-MM-DD" format="ll" />
+The required `start` attribute and optional `end` attribute store either date-only `YYYY-MM-DD` values or datetime values using `YYYY-MM-DDTHH:mm:ssZ` / `YYYY-MM-DDTHH:mm:ss±HH:mm`. `type` is not serialized; date/datetime/range semantics are derived from `start` and `end`. `tz` is optional IANA timezone intent for datetime values, while the offset inside `start`/`end` is the canonical serialized offset. Date mentions are editor inline content only: they do not create card schedule fields or reminder notifications. Invalid or incomplete date mention tags remain plain text. Plain-text copy renders deterministic `@Date` labels, not time-dependent labels such as `@Today`.
 Custom emoji:
 :emoji_name:
 Colors:

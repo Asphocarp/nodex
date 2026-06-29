@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { NfmBlock, NfmInlineContent } from "../../../lib/nfm";
+import { formatDateMentionPlainText } from "@/lib/nfm/date-mention";
 import {
   CHROMIUM_WEB_CUSTOM_DATA_MIME,
   NOTION_BLOCKS_MIME,
@@ -459,6 +460,7 @@ function inlineToText(content: NfmInlineContent[]): string {
       if (item.type === "attachment") return item.name;
       if (item.type === "agentConfig") return "";
       if (item.type === "threadMention") return item.uuid;
+      if (item.type === "dateMention") return formatDateMentionPlainText(item);
       return item.text;
     })
     .join("");
@@ -471,6 +473,7 @@ function findInlineSpan(content: NfmInlineContent[], text: string): StyledInline
       || item.type === "attachment"
       || item.type === "agentConfig"
       || item.type === "threadMention"
+      || item.type === "dateMention"
     ) return false;
     return item.text === text;
   });

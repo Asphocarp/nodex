@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Bot, FileCode2, FileText, Folder, Link2 } from "lucide-react";
+import { Bell, Bot, FileCode2, FileText, Folder, Link2 } from "lucide-react";
 import { Streamdown } from "streamdown";
 import {
   InlineMarkdownCode,
@@ -25,6 +25,7 @@ import { parseNfm } from "@/lib/nfm/parser";
 import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
 import { formatCodexModelLabel } from "@/lib/codex-thread-settings";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
+import { formatDateMentionLabel, formatDateMentionPlainText } from "@/lib/nfm/date-mention";
 import { cn } from "@/lib/utils";
 import { streamdownCodePlugin } from "@/lib/streamdown";
 import { ThreadMentionInlineVisual } from "./thread-mention-inline-visual";
@@ -550,6 +551,22 @@ function InlineItem({
     );
   }
 
+  if (item.type === "dateMention") {
+    return (
+      <span
+        className="notion-reminder inline-flex max-w-[18rem] items-baseline whitespace-nowrap rounded-[2px] px-[0.1em] font-medium align-baseline text-inherit"
+        title={formatDateMentionPlainText(item)}
+        data-date-mention-chip="true"
+      >
+        <span className="leading-[inherit] opacity-50">@</span>
+        <span className="min-w-0 truncate leading-[inherit]">{formatDateMentionLabel(item)}</span>
+        {item.reminder ? (
+          <Bell className="ml-[0.25em] inline-block size-[0.95em] shrink-0 self-center opacity-80" />
+        ) : null}
+      </span>
+    );
+  }
+
   // text span
   const classes = styleClasses(item.styles, { includeCode: false });
   if (item.styles.code) {
@@ -619,6 +636,7 @@ function inlineText(items: NfmInlineContent[]): string {
       if (item.type === "attachment") return item.name;
       if (item.type === "agentConfig") return "";
       if (item.type === "threadMention") return item.uuid;
+      if (item.type === "dateMention") return formatDateMentionPlainText(item);
       return item.text;
     })
     .join("")

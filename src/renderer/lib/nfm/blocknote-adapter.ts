@@ -16,6 +16,11 @@ import type {
 import { NFM_BG_COLORS, NFM_TEXT_COLORS } from "./types";
 import { normalizeOrderedListStart } from "../../../shared/nfm/ordered-list";
 import { normalizeTable } from "../../../shared/nfm/table";
+import {
+  normalizeDateMention,
+  type NfmDateMentionDateFormat,
+  type NfmDateMentionTimeFormat,
+} from "../../../shared/nfm/date-mention";
 import { parseInlineContent } from "./parser-inline";
 import { serializeInlineContent } from "./serializer-inline";
 
@@ -273,6 +278,20 @@ function nfmInlineToBN(items: NfmInlineContent[]): BNInlineContent[] {
         type: "threadMention",
         props: {
           uuid: item.uuid,
+        },
+      };
+    }
+
+    if (item.type === "dateMention") {
+      return {
+        type: "dateMention",
+        props: {
+          start: item.start,
+          end: item.end ?? "",
+          tz: item.tz ?? "",
+          format: item.format ?? "",
+          timeFormat: item.timeFormat ?? "",
+          reminder: item.reminder ?? "",
         },
       };
     }
@@ -797,6 +816,19 @@ function bnInlineToNfm(content: BNInlineContent[] | undefined): NfmInlineContent
         type: "threadMention",
         uuid,
       });
+    } else if (item.type === "dateMention") {
+      const normalized = normalizeDateMention({
+        type: "dateMention",
+        start: normalizeString(item.props?.start),
+        end: normalizeString(item.props?.end),
+        tz: normalizeString(item.props?.tz),
+        format: normalizeString(item.props?.format) as NfmDateMentionDateFormat | undefined,
+        timeFormat: normalizeString(item.props?.timeFormat) as NfmDateMentionTimeFormat | undefined,
+        reminder: normalizeString(item.props?.reminder),
+      });
+      if (!normalized) continue;
+
+      items.push(normalized);
     } else if (item.type === "link") {
       // Link content is StyledText[]. Flatten to plain text + first style set.
       // NFM links don't support per-span formatting, so we take the dominant style.

@@ -1,5 +1,6 @@
 import type { NfmInlineContent, NfmStyleSet, NfmColor } from "./types";
 import { NFM_COLORS } from "./types";
+import { parseDateMentionAttrs } from "./date-mention";
 import { getXmlAttr, parseXmlAttrs } from "./xml-attributes";
 
 const AGENT_CONFIG_ATTRS = new Set(["mode", "model", "reasoning"]);
@@ -61,6 +62,15 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
         if (threadMention) {
           flushText();
           items.push(threadMention);
+          continue;
+        }
+      }
+
+      if (input.startsWith("<mention-date", i)) {
+        const dateMention = tryParseDateMention();
+        if (dateMention) {
+          flushText();
+          items.push(dateMention);
           continue;
         }
       }
@@ -272,6 +282,17 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
       type: "threadMention",
       uuid,
     };
+  }
+
+  function tryParseDateMention(): NfmInlineContent | null {
+    const match = input.slice(i).match(/^<mention-date(?:\s+([^>]*))?\s*\/>/);
+    if (!match) return null;
+
+    const dateMention = parseDateMentionAttrs(match[1] ?? "");
+    if (!dateMention) return null;
+
+    i += match[0].length;
+    return dateMention;
   }
 
   return parseRun({}, []);

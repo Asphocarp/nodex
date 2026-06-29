@@ -1,4 +1,5 @@
 import type { NfmInlineContent, NfmStyleSet } from "./types";
+import { serializeDateMentionAttrs } from "./date-mention";
 import { escapeXmlAttr } from "./xml-attributes";
 
 const ESCAPABLE = /[\\*~`$\[\]<>{}|^]/g;
@@ -42,6 +43,11 @@ function serializeItem(item: NfmInlineContent): string {
 
   if (item.type === "threadMention") {
     return `<mention-thread uuid="${escapeXmlAttr(item.uuid)}" />`;
+  }
+
+  if (item.type === "dateMention") {
+    const attrs = serializeDateMentionAttrs(item);
+    return attrs ? `<mention-date ${attrs} />` : "";
   }
 
   if (item.type === "link") {

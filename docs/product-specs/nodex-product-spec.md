@@ -221,7 +221,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 |----------|------|----------|-------------|
 | `id` | string | Yes | Canonical lowercase UUID-v7 |
 | `title` | string | Yes | Task name (max 2,000 chars) |
-| `description` | string | No | [Notion-flavored Markdown (NFM)](../references/notion-flavored-markdown-spec.md) details (default: ""), including `<image ...>` blocks, inline `<attachment kind="text|file|folder" mode="materialized|link" ... />` chips with local or managed asset URIs, and inline `<mention-thread uuid="..." />` Codex thread references (max 1,000,000 chars) |
+| `description` | string | No | [Notion-flavored Markdown (NFM)](../references/notion-flavored-markdown-spec.md) details (default: ""), including `<image ...>` blocks, inline `<attachment kind="text|file|folder" mode="materialized|link" ... />` chips with local or managed asset URIs, inline `<mention-thread uuid="..." />` Codex thread references, and inline `<mention-date ... />` date mentions (max 1,000,000 chars) |
 | `priority` | enum | No | Optional priority tier: p0-critical, p1-high, p2-medium, p3-low, p4-later |
 | `estimate` | enum | No | xs, s, m, l, xl |
 | `tags` | string[] | No | Custom labels (default: [], max 64 tags, each max 64 chars) |

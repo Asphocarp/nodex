@@ -1,4 +1,8 @@
 // Notion-flavored Markdown types
+import type {
+  NfmDateMentionDateFormat,
+  NfmDateMentionTimeFormat,
+} from "./date-mention";
 
 export type NfmTextColor =
   | "gray"
@@ -104,13 +108,24 @@ export interface NfmThreadMentionInlineContent {
   uuid: string;
 }
 
+export interface NfmDateMentionInlineContent {
+  type: "dateMention";
+  start: string;
+  end?: string;
+  tz?: string;
+  format?: NfmDateMentionDateFormat;
+  timeFormat?: NfmDateMentionTimeFormat;
+  reminder?: string;
+}
+
 export type NfmInlineContent =
   | NfmTextSpan
   | NfmLinkSpan
   | NfmLineBreak
   | NfmAttachmentInlineContent
   | NfmAgentConfigInlineContent
-  | NfmThreadMentionInlineContent;
+  | NfmThreadMentionInlineContent
+  | NfmDateMentionInlineContent;
 
 export type NfmBlockType =
   | "paragraph"

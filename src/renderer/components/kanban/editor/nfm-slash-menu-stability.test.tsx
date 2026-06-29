@@ -156,10 +156,12 @@ describe("useNfmMentionGetItems", () => {
     const firstItems = await secondGetItems("");
     const secondItems = await secondGetItems("");
 
-    expect(firstItems.length).toBe(2);
-    expect(secondItems.length).toBe(2);
+    expect(firstItems.length).toBe(4);
+    expect(secondItems.length).toBe(4);
     expect(firstItems[0]?.group).toBe("Current project");
     expect(firstItems[1]?.group).toBe("Current project");
+    expect(firstItems[2]?.title).toBe("Today");
+    expect(firstItems[3]?.title).toBe("Now");
     expect(cardDescriptionSearchCalls).toBe(2);
     expect(threadListCalls).toBe(1);
   });

@@ -2,6 +2,7 @@ import type { NfmBlock, NfmColor, NfmInlineContent } from "./types";
 import { isChildlessNfmBlockType } from "./childless";
 import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import { serializeNfmTablePlainText } from "../../../shared/nfm/table";
+import { formatDateMentionPlainText } from "../../../shared/nfm/date-mention";
 
 /**
  * Serialize NFM blocks into structure-preserving plain text for clipboard
@@ -235,6 +236,9 @@ function serializeInlinePlainText(items: NfmInlineContent[]): string {
       }
       if (item.type === "threadMention") {
         return `[Thread: ${item.uuid}]`;
+      }
+      if (item.type === "dateMention") {
+        return formatDateMentionPlainText(item);
       }
       if (item.type === "link") {
         const inner = applyStyleMarkers(item.text, item.styles);

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DefaultReactSuggestionItem, SuggestionMenuProps } from "@blocknote/react";
-import { FileText, Heading1, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
+import { Bell, CalendarDays, Clock, FileText, Heading1, Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexThreadIcon } from "@/components/shared/icons";
 import { NfmSuggestionMenuSurface, type NfmSuggestionItem } from "./nfm-slash-menu";
@@ -105,6 +105,40 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
   },
 ];
 
+const DATE_MENTION_ITEMS: NfmSuggestionItem[] = [
+  {
+    title: "Today",
+    subtext: "@Jun 29, 2026",
+    tooltipContent: "@Jun 29, 2026",
+    aliases: ["today"],
+    group: "Dates",
+    hint: "@today",
+    icon: <CalendarDays className="size-4" aria-hidden="true" />,
+    onItemClick: () => undefined,
+  },
+  {
+    title: "Now",
+    subtext: "@Jun 29, 2026 2:30 PM",
+    tooltipContent: "@Jun 29, 2026 2:30 PM",
+    aliases: ["now"],
+    group: "Dates",
+    hint: "@now",
+    icon: <Clock className="size-4" aria-hidden="true" />,
+    onItemClick: () => undefined,
+  },
+  {
+    title: "Remind today",
+    subtext: "Inline date reminder at 9:00 AM",
+    tooltipContent: "Inline date reminder at 9:00 AM",
+    aliases: ["remind today"],
+    group: "Reminders",
+    hint: "@remind today",
+    icon: <Bell className="size-4" aria-hidden="true" />,
+    onItemClick: () => undefined,
+  },
+  ...MENTION_ITEMS.slice(0, 2),
+];
+
 const LONG_ITEMS: DefaultReactSuggestionItem[] = [
   {
     title: "GPT configuration command with a very long display label",
@@ -167,6 +201,15 @@ export const FilteredCustomCommands: Story = {
 export const CardMentionMenu: Story = {
   args: {
     items: MENTION_ITEMS,
+    loadingState: "loaded",
+    selectedIndex: 0,
+    onItemClick: () => undefined,
+  },
+};
+
+export const DateMentionMenu: Story = {
+  args: {
+    items: DATE_MENTION_ITEMS,
     loadingState: "loaded",
     selectedIndex: 0,
     onItemClick: () => undefined,

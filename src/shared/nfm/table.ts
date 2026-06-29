@@ -8,6 +8,7 @@ import type {
   NfmTableRow,
 } from "./types";
 import { NFM_COLORS } from "./types";
+import { formatDateMentionPlainText } from "./date-mention";
 import { parseInlineContent } from "./parser-inline";
 import { serializeInlineContent } from "./serializer-inline";
 import { getXmlAttr } from "./xml-attributes";
@@ -466,6 +467,7 @@ function serializeInlinePlainText(items: NfmInlineContent[]): string {
       if (item.type === "attachment") return item.name.trim() || "Attachment";
       if (item.type === "agentConfig") return "<agent-config />";
       if (item.type === "threadMention") return `[Thread: ${item.uuid}]`;
+      if (item.type === "dateMention") return formatDateMentionPlainText(item);
       if (item.type === "link") return item.text;
       return item.text;
     })

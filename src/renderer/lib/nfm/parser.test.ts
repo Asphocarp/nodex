@@ -182,6 +182,40 @@ describe("NFM code fences", () => {
     expect(serializeNfm(blocks)).toBe("\\<mention-thread /\\> \\<mention-thread uuid=\"\" /\\>");
   });
 
+  test("date mentions round-trip inline and copy as deterministic labels", () => {
+    const nfm = 'before <mention-date start="2026-06-28" format="relative" /> and <mention-date start="2026-06-28T14:30:00+08:00" tz="Asia/Shanghai" format="relative" time-format="12h" reminder="minute:0" /> after';
+    const blocks = parseNfm(nfm);
+
+    expect(blocks[0]?.type).toBe("paragraph");
+    if (blocks[0]?.type !== "paragraph") return;
+
+    expect(blocks[0].content[1]?.type).toBe("dateMention");
+    if (blocks[0].content[1]?.type !== "dateMention") return;
+    expect(blocks[0].content[1].start).toBe("2026-06-28");
+    expect(blocks[0].content[1].format).toBe("relative");
+
+    expect(blocks[0].content[3]?.type).toBe("dateMention");
+    if (blocks[0].content[3]?.type !== "dateMention") return;
+    expect(blocks[0].content[3].start).toBe("2026-06-28T14:30:00+08:00");
+    expect(blocks[0].content[3].tz).toBe("Asia/Shanghai");
+    expect(blocks[0].content[3].reminder).toBe("minute:0");
+    expect(serializeNfm(blocks)).toBe(nfm);
+    expect(serializeClipboardText(blocks)).toBe("before @Jun 28, 2026 and @Jun 28, 2026 2:30 PM after");
+  });
+
+  test("date mention parser rejects invalid payloads and repairs reversed ranges", () => {
+    const invalidBlocks = parseNfm('<mention-date /> <mention-date start="2026-02-30" /> <mention-date type="date" start-date="2026-06-28" />');
+
+    expect(invalidBlocks[0]?.type).toBe("paragraph");
+    if (invalidBlocks[0]?.type !== "paragraph") return;
+    expect(invalidBlocks[0].content.length).toBe(1);
+    expect(invalidBlocks[0].content[0]?.type).toBe("text");
+    expect(serializeNfm(invalidBlocks)).toBe("\\<mention-date /\\> \\<mention-date start=\"2026-02-30\" /\\> \\<mention-date type=\"date\" start-date=\"2026-06-28\" /\\>");
+
+    const rangeBlocks = parseNfm('<mention-date start="2026-06-30" end="2026-06-28" format="ll" />');
+    expect(serializeNfm(rangeBlocks)).toBe('<mention-date start="2026-06-28" end="2026-06-30" format="ll" />');
+  });
+
   test("ordered list markers round-trip exactly and plain-text copy preserves numbering", () => {
     const input = "1. first\n2. second\n3. third";
     const blocks = parseNfm(input);
