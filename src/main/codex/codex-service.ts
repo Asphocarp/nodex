@@ -596,12 +596,14 @@ const OUTPUT_DELTA_FLUSH_MS = 50;
 const MAX_COMMAND_OUTPUT_CHARS = 20_000;
 const TRUNCATED_OUTPUT_PREFIX = "[output truncated]\n";
 const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
-const THREAD_TURNS_PAGE_SIZE = 50;
+const THREAD_TURNS_PAGE_SIZE = 5;
 const THREAD_TURNS_PAGE_ITEMS_VIEW = "full" as const;
 const COMPLETE_TURN_PAGINATION: CodexConversationTurnPagination = {
   olderCursor: null,
   backwardsCursor: null,
-  historyComplete: true,
+  oldestLoadedTurnId: null,
+  isLoadingOlder: false,
+  hasLoadedOldest: true,
   loadedTurnCount: 0,
   itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
 };
@@ -1785,6 +1787,8 @@ export class CodexService extends EventEmitter {
   private readonly lastBroadcastConversationById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
+  private readonly olderTurnsLoadInFlight = new Map<string, Promise<CodexConversationSnapshot | null>>();
+  private readonly remainingTurnsLoadInFlight = new Map<string, Promise<void>>();
   private readonly frameTextDeltaQueue = new FrameTextDeltaQueue((updates) => {
     this.applyFrameTextDeltas(updates);
   });
@@ -5590,7 +5594,9 @@ export class CodexService extends EventEmitter {
     return {
       olderCursor: pagination.olderCursor,
       backwardsCursor: pagination.backwardsCursor,
-      historyComplete: pagination.historyComplete,
+      oldestLoadedTurnId: pagination.oldestLoadedTurnId,
+      isLoadingOlder: pagination.isLoadingOlder,
+      hasLoadedOldest: pagination.hasLoadedOldest,
       loadedTurnCount,
       itemsView: pagination.itemsView,
     };
@@ -5599,14 +5605,21 @@ export class CodexService extends EventEmitter {
   private buildTurnPaginationFromPage(
     page: NonNullable<ThreadResumeResponse["initialTurnsPage"]> | ThreadTurnsListResponse,
     loadedTurnCount: number,
+    oldestLoadedTurnId: string | null,
   ): CodexConversationTurnPagination {
     return {
       olderCursor: page.nextCursor,
       backwardsCursor: page.backwardsCursor,
-      historyComplete: page.nextCursor === null,
+      oldestLoadedTurnId,
+      isLoadingOlder: false,
+      hasLoadedOldest: page.nextCursor === null,
       loadedTurnCount,
       itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
     };
+  }
+
+  private resolveOldestLoadedTurnId(detail: CodexThreadDetail): string | null {
+    return detail.turns[0]?.turnId ?? null;
   }
 
   private setConversationRecordDetail(
@@ -6738,13 +6751,18 @@ export class CodexService extends EventEmitter {
     const detail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
     this.setConversationRecordDetail(detail, {
       turnPagination: initialTurnsPageForPagination
-        ? this.buildTurnPaginationFromPage(initialTurnsPageForPagination, detail.turns.length)
+        ? this.buildTurnPaginationFromPage(
+            initialTurnsPageForPagination,
+            detail.turns.length,
+            this.resolveOldestLoadedTurnId(detail),
+          )
         : this.buildCompleteTurnPagination(detail.turns.length),
     });
     this.persistThreadDetailSummary(detail);
 
     record.isStreaming = true;
     record.streamRole = "owner";
+    this.scheduleRemainingThreadTurnsLoad(threadId);
     return detail;
   }
 
@@ -6802,26 +6820,33 @@ export class CodexService extends EventEmitter {
   private prependOlderTurnPageToDetail(
     existingDetail: CodexThreadDetail,
     page: ThreadTurnsListResponse,
+    oldestLoadedTurnId: string | null,
   ): CodexThreadDetail {
     const pageTimeline = this.buildThreadTimelineFromTurns(
       existingDetail.threadId,
       [...page.data].reverse(),
     );
     const existingTurnsById = new Map(existingDetail.turns.map((turn) => [turn.turnId, turn]));
+    const anchorIndex = oldestLoadedTurnId === null
+      ? -1
+      : existingDetail.turns.findIndex((turn) => turn.turnId === oldestLoadedTurnId);
+    const candidateTurns = anchorIndex === -1
+      ? [...pageTimeline.turns, ...existingDetail.turns]
+      : [
+          ...existingDetail.turns.slice(0, anchorIndex),
+          ...pageTimeline.turns,
+          ...existingDetail.turns.slice(anchorIndex),
+        ];
     const seenTurnIds = new Set<string>();
     const mergedTurns: CodexTurnSummary[] = [];
 
-    for (const incomingTurn of pageTimeline.turns) {
-      const existingTurn = existingTurnsById.get(incomingTurn.turnId);
-      seenTurnIds.add(incomingTurn.turnId);
+    for (const candidateTurn of candidateTurns) {
+      if (seenTurnIds.has(candidateTurn.turnId)) continue;
+      seenTurnIds.add(candidateTurn.turnId);
+      const existingTurn = existingTurnsById.get(candidateTurn.turnId);
       mergedTurns.push(existingTurn
-        ? mergeCodexTurnSummary(incomingTurn, existingTurn)
-        : incomingTurn);
-    }
-
-    for (const existingTurn of existingDetail.turns) {
-      if (seenTurnIds.has(existingTurn.turnId)) continue;
-      mergedTurns.push(existingTurn);
+        ? mergeCodexTurnSummary(candidateTurn, existingTurn)
+        : candidateTurn);
     }
 
     const transcript = mergeCodexTranscriptSnapshots(
@@ -6852,27 +6877,70 @@ export class CodexService extends EventEmitter {
   }
 
   async loadOlderThreadTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
+    const inFlight = this.olderTurnsLoadInFlight.get(threadId);
+    if (inFlight) return inFlight;
+
+    const request = this.loadOlderThreadTurnsPage(threadId, { broadcastLoading: true });
+    this.olderTurnsLoadInFlight.set(threadId, request);
+    try {
+      return await request;
+    } finally {
+      if (this.olderTurnsLoadInFlight.get(threadId) === request) {
+        this.olderTurnsLoadInFlight.delete(threadId);
+      }
+    }
+  }
+
+  private async loadOlderThreadTurnsPage(
+    threadId: string,
+    options: { broadcastLoading: boolean },
+  ): Promise<CodexConversationSnapshot | null> {
     await this.ensureClientReady();
     const record = this.ensureConversationRecord(threadId);
     const detail = this.ensureConversationDetail(threadId);
     if (!detail) return null;
 
     const pagination = record.turnPagination;
-    if (pagination.historyComplete || pagination.olderCursor === null) {
+    if (pagination.hasLoadedOldest || pagination.olderCursor === null) {
       record.turnPagination = this.buildCompleteTurnPagination(detail.turns.length);
       return this.serializeConversationSnapshot(threadId);
+    }
+
+    const requestedCursor = pagination.olderCursor;
+    const requestedOldestLoadedTurnId = pagination.oldestLoadedTurnId;
+    record.turnPagination = {
+      ...pagination,
+      isLoadingOlder: true,
+      hasLoadedOldest: false,
+      loadedTurnCount: detail.turns.length,
+    };
+    if (options.broadcastLoading) {
+      const loadingSnapshot = this.serializeConversationSnapshot(threadId);
+      if (loadingSnapshot) {
+        this.emitThreadStreamSnapshot(threadId, loadingSnapshot);
+      }
     }
 
     try {
       const page = await this.client.request<"thread/turns/list", ThreadTurnsListResponse>("thread/turns/list", {
         threadId,
-        cursor: pagination.olderCursor,
+        cursor: requestedCursor,
         limit: THREAD_TURNS_PAGE_SIZE,
         sortDirection: "desc",
         itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
       });
+      const currentRecord = this.ensureConversationRecord(threadId);
+      const currentDetail = this.ensureConversationDetail(threadId);
+      if (!currentDetail) return null;
+      if (
+        currentRecord.turnPagination.olderCursor !== requestedCursor
+        || currentRecord.turnPagination.oldestLoadedTurnId !== requestedOldestLoadedTurnId
+      ) {
+        return this.serializeConversationSnapshot(threadId);
+      }
+
       if (page.data.length === 0) {
-        record.turnPagination = this.buildCompleteTurnPagination(detail.turns.length);
+        currentRecord.turnPagination = this.buildCompleteTurnPagination(currentDetail.turns.length);
         const snapshot = this.serializeConversationSnapshot(threadId);
         if (snapshot) {
           this.emitThreadStreamSnapshot(threadId, snapshot);
@@ -6880,9 +6948,17 @@ export class CodexService extends EventEmitter {
         return snapshot;
       }
 
-      const mergedDetail = this.prependOlderTurnPageToDetail(detail, page);
+      const mergedDetail = this.prependOlderTurnPageToDetail(
+        currentDetail,
+        page,
+        requestedOldestLoadedTurnId,
+      );
       this.setConversationRecordDetail(mergedDetail, {
-        turnPagination: this.buildTurnPaginationFromPage(page, mergedDetail.turns.length),
+        turnPagination: this.buildTurnPaginationFromPage(
+          page,
+          mergedDetail.turns.length,
+          this.resolveOldestLoadedTurnId(mergedDetail),
+        ),
       });
       this.persistThreadDetailSummary(mergedDetail);
       const snapshot = this.serializeConversationSnapshot(threadId);
@@ -6896,6 +6972,37 @@ export class CodexService extends EventEmitter {
         error: error instanceof Error ? error.message : String(error),
       });
       return this.fallbackToFullTurnHistory(threadId, "older-page-failed");
+    }
+  }
+
+  private scheduleRemainingThreadTurnsLoad(threadId: string): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (record?.turnPagination.olderCursor === null || record?.turnPagination.hasLoadedOldest === true) {
+      return;
+    }
+    if (this.remainingTurnsLoadInFlight.has(threadId)) return;
+
+    const request = this.loadRemainingThreadTurns(threadId).catch((error) => {
+      this.logger.warn("Failed to load remaining Codex thread turns after resume", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    this.remainingTurnsLoadInFlight.set(threadId, request);
+    request.finally(() => {
+      if (this.remainingTurnsLoadInFlight.get(threadId) === request) {
+        this.remainingTurnsLoadInFlight.delete(threadId);
+      }
+    });
+  }
+
+  private async loadRemainingThreadTurns(threadId: string): Promise<void> {
+    for (;;) {
+      const record = this.getMaybeConversationRecord(threadId);
+      if (!record || record.turnPagination.hasLoadedOldest || record.turnPagination.olderCursor === null) {
+        return;
+      }
+      await this.loadOlderThreadTurns(threadId);
     }
   }
 

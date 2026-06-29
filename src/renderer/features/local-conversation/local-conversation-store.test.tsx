@@ -267,7 +267,9 @@ describe("local-conversation-store", () => {
       turnPagination: {
         olderCursor: "cursor-older",
         backwardsCursor: "cursor-newer",
-        historyComplete: false,
+        oldestLoadedTurnId: "turn-oldest",
+        isLoadingOlder: false,
+        hasLoadedOldest: false,
         loadedTurnCount: 50,
         itemsView: "full",
       },
@@ -277,7 +279,7 @@ describe("local-conversation-store", () => {
 
     const conversation = manager.readConversation("thread-older");
     expect(conversation?.turnPagination?.olderCursor ?? null).toBe("cursor-older");
-    expect(conversation?.turnPagination?.historyComplete ?? true).toBeFalse();
+    expect(conversation?.turnPagination?.hasLoadedOldest ?? true).toBeFalse();
     manager.destroy();
     olderThreadTurnsResult = null;
   });

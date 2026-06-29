@@ -215,12 +215,12 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "long-thread-streaming",
     name: "Long Thread Streaming",
-    description: "Long transcript mounted through the virtualized owner with a streaming latest turn.",
+    description: "Long transcript mounted through the two-layer virtualizer with latest-turn follow and response-spacer behavior.",
   },
   {
     id: "long-thread-search-open",
     name: "Long Thread Search",
-    description: "Long transcript with find-in-thread open against owner-backed search indexing.",
+    description: "Long transcript with find-in-thread open against virtualized reveal, restore, and shared search indexing.",
   },
   {
     id: "completed-collapsed",

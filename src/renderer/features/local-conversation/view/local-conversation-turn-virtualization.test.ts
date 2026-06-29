@@ -367,7 +367,7 @@ describe("older turn loading helper", () => {
   test("loads when the viewport approaches the oldest rendered content", () => {
     expect(
       shouldLoadOlderThreadTurns({
-        historyComplete: false,
+        hasLoadedOldest: false,
         isLoading: false,
         scrollDistanceFromBottomPx: 4_400,
         turnsBottomInsetPx: 0,
@@ -378,7 +378,7 @@ describe("older turn loading helper", () => {
 
     expect(
       shouldLoadOlderThreadTurns({
-        historyComplete: false,
+        hasLoadedOldest: false,
         isLoading: false,
         scrollDistanceFromBottomPx: 4_000,
         turnsBottomInsetPx: 0,
@@ -391,7 +391,7 @@ describe("older turn loading helper", () => {
   test("accounts for list bottom inset and suppresses complete or in-flight loads", () => {
     expect(
       shouldLoadOlderThreadTurns({
-        historyComplete: false,
+        hasLoadedOldest: false,
         isLoading: false,
         scrollDistanceFromBottomPx: 4_600,
         turnsBottomInsetPx: 220,
@@ -402,7 +402,7 @@ describe("older turn loading helper", () => {
 
     expect(
       shouldLoadOlderThreadTurns({
-        historyComplete: true,
+        hasLoadedOldest: true,
         isLoading: false,
         scrollDistanceFromBottomPx: 4_600,
         turnsBottomInsetPx: 220,
@@ -413,7 +413,7 @@ describe("older turn loading helper", () => {
 
     expect(
       shouldLoadOlderThreadTurns({
-        historyComplete: false,
+        hasLoadedOldest: false,
         isLoading: true,
         scrollDistanceFromBottomPx: 4_600,
         turnsBottomInsetPx: 220,

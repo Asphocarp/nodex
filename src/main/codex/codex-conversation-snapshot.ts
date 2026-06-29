@@ -92,7 +92,9 @@ export function buildCodexConversationSnapshot(input: {
     turnPagination: input.turnPagination ?? {
       olderCursor: null,
       backwardsCursor: null,
-      historyComplete: true,
+      oldestLoadedTurnId: null,
+      isLoadingOlder: false,
+      hasLoadedOldest: true,
       loadedTurnCount: input.detail.turns.length,
       itemsView: "full",
     },

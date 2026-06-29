@@ -87,7 +87,7 @@ describe("buildCodexConversationSnapshot", () => {
     expect(snapshot.turns[0]?.items[1]?.itemId).toBe("user_1");
     expect(snapshot.requests[0]?.requestId).toBe("approval_1");
     expect(snapshot.capabilityFlags.canSearch).toBeTrue();
-    expect(snapshot.turnPagination?.historyComplete ?? false).toBeTrue();
+    expect(snapshot.turnPagination?.hasLoadedOldest ?? false).toBeTrue();
     expect(snapshot.turnPagination?.loadedTurnCount ?? 0).toBe(1);
   });
 
@@ -105,7 +105,9 @@ describe("buildCodexConversationSnapshot", () => {
       turnPagination: {
         olderCursor: "cursor-older",
         backwardsCursor: "cursor-newer",
-        historyComplete: false,
+        oldestLoadedTurnId: "turn_older",
+        isLoadingOlder: false,
+        hasLoadedOldest: false,
         loadedTurnCount: 50,
         itemsView: "full",
       },
@@ -113,7 +115,8 @@ describe("buildCodexConversationSnapshot", () => {
 
     expect(snapshot.turnPagination?.olderCursor ?? null).toBe("cursor-older");
     expect(snapshot.turnPagination?.backwardsCursor ?? null).toBe("cursor-newer");
-    expect(snapshot.turnPagination?.historyComplete ?? true).toBeFalse();
+    expect(snapshot.turnPagination?.oldestLoadedTurnId ?? null).toBe("turn_older");
+    expect(snapshot.turnPagination?.hasLoadedOldest ?? true).toBeFalse();
     expect(snapshot.turnPagination?.itemsView ?? "summary").toBe("full");
   });
 

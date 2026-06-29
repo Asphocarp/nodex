@@ -314,10 +314,7 @@ export function LocalConversationThreadBodyOwner({
 }: LocalConversationThreadBodyOwnerProps) {
   const {
     getLastScrollDistanceFromBottomPx,
-    maybeStickToBottom,
     scrollElement,
-    scrollToDistanceFromBottomPx,
-    setScrollMode,
   } = useLocalConversationThreadScrollController();
   const restoreSnapshotRef = useRef<{
     snapshot: LocalConversationVirtualizedTurnRestoreSnapshot | null;
@@ -505,18 +502,18 @@ export function LocalConversationThreadBodyOwner({
 
   const handleLoadOlderTurns = useCallback(async () => {
     const targetThreadId = threadId ?? body.threadId;
-    if (!targetThreadId || turnPagination?.historyComplete === true) {
+    if (!targetThreadId || turnPagination?.hasLoadedOldest === true) {
       return "stop";
     }
 
     setIsOlderHistoryLoading(true);
     try {
       const snapshot = await requestLocalConversationOlderTurns(targetThreadId);
-      return snapshot?.turnPagination?.historyComplete === true ? "stop" : "continue";
+      return snapshot?.turnPagination?.hasLoadedOldest === true ? "stop" : "continue";
     } finally {
       setIsOlderHistoryLoading(false);
     }
-  }, [body.threadId, threadId, turnPagination?.historyComplete]);
+  }, [body.threadId, threadId, turnPagination?.hasLoadedOldest]);
 
   useEffect(
     () => () => {
@@ -562,31 +559,6 @@ export function LocalConversationThreadBodyOwner({
       }),
     [body.threadId, collapsedAgentBodyByTurnId],
   );
-
-  useEffect(() => {
-    const restoredDistanceFromBottomPx =
-      initialRestoreSnapshot?.distanceFromBottomPx ?? 0;
-    if (restoredDistanceFromBottomPx > 0) {
-      setScrollMode("user");
-      const frameHandle = window.requestAnimationFrame(() => {
-        scrollToDistanceFromBottomPx(restoredDistanceFromBottomPx, "auto");
-      });
-      return () => {
-        window.cancelAnimationFrame(frameHandle);
-      };
-    }
-
-    setScrollMode("stickToBottom");
-    maybeStickToBottom();
-    return undefined;
-  }, [
-    body.threadId,
-    initialRestoreSnapshot?.distanceFromBottomPx,
-    maybeStickToBottom,
-    scrollElement,
-    scrollToDistanceFromBottomPx,
-    setScrollMode,
-  ]);
 
   useEffect(() => {
     clearContentSearchMarks(contentRootRef.current);
@@ -924,13 +896,14 @@ export function LocalConversationThreadBodyOwner({
                 onOpenSideChat={actions.onOpenSideChat}
                 onOpenThread={actions.onOpenThread}
                 onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+                initialScrollOffset={initialRestoreSnapshot?.distanceFromBottomPx ?? 0}
                 initialRestoreState={initialRestoreSnapshot?.virtualizedTurnList ?? null}
                 initialLatestTurnRestoreState={initialRestoreSnapshot?.latestTurn ?? null}
                 latestTurnSynchronousMeasurementKey={body.latestTurnId ?? body.turnCount}
                 onLatestTurnRestoreStateChange={handleLatestTurnRestoreStateChange}
                 onRestoreStateChange={handleVirtualizedTurnRestoreStateChange}
                 onLoadOlderTurns={handleLoadOlderTurns}
-                isHistoryComplete={turnPagination?.historyComplete ?? true}
+                isHistoryComplete={turnPagination?.hasLoadedOldest ?? true}
                 isOlderHistoryLoading={isOlderHistoryLoading}
                 scrollElement={scrollElement}
                 onApiChange={(api) => {

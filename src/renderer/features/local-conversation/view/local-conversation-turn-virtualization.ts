@@ -830,7 +830,7 @@ export function shouldShowThreadScrollToBottomControl({
 }
 
 export function shouldLoadOlderThreadTurns({
-  historyComplete,
+  hasLoadedOldest,
   isLoading,
   scrollDistanceFromBottomPx,
   thresholdPx = THREAD_OLDER_HISTORY_LOAD_THRESHOLD_PX,
@@ -838,7 +838,7 @@ export function shouldLoadOlderThreadTurns({
   turnsBottomInsetPx,
   viewportHeightPx,
 }: {
-  historyComplete: boolean;
+  hasLoadedOldest: boolean;
   isLoading: boolean;
   scrollDistanceFromBottomPx: number;
   thresholdPx?: number;
@@ -846,7 +846,7 @@ export function shouldLoadOlderThreadTurns({
   turnsBottomInsetPx: number;
   viewportHeightPx: number;
 }): boolean {
-  if (historyComplete || isLoading) return false;
+  if (hasLoadedOldest || isLoading) return false;
   if (totalHeightPx <= 0 || viewportHeightPx <= 0) return false;
 
   const listViewportBottomDistanceFromBottomPx = Math.max(

@@ -1865,7 +1865,9 @@ export interface CodexConversationTurn extends CodexTurnSummary {
 export interface CodexConversationTurnPagination {
   olderCursor: string | null;
   backwardsCursor: string | null;
-  historyComplete: boolean;
+  oldestLoadedTurnId: string | null;
+  isLoadingOlder: boolean;
+  hasLoadedOldest: boolean;
   loadedTurnCount: number;
   itemsView: CodexAppServerTurnItemsView;
 }

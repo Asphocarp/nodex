@@ -327,6 +327,7 @@ function LocalConversationThreadScrollControllerProvider({
   }, []);
 
   const registerResponseSpacerState = useCallback((state: ThreadResponseSpacerState | null) => {
+    if (responseSpacerStateRef.current === state) return;
     responseSpacerStateRef.current = state;
     setResponseSpacerState(state);
   }, []);

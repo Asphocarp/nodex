@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file.
 - Added chat rename entry points for active project sessions, including title double-click, thread/header actions, command palette, macOS menu, and `Cmd/Ctrl+Alt+R`.
 - Added sidebar-wide chat search to the command palette, including projectless/sessionless sidebar chats, fuzzy metadata matches, bounded FTS5 local content snippets, and direct navigation through chat session materialization.
 - Added a floating `Cmd/Ctrl+F` content search input for chat, review diff, and active Browser page search, while keeping DB task search and settings search scoped to their existing surfaces.
-- Added a left-side Thread user-message navigation rail for longer conversations, with hover previews, output pills, on-demand long-transcript history loading, restored scroll position, smooth click/find jumps, and drag scrubbing.
+- Added a left-side Thread user-message navigation rail for longer conversations, with hover previews, output pills, paged and background-filled long-transcript history, restored scroll position, stable latest-turn follow, smooth click/find jumps, and drag scrubbing.
 - Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browsers, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with ordinary pinned `Database View` starter sessions seeded for every project.
 - Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.

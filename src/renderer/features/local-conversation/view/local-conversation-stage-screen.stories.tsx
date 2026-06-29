@@ -98,7 +98,7 @@ export const LongThreadStreaming: Story = {
     docs: {
       description: {
         story:
-          "Parity check for the Codex-style flow footer and shared thread scroll shell: the transcript keeps its natural-height root, the viewport owns the inner width wrapper and bottom gap, and follow-latest should stay stable during long streaming turns.",
+          "Long transcript lifecycle check for the shared thread scroll shell: the core list owns windowing/pending reveal, the wrapper owns latest-turn follow and response spacer, and the footer catch-up state should stay stable during streaming.",
       },
     },
   },
@@ -109,6 +109,14 @@ export const LongThreadSearchOpen: Story = {
     preset: "long-thread-search-open",
     isQueueingEnabled: false,
     collapseAgentBody: false,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Search/navigation check for long virtualized transcripts: active matches reveal through the shared scroll API before DOM marks are applied, while prior pending reveals can be canceled.",
+      },
+    },
   },
 };
 
