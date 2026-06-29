@@ -62,6 +62,11 @@ describe("ThreadUserMessageNavigationRail", () => {
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
     installElementScrollHeight(5000);
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value() {},
+    });
   });
 
   test("renders the Codex-compatible rail DOM contract", async () => {
@@ -83,6 +88,7 @@ describe("ThreadUserMessageNavigationRail", () => {
 
   test("click navigation uses smooth scrolling", async () => {
     const scrollCalls: ScrollToOptions[] = [];
+    const scrollIntoViewCalls: ScrollIntoViewOptions[] = [];
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
       configurable: true,
       writable: true,
@@ -90,25 +96,35 @@ describe("ThreadUserMessageNavigationRail", () => {
         scrollCalls.push(options);
       },
     });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value(options: ScrollIntoViewOptions) {
+        scrollIntoViewCalls.push(options);
+      },
+    });
 
     const items = [1, 2, 3, 4].map((index) => buildItem(index));
     const { getByRole } = render(<RailHarness items={items} />);
     await settleAsyncRender();
+    const scrollCallCountBeforeClick = scrollCalls.length;
 
     fireEvent.click(getByRole("button", { name: "Jump to user message 1" }));
     await settleAsyncRender();
 
-    expect(scrollCalls[scrollCalls.length - 1]?.behavior).toBe("smooth");
+    expect(scrollCalls.length).toBe(scrollCallCountBeforeClick);
+    expect(scrollIntoViewCalls[scrollIntoViewCalls.length - 1]?.behavior).toBe("smooth");
+    expect(scrollIntoViewCalls[scrollIntoViewCalls.length - 1]?.block).toBe("start");
   });
 
   test("reveals a virtualized missing target before scrolling to it", async () => {
     const revealed: string[] = [];
-    const scrollCalls: ScrollToOptions[] = [];
-    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+    const scrollIntoViewCalls: ScrollIntoViewOptions[] = [];
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
       writable: true,
-      value(options: ScrollToOptions) {
-        scrollCalls.push(options);
+      value(options: ScrollIntoViewOptions) {
+        scrollIntoViewCalls.push(options);
       },
     });
 
@@ -133,7 +149,8 @@ describe("ThreadUserMessageNavigationRail", () => {
     await settleAsyncRender();
 
     expect(revealed.join(",")).toBe("turn_2:user:0:smooth");
-    expect(scrollCalls[scrollCalls.length - 1]?.behavior).toBe("smooth");
+    expect(scrollIntoViewCalls[scrollIntoViewCalls.length - 1]?.behavior).toBe("smooth");
+    expect(scrollIntoViewCalls[scrollIntoViewCalls.length - 1]?.block).toBe("start");
   });
 
   test("pointer drag scrubs to the row under the rail midpoint instantly", async () => {

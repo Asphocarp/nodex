@@ -6,8 +6,10 @@ export interface VirtualizedTurnLayoutInput {
 }
 
 export interface VirtualizedTurnLayout {
-  offsetsPx: number[];
+  bottomOffsetsPx: number[];
+  heightsPx: number[];
   totalHeightPx: number;
+  topOffsetsPx: number[];
 }
 
 export interface VisibleTurnRangeInput extends VirtualizedTurnLayoutInput {
@@ -22,11 +24,29 @@ export interface VisibleTurnRange {
 }
 
 export interface MeasuredTurnHeightDeltaInput {
-  currentScrollTopPx: number;
+  currentScrollDistanceFromBottomPx: number;
   heightDeltaPx: number;
-  turnBottomPx: number;
-  viewportTopPx: number;
+  turnTopDistanceFromBottomPx: number;
+  viewportBottomDistanceFromBottomPx: number;
   scrollMode: ThreadScrollMode;
+}
+
+export interface VisibleTurnRangeFromBottomDistanceInput {
+  distanceFromBottomPx: number;
+  layout: VirtualizedTurnLayout;
+  overscanCount: number;
+  viewportHeightPx: number;
+}
+
+export interface TurnRevealDistanceInput {
+  layout: VirtualizedTurnLayout;
+  turnIndex: number;
+  viewportHeightPx: number;
+}
+
+export interface TargetRevealDistanceInput extends TurnRevealDistanceInput {
+  targetHeightPx: number;
+  targetTopWithinTurnPx: number;
 }
 
 export function buildVirtualizedTurnLayout({
@@ -34,7 +54,7 @@ export function buildVirtualizedTurnLayout({
   gapPx,
 }: VirtualizedTurnLayoutInput): VirtualizedTurnLayout {
   let nextOffsetPx = 0;
-  const offsetsPx = heightsPx.map((heightPx, index) => {
+  const topOffsetsPx = heightsPx.map((heightPx, index) => {
     const currentOffsetPx = nextOffsetPx;
     nextOffsetPx += heightPx;
     if (index < heightsPx.length - 1) {
@@ -44,8 +64,12 @@ export function buildVirtualizedTurnLayout({
   });
 
   return {
-    offsetsPx,
+    bottomOffsetsPx: topOffsetsPx.map((topOffsetPx, index) =>
+      nextOffsetPx - topOffsetPx - (heightsPx[index] ?? 0),
+    ),
+    heightsPx,
     totalHeightPx: nextOffsetPx,
+    topOffsetsPx,
   };
 }
 
@@ -96,6 +120,54 @@ function findEndIndex({
   return start;
 }
 
+function findStartIndexFromBottomDistance({
+  bottomOffsetsPx,
+  targetPx,
+}: {
+  bottomOffsetsPx: number[];
+  targetPx: number;
+}): number {
+  let start = 0;
+  let end = bottomOffsetsPx.length;
+
+  while (start < end) {
+    const middle = Math.floor((start + end) / 2);
+    if ((bottomOffsetsPx[middle] ?? 0) < targetPx) {
+      end = middle;
+      continue;
+    }
+    start = middle + 1;
+  }
+
+  return start;
+}
+
+function findEndIndexFromBottomDistance({
+  bottomOffsetsPx,
+  heightsPx,
+  targetPx,
+}: {
+  bottomOffsetsPx: number[];
+  heightsPx: number[];
+  targetPx: number;
+}): number {
+  let start = 0;
+  let end = bottomOffsetsPx.length;
+
+  while (start < end) {
+    const middle = Math.floor((start + end) / 2);
+    const turnTopDistanceFromBottomPx =
+      (bottomOffsetsPx[middle] ?? 0) + (heightsPx[middle] ?? 0);
+    if (turnTopDistanceFromBottomPx <= targetPx) {
+      end = middle;
+      continue;
+    }
+    start = middle + 1;
+  }
+
+  return start;
+}
+
 export function resolveVisibleTurnRange({
   heightsPx,
   gapPx,
@@ -107,14 +179,14 @@ export function resolveVisibleTurnRange({
     return { startIndex: 0, endIndex: 0 };
   }
 
-  const { offsetsPx } = buildVirtualizedTurnLayout({ heightsPx, gapPx });
+  const { topOffsetsPx } = buildVirtualizedTurnLayout({ heightsPx, gapPx });
   const firstVisibleIndex = findStartIndex({
-    offsetsPx,
+    offsetsPx: topOffsetsPx,
     heightsPx,
     targetPx: viewportTopPx,
   });
   const endIndex = findEndIndex({
-    offsetsPx,
+    offsetsPx: topOffsetsPx,
     targetPx: viewportBottomPx,
   });
 
@@ -131,11 +203,81 @@ export function resolveVisibleTurnRange({
   };
 }
 
-export function resolveAdjustedScrollTopForMeasuredTurnHeightDelta({
-  currentScrollTopPx,
+export function resolveVisibleTurnRangeFromBottomDistance({
+  distanceFromBottomPx,
+  layout,
+  overscanCount,
+  viewportHeightPx,
+}: VisibleTurnRangeFromBottomDistanceInput): VisibleTurnRange {
+  if (layout.topOffsetsPx.length === 0) {
+    return { startIndex: 0, endIndex: 0 };
+  }
+
+  const viewportBottomDistancePx = Math.min(
+    Math.max(0, distanceFromBottomPx),
+    layout.totalHeightPx,
+  );
+  const viewportTopDistancePx = Math.min(
+    viewportBottomDistancePx + Math.max(0, viewportHeightPx),
+    layout.totalHeightPx,
+  );
+  const firstVisibleIndex = findStartIndexFromBottomDistance({
+    bottomOffsetsPx: layout.bottomOffsetsPx,
+    targetPx: viewportTopDistancePx,
+  });
+  const endIndex = findEndIndexFromBottomDistance({
+    bottomOffsetsPx: layout.bottomOffsetsPx,
+    heightsPx: layout.heightsPx,
+    targetPx: viewportBottomDistancePx,
+  });
+
+  return {
+    startIndex: Math.max(0, firstVisibleIndex - overscanCount),
+    endIndex: Math.min(
+      layout.topOffsetsPx.length,
+      Math.max(endIndex, firstVisibleIndex + 1) + overscanCount,
+    ),
+  };
+}
+
+export function resolveTurnCenterDistanceFromBottom({
+  layout,
+  turnIndex,
+  viewportHeightPx,
+}: TurnRevealDistanceInput): number | null {
+  const bottomOffsetPx = layout.bottomOffsetsPx[turnIndex];
+  const heightPx = layout.heightsPx[turnIndex];
+  if (bottomOffsetPx == null || heightPx == null) return null;
+
+  return Math.max(0, bottomOffsetPx - viewportHeightPx / 2 + heightPx / 2);
+}
+
+export function resolveTargetCenterDistanceFromBottom({
+  layout,
+  targetHeightPx,
+  targetTopWithinTurnPx,
+  turnIndex,
+  viewportHeightPx,
+}: TargetRevealDistanceInput): number | null {
+  const bottomOffsetPx = layout.bottomOffsetsPx[turnIndex];
+  const heightPx = layout.heightsPx[turnIndex];
+  if (bottomOffsetPx == null || heightPx == null) return null;
+
+  return Math.max(
+    0,
+    bottomOffsetPx
+      + heightPx
+      - targetTopWithinTurnPx
+      - targetHeightPx / 2
+      - viewportHeightPx / 2,
+  );
+}
+
+export function resolveAdjustedScrollDistanceFromBottomForMeasuredTurnHeightDelta({
+  currentScrollDistanceFromBottomPx,
   heightDeltaPx,
-  turnBottomPx,
-  viewportTopPx,
+  turnTopDistanceFromBottomPx,
+  viewportBottomDistanceFromBottomPx,
   scrollMode,
 }: MeasuredTurnHeightDeltaInput): number | null {
   if (heightDeltaPx === 0 || scrollMode === "programmaticFind") {
@@ -143,11 +285,11 @@ export function resolveAdjustedScrollTopForMeasuredTurnHeightDelta({
   }
 
   if (scrollMode === "stickToBottom") {
-    return currentScrollTopPx + heightDeltaPx;
+    return 0;
   }
 
-  if (turnBottomPx < viewportTopPx) {
-    return currentScrollTopPx + heightDeltaPx;
+  if (turnTopDistanceFromBottomPx <= viewportBottomDistanceFromBottomPx) {
+    return Math.max(0, currentScrollDistanceFromBottomPx + heightDeltaPx);
   }
 
   return null;

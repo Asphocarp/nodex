@@ -317,7 +317,7 @@ describe("LocalConversationFooter", () => {
       },
     });
 
-    scrollTopValue = 200;
+    scrollTopValue = -200;
     fireEvent.scroll(viewport);
 
     await waitFor(() => {

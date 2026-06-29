@@ -8,7 +8,7 @@ import {
 import { ThreadUserMessageNavigationRail } from "./thread-user-message-navigation-rail";
 
 function buildStoryItems(): ThreadUserMessageNavigationItem[] {
-  return Array.from({ length: 12 }, (_, index) => {
+  return Array.from({ length: 24 }, (_, index) => {
     const ordinal = index + 1;
     return {
       id: `turn_story_${ordinal}:user:0`,
@@ -48,7 +48,7 @@ function RailStoryFrame() {
         <EnsureLocalConversationThreadScrollController>
           <LocalConversationThreadScrollLayout>
             <div data-thread-find-target="conversation" className="flex flex-col gap-3 py-10">
-              {items.map((item) => (
+              {items.map((item, index) => (
                 <div
                   key={item.id}
                   data-content-search-unit-key={item.id}
@@ -59,6 +59,11 @@ function RailStoryFrame() {
                     className="max-w-[min(42rem,80%)] rounded-2xl bg-token-foreground/8 px-3 py-2 text-sm leading-6"
                   >
                     {item.label}
+                    {index % 5 === 0 ? (
+                      <span className="mt-2 block text-token-description-foreground">
+                        Include the previous investigation notes, the failing scenario, and the validation steps in the next pass.
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               ))}

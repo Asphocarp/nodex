@@ -14,7 +14,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { CODEX_SHELL_PANEL_TRANSITION } from "../../../lib/codex-panel-motion";
 import { cn } from "../../../lib/utils";
 import {
-  resolveAdjustedScrollTopForMeasuredTurnHeightDelta,
+  resolveAdjustedScrollDistanceFromBottomForMeasuredTurnHeightDelta,
   type MeasuredTurnHeightDeltaInput,
   type ThreadScrollMode,
 } from "./local-conversation-turn-virtualization";
@@ -25,9 +25,7 @@ const PROGRAMMATIC_SCROLL_SETTLE_WINDOW_MS = 64;
 const NEAR_BOTTOM_THRESHOLD_PX = 24;
 
 export interface ThreadScrollPositionSnapshot {
-  scrollHeight: number;
-  scrollTop: number;
-  clientHeight: number;
+  scrollDistanceFromBottomPx: number;
 }
 
 export interface ThreadScrollModeResolutionInput {
@@ -45,11 +43,13 @@ export interface LocalConversationThreadScrollControllerValue {
   suppressAutoStickToBottom: () => void;
   setScrollMode: (mode: ThreadScrollMode) => void;
   getScrollMode: () => ThreadScrollMode;
+  getScrollDistanceFromBottomPx: () => number;
   maybeStickToBottom: () => void;
   scrollToBottom: () => void;
   jumpToBottom: () => void;
-  scrollToTopPx: (topPx: number, behavior?: ScrollBehavior) => void;
-  adjustForMeasuredTurnHeightDelta: (input: Omit<MeasuredTurnHeightDeltaInput, "currentScrollTopPx" | "scrollMode">) => void;
+  scrollElementIntoView: (targetElement: HTMLElement, behavior?: ScrollBehavior, block?: ScrollLogicalPosition) => void;
+  scrollToDistanceFromBottomPx: (distanceFromBottomPx: number, behavior?: ScrollBehavior) => void;
+  adjustForMeasuredTurnHeightDelta: (input: Omit<MeasuredTurnHeightDeltaInput, "currentScrollDistanceFromBottomPx" | "scrollMode">) => void;
 }
 
 export interface LocalConversationThreadScrollLayoutHandle {
@@ -79,12 +79,9 @@ const LocalConversationThreadScrollControllerContext =
   createContext<LocalConversationThreadScrollControllerContextValue | null>(null);
 
 export function isThreadScrollNearBottom({
-  scrollHeight,
-  scrollTop,
-  clientHeight,
+  scrollDistanceFromBottomPx,
 }: ThreadScrollPositionSnapshot): boolean {
-  return Math.abs(scrollTop) <= NEAR_BOTTOM_THRESHOLD_PX
-    || scrollHeight - scrollTop - clientHeight <= NEAR_BOTTOM_THRESHOLD_PX;
+  return scrollDistanceFromBottomPx <= NEAR_BOTTOM_THRESHOLD_PX;
 }
 
 export function resolveThreadScrollModeForScrollEvent({
@@ -108,8 +105,24 @@ export function resolveThreadScrollModeForScrollEvent({
   return currentMode;
 }
 
-function resolveScrollTargetPx(element: HTMLDivElement, topPx: number): number {
-  return Math.max(0, Math.min(topPx, element.scrollHeight));
+export function getThreadScrollDistanceFromBottomPx(element: Pick<HTMLElement, "scrollTop">): number {
+  return Math.max(0, -element.scrollTop);
+}
+
+function resolveScrollDistanceFromBottomPx(
+  element: HTMLDivElement,
+  distanceFromBottomPx: number,
+): number {
+  const maxDistanceFromBottomPx = Math.max(0, element.scrollHeight - element.clientHeight);
+  return Math.max(0, Math.min(distanceFromBottomPx, maxDistanceFromBottomPx));
+}
+
+export function resolveNativeScrollTopForDistanceFromBottomPx(
+  element: HTMLDivElement,
+  distanceFromBottomPx: number,
+): number {
+  const nextDistanceFromBottomPx = resolveScrollDistanceFromBottomPx(element, distanceFromBottomPx);
+  return nextDistanceFromBottomPx === 0 ? 0 : -nextDistanceFromBottomPx;
 }
 
 export function useLocalConversationThreadScrollController() {
@@ -164,29 +177,50 @@ function LocalConversationThreadScrollControllerProvider({
         return;
       }
 
-      scrollModeRef.current = isThreadScrollNearBottom(element) ? "stickToBottom" : "user";
-      setIsScrolledFromBottom(!isThreadScrollNearBottom(element));
+      const isNearBottom = isThreadScrollNearBottom({
+        scrollDistanceFromBottomPx: getThreadScrollDistanceFromBottomPx(element),
+      });
+      scrollModeRef.current = isNearBottom ? "stickToBottom" : "user";
+      setIsScrolledFromBottom(!isNearBottom);
     }, PROGRAMMATIC_SCROLL_SETTLE_WINDOW_MS);
   }, []);
 
   const getScrollMode = useCallback(() => scrollModeRef.current, []);
 
-  const scrollToTopPx = useCallback((topPx: number, behavior: ScrollBehavior = "auto") => {
+  const getScrollDistanceFromBottomPx = useCallback(() => {
+    const element = scrollElementRef.current;
+    if (element === null) return 0;
+    return getThreadScrollDistanceFromBottomPx(element);
+  }, []);
+
+  const scrollToDistanceFromBottomPx = useCallback((
+    distanceFromBottomPx: number,
+    behavior: ScrollBehavior = "auto",
+  ) => {
     const element = scrollElementRef.current;
     if (element === null) return;
     programmaticScrollSettledUntilRef.current = performance.now() + PROGRAMMATIC_SCROLL_SETTLE_WINDOW_MS;
     element.scrollTo({
       behavior,
-      top: resolveScrollTargetPx(element, topPx),
+      top: resolveNativeScrollTopForDistanceFromBottomPx(element, distanceFromBottomPx),
     });
+  }, []);
+
+  const scrollElementIntoView = useCallback((
+    targetElement: HTMLElement,
+    behavior: ScrollBehavior = "auto",
+    block: ScrollLogicalPosition = "start",
+  ) => {
+    programmaticScrollSettledUntilRef.current = performance.now() + PROGRAMMATIC_SCROLL_SETTLE_WINDOW_MS;
+    targetElement.scrollIntoView({ behavior, block, inline: "nearest" });
   }, []);
 
   const maybeStickToBottom = useCallback(() => {
     if (scrollModeRef.current !== "stickToBottom") return;
     const element = scrollElementRef.current;
     if (element === null) return;
-    scrollToTopPx(0, "auto");
-  }, [scrollToTopPx]);
+    scrollToDistanceFromBottomPx(0, "auto");
+  }, [scrollToDistanceFromBottomPx]);
 
   const notifyContentLayout = useCallback(() => {
     maybeStickToBottom();
@@ -194,31 +228,32 @@ function LocalConversationThreadScrollControllerProvider({
 
   const adjustForMeasuredTurnHeightDelta = useCallback(({
     heightDeltaPx,
-    turnBottomPx,
-    viewportTopPx,
-  }: Omit<MeasuredTurnHeightDeltaInput, "currentScrollTopPx" | "scrollMode">) => {
+    turnTopDistanceFromBottomPx,
+    viewportBottomDistanceFromBottomPx,
+  }: Omit<MeasuredTurnHeightDeltaInput, "currentScrollDistanceFromBottomPx" | "scrollMode">) => {
     const element = scrollElementRef.current;
     if (element === null) return;
-    const adjustedScrollTopPx = resolveAdjustedScrollTopForMeasuredTurnHeightDelta({
-      currentScrollTopPx: element.scrollTop,
-      heightDeltaPx,
-      turnBottomPx,
-      viewportTopPx,
-      scrollMode: scrollModeRef.current,
-    });
-    if (adjustedScrollTopPx === null) return;
-    scrollToTopPx(adjustedScrollTopPx, "auto");
-  }, [scrollToTopPx]);
+    const adjustedScrollDistanceFromBottomPx =
+      resolveAdjustedScrollDistanceFromBottomForMeasuredTurnHeightDelta({
+        currentScrollDistanceFromBottomPx: getThreadScrollDistanceFromBottomPx(element),
+        heightDeltaPx,
+        turnTopDistanceFromBottomPx,
+        viewportBottomDistanceFromBottomPx,
+        scrollMode: scrollModeRef.current,
+      });
+    if (adjustedScrollDistanceFromBottomPx === null) return;
+    scrollToDistanceFromBottomPx(adjustedScrollDistanceFromBottomPx, "auto");
+  }, [scrollToDistanceFromBottomPx]);
 
   const scrollToBottom = useCallback(() => {
     setScrollMode("stickToBottom");
-    scrollToTopPx(0, "smooth");
-  }, [scrollToTopPx, setScrollMode]);
+    scrollToDistanceFromBottomPx(0, "smooth");
+  }, [scrollToDistanceFromBottomPx, setScrollMode]);
 
   const jumpToBottom = useCallback(() => {
     setScrollMode("stickToBottom");
-    scrollToTopPx(0, "auto");
-  }, [scrollToTopPx, setScrollMode]);
+    scrollToDistanceFromBottomPx(0, "auto");
+  }, [scrollToDistanceFromBottomPx, setScrollMode]);
 
   const suppressAutoStickToBottom = useCallback(() => {
     setScrollMode("user");
@@ -234,7 +269,9 @@ function LocalConversationThreadScrollControllerProvider({
     };
 
     const syncFromScrollPosition = () => {
-      const isNearBottom = isThreadScrollNearBottom(scrollElement);
+      const isNearBottom = isThreadScrollNearBottom({
+        scrollDistanceFromBottomPx: getThreadScrollDistanceFromBottomPx(scrollElement),
+      });
       const nextMode = resolveThreadScrollModeForScrollEvent({
         currentMode: scrollModeRef.current,
         isNearBottom,
@@ -248,7 +285,9 @@ function LocalConversationThreadScrollControllerProvider({
       updateScrolledFromBottom(isNearBottom);
     };
 
-    updateScrolledFromBottom(isThreadScrollNearBottom(scrollElement));
+    updateScrolledFromBottom(isThreadScrollNearBottom({
+      scrollDistanceFromBottomPx: getThreadScrollDistanceFromBottomPx(scrollElement),
+    }));
 
     const frameId = window.requestAnimationFrame(() => {
       maybeStickToBottom();
@@ -295,27 +334,31 @@ function LocalConversationThreadScrollControllerProvider({
 
   const controller = useMemo<LocalConversationThreadScrollControllerContextValue>(() => ({
     adjustForMeasuredTurnHeightDelta,
+    getScrollDistanceFromBottomPx,
     getScrollMode,
     isScrolledFromBottom,
     jumpToBottom,
     maybeStickToBottom,
     notifyContentLayout,
     registerScrollElement: setScrollElement,
+    scrollElementIntoView,
     scrollElement,
     scrollToBottom,
-    scrollToTopPx,
+    scrollToDistanceFromBottomPx,
     setScrollMode,
     suppressAutoStickToBottom,
   }), [
     adjustForMeasuredTurnHeightDelta,
+    getScrollDistanceFromBottomPx,
     getScrollMode,
     isScrolledFromBottom,
     jumpToBottom,
     maybeStickToBottom,
     notifyContentLayout,
+    scrollElementIntoView,
     scrollElement,
     scrollToBottom,
-    scrollToTopPx,
+    scrollToDistanceFromBottomPx,
     setScrollElement,
     setScrollMode,
     suppressAutoStickToBottom,

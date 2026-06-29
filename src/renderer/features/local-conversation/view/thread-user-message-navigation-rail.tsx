@@ -57,15 +57,6 @@ function nextAnimationFrame(): Promise<void> {
   });
 }
 
-function resolveAbsoluteScrollTopPxForElement(input: {
-  scrollElement: HTMLDivElement;
-  targetElement: HTMLElement;
-}): number {
-  const scrollRect = input.scrollElement.getBoundingClientRect();
-  const targetRect = input.targetElement.getBoundingClientRect();
-  return targetRect.top - scrollRect.top + input.scrollElement.scrollTop;
-}
-
 function findUserMessageTarget(
   scrollElement: HTMLDivElement,
   item: ThreadUserMessageNavigationItem,
@@ -157,7 +148,7 @@ export function ThreadUserMessageNavigationRail({
 }: ThreadUserMessageNavigationRailProps) {
   const {
     scrollElement,
-    scrollToTopPx,
+    scrollElementIntoView,
     setScrollMode,
   } = useLocalConversationThreadScrollController();
   const reducedMotion = Boolean(useReducedMotion());
@@ -233,17 +224,11 @@ export function ThreadUserMessageNavigationRail({
       if (!targetElement) return;
 
       setScrollMode("programmaticFind");
-      scrollToTopPx(
-        resolveAbsoluteScrollTopPxForElement({
-          scrollElement,
-          targetElement,
-        }),
-        behavior,
-      );
+      scrollElementIntoView(targetElement, behavior, "start");
       await nextAnimationFrame();
       highlightTarget(targetElement);
     },
-    [highlightTarget, onRevealItem, scrollElement, scrollToTopPx, setScrollMode],
+    [highlightTarget, onRevealItem, scrollElement, scrollElementIntoView, setScrollMode],
   );
 
   useEffect(() => {

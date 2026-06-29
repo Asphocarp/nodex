@@ -407,6 +407,7 @@ describe("LocalConversationThreadBody", () => {
     expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeFalse();
     await flushIdleCallbacks();
     await settleAsyncRender();
+    await settleAsyncRender();
 
     expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeTrue();
   });
@@ -755,8 +756,8 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(queryByText("Assistant turn 1"))).toBeFalse();
+    expect(Boolean(queryByText("Assistant turn 40"))).toBeFalse();
     await settleAsyncRender();
-    expect(Boolean(queryByText("Assistant turn 1"))).toBeTrue();
+    expect(Boolean(queryByText("Assistant turn 40"))).toBeTrue();
   });
 });

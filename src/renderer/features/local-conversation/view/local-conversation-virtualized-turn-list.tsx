@@ -14,7 +14,9 @@ import type { CodexTurnScopedConversationRequest } from "../conversation-request
 import type { ThreadStageActions } from "../thread-stage-types";
 import {
   buildVirtualizedTurnLayout,
-  resolveVisibleTurnRange,
+  resolveTargetCenterDistanceFromBottom,
+  resolveTurnCenterDistanceFromBottom,
+  resolveVisibleTurnRangeFromBottomDistance,
 } from "./local-conversation-turn-virtualization";
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 import { LocalConversationTurnEntry } from "./local-conversation-turn-entry";
@@ -23,6 +25,9 @@ const DEFAULT_TURN_HEIGHT_PX = 280;
 const TURN_GAP_PX = 12;
 const OVERSCAN_TURNS = 6;
 const COLLAPSED_VISIBLE_TURNS = 3;
+
+export type LocalConversationVirtualizedTurnTargetResolver =
+  (turnElement: HTMLElement) => HTMLElement | null;
 
 export interface LocalConversationVirtualizedTurnListEntry {
   turn: VisibleConversationTurnEntry["turn"];
@@ -34,7 +39,14 @@ export interface LocalConversationVirtualizedTurnListEntry {
 }
 
 export interface LocalConversationVirtualizedTurnListApi {
-  scrollToKey: (turnKey: string, behavior?: ScrollBehavior) => Promise<void>;
+  scrollToKey: {
+    (turnKey: string, behavior?: ScrollBehavior): Promise<void>;
+    (
+      turnKey: string,
+      getTargetElement: LocalConversationVirtualizedTurnTargetResolver | undefined,
+      behavior?: ScrollBehavior,
+    ): Promise<void>;
+  };
   setScrollMode: ReturnType<typeof useLocalConversationThreadScrollController>["setScrollMode"];
   getScrollMode: ReturnType<typeof useLocalConversationThreadScrollController>["getScrollMode"];
 }
@@ -66,15 +78,6 @@ interface LocalConversationVirtualizedTurnListProps {
   onApiChange?: (api: LocalConversationVirtualizedTurnListApi | null) => void;
   scrollElement: HTMLDivElement | null;
   className?: string;
-}
-
-function resolveAbsoluteScrollTopPxForElement(input: {
-  scrollElement: HTMLDivElement;
-  targetElement: HTMLElement;
-}): number {
-  const scrollRect = input.scrollElement.getBoundingClientRect();
-  const targetRect = input.targetElement.getBoundingClientRect();
-  return targetRect.top - scrollRect.top + input.scrollElement.scrollTop;
 }
 
 interface MeasuredTurnProps {
@@ -234,21 +237,22 @@ export function LocalConversationVirtualizedTurnList({
 }: LocalConversationVirtualizedTurnListProps) {
   const {
     adjustForMeasuredTurnHeightDelta,
+    getScrollDistanceFromBottomPx,
     maybeStickToBottom,
     notifyContentLayout,
-    scrollToTopPx,
+    scrollToDistanceFromBottomPx,
     setScrollMode,
     getScrollMode,
   } = useLocalConversationThreadScrollController();
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
   const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
-  const turnsTopOffsetPxRef = useRef(0);
-  const layoutOffsetsPxRef = useRef<number[]>([]);
-  const scrollTopPxRef = useRef(0);
+  const turnsBottomInsetPxRef = useRef(0);
+  const layoutBottomOffsetsPxRef = useRef<number[]>([]);
+  const scrollDistanceFromBottomPxRef = useRef(0);
   const [viewportState, setViewportState] = useState({
-    scrollTopPx: 0,
+    scrollDistanceFromBottomPx: 0,
     viewportHeightPx: 0,
-    turnsTopOffsetPx: 0,
+    turnsBottomInsetPx: 0,
   });
   const pendingScrollResolvers = useRef(new Map<number, () => void>());
   const pendingScrollRequestId = useRef(0);
@@ -256,6 +260,7 @@ export function LocalConversationVirtualizedTurnList({
   const [pendingScrollTarget, setPendingScrollTarget] = useState<{
     requestId: number;
     turnKey: string;
+    getTargetElement?: LocalConversationVirtualizedTurnTargetResolver;
     behavior: ScrollBehavior;
   } | null>(null);
 
@@ -272,28 +277,31 @@ export function LocalConversationVirtualizedTurnList({
     [entries],
   );
 
-  layoutOffsetsPxRef.current = layout.offsetsPx;
-  scrollTopPxRef.current = viewportState.scrollTopPx;
+  layoutBottomOffsetsPxRef.current = layout.bottomOffsetsPx;
+  scrollDistanceFromBottomPxRef.current = viewportState.scrollDistanceFromBottomPx;
 
   useLayoutEffect(() => {
     if (scrollElement === null || listRoot === null) return;
 
     const syncViewportState = () => {
-      const scrollTopPx = scrollElement.scrollTop;
+      const scrollDistanceFromBottomPx = getScrollDistanceFromBottomPx();
       const viewportHeightPx = scrollElement.clientHeight;
       const containerRect = scrollElement.getBoundingClientRect();
       const listRect = listRoot.getBoundingClientRect();
-      const turnsTopOffsetPx = listRect.top - containerRect.top + scrollTopPx;
-      turnsTopOffsetPxRef.current = turnsTopOffsetPx;
+      const turnsBottomInsetPx = Math.max(
+        0,
+        containerRect.bottom - listRect.bottom + scrollDistanceFromBottomPx,
+      );
+      turnsBottomInsetPxRef.current = turnsBottomInsetPx;
       setViewportState((current) => (
-        current.scrollTopPx === scrollTopPx
+        current.scrollDistanceFromBottomPx === scrollDistanceFromBottomPx
         && current.viewportHeightPx === viewportHeightPx
-        && current.turnsTopOffsetPx === turnsTopOffsetPx
+        && current.turnsBottomInsetPx === turnsBottomInsetPx
           ? current
           : {
-              scrollTopPx,
+              scrollDistanceFromBottomPx,
               viewportHeightPx,
-              turnsTopOffsetPx,
+              turnsBottomInsetPx,
             }
       ));
     };
@@ -312,7 +320,7 @@ export function LocalConversationVirtualizedTurnList({
       scrollElement.removeEventListener("scroll", syncViewportState);
       observer?.disconnect();
     };
-  }, [listRoot, scrollElement]);
+  }, [getScrollDistanceFromBottomPx, listRoot, scrollElement]);
 
   useLayoutEffect(() => {
     if (scrollElement === null || listRoot === null) return;
@@ -324,11 +332,10 @@ export function LocalConversationVirtualizedTurnList({
     maybeStickToBottom();
   }, [entries.length, layout.totalHeightPx, measuredHeights, maybeStickToBottom, scrollElement]);
 
-  const viewportTopPx = Math.max(
+  const listViewportBottomDistanceFromBottomPx = Math.max(
     0,
-    viewportState.scrollTopPx - viewportState.turnsTopOffsetPx,
+    viewportState.scrollDistanceFromBottomPx - viewportState.turnsBottomInsetPx,
   );
-  const viewportBottomPx = viewportTopPx + viewportState.viewportHeightPx;
   const visibleRange = useMemo(() => {
     if (scrollElement === null) {
       return {
@@ -337,14 +344,19 @@ export function LocalConversationVirtualizedTurnList({
       };
     }
 
-    return resolveVisibleTurnRange({
-      heightsPx,
-      gapPx: TURN_GAP_PX,
-      viewportTopPx,
-      viewportBottomPx,
+    return resolveVisibleTurnRangeFromBottomDistance({
+      distanceFromBottomPx: listViewportBottomDistanceFromBottomPx,
+      layout,
       overscanCount: OVERSCAN_TURNS,
+      viewportHeightPx: viewportState.viewportHeightPx,
     });
-  }, [entries.length, heightsPx, scrollElement, viewportBottomPx, viewportTopPx]);
+  }, [
+    entries.length,
+    layout,
+    listViewportBottomDistanceFromBottomPx,
+    scrollElement,
+    viewportState.viewportHeightPx,
+  ]);
 
   const handleHeightChange = useCallback(
     (turnKey: string, turnIndex: number, nextHeight: number) => {
@@ -353,15 +365,16 @@ export function LocalConversationVirtualizedTurnList({
         if (Math.abs(previousHeight - nextHeight) < 1) return current;
 
         const heightDeltaPx = nextHeight - previousHeight;
-        const turnBottomPx = (layoutOffsetsPxRef.current[turnIndex] ?? 0) + previousHeight;
-        const currentViewportTopPx = Math.max(
+        const turnTopDistanceFromBottomPx =
+          (layoutBottomOffsetsPxRef.current[turnIndex] ?? 0) + previousHeight;
+        const currentViewportBottomDistanceFromBottomPx = Math.max(
           0,
-          scrollTopPxRef.current - turnsTopOffsetPxRef.current,
+          scrollDistanceFromBottomPxRef.current - turnsBottomInsetPxRef.current,
         );
         adjustForMeasuredTurnHeightDelta({
           heightDeltaPx,
-          turnBottomPx,
-          viewportTopPx: currentViewportTopPx,
+          turnTopDistanceFromBottomPx,
+          viewportBottomDistanceFromBottomPx: currentViewportBottomDistanceFromBottomPx,
         });
 
         return {
@@ -388,7 +401,17 @@ export function LocalConversationVirtualizedTurnList({
   );
 
   const scrollToKey = useCallback(
-    (turnKey: string, behavior: ScrollBehavior = "smooth") => {
+    (
+      turnKey: string,
+      getTargetElementOrBehavior?: LocalConversationVirtualizedTurnTargetResolver | ScrollBehavior,
+      maybeBehavior?: ScrollBehavior,
+    ) => {
+      const getTargetElement = typeof getTargetElementOrBehavior === "function"
+        ? getTargetElementOrBehavior
+        : undefined;
+      const behavior = typeof getTargetElementOrBehavior === "string"
+        ? getTargetElementOrBehavior
+        : maybeBehavior ?? "smooth";
       pendingScrollRequestId.current += 1;
       const requestId = pendingScrollRequestId.current;
       activeScrollRequestId.current = null;
@@ -396,7 +419,12 @@ export function LocalConversationVirtualizedTurnList({
       return new Promise<void>((resolve) => {
         pendingScrollResolvers.current.set(requestId, resolve);
         setScrollMode("programmaticFind");
-        setPendingScrollTarget({ requestId, turnKey, behavior });
+        setPendingScrollTarget({
+          requestId,
+          turnKey,
+          getTargetElement,
+          behavior,
+        });
       });
     },
     [setScrollMode],
@@ -437,42 +465,73 @@ export function LocalConversationVirtualizedTurnList({
     }
 
     activeScrollRequestId.current = pendingScrollTarget.requestId;
-    const targetElement = listRoot?.querySelector<HTMLElement>(
+    const turnElement = listRoot?.querySelector<HTMLElement>(
       `[data-thread-turn-id="${pendingScrollTarget.turnKey}"]`,
     );
 
-    if (targetElement) {
-      scrollToTopPx(
-        resolveAbsoluteScrollTopPxForElement({
-          scrollElement,
-          targetElement,
-        }),
+    if (turnElement) {
+      const targetElement = pendingScrollTarget.getTargetElement?.(turnElement) ?? turnElement;
+      const targetDistanceFromBottomPx = pendingScrollTarget.getTargetElement
+        ? (() => {
+            const turnRect = turnElement.getBoundingClientRect();
+            const targetRect = targetElement.getBoundingClientRect();
+            return resolveTargetCenterDistanceFromBottom({
+              layout,
+              targetHeightPx: targetRect.height,
+              targetTopWithinTurnPx: targetRect.top - turnRect.top,
+              turnIndex: index,
+              viewportHeightPx: scrollElement.clientHeight,
+            });
+          })()
+        : resolveTurnCenterDistanceFromBottom({
+            layout,
+            turnIndex: index,
+            viewportHeightPx: scrollElement.clientHeight,
+          });
+
+      if (targetDistanceFromBottomPx === null) {
+        finishPendingScroll(pendingScrollTarget.requestId);
+        return;
+      }
+
+      scrollToDistanceFromBottomPx(
+        viewportState.turnsBottomInsetPx + targetDistanceFromBottomPx,
         pendingScrollTarget.behavior,
       );
       finishPendingScroll(pendingScrollTarget.requestId);
       return;
     }
 
-    const topPx =
-      viewportState.turnsTopOffsetPx + (layout.offsetsPx[index] ?? 0);
-    scrollToTopPx(topPx, pendingScrollTarget.behavior);
+    const targetDistanceFromBottomPx = resolveTurnCenterDistanceFromBottom({
+      layout,
+      turnIndex: index,
+      viewportHeightPx: scrollElement.clientHeight,
+    });
+    if (targetDistanceFromBottomPx === null) {
+      finishPendingScroll(pendingScrollTarget.requestId);
+      return;
+    }
+    scrollToDistanceFromBottomPx(
+      viewportState.turnsBottomInsetPx + targetDistanceFromBottomPx,
+      pendingScrollTarget.behavior,
+    );
     finishPendingScroll(pendingScrollTarget.requestId);
   }, [
     entryIndexByTurnKey,
     finishPendingScroll,
-    layout.offsetsPx,
+    layout,
     listRoot,
     pendingScrollTarget,
     scrollElement,
-    scrollToTopPx,
-    viewportState.turnsTopOffsetPx,
+    scrollToDistanceFromBottomPx,
+    viewportState.turnsBottomInsetPx,
   ]);
 
   const visibleEntries = entries.slice(
     visibleRange.startIndex,
     visibleRange.endIndex,
   );
-  const topSpacerHeightPx = layout.offsetsPx[visibleRange.startIndex] ?? 0;
+  const topSpacerHeightPx = layout.topOffsetsPx[visibleRange.startIndex] ?? 0;
   const visibleHeightsPx = heightsPx.slice(
     visibleRange.startIndex,
     visibleRange.endIndex,

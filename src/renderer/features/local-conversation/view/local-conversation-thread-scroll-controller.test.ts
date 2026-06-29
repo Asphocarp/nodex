@@ -1,16 +1,69 @@
 import { describe, expect, test } from "bun:test";
 import {
+  getThreadScrollDistanceFromBottomPx,
   isThreadScrollNearBottom,
+  resolveNativeScrollTopForDistanceFromBottomPx,
   resolveThreadScrollModeForScrollEvent,
 } from "./local-conversation-thread-scroll-controller";
+
+function buildScrollElement(input: {
+  clientHeight: number;
+  scrollHeight: number;
+  scrollTop: number;
+}): HTMLDivElement {
+  const element = document.createElement("div");
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    get: () => input.clientHeight,
+  });
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    get: () => input.scrollHeight,
+  });
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    get: () => input.scrollTop,
+  });
+  return element;
+}
+
+describe("getThreadScrollDistanceFromBottomPx", () => {
+  test("treats the bottom of a column-reverse scroller as zero", () => {
+    expect(getThreadScrollDistanceFromBottomPx({ scrollTop: 0 })).toBe(0);
+  });
+
+  test("converts negative native scrollTop into positive distance from bottom", () => {
+    expect(getThreadScrollDistanceFromBottomPx({ scrollTop: -5_365 })).toBe(5_365);
+  });
+});
+
+describe("resolveNativeScrollTopForDistanceFromBottomPx", () => {
+  test("writes negative native scrollTop for older content", () => {
+    const element = buildScrollElement({
+      clientHeight: 500,
+      scrollHeight: 8_000,
+      scrollTop: 0,
+    });
+
+    expect(resolveNativeScrollTopForDistanceFromBottomPx(element, 5_365)).toBe(-5_365);
+  });
+
+  test("keeps the bottom target at native zero", () => {
+    const element = buildScrollElement({
+      clientHeight: 500,
+      scrollHeight: 8_000,
+      scrollTop: -100,
+    });
+
+    expect(resolveNativeScrollTopForDistanceFromBottomPx(element, 0)).toBe(0);
+  });
+});
 
 describe("isThreadScrollNearBottom", () => {
   test("treats positions within the Codex near-bottom threshold as bottom", () => {
     expect(
       isThreadScrollNearBottom({
-        scrollHeight: 1_000,
-        scrollTop: 476,
-        clientHeight: 500,
+        scrollDistanceFromBottomPx: 12,
       }),
     ).toBeTrue();
   });
@@ -18,9 +71,7 @@ describe("isThreadScrollNearBottom", () => {
   test("treats positions beyond the Codex near-bottom threshold as scrolled away", () => {
     expect(
       isThreadScrollNearBottom({
-        scrollHeight: 2_000,
-        scrollTop: 1_300,
-        clientHeight: 500,
+        scrollDistanceFromBottomPx: 25,
       }),
     ).toBeFalse();
   });

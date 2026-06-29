@@ -58,7 +58,6 @@ import { LocalConversationResumeLoader } from "./shared/local-conversation-resum
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
 import { createLocalConversationSearchSource } from "./local-conversation-search-source";
 import { ThreadUserMessageNavigationRailLazy } from "./thread-user-message-navigation-rail-lazy";
-import type { ThreadUserMessageNavigationRevealMode } from "./thread-user-message-navigation-rail";
 
 const PROGRESS_PHASES = [
   { key: "creatingWorktree", label: "Worktree" },
@@ -441,7 +440,7 @@ export function LocalConversationThreadBodyOwner({
             }
             const api = listApiRef.current;
             if (!api) return;
-            await api.scrollToKey(turnKey);
+            await api.scrollToKey(turnKey, undefined, "auto");
           },
           getTurnContainer: (turnKey) =>
             contentRootRef.current?.querySelector<HTMLElement>(
@@ -669,19 +668,20 @@ export function LocalConversationThreadBodyOwner({
   }, [actions, isRestoringArchivedThread, onErrorMessage, projectId, threadId]);
 
   const handleRevealUserMessageNavigationItem = useCallback(
-    async (
-      item: ThreadUserMessageNavigationItem,
-      mode: ThreadUserMessageNavigationRevealMode,
-    ): Promise<HTMLElement | null> => {
+    async (item: ThreadUserMessageNavigationItem): Promise<HTMLElement | null> => {
+      const unitSelector =
+        `[data-content-search-unit-key="${escapeAttributeSelectorValue(item.id)}"]`;
       const api = listApiRef.current;
       if (api) {
-        await api.scrollToKey(item.turnKey, mode === "instant" ? "auto" : "smooth");
+        await api.scrollToKey(
+          item.turnKey,
+          (turnElement) => turnElement.querySelector<HTMLElement>(unitSelector),
+          "auto",
+        );
         await nextAnimationFrame();
       }
 
-      return contentRootRef.current?.querySelector<HTMLElement>(
-        `[data-content-search-unit-key="${escapeAttributeSelectorValue(item.id)}"]`,
-      ) ?? null;
+      return contentRootRef.current?.querySelector<HTMLElement>(unitSelector) ?? null;
     },
     [],
   );
