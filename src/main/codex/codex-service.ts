@@ -170,7 +170,12 @@ import {
   mergeCodexTranscriptSnapshots,
   mergeCodexTurnSummary,
 } from "../../shared/codex-thread-detail-reducer";
-import { mergeOrderedStringIds, upsertOrderedStringId } from "../../shared/codex-turn-order";
+import {
+  insertOrderedStringIdsAfter,
+  mergeOrderedStringIds,
+  removeOrderedStringIds,
+  upsertOrderedStringIds,
+} from "../../shared/codex-turn-order";
 import { dbNotifier } from "../local-store/notifier";
 import {
   getProject,
@@ -1286,6 +1291,22 @@ function buildUserMessageInputFromItem(item: CodexItemView): CodexSteeringUserIn
     return [];
   });
   return parsed.length > 0 ? parsed : buildUserMessageInputFallback(item.markdownText);
+}
+
+function getUserMessageClientId(item: CodexItemView): string | null {
+  const rawItem = asRecord(item.rawItem);
+  const rawClientId = rawItem?.clientId ?? rawItem?.clientUserMessageId;
+  return typeof rawClientId === "string" && rawClientId.trim().length > 0
+    ? rawClientId.trim()
+    : null;
+}
+
+function getSteeringClientUserMessageId(entry: CodexTranscriptEntry): string | null {
+  const rawItem = asRecord(entry.rawItem);
+  const rawClientId = rawItem?.clientUserMessageId ?? rawItem?.clientId;
+  return typeof rawClientId === "string" && rawClientId.trim().length > 0
+    ? rawClientId.trim()
+    : null;
 }
 
 interface PreparedPromptForTurn {
@@ -4547,29 +4568,93 @@ export class CodexService extends EventEmitter {
     itemId: string,
     fallbackStatus: CodexTurnStatus = "inProgress",
   ): CodexTurnSummary {
+    return this.upsertCanonicalTurnItems(threadId, turnId, [itemId], fallbackStatus);
+  }
+
+  private upsertCanonicalTurnItems(
+    threadId: string,
+    turnId: string,
+    itemIds: readonly string[],
+    fallbackStatus: CodexTurnStatus = "inProgress",
+  ): CodexTurnSummary {
     const existing = this.getKnownTurn(threadId, turnId);
+    const nextItemIds = upsertOrderedStringIds([], itemIds);
     if (!existing) {
       const synthesizedTurn: CodexTurnSummary = {
         threadId,
         turnId,
         status: fallbackStatus,
-        itemIds: [itemId],
+        itemIds: nextItemIds,
       };
       this.mergeTurn(threadId, synthesizedTurn);
       return this.getKnownTurn(threadId, turnId) ?? synthesizedTurn;
     }
 
-    const nextItemIds = upsertOrderedStringId(existing.itemIds, itemId);
-    if (nextItemIds.length === existing.itemIds.length) {
+    const mergedItemIds = upsertOrderedStringIds(existing.itemIds, nextItemIds);
+    if (mergedItemIds.length === existing.itemIds.length) {
       return existing;
     }
 
+    return this.replaceCanonicalTurnItemIds(threadId, turnId, mergedItemIds) ?? existing;
+  }
+
+  private replaceCanonicalTurnItemIds(
+    threadId: string,
+    turnId: string,
+    itemIds: readonly string[],
+  ): CodexTurnSummary | null {
+    const detail = this.ensureConversationDetail(threadId);
+    if (!detail) return null;
+    const existing = detail.turns.find((turn) => turn.turnId === turnId);
+    if (!existing) return null;
+
     const nextTurn: CodexTurnSummary = {
       ...existing,
+      itemIds: [...itemIds],
+    };
+    detail.turns = detail.turns.map((turn) => turn.turnId === turnId ? nextTurn : turn);
+    return nextTurn;
+  }
+
+  private insertCanonicalTurnItemsAfter(
+    threadId: string,
+    turnId: string,
+    anchorItemId: string,
+    itemIds: readonly string[],
+    fallbackStatus: CodexTurnStatus = "inProgress",
+  ): CodexTurnSummary {
+    const existing = this.getKnownTurn(threadId, turnId);
+    const baseItemIds = existing?.itemIds ?? [];
+    const itemIdsWithAnchor = upsertOrderedStringIds(baseItemIds, [anchorItemId]);
+    const nextItemIds = insertOrderedStringIdsAfter(itemIdsWithAnchor, anchorItemId, itemIds);
+    const nextTurn: CodexTurnSummary = {
+      ...(existing ?? {
+        threadId,
+        turnId,
+        status: fallbackStatus,
+      }),
       itemIds: nextItemIds,
     };
-    this.mergeTurn(threadId, nextTurn);
-    return this.getKnownTurn(threadId, turnId) ?? nextTurn;
+
+    if (!existing) {
+      this.mergeTurn(threadId, nextTurn);
+      return this.getKnownTurn(threadId, turnId) ?? nextTurn;
+    }
+    return this.replaceCanonicalTurnItemIds(threadId, turnId, nextItemIds) ?? nextTurn;
+  }
+
+  private removeCanonicalTurnItems(
+    threadId: string,
+    turnId: string,
+    itemIds: readonly string[],
+  ): CodexTurnSummary | null {
+    const existing = this.getKnownTurn(threadId, turnId);
+    if (!existing) return null;
+
+    const nextItemIds = removeOrderedStringIds(existing.itemIds, itemIds);
+    if (nextItemIds.length === existing.itemIds.length) return existing;
+
+    return this.replaceCanonicalTurnItemIds(threadId, turnId, nextItemIds) ?? existing;
   }
 
   private rebindLatestInProgressTurnForFileChange(
@@ -5147,6 +5232,7 @@ export class CodexService extends EventEmitter {
     threadId: string;
     turnId: string;
     steerId: string;
+    clientUserMessageId: string;
     promptText: string;
     inputItems: CodexSteeringUserInput[];
     restoreMessage: CodexSteeringRestoreMessage;
@@ -5177,6 +5263,7 @@ export class CodexService extends EventEmitter {
       rawItem: {
         id: input.steerId,
         type: "steeringUserMessage",
+        clientUserMessageId: input.clientUserMessageId,
         input: input.inputItems,
         restoreMessage: input.restoreMessage,
         targetTurnId: input.turnId,
@@ -5198,6 +5285,11 @@ export class CodexService extends EventEmitter {
   }
 
   private removeSteeringUserMessage(threadId: string, steerId: string): void {
+    const entry = this.getThreadTranscript(threadId)
+      .find((candidate) => (candidate.entryId ?? candidate.itemId) === steerId);
+    if (entry) {
+      this.removeCanonicalTurnItems(threadId, entry.turnId, [entry.itemId, steerId]);
+    }
     this.removeTranscriptEntry(threadId, steerId);
   }
 
@@ -5207,6 +5299,24 @@ export class CodexService extends EventEmitter {
       && entry.steeringStatus === "pending"
       && (!turnId || entry.turnId === turnId)
     );
+  }
+
+  private findPendingSteeringMessageForUserMessage(
+    item: CodexItemView,
+  ): CodexTranscriptEntry | null {
+    if (item.normalizedKind !== "userMessage") return null;
+
+    const pendingEntries = this.listPendingSteeringEntries(item.threadId, item.turnId);
+    if (pendingEntries.length === 0) return null;
+
+    const clientId = getUserMessageClientId(item);
+    if (clientId) {
+      return pendingEntries.find((entry) => getSteeringClientUserMessageId(entry) === clientId) ?? null;
+    }
+
+    const completedInput = buildUserMessageInputFromItem(item);
+    const completedCompareKey = buildSteeringCompareKey(completedInput);
+    return pendingEntries.find((entry) => entry.steeringCompareKey === completedCompareKey) ?? null;
   }
 
   private restoreUnacceptedSteeringEntriesForTurn(
@@ -5234,13 +5344,9 @@ export class CodexService extends EventEmitter {
 
   private acceptPendingSteeringMessage(
     item: CodexItemView,
+    pending: CodexTranscriptEntry | null = this.findPendingSteeringMessageForUserMessage(item),
   ): CodexTranscriptEntry | null {
     if (item.normalizedKind !== "userMessage") return null;
-
-    const completedInput = buildUserMessageInputFromItem(item);
-    const completedCompareKey = buildSteeringCompareKey(completedInput);
-    const pending = this.listPendingSteeringEntries(item.threadId, item.turnId)
-      .find((entry) => entry.steeringCompareKey === completedCompareKey);
     if (!pending) return null;
 
     const acceptedAt = Date.now();
@@ -5285,6 +5391,7 @@ export class CodexService extends EventEmitter {
         source: "live",
       }),
     );
+    this.insertCanonicalTurnItemsAfter(item.threadId, item.turnId, pending.itemId, [steeredEntry.itemId]);
     return acceptedEntry;
   }
 
@@ -5554,12 +5661,6 @@ export class CodexService extends EventEmitter {
       currentTranscript,
       this.getKnownTurn(item.threadId, item.turnId)?.itemIds,
     );
-    const acceptedSteerEntry = source !== "optimistic" && nextEntry.kind === "userMessage"
-      ? this.acceptPendingSteeringMessage(mergedItem)
-      : null;
-    if (acceptedSteerEntry) {
-      return acceptedSteerEntry;
-    }
     const nextTranscript = source === "optimistic" && nextEntry.kind === "userMessage"
       ? applyOptimisticUserPrompt({
           transcript: currentTranscript,
@@ -7637,16 +7738,18 @@ export class CodexService extends EventEmitter {
       promptPreview: previewText(promptText),
     });
 
+    const steerId = `steer:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const steerParams: TurnSteerParams = {
       threadId,
       expectedTurnId,
+      clientUserMessageId: steerId,
       input: preparedPrompt.inputItems,
     };
-    const steerId = `steer:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     this.upsertSteeringUserMessageEntry(this.buildSteeringUserMessageEntry({
       threadId,
       turnId: expectedTurnId,
       steerId,
+      clientUserMessageId: steerId,
       promptText,
       inputItems: preparedPrompt.inputItems,
       restoreMessage: {
@@ -7657,6 +7760,7 @@ export class CodexService extends EventEmitter {
       },
       targetTurnStartedAtMs: activeTurn?.turnStartedAtMs ?? activeTurn?.startedAt ?? null,
     }));
+    this.upsertCanonicalTurnItem(threadId, expectedTurnId, steerId, "inProgress");
     this.syncBroadcastConversationTurnState(threadId, expectedTurnId, {
       syncBackgroundTerminalRows: true,
       syncCapabilityFlags: true,
@@ -9813,6 +9917,22 @@ export class CodexService extends EventEmitter {
                 ? resolveContextCompactionMarkdown(lifecycleStatus)
                 : normalizedItem.markdownText,
       };
+      const matchingPendingSteer = this.findPendingSteeringMessageForUserMessage(item);
+      if (matchingPendingSteer) {
+        if (method === "item/started") {
+          return;
+        }
+
+        const acceptedSteerEntry = this.acceptPendingSteeringMessage(item, matchingPendingSteer);
+        if (acceptedSteerEntry) {
+          this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+            syncBackgroundTerminalRows: true,
+            syncChildMemberships: true,
+            syncCapabilityFlags: true,
+          });
+          return;
+        }
+      }
       this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
       if (isFirstTurnWorkItem(item)) {
         this.markFirstTurnWorkItemStartedAt(payload.threadId, payload.turnId);

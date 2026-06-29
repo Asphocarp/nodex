@@ -161,4 +161,85 @@ describe("buildCodexConversationSnapshot", () => {
     expect(snapshot.turns[0]?.items[1]?.itemId).toBe("user_1");
     expect(snapshot.turns[0]?.items[2]?.itemId).toBe("tool_1");
   });
+
+  test("orders synthetic steer entries with canonical turn item ids", () => {
+    const snapshot = buildCodexConversationSnapshot({
+      detail: buildThreadDetail({
+        turns: [
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            status: "completed",
+            itemIds: ["assistant_before", "steer_1", "user_msg_1:steered", "assistant_after"],
+          },
+        ],
+        transcript: [
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant_after",
+            type: "agentMessage",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            sequence: 4,
+            markdownText: "Answer after steering",
+            createdAt: 4,
+            updatedAt: 4,
+          },
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "steer_1",
+            type: "steeringUserMessage",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            steeringStatus: "accepted",
+            sequence: 2,
+            markdownText: "who are you",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant_before",
+            type: "agentMessage",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            sequence: 1,
+            markdownText: "Answer before steering",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "user_msg_1:steered",
+            type: "steered",
+            kind: "systemEvent",
+            semanticKind: "steered",
+            sequence: 3,
+            markdownText: "Steered conversation",
+            createdAt: 3,
+            updatedAt: 3,
+          },
+        ],
+      }),
+      resumeState: "resumed",
+      requests: [],
+      capabilityFlags: {
+        canEditLastUserTurn: true,
+        canForkFromTurn: true,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+    });
+
+    expect(snapshot.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
+      "assistant_before,steer_1,user_msg_1:steered,assistant_after",
+    );
+  });
 });

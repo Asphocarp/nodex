@@ -4269,6 +4269,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
       };
 
       serviceInternals.mergeTurn("thr_steer_prompt", {
@@ -4281,8 +4282,10 @@ describe("codex-service startTurn", () => {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
+      const requests: Array<{ method: string; params: unknown }> = [];
       client.start = async () => undefined;
-      client.request = async (method: string) => {
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
         if (method === "turn/steer") {
           return { turnId: "turn_steer_prompt" };
         }
@@ -4300,12 +4303,83 @@ describe("codex-service startTurn", () => {
 
         expect(steeredTurn?.turnId).toBe("turn_steer_prompt");
         expect(detail).not.toBeNull();
-        expect(detail?.turns[0]?.itemIds.length).toBe(0);
         expect(detail?.transcript.length).toBe(1);
         expect(detail?.transcript[0]?.type).toBe("steeringUserMessage");
         expect(detail?.transcript[0]?.steeringStatus).toBe("pending");
+        expect(detail?.turns[0]?.itemIds.join(",")).toBe(detail?.transcript[0]?.itemId ?? "");
         expect(snapshot?.pendingSteers.length).toBe(0);
         expect(snapshot?.turns[0]?.items[0]?.markdownText).toBe("Tighten the layout.");
+        expect(requests.length).toBe(1);
+        expect(typeof (requests[0]?.params as { clientUserMessageId?: unknown })?.clientUserMessageId).toBe("string");
+        expect(
+          (detail?.transcript[0]?.rawItem as { clientUserMessageId?: unknown } | undefined)?.clientUserMessageId,
+        ).toBe((requests[0]?.params as { clientUserMessageId?: unknown })?.clientUserMessageId);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("suppresses matching steer user-message started echoes without accepting the pending steer", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      serviceInternals.mergeTurn("thr_steer_started_echo", {
+        threadId: "thr_steer_started_echo",
+        turnId: "turn_steer_started_echo",
+        status: "inProgress",
+        itemIds: ["agent_msg_existing"],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "turn/steer") {
+          return { turnId: "turn_steer_started_echo" };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        await service.steerTurn({
+          threadId: "thr_steer_started_echo",
+          expectedTurnId: "turn_steer_started_echo",
+          prompt: "Keep going, but simplify the copy.",
+        });
+        const clientUserMessageId = (requests[0]?.params as { clientUserMessageId?: string } | undefined)?.clientUserMessageId;
+
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_steer_started_echo",
+          turnId: "turn_steer_started_echo",
+          item: {
+            id: "user_msg_started_echo",
+            type: "userMessage",
+            clientId: clientUserMessageId,
+            content: [{ type: "text", text: "Keep going, but simplify the copy.", text_elements: [] }],
+          },
+        });
+
+        const detail = service.serializeThreadDetail("thr_steer_started_echo");
+        const snapshot = service.serializeConversationSnapshot("thr_steer_started_echo");
+        const steerItemId = detail?.transcript[0]?.itemId ?? "";
+
+        expect(detail?.turns[0]?.itemIds.join(",")).toBe(`agent_msg_existing,${steerItemId}`);
+        expect(detail?.transcript.length).toBe(1);
+        expect(detail?.transcript[0]?.type).toBe("steeringUserMessage");
+        expect(detail?.transcript[0]?.steeringStatus).toBe("pending");
+        expect(snapshot?.turns[0]?.items.length).toBe(1);
+        expect(snapshot?.turns[0]?.items[0]?.markdownText).toBe("Keep going, but simplify the copy.");
       } finally {
         await service.shutdown();
       }
@@ -4448,6 +4522,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
@@ -4484,10 +4559,39 @@ describe("codex-service startTurn", () => {
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("turn/steer");
+        const steerClientUserMessageId = (requests[0]?.params as { clientUserMessageId?: string } | undefined)?.clientUserMessageId;
+        expect(typeof steerClientUserMessageId).toBe("string");
         expect(afterSendSnapshot?.queuedFollowUps.length).toBe(0);
         expect(afterSendSnapshot?.pendingSteers.length).toBe(0);
         expect(afterSendSnapshot?.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
         expect(afterSendSnapshot?.turns[0]?.items[0]?.markdownText).toBe("Queue this without interrupting");
+
+        const serverUserMessage = {
+          id: "user_msg_queue_send_now",
+          type: "userMessage",
+          clientId: steerClientUserMessageId,
+          content: [{ type: "text", text: "Queue this without interrupting", text_elements: [] }],
+        };
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_queue_prompt_send_now",
+          turnId: "turn_queue_prompt_send_now",
+          item: serverUserMessage,
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_queue_prompt_send_now",
+          turnId: "turn_queue_prompt_send_now",
+          item: serverUserMessage,
+        });
+
+        const afterAcceptedSnapshot = service.serializeConversationSnapshot("thr_queue_prompt_send_now");
+        const userMessageItems = afterAcceptedSnapshot?.turns[0]?.items.filter((entry) => entry.kind === "userMessage") ?? [];
+        expect(afterAcceptedSnapshot?.turns[0]?.items.length).toBe(2);
+        expect(userMessageItems.length).toBe(1);
+        expect(userMessageItems[0]?.steeringStatus).toBe("accepted");
+        expect(afterAcceptedSnapshot?.turns[0]?.items[1]?.semanticKind).toBe("steered");
+        expect(afterAcceptedSnapshot?.turns[0]?.itemIds.join(",")).toBe(
+          `${userMessageItems[0]?.itemId ?? ""},user_msg_queue_send_now:steered`,
+        );
       } finally {
         await service.shutdown();
       }
@@ -4563,6 +4667,288 @@ describe("codex-service startTurn", () => {
         expect(prompts.length).toBe(2);
         expect(prompts[1]).toBe("Second queued message");
         expect(snapshot?.queuedFollowUps.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("accepts a matching steer only once when started is followed by completed", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      serviceInternals.mergeTurn("thr_steer_started_completed", {
+        threadId: "thr_steer_started_completed",
+        turnId: "turn_steer_started_completed",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "turn/steer") {
+          return { turnId: "turn_steer_started_completed" };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_steer_started_completed",
+          turnId: "turn_steer_started_completed",
+          item: {
+            id: "assistant_before_steer",
+            type: "agentMessage",
+            text: "Message 3/7",
+          },
+        });
+        await service.steerTurn({
+          threadId: "thr_steer_started_completed",
+          expectedTurnId: "turn_steer_started_completed",
+          prompt: "Use the compact version.",
+        });
+        const clientUserMessageId = (requests[0]?.params as { clientUserMessageId?: string } | undefined)?.clientUserMessageId;
+        const serverUserMessage = {
+          id: "user_msg_started_completed",
+          type: "userMessage",
+          clientId: clientUserMessageId,
+          content: [{ type: "text", text: "Use the compact version.", text_elements: [] }],
+        };
+
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_steer_started_completed",
+          turnId: "turn_steer_started_completed",
+          item: serverUserMessage,
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_steer_started_completed",
+          turnId: "turn_steer_started_completed",
+          item: serverUserMessage,
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_steer_started_completed",
+          turnId: "turn_steer_started_completed",
+          item: {
+            id: "assistant_after_steer",
+            type: "agentMessage",
+            text: "I am Codex.",
+          },
+        });
+
+        const detail = service.serializeThreadDetail("thr_steer_started_completed");
+        const snapshot = service.serializeConversationSnapshot("thr_steer_started_completed");
+        const userMessageItems = snapshot?.turns[0]?.items.filter((entry) => entry.kind === "userMessage") ?? [];
+        const steeredItems = snapshot?.turns[0]?.items.filter((entry) => entry.semanticKind === "steered") ?? [];
+        const steerItemId = userMessageItems[0]?.itemId ?? "";
+
+        expect(detail?.turns[0]?.itemIds.join(",")).toBe(
+          `assistant_before_steer,${steerItemId},user_msg_started_completed:steered,assistant_after_steer`,
+        );
+        expect(snapshot?.turns[0]?.items.map((entry) => entry.itemId).join(",")).toBe(
+          `assistant_before_steer,${steerItemId},user_msg_started_completed:steered,assistant_after_steer`,
+        );
+        expect(detail?.transcript.length).toBe(4);
+        expect(userMessageItems.length).toBe(1);
+        expect(userMessageItems[0]?.type).toBe("steeringUserMessage");
+        expect(userMessageItems[0]?.steeringStatus).toBe("accepted");
+        expect(userMessageItems[0]?.acceptedUserMessageItemId).toBe("user_msg_started_completed");
+        expect(steeredItems.length).toBe(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("keeps non-matching steer user messages on the ordinary transcript path", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+
+      serviceInternals.mergeTurn("thr_steer_nonmatching", {
+        threadId: "thr_steer_nonmatching",
+        turnId: "turn_steer_nonmatching",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "turn/steer") {
+          return { turnId: "turn_steer_nonmatching" };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        await service.steerTurn({
+          threadId: "thr_steer_nonmatching",
+          expectedTurnId: "turn_steer_nonmatching",
+          prompt: "Use the compact version.",
+        });
+        const serverUserMessage = {
+          id: "user_msg_nonmatching",
+          type: "userMessage",
+          clientId: "server-owned-message",
+          content: [{ type: "text", text: "A different follow-up.", text_elements: [] }],
+        };
+
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_steer_nonmatching",
+          turnId: "turn_steer_nonmatching",
+          item: serverUserMessage,
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_steer_nonmatching",
+          turnId: "turn_steer_nonmatching",
+          item: serverUserMessage,
+        });
+
+        const snapshot = service.serializeConversationSnapshot("thr_steer_nonmatching");
+        const pendingSteers = snapshot?.turns[0]?.items.filter((entry) => entry.type === "steeringUserMessage") ?? [];
+        const ordinaryUserMessages = snapshot?.turns[0]?.items.filter((entry) => entry.type === "userMessage") ?? [];
+        const steeredItems = snapshot?.turns[0]?.items.filter((entry) => entry.semanticKind === "steered") ?? [];
+        const pendingSteerId = pendingSteers[0]?.itemId ?? "";
+
+        expect(snapshot?.turns[0]?.itemIds.join(",")).toBe(`${pendingSteerId},user_msg_nonmatching`);
+        expect(pendingSteers.length).toBe(1);
+        expect(pendingSteers[0]?.steeringStatus).toBe("pending");
+        expect(ordinaryUserMessages.length).toBe(1);
+        expect(ordinaryUserMessages[0]?.markdownText).toBe("A different follow-up.");
+        expect(steeredItems.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("removes a failed steer from transcript and turn order", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+
+      serviceInternals.mergeTurn("thr_steer_rpc_failure", {
+        threadId: "thr_steer_rpc_failure",
+        turnId: "turn_steer_rpc_failure",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "turn/steer") {
+          throw new Error("steer rpc failed");
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        let didThrow = false;
+        try {
+          await service.steerTurn({
+            threadId: "thr_steer_rpc_failure",
+            expectedTurnId: "turn_steer_rpc_failure",
+            prompt: "This steer will fail.",
+          });
+        } catch {
+          didThrow = true;
+        }
+
+        const detail = service.serializeThreadDetail("thr_steer_rpc_failure");
+        const snapshot = service.serializeConversationSnapshot("thr_steer_rpc_failure");
+
+        expect(didThrow).toBeTrue();
+        expect(detail?.transcript.length).toBe(0);
+        expect(detail?.turns[0]?.itemIds.length).toBe(0);
+        expect(snapshot?.turns[0]?.items.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("restores an unaccepted steer without leaving a phantom turn item id", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+
+      serviceInternals.mergeTurn("thr_steer_restore_order", {
+        threadId: "thr_steer_restore_order",
+        turnId: "turn_steer_restore_order",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "turn/steer") {
+          return { turnId: "turn_steer_restore_order" };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        await service.steerTurn({
+          threadId: "thr_steer_restore_order",
+          expectedTurnId: "turn_steer_restore_order",
+          prompt: "Restore me if the turn ends.",
+        });
+        let snapshot = service.serializeConversationSnapshot("thr_steer_restore_order");
+
+        expect(snapshot?.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
+        expect(snapshot?.turns[0]?.itemIds.length).toBe(1);
+
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_steer_restore_order",
+          turnId: "turn_steer_restore_order",
+          status: "completed",
+        });
+        await flushAsyncWork();
+
+        snapshot = service.serializeConversationSnapshot("thr_steer_restore_order");
+
+        expect(snapshot?.turns[0]?.items.length).toBe(0);
+        expect(snapshot?.turns[0]?.itemIds.length).toBe(0);
+        expect(snapshot?.queuedFollowUps.length).toBe(1);
+        expect(snapshot?.queuedFollowUps[0]?.prompt).toBe("Restore me if the turn ends.");
+        expect(Boolean(snapshot?.queuedFollowUps[0]?.pausedReason)).toBeTrue();
       } finally {
         await service.shutdown();
       }
@@ -4677,8 +5063,12 @@ describe("codex-service startTurn", () => {
 
         snapshot = service.serializeConversationSnapshot("thr_pending_clear");
         expect(snapshot?.pendingSteers.length).toBe(0);
+        expect(snapshot?.turns[0]?.items.length).toBe(2);
         expect(snapshot?.turns[0]?.items[0]?.steeringStatus).toBe("accepted");
         expect(snapshot?.turns[0]?.items[1]?.semanticKind).toBe("steered");
+        expect(snapshot?.turns[0]?.itemIds.join(",")).toBe(
+          `${snapshot?.turns[0]?.items[0]?.itemId ?? ""},user_msg_1:steered`,
+        );
       } finally {
         await service.shutdown();
       }
