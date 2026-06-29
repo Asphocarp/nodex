@@ -51,19 +51,22 @@ function RailStoryFrame() {
               {items.map((item, index) => (
                 <div
                   key={item.id}
-                  data-content-search-unit-key={item.id}
+                  data-turn-key={item.turnKey}
+                  data-content-search-turn-key={item.turnKey}
                   className="flex justify-end"
                 >
-                  <div
-                    data-user-message-bubble="true"
-                    className="max-w-[min(42rem,80%)] rounded-2xl bg-token-foreground/8 px-3 py-2 text-sm leading-6"
-                  >
-                    {item.label}
-                    {index % 5 === 0 ? (
-                      <span className="mt-2 block text-token-description-foreground">
-                        Include the previous investigation notes, the failing scenario, and the validation steps in the next pass.
-                      </span>
-                    ) : null}
+                  <div data-content-search-unit-key={item.id} className="contents">
+                    <div
+                      data-user-message-bubble="true"
+                      className="max-w-[min(42rem,80%)] rounded-2xl bg-token-foreground/8 px-3 py-2 text-sm leading-6"
+                    >
+                      {item.label}
+                      {index % 5 === 0 ? (
+                        <span className="mt-2 block text-token-description-foreground">
+                          Include the previous investigation notes, the failing scenario, and the validation steps in the next pass.
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               ))}

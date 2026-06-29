@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
@@ -409,7 +409,9 @@ describe("LocalConversationThreadBody", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeTrue();
+    await waitFor(() => {
+      expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeTrue();
+    });
   });
 
   test("does not render the user message navigation rail below the Codex threshold", async () => {

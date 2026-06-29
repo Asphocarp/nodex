@@ -192,28 +192,28 @@ diffs-container {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  [data-thread-user-message-navigation-item-id]:hover .thread-user-message-navigation-marker {
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]):hover [data-thread-user-message-navigation-item-id][aria-current="true"]:not(:hover):not(:focus-visible) .thread-user-message-navigation-marker {
+    background-color: var(--color-token-description-foreground);
+    opacity: .4;
+  }
+
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]) [data-thread-user-message-navigation-item-id]:hover .thread-user-message-navigation-marker {
     --marker-progress: 1;
   }
 
-  [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
-  [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]) [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]) [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
     --marker-progress: .7;
   }
 
-  [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
-  [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]) [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]) [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
     --marker-progress: .4;
   }
 
-  [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
-  [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]) [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
+  [data-thread-user-message-navigation-rail-list]:not([data-scrubbing]) [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
     --marker-progress: .2;
-  }
-
-  [data-thread-user-message-navigation-item-id][aria-current="true"]:not(:hover) .thread-user-message-navigation-marker {
-    background-color: var(--color-token-description-foreground);
-    opacity: .4;
   }
 }
 

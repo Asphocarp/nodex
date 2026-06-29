@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -35,6 +36,12 @@ import {
 
 export type ThreadUserMessageNavigationRevealMode = "smooth" | "instant";
 
+export const THREAD_USER_MESSAGE_NAVIGATION_TURN_CONTAINER_SELECTOR =
+  "[data-turn-key], [data-content-search-turn-key]";
+
+const THREAD_USER_MESSAGE_NAVIGATION_SEARCH_UNIT_SELECTOR =
+  "[data-content-search-unit-key]";
+
 export interface ThreadUserMessageNavigationRailProps {
   items: ThreadUserMessageNavigationItem[];
   onRevealItem?: (
@@ -66,7 +73,7 @@ function findUserMessageTarget(
   );
 }
 
-function resolveCurrentRangeIds(
+export function resolveThreadUserMessageNavigationCurrentRangeIds(
   items: readonly ThreadUserMessageNavigationItem[],
   visibleIds: ReadonlySet<string>,
 ): Set<string> | null {
@@ -74,8 +81,11 @@ function resolveCurrentRangeIds(
   if (firstVisibleIndex < 0) return null;
 
   let lastVisibleIndex = firstVisibleIndex;
-  while (lastVisibleIndex + 1 < items.length && visibleIds.has(items[lastVisibleIndex + 1]?.id ?? "")) {
-    lastVisibleIndex += 1;
+  for (let index = firstVisibleIndex + 1; index < items.length; index += 1) {
+    const itemId = items[index]?.id;
+    if (itemId && visibleIds.has(itemId)) {
+      lastVisibleIndex = index;
+    }
   }
 
   return new Set(
@@ -83,6 +93,79 @@ function resolveCurrentRangeIds(
       .slice(firstVisibleIndex, lastVisibleIndex + 1)
       .map((item) => item.id),
   );
+}
+
+export interface ThreadUserMessageNavigationObservationTarget {
+  element: HTMLElement;
+  itemId: string;
+}
+
+export function collectThreadUserMessageNavigationObservationTargets(
+  root: ParentNode,
+  itemIds: ReadonlySet<string>,
+): ThreadUserMessageNavigationObservationTarget[] {
+  const targets: ThreadUserMessageNavigationObservationTarget[] = [];
+  const usedTurnContainers = new Set<HTMLElement>();
+  const usedObservedElements = new Set<HTMLElement>();
+
+  for (const searchUnit of root.querySelectorAll<HTMLElement>(
+    THREAD_USER_MESSAGE_NAVIGATION_SEARCH_UNIT_SELECTOR,
+  )) {
+    const itemId = searchUnit.dataset.contentSearchUnitKey;
+    if (!itemId || !itemIds.has(itemId)) continue;
+
+    const turnContainer = searchUnit.closest<HTMLElement>(
+      THREAD_USER_MESSAGE_NAVIGATION_TURN_CONTAINER_SELECTOR,
+    );
+    const observedElement =
+      turnContainer && !usedTurnContainers.has(turnContainer)
+        ? turnContainer
+        : searchUnit;
+
+    if (observedElement === turnContainer) {
+      usedTurnContainers.add(turnContainer);
+    }
+    if (usedObservedElements.has(observedElement)) continue;
+
+    usedObservedElements.add(observedElement);
+    targets.push({ element: observedElement, itemId });
+  }
+
+  return targets;
+}
+
+export function threadUserMessageNavigationMutationsIncludeTurnContainer(
+  records: readonly MutationRecord[],
+): boolean {
+  return records.some((record) =>
+    [...record.addedNodes, ...record.removedNodes].some((node) =>
+      node instanceof HTMLElement
+      && (
+        node.matches(THREAD_USER_MESSAGE_NAVIGATION_TURN_CONTAINER_SELECTOR)
+        || node.querySelector(THREAD_USER_MESSAGE_NAVIGATION_TURN_CONTAINER_SELECTOR) !== null
+      )
+    ),
+  );
+}
+
+export function ensureThreadUserMessageNavigationRowVisible(
+  listElement: HTMLElement | null,
+  activeItemId: string | null,
+) {
+  if (!listElement || !activeItemId) return;
+  const row = listElement.querySelector<HTMLElement>(
+    `[data-thread-user-message-navigation-item-id="${escapeAttributeSelectorValue(activeItemId)}"]`,
+  );
+  if (!row) return;
+
+  if (row.offsetTop < listElement.scrollTop) {
+    listElement.scrollTop = row.offsetTop;
+    return;
+  }
+
+  if (row.offsetTop + row.offsetHeight > listElement.scrollTop + listElement.clientHeight) {
+    listElement.scrollTop = row.offsetTop + row.offsetHeight - listElement.clientHeight + 1;
+  }
 }
 
 function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
@@ -167,6 +250,8 @@ export function ThreadUserMessageNavigationRail({
     isScrubbingRef.current = isScrubbing;
   }, [isScrubbing]);
 
+  const lastItemId = items[items.length - 1]?.id ?? null;
+  const itemIds = useMemo(() => new Set(items.map((item) => item.id)), [items]);
   const itemsById = useMemo(
     () => new Map(items.map((item) => [item.id, item] as const)),
     [items],
@@ -174,8 +259,19 @@ export function ThreadUserMessageNavigationRail({
   const itemIdsKey = useMemo(() => items.map((item) => item.id).join("\n"), [items]);
 
   useEffect(() => {
-    setCurrentItemIds(new Set(items.length > 0 ? [items[items.length - 1]?.id ?? ""] : []));
-  }, [itemIdsKey, items]);
+    setCurrentItemIds((current) => {
+      const next = new Set([...current].filter((id) => itemIds.has(id)));
+      if (next.size > 0) {
+        return sameSet(current, next) ? current : next;
+      }
+      return new Set(lastItemId ? [lastItemId] : []);
+    });
+  }, [itemIds, itemIdsKey, lastItemId]);
+
+  const currentPrimaryItemId = useMemo(
+    () => items.find((item) => currentItemIds.has(item.id))?.id ?? lastItemId,
+    [currentItemIds, items, lastItemId],
+  );
 
   const portalTarget = useMemo(() => {
     if (!scrollElement) return null;
@@ -239,59 +335,99 @@ export function ThreadUserMessageNavigationRail({
       return undefined;
     }
 
-    let observer: IntersectionObserver | null = null;
     const visibleIds = new Set<string>();
-    const itemIds = new Set(items.map((item) => item.id));
+    const observedElements = new Set<HTMLElement>();
+    const elementToItemId = new Map<HTMLElement, string>();
 
     const syncCurrentRange = () => {
-      const rangeIds = resolveCurrentRangeIds(items, visibleIds);
+      const rangeIds = resolveThreadUserMessageNavigationCurrentRangeIds(items, visibleIds);
       if (!rangeIds) return;
       setCurrentItemIds((current) => sameSet(current, rangeIds) ? current : rangeIds);
     };
 
-    const registerTargets = () => {
-      observer?.disconnect();
-      visibleIds.clear();
-      observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            const element = entry.target as HTMLElement;
-            const id = element.getAttribute("data-content-search-unit-key");
-            if (!id || !itemIds.has(id)) continue;
-            if (entry.isIntersecting) {
-              visibleIds.add(id);
-            } else {
-              visibleIds.delete(id);
-            }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!(entry.target instanceof HTMLElement)) continue;
+          const id = elementToItemId.get(entry.target);
+          if (!id) continue;
+          if (entry.isIntersecting) {
+            visibleIds.add(id);
+          } else {
+            visibleIds.delete(id);
           }
-          syncCurrentRange();
-        },
-        {
-          root: scrollElement,
-          rootMargin: "-16px 0px 0px 0px",
-          threshold: [0, 0.01, 1],
-        },
-      );
+        }
+        syncCurrentRange();
+      },
+      {
+        root: scrollElement,
+        rootMargin: "-16px 0px 0px 0px",
+      },
+    );
 
-      const targets = scrollElement.querySelectorAll<HTMLElement>("[data-content-search-unit-key]");
-      for (const target of targets) {
-        const id = target.getAttribute("data-content-search-unit-key");
-        if (!id || !itemIds.has(id)) continue;
-        observer.observe(target);
+    const registerTargets = () => {
+      const nextTargets = collectThreadUserMessageNavigationObservationTargets(scrollElement, itemIds);
+      const nextElements = new Set(nextTargets.map((target) => target.element));
+
+      for (const element of [...observedElements]) {
+        if (nextElements.has(element)) continue;
+        const id = elementToItemId.get(element);
+        if (id) visibleIds.delete(id);
+        elementToItemId.delete(element);
+        observedElements.delete(element);
+        observer.unobserve(element);
       }
+
+      for (const target of nextTargets) {
+        const previousId = elementToItemId.get(target.element);
+        if (previousId && previousId !== target.itemId) {
+          visibleIds.delete(previousId);
+        }
+        elementToItemId.set(target.element, target.itemId);
+        if (!observedElements.has(target.element)) {
+          observedElements.add(target.element);
+          observer.observe(target.element);
+        }
+      }
+
+      syncCurrentRange();
     };
 
     registerTargets();
     const mutationObserver = typeof MutationObserver === "undefined"
       ? null
-      : new MutationObserver(registerTargets);
+      : new MutationObserver((records) => {
+        if (threadUserMessageNavigationMutationsIncludeTurnContainer(records)) {
+          registerTargets();
+        }
+      });
     mutationObserver?.observe(scrollElement, { childList: true, subtree: true });
 
     return () => {
-      observer?.disconnect();
+      observer.disconnect();
       mutationObserver?.disconnect();
     };
-  }, [itemIdsKey, items, scrollElement]);
+  }, [itemIds, itemIdsKey, items, scrollElement]);
+
+  useLayoutEffect(() => {
+    if (isScrubbing) return;
+    ensureThreadUserMessageNavigationRowVisible(listRef.current, currentPrimaryItemId);
+  }, [currentPrimaryItemId, isScrubbing]);
+
+  useEffect(() => {
+    const listElement = listRef.current;
+    if (!listElement || typeof ResizeObserver === "undefined") return undefined;
+
+    const observer = new ResizeObserver(() => {
+      if (!isScrubbingRef.current) {
+        ensureThreadUserMessageNavigationRowVisible(listElement, currentPrimaryItemId);
+      }
+    });
+    observer.observe(listElement);
+    return () => {
+      observer.disconnect();
+    };
+  }, [currentPrimaryItemId]);
 
   const resolveRowFromPoint = useCallback((event: PointerEvent | ReactPointerEvent) => {
     const listElement = listRef.current;
@@ -379,7 +515,7 @@ export function ThreadUserMessageNavigationRail({
       <div
         ref={listRef}
         data-thread-user-message-navigation-rail-list="true"
-        data-scrubbing={isScrubbing ? "true" : undefined}
+        data-scrubbing={scrubTargetId !== null ? "true" : undefined}
         className="vertical-scroll-fade-mask hide-scrollbar flex max-h-[min(70vh,40rem)] flex-col overflow-y-auto overscroll-contain [--edge-fade-distance:2.5rem]"
       >
         {items.map((item) => {
@@ -394,7 +530,7 @@ export function ThreadUserMessageNavigationRail({
               sideOffset={0}
               delayOpen
               interactive={false}
-              open={isScrubTarget && isScrubbing ? true : undefined}
+              open={isScrubTarget && scrubTargetId !== null ? true : undefined}
               surface="rich"
               tooltipClassName="!m-0 !rounded-xl !border-0 !bg-transparent !p-0 !shadow-none !ring-0 !backdrop-blur-none"
               tooltipBodyClassName="block w-full"
@@ -417,7 +553,10 @@ export function ThreadUserMessageNavigationRail({
                   <span
                     className={cn(
                       "thread-user-message-navigation-marker block h-0.5 rounded-full bg-token-description-foreground opacity-40",
-                      isCurrent && "bg-token-foreground opacity-60",
+                      "group-focus-visible/navigation-row:bg-token-foreground group-focus-visible/navigation-row:opacity-100",
+                      scrubTargetId === null && "group-hover/navigation-row:bg-token-foreground group-hover/navigation-row:opacity-100",
+                      isCurrent && !isScrubTarget && "bg-token-foreground opacity-60",
+                      isScrubTarget && "bg-token-foreground opacity-100",
                     )}
                   />
                 </span>

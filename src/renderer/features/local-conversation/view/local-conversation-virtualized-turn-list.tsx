@@ -199,7 +199,11 @@ function MeasuredTurnComponent({
   }, [entry.turnKey, onHeightChange, turnIndex]);
 
   return (
-    <div ref={handleElementRef} data-thread-turn-id={entry.turnKey}>
+    <div
+      ref={handleElementRef}
+      data-thread-turn-id={entry.turnKey}
+      data-turn-key={entry.turnKey}
+    >
       <LocalConversationTurnEntry
         conversationId={conversationId}
         turnSearchKey={entry.turnSearchKey}
