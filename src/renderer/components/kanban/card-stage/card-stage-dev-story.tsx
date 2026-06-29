@@ -17,7 +17,44 @@ import {
 
 export interface CardStageDevStoryPageProps extends CardStageStoryControls {
   renderPreview?: boolean;
+  descriptionVariant?: "default" | "heading-rail" | "few-headings";
 }
+
+const headingRailDescription = [
+  "# Heading rail parity",
+  "",
+  "This fixture has enough heading blocks for the automatic left navigation rail.",
+  "",
+  "## Capture goals",
+  "Use this section to verify the marker rail in the left card gutter.",
+  "",
+  "### Marker states",
+  "Markers should use active state, hover feedback, and compact spacing.",
+  "",
+  "## Scrub interaction",
+  "Drag over the rail to jump between headings without opening a popup.",
+  "",
+  "### Interaction",
+  "Click a row to jump to the matching heading while preserving the editor surface.",
+  "",
+  "## Tooltip preview",
+  "Hover a marker to inspect the shared tooltip shell and heading preview.",
+  "",
+  "### Layout",
+  "The rail appears only when the left gutter has room for marker navigation.",
+  "",
+  "## Final section",
+  "Scrolling near this block should move the active indicator.",
+].join("\n");
+
+const fewHeadingsDescription = [
+  "# Short document",
+  "",
+  "The automatic heading rail should stay hidden when fewer than four headings exist.",
+  "",
+  "## Only one section",
+  "This short fixture should keep the editor free of navigation chrome.",
+].join("\n");
 
 export function CardStageDevStoryPage({
   runInTarget,
@@ -30,6 +67,7 @@ export function CardStageDevStoryPage({
   collapseSecondaryProperties,
   historyPanelActive: initialHistoryPanelActive,
   renderPreview = true,
+  descriptionVariant = "default",
 }: CardStageDevStoryPageProps) {
   const [extraThreadCount, setExtraThreadCount] = useState(0);
   const [historyPanelActive, setHistoryPanelActive] = useState(initialHistoryPanelActive);
@@ -44,6 +82,7 @@ export function CardStageDevStoryPage({
     enableOpenThread,
     existingWorktree,
     initialHistoryPanelActive,
+    descriptionVariant,
     previewMode,
     runInTarget,
     showNewThreadAction,
@@ -61,13 +100,24 @@ export function CardStageDevStoryPage({
     runInTarget,
     existingWorktree,
   }), [existingWorktree, runInTarget]);
+  const displayCard = useMemo(() => {
+    const description = descriptionVariant === "heading-rail"
+      ? headingRailDescription
+      : descriptionVariant === "few-headings"
+        ? fewHeadingsDescription
+        : card.description;
+    return {
+      ...card,
+      description,
+    };
+  }, [card, descriptionVariant]);
   const linkedThreads = useMemo(
     () => buildCardStageStoryThreads({ threadDensity, previewMode }, extraThreadCount),
     [extraThreadCount, previewMode, threadDensity],
   );
   const historySnapshotDescription = useMemo(
     () => [
-      card.description,
+      displayCard.description,
       "## Snapshot preview",
       "This read-only preview uses the same BlockNote rendering path as Card Stage.",
       "- Stable text, lists, and links render normally",
@@ -78,7 +128,7 @@ export function CardStageDevStoryPage({
       '<thread-section label="Follow-up investigation" thread="thr_preview" />',
       '<toggle-list-inline-view project="default" />',
     ].join("\n\n"),
-    [card.description],
+    [displayCard.description],
   );
 
   const handleOpenNewThread = useCallback(() => {
@@ -134,8 +184,9 @@ export function CardStageDevStoryPage({
         <section className="min-h-0 flex-1 overflow-hidden rounded-[20px] border border-(--border) bg-(--background) shadow-[0_24px_64px_rgba(0,0,0,0.28)]">
           {renderPreview ? (
             <CardStage
+              key={descriptionVariant}
               onClose={() => undefined}
-              card={card}
+              card={displayCard}
               columnId={CARD_STAGE_STORY_COLUMN_ID}
               columnName={CARD_STAGE_STORY_COLUMN_NAME}
               projectId={CARD_STAGE_STORY_PROJECT_ID}

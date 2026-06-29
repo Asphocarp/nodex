@@ -60,4 +60,27 @@ describe("card stage toolbar", () => {
     expect(historyCalls).toBe(1);
     expect(deleteCalls).toBe(1);
   });
+
+  test("keeps heading navigation out of the toolbar controls", () => {
+    const view = render(
+      <NodexTooltipProvider>
+        <CardStageToolbar
+          saving={false}
+          historyPanelActive={false}
+          limitMainContentWidth={true}
+          showRawContent={false}
+          onClose={() => undefined}
+          onDelete={() => undefined}
+          onToggleContentWidth={() => undefined}
+          onToggleShowRawContent={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    const labels = view.getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"))
+      .filter(Boolean)
+      .join(",");
+    expect(labels).toBe("Close,Copy deeplink,Show raw,Full width,History,Delete");
+  });
 });

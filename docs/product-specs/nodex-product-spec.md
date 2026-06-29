@@ -213,7 +213,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 #### 4. SQLite Database Storage
 - Single `nodex.db` file in the local store directory
 - Atomic transactions for data integrity
-- Schema v26 with UUID-v7 card ids, description revision storage, Codex thread-link metadata keyed by `thread_id`, recurring reminder state, and project-scoped realtime/history state
+- Schema v48 with UUID-v7 card ids, description revision storage, Codex thread-link metadata keyed by `thread_id`, recurring reminder state, and project-scoped realtime/history state
 
 #### 5. Card Properties
 
@@ -266,6 +266,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Tag input suggests existing project tags while typing via native autocomplete options (excluding tags already on the current card)
 - BlockNote block editor for description (Notion-flavored Markdown)
 - NFM headings use a typography scale in-editor: H1 `1.875em`, H2 `1.5em`, H3 `1.25em`, H4 `1.125em`, all at `600` weight with `1.3` line-height relative to the editor body size
+- Card Stage rich editors with four or more H1-H4 headings show an automatic left-gutter heading rail. The rail is renderer-derived from the mounted NFM document, is available only for the active rich-editor tab on fine-pointer viewports with at least 48px of left gutter, and is absent in raw mode. It shares the user-message marker rail behavior: current headings follow viewport intersection, rows auto-scroll, click reveal uses smooth scrolling, pointer drag scrub uses instant reveal, and hover shows a heading tooltip. The rail has no toolbar setting, card field, schema migration, backend endpoint, or history persistence.
 - NFM descriptions support simple editable tables from GFM pipe-table syntax and the lossless NFM `<table>` extension. Tables render in Card Stage, inline toggle-list editors, read-only history previews, and raw NFM renderer surfaces; detailed behavior lives in [NFM Editor Table Block Behavior](./nfm-editor-table-block-behavior.md).
 - Card Stage toolbar includes a `Show raw` toggle that swaps the description area into a read-only raw NFM view of the current local draft for debugging, without changing card fields or save behavior.
 - BlockNote structural animations are mostly disabled in-editor (including indent/unindent depth transitions) to keep editing interactions immediate

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useCallback, useState, type MutableRefObject } from "react";
+import { useEffect, useRef, useMemo, useCallback, useState, type MutableRefObject, type RefObject } from "react";
 import {
   SideMenuController,
   type LinkToolbarProps,
@@ -39,6 +39,7 @@ import type { Card, CodexPromptInput } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import { NfmTableHandlesController } from "./nfm-table-handles";
+import { NfmHeadingNavigationRail } from "./nfm-heading-navigation-rail";
 import {
   getNfmSearchState,
   goToNextNfmSearchMatch,
@@ -228,6 +229,10 @@ interface NfmEditorProps {
     promptInput?: CodexPromptInput;
   }) => Promise<void>;
   isActivePanelTab?: boolean;
+  headingRail?: {
+    portalElement: HTMLElement | null;
+    scrollContainerRef: RefObject<HTMLElement | null>;
+  };
   placeholder?: string;
   className?: string;
 }
@@ -522,6 +527,7 @@ export function NfmEditor({
   onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab = true,
+  headingRail,
   placeholder = "Add a description...",
   className,
 }: NfmEditorProps) {
@@ -2680,6 +2686,16 @@ export function NfmEditor({
           </NodexPopoverContent>
         </NodexPopover>
       ) : null}
+      {headingRail?.portalElement
+        ? (
+          <NfmHeadingNavigationRail
+            editor={editor as unknown as Parameters<typeof NfmHeadingNavigationRail>[0]["editor"]}
+            scrollContainerRef={headingRail.scrollContainerRef}
+            portalElement={headingRail.portalElement}
+            isActivePanelTab={isActivePanelTab}
+          />
+        )
+        : null}
       <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
         <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
           <NfmEditorContextMenu editor={editor}>

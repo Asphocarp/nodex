@@ -105,11 +105,18 @@ describe("card stage", () => {
       projectName?: unknown;
       sessionId?: unknown;
       canStartThreadInSession?: unknown;
+      headingRail?: {
+        portalElement?: unknown;
+        scrollContainerRef?: unknown;
+      };
     } | null;
     expect(typeof editorProps?.flushHandleRef).toBe("object");
     expect(editorProps?.projectName).toBe("Default");
     expect(editorProps?.sessionId).toBe("session-current");
     expect(editorProps?.canStartThreadInSession).toBe(true);
+    expect(typeof editorProps?.headingRail?.portalElement).toBe("object");
+    expect(typeof editorProps?.headingRail?.scrollContainerRef).toBe("object");
+    expect(container.querySelector('[data-card-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
   });
 
   test("full width expands the body lane without changing the card-stage surface", async () => {
@@ -206,7 +213,8 @@ describe("card stage", () => {
     const onBlur = lastNfmEditorProps?.onBlur as (() => void) | undefined;
     expect(typeof onChange).toBe("function");
     expect(typeof onBlur).toBe("function");
-    expect(nfmEditorRenderCount).toBe(1);
+    const renderCountAfterMount = nfmEditorRenderCount;
+    expect(renderCountAfterMount > 0).toBeTrue();
 
     await act(async () => {
       onChange?.("Updated body");

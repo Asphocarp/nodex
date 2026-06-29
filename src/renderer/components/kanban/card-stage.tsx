@@ -1,4 +1,4 @@
-import { memo, type CSSProperties, type MutableRefObject } from "react";
+import { memo, useState, type CSSProperties, type MutableRefObject, type RefObject } from "react";
 import { NfmEditor } from "./editor/nfm-editor";
 import { cn } from "@/lib/utils";
 import { CardStageInlinePropertyStrip } from "./card-stage/inline-property-strip";
@@ -37,6 +37,8 @@ interface CardStageDescriptionEditorProps {
   onStartNewSessionThreadFromEditor: CardStageProps["onStartNewSessionThreadFromEditor"];
   onSendThreadSectionPrompt: CardStageProps["onSendThreadSectionPrompt"];
   isActivePanelTab: boolean;
+  headingRailPortalElement: HTMLElement | null;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
 }
 
 const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
@@ -58,6 +60,8 @@ const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
   onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab,
+  headingRailPortalElement,
+  scrollContainerRef,
 }: CardStageDescriptionEditorProps) {
   if (showRawContent) {
     return <CardStageRawContent content={content} />;
@@ -85,6 +89,10 @@ const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
       onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
       onSendThreadSectionPrompt={onSendThreadSectionPrompt}
       isActivePanelTab={isActivePanelTab}
+      headingRail={{
+        portalElement: headingRailPortalElement,
+        scrollContainerRef,
+      }}
       placeholder="Add a description..."
     />
   );
@@ -92,6 +100,7 @@ const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
 
 export function CardStage(props: CardStageProps) {
   const controller = useCardStageController(props);
+  const [headingRailPortalElement, setHeadingRailPortalElement] = useState<HTMLDivElement | null>(null);
 
   if (!controller.card) return null;
 
@@ -142,79 +151,87 @@ export function CardStage(props: CardStageProps) {
       ) : null}
 
       <div
-        ref={controller.scrollContainerRef}
-        onScroll={controller.handleScroll}
-        className="scrollbar-token min-h-0 flex-1 overflow-y-auto"
-        data-testid={CARD_STAGE_SCROLL_CONTAINER_TEST_ID}
-        style={CARD_STAGE_SCROLL_CONTAINER_STYLE}
+        ref={setHeadingRailPortalElement}
+        className="relative min-h-0 flex-1"
+        data-card-stage-heading-navigation-portal-target="true"
       >
         <div
-          className={controller.contentBodyClassName}
-          data-card-stage-body="true"
-          data-card-stage-body-width={controller.limitMainContentWidth ? "constrained" : "full"}
+          ref={controller.scrollContainerRef}
+          onScroll={controller.handleScroll}
+          className="scrollbar-token h-full min-h-0 overflow-y-auto"
+          data-testid={CARD_STAGE_SCROLL_CONTAINER_TEST_ID}
+          style={CARD_STAGE_SCROLL_CONTAINER_STYLE}
         >
-          <div className={controller.contentShellClassName}>
-            <div className="h-toolbar-sm" />
+          <div
+            className={controller.contentBodyClassName}
+            data-card-stage-body="true"
+            data-card-stage-body-width={controller.limitMainContentWidth ? "constrained" : "full"}
+          >
+            <div className={controller.contentShellClassName}>
+              <div className="h-toolbar-sm" />
 
-            <textarea
-              value={controller.title}
-              onChange={(event) => controller.handleTitleChange(event.target.value)}
-              onBlur={controller.handleTitleBlur}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") event.preventDefault();
-              }}
-              rows={1}
-              className={cn(
-                "w-full resize-none overflow-hidden",
-                "text-xl/snug-plus font-bold",
-                "text-(--foreground)",
-                "border-none px-0.5 pt-0.75",
-                "bg-transparent focus-visible:ring-0 focus-visible:outline-none",
-                "placeholder:text-(--foreground-disabled)",
-                "field-sizing-content",
-              )}
-              placeholder="Untitled"
-            />
-
-            <div className="h-2" />
-
-            <CardStageInlinePropertyStrip
-              priority={controller.priority}
-              estimate={controller.estimate}
-              dueDate={controller.dueDate}
-              currentColumnId={controller.currentColumnId}
-              currentColumnName={controller.currentColumnName}
-              onPriorityChange={controller.handlePriorityChange}
-              onEstimateChange={controller.handleEstimateChange}
-              onDueDateChange={controller.handleDueDateChange}
-              onClearDueDate={controller.handleClearDueDate}
-              onSetDueDateToday={controller.handleSetDueDateToday}
-              onColumnChange={controller.handleColumnChange}
-            />
-
-            <CardStagePropertiesSection controller={controller} />
-
-            <div className="pt-2 pb-8">
-              <CardStageDescriptionEditor
-                projectId={props.projectId}
-                projectName={props.projectName}
-                projectWorkspacePath={props.projectWorkspacePath}
-                cardId={controller.card.id}
-                columnId={controller.currentColumnId}
-                content={controller.description}
-                showRawContent={controller.showRawContent}
-                onChange={controller.handleDescriptionChange}
-                onBlur={controller.handleDescriptionBlur}
-                flushHandleRef={controller.descriptionFlushHandleRef}
-                sessionId={props.sessionId}
-                sessionThread={props.sessionThread}
-                canStartThreadInSession={props.canStartThreadInSession}
-                linkedCodexThreads={props.linkedCodexThreads}
-                onOpenCodexThread={props.onOpenCodexThread}
-                onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
-                onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
-                isActivePanelTab={props.isActivePanelTab ?? true}
+              <textarea
+                value={controller.title}
+                onChange={(event) => controller.handleTitleChange(event.target.value)}
+                onBlur={controller.handleTitleBlur}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.preventDefault();
+                }}
+                rows={1}
+                className={cn(
+                  "w-full resize-none overflow-hidden",
+                  "text-xl/snug-plus font-bold",
+                  "text-(--foreground)",
+                  "border-none px-0.5 pt-0.75",
+                  "bg-transparent focus-visible:ring-0 focus-visible:outline-none",
+                  "placeholder:text-(--foreground-disabled)",
+                  "field-sizing-content",
+                )}
+                placeholder="Untitled"
               />
+
+              <div className="h-2" />
+
+              <CardStageInlinePropertyStrip
+                priority={controller.priority}
+                estimate={controller.estimate}
+                dueDate={controller.dueDate}
+                currentColumnId={controller.currentColumnId}
+                currentColumnName={controller.currentColumnName}
+                onPriorityChange={controller.handlePriorityChange}
+                onEstimateChange={controller.handleEstimateChange}
+                onDueDateChange={controller.handleDueDateChange}
+                onClearDueDate={controller.handleClearDueDate}
+                onSetDueDateToday={controller.handleSetDueDateToday}
+                onColumnChange={controller.handleColumnChange}
+              />
+
+              <CardStagePropertiesSection controller={controller} />
+
+              <div className="pt-2 pb-8">
+                <CardStageDescriptionEditor
+                  projectId={props.projectId}
+                  projectName={props.projectName}
+                  projectWorkspacePath={props.projectWorkspacePath}
+                  cardId={controller.card.id}
+                  columnId={controller.currentColumnId}
+                  content={controller.description}
+                  showRawContent={controller.showRawContent}
+                  onChange={controller.handleDescriptionChange}
+                  onBlur={controller.handleDescriptionBlur}
+                  flushHandleRef={controller.descriptionFlushHandleRef}
+                  sessionId={props.sessionId}
+                  sessionThread={props.sessionThread}
+                  canStartThreadInSession={props.canStartThreadInSession}
+                  linkedCodexThreads={props.linkedCodexThreads}
+                  onOpenCodexThread={props.onOpenCodexThread}
+                  onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
+                  onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
+                  isActivePanelTab={props.isActivePanelTab ?? true}
+                  headingRailPortalElement={headingRailPortalElement}
+                  scrollContainerRef={controller.scrollContainerRef}
+                />
+              </div>
             </div>
           </div>
         </div>
