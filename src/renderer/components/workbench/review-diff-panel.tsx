@@ -558,27 +558,38 @@ function buildReviewFileEntries(
   try {
     const filePatches = splitPatchByFiles(patch);
     let flatFileIndex = 0;
-    return parsePatchFiles(patch).flatMap((parsedPatch, patchIndex) =>
-      parsedPatch.files.map((fileDiff, fileIndex) => {
+    const entriesByPath = new Map<string, ReviewFileEntry>();
+    const orderedPaths: string[] = [];
+
+    for (const [patchIndex, parsedPatch] of parsePatchFiles(patch).entries()) {
+      for (const [fileIndex, fileDiff] of parsedPatch.files.entries()) {
         const additionsDeletions = summarizeFileDiffMetadata(fileDiff);
         const displayPath = stripPatchPrefix(fileDiff.name ?? fileDiff.prevName ?? `file-${patchIndex}-${fileIndex}`);
         const patchText = filePatches[flatFileIndex] ?? patch;
         flatFileIndex += 1;
+        const existing = entriesByPath.get(displayPath) ?? null;
+        const nextPatchText = existing ? `${existing.patchText}\n${patchText}` : patchText;
 
-        return {
-          key: `${displayPath}:${patchIndex}:${fileIndex}`,
+        if (!existing) orderedPaths.push(displayPath);
+        entriesByPath.set(displayPath, {
+          key: displayPath,
           displayPath,
-          previousPath: fileDiff.prevName ?? null,
+          previousPath: fileDiff.prevName ?? existing?.previousPath ?? null,
           gitStatus: null,
-          patchText,
+          patchText: nextPatchText,
           openPath: resolveOpenPath(displayPath, basePath),
-          openLine: resolveOpenLine(fileDiff),
-          additions: additionsDeletions.additions,
-          deletions: additionsDeletions.deletions,
+          openLine: resolveOpenLine(fileDiff) ?? existing?.openLine,
+          additions: (existing?.additions ?? 0) + additionsDeletions.additions,
+          deletions: (existing?.deletions ?? 0) + additionsDeletions.deletions,
           fileDiff,
-        } satisfies ReviewFileEntry;
-      }),
-    );
+        } satisfies ReviewFileEntry);
+      }
+    }
+
+    return orderedPaths.flatMap((displayPath) => {
+      const entry = entriesByPath.get(displayPath);
+      return entry ? [entry] : [];
+    });
   } catch {
     return [];
   }
@@ -622,11 +633,8 @@ function buildLastTurnSnapshot(
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
   const turn = conversation?.turns.at(-1) ?? null;
-  const patch = typeof turn?.diff === "string" && turn.diff.trim().length > 0
-    ? turn.diff
-    : turn
-      ? (extractLastTurnPatchItem(turn.items) ?? "")
-      : "";
+  const rawTurnDiff = turn ? extractLastTurnPatchItem(turn.items) : null;
+  const patch = rawTurnDiff ?? (typeof turn?.diff === "string" && turn.diff.trim().length > 0 ? turn.diff : "");
   const cwd = conversation?.cwd ?? projectWorkspacePath ?? null;
   const basePath = normalizeReviewBasePath(cwd);
   const files = buildReviewFileEntries(patch, basePath, parsePatchFiles);

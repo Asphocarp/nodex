@@ -177,8 +177,10 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
   - the live file-edit process row is source-backed as `response.custom_tool_call_input.delta` -> app-server patch parser -> `item/fileChange/patchUpdated`, not as a renderer-only animation layered over the completed row
   - `item/fileChange/outputDelta` burst bytes are deprecated diagnostic output for this surface and do not create or update visible transcript state
   - live `turn/diff/updated` notifications update `turn.diff` for turn-level diff surfaces only; they do not fabricate `fileChange` rows
+  - completed turn-level `turn.diff` is canonical when it comes from app-server turn diff state; renderer code and `thread/read` rebuilds must not replace an existing non-empty turn diff by concatenating `fileChange` patches
+  - when app-server/read-model turn diff is missing or empty, main synthesizes the visible completed `turn-diff` card from completed `fileChange` patch batches using path-aware hunk folding, so repeated updates to the same file render as one folded file section
+  - raw `fileChange` items and their `patchBatches` remain process/provenance data for the underlying `Edited …` rows and undo/reapply; they can provide the fallback display diff only when no available completed turn-level diff exists
   - completed turn-level aggregated `turn.diff` renders as final-assistant after-content when a final assistant exists, so the edited-files card appears before the assistant action strip inside the final assistant DOM
-  - completed patch/file-change items synthesize the separate `turn-diff` payload from patch batches before falling back to a turn-level `diff`
   - active in-progress turn diffs may surface through the static above-composer portal (`data-above-composer-portal`) as a compact `files changed` banner only when no live file-change row already represents that draft edit
   - the above-composer diff banner is active-turn-owned `in progress` fixed content, not an item-status heuristic: it renders as the summary-only `Review changes` banner with no embedded per-file rows
   - completed turn diffs render as a dedicated `Edited …` card with per-file collapsed embedded diff rows

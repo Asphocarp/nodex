@@ -1714,6 +1714,7 @@ describe("codex-service readThread fallback", () => {
                     changes: [
                       {
                         path: "src/example.ts",
+                        kind: { type: "update" },
                         diff: patchDiff,
                       },
                     ],
@@ -1737,6 +1738,156 @@ describe("codex-service readThread fallback", () => {
         expect(detail?.transcript.length).toBe(2);
         expect(`${detail?.transcript[0]?.kind}:${detail?.transcript[0]?.semanticKind}`).toBe("fileChange:patch");
         expect(`${detail?.transcript[1]?.kind}:${detail?.transcript[1]?.semanticKind}`).toBe("systemEvent:diff");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("thread read rebuild uses turn.diff instead of fileChange patch text", async () => {
+    const ran = await withTempDatabase(async () => {
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+
+      const patchDiff = "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+intermediate\n";
+      const canonicalDiff = "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+final\n";
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        if (method !== "thread/read") return {};
+        const request = params as { threadId?: string };
+        if (request.threadId !== "thr_file_change_canonical_diff") return {};
+
+        return {
+          thread: {
+            id: "thr_file_change_canonical_diff",
+            turns: [
+              {
+                id: "turn_file_change_canonical_diff",
+                status: "completed",
+                diff: canonicalDiff,
+                items: [
+                  {
+                    id: "patch_file_change_canonical_diff",
+                    type: "fileChange",
+                    status: "completed",
+                    changes: [
+                      {
+                        path: "src/example.ts",
+                        kind: { type: "update" },
+                        diff: patchDiff,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      };
+
+      try {
+        const detail = await service.readThread("thr_file_change_canonical_diff", true);
+        const turnDiff = detail?.transcript.find((entry) => entry.entryId === "turn-diff:turn_file_change_canonical_diff");
+        const rawItem = turnDiff?.rawItem as { unifiedDiff?: string } | undefined;
+
+        expect(detail).not.toBeNull();
+        expect((rawItem?.unifiedDiff ?? "").includes("+final")).toBeTrue();
+        expect((rawItem?.unifiedDiff ?? "").includes("+intermediate")).toBeFalse();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("thread read rebuild synthesizes folded turn-diff from fileChange patches when turn.diff is missing", async () => {
+    const ran = await withTempDatabase(async () => {
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        if (method !== "thread/read") return {};
+        const request = params as { threadId?: string };
+        if (request.threadId !== "thr_file_change_without_turn_diff") return {};
+
+        return {
+          thread: {
+            id: "thr_file_change_without_turn_diff",
+            turns: [
+              {
+                id: "turn_file_change_without_turn_diff",
+                status: "completed",
+                items: [
+                  {
+                    id: "patch_file_change_without_turn_diff_1",
+                    type: "fileChange",
+                    status: "completed",
+                    changes: [
+                      {
+                        path: "src/example.ts",
+                        kind: { type: "update" },
+                        diff: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new\n",
+                      },
+                    ],
+                  },
+                  {
+                    id: "patch_file_change_without_turn_diff_2",
+                    type: "fileChange",
+                    status: "completed",
+                    changes: [
+                      {
+                        path: "src/example.ts",
+                        kind: { type: "update" },
+                        diff: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -3 +3 @@\n-before\n+after\n",
+                      },
+                    ],
+                  },
+                  {
+                    id: "patch_file_change_without_turn_diff_failed",
+                    type: "fileChange",
+                    status: "failed",
+                    changes: [
+                      {
+                        path: "src/example.ts",
+                        kind: { type: "update" },
+                        diff: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -9 +9 @@\n-nope\n+ignored\n",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      };
+
+      try {
+        const detail = await service.readThread("thr_file_change_without_turn_diff", true);
+        const turnDiff = detail?.transcript.find((entry) => entry.entryId === "turn-diff:turn_file_change_without_turn_diff");
+        const rawItem = turnDiff?.rawItem as { unifiedDiff?: string; patchBatches?: unknown[] } | undefined;
+        const unifiedDiff = rawItem?.unifiedDiff ?? "";
+
+        expect(detail).not.toBeNull();
+        expect(turnDiff !== undefined).toBeTrue();
+        expect(unifiedDiff.split("diff --git a/src/example.ts b/src/example.ts").length - 1).toBe(1);
+        expect(unifiedDiff.includes("+new")).toBeTrue();
+        expect(unifiedDiff.includes("+after")).toBeTrue();
+        expect(unifiedDiff.includes("+ignored")).toBeFalse();
+        expect(rawItem?.patchBatches?.length ?? 0).toBe(2);
+        expect(`${detail?.transcript[0]?.kind}:${detail?.transcript[0]?.semanticKind}`).toBe("fileChange:patch");
       } finally {
         await service.shutdown();
       }
@@ -9867,7 +10018,7 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("completed fileChange items synthesize turn-diff payloads with patch batches and cwd", async () => {
+  test("completed fileChange items synthesize turn-diff payloads when turn diff state is missing", async () => {
     const ran = await withTempDatabase(async () => {
 
       const service = createService();
@@ -9888,7 +10039,7 @@ describe("codex-service terminal turn reconciliation", () => {
           threadId: "thr_completed_patch_batches",
           turnId: "turn_completed_patch_batches",
           status: "inProgress",
-          itemIds: ["patch_done"],
+          itemIds: [],
         }],
         transcript: [],
       });
@@ -9898,7 +10049,7 @@ describe("codex-service terminal turn reconciliation", () => {
           threadId: "thr_completed_patch_batches",
           turnId: "turn_completed_patch_batches",
           item: {
-            id: "patch_done",
+            id: "patch_done_1",
             type: "fileChange",
             status: "completed",
             changes: [{
@@ -9908,13 +10059,108 @@ describe("codex-service terminal turn reconciliation", () => {
             }],
           },
         });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_completed_patch_batches",
+          turnId: "turn_completed_patch_batches",
+          item: {
+            id: "patch_done_2",
+            type: "fileChange",
+            status: "completed",
+            changes: [{
+              path: "src/app.ts",
+              kind: { type: "update" },
+              diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -3 +3 @@\n-before\n+after",
+            }],
+          },
+        });
         await serviceInternals.handleNotification("turn/completed", {
           threadId: "thr_completed_patch_batches",
           turnId: "turn_completed_patch_batches",
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
+        const turn = latest?.turns[0] ?? null;
         const turnDiff = latest?.turns[0]?.items.find((item) => item.itemId === "turn-diff:turn_completed_patch_batches");
+        const rawItem = turnDiff?.rawItem as { unifiedDiff?: string; patchBatches?: unknown[] } | undefined;
+        const unifiedDiff = rawItem?.unifiedDiff ?? "";
+
+        expect(turn).not.toBeNull();
+        expect(turnDiff !== undefined).toBeTrue();
+        expect(unifiedDiff.split("diff --git a/src/app.ts b/src/app.ts").length - 1).toBe(1);
+        expect(unifiedDiff.includes("+new")).toBeTrue();
+        expect(unifiedDiff.includes("+after")).toBeTrue();
+        expect(rawItem?.patchBatches?.length ?? 0).toBe(2);
+        expect(turn?.items.some((item) => item.itemId === "patch_done_1") ?? false).toBeTrue();
+        expect(turn?.items.some((item) => item.itemId === "patch_done_2") ?? false).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("completed turn diffs use app-server turn diff and preserve patch batches", async () => {
+    const ran = await withTempDatabase(async () => {
+      const nonGitPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-turn-diff-nongit-"));
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_diff_fallback"),
+        cwd: nonGitPath,
+        turns: [{
+          threadId: "thr_diff_fallback",
+          turnId: "turn_diff_fallback",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("turn/started", {
+          threadId: "thr_diff_fallback",
+          turn: {
+            id: "turn_diff_fallback",
+            status: "inProgress",
+          },
+        });
+        await serviceInternals.handleNotification("turn/diff/updated", {
+          threadId: "thr_diff_fallback",
+          turnId: "turn_diff_fallback",
+          diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-turn-diff\n",
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_diff_fallback",
+          turnId: "turn_diff_fallback",
+          item: {
+            id: "patch_fallback",
+            type: "fileChange",
+            status: "completed",
+            changes: [{
+              path: "src/app.ts",
+              kind: { type: "update" },
+              diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch\n",
+            }],
+          },
+        });
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_diff_fallback",
+          turnId: "turn_diff_fallback",
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const turn = latest?.turns[0] ?? null;
+        const turnDiff = latest?.turns[0]?.items.find((item) => item.itemId === "turn-diff:turn_diff_fallback");
         const rawItem = turnDiff?.rawItem as {
           unifiedDiff?: string;
           patchBatches?: Array<{ cwd: string | null; changes: unknown[] }>;
@@ -9922,13 +10168,145 @@ describe("codex-service terminal turn reconciliation", () => {
           showRevertButton?: boolean;
         } | undefined;
 
+        expect((turn?.diff ?? "").includes("+from-turn-diff")).toBeTrue();
         expect(`${turnDiff?.kind}:${turnDiff?.semanticKind}`).toBe("systemEvent:diff");
-        expect(rawItem?.cwd ?? "").toBe("/tmp/patch-project");
+        expect((rawItem?.unifiedDiff ?? "").includes("+from-turn-diff")).toBeTrue();
+        expect((rawItem?.unifiedDiff ?? "").includes("+from-patch")).toBeFalse();
+        expect(rawItem?.cwd ?? "").toBe(nonGitPath);
         expect(rawItem?.showRevertButton === true).toBeTrue();
         expect(rawItem?.patchBatches?.length ?? 0).toBe(1);
-        expect(rawItem?.patchBatches?.[0]?.cwd ?? "").toBe("/tmp/patch-project");
+        expect(rawItem?.patchBatches?.[0]?.cwd ?? "").toBe(nonGitPath);
         expect(rawItem?.patchBatches?.[0]?.changes.length ?? 0).toBe(1);
-        expect((rawItem?.unifiedDiff ?? "").includes("src/app.ts")).toBeTrue();
+      } finally {
+        await service.shutdown();
+        fs.rmSync(nonGitPath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("empty app-server turn diff falls back to completed fileChange patches", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_empty_diff_patch_fallback"),
+        cwd: "/tmp/empty-diff-project",
+        turns: [{
+          threadId: "thr_empty_diff_patch_fallback",
+          turnId: "turn_empty_diff_patch_fallback",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("turn/started", {
+          threadId: "thr_empty_diff_patch_fallback",
+          turn: {
+            id: "turn_empty_diff_patch_fallback",
+            status: "inProgress",
+          },
+        });
+        await serviceInternals.handleNotification("turn/diff/updated", {
+          threadId: "thr_empty_diff_patch_fallback",
+          turnId: "turn_empty_diff_patch_fallback",
+          diff: "",
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_empty_diff_patch_fallback",
+          turnId: "turn_empty_diff_patch_fallback",
+          item: {
+            id: "patch_empty_diff_fallback",
+            type: "fileChange",
+            status: "completed",
+            changes: [{
+              path: "src/app.ts",
+              kind: { type: "update" },
+              diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch",
+            }],
+          },
+        });
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_empty_diff_patch_fallback",
+          turnId: "turn_empty_diff_patch_fallback",
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const turn = latest?.turns[0] ?? null;
+        const turnDiff = turn?.items.find((item) => item.itemId === "turn-diff:turn_empty_diff_patch_fallback");
+        const rawItem = turnDiff?.rawItem as { unifiedDiff?: string; patchBatches?: unknown[] } | undefined;
+
+        expect(turn?.diff ?? "missing").toBe("");
+        expect((rawItem?.unifiedDiff ?? "").includes("+from-patch")).toBeTrue();
+        expect(rawItem?.patchBatches?.length ?? 0).toBe(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("empty app-server turn diff without fileChange patches does not create a turn-diff item", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_empty_diff_no_patch"),
+        turns: [{
+          threadId: "thr_empty_diff_no_patch",
+          turnId: "turn_empty_diff_no_patch",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("turn/started", {
+          threadId: "thr_empty_diff_no_patch",
+          turn: {
+            id: "turn_empty_diff_no_patch",
+            status: "inProgress",
+          },
+        });
+        await serviceInternals.handleNotification("turn/diff/updated", {
+          threadId: "thr_empty_diff_no_patch",
+          turnId: "turn_empty_diff_no_patch",
+          diff: "",
+        });
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_empty_diff_no_patch",
+          turnId: "turn_empty_diff_no_patch",
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const turn = latest?.turns[0] ?? null;
+        const turnDiff = turn?.items.find((item) => item.itemId === "turn-diff:turn_empty_diff_no_patch");
+
+        expect(turn?.diff ?? "missing").toBe("");
+        expect(turnDiff === undefined).toBeTrue();
       } finally {
         await service.shutdown();
       }

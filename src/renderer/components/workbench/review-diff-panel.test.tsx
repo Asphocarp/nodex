@@ -9,7 +9,7 @@ import {
 import { NodexTooltipProvider } from "../ui/tooltip";
 import type { CodexConversationSnapshot } from "@/lib/types";
 import { ReviewDiffPanel } from "./review-diff-panel";
-import type { FileDiffMetadata } from "@pierre/diffs/react";
+import type { FileDiffMetadata, FileDiffProps } from "@pierre/diffs/react";
 
 const invokeCalls: unknown[][] = [];
 const clipboardWrites: string[] = [];
@@ -98,6 +98,12 @@ function parsePatchFilesForTest(patch: string): Array<{ files: FileDiffMetadata[
   });
 }
 
+function countTestFileDiffLines(value: unknown): string {
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) return String(value.length);
+  return "";
+}
+
 const reviewDiffPanelTestDeps = {
   parsePatchFiles: parsePatchFilesForTest,
   invoke: async (...args: unknown[]) => {
@@ -110,8 +116,13 @@ const reviewDiffPanelTestDeps = {
     resolved: "light" as const,
     setTheme: () => { },
   }),
-  FileDiff: ({ className, fileDiff }: { className?: string; fileDiff: { name?: string } }) =>
-    createElement("div", { className, "data-file-diff": fileDiff.name ?? "file" }),
+  FileDiff: <LAnnotation,>({ className, fileDiff }: FileDiffProps<LAnnotation>) =>
+    createElement("div", {
+      className,
+      "data-file-diff": fileDiff.name ?? "file",
+      "data-file-additions": countTestFileDiffLines((fileDiff as { additionLines?: unknown }).additionLines),
+      "data-file-deletions": countTestFileDiffLines((fileDiff as { deletionLines?: unknown }).deletionLines),
+    }),
   MultiFileDiff: ({ className }: { className?: string }) =>
     createElement("div", { className, "data-multi-file-diff": "true" }),
 };
@@ -174,6 +185,28 @@ function buildMultiFilePatch(fileCount: number, nested = false): string {
       "",
     ].join("\n");
   }).join("\n");
+}
+
+function buildRepeatedFilePatch(pathName = "src/example.ts"): string {
+  return [
+    `diff --git a/${pathName} b/${pathName}`,
+    "index 1111111..2222222 100644",
+    `--- a/${pathName}`,
+    `+++ b/${pathName}`,
+    "@@ -1 +1 @@",
+    "-export const value = 1;",
+    "+export const intermediate = 2;",
+    "",
+    `diff --git a/${pathName} b/${pathName}`,
+    "index 2222222..3333333 100644",
+    `--- a/${pathName}`,
+    `+++ b/${pathName}`,
+    "@@ -1 +1,2 @@",
+    "-export const intermediate = 2;",
+    "+export const finalValue = 3;",
+    "+export const secondSectionOnly = true;",
+    "",
+  ].join("\n");
 }
 
 function buildGitSummary(path: string, status: "modified" | "added" | "deleted" | "renamed" = "modified") {
@@ -285,6 +318,77 @@ describe("review diff panel", () => {
     expect(getByText("Last turn").textContent).toBe("Last turn");
     expect(textContent(container).includes("example.ts")).toBeTrue();
     expect(container.querySelector('[data-file-diff="src/example.ts"]')).not.toBeNull();
+  });
+
+  test("folds repeated diff sections for the same path into one review entry", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const conversation = buildConversation();
+    conversation.turns[0]!.diff = buildRepeatedFilePatch();
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={conversation}
+          projectWorkspacePath="/tmp/codex"
+          initialFileTreeOpen
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    await waitForReviewTreePath(view.container, "src/example.ts");
+
+    const reviewRows = view.container.querySelectorAll('.codex-review-diff-card[data-review-path="src/example.ts"]');
+    const treeRows = view.container.querySelectorAll('[data-item-type="file"][data-review-tree-path="src/example.ts"]');
+    const renderedFileDiffs = view.container.querySelectorAll('[data-file-diff="src/example.ts"]');
+    const rowStats = reviewRows[0]?.querySelector('span[data-thread-find-skip="true"]');
+
+    expect(reviewRows.length).toBe(1);
+    expect(treeRows.length).toBe(1);
+    expect(renderedFileDiffs.length).toBe(1);
+    expect(renderedFileDiffs[0]?.getAttribute("data-file-additions")).toBe("2");
+    expect(rowStats?.textContent?.includes("+3") ?? false).toBeTrue();
+    expect(rowStats?.textContent?.includes("-2") ?? false).toBeTrue();
+  });
+
+  test("prefers the raw completed turn-diff item over stale last-turn diff text", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const conversation = buildConversation();
+    conversation.turns[0]!.diff = "diff --git a/src/stale.ts b/src/stale.ts\n--- a/src/stale.ts\n+++ b/src/stale.ts\n@@ -1 +1 @@\n-old\n+stale\n";
+    conversation.turns[0]!.items = [
+      {
+        threadId: "thr_review",
+        turnId: "turn_1",
+        entryId: "turn-diff:turn_1",
+        itemId: "turn-diff:turn_1",
+        type: "turn_diff",
+        kind: "systemEvent",
+        semanticKind: "diff",
+        status: "completed",
+        source: "live",
+        sequence: 0,
+        rawItem: {
+          type: "turn-diff",
+          unifiedDiff: "diff --git a/src/raw-canonical.ts b/src/raw-canonical.ts\n--- a/src/raw-canonical.ts\n+++ b/src/raw-canonical.ts\n@@ -1 +1 @@\n-old\n+canonical\n",
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={conversation}
+          projectWorkspacePath="/tmp/codex"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+
+    expect(view.container.querySelector('[data-file-diff="src/raw-canonical.ts"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-file-diff="src/stale.ts"]')).toBe(null);
   });
 
   test("renders Codex review toolbar and file-row icon chrome", async () => {

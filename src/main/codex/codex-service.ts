@@ -117,6 +117,7 @@ import type {
   CodexThreadDetail,
   CodexThreadStatusType,
   CodexThreadSummary,
+  CodexTurnDiffPatchBatch,
   CodexThreadStartProgressPhase,
   CodexThreadStartProgressStream,
   CodexThreadStartForSessionInput,
@@ -161,6 +162,7 @@ import {
   buildAutomaticApprovalReviewSummary,
   normalizeAutomaticApprovalReviewPayload,
 } from "../../shared/codex-transcript-special-items";
+import { buildCodexTurnDiffFromPatchBatches } from "../../shared/codex-file-change";
 import {
   canMergeSyntheticTextDuplicate,
   mergeCodexItemView,
@@ -897,7 +899,7 @@ function parseTurnDiff(value: unknown): string | undefined {
   if (!candidate) return undefined;
 
   const diff = candidate.diff;
-  return typeof diff === "string" && diff.length > 0 ? diff : undefined;
+  return typeof diff === "string" ? diff : undefined;
 }
 
 function resolveHomeDir(): string {
@@ -4459,12 +4461,11 @@ export class CodexService extends EventEmitter {
       normalizeOptionalTimestamp(candidate.finalAssistantStartedAtMs ?? candidate.final_assistant_started_at_ms)
       ?? completedAt;
 
-    return {
+    const summary: CodexTurnSummary = {
       threadId,
       turnId: candidate.id,
       status: makeTurnStatus(candidate.status),
       errorMessage,
-      diff: parseTurnDiff(candidate),
       itemIds,
       turnStartedAtMs,
       firstTurnWorkItemStartedAtMs,
@@ -4475,6 +4476,10 @@ export class CodexService extends EventEmitter {
       interruptedCommandExecutionItemIds,
       tokenUsage,
     };
+    if (Object.prototype.hasOwnProperty.call(candidate, "diff")) {
+      summary.diff = parseTurnDiff(candidate);
+    }
+    return summary;
   }
 
   private mergeTurn(
@@ -4858,7 +4863,7 @@ export class CodexService extends EventEmitter {
     turnId: string;
     diff: string;
     status?: CodexTurnStatus;
-    patchBatches?: Array<{ cwd: string | null; changes: unknown[] }>;
+    patchBatches?: CodexTurnDiffPatchBatch[];
   }): CodexItemView {
     const existing = this.getRecordedItem(input.threadId, input.turnId, this.buildTurnDiffItemId(input.turnId));
     const cwd = this.getMaybeConversationRecord(input.threadId)?.detail?.cwd;
@@ -4894,10 +4899,10 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private buildPatchBatchesFromItems(items: CodexItemView[], fallbackCwd: string | null): Array<{ cwd: string | null; changes: unknown[] }> {
+  private buildPatchBatchesFromItems(items: CodexItemView[], fallbackCwd: string | null): CodexTurnDiffPatchBatch[] {
     return items.flatMap((item) => {
       if (item.normalizedKind !== "fileChange" || item.semanticKind !== "patch") return [];
-      if (item.status === "failed" || item.status === "declined" || item.status === "interrupted") return [];
+      if (item.status !== "completed") return [];
       const changes = item.fileChange?.changes ?? [];
       if (changes.length === 0) return [];
       return [{
@@ -4907,15 +4912,14 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private buildUnifiedDiffFromPatchItems(items: CodexItemView[]): string | undefined {
-    const diff = items
-      .filter((item) => item.normalizedKind === "fileChange" && item.semanticKind === "patch")
-      .filter((item) => item.status !== "failed" && item.status !== "declined" && item.status !== "interrupted")
-      .flatMap((item) => item.fileChange?.diffs ?? [])
-      .map((patch) => patch.trimEnd())
-      .filter((patch) => patch.length > 0)
-      .join("\n");
-    return diff.length > 0 ? `${diff}\n` : undefined;
+  private resolveProjectedTurnDiff(
+    diff: string | undefined,
+    patchBatches: readonly CodexTurnDiffPatchBatch[],
+  ): string | undefined {
+    if (typeof diff === "string" && diff.length > 0) return diff;
+
+    const fallbackDiff = buildCodexTurnDiffFromPatchBatches(patchBatches);
+    return fallbackDiff.length > 0 ? fallbackDiff : undefined;
   }
 
   private listKnownTurnItems(threadId: string, turnId: string): CodexItemView[] {
@@ -5076,8 +5080,11 @@ export class CodexService extends EventEmitter {
     const itemId = this.buildTurnDiffItemId(turnId);
     const itemKey = resolveCodexItemPrimaryIdentityKey({ turnId, itemId });
     const byItem = record.itemsByTurn.get(turnId) ?? new Map<string, CodexItemView>();
+    const fallbackCwd = this.getMaybeConversationRecord(threadId)?.detail?.cwd ?? null;
+    const patchBatches = this.buildPatchBatchesFromItems(this.listKnownTurnItems(threadId, turnId), fallbackCwd);
+    const projectedDiff = this.resolveProjectedTurnDiff(diff, patchBatches);
 
-    if (!diff) {
+    if (!projectedDiff) {
       if (byItem.has(itemKey)) {
         byItem.delete(itemKey);
         if (byItem.size === 0) {
@@ -5090,9 +5097,7 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    const fallbackCwd = this.getMaybeConversationRecord(threadId)?.detail?.cwd ?? null;
-    const patchBatches = this.buildPatchBatchesFromItems(this.listKnownTurnItems(threadId, turnId), fallbackCwd);
-    const item = this.buildTurnDiffItemView({ threadId, turnId, diff, status, patchBatches });
+    const item = this.buildTurnDiffItemView({ threadId, turnId, diff: projectedDiff, status, patchBatches });
     byItem.set(itemKey, item);
     record.itemsByTurn.set(turnId, byItem);
 
@@ -5800,13 +5805,12 @@ export class CodexService extends EventEmitter {
       }
 
       const patchBatches = this.buildPatchBatchesFromItems(turnItemViews, fallbackCwd);
-      const synthesizedDiff = this.buildUnifiedDiffFromPatchItems(turnItemViews);
-      const turnDiff = patchBatches.length > 0 ? (synthesizedDiff ?? turnSummary.diff) : turnSummary.diff;
-      if (turnDiff) {
+      const projectedDiff = this.resolveProjectedTurnDiff(turnSummary.diff, patchBatches);
+      if (projectedDiff) {
         itemViews.push(this.buildTurnDiffItemView({
           threadId,
           turnId: turnSummary.turnId,
-          diff: turnDiff,
+          diff: projectedDiff,
           status: turnSummary.status,
           patchBatches,
         }));
@@ -9780,14 +9784,8 @@ export class CodexService extends EventEmitter {
       if (method === "turn/started") {
         this.completeStalePlanImplementationItems(threadId, mergedTurn.turnId);
       }
-      const synthesizedPatchDiff = this.buildUnifiedDiffFromPatchItems(
-        this.listKnownTurnItems(threadId, mergedTurn.turnId),
-      );
-      if (
-        mergedTurn.status !== "inProgress"
-        && (synthesizedPatchDiff || Object.prototype.hasOwnProperty.call(turnRecord, "diff"))
-      ) {
-        this.syncTurnDiffItem(threadId, mergedTurn.turnId, synthesizedPatchDiff ?? mergedTurn.diff, mergedTurn.status);
+      if (mergedTurn.status !== "inProgress") {
+        this.syncTurnDiffItem(threadId, mergedTurn.turnId, mergedTurn.diff, mergedTurn.status);
       }
       if (mergedTurn.status === "completed") {
         this.syncPlanImplementationForTurn(threadId, mergedTurn.turnId);
@@ -9860,7 +9858,7 @@ export class CodexService extends EventEmitter {
     if (method === "turn/diff/updated") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
-      const diff = typeof payload.diff === "string" && payload.diff.length > 0 ? payload.diff : undefined;
+      const diff = typeof payload.diff === "string" ? payload.diff : undefined;
       const existingTurn = this.getKnownTurn(payload.threadId, payload.turnId) ?? {
         threadId: payload.threadId,
         turnId: payload.turnId,
@@ -9940,6 +9938,11 @@ export class CodexService extends EventEmitter {
       this.mergeItem(item);
       if (item.normalizedKind === "assistantMessage" || item.semanticKind === "assistantMessage") {
         this.markFinalAssistantStartedAt(payload.threadId, payload.turnId);
+      }
+      const knownTurn = this.getKnownTurn(payload.threadId, payload.turnId);
+      const isPatchItem = item.normalizedKind === "fileChange" || item.semanticKind === "patch";
+      if (method === "item/completed" && isPatchItem && knownTurn && knownTurn.status !== "inProgress") {
+        this.syncTurnDiffItem(payload.threadId, payload.turnId, knownTurn.diff, knownTurn.status);
       }
       this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
         syncBackgroundTerminalRows: true,

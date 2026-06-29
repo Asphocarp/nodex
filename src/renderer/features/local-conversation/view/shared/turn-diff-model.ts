@@ -1,8 +1,7 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { buildCodexFileChangeUnifiedDiff } from "../../../../../shared/codex-file-change";
+import { buildCodexFileChangeUnifiedDiff, isCodexFileChange } from "../../../../../shared/codex-file-change";
 import type {
-  CodexFileChange,
   CodexTranscriptEntry,
   CodexTurnDiffPatchBatch,
   CodexTurnDiffReviewSource,
@@ -382,13 +381,4 @@ function resolveOpenLine(fileDiff: FileDiffMetadata | null): number | undefined 
 
   const line = firstHunk.additionStart > 0 ? firstHunk.additionStart : firstHunk.deletionStart;
   return line > 0 ? line : 1;
-}
-
-function isCodexFileChange(value: unknown): value is CodexFileChange {
-  if (typeof value !== "object" || value === null) return false;
-  const change = value as Partial<CodexFileChange>;
-  if (typeof change.path !== "string" || change.path.trim().length === 0) return false;
-  if (change.type === "add" || change.type === "delete") return typeof change.content === "string";
-  if (change.type === "update") return typeof change.unifiedDiff === "string";
-  return false;
 }

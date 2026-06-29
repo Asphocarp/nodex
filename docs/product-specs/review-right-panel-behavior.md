@@ -1,7 +1,7 @@
 # Review Right Panel Behavior
 
 Status: Active
-Last updated: 2026-06-24
+Last updated: 2026-06-30
 
 ## Purpose
 
@@ -51,6 +51,8 @@ Supported source kinds are:
 
 Selected transcript turns can still open an internal selected-turn diff, but selected turns are not a primary source menu item.
 
+`last-turn` reads the completed `turn-diff` transcript item's raw `unifiedDiff` first, then falls back to the turn summary `diff`. The completed `turn-diff` item is the preferred source because it preserves the app-server turn diff payload plus patch-batch metadata when available; when the app-server turn diff is missing or empty, main may populate this item from completed patch batches with path-aware hunk folding.
+
 Review tab state is lightweight and may persist source descriptor, diff mode, file-tree visibility, side-pane width, hide-whitespace, wrap, rich/full-file flags, selected path, filter, and expanded paths. Raw diffs, file contents, and comments are not persisted in tab state.
 
 ## Empty-State Contract
@@ -60,6 +62,8 @@ No-change states are source-specific. `staged` with no diff renders `No staged c
 Generic no-diff states render `No file changes yet` with the Codex 66x73 document illustration. A missing last-turn diff says `The latest diffs are no longer available.`; a retained last-turn diff whose files are no longer renderable says `The last turn was committed or reverted.`; an internal selected-turn diff that has expired says `The selected turn diff is no longer available.`; ordinary Git no-diff states say `Changes in this project will appear here.`. The Review body remains a split container in empty states, so an open file-tree pane stays visible and shows its own `Filter files…` / `No matching files` state instead of disappearing behind the main empty state.
 
 ## Diff And File Tree Contract
+
+Review builds one file entry per display path. If a legacy or fallback patch payload contains repeated `diff --git` sections for the same path, Review folds them into a single row and single file-tree item: stats and search text accumulate across all sections, while inline diff rendering uses the last parsed file diff for that path. Git-backed sources normally arrive as net diffs already, but the same path-fold guard applies to every source.
 
 Each file diff card exposes `data-review-path`, `group/file-diff`, `codex-review-diff-card`, a toggle marked `data-app-action-review-file-toggle`, and an `Open in` action. The diff scroll viewport is zero-inset horizontally; file rows must not sit inside an extra padded or gapped card list. The file row surface uses `--codex-diffs-surface` with the primary surface fallback and `pb-0.5`. The sticky row header is a `group/diff-header` strip with blurred surface mix, `text-size-chat`, `py-0.5 ps-3 pe-2`, a file icon, path label, hover/focus-revealed chevron toggle button, right-aligned stats, and icon-only `Open in`. Row-level `+N` / `-N` stats inherit that `text-size-chat` header size and must not add a smaller `text-xs` override. Diff rendering uses `@pierre/diffs` through `src/renderer/lib/diff-presentation.ts` and must pass the shared host style/options rather than feature-local shadow-DOM CSS.
 
