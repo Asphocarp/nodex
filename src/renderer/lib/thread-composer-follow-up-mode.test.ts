@@ -4,7 +4,6 @@ import {
   resolveShortcutKeycapTokens,
   resolveThreadComposerAlternateShortcutAccelerator,
   resolveThreadComposerPrimaryShortcutAccelerator,
-  shouldInvertThreadInProgressFollowUpModeFromKeyDown,
 } from "./thread-composer-follow-up-mode";
 
 describe("thread composer follow-up mode", () => {
@@ -22,35 +21,6 @@ describe("thread composer follow-up mode", () => {
       invertInProgressFollowUpMode: true,
       isQueueingEnabled: true,
     })).toBe("steer");
-  });
-
-  test("matches Codex-style inverted shortcuts for both submit shortcut modes", () => {
-    expect(shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      enterBehavior: "enter",
-      key: "Enter",
-      ctrlKey: true,
-      metaKey: false,
-      shiftKey: false,
-      altKey: false,
-    })).toBeTrue();
-
-    expect(shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      enterBehavior: "cmdIfMultiline",
-      key: "Enter",
-      ctrlKey: true,
-      metaKey: false,
-      shiftKey: true,
-      altKey: false,
-    })).toBeTrue();
-
-    expect(shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      enterBehavior: "cmdIfMultiline",
-      key: "Enter",
-      ctrlKey: true,
-      metaKey: false,
-      shiftKey: false,
-      altKey: false,
-    })).toBeFalse();
   });
 
   test("resolves the primary and alternate accelerators like the Codex tooltip", () => {

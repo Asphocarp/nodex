@@ -7,8 +7,8 @@ describe("ComposerActionTooltipContent", () => {
     const view = render(
       <ComposerActionTooltipContent
         action="send"
-        submitAction="steer"
-        alternateInProgressSubmitAction="queue"
+        primarySubmitAction="steer"
+        alternateSubmitAction="queue"
         isThreadRunning
         primaryShortcutKeys={["Enter"]}
         alternateShortcutKeys={["⌘", "Enter"]}
@@ -34,8 +34,8 @@ describe("ComposerActionTooltipContent", () => {
     const stopView = render(
       <ComposerActionTooltipContent
         action="stop"
-        submitAction={null}
-        alternateInProgressSubmitAction={null}
+        primarySubmitAction={null}
+        alternateSubmitAction={null}
         isThreadRunning
         primaryShortcutKeys={["Enter"]}
         alternateShortcutKeys={["⌘", "Enter"]}
@@ -44,8 +44,8 @@ describe("ComposerActionTooltipContent", () => {
     const idleView = render(
       <ComposerActionTooltipContent
         action="send"
-        submitAction="send"
-        alternateInProgressSubmitAction={null}
+        primarySubmitAction="send"
+        alternateSubmitAction={null}
         isThreadRunning={false}
         primaryShortcutKeys={["Enter"]}
         alternateShortcutKeys={["⌘", "Enter"]}

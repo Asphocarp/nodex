@@ -4862,6 +4862,8 @@ export function WorkbenchShell({
                 onRefreshSessions={refreshProjectSessions}
                 onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
                 onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                composerEnterBehavior={composerEnterBehavior}
                 onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
                 onOpenThread={openAttachedThreadSession}
                 onOpenTurnDiffReview={openTurnDiffReview}
@@ -6100,6 +6102,8 @@ export function WorkbenchShell({
                         onEnsureBlankSessionForProject={ensureBlankSessionForProject}
                         onRequestProjectPickerOpen={onRequestProjectPickerOpen}
                         onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+                        threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                        composerEnterBehavior={composerEnterBehavior}
                         onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
                         onOpenThread={openAttachedThreadSession}
                         onOpenTurnDiffReview={openTurnDiffReview}
@@ -7494,6 +7498,8 @@ function SessionThreadPage({
   onEnsureBlankSessionForProject,
   onRequestProjectPickerOpen,
   onOpenLocalEnvironmentsSettings,
+  threadQueueFollowUpsEnabled,
+  composerEnterBehavior,
   onQueueingEnabledChange,
   onOpenThread,
   onOpenTurnDiffReview,
@@ -7523,6 +7529,8 @@ function SessionThreadPage({
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
   onRequestProjectPickerOpen: () => void;
   onOpenLocalEnvironmentsSettings: () => void;
+  threadQueueFollowUpsEnabled: boolean;
+  composerEnterBehavior: ComposerEnterBehavior;
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
@@ -7701,8 +7709,8 @@ function SessionThreadPage({
         selectedReasoningEffort={codexControl.threadSettings.reasoningEffort ?? "medium"}
         reasoningEffortOptions={codexControl.reasoningEffortOptions}
         permissionMode={codexControl.permissionMode}
-        isQueueingEnabled
-        composerEnterBehavior="enter"
+        isQueueingEnabled={threadQueueFollowUpsEnabled}
+        composerEnterBehavior={composerEnterBehavior}
         searchOpenTick={searchOpenTick}
         summaryPanelMounted={summaryPanelMounted}
         summaryPanelOpen={summaryPanelOpen}
@@ -7756,6 +7764,8 @@ function SideChatSessionTab({
   onRefreshSessions,
   onRecreateSideChat,
   onOpenMcpAppSidePanel,
+  threadQueueFollowUpsEnabled,
+  composerEnterBehavior,
   onQueueingEnabledChange,
   onOpenThread,
   onOpenTurnDiffReview,
@@ -7768,6 +7778,8 @@ function SideChatSessionTab({
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onRecreateSideChat: () => void;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
+  threadQueueFollowUpsEnabled: boolean;
+  composerEnterBehavior: ComposerEnterBehavior;
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
@@ -7852,8 +7864,8 @@ function SideChatSessionTab({
         selectedReasoningEffort={codexControl.threadSettings.reasoningEffort ?? "medium"}
         reasoningEffortOptions={codexControl.reasoningEffortOptions}
         permissionMode={codexControl.permissionMode}
-        isQueueingEnabled
-        composerEnterBehavior="enter"
+        isQueueingEnabled={threadQueueFollowUpsEnabled}
+        composerEnterBehavior={composerEnterBehavior}
         searchOpenTick={0}
         summaryPanelMounted={false}
         summaryPanelOpen={false}

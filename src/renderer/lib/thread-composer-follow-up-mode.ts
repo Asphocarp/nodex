@@ -14,16 +14,6 @@ interface ResolveThreadInProgressFollowUpModeInput {
   isQueueingEnabled: boolean;
 }
 
-interface ThreadComposerInvertedShortcutInput {
-  enterBehavior: ComposerEnterBehavior;
-  key: string;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-  isComposing?: boolean;
-}
-
 interface ThreadComposerPrimaryShortcutLabelInput {
   enterBehavior: ComposerEnterBehavior;
   hasMultilinePrompt: boolean;
@@ -60,21 +50,6 @@ export function resolveThreadInProgressFollowUpMode(
   }
 
   return input.isQueueingEnabled ? "queue" : "steer";
-}
-
-export function shouldInvertThreadInProgressFollowUpModeFromKeyDown(
-  input: ThreadComposerInvertedShortcutInput,
-): boolean {
-  if (input.isComposing || input.key !== "Enter") return false;
-
-  const hasModifier = input.ctrlKey || input.metaKey;
-  if (!hasModifier || input.altKey) return false;
-
-  if (input.enterBehavior === "enter") {
-    return !input.shiftKey;
-  }
-
-  return input.shiftKey;
 }
 
 export function resolveThreadComposerPrimaryShortcutAccelerator(

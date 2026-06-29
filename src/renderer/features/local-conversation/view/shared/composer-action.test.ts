@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { resolveStageThreadsComposerActionState } from "./composer-action";
+import {
+  resolveComposerSubmitIntentFromKeyDown,
+  resolveStageThreadsComposerActionState,
+} from "./composer-action";
 
 describe("resolveStageThreadsComposerActionState", () => {
   test("keeps stop only while a turn is active and the draft is empty", () => {
@@ -39,8 +42,8 @@ describe("resolveStageThreadsComposerActionState", () => {
     });
 
     expect(result.action).toBe("send");
-    expect(result.submitAction).toBe("steer");
-    expect(result.alternateInProgressSubmitAction).toBe("queue");
+    expect(result.primarySubmitAction).toBe("steer");
+    expect(result.alternateSubmitAction).toBe("queue");
     expect(result.label).toBe("Steer follow-up");
     expect(result.disabled).toBeFalse();
   });
@@ -55,8 +58,8 @@ describe("resolveStageThreadsComposerActionState", () => {
     });
 
     expect(result.action).toBe("send");
-    expect(result.submitAction).toBe("queue");
-    expect(result.alternateInProgressSubmitAction).toBe("steer");
+    expect(result.primarySubmitAction).toBe("queue");
+    expect(result.alternateSubmitAction).toBe("steer");
     expect(result.label).toBe("Queue follow-up");
     expect(result.disabled).toBeFalse();
   });
@@ -78,11 +81,11 @@ describe("resolveStageThreadsComposerActionState", () => {
     });
 
     expect(disabled.action).toBe("send");
-    expect(disabled.submitAction).toBe("send");
+    expect(disabled.primarySubmitAction).toBe("send");
     expect(disabled.label).toBe("Send prompt");
     expect(disabled.disabled).toBeTrue();
     expect(enabled.action).toBe("send");
-    expect(enabled.submitAction).toBe("send");
+    expect(enabled.primarySubmitAction).toBe("send");
     expect(enabled.disabled).toBeFalse();
   });
 
@@ -104,5 +107,94 @@ describe("resolveStageThreadsComposerActionState", () => {
 
     expect(enabled.disabled).toBeFalse();
     expect(disabled.disabled).toBeTrue();
+  });
+});
+
+describe("resolveComposerSubmitIntentFromKeyDown", () => {
+  test("uses cmd-enter as alternate queue when running in enter mode with queueing off", () => {
+    const result = resolveComposerSubmitIntentFromKeyDown({
+      enterBehavior: "enter",
+      hasMultilinePrompt: false,
+      isThreadRunning: true,
+      primarySubmitAction: "steer",
+      alternateSubmitAction: "queue",
+      key: "Enter",
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+      altKey: false,
+    });
+
+    expect(result?.submitAction).toBe("queue");
+    expect(result?.shortcutRole).toBe("alternate");
+  });
+
+  test("uses enter as primary queue when running in enter mode with queueing on", () => {
+    const result = resolveComposerSubmitIntentFromKeyDown({
+      enterBehavior: "enter",
+      hasMultilinePrompt: false,
+      isThreadRunning: true,
+      primarySubmitAction: "queue",
+      alternateSubmitAction: "steer",
+      key: "Enter",
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+    });
+
+    expect(result?.submitAction).toBe("queue");
+    expect(result?.shortcutRole).toBe("primary");
+  });
+
+  test("separates primary cmd-enter and alternate cmd-shift-enter for multiline cmdIfMultiline drafts", () => {
+    const primary = resolveComposerSubmitIntentFromKeyDown({
+      enterBehavior: "cmdIfMultiline",
+      hasMultilinePrompt: true,
+      isThreadRunning: true,
+      primarySubmitAction: "steer",
+      alternateSubmitAction: "queue",
+      key: "Enter",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+    });
+    const alternate = resolveComposerSubmitIntentFromKeyDown({
+      enterBehavior: "cmdIfMultiline",
+      hasMultilinePrompt: true,
+      isThreadRunning: true,
+      primarySubmitAction: "steer",
+      alternateSubmitAction: "queue",
+      key: "Enter",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+    });
+
+    expect(primary?.submitAction).toBe("steer");
+    expect(primary?.shortcutRole).toBe("primary");
+    expect(alternate?.submitAction).toBe("queue");
+    expect(alternate?.shortcutRole).toBe("alternate");
+  });
+
+  test("does not submit for composing, alt, or wrong modifiers", () => {
+    const base = {
+      enterBehavior: "cmdIfMultiline" as const,
+      hasMultilinePrompt: false,
+      isThreadRunning: true,
+      primarySubmitAction: "steer" as const,
+      alternateSubmitAction: "queue" as const,
+      key: "Enter",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+    };
+
+    expect(resolveComposerSubmitIntentFromKeyDown({ ...base, isComposing: true })).toBe(null);
+    expect(resolveComposerSubmitIntentFromKeyDown({ ...base, altKey: true })).toBe(null);
+    expect(resolveComposerSubmitIntentFromKeyDown(base)).toBe(null);
   });
 });

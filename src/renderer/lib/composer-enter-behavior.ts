@@ -4,17 +4,6 @@ export const COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY =
   "nodex-composer-enter-behavior-v1";
 export const DEFAULT_COMPOSER_ENTER_BEHAVIOR: ComposerEnterBehavior = "enter";
 
-interface ComposerEnterBehaviorKeyInput {
-  enterBehavior: ComposerEnterBehavior;
-  hasMultilinePrompt: boolean;
-  key: string;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-  isComposing?: boolean;
-}
-
 export function normalizeComposerEnterBehavior(
   value: unknown,
 ): ComposerEnterBehavior {
@@ -55,26 +44,4 @@ export function writeComposerEnterBehavior(
     // localStorage may be unavailable.
   }
   return normalized;
-}
-
-export function shouldSubmitComposerPromptFromKeyDown(
-  input: ComposerEnterBehaviorKeyInput,
-): boolean {
-  if (input.isComposing || input.key !== "Enter") return false;
-
-  const hasModifier = input.ctrlKey || input.metaKey;
-  if (hasModifier) {
-    return !input.altKey;
-  }
-
-  if (input.shiftKey || input.altKey) return false;
-
-  if (
-    input.enterBehavior === "cmdIfMultiline"
-    && input.hasMultilinePrompt
-  ) {
-    return false;
-  }
-
-  return true;
 }

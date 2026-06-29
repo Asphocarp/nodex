@@ -1,10 +1,10 @@
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
-import type { StageThreadsComposerSubmitAction } from "../shared/composer-action";
+import type { StageThreadsComposerFollowUpAction, StageThreadsComposerSubmitAction } from "../shared/composer-action";
 
 interface ComposerActionTooltipContentProps {
   action: "send" | "stop";
-  submitAction: StageThreadsComposerSubmitAction | null;
-  alternateInProgressSubmitAction: Exclude<StageThreadsComposerSubmitAction, "send"> | null;
+  primarySubmitAction: StageThreadsComposerSubmitAction | null;
+  alternateSubmitAction: StageThreadsComposerFollowUpAction | null;
   isThreadRunning: boolean;
   primaryShortcutKeys: readonly string[];
   alternateShortcutKeys: readonly string[];
@@ -12,12 +12,12 @@ interface ComposerActionTooltipContentProps {
 
 export function ComposerActionTooltipContent(input: ComposerActionTooltipContentProps) {
   if (input.action === "stop") return "Stop";
-  if (!input.isThreadRunning || input.submitAction === "send" || !input.alternateInProgressSubmitAction) {
+  if (!input.isThreadRunning || input.primarySubmitAction === "send" || !input.alternateSubmitAction) {
     return "Send";
   }
 
-  const primaryAction: Exclude<StageThreadsComposerSubmitAction, "send"> =
-    input.submitAction === "queue" ? "queue" : "steer";
+  const primaryAction: StageThreadsComposerFollowUpAction =
+    input.primarySubmitAction === "queue" ? "queue" : "steer";
 
   return (
     <div className="grid grid-cols-[auto_auto] items-center gap-x-2 gap-y-1">
@@ -28,7 +28,7 @@ export function ComposerActionTooltipContent(input: ComposerActionTooltipContent
         <ShortcutKeycaps keys={input.primaryShortcutKeys} />
       </span>
       <span className="text-token-foreground">
-        {formatComposerSubmitActionLabel(input.alternateInProgressSubmitAction)}
+        {formatComposerSubmitActionLabel(input.alternateSubmitAction)}
       </span>
       <span className="justify-self-end">
         <ShortcutKeycaps keys={input.alternateShortcutKeys} />
@@ -37,6 +37,6 @@ export function ComposerActionTooltipContent(input: ComposerActionTooltipContent
   );
 }
 
-function formatComposerSubmitActionLabel(action: Exclude<StageThreadsComposerSubmitAction, "send">) {
+function formatComposerSubmitActionLabel(action: StageThreadsComposerFollowUpAction) {
   return action === "queue" ? "Queue" : "Steer";
 }

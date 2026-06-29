@@ -4,7 +4,6 @@ import {
   DEFAULT_COMPOSER_ENTER_BEHAVIOR,
   normalizeComposerEnterBehavior,
   readComposerEnterBehavior,
-  shouldSubmitComposerPromptFromKeyDown,
   writeComposerEnterBehavior,
 } from "./composer-enter-behavior";
 
@@ -76,82 +75,4 @@ describe("composer enter behavior", () => {
     });
   });
 
-  test("submits on plain enter in enter mode", () => {
-    expect(
-      shouldSubmitComposerPromptFromKeyDown({
-        enterBehavior: "enter",
-        hasMultilinePrompt: false,
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-      }),
-    ).toBeTrue();
-    expect(
-      shouldSubmitComposerPromptFromKeyDown({
-        enterBehavior: "enter",
-        hasMultilinePrompt: false,
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: false,
-        shiftKey: true,
-        altKey: false,
-      }),
-    ).toBeFalse();
-  });
-
-  test("uses cmd-enter as the primary submit for multiline cmdIfMultiline drafts", () => {
-    expect(
-      shouldSubmitComposerPromptFromKeyDown({
-        enterBehavior: "cmdIfMultiline",
-        hasMultilinePrompt: true,
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-      }),
-    ).toBeFalse();
-    expect(
-      shouldSubmitComposerPromptFromKeyDown({
-        enterBehavior: "cmdIfMultiline",
-        hasMultilinePrompt: true,
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: true,
-        shiftKey: false,
-        altKey: false,
-      }),
-    ).toBeTrue();
-  });
-
-  test("keeps enter as the primary submit for single-line cmdIfMultiline drafts", () => {
-    expect(
-      shouldSubmitComposerPromptFromKeyDown({
-        enterBehavior: "cmdIfMultiline",
-        hasMultilinePrompt: false,
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-      }),
-    ).toBeTrue();
-  });
-
-  test("never submits while composing", () => {
-    expect(
-      shouldSubmitComposerPromptFromKeyDown({
-        enterBehavior: "enter",
-        hasMultilinePrompt: false,
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-        isComposing: true,
-      }),
-    ).toBeFalse();
-  });
 });

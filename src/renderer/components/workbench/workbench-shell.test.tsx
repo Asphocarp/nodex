@@ -25,6 +25,8 @@ import {
 import type { SidebarPinnedOrganizationMode } from "@/lib/use-workbench-state";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
+import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
+import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
 import {
   buildCommandPaletteCommands,
@@ -3606,6 +3608,22 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(props?.activeThreadSummary).includes('"projectId":"alpha"')).toBeTrue();
   });
 
+  test("passes composer follow-up and enter preferences into attached session threads", async () => {
+    localStorage.setItem(THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY, "false");
+    localStorage.setItem(COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY, "cmdIfMultiline");
+    renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread" })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(props?.isQueueingEnabled).toBe(false);
+    expect(props?.composerEnterBehavior).toBe("cmdIfMultiline");
+  });
+
   test("passes session start progress to an attached empty thread stage", async () => {
     mockThreadStartProgress = {
       projectId: "alpha",
@@ -5350,6 +5368,8 @@ describe("workbench session shell", () => {
   }
 
   test("bottom Side chat action starts an ephemeral side tab instead of a durable preview", async () => {
+    localStorage.setItem(THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY, "false");
+    localStorage.setItem(COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY, "cmdIfMultiline");
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
     });
@@ -5374,6 +5394,8 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(stageProps?.sideChatContext ?? null)).toBe(
       "{\"parentThreadId\":\"thread-alpha\",\"tabTitle\":\"Side chat\"}",
     );
+    expect(stageProps?.isQueueingEnabled).toBe(false);
+    expect(stageProps?.composerEnterBehavior).toBe("cmdIfMultiline");
     expect(Boolean(stageProps?.summaryPanelMounted)).toBeFalse();
 
     await act(async () => {

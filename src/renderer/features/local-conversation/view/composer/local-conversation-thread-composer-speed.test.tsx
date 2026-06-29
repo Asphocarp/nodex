@@ -300,9 +300,241 @@ async function submitCurrentComposerDraft(view: ReturnType<typeof render>): Prom
   });
 }
 
+function buildActiveTurn(): NonNullable<ThreadFooterModel["activeTurn"]> {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_active",
+    status: "inProgress",
+    itemIds: [],
+    items: [],
+  };
+}
+
+function buildRunningComposerModel(
+  overrides?: Partial<ThreadFooterModel>,
+): Partial<ThreadFooterModel> {
+  return {
+    isThreadRunning: true,
+    activeTurn: buildActiveTurn(),
+    composerIntent: {
+      prompt: "Follow up",
+      focusNonce: 1,
+    },
+    body: {
+      ...buildModel().body,
+      isThreadRunning: true,
+      activeTurnId: "turn_active",
+    },
+    ...overrides,
+  };
+}
+
+async function keyDownComposer(
+  view: ReturnType<typeof render>,
+  init: {
+    key: string;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+  },
+): Promise<void> {
+  const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
+  if (!(composer instanceof HTMLElement)) {
+    throw new Error("Expected composer editor.");
+  }
+
+  await waitFor(() => {
+    expect(Boolean(composer.textContent ?? "")).toBeTrue();
+  });
+  composer.focus();
+  await act(async () => {
+    fireEvent.keyDown(composer, init);
+    await Promise.resolve();
+  });
+}
+
 describe("ThreadComposer speed menu", () => {
   beforeEach(() => {
     __resetNodexToastStoreForTests();
+  });
+
+  test("cmd-enter queues instead of steering while running in enter mode with queueing disabled", async () => {
+    resetStorage();
+    const queuedPrompts: string[] = [];
+    const steeredPrompts: string[] = [];
+    const view = await renderComposer(
+      buildRunningComposerModel({
+        isQueueingEnabled: false,
+        composerEnterBehavior: "enter",
+      }),
+      {
+        onEnqueueQueuedFollowUp: async (_threadId, prompt) => {
+          queuedPrompts.push(prompt);
+        },
+        onSteerPrompt: async (input) => {
+          steeredPrompts.push(input.prompt);
+        },
+      },
+    );
+
+    await keyDownComposer(view, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(queuedPrompts.length).toBe(1);
+    });
+    expect(queuedPrompts[0]).toBe("Follow up");
+    expect(steeredPrompts.length).toBe(0);
+  });
+
+  test("enter queues and cmd-enter steers while running in enter mode with queueing enabled", async () => {
+    resetStorage();
+    const primaryQueuedPrompts: string[] = [];
+    const primarySteeredPrompts: string[] = [];
+    const primaryView = await renderComposer(
+      buildRunningComposerModel({
+        isQueueingEnabled: true,
+        composerEnterBehavior: "enter",
+      }),
+      {
+        onEnqueueQueuedFollowUp: async (_threadId, prompt) => {
+          primaryQueuedPrompts.push(prompt);
+        },
+        onSteerPrompt: async (input) => {
+          primarySteeredPrompts.push(input.prompt);
+        },
+      },
+    );
+
+    await keyDownComposer(primaryView, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(primaryQueuedPrompts.length).toBe(1);
+    });
+    expect(primarySteeredPrompts.length).toBe(0);
+    primaryView.unmount();
+
+    const alternateQueuedPrompts: string[] = [];
+    const alternateSteeredPrompts: string[] = [];
+    const alternateView = await renderComposer(
+      buildRunningComposerModel({
+        isQueueingEnabled: true,
+        composerEnterBehavior: "enter",
+      }),
+      {
+        onEnqueueQueuedFollowUp: async (_threadId, prompt) => {
+          alternateQueuedPrompts.push(prompt);
+        },
+        onSteerPrompt: async (input) => {
+          alternateSteeredPrompts.push(input.prompt);
+        },
+      },
+    );
+
+    await keyDownComposer(alternateView, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(alternateSteeredPrompts.length).toBe(1);
+    });
+    expect(alternateSteeredPrompts[0]).toBe("Follow up");
+    expect(alternateQueuedPrompts.length).toBe(0);
+  });
+
+  test("cmdIfMultiline keeps cmd-enter primary and cmd-shift-enter alternate for multiline drafts", async () => {
+    resetStorage();
+    const primaryQueuedPrompts: string[] = [];
+    const primarySteeredPrompts: string[] = [];
+    const primaryView = await renderComposer(
+      buildRunningComposerModel({
+        composerIntent: {
+          prompt: "Line one\nLine two",
+          focusNonce: 1,
+        },
+        isQueueingEnabled: false,
+        composerEnterBehavior: "cmdIfMultiline",
+      }),
+      {
+        onEnqueueQueuedFollowUp: async (_threadId, prompt) => {
+          primaryQueuedPrompts.push(prompt);
+        },
+        onSteerPrompt: async (input) => {
+          primarySteeredPrompts.push(input.prompt);
+        },
+      },
+    );
+
+    await keyDownComposer(primaryView, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(primarySteeredPrompts.length).toBe(1);
+    });
+    expect(primarySteeredPrompts[0]).toBe("Line one\nLine two");
+    expect(primaryQueuedPrompts.length).toBe(0);
+    primaryView.unmount();
+
+    const alternateQueuedPrompts: string[] = [];
+    const alternateSteeredPrompts: string[] = [];
+    const alternateView = await renderComposer(
+      buildRunningComposerModel({
+        composerIntent: {
+          prompt: "Line one\nLine two",
+          focusNonce: 1,
+        },
+        isQueueingEnabled: false,
+        composerEnterBehavior: "cmdIfMultiline",
+      }),
+      {
+        onEnqueueQueuedFollowUp: async (_threadId, prompt) => {
+          alternateQueuedPrompts.push(prompt);
+        },
+        onSteerPrompt: async (input) => {
+          alternateSteeredPrompts.push(input.prompt);
+        },
+      },
+    );
+
+    await keyDownComposer(alternateView, { key: "Enter", metaKey: true, shiftKey: true });
+
+    await waitFor(() => {
+      expect(alternateQueuedPrompts.length).toBe(1);
+    });
+    expect(alternateQueuedPrompts[0]).toBe("Line one\nLine two");
+    expect(alternateSteeredPrompts.length).toBe(0);
+  });
+
+  test("primary submit button follows primary action instead of alternate action", async () => {
+    resetStorage();
+    const queuedPrompts: string[] = [];
+    const steeredPrompts: string[] = [];
+    const view = await renderComposer(
+      buildRunningComposerModel({
+        isQueueingEnabled: false,
+        composerEnterBehavior: "enter",
+      }),
+      {
+        onEnqueueQueuedFollowUp: async (_threadId, prompt) => {
+          queuedPrompts.push(prompt);
+        },
+        onSteerPrompt: async (input) => {
+          steeredPrompts.push(input.prompt);
+        },
+      },
+    );
+
+    const primaryButton = view.getByLabelText("Steer follow-up");
+    await waitFor(() => {
+      expect((primaryButton as HTMLButtonElement).disabled).toBeFalse();
+    });
+    await act(async () => {
+      fireEvent.click(primaryButton);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(steeredPrompts.length).toBe(1);
+    });
+    expect(steeredPrompts[0]).toBe("Follow up");
+    expect(queuedPrompts.length).toBe(0);
   });
 
   test("/side command opens a side chat instead of sending a parent-thread prompt", async () => {

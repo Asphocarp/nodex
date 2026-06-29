@@ -9,18 +9,17 @@ import {
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type { CodexCollaborationModeKind, CodexPermissionState, CodexPromptInput, CodexReasoningEffort } from "@/lib/types";
 import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
-import { shouldSubmitComposerPromptFromKeyDown } from "@/lib/composer-enter-behavior";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
-  resolveThreadInProgressFollowUpMode,
   resolveShortcutKeycapTokens,
   resolveThreadComposerAlternateShortcutAccelerator,
   resolveThreadComposerPrimaryShortcutAccelerator,
-  shouldInvertThreadInProgressFollowUpModeFromKeyDown,
 } from "@/lib/thread-composer-follow-up-mode";
 import {
+  resolveComposerSubmitIntentFromKeyDown,
   resolveStageThreadsComposerActionState,
   type StageThreadsBusyAction,
+  type StageThreadsComposerFollowUpAction,
   type StageThreadsComposerSubmitAction,
 } from "../shared/composer-action";
 import { cn } from "../../../../lib/utils";
@@ -763,7 +762,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     input: {
       prompt: string;
       reset?: () => void;
-      invertInProgressFollowUpMode?: boolean;
+      submitAction: StageThreadsComposerSubmitAction | null;
     },
   ) => {
     const nextPrompt = input.prompt.trim();
@@ -773,10 +772,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     });
     const hasPromptAttachments = promptInput !== undefined;
     const target = model.newThreadTarget;
-    const inProgressFollowUpMode = resolveThreadInProgressFollowUpMode({
-      invertInProgressFollowUpMode: input.invertInProgressFollowUpMode,
-      isQueueingEnabled: model.isQueueingEnabled,
-    });
 
     if (!nextPrompt && !hasPromptAttachments) {
       return;
@@ -847,12 +842,12 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           return;
         }
       } else if (model.isThreadRunning) {
-        if (inProgressFollowUpMode === "queue") {
+        if (input.submitAction === "queue") {
           await actions.onEnqueueQueuedFollowUp(model.conversation.threadId, nextPrompt, {
             collaborationMode: model.selectedCollaborationMode,
             promptInput,
           });
-        } else {
+        } else if (input.submitAction === "steer") {
           if (!model.activeTurn) {
             onErrorMessage("Codex is already running. Wait for the active turn to load or queue the follow-up instead.");
             return;
@@ -863,6 +858,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             promptInput,
             collaborationMode: model.selectedCollaborationMode,
           });
+        } else {
+          onErrorMessage("Codex is already running. Choose Queue or Steer before submitting a follow-up.");
+          return;
         }
       } else {
         await actions.onSendPrompt(nextPrompt, {
@@ -882,7 +880,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     attachmentState,
     model.activeTurn,
     model.conversation,
-    model.isQueueingEnabled,
     model.isThreadRunning,
     model.newThreadTarget,
     model.selectedCollaborationMode,
@@ -893,8 +890,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const promptForm = useForm({
     defaultValues: { prompt: "" },
     onSubmit: async ({ value, formApi }) => {
+      const actionState = resolveStageThreadsComposerActionState({
+        canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
+        isThreadRunning: model.isThreadRunning,
+        busyAction,
+        hasDraftContent: value.prompt.trim().length > 0 || hasAttachments,
+        isQueueingEnabled: model.isQueueingEnabled,
+      });
       await submitPrompt({
         prompt: value.prompt,
+        submitAction: actionState.primarySubmitAction,
         reset: () => {
           formApi.reset();
         },
@@ -1029,8 +1034,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     onTranscriptSend: (transcript) => {
       const nextPrompt = insertDictationTranscript(transcript);
       window.setTimeout(() => {
+        const actionState = resolveStageThreadsComposerActionState({
+          canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
+          isThreadRunning: model.isThreadRunning,
+          busyAction,
+          hasDraftContent: nextPrompt.trim().length > 0 || hasAttachments,
+          isQueueingEnabled: model.isQueueingEnabled,
+        });
         void submitPrompt({
           prompt: nextPrompt,
+          submitAction: actionState.primarySubmitAction,
           reset: () => {
             promptForm.reset();
           },
@@ -1343,49 +1356,53 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     const isComposing = "nativeEvent" in event
       ? event.nativeEvent.isComposing
       : event.isComposing;
+    const actionState = resolveStageThreadsComposerActionState({
+      canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
+      isThreadRunning: model.isThreadRunning,
+      busyAction,
+      hasDraftContent: prompt.trim().length > 0 || hasAttachments,
+      isQueueingEnabled: model.isQueueingEnabled,
+    });
 
-    if (shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      enterBehavior: model.composerEnterBehavior,
-      key: event.key,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      shiftKey: event.shiftKey,
-      altKey: event.altKey,
-      isComposing,
-    }) && model.conversation && model.isThreadRunning) {
-      event.preventDefault();
-      void submitPrompt({
-        prompt,
-        reset: () => {
-          promptForm.reset();
-        },
-        invertInProgressFollowUpMode: true,
-      });
-      return true;
-    }
-
-    if (!shouldSubmitComposerPromptFromKeyDown({
+    const submitIntent = resolveComposerSubmitIntentFromKeyDown({
       enterBehavior: model.composerEnterBehavior,
       hasMultilinePrompt,
+      isThreadRunning: model.isThreadRunning,
+      primarySubmitAction: actionState.primarySubmitAction,
+      alternateSubmitAction: actionState.alternateSubmitAction,
       key: event.key,
       ctrlKey: event.ctrlKey,
       metaKey: event.metaKey,
       shiftKey: event.shiftKey,
       altKey: event.altKey,
       isComposing,
-    })) {
+    });
+    if (!submitIntent) {
       return false;
     }
 
     event.preventDefault();
-    void promptForm.handleSubmit();
+    event.stopPropagation();
+    void submitPrompt({
+      prompt,
+      submitAction: submitIntent.submitAction,
+      reset: () => {
+        promptForm.reset();
+      },
+    });
     return true;
   }, [
+    busyAction,
     closeSlashMenu,
+    hasAttachments,
     highlightedSlashCommandId,
     model.composerEnterBehavior,
     model.conversation,
+    model.isCloudNewThreadTarget,
+    model.isQueueingEnabled,
+    model.isNewThreadTab,
     model.isThreadRunning,
+    model.newThreadTarget,
     nestedSlashCommand,
     prompt,
     promptForm,
@@ -1435,8 +1452,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const contextWindowIndicatorState = resolveContextWindowIndicatorState(model.conversation);
   const composerActionTooltip = renderComposerActionTooltipContent({
     action: composerActionState.action,
-    submitAction: composerActionState.submitAction,
-    alternateInProgressSubmitAction: composerActionState.alternateInProgressSubmitAction,
+    primarySubmitAction: composerActionState.primarySubmitAction,
+    alternateSubmitAction: composerActionState.alternateSubmitAction,
     isThreadRunning: model.isThreadRunning,
     primaryShortcutKeys,
     alternateShortcutKeys,
@@ -1729,8 +1746,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
 function renderComposerActionTooltipContent(input: {
   action: "send" | "stop";
-  submitAction: StageThreadsComposerSubmitAction | null;
-  alternateInProgressSubmitAction: Exclude<StageThreadsComposerSubmitAction, "send"> | null;
+  primarySubmitAction: StageThreadsComposerSubmitAction | null;
+  alternateSubmitAction: StageThreadsComposerFollowUpAction | null;
   isThreadRunning: boolean;
   primaryShortcutKeys: readonly string[];
   alternateShortcutKeys: readonly string[];
@@ -1738,8 +1755,8 @@ function renderComposerActionTooltipContent(input: {
   return (
     <ComposerActionTooltipContent
       action={input.action}
-      submitAction={input.submitAction}
-      alternateInProgressSubmitAction={input.alternateInProgressSubmitAction}
+      primarySubmitAction={input.primarySubmitAction}
+      alternateSubmitAction={input.alternateSubmitAction}
       isThreadRunning={input.isThreadRunning}
       primaryShortcutKeys={input.primaryShortcutKeys}
       alternateShortcutKeys={input.alternateShortcutKeys}
