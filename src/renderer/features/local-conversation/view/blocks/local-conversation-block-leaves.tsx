@@ -1238,7 +1238,10 @@ export function UserMessageBubble({
             </div>
           </form>
         ) : (
-          <div className={THREAD_VISUAL_TOKENS.userBubble}>
+          <div
+            data-user-message-bubble="true"
+            className={THREAD_VISUAL_TOKENS.userBubble}
+          >
             <UserMessageText text={content} />
           </div>
         )}

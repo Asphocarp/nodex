@@ -83,6 +83,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Opening a session with an archived attached thread shows an archived-thread restore state. Nodex must not call `thread/resume` for archived thread metadata; the user explicitly restores the thread through `thread/unarchive`, then the normal resume flow can continue after the thread is active again.
 - Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
 - User-message transcript actions:
+  - Threads with four or more rendered user messages show a left-side `User messages` navigation rail in the thread body. Each rail row represents one user message, opens a delayed hover/focus preview with the user prompt, assistant response preview, and capped output pills, and jumps to that message when clicked.
+  - User-message rail clicks use smooth thread scrolling and briefly pulse the target user bubble or attachment chip. Pointer dragging over the rail scrubs between rows with instant scrolling. Threads with zero to three user messages do not render the rail.
   - `Copy message` and the sent timestamp are available from user bubbles.
   - The user sent timestamp comes from the turn's `turnStartedAtMs` and renders as localized short time only.
   - Long user-message bubbles collapse to a 20-line preview with local `Show more` / `Show less` controls; this is renderer-only UI state and does not change thread data.

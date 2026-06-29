@@ -217,6 +217,7 @@ function UserImageButton({
       <button
         ref={triggerRef}
         type="button"
+        data-composer-attachment-pill="true"
         aria-label="Open image preview"
         className={cn(
           "size-16 cursor-interaction overflow-hidden rounded-lg focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none",
@@ -274,7 +275,10 @@ function UserFileAttachmentChip({ attachment }: { attachment: Extract<CodexUserA
   const Icon = attachment.sourceKind === "skill" ? SparklesIcon : FileIcon;
 
   return (
-    <div className="inline-flex h-7 max-w-56 items-center gap-1.5 rounded-lg border border-token-border bg-token-foreground/5 px-2 text-xs text-token-foreground">
+    <div
+      data-composer-attachment-pill="true"
+      className="inline-flex h-7 max-w-56 items-center gap-1.5 rounded-lg border border-token-border bg-token-foreground/5 px-2 text-xs text-token-foreground"
+    >
       <Icon className="size-3 shrink-0 text-token-description-foreground" aria-hidden="true" />
       <span className="min-w-0 truncate">{attachment.label}</span>
     </div>

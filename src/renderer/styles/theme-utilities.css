@@ -153,3 +153,72 @@
 diffs-container {
   display: block;
 }
+
+.thread-user-message-navigation-marker {
+  --marker-progress: 0;
+  width: 26px;
+  transform: scaleX(calc(0.2308 + 0.7692 * var(--marker-progress)));
+  transform-origin: 0;
+  transition: transform 160ms linear(0, .398 10%, .682 20%, .843 30%, .925 40%, .972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+}
+
+[data-thread-user-message-navigation-item-id]:focus-visible .thread-user-message-navigation-marker,
+[data-thread-user-message-navigation-item-id][data-scrub-target] .thread-user-message-navigation-marker {
+  --marker-progress: 1;
+}
+
+[data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id][data-scrub-target]) .thread-user-message-navigation-marker,
+[data-thread-user-message-navigation-item-id][data-scrub-target] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+  --marker-progress: .7;
+}
+
+[data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id][data-scrub-target]) .thread-user-message-navigation-marker,
+[data-thread-user-message-navigation-item-id][data-scrub-target] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+  --marker-progress: .4;
+}
+
+[data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id][data-scrub-target]) .thread-user-message-navigation-marker,
+[data-thread-user-message-navigation-item-id][data-scrub-target] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+  --marker-progress: .2;
+}
+
+[data-thread-user-message-navigation-rail-list][data-scrubbing] .thread-user-message-navigation-marker {
+  transition-duration: 0s;
+}
+
+[data-thread-user-message-navigation-rail-list][data-scrubbing] [data-thread-user-message-navigation-item-id][aria-current="true"]:not([data-scrub-target]) .thread-user-message-navigation-marker {
+  background-color: var(--color-token-description-foreground);
+  opacity: .4;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-thread-user-message-navigation-item-id]:hover .thread-user-message-navigation-marker {
+    --marker-progress: 1;
+  }
+
+  [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
+  [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+    --marker-progress: .7;
+  }
+
+  [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
+  [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+    --marker-progress: .4;
+  }
+
+  [data-thread-user-message-navigation-item-id]:has(+ [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id]:hover) .thread-user-message-navigation-marker,
+  [data-thread-user-message-navigation-item-id]:hover + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] + [data-thread-user-message-navigation-item-id] .thread-user-message-navigation-marker {
+    --marker-progress: .2;
+  }
+
+  [data-thread-user-message-navigation-item-id][aria-current="true"]:not(:hover) .thread-user-message-navigation-marker {
+    background-color: var(--color-token-description-foreground);
+    opacity: .4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-user-message-navigation-marker {
+    transition-duration: 0s;
+  }
+}

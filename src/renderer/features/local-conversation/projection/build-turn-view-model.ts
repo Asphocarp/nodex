@@ -152,6 +152,31 @@ function withSearchUnitKey<TBlock extends ThreadBlockModel | null>(
   return nextBlock as TBlock;
 }
 
+function isUserMessageBlock(
+  block: ThreadAgentItemModel | ThreadTranscriptBlockModel,
+): block is ThreadTranscriptBlockModel {
+  return block.type === "userMessage";
+}
+
+function collectUserMessageSearchBlocks(
+  buckets: ThreadTurnRenderBuckets,
+): ThreadTranscriptBlockModel[] {
+  const seenBlockIds = new Set<string>();
+  const blocks: ThreadTranscriptBlockModel[] = [];
+  const candidates = [
+    ...buckets.userItems,
+    ...buckets.agentItems.filter(isUserMessageBlock),
+  ];
+
+  for (const block of candidates) {
+    if (seenBlockIds.has(block.id)) continue;
+    seenBlockIds.add(block.id);
+    blocks.push(block);
+  }
+
+  return blocks;
+}
+
 function resolveTimestampMs(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -279,24 +304,24 @@ function buildDeferredAssistantActionsBlock(
   };
 }
 
-function buildSearchUnits(buckets: ThreadTurnRenderBuckets, turnId: string): ThreadSearchUnitModel[] {
-  const userUnits = buckets.userItems.flatMap((block, index) => {
-    const text = block.searchableText.trim();
-    if (!text) return [];
-    return [{
-      key: `${turnId}:user:${index}`,
-      turnId,
-      text,
-      blockType: "userMessage" as const,
-    }];
-  });
+function buildSearchUnits(input: {
+  buckets: ThreadTurnRenderBuckets;
+  turnId: string;
+  userMessageBlocks: ThreadTranscriptBlockModel[];
+}): ThreadSearchUnitModel[] {
+  const userUnits = input.userMessageBlocks.map((block, index) => ({
+    key: `${input.turnId}:user:${index}`,
+    turnId: input.turnId,
+    text: block.searchableText.trim(),
+    blockType: "userMessage" as const,
+  }));
 
   const assistantUnits =
-    buckets.latestAssistantMessage
+    input.buckets.latestAssistantMessage
       ? [{
-          key: `${turnId}:assistant`,
-          turnId,
-          text: buckets.latestAssistantMessage.searchableText.trim(),
+          key: `${input.turnId}:assistant`,
+          turnId: input.turnId,
+          text: input.buckets.latestAssistantMessage.searchableText.trim(),
           blockType: "assistantMessage" as const,
         }].filter((unit) => unit.text.length > 0)
       : [];
@@ -446,10 +471,18 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     }),
   };
 
-  const searchUnits = buildSearchUnits(buckets, input.turnId);
-  const userSearchUnitKeys = searchUnits
-    .filter((unit) => unit.blockType === "userMessage")
-    .map((unit) => unit.key);
+  const userMessageSearchBlocks = collectUserMessageSearchBlocks(buckets);
+  const searchUnits = buildSearchUnits({
+    buckets,
+    turnId: input.turnId,
+    userMessageBlocks: userMessageSearchBlocks,
+  });
+  const userSearchUnitKeyByBlockId = new Map(
+    userMessageSearchBlocks.map((block, index) => [
+      block.id,
+      `${input.turnId}:user:${index}`,
+    ] as const),
+  );
   const assistantSearchUnitKey = searchUnits.find((unit) => unit.blockType === "assistantMessage")?.key ?? `${input.turnId}:assistant`;
   const latestAssistantId = buckets.latestAssistantMessage?.id ?? null;
   const aboveComposerBlocks = resolveAboveComposerBlocks(buckets, input);
@@ -465,13 +498,21 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
             ...(buckets.unifiedDiffItem ? [buckets.unifiedDiffItem] : []),
           ].filter((block) => !portalBlockIds.has(block.id)),
         });
-  const nextAgentItems = buckets.agentItems.map((block): ThreadAgentItemModel =>
-    block.type === "assistantMessage"
-      ? decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, {
+  const nextAgentItems = buckets.agentItems.map((block): ThreadAgentItemModel => {
+    if (block.type === "assistantMessage") {
+      return decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, {
           ...input,
           includeActions: false,
-        })
-      : block);
+      });
+    }
+    if (block.type === "userMessage") {
+      return withSearchUnitKey(
+        block,
+        userSearchUnitKeyByBlockId.get(block.id) ?? `${input.turnId}:user:0`,
+      );
+    }
+    return block;
+  });
   const nextLatestAssistantMessage =
     nextAssistantItem?.id === latestAssistantId
       ? nextAssistantItem
@@ -487,7 +528,10 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     ...buckets,
     userItems: applyUserMessageActions(
       buckets.userItems.map((block, index) =>
-        withSearchUnitKey(block, userSearchUnitKeys[index] ?? `${input.turnId}:user:${index}`)),
+        withSearchUnitKey(
+          block,
+          userSearchUnitKeyByBlockId.get(block.id) ?? `${input.turnId}:user:${index}`,
+        )),
       input,
     ),
     assistantItem: nextAssistantItem,

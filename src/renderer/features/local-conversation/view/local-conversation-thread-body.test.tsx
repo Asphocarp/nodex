@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
@@ -10,6 +10,22 @@ import type {
 } from "../../../lib/types";
 import type { ThreadBodySurfaceModel, ThreadStageActions } from "../thread-stage-types";
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
+
+let idleCallbacks: IdleRequestCallback[] = [];
+
+async function flushIdleCallbacks() {
+  const callbacks = idleCallbacks;
+  idleCallbacks = [];
+  await act(async () => {
+    for (const callback of callbacks) {
+      callback({
+        didTimeout: false,
+        timeRemaining: () => 1,
+      });
+    }
+    await Promise.resolve();
+  });
+}
 
 function buildAssistantEntry(
   overrides?: Partial<CodexConversationItem>,
@@ -99,6 +115,30 @@ function buildTurn(
     items: [buildUserEntry(), buildAssistantEntry()],
     ...overrides,
   };
+}
+
+function buildIndexedTurn(index: number): CodexConversationTurn {
+  const turnId = `turn_${index}`;
+  const userId = `user_${index}`;
+  const assistantId = `assistant_${index}`;
+  return buildTurn({
+    turnId,
+    itemIds: [userId, assistantId],
+    items: [
+      buildUserEntry({
+        turnId,
+        itemId: userId,
+        entryId: userId,
+        markdownText: `Message ${index}`,
+      }),
+      buildAssistantEntry({
+        turnId,
+        itemId: assistantId,
+        entryId: assistantId,
+        markdownText: `Answer ${index}`,
+      }),
+    ],
+  });
 }
 
 function buildConversation(
@@ -231,6 +271,22 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
 describe("LocalConversationThreadBody", () => {
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
+    idleCallbacks = [];
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      writable: true,
+      value: ((callback: IdleRequestCallback) => {
+        idleCallbacks.push(callback);
+        return idleCallbacks.length;
+      }) as typeof window.requestIdleCallback,
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      configurable: true,
+      writable: true,
+      value: ((handle: number) => {
+        idleCallbacks.splice(handle - 1, 1);
+      }) as typeof window.cancelIdleCallback,
+    });
   });
 
   test("does not render the retired in-thread sticky search input", async () => {
@@ -314,6 +370,9 @@ describe("LocalConversationThreadBody", () => {
     const viewport = container.querySelector(
       "[data-local-conversation-thread-body='true']",
     ) as HTMLDivElement | null;
+    const navigationPortalTarget = container.querySelector(
+      "[data-thread-user-message-navigation-portal-target='true']",
+    ) as HTMLDivElement | null;
     const contentRoot = container.querySelector(
       "[data-thread-find-target='conversation']",
     ) as HTMLDivElement | null;
@@ -321,12 +380,55 @@ describe("LocalConversationThreadBody", () => {
     const widthWrapper = motionWrapper?.firstElementChild as HTMLDivElement | null;
 
     expect(Boolean(viewport)).toBeTrue();
+    expect(navigationPortalTarget?.contains(viewport)).toBeTrue();
 
     expect(Boolean(motionWrapper)).toBeTrue();
     expect(Boolean(widthWrapper)).toBeTrue();
     expect(widthWrapper?.contains(contentRoot)).toBeTrue();
 
     expect(Boolean(contentRoot)).toBeTrue();
+  });
+
+  test("lazy-renders the user message navigation rail after idle for long threads", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const conversation = buildConversation({
+      turns: [1, 2, 3, 4].map((index) => buildIndexedTurn(index)),
+    });
+    const { container } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({ conversation })}
+          actions={buildActions()}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeFalse();
+    await flushIdleCallbacks();
+    await settleAsyncRender();
+
+    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeTrue();
+  });
+
+  test("does not render the user message navigation rail below the Codex threshold", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const conversation = buildConversation({
+      turns: [1, 2, 3].map((index) => buildIndexedTurn(index)),
+    });
+    const { container } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({ conversation })}
+          actions={buildActions()}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+    await flushIdleCallbacks();
+    await settleAsyncRender();
+
+    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeFalse();
   });
 
   test("shows a restoring placeholder instead of rendering turn content while the active thread is resuming", async () => {

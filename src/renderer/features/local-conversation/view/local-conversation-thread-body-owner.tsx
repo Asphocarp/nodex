@@ -42,11 +42,13 @@ import type {
   ThreadStageActions,
 } from "../thread-stage-types";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
+import { buildThreadUserMessageNavigationItems } from "../projection/thread-user-message-navigation-items";
 import {
   LocalConversationVirtualizedTurnList,
   type LocalConversationVirtualizedTurnListApi,
   type LocalConversationVirtualizedTurnListEntry,
 } from "./local-conversation-virtualized-turn-list";
+import type { ThreadUserMessageNavigationItem } from "../thread-stage-types";
 import { LocalConversationAboveComposerPortal } from "./local-conversation-above-composer-portal";
 import { LocalConversationForkFromTurnDialog } from "./local-conversation-fork-from-turn-dialog";
 import {
@@ -55,6 +57,8 @@ import {
 import { LocalConversationResumeLoader } from "./shared/local-conversation-resume-loader";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
 import { createLocalConversationSearchSource } from "./local-conversation-search-source";
+import { ThreadUserMessageNavigationRailLazy } from "./thread-user-message-navigation-rail-lazy";
+import type { ThreadUserMessageNavigationRevealMode } from "./thread-user-message-navigation-rail";
 
 const PROGRESS_PHASES = [
   { key: "creatingWorktree", label: "Worktree" },
@@ -371,6 +375,12 @@ export function LocalConversationThreadBodyOwner({
     () => turnEntries,
     [turnEntries],
   );
+  const userMessageNavigationItems = useMemo(
+    () => isDeferredBodyReady
+      ? buildThreadUserMessageNavigationItems(turnEntries)
+      : [],
+    [isDeferredBodyReady, turnEntries],
+  );
   const turnKeyByTurnId = useMemo(
     () => new Map(turnEntries.map((entry) => [entry.turnId, entry.turnKey] as const)),
     [turnEntries],
@@ -658,11 +668,33 @@ export function LocalConversationThreadBodyOwner({
     }
   }, [actions, isRestoringArchivedThread, onErrorMessage, projectId, threadId]);
 
+  const handleRevealUserMessageNavigationItem = useCallback(
+    async (
+      item: ThreadUserMessageNavigationItem,
+      mode: ThreadUserMessageNavigationRevealMode,
+    ): Promise<HTMLElement | null> => {
+      const api = listApiRef.current;
+      if (api) {
+        await api.scrollToKey(item.turnKey, mode === "instant" ? "auto" : "smooth");
+        await nextAnimationFrame();
+      }
+
+      return contentRootRef.current?.querySelector<HTMLElement>(
+        `[data-content-search-unit-key="${escapeAttributeSelectorValue(item.id)}"]`,
+      ) ?? null;
+    },
+    [],
+  );
+
   const shouldRenderAboveComposerPortal =
     aboveComposerBlocks.length > 0 && body.activeTurnId !== null;
 
   return (
     <>
+      <ThreadUserMessageNavigationRailLazy
+        items={userMessageNavigationItems}
+        onRevealItem={handleRevealUserMessageNavigationItem}
+      />
       {shouldRenderAboveComposerPortal ? (
         <LocalConversationAboveComposerPortal
           blocks={aboveComposerBlocks}

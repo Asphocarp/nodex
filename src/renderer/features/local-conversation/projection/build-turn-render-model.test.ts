@@ -144,6 +144,27 @@ describe("buildTurnRenderModel", () => {
     expect(String(rawItem?.unifiedDiff ?? "").includes("+next")).toBeTrue();
   });
 
+  test("keeps an addressable search unit for empty user messages", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        itemIds: ["user_empty", "assistant_1"],
+        items: [
+          buildUserItem({ markdownText: "", itemId: "user_empty", entryId: "user_empty" }),
+          buildAssistantItem(),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: false,
+      isStreamingTurn: false,
+    });
+
+    expect(model.searchUnits.map((unit) => `${unit.blockType}:${unit.key}:${unit.text}`).join(",")).toBe(
+      "userMessage:turn_1:user:0:,assistantMessage:turn_1:assistant:Done",
+    );
+    expect(model.searchUnits.filter((unit) => unit.text.toLowerCase().includes("missing")).length).toBe(0);
+  });
+
   test("does not duplicate a transcript turn-diff when turn.diff is also present", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({

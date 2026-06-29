@@ -492,6 +492,33 @@ export interface ThreadSearchUnitModel {
   blockType: "userMessage" | "assistantMessage";
 }
 
+export type ThreadUserMessageNavigationOutputType =
+  | "app"
+  | "website"
+  | "google-drive"
+  | "file"
+  | "image"
+  | "commit"
+  | "pull-request"
+  | "review";
+
+export interface ThreadUserMessageNavigationOutput {
+  id: string;
+  type: ThreadUserMessageNavigationOutputType;
+  label: string;
+}
+
+export interface ThreadUserMessageNavigationItem {
+  id: string;
+  turnId: string;
+  turnKey: string;
+  ordinal: number;
+  label: string;
+  responsePreview: string;
+  outputs: ThreadUserMessageNavigationOutput[];
+  isHeartbeat: boolean;
+}
+
 export interface ThreadBodyModel {
   threadId: string | null;
   turnCount: number;

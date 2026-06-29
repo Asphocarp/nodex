@@ -70,7 +70,7 @@ interface LocalConversationThreadScrollControllerContextValue
 }
 
 const THREAD_SCROLL_VIEWPORT_CLASS_NAME =
-  "thread-scroll-container relative h-full overflow-y-auto [overflow-anchor:none] [scroll-padding-bottom:var(--thread-scroll-padding-bottom,0px)] electron:[scrollbar-gutter:stable_both-edges] pt-(--thread-content-top-inset) [container-name:thread-content] [container-type:inline-size] [&:has([data-thread-scroll-footer='true']:focus-within)]:[scroll-padding-bottom:0px] flex flex-col-reverse";
+  "thread-scroll-container relative h-full overflow-x-hidden overflow-y-auto [overflow-anchor:none] [scroll-padding-bottom:var(--thread-scroll-padding-bottom,0px)] electron:[scrollbar-gutter:stable_both-edges] pt-(--thread-content-top-inset) [container-name:thread-content] [container-type:inline-size] [&:has([data-thread-scroll-footer='true']:focus-within)]:[scroll-padding-bottom:0px] flex flex-col-reverse";
 
 const THREAD_SCROLL_CONTENT_WRAPPER_CLASS_NAME =
   "mx-auto w-full max-w-(--thread-content-max-width) px-toolbar";
@@ -389,7 +389,10 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   const motionStyle = contentX == null ? undefined : { x: contentX };
 
   return (
-    <div className="h-full flex-1 [content-visibility:auto]">
+    <div
+      data-thread-user-message-navigation-portal-target="true"
+      className="relative h-full flex-1 [content-visibility:auto]"
+    >
       <div
         ref={controller.registerScrollElement}
         data-local-conversation-thread-body="true"

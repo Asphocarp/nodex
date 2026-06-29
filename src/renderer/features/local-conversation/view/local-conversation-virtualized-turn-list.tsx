@@ -34,7 +34,7 @@ export interface LocalConversationVirtualizedTurnListEntry {
 }
 
 export interface LocalConversationVirtualizedTurnListApi {
-  scrollToKey: (turnKey: string) => Promise<void>;
+  scrollToKey: (turnKey: string, behavior?: ScrollBehavior) => Promise<void>;
   setScrollMode: ReturnType<typeof useLocalConversationThreadScrollController>["setScrollMode"];
   getScrollMode: ReturnType<typeof useLocalConversationThreadScrollController>["getScrollMode"];
 }
@@ -256,6 +256,7 @@ export function LocalConversationVirtualizedTurnList({
   const [pendingScrollTarget, setPendingScrollTarget] = useState<{
     requestId: number;
     turnKey: string;
+    behavior: ScrollBehavior;
   } | null>(null);
 
   const heightsPx = useMemo(
@@ -387,7 +388,7 @@ export function LocalConversationVirtualizedTurnList({
   );
 
   const scrollToKey = useCallback(
-    (turnKey: string) => {
+    (turnKey: string, behavior: ScrollBehavior = "smooth") => {
       pendingScrollRequestId.current += 1;
       const requestId = pendingScrollRequestId.current;
       activeScrollRequestId.current = null;
@@ -395,7 +396,7 @@ export function LocalConversationVirtualizedTurnList({
       return new Promise<void>((resolve) => {
         pendingScrollResolvers.current.set(requestId, resolve);
         setScrollMode("programmaticFind");
-        setPendingScrollTarget({ requestId, turnKey });
+        setPendingScrollTarget({ requestId, turnKey, behavior });
       });
     },
     [setScrollMode],
@@ -446,7 +447,7 @@ export function LocalConversationVirtualizedTurnList({
           scrollElement,
           targetElement,
         }),
-        "smooth",
+        pendingScrollTarget.behavior,
       );
       finishPendingScroll(pendingScrollTarget.requestId);
       return;
@@ -454,7 +455,7 @@ export function LocalConversationVirtualizedTurnList({
 
     const topPx =
       viewportState.turnsTopOffsetPx + (layout.offsetsPx[index] ?? 0);
-    scrollToTopPx(topPx, "smooth");
+    scrollToTopPx(topPx, pendingScrollTarget.behavior);
     finishPendingScroll(pendingScrollTarget.requestId);
   }, [
     entryIndexByTurnKey,
