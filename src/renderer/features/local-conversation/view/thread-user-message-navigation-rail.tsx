@@ -41,6 +41,10 @@ export const THREAD_USER_MESSAGE_NAVIGATION_TURN_CONTAINER_SELECTOR =
 
 const THREAD_USER_MESSAGE_NAVIGATION_SEARCH_UNIT_SELECTOR =
   "[data-content-search-unit-key]";
+const THREAD_USER_MESSAGE_NAVIGATION_LEFT_INSET_PX = 12;
+const THREAD_USER_MESSAGE_NAVIGATION_ROW_WIDTH_PX = 36;
+const THREAD_USER_MESSAGE_NAVIGATION_MIN_LEFT_SPACE_PX =
+  THREAD_USER_MESSAGE_NAVIGATION_LEFT_INSET_PX + THREAD_USER_MESSAGE_NAVIGATION_ROW_WIDTH_PX;
 
 export interface ThreadUserMessageNavigationRailProps {
   items: ThreadUserMessageNavigationItem[];
@@ -168,6 +172,22 @@ export function ensureThreadUserMessageNavigationRowVisible(
   }
 }
 
+export function hasEnoughThreadUserMessageNavigationLeftSpace({
+  scrollElement,
+  contentElement,
+}: {
+  scrollElement: HTMLElement;
+  contentElement: HTMLElement;
+}): boolean {
+  const scrollRect = scrollElement.getBoundingClientRect();
+  const contentRect = contentElement.getBoundingClientRect();
+  const scale = scrollElement.offsetWidth > 0
+    ? scrollRect.width / scrollElement.offsetWidth
+    : 1;
+  const normalizedLeftSpace = (contentRect.left - scrollRect.left) / (scale > 0 ? scale : 1);
+  return normalizedLeftSpace >= THREAD_USER_MESSAGE_NAVIGATION_MIN_LEFT_SPACE_PX;
+}
+
 function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
   if (left.size !== right.size) return false;
   for (const value of left) {
@@ -245,6 +265,13 @@ export function ThreadUserMessageNavigationRail({
   );
   const [scrubTargetId, setScrubTargetId] = useState<string | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [layoutState, setLayoutState] = useState<{
+    canRender: boolean;
+    portalTarget: HTMLElement | null;
+  }>({
+    canRender: false,
+    portalTarget: null,
+  });
 
   useEffect(() => {
     isScrubbingRef.current = isScrubbing;
@@ -273,12 +300,74 @@ export function ThreadUserMessageNavigationRail({
     [currentItemIds, items, lastItemId],
   );
 
-  const portalTarget = useMemo(() => {
-    if (!scrollElement) return null;
-    return scrollElement.closest<HTMLElement>("[data-thread-user-message-navigation-portal-target='true']")
-      ?? scrollElement.parentElement
-      ?? scrollElement;
-  }, [scrollElement]);
+  useEffect(() => {
+    if (!scrollElement) {
+      setLayoutState((current) =>
+        current.canRender || current.portalTarget !== null
+          ? { canRender: false, portalTarget: null }
+          : current
+      );
+      return undefined;
+    }
+
+    const contentElement = scrollElement.querySelector<HTMLElement>(
+      "[data-mcp-app-portal-target='true']",
+    );
+    if (!contentElement) {
+      setLayoutState((current) =>
+        current.canRender || current.portalTarget !== null
+          ? { canRender: false, portalTarget: null }
+          : current
+      );
+      return undefined;
+    }
+
+    let frameId: number | null = null;
+    const syncLayoutState = () => {
+      if (frameId !== null) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        const nextState = {
+          canRender: hasEnoughThreadUserMessageNavigationLeftSpace({
+            scrollElement,
+            contentElement,
+          }),
+          portalTarget: scrollElement.parentElement,
+        };
+        setLayoutState((current) =>
+          current.canRender === nextState.canRender && current.portalTarget === nextState.portalTarget
+            ? current
+            : nextState
+        );
+        ensureThreadUserMessageNavigationRowVisible(listRef.current, currentPrimaryItemId);
+      });
+    };
+
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(syncLayoutState);
+    resizeObserver?.observe(scrollElement);
+    resizeObserver?.observe(contentElement);
+
+    const mutationObserver = typeof MutationObserver === "undefined"
+      ? null
+      : new MutationObserver(syncLayoutState);
+    mutationObserver?.observe(scrollElement.firstElementChild ?? scrollElement, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+    window.addEventListener("resize", syncLayoutState);
+    syncLayoutState();
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      window.removeEventListener("resize", syncLayoutState);
+    };
+  }, [currentPrimaryItemId, scrollElement]);
 
   const highlightTarget = useCallback(
     (targetElement: HTMLElement) => {
@@ -502,7 +591,7 @@ export function ThreadUserMessageNavigationRail({
     void revealItem(item, "smooth");
   }, [items.length, revealItem]);
 
-  if (!portalTarget || items.length === 0) return null;
+  if (!layoutState.canRender || !layoutState.portalTarget || items.length === 0) return null;
 
   return createPortal(
     <motion.nav
@@ -566,6 +655,6 @@ export function ThreadUserMessageNavigationRail({
         })}
       </div>
     </motion.nav>,
-    portalTarget,
+    layoutState.portalTarget,
   );
 }

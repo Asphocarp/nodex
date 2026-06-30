@@ -12,12 +12,15 @@ import {
 import {
   collectThreadUserMessageNavigationObservationTargets,
   ensureThreadUserMessageNavigationRowVisible,
+  hasEnoughThreadUserMessageNavigationLeftSpace,
   resolveThreadUserMessageNavigationCurrentRangeIds,
   ThreadUserMessageNavigationRail,
   threadUserMessageNavigationMutationsIncludeTurnContainer,
 } from "./thread-user-message-navigation-rail";
 
 const originalIntersectionObserver = globalThis.IntersectionObserver;
+const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const intersectionObserverInstances: TestIntersectionObserver[] = [];
 
 class TestIntersectionObserver {
@@ -91,6 +94,60 @@ function restoreIntersectionObserver() {
   });
 }
 
+function makeRect(input: Partial<DOMRectReadOnly>): DOMRect {
+  const left = input.left ?? 0;
+  const top = input.top ?? 0;
+  const width = input.width ?? 0;
+  const height = input.height ?? 0;
+  const rect = {
+    bottom: top + height,
+    height,
+    left,
+    right: left + width,
+    top,
+    width,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  };
+  return rect as DOMRect;
+}
+
+function installRailLayoutGeometry(leftGapPx = 80) {
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.matches("[data-local-conversation-thread-body='true']")) return 1000;
+      return originalOffsetWidthDescriptor?.get?.call(this) ?? 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: HTMLElement) {
+      if (this.matches("[data-local-conversation-thread-body='true']")) {
+        return makeRect({ left: 0, width: 1000, height: 700 });
+      }
+      if (this.matches("[data-mcp-app-portal-target='true']")) {
+        return makeRect({ left: leftGapPx, width: 768, height: 2000 });
+      }
+      return originalGetBoundingClientRect.call(this);
+    },
+  });
+}
+
+function restoreRailLayoutGeometry() {
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    writable: true,
+    value: originalGetBoundingClientRect,
+  });
+  if (originalOffsetWidthDescriptor) {
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidthDescriptor);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { offsetWidth?: number }, "offsetWidth");
+  }
+}
+
 function buildItem(index: number, overrides?: Partial<ThreadUserMessageNavigationItem>): ThreadUserMessageNavigationItem {
   return {
     id: `turn_${index}:user:0`,
@@ -145,6 +202,7 @@ function RailHarness({
 describe("ThreadUserMessageNavigationRail", () => {
   beforeEach(() => {
     installTestIntersectionObserver();
+    installRailLayoutGeometry();
     installAsyncRequestAnimationFrame();
     installElementScrollHeight(5000);
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
@@ -156,6 +214,7 @@ describe("ThreadUserMessageNavigationRail", () => {
 
   afterEach(() => {
     restoreIntersectionObserver();
+    restoreRailLayoutGeometry();
   });
 
   test("collects Codex-compatible observer targets from turn containers", () => {
@@ -237,6 +296,28 @@ describe("ThreadUserMessageNavigationRail", () => {
     expect(list.scrollTop).toBe(10);
   });
 
+  test("matches Codex's 48px left-space threshold", () => {
+    const scrollElement = document.createElement("div");
+    const contentElement = document.createElement("div");
+    Object.defineProperty(scrollElement, "offsetWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(scrollElement, "getBoundingClientRect", {
+      configurable: true,
+      value: () => makeRect({ left: 0, width: 1000 }),
+    });
+    Object.defineProperty(contentElement, "getBoundingClientRect", {
+      configurable: true,
+      value: () => makeRect({ left: 47, width: 700 }),
+    });
+
+    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBeFalse();
+
+    Object.defineProperty(contentElement, "getBoundingClientRect", {
+      configurable: true,
+      value: () => makeRect({ left: 48, width: 700 }),
+    });
+    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBeTrue();
+  });
+
   test("renders the Codex-compatible rail DOM contract", async () => {
     const items = [1, 2, 3, 4].map((index) => buildItem(index));
     const { container } = render(<RailHarness items={items} />);
@@ -252,6 +333,15 @@ describe("ThreadUserMessageNavigationRail", () => {
     expect(rows.length).toBe(4);
     expect(rows[0]?.getAttribute("aria-label")).toBe("Jump to user message 1");
     expect(rows[3]?.getAttribute("aria-current")).toBe("true");
+  });
+
+  test("does not render when the content column leaves less than Codex's rail gutter", async () => {
+    installRailLayoutGeometry(47);
+    const items = [1, 2, 3, 4].map((index) => buildItem(index));
+    const { container } = render(<RailHarness items={items} />);
+    await settleAsyncRender();
+
+    expect(Boolean(container.querySelector('nav[aria-label="User messages"]'))).toBeFalse();
   });
 
   test("observes turn containers instead of user search-unit leaves", async () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
@@ -12,6 +12,8 @@ import type { ThreadBodySurfaceModel, ThreadStageActions } from "../thread-stage
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 
 let idleCallbacks: IdleRequestCallback[] = [];
+const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 
 async function flushIdleCallbacks() {
   const callbacks = idleCallbacks;
@@ -25,6 +27,60 @@ async function flushIdleCallbacks() {
     }
     await Promise.resolve();
   });
+}
+
+function makeRect(input: Partial<DOMRectReadOnly>): DOMRect {
+  const left = input.left ?? 0;
+  const top = input.top ?? 0;
+  const width = input.width ?? 0;
+  const height = input.height ?? 0;
+  const rect = {
+    bottom: top + height,
+    height,
+    left,
+    right: left + width,
+    top,
+    width,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  };
+  return rect as DOMRect;
+}
+
+function installThreadRailWideLayoutGeometry() {
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.matches("[data-local-conversation-thread-body='true']")) return 1000;
+      return originalOffsetWidthDescriptor?.get?.call(this) ?? 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: HTMLElement) {
+      if (this.matches("[data-local-conversation-thread-body='true']")) {
+        return makeRect({ left: 0, width: 1000, height: 700 });
+      }
+      if (this.matches("[data-mcp-app-portal-target='true']")) {
+        return makeRect({ left: 80, width: 768, height: 2000 });
+      }
+      return originalGetBoundingClientRect.call(this);
+    },
+  });
+}
+
+function restoreThreadRailLayoutGeometry() {
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    writable: true,
+    value: originalGetBoundingClientRect,
+  });
+  if (originalOffsetWidthDescriptor) {
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidthDescriptor);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { offsetWidth?: number }, "offsetWidth");
+  }
 }
 
 function buildAssistantEntry(
@@ -271,6 +327,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
 describe("LocalConversationThreadBody", () => {
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
+    installThreadRailWideLayoutGeometry();
     idleCallbacks = [];
     Object.defineProperty(window, "requestIdleCallback", {
       configurable: true,
@@ -287,6 +344,10 @@ describe("LocalConversationThreadBody", () => {
         idleCallbacks.splice(handle - 1, 1);
       }) as typeof window.cancelIdleCallback,
     });
+  });
+
+  afterEach(() => {
+    restoreThreadRailLayoutGeometry();
   });
 
   test("does not render the retired in-thread sticky search input", async () => {
