@@ -20,6 +20,15 @@
   user-select: none;
 }
 
+@utility elevation-stroke {
+  box-shadow: var(--elevation-stroke);
+
+  @media (forced-colors: active) {
+    box-shadow: none;
+    outline: 1px solid canvastext;
+  }
+}
+
 @utility duration-swift {
   transition-duration: var(--transition-duration-swift, 0.12s);
 }

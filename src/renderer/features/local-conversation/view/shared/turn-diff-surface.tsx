@@ -41,6 +41,7 @@ import { cn } from "../../../../lib/utils";
 import {
   TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT,
   buildTurnDiffApplyBatches,
+  buildTurnDiffDisplayPath,
   buildTurnDiffReviewTarget,
   buildTurnDiffRows,
   extractTurnDiffPayload,
@@ -512,7 +513,7 @@ export function TurnDiffSurface({
     <>
       <div
         ref={rootRef}
-        className="mb-2 flex max-w-full flex-col overflow-hidden rounded-lg bg-token-dropdown-background/50 text-base text-token-foreground extension:bg-token-input-background/50 [--thread-resource-card-row-padding-x:0.75rem] [--turn-diff-row-padding-y:0.25rem]"
+        className="mb-2 flex max-w-full flex-col overflow-hidden rounded-lg bg-token-dropdown-background/50 text-base text-token-foreground electron:elevation-stroke extension:border extension:border-token-border extension:bg-token-input-background/50 extension:shadow-sm [--thread-resource-card-row-padding-x:0.75rem] [--turn-diff-row-padding-y:0.25rem]"
       >
         <div className="group/turn-diff-header relative focus-within:[&_.turn-diff-default-subtitle]:hidden hover:[&_.turn-diff-default-subtitle]:hidden focus-within:[&_.turn-diff-hover-subtitle]:inline-flex hover:[&_.turn-diff-hover-subtitle]:inline-flex">
           {handleOpenReview ? (
@@ -589,6 +590,7 @@ export function TurnDiffSurface({
 
 export const turnDiffSurfaceTestHelpers = {
   buildTurnDiffApplyBatches,
+  buildTurnDiffDisplayPath,
   buildTurnDiffReviewTarget,
   buildTurnDiffRows,
   extractTurnDiffPayload,

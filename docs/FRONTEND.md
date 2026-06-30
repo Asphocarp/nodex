@@ -122,7 +122,8 @@
   - for expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
   - keep transcript expand/collapse subtype-owned; reuse the measured-height hook, but let each product surface own its own Motion wrapper and state machine
 - Keep turn-diff cards distinct from transcript accordions:
-  - completed `Edited N files` cards render a resource-card-style header plus compact file rows; individual file rows are buttons that open Review or, with Cmd/Ctrl, a right-side Files preview tab
+  - completed `Edited N files` cards render a resource-card-style shell/header plus compact file rows; Electron uses the `elevation-stroke` 0.5px box-shadow hairline, while extension surfaces use `border border-token-border shadow-sm`; individual file rows are buttons that open Review or, with Cmd/Ctrl, a right-side Files preview tab
+  - file row labels use cwd-relative display paths when the diff path is absolute; keep that display path separate from the resolved absolute path used for Files side-panel open actions
   - multi-file lists show three rows by default and use one `Show N more files` / `Collapse files` disclosure row; do not add per-file chevrons, measured-height inline accordion bodies, or row-local expand/collapse state
   - single-file turn diffs use the basename in the header and omit the multi-file list; large multi-file rows show `Too large to render inline` rather than trying to mount inline diff content
   - small-file hover previews are top-aligned over the row, size to the trigger width minus 64px clamped by Radix's available content width, content-size vertically up to the 420px available-height cap, and must be disabled whenever the right-side panel is open; do not render a right-side hover preview beside an already-open Review or Files panel

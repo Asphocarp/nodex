@@ -165,6 +165,34 @@ describe("TurnDiffSurface", () => {
     expect(sidePanelPath).toBe("/tmp/project/src/file-1.ts");
   });
 
+  test("renders cwd-relative file rows for absolute diff paths while keeping side-panel targets absolute", () => {
+    let sidePanelPath = "";
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({
+            unifiedDiff: [
+              diffForPath("/tmp/project/src/absolute-1.ts"),
+              diffForPath("/tmp/project/src/absolute-2.ts"),
+            ].join("\n"),
+          })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          onOpenReview={() => undefined}
+          onOpenFileInSidePanel={(target) => {
+            sidePanelPath = target.path;
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.textContent?.includes("src/absolute-1.ts"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("/tmp/project/src/absolute-1.ts"))).toBeFalse();
+
+    fireEvent.click(findButtonByText(container, "src/absolute-1.ts") as HTMLButtonElement, { metaKey: true });
+    expect(sidePanelPath).toBe("/tmp/project/src/absolute-1.ts");
+  });
+
   test("suppresses hover preview wiring while preserving row Review clicks", () => {
     const enabledView = render(
       <TooltipProvider>
@@ -285,6 +313,25 @@ describe("TurnDiffSurface", () => {
     expect(stats[0]?.path ?? null).toBe("src/weird file.ts");
     expect(stats[0]?.additions ?? null).toBe(2);
     expect(stats[0]?.deletions ?? null).toBe(2);
+  });
+
+  test("builds cwd-relative display paths without changing relative diff paths", () => {
+    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
+      "/tmp/project/src/absolute.ts",
+      "/tmp/project",
+    )).toBe("src/absolute.ts");
+    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
+      "/tmp/other/src/outside.ts",
+      "/tmp/project",
+    )).toBe("../other/src/outside.ts");
+    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
+      "src/relative.ts",
+      "/tmp/project",
+    )).toBe("src/relative.ts");
+    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
+      "/tmp/project",
+      "/tmp/project",
+    )).toBe("project");
   });
 
   test("builds patch batches from patchBatches and falls back only when they are absent", () => {

@@ -166,6 +166,22 @@ export function isLargeTurnDiffFile(input: {
   return Math.max(input.renderedLineEstimate, input.additions + input.deletions) > TURN_DIFF_MAX_INLINE_LINES;
 }
 
+export function buildTurnDiffDisplayPath(path: string, basePath: string | null): string {
+  const rawPath = stripPatchPrefix(path);
+  if (!basePath) return rawPath;
+
+  const normalizedPath = normalizePathSegments(rawPath);
+  if (normalizedPath.length === 0) return rawPath;
+  if (!isAbsoluteDisplayPath(normalizedPath)) return rawPath;
+
+  const normalizedBasePath = normalizePathSegments(basePath);
+  if (normalizedBasePath.length === 0) return rawPath;
+  if (!isAbsoluteDisplayPath(normalizedBasePath)) return rawPath;
+
+  const relativePath = relativeDisplayPath(normalizedPath, normalizedBasePath);
+  return relativePath.length > 0 ? relativePath : basename(normalizedPath);
+}
+
 export function buildTurnDiffRows(
   item: CodexTranscriptEntry,
   threadCwd: string | undefined,
@@ -202,13 +218,14 @@ export function buildTurnDiffRows(
       : stat.renderedLineEstimate;
     const additions = fileDiff ? summarizeFileDiffMetadata(fileDiff).additions : stat.additions;
     const deletions = fileDiff ? summarizeFileDiffMetadata(fileDiff).deletions : stat.deletions;
-    const displayPath = stripPatchPrefix(stat.path);
+    const rawPath = stripPatchPrefix(stat.path);
+    const displayPath = buildTurnDiffDisplayPath(rawPath, basePath);
 
     return {
-      key: `${item.entryId ?? item.itemId}:${displayPath}:${index}`,
+      key: `${item.entryId ?? item.itemId}:${rawPath}:${index}`,
       displayPath,
       fileName: basename(displayPath),
-      openPath: resolveOpenPath(displayPath, basePath),
+      openPath: resolveOpenPath(rawPath, basePath),
       openLine: resolveOpenLine(fileDiff),
       fileDiff,
       additions,
@@ -381,4 +398,44 @@ function resolveOpenLine(fileDiff: FileDiffMetadata | null): number | undefined 
 
   const line = firstHunk.additionStart > 0 ? firstHunk.additionStart : firstHunk.deletionStart;
   return line > 0 ? line : 1;
+}
+
+function isAbsoluteDisplayPath(path: string): boolean {
+  return path.startsWith("/") || /^[a-zA-Z]:\//.test(path);
+}
+
+function relativeDisplayPath(path: string, basePath: string): string {
+  const pathSegments = splitDisplayPathSegments(path);
+  const baseSegments = splitDisplayPathSegments(basePath);
+  const compareCaseInsensitive = usesWindowsDrive(path) || usesWindowsDrive(basePath);
+  let sharedSegmentCount = 0;
+
+  while (
+    sharedSegmentCount < pathSegments.length
+    && sharedSegmentCount < baseSegments.length
+    && sameDisplayPathSegment(
+      pathSegments[sharedSegmentCount] ?? "",
+      baseSegments[sharedSegmentCount] ?? "",
+      compareCaseInsensitive,
+    )
+  ) {
+    sharedSegmentCount += 1;
+  }
+
+  const parentSegments = Array.from({ length: baseSegments.length - sharedSegmentCount }, () => "..");
+  const childSegments = pathSegments.slice(sharedSegmentCount);
+  return [...parentSegments, ...childSegments].join("/");
+}
+
+function splitDisplayPathSegments(path: string): string[] {
+  return normalizePathSegments(path).split("/").filter((segment) => segment.length > 0);
+}
+
+function sameDisplayPathSegment(left: string, right: string, compareCaseInsensitive: boolean): boolean {
+  if (!compareCaseInsensitive) return left === right;
+  return left.toLowerCase() === right.toLowerCase();
+}
+
+function usesWindowsDrive(path: string): boolean {
+  return /^[a-zA-Z]:\//.test(path);
 }
