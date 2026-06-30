@@ -256,6 +256,7 @@ import {
   shouldAnimateCodexSidebarToggle,
   shouldCollapseCodexSidebarResizeWidth,
   shouldClearCodexSidebarHoverSuppression,
+  shouldResetCodexSidebarPointerOnWindowMouseOut,
   shouldSuppressCodexSidebarHoverOpen,
   type CodexSidebarPointerSnapshot,
 } from "@/lib/codex-sidebar-auto-reveal";
@@ -5282,9 +5283,29 @@ export function WorkbenchShell({
       recomputeFloatingSidebarVisibility(nextPointer.x);
     };
 
+    const handleWindowMouseOut = (event: MouseEvent) => {
+      if (!shouldResetCodexSidebarPointerOnWindowMouseOut({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        relatedTarget: event.relatedTarget,
+      })) return;
+
+      sidebarPointerRef.current = CODEX_SIDEBAR_POINTER_DEFAULT;
+      recomputeFloatingSidebarVisibility(null);
+    };
+
     window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("mouseout", handleWindowMouseOut, {
+      capture: true,
+      passive: true,
+    });
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("mouseout", handleWindowMouseOut, {
+        capture: true,
+      });
     };
   }, [getWindowZoom, recomputeFloatingSidebarVisibility]);
 

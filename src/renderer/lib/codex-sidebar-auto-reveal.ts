@@ -51,6 +51,14 @@ export interface CodexSidebarClientPointerInput {
   updatedAt: number;
 }
 
+export interface CodexSidebarWindowMouseOutInput {
+  clientX: number;
+  clientY: number;
+  innerWidth: number;
+  innerHeight: number;
+  relatedTarget: EventTarget | null;
+}
+
 export const CODEX_SIDEBAR_POINTER_DEFAULT: CodexSidebarPointerSnapshot = {
   x: null,
   y: null,
@@ -221,6 +229,18 @@ export function normalizeCodexSidebarPointer(
     velocityY,
     speed: Math.hypot(velocityX, velocityY),
   };
+}
+
+export function shouldResetCodexSidebarPointerOnWindowMouseOut(
+  input: CodexSidebarWindowMouseOutInput,
+): boolean {
+  if (input.relatedTarget !== null) return false;
+  return !(
+    input.clientX >= 0
+    && input.clientX < input.innerWidth
+    && input.clientY >= 0
+    && input.clientY < input.innerHeight
+  );
 }
 
 export function getCodexSidebarFloatingTransition(reducedMotion: boolean) {

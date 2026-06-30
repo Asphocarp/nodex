@@ -18,6 +18,7 @@ import {
   shouldAnimateCodexSidebarToggle,
   shouldCollapseCodexSidebarResizeWidth,
   shouldClearCodexSidebarHoverSuppression,
+  shouldResetCodexSidebarPointerOnWindowMouseOut,
   shouldSuppressCodexSidebarHoverOpen,
 } from "./codex-sidebar-auto-reveal";
 
@@ -184,6 +185,37 @@ describe("Codex sidebar auto-reveal contract", () => {
     expect(second.velocityX).toBe(10);
     expect(second.velocityY).toBe(10);
     expect(Math.round(second.speed)).toBe(14);
+  });
+
+  test("resets pointer on Codex window mouseout only when leaving the viewport", () => {
+    expect(shouldResetCodexSidebarPointerOnWindowMouseOut({
+      clientX: 10,
+      clientY: 10,
+      innerWidth: 800,
+      innerHeight: 600,
+      relatedTarget: document.body,
+    })).toBeFalse();
+    expect(shouldResetCodexSidebarPointerOnWindowMouseOut({
+      clientX: 10,
+      clientY: 10,
+      innerWidth: 800,
+      innerHeight: 600,
+      relatedTarget: null,
+    })).toBeFalse();
+    expect(shouldResetCodexSidebarPointerOnWindowMouseOut({
+      clientX: -1,
+      clientY: 10,
+      innerWidth: 800,
+      innerHeight: 600,
+      relatedTarget: null,
+    })).toBeTrue();
+    expect(shouldResetCodexSidebarPointerOnWindowMouseOut({
+      clientX: 800,
+      clientY: 10,
+      innerWidth: 800,
+      innerHeight: 600,
+      relatedTarget: null,
+    })).toBeTrue();
   });
 
   test("selects the Codex spring or reduced-motion transition", () => {
