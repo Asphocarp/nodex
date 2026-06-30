@@ -10,22 +10,22 @@ const NODEX_DIFF_THEME: ThemesType = {
   light: "pierre-light",
 };
 
+export const NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT = 20;
+export const NODEX_DIFF_HOST_CLASS = "nodex-inline-diff";
+
+const NODEX_DIFF_ROOT_SELECTOR = ":is([data-diff], [data-file], [data-diffs])";
+const NODEX_DIFF_HEADER_AND_ROOT_SELECTOR = `[data-diffs-header],
+${NODEX_DIFF_ROOT_SELECTOR}`;
+
 const NODEX_DIFF_HOST_STYLE_BASE: DiffHostStyle = {
-  "--nodex-diffs-surface": "color-mix(in srgb, var(--background-secondary) 95%, var(--foreground))",
-  "--nodex-diffs-context-number": "color-mix(in lab, var(--nodex-diffs-surface) 98.5%, var(--diffs-mixer))",
-  "--nodex-diffs-addition-number":
-    "color-mix(in srgb, var(--nodex-diffs-surface) 91%, var(--diffs-addition-color-override))",
-  "--nodex-diffs-deletion-number":
-    "color-mix(in srgb, var(--nodex-diffs-surface) 91%, var(--diffs-deletion-color-override))",
-  "--nodex-diffs-number-foreground": "var(--foreground-tertiary)",
-  "--nodex-diffs-header-foreground": "var(--foreground-secondary)",
+  "--codex-diffs-surface":
+    "var(--codex-diffs-surface-override, var(--color-token-main-surface-primary))",
   "--diffs-font-size": "var(--vscode-editor-font-size, 14px)",
   "--diffs-line-height":
     "calc(var(--diffs-font-size, var(--vscode-editor-font-size, 14px)) * 1.8)",
   "--diffs-gap-inline": "6px",
   "--diffs-gap-block": "0",
   "--diffs-min-number-column-width": "4ch",
-  "--diffs-fg-number-override": "var(--nodex-diffs-number-foreground)",
 };
 
 const NODEX_DIFF_HOST_STYLE_BY_THEME: Record<DiffThemeType, DiffHostStyle> = {
@@ -41,111 +41,137 @@ const NODEX_DIFF_HOST_STYLE_BY_THEME: Record<DiffThemeType, DiffHostStyle> = {
   },
 };
 
-export const NODEX_DIFF_HOST_CLASS = "nodex-inline-diff";
-
 export const NODEX_DIFF_UNSAFE_CSS = `
-[data-separator-first] {
-  padding-block-start: 8px;
-}
-
-[data-separator-content]:first-child {
-  margin-left: 34px;
-}
-
-[data-diffs-header],
-[data-diffs] {
-  --diffs-bg: transparent;
-  --diffs-bg-context: transparent;
-  --diffs-bg-buffer: transparent;
-  --diffs-bg-hover: transparent;
-  --diffs-bg-buffer-override: transparent;
-  --diffs-bg-separator-override: transparent;
-  --nodex-diffs-expandable-section: color-mix(
+${NODEX_DIFF_HEADER_AND_ROOT_SELECTOR} {
+  --codex-diffs-surface: var(
+    --codex-diffs-surface-override,
+    var(--color-token-main-surface-primary)
+  );
+  --codex-diffs-context-surface: color-mix(
     in srgb,
-    var(--nodex-diffs-context-number, var(--nodex-diffs-surface)) 50%,
-    transparent
+    var(--codex-diffs-surface) 94%,
+    var(--color-token-main-surface-primary)
   );
-  --nodex-diffs-expandable-foreground: var(
-    --nodex-diffs-header-foreground,
-    var(--diffs-fg-number)
+  --codex-diffs-separator-surface: color-mix(
+    in srgb,
+    var(--codex-diffs-surface) 94%,
+    var(--color-token-text-link-foreground)
   );
-  background-color: transparent;
+  --codex-diffs-hover-surface: color-mix(
+    in srgb,
+    var(--codex-diffs-surface) 92%,
+    var(--color-token-main-surface-primary)
+  );
+  --codex-diffs-header-surface: var(--codex-diffs-surface);
+  --codex-diffs-context-number: color-mix(
+    in lab,
+    var(--codex-diffs-surface) 98.5%,
+    var(--diffs-mixer)
+  );
+  --codex-diffs-addition-number: light-dark(
+    color-mix(in lab, var(--diffs-light-bg, #fff) 91%, var(--diffs-addition-base)),
+    color-mix(in lab, var(--diffs-dark-bg, #000) 85%, var(--diffs-addition-base))
+  );
+  --codex-diffs-deletion-number: light-dark(
+    color-mix(in lab, var(--diffs-light-bg, #fff) 91%, var(--diffs-deletion-base)),
+    color-mix(in lab, var(--diffs-dark-bg, #000) 85%, var(--diffs-deletion-base))
+  );
+  --codex-diffs-addition-hover: light-dark(
+    color-mix(in lab, var(--diffs-light-bg, #fff) 80%, var(--diffs-addition-base)),
+    color-mix(in lab, var(--diffs-dark-bg, #000) 70%, var(--diffs-addition-base))
+  );
+  --codex-diffs-deletion-hover: light-dark(
+    color-mix(in lab, var(--diffs-light-bg, #fff) 80%, var(--diffs-deletion-base)),
+    color-mix(in lab, var(--diffs-dark-bg, #000) 75%, var(--diffs-deletion-base))
+  );
+  /* Keep unhighlighted lines readable while syntax tokens are pending. */
+  --diffs-dark: var(--color-token-editor-foreground);
+  --diffs-light: var(--color-token-editor-foreground);
+  --diffs-bg: var(--codex-diffs-surface) !important;
+  --diffs-bg-context-override: var(--codex-diffs-context-surface);
+  --diffs-bg-separator-override: var(--codex-diffs-separator-surface);
+  --diffs-bg-hover-override: var(--codex-diffs-hover-surface);
+  background-color: var(--codex-diffs-surface) !important;
 }
 
-[data-diffs][data-background] [data-column-number] {
-  background-color: var(--nodex-diffs-surface, var(--background-secondary));
+${NODEX_DIFF_ROOT_SELECTOR} [data-utility-button] {
+  background-color: var(--color-token-foreground);
+  color: var(--color-token-side-bar-background);
+  border: none;
+  border-radius: 4px;
+  margin-right: 0;
 }
 
-[data-diffs][data-background]
-  [data-line-type="context-expanded"]
-  [data-column-number] {
-  background-color: var(
-    --nodex-diffs-context-number,
-    var(--nodex-diffs-surface, var(--background-secondary))
+${NODEX_DIFF_ROOT_SELECTOR} [data-utility-button]:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--color-token-foreground) 88%,
+    var(--color-token-side-bar-background)
   );
 }
 
-[data-diffs][data-background]
-  [data-line-type="change-addition"]
-  [data-column-number] {
-  background-color: var(
-    --nodex-diffs-addition-number,
-    var(--nodex-diffs-surface, var(--background-secondary))
-  );
+${NODEX_DIFF_ROOT_SELECTOR} [data-selected-line][data-line-annotation] {
+  background-color: var(--diffs-bg);
 }
 
-[data-diffs][data-background]
-  [data-line-type="change-deletion"]
-  [data-column-number] {
-  background-color: var(
-    --nodex-diffs-deletion-number,
-    var(--nodex-diffs-surface, var(--background-secondary))
-  );
+${NODEX_DIFF_ROOT_SELECTOR} [data-code] {
+  scrollbar-gutter: auto;
 }
 
-[data-diffs][data-background]
-  [data-separator="line-info"]
-  [data-separator-wrapper],
-[data-diffs][data-background]
-  [data-separator="line-info"]
-  [data-expand-button],
-[data-diffs][data-background]
-  [data-separator="line-info"]
-  [data-separator-content] {
-  background-color: var(--nodex-diffs-expandable-section);
+${NODEX_DIFF_ROOT_SELECTOR}
+  [data-line-type='change-addition']:is([data-line], [data-no-newline]) {
+  --diffs-computed-diff-line-bg: var(--diffs-bg-addition);
 }
 
-[data-diffs] [data-separator="line-info"] [data-separator-wrapper] {
-  color: var(--nodex-diffs-expandable-foreground);
+${NODEX_DIFF_ROOT_SELECTOR}
+  [data-line-type='change-addition']:is([data-column-number], [data-gutter-buffer]) {
+  --diffs-computed-diff-line-bg: var(--codex-diffs-addition-number);
 }
 
-[data-diffs] [data-separator="line-info"] [data-expand-button] {
-  width: 44px;
+${NODEX_DIFF_ROOT_SELECTOR}
+  [data-line-type='change-deletion']:is([data-line], [data-no-newline]) {
+  --diffs-computed-diff-line-bg: var(--diffs-bg-deletion);
 }
 
-[data-diffs][data-overflow="scroll"][data-type="file"]
-  [data-separator="line-info"]
-  [data-separator-wrapper],
-[data-diffs][data-overflow="scroll"][data-type="split"]
-  [data-deletions]
-  [data-separator="line-info"]
-  [data-separator-wrapper] {
-  position: sticky;
-  left: var(--diffs-gap-inline, var(--diffs-gap-fallback));
-  z-index: 1;
+${NODEX_DIFF_ROOT_SELECTOR}
+  [data-line-type='change-deletion']:is([data-column-number], [data-gutter-buffer]) {
+  --diffs-computed-diff-line-bg: var(--codex-diffs-deletion-number);
 }
 
-[data-diffs][data-overflow="scroll"][data-type="split"]
-  [data-additions]
-  [data-separator="line-info"]
-  [data-separator-wrapper] {
-  position: sticky;
-  left: 0;
-  z-index: 1;
+${NODEX_DIFF_ROOT_SELECTOR}
+  [data-line-type='change-addition'][data-hovered]:not([data-selected-line]) {
+  --diffs-computed-hovered-line-bg: var(--codex-diffs-addition-hover);
 }
 
-[data-separator="line-info"][data-separator-last] {
-  margin-bottom: 8px;
+${NODEX_DIFF_ROOT_SELECTOR}
+  [data-line-type='change-deletion'][data-hovered]:not([data-selected-line]) {
+  --diffs-computed-hovered-line-bg: var(--codex-diffs-deletion-hover);
+}
+
+/* Cover fractional-pixel seams between consecutive solid addition markers. */
+${NODEX_DIFF_ROOT_SELECTOR} [data-line-type="change-addition"][data-column-number]
+  + [data-line-type="change-addition"][data-column-number]::before {
+  contain: none;
+  top: -1px;
+  height: calc(100% + 1px);
+}
+
+mark.codex-thread-find-match {
+  background-color: var(--vscode-charts-yellow);
+  color: var(--color-token-foreground);
+  border-radius: var(--radius-2xs);
+  padding: 0;
+  margin: 0;
+  border: 0;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  vertical-align: baseline;
+}
+
+mark.codex-thread-find-active {
+  background-color: var(--vscode-charts-orange);
 }
 
 :host(.${NODEX_DIFF_HOST_CLASS}) [data-separator]:empty {
@@ -160,6 +186,42 @@ export const NODEX_DIFF_UNSAFE_CSS = `
   border-top: 1px solid color-mix(in srgb, var(--diffs-fg) 18%, transparent);
 }
 
+`;
+
+const NODEX_REVIEW_DIFF_UNSAFE_CSS = `
+${NODEX_DIFF_ROOT_SELECTOR} [data-separator="line-info"] [data-expand-button],
+${NODEX_DIFF_ROOT_SELECTOR} [data-separator="line-info"] [data-separator-content] {
+  background-color: color-mix(
+    in srgb,
+    var(--color-token-list-active-selection-background) 56%,
+    var(--diffs-bg)
+  );
+}
+
+${NODEX_DIFF_ROOT_SELECTOR} [data-separator="line-info"] [data-expand-button] {
+  border-inline-end: 1px solid var(--diffs-bg);
+  border-start-start-radius: 8px;
+  border-end-start-radius: 8px;
+  width: auto;
+}
+
+${NODEX_DIFF_ROOT_SELECTOR} [data-separator="line-info"] [data-separator-wrapper][data-separator-multi-button] [data-expand-up] {
+  border-end-start-radius: 0;
+}
+
+${NODEX_DIFF_ROOT_SELECTOR} [data-separator="line-info"] [data-separator-wrapper][data-separator-multi-button] [data-expand-down] {
+  border-start-start-radius: 0;
+}
+
+${NODEX_DIFF_ROOT_SELECTOR} [data-separator="line-info"] [data-separator-content] {
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
+}
+
+${NODEX_DIFF_ROOT_SELECTOR} [data-separator="line-info"] [data-separator-wrapper] {
+  grid-template-columns: var(--diffs-column-number-width) auto;
+  padding-inline: 2px;
+}
 `;
 
 export function getNodexDiffHostStyle(themeType: DiffThemeType): CSSProperties {
@@ -199,5 +261,30 @@ export function getNodexDiffOptions(
     hunkSeparators: "simple",
     unsafeCSS: `${NODEX_DIFF_UNSAFE_CSS}\n${wrapUnsafeCss}`,
     disableFileHeader,
+  };
+}
+
+export function getNodexReviewDiffOptions(
+  themeType: DiffThemeType,
+  disableFileHeader: boolean,
+  opts?: {
+    diffStyle?: SharedDiffOptions["diffStyle"];
+    overflow?: SharedDiffOptions["overflow"];
+    wrap?: boolean;
+    lineDiffType?: SharedDiffOptions["lineDiffType"];
+  },
+): SharedDiffOptions {
+  const options = getNodexDiffOptions(themeType, disableFileHeader, {
+    ...opts,
+    overflow: opts?.overflow ?? "scroll",
+    lineDiffType: opts?.lineDiffType ?? "word-alt",
+  });
+
+  return {
+    ...options,
+    hunkSeparators: "line-info",
+    collapsedContextThreshold: 1,
+    expansionLineCount: NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT,
+    unsafeCSS: `${options.unsafeCSS ?? ""}\n${NODEX_REVIEW_DIFF_UNSAFE_CSS}`,
   };
 }

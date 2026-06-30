@@ -86,6 +86,70 @@ function buildCommentStoryConversation(): CodexConversationSnapshot {
   return conversation;
 }
 
+function buildReviewParityConversation(): CodexConversationSnapshot {
+  const conversation = buildStoryConversation();
+  conversation.threadId = "thr_story_review_parity";
+  conversation.turns[0] = {
+    ...conversation.turns[0]!,
+    threadId: "thr_story_review_parity",
+    turnId: "turn_review_parity",
+    diff: [
+      "diff --git a/src/renderer/components/workbench/review-pane.tsx b/src/renderer/components/workbench/review-pane.tsx",
+      "index 1111111..2222222 100644",
+      "--- a/src/renderer/components/workbench/review-pane.tsx",
+      "+++ b/src/renderer/components/workbench/review-pane.tsx",
+      "@@ -1,4 +1,5 @@",
+      " import { useMemo } from \"react\";",
+      " type Props = { open: boolean };",
+      " export function ReviewPane(props: Props) {",
+      "+  const active = props.open;",
+      "   return null;",
+      "@@ -120,4 +121,5 @@",
+      " function renderFooter() {",
+      "   const label = \"Review\";",
+      "+  const action = \"Inspect\";",
+      "   return label;",
+      " }",
+      "",
+      "diff --git a/src/renderer/lib/review-model.ts b/src/renderer/lib/review-model.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/renderer/lib/review-model.ts",
+      "+++ b/src/renderer/lib/review-model.ts",
+      "@@ -12,4 +12,5 @@",
+      " export type ReviewModel = {",
+      "   path: string;",
+      "+  iconToken: string;",
+      " };",
+      "@@ -80,5 +81,6 @@",
+      " export function buildModel() {",
+      "   return {",
+      "+    iconToken: \"typescript\",",
+      "     path: \"src/renderer/lib/review-model.ts\",",
+      "   };",
+      " }",
+      "",
+      "diff --git a/docs/FRONTEND.md b/docs/FRONTEND.md",
+      "index 1111111..2222222 100644",
+      "--- a/docs/FRONTEND.md",
+      "+++ b/docs/FRONTEND.md",
+      "@@ -1,4 +1,5 @@",
+      " # Frontend",
+      " Review tab surfaces are compact.",
+      "+File rows use Codex file-type icons.",
+      " ## Diff review",
+      " Keep the diff readable.",
+      "@@ -60,4 +61,5 @@",
+      " ## Implementation notes",
+      " Diff context should stay expandable.",
+      "+Large unchanged ranges render line-info separators.",
+      " Manual review covers visual parity.",
+      " Tests cover behavior.",
+      "",
+    ].join("\n"),
+  };
+  return conversation;
+}
+
 function ReviewStorySurface({
   openControlLabel,
   ...args
@@ -135,6 +199,21 @@ export const HeaderAndFileRows: Story = {
 export const LastTurnWithFileTree: Story = {
   args: {
     initialFileTreeOpen: true,
+  },
+};
+
+export const CodexParityLineInfoAndIcons: Story = {
+  args: {
+    conversation: buildReviewParityConversation(),
+    initialFileTreeOpen: true,
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Review diff parity fixture: line-info unchanged-range separators, compact file rows, and file-type icons should be visible together.",
+      },
+    },
   },
 };
 
@@ -227,6 +306,13 @@ export const OptionsMenuOpen: Story = {
     projectWorkspacePath: "/Users/asc/repo/nodex",
   },
   render: (args) => <ReviewStorySurface {...args} openControlLabel="Review options" />,
+  parameters: {
+    docs: {
+      description: {
+        story: "The default full-file loading state is on, so the open menu should offer `Don't load full files`.",
+      },
+    },
+  },
 };
 
 export const JumpToFileOpen: Story = {

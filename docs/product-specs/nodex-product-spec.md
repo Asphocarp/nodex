@@ -131,9 +131,11 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - review sources include `Unstaged`, `Staged`, `Commit`, `Branch`, and `Last turn`; the selector only switches the visible diff source and never starts a review prompt
   - the panel can initialize Git for a workspace that is not yet a repository
   - the toolbar exposes source selection, `+N` / `-N` stats, `Review options`, `Jump to file`, unified/split diff mode, `Hide files` / `Show files`, `Commit or push`, and `Create PR`
-  - the panel does not expose word-diff toggles, rich-preview toggles, full-file loading toggles, manual file-tree resizing, copy-git-apply commands, or inline stage/unstage/revert actions
+  - `Review options` owns word wrap, expand/collapse all, full-file loading, rich preview, word diffs, hide/show white space, and copy-git-apply commands; full-file loading is enabled by default, so the default menu action is `Don't load full files`; inline stage/unstage/revert actions stay out of the Review toolbar
+  - file diffs collapse large unchanged ranges into clickable `N unmodified lines` rows that can expand upward, downward, or both in 20-line increments when full old/new file contents are available, while turn-diff hover/inline previews keep their simpler hunk separator presentation
+  - review file headers and the right-side file tree render file-type icons for known extensions and tool config files, with unknown files falling back to the default file glyph
   - Git-backed review sources load through main-process `git:review:diff`, branch stats, and merge-base IPC, preserving separate loading, load-failed, timed-out, non-git, empty, and large-diff states
-  - `Last turn` renders from the active conversation's turn diff, while Git-backed sources load workspace diffs with optional hidden-whitespace review options
+  - `Last turn` renders from the active conversation's turn diff; when the current workspace file still matches the patch, Nodex safely reconstructs full old/new text for the same expandable separator behavior, otherwise it falls back to partial patch rendering; Git-backed sources load exact workspace diffs and full file contents through main-process Git review IPC
   - the right-side file tree is fixed-width, can filter changed files with `Filter files...`, and can be hidden without resetting diff selection or comments
   - model-produced `::code-comment{...}` directives render as path/line anchored review annotations above the matching file diff
   - very large reviews fall back to a capped one-file-at-a-time mode when they exceed file-count, total-line, total-byte, or single-file changed-line thresholds

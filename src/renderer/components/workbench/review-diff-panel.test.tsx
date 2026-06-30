@@ -7,9 +7,10 @@ import {
   NodexToastProvider,
 } from "../ui/toast";
 import { NodexTooltipProvider } from "../ui/tooltip";
+import { NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT } from "../../lib/diff-presentation";
 import type { CodexConversationSnapshot } from "@/lib/types";
 import { ReviewDiffPanel } from "./review-diff-panel";
-import type { FileDiffMetadata, FileDiffProps } from "@pierre/diffs/react";
+import type { FileDiffMetadata, FileDiffProps, MultiFileDiffProps } from "@pierre/diffs/react";
 
 const invokeCalls: unknown[][] = [];
 const clipboardWrites: string[] = [];
@@ -98,9 +99,44 @@ function parsePatchFilesForTest(patch: string): Array<{ files: FileDiffMetadata[
   });
 }
 
+function parseAddedPatchFileWithLineArraysForTest(): Array<{ files: FileDiffMetadata[] }> {
+  return [{
+    files: [{
+      name: "src/created.ts",
+      prevName: null,
+      type: "add",
+      hunks: [{
+        header: "@@ -0,0 +1,2 @@",
+        deletionStart: 0,
+        deletionCount: 0,
+        deletionLines: 0,
+        deletionLineIndex: 0,
+        additionStart: 1,
+        additionCount: 2,
+        additionLines: 2,
+        additionLineIndex: 0,
+      }],
+      additionLines: [
+        "export const created = true;\n",
+        "export const source = \"patch\";\n",
+      ],
+      deletionLines: [],
+    } as unknown as FileDiffMetadata],
+  }];
+}
+
 function countTestFileDiffLines(value: unknown): string {
   if (typeof value === "number") return String(value);
   if (Array.isArray(value)) return String(value.length);
+  return "";
+}
+
+function testDiffOptionValue(options: unknown, key: string): string {
+  if (typeof options !== "object" || options === null) return "";
+  const value = (options as Record<string, unknown>)[key];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
   return "";
 }
 
@@ -116,15 +152,32 @@ const reviewDiffPanelTestDeps = {
     resolved: "light" as const,
     setTheme: () => { },
   }),
-  FileDiff: <LAnnotation,>({ className, fileDiff }: FileDiffProps<LAnnotation>) =>
+  FileDiff: <LAnnotation,>({ className, fileDiff, options }: FileDiffProps<LAnnotation>) =>
     createElement("div", {
       className,
       "data-file-diff": fileDiff.name ?? "file",
       "data-file-additions": countTestFileDiffLines((fileDiff as { additionLines?: unknown }).additionLines),
       "data-file-deletions": countTestFileDiffLines((fileDiff as { deletionLines?: unknown }).deletionLines),
+      "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
+      "data-collapsed-context-threshold": testDiffOptionValue(options, "collapsedContextThreshold"),
+      "data-expansion-line-count": testDiffOptionValue(options, "expansionLineCount"),
+      "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
+      "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
     }),
-  MultiFileDiff: ({ className }: { className?: string }) =>
-    createElement("div", { className, "data-multi-file-diff": "true" }),
+  MultiFileDiff: <LAnnotation,>({ className, oldFile, newFile, options }: MultiFileDiffProps<LAnnotation>) =>
+    createElement("div", {
+      className,
+      "data-multi-file-diff": "true",
+      "data-old-file-name": oldFile.name,
+      "data-new-file-name": newFile.name,
+      "data-old-file-contents": oldFile.contents,
+      "data-new-file-contents": newFile.contents,
+      "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
+      "data-collapsed-context-threshold": testDiffOptionValue(options, "collapsedContextThreshold"),
+      "data-expansion-line-count": testDiffOptionValue(options, "expansionLineCount"),
+      "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
+      "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
+    }),
 };
 
 function buildConversation(): CodexConversationSnapshot {
@@ -205,6 +258,36 @@ function buildRepeatedFilePatch(pathName = "src/example.ts"): string {
     "-export const intermediate = 2;",
     "+export const finalValue = 3;",
     "+export const secondSectionOnly = true;",
+    "",
+  ].join("\n");
+}
+
+function buildFileTypePatch(): string {
+  return [
+    "diff --git a/docs/README.md b/docs/README.md",
+    "index 1111111..2222222 100644",
+    "--- a/docs/README.md",
+    "+++ b/docs/README.md",
+    "@@ -1 +1,2 @@",
+    " # Nodex",
+    "+Review docs",
+    "",
+    "diff --git a/src/workbench.tsx b/src/workbench.tsx",
+    "index 1111111..2222222 100644",
+    "--- a/src/workbench.tsx",
+    "+++ b/src/workbench.tsx",
+    "@@ -1 +1,2 @@",
+    " export function Workbench() {",
+    "+  return <main />;",
+    " }",
+    "",
+    "diff --git a/src/model.ts b/src/model.ts",
+    "index 1111111..2222222 100644",
+    "--- a/src/model.ts",
+    "+++ b/src/model.ts",
+    "@@ -1 +1,2 @@",
+    " export const model = true;",
+    "+export const review = true;",
     "",
   ].join("\n");
 }
@@ -318,6 +401,59 @@ describe("review diff panel", () => {
     expect(getByText("Last turn").textContent).toBe("Last turn");
     expect(textContent(container).includes("example.ts")).toBeTrue();
     expect(container.querySelector('[data-file-diff="src/example.ts"]')).not.toBeNull();
+  });
+
+  test("passes Codex review diff options to rendered file diffs", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+
+    const { container } = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+
+    const renderedFileDiff = container.querySelector('[data-file-diff="src/example.ts"]');
+    expect(renderedFileDiff).not.toBeNull();
+    expect(renderedFileDiff?.getAttribute("data-hunk-separators")).toBe("line-info");
+    expect(renderedFileDiff?.getAttribute("data-collapsed-context-threshold")).toBe("1");
+    expect(renderedFileDiff?.getAttribute("data-expansion-line-count")).toBe(
+      String(NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT),
+    );
+    expect(renderedFileDiff?.getAttribute("data-line-diff-type")).toBe("word-alt");
+    expect(renderedFileDiff?.getAttribute("data-diff-indicators")).toBe("bars");
+  });
+
+  test("renders Codex file-type icons in review headers and the file tree", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const conversation = buildConversation();
+    conversation.turns[0]!.diff = buildFileTypePatch();
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={conversation}
+          projectWorkspacePath="/tmp/codex"
+          initialFileTreeOpen
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    await waitForReviewTreePath(view.container, "docs/README.md");
+    await waitForReviewTreePath(view.container, "src/workbench.tsx");
+    await waitForReviewTreePath(view.container, "src/model.ts");
+
+    expect(Boolean(view.container.querySelector('.codex-review-diff-card[data-review-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('.codex-review-diff-card[data-review-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('.codex-review-diff-card[data-review-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('button[data-review-tree-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('button[data-review-tree-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('button[data-review-tree-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]'))).toBeTrue();
   });
 
   test("folds repeated diff sections for the same path into one review entry", async () => {
@@ -1102,9 +1238,9 @@ describe("review diff panel", () => {
     expect(Boolean(view.baseElement.textContent?.includes("Review against a base branch"))).toBeFalse();
     expect(Boolean(view.baseElement.textContent?.includes("Copy git apply command"))).toBeTrue();
     expect(Boolean(view.baseElement.textContent?.includes("Enable word wrap"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Enable word diffs"))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Disable word diffs"))).toBeTrue();
     expect(Boolean(view.baseElement.textContent?.includes("Enable rich preview"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Load full files"))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Don't load full files"))).toBeTrue();
   });
 
   test("prefers the explicit project workspace path for git-backed review sources", async () => {
@@ -1149,6 +1285,112 @@ describe("review diff panel", () => {
       ? (payload as { cwd: string }).cwd
       : "";
     expect(cwd).toBe("/tmp/storybook/large-diff");
+  });
+
+  test("loads full files by default for git-backed review without rich preview", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    mockInvokeImpl = async (channel: unknown) => {
+      if (channel === "git:review:diff") {
+        return {
+          cwd: "/tmp/codex",
+          source: "unstaged",
+          patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+          files: [buildGitSummary("src/git.ts")],
+          isGitRepository: true,
+          baseRef: null,
+          currentBranch: "feature",
+          defaultBranch: "main",
+          errorMessage: null,
+        };
+      }
+      if (channel === "git:review:file-contents") {
+        return {
+          path: "src/git.ts",
+          previousPath: null,
+          oldText: "export const git = 1;\n",
+          newText: "export const git = 1;\nexport const diff = true;\n",
+          oldExists: true,
+          newExists: true,
+          errorMessage: null,
+        };
+      }
+      return null;
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+          initialSource="unstaged"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    await waitForGitReviewDiffCall();
+    await waitFor(() => {
+      if (!view.container.querySelector('[data-multi-file-diff="true"]')) {
+        throw new Error("Expected full-file diff to render by default.");
+      }
+    });
+
+    expect(invokeCalls.some((call) => call[0] === "git:review:file-contents")).toBeTrue();
+    fireEvent.pointerDown(view.getByLabelText("Review options"), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await settleAsyncRender();
+    expect(Boolean(view.baseElement.textContent?.includes("Enable rich preview"))).toBeTrue();
+  });
+
+  test("builds last-turn added file full contents from the patch without reading the workspace file", async () => {
+    mockInvokeImpl = async (channel: unknown) => {
+      if (channel === "read-file") {
+        return {
+          content: "export const source = \"workspace\";\n",
+          binary: false,
+          truncated: false,
+        };
+      }
+      return null;
+    };
+    const conversation = buildConversation();
+    conversation.turns[0]!.diff = [
+      "diff --git a/src/created.ts b/src/created.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/created.ts",
+      "@@ -0,0 +1,2 @@",
+      "+export const created = true;",
+      "+export const source = \"patch\";",
+      "",
+    ].join("\n");
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={conversation}
+          projectWorkspacePath="/tmp/codex"
+          deps={{
+            ...reviewDiffPanelTestDeps,
+            parsePatchFiles: parseAddedPatchFileWithLineArraysForTest,
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    await waitFor(() => {
+      if (!view.container.querySelector('[data-multi-file-diff="true"]')) {
+        throw new Error("Expected added last-turn file to use full-file diff rendering.");
+      }
+    });
+
+    const fullDiff = view.container.querySelector('[data-multi-file-diff="true"]');
+    expect(fullDiff?.getAttribute("data-old-file-contents")).toBe("");
+    expect(fullDiff?.getAttribute("data-new-file-contents")).toBe("export const created = true;\nexport const source = \"patch\";\n");
+    expect(invokeCalls.some((call) => call[0] === "read-file")).toBeFalse();
   });
 
   test("cancels delayed git review snapshot loading after unmount", async () => {
@@ -1281,7 +1523,7 @@ describe("review diff panel", () => {
     ) as HTMLElement[];
     const optionLabels = menuItems.map((node) => (node.textContent ?? "").trim());
 
-    expect(optionLabels.join("|")).toBe("Refresh|Enable word wrap|Collapse all diffs|Load full files|Enable rich preview|Enable word diffs|Hide white space|Copy git apply command");
+    expect(optionLabels.join("|")).toBe("Refresh|Enable word wrap|Collapse all diffs|Don't load full files|Enable rich preview|Disable word diffs|Hide white space|Copy git apply command");
     expect(menuItems.every((node) => node.querySelector("svg") !== null)).toBeTrue();
     expect(menuItems.some((node) => node.textContent?.includes("Review uncommitted changes"))).toBeFalse();
     expect(menuItems.some((node) => node.textContent?.includes("Review against a base branch"))).toBeFalse();

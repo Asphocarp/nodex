@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { getNodexDiffOptions } from "./diff-presentation";
+import {
+  NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT,
+  getNodexDiffOptions,
+  getNodexReviewDiffOptions,
+} from "./diff-presentation";
 
 describe("getNodexDiffOptions", () => {
   test("uses wrap overflow when word wrap is enabled", () => {
@@ -18,5 +22,70 @@ describe("getNodexDiffOptions", () => {
       overflow: "scroll",
     });
     expect(options.overflow).toBe("scroll");
+  });
+
+  test("keeps inline diffs on simple hunk separators by default", () => {
+    const options = getNodexDiffOptions("light", true);
+
+    expect(options.hunkSeparators).toBe("simple");
+  });
+
+  test("uses Codex review hunk separators for review diffs", () => {
+    const options = getNodexReviewDiffOptions("dark", true);
+
+    expect(options.hunkSeparators).toBe("line-info");
+    expect(options.collapsedContextThreshold).toBe(1);
+    expect(options.expansionLineCount).toBe(NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT);
+    expect(options.lineDiffType).toBe("word-alt");
+    expect(options.overflow).toBe("scroll");
+  });
+
+  test("uses Codex review separator geometry without local gutter offsets", () => {
+    const options = getNodexReviewDiffOptions("dark", true);
+    const unsafeCss = String(options.unsafeCSS);
+
+    expect(
+      unsafeCss.includes("grid-template-columns: var(--diffs-column-number-width) auto"),
+    ).toBeTrue();
+    expect(unsafeCss.includes("padding-inline: 2px")).toBeTrue();
+    expect(unsafeCss.includes("margin-left: 34px")).toBeFalse();
+    expect(unsafeCss.includes("width: 44px")).toBeFalse();
+  });
+
+  test("uses Codex continuous addition bar and mark styling", () => {
+    const options = getNodexReviewDiffOptions("dark", true);
+    const unsafeCss = String(options.unsafeCSS);
+
+    expect(unsafeCss.includes("--codex-diffs-header-surface")).toBeTrue();
+    expect(unsafeCss.includes("--diffs-bg-buffer-override")).toBeFalse();
+    expect(unsafeCss.includes("--diffs-bg-selection-override")).toBeFalse();
+    expect(
+      unsafeCss.includes(
+        '+ [data-line-type="change-addition"][data-column-number]::before',
+      ),
+    ).toBeTrue();
+    expect(unsafeCss.includes("contain: none")).toBeTrue();
+    expect(unsafeCss.includes("height: calc(100% + 1px)")).toBeTrue();
+    expect(unsafeCss.includes("data-previous-line-type")).toBeFalse();
+    expect(unsafeCss.includes("box-shadow: 0 -2px")).toBeFalse();
+    expect(unsafeCss.includes("mark.codex-thread-find-match")).toBeTrue();
+    expect(unsafeCss.includes("mark[data-mark]")).toBeFalse();
+  });
+
+  test("does not mix review line-info styling into inline diffs", () => {
+    const options = getNodexDiffOptions("dark", true);
+    const unsafeCss = String(options.unsafeCSS);
+
+    expect(options.hunkSeparators).toBe("simple");
+    expect(unsafeCss.includes("color-token-list-active-selection-background) 56%")).toBeFalse();
+  });
+
+  test("allows review word diffs to be disabled explicitly", () => {
+    const options = getNodexReviewDiffOptions("dark", true, {
+      lineDiffType: "none",
+    });
+
+    expect(options.lineDiffType).toBe("none");
+    expect(options.hunkSeparators).toBe("line-info");
   });
 });

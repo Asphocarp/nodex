@@ -7,7 +7,6 @@ import {
   CodexCloseIcon,
   CodexSidePanelFilesIcon,
   FileTreeChevronIcon,
-  FileTreeFileIcon,
   FileTreeLockIcon,
   ReviewCollapseAllDiffsIcon,
   ReviewCommitOrPushIcon,
@@ -30,6 +29,10 @@ import {
   ReviewUnifiedDiffIcon,
   ReviewWordDiffsIcon,
 } from "../shared/icons";
+import {
+  CodexFileTreeFileIcon,
+  CodexFileTreeIconSprite,
+} from "../shared/codex-file-tree-icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
@@ -55,7 +58,7 @@ import {
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
-  getNodexDiffOptions,
+  getNodexReviewDiffOptions,
 } from "@/lib/diff-presentation";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
@@ -114,6 +117,7 @@ import type {
   GitReviewSnapshot,
   GitReviewSource,
   ReviewDiffResult,
+  WorkspaceFileReadResult,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -197,6 +201,7 @@ const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
 const REVIEW_DIFF_BATCH_DELAY_MS = 16;
 const REVIEW_DIFF_TIMEOUT_MS = 15_000;
 const REVIEW_CONTENT_SEARCH_CAP = 250;
+const REVIEW_FULL_FILE_MAX_BYTES = 5_000_000;
 const REVIEW_OPTIONS_MENU_ICON_CLASS_NAME = "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
 const REVIEW_AGGREGATE_DIFF_STATS_CLASS_NAME = "text-size-chat mr-1 shrink-0 select-none";
 const REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]";
@@ -610,6 +615,155 @@ function isTextualFullDiffCandidate(entry: ReviewFileEntry): boolean {
   return entry.additions + entry.deletions <= LARGE_DIFF_LINE_THRESHOLD;
 }
 
+function buildUnavailableReviewFullContents(entry: ReviewFileEntry): GitReviewFileContents {
+  return {
+    path: entry.displayPath,
+    previousPath: entry.previousPath,
+    oldText: null,
+    newText: null,
+    oldExists: false,
+    newExists: false,
+    errorMessage: null,
+  };
+}
+
+function isGitReviewFileContentsResult(value: unknown): value is GitReviewFileContents {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<GitReviewFileContents>;
+  return typeof candidate.path === "string"
+    && "oldText" in candidate
+    && "newText" in candidate
+    && typeof candidate.oldExists === "boolean"
+    && typeof candidate.newExists === "boolean"
+    && "errorMessage" in candidate;
+}
+
+function isWorkspaceFileReadResult(value: unknown): value is WorkspaceFileReadResult {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<WorkspaceFileReadResult>;
+  return typeof candidate.content === "string"
+    && typeof candidate.binary === "boolean"
+    && typeof candidate.truncated === "boolean";
+}
+
+function isReviewNewFile(fileDiff: FileDiffMetadata): boolean {
+  return String(fileDiff.type) === "new" || String(fileDiff.type) === "add";
+}
+
+function isReviewDeletedFile(fileDiff: FileDiffMetadata): boolean {
+  return String(fileDiff.type) === "deleted" || String(fileDiff.type) === "delete";
+}
+
+function hasPatchLineArrays(fileDiff: FileDiffMetadata): boolean {
+  const candidate = fileDiff as {
+    additionLines?: unknown;
+    deletionLines?: unknown;
+    hunks?: unknown;
+  };
+  if (!Array.isArray(candidate.additionLines)) return false;
+  if (!Array.isArray(candidate.deletionLines)) return false;
+  if (!Array.isArray(candidate.hunks)) return false;
+  return candidate.hunks.every((hunk) => {
+    if (typeof hunk !== "object" || hunk === null) return false;
+    const value = hunk as Partial<FileDiffMetadata["hunks"][number]>;
+    return Number.isInteger(value.additionStart)
+      && Number.isInteger(value.additionCount)
+      && Number.isInteger(value.additionLineIndex)
+      && Number.isInteger(value.deletionCount)
+      && Number.isInteger(value.deletionLineIndex);
+  });
+}
+
+function splitLinesPreservingNewlines(contents: string): string[] {
+  if (contents.length === 0) return [];
+
+  const lines: string[] = [];
+  let startIndex = 0;
+  for (;;) {
+    const newlineIndex = contents.indexOf("\n", startIndex);
+    if (newlineIndex === -1) break;
+    lines.push(contents.slice(startIndex, newlineIndex + 1));
+    startIndex = newlineIndex + 1;
+  }
+  if (startIndex < contents.length) {
+    lines.push(contents.slice(startIndex));
+  }
+  return lines;
+}
+
+function areLineArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((line, index) => line === right[index]);
+}
+
+function slicePatchLines(lines: string[], startIndex: number, count: number): string[] | null {
+  if (startIndex < 0 || count < 0) return null;
+  const endIndex = startIndex + count;
+  if (endIndex > lines.length) return null;
+  return lines.slice(startIndex, endIndex);
+}
+
+function reconstructOldTextFromCurrentText(fileDiff: FileDiffMetadata, currentText: string): string | null {
+  if (!hasPatchLineArrays(fileDiff)) return null;
+
+  const oldLines = splitLinesPreservingNewlines(currentText);
+  for (const hunk of [...fileDiff.hunks].reverse()) {
+    const startIndex = hunk.additionStart - 1;
+    const expectedNewLines = slicePatchLines(fileDiff.additionLines, hunk.additionLineIndex, hunk.additionCount);
+    const replacementOldLines = slicePatchLines(fileDiff.deletionLines, hunk.deletionLineIndex, hunk.deletionCount);
+    if (!expectedNewLines || !replacementOldLines) return null;
+    if (!areLineArraysEqual(oldLines.slice(startIndex, startIndex + expectedNewLines.length), expectedNewLines)) {
+      return null;
+    }
+    oldLines.splice(startIndex, expectedNewLines.length, ...replacementOldLines);
+  }
+
+  return oldLines.join("");
+}
+
+function buildTranscriptFullContentsFromPatch(entry: ReviewFileEntry, currentText: string): GitReviewFileContents {
+  const oldText = reconstructOldTextFromCurrentText(entry.fileDiff, currentText);
+  if (oldText === null) return buildUnavailableReviewFullContents(entry);
+
+  return {
+    path: entry.displayPath,
+    previousPath: entry.previousPath,
+    oldText,
+    newText: currentText,
+    oldExists: true,
+    newExists: true,
+    errorMessage: null,
+  };
+}
+
+function buildTranscriptDeletedFileContents(entry: ReviewFileEntry): GitReviewFileContents {
+  if (!hasPatchLineArrays(entry.fileDiff)) return buildUnavailableReviewFullContents(entry);
+
+  return {
+    path: entry.displayPath,
+    previousPath: entry.previousPath,
+    oldText: entry.fileDiff.deletionLines.join(""),
+    newText: null,
+    oldExists: true,
+    newExists: false,
+    errorMessage: null,
+  };
+}
+
+function buildTranscriptNewFileContentsFromPatch(entry: ReviewFileEntry): GitReviewFileContents {
+  if (!hasPatchLineArrays(entry.fileDiff)) return buildUnavailableReviewFullContents(entry);
+
+  return {
+    path: entry.displayPath,
+    previousPath: entry.previousPath,
+    oldText: "",
+    newText: entry.fileDiff.additionLines.join(""),
+    oldExists: false,
+    newExists: true,
+    errorMessage: null,
+  };
+}
+
 
 function extractLastTurnPatchItem(items: CodexConversationItem[]): string | null {
   for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -774,7 +928,6 @@ function ReviewFileRow({
   diffMode,
   wrap,
   wordDiffsEnabled,
-  richPreviewEnabled,
   loadFullFilesEnabled,
   expanded,
   openerId,
@@ -788,7 +941,6 @@ function ReviewFileRow({
   diffMode: ReviewDiffMode;
   wrap: boolean;
   wordDiffsEnabled: boolean;
-  richPreviewEnabled: boolean;
   loadFullFilesEnabled: boolean;
   expanded: boolean;
   openerId: string;
@@ -806,16 +958,15 @@ function ReviewFileRow({
   } = deps;
   const { resolved } = useTheme();
   const diffHostStyle = getNodexDiffHostStyle(resolved === "dark" ? "dark" : "light");
-  const lineDiffType = wordDiffsEnabled && entry.additions + entry.deletions <= LARGE_DIFF_LINE_THRESHOLD
+  const lineDiffType = wordDiffsEnabled
     ? "word-alt"
     : "none";
-  const diffOptions = getNodexDiffOptions(resolved === "dark" ? "dark" : "light", true, {
+  const diffOptions = getNodexReviewDiffOptions(resolved === "dark" ? "dark" : "light", true, {
     diffStyle: diffMode,
     wrap,
     lineDiffType,
   });
   const fullDiffRenderable = loadFullFilesEnabled
-    && richPreviewEnabled
     && expanded
     && fullContents
     && fullContents.errorMessage === null
@@ -854,7 +1005,7 @@ function ReviewFileRow({
           <div className="group/diff-header text-size-chat @container/diff-header relative flex items-center gap-2 py-0.5 ps-3 pe-2 hover:bg-token-list-hover-background bg-[color-mix(in_srgb,var(--color-token-main-surface-primary)_88%,transparent)] [.dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] [.electron-dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] mb-0.5">
             <div className="text-size-chat flex min-w-0 flex-1 items-center text-token-text-primary gap-0.5">
               <div className="flex min-w-0 items-center gap-2 pl-1">
-                <FileTreeFileIcon className="size-4 shrink-0 text-token-description-foreground" />
+                <CodexFileTreeFileIcon path={entry.displayPath} />
                 <span className="min-w-0" onClick={(event) => event.stopPropagation()}>
                   <FilenameButton
                     displayPath={entry.displayPath}
@@ -1307,7 +1458,7 @@ function ReviewFileTreePane({
           {row.type === "folder" ? (
             <FileTreeChevronIcon className={cn("size-4 transition-transform", row.isExpanded ? undefined : "-rotate-90")} />
           ) : (
-            <FileTreeFileIcon className="size-4" />
+            <CodexFileTreeFileIcon path={row.path} />
           )}
         </div>
         <div
@@ -1491,9 +1642,9 @@ export function ReviewDiffPanel({
   const [diffMode, setDiffMode] = useState<ReviewDiffMode>("unified");
   const [hideWhitespace, setHideWhitespace] = useState(false);
   const [wrap, setWrap] = useState(false);
-  const [wordDiffsEnabled, setWordDiffsEnabled] = useState(false);
+  const [wordDiffsEnabled, setWordDiffsEnabled] = useState(true);
   const [richPreviewEnabled, setRichPreviewEnabled] = useState(false);
-  const [loadFullFilesEnabled, setLoadFullFilesEnabled] = useState(false);
+  const [loadFullFilesEnabled, setLoadFullFilesEnabled] = useState(true);
   const [fileTreeOpen, setFileTreeOpen] = useState(initialFileTreeOpen);
   const [fileTreeWidth, setFileTreeWidth] = useState(REVIEW_FILE_TREE_DEFAULT_WIDTH_PX);
   const [fileFilter, setFileFilter] = useState("");
@@ -1512,6 +1663,7 @@ export function ReviewDiffPanel({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [fullContentsByPath, setFullContentsByPath] = useState<Record<string, GitReviewFileContents>>({});
   const [fullContentsLoadingPaths, setFullContentsLoadingPaths] = useState<Record<string, boolean>>({});
+  const fullContentsLoadingPathsRef = useRef<Record<string, boolean>>({});
   const gitLoadRequestIdRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const gitLoading = gitLoadStatus === "loading";
@@ -1592,7 +1744,36 @@ export function ReviewDiffPanel({
     entry: ReviewFileEntry,
   ): Promise<GitReviewFileContents> => {
     if (isTranscriptReviewSource(source)) {
-      throw new Error("Full-file review is only available for Git-backed review sources.");
+      if (isReviewNewFile(entry.fileDiff)) {
+        return buildTranscriptNewFileContentsFromPatch(entry);
+      }
+
+      if (isReviewDeletedFile(entry.fileDiff)) {
+        return buildTranscriptDeletedFileContents(entry);
+      }
+
+      const normalizedCwd = reviewCwd?.trim() ?? "";
+      if (!normalizedCwd || !entry.openPath || !hasPatchLineArrays(entry.fileDiff)) {
+        return buildUnavailableReviewFullContents(entry);
+      }
+
+      try {
+        const readResult = await invoke("read-file", {
+          workspaceRoot: normalizedCwd,
+          path: entry.openPath,
+          maxBytes: REVIEW_FULL_FILE_MAX_BYTES,
+        });
+        if (!isWorkspaceFileReadResult(readResult) || readResult.binary || readResult.truncated) {
+          return isReviewNewFile(entry.fileDiff)
+            ? buildTranscriptNewFileContentsFromPatch(entry)
+            : buildUnavailableReviewFullContents(entry);
+        }
+        return buildTranscriptFullContentsFromPatch(entry, readResult.content);
+      } catch {
+        return isReviewNewFile(entry.fileDiff)
+          ? buildTranscriptNewFileContentsFromPatch(entry)
+          : buildUnavailableReviewFullContents(entry);
+      }
     }
 
     const normalizedCwd = reviewCwd?.trim() ?? "";
@@ -1600,14 +1781,17 @@ export function ReviewDiffPanel({
       throw new Error("Working directory is required to load full review files.");
     }
 
-    return invoke("git:review:file-contents", {
+    const result = await invoke("git:review:file-contents", {
       cwd: normalizedCwd,
       source,
       path: entry.displayPath,
       previousPath: entry.previousPath,
       baseRef: gitSnapshot?.baseRef ?? null,
       commitSha: source === "commit" ? commitSha : null,
-    }) as Promise<GitReviewFileContents>;
+    });
+    return isGitReviewFileContentsResult(result)
+      ? result
+      : buildUnavailableReviewFullContents(entry);
   };
 
   useEffect(() => {
@@ -1738,6 +1922,10 @@ export function ReviewDiffPanel({
     setFullContentsLoadingPaths({});
     clearContentSearchMarks(reviewContentRootRef.current);
   }, [snapshot.patch, source]);
+
+  useEffect(() => {
+    fullContentsLoadingPathsRef.current = fullContentsLoadingPaths;
+  }, [fullContentsLoadingPaths]);
 
   const filteredFiles = useMemo(
     () => filterReviewFiles(snapshot.files, deferredFileFilter),
@@ -1998,7 +2186,6 @@ export function ReviewDiffPanel({
         diffMode={diffMode}
         wrap={wrap}
         wordDiffsEnabled={wordDiffsEnabled}
-        richPreviewEnabled={richPreviewEnabled}
         loadFullFilesEnabled={loadFullFilesEnabled}
         expanded={expandedKeys.has(entry.key)}
         openerId={opener}
@@ -2045,12 +2232,14 @@ export function ReviewDiffPanel({
   };
 
   useEffect(() => {
-    if (!loadFullFilesEnabled || isTranscriptReviewSource(source)) return;
+    if (!loadFullFilesEnabled) return;
 
+    const loadingPaths = fullContentsLoadingPathsRef.current;
     const nextEntries = visibleFiles.filter((entry) => {
       if (!isTextualFullDiffCandidate(entry)) return false;
+      if (isTranscriptReviewSource(source) && !hasPatchLineArrays(entry.fileDiff)) return false;
       if (fullContentsByPath[entry.displayPath]) return false;
-      return !fullContentsLoadingPaths[entry.displayPath];
+      return !loadingPaths[entry.displayPath];
     });
     if (nextEntries.length === 0) return;
 
@@ -2103,7 +2292,6 @@ export function ReviewDiffPanel({
     };
   }, [
     fullContentsByPath,
-    fullContentsLoadingPaths,
     loadFullFilesEnabled,
     source,
     visibleFiles,
@@ -2385,6 +2573,7 @@ export function ReviewDiffPanel({
 
   return (
     <div className="relative h-full min-h-0 bg-token-main-surface-primary">
+      <CodexFileTreeIconSprite />
       <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_1fr]">
         <div className="h-toolbar-pane border-b bg-token-main-surface-primary [container-name:review-header] [container-type:inline-size] grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-token-border px-2 py-1 text-token-description-foreground">
           <div className="flex min-w-0 items-center gap-2">
@@ -2505,7 +2694,6 @@ export function ReviewDiffPanel({
               <NodexDropdownSeparator />
               <NodexDropdownItem
                 onSelect={() => setLoadFullFilesEnabled((current) => !current)}
-                disabled={isTranscriptReviewSource(source)}
                 leftSlot={<ReviewFullFilesIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
               >
                 {reviewOptionsFullFilesLabel}
