@@ -121,7 +121,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 
 ## Message Rendering
 - Assistant, plan, and reasoning content render through Streamdown with official code, Mermaid, math, and CJK plugins.
-- Streamdown fenced code blocks in thread markdown use the same resting visual surface as the BlockNote-backed NFM editor code block: one subdued `--code-block-bg` surface, no nested Streamdown header/body card, no line numbers, and a hover/focus copy action only.
+- Streamdown fenced code blocks in thread markdown use the same resting visual surface as the BlockNote-backed NFM editor code block: one subdued `--code-block-bg` surface, no nested Streamdown header/body card, no line numbers, and a copy action that appears on code-block hover or when the copy button itself has keyboard focus.
 - Thread fenced code copy preserves the original source line breaks and goes through Nodex's clipboard fallback path so Electron permission/API gaps do not make the Streamdown copy affordance inert.
 - Transcript markdown rendering remains streaming-safe for in-progress turns.
 - `imageView` transcript items render as assistant markdown content; review-mode markers (`enteredReviewMode`, `exitedReviewMode`) are ignored and do not render transcript rows.

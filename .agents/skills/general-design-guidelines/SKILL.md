@@ -16,7 +16,7 @@ The aesthetic is **luxury tool-grade software** — closer to Linear, Arc, Notio
 - Hierarchy through **opacity and color**, not through borders and boxes
 - Flat, single-surface layouts — no gradient heroes, no nested bordered cards
 - Tight, intentional spacing — never loose or "airy" by default
-- Quiet until interacted with — elements reveal depth on hover/focus
+- Quiet until interacted with — reveal visual depth on pointer hover, active, or open states; do not make hidden chrome keyboard-focusable unless the surface contract explicitly requires it
 
 ## Visual Hierarchy
 
