@@ -7404,6 +7404,82 @@ describe("codex-service streaming notification parity", () => {
     }
   });
 
+  test("streams item/plan/delta into an existing plan item and lets item/completed overwrite final text", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_plan_delta_existing", {
+        threadId: "thr_plan_delta_existing",
+        turnId: "turn_plan_delta_existing",
+        status: "inProgress",
+        itemIds: ["plan_item"],
+      });
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_plan_delta_existing",
+        turnId: "turn_plan_delta_existing",
+        item: {
+          id: "plan_item",
+          type: "plan",
+          text: "",
+        },
+      });
+      await serviceInternals.handleNotification("item/plan/delta", {
+        threadId: "thr_plan_delta_existing",
+        turnId: "turn_plan_delta_existing",
+        itemId: "plan_item",
+        delta: "Draft plan",
+      });
+      await serviceInternals.handleNotification("item/plan/delta", {
+        threadId: "thr_plan_delta_existing",
+        turnId: "turn_plan_delta_existing",
+        itemId: "plan_item",
+        delta: " from deltas",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      let planItem = getRecordedItem(
+        serviceInternals,
+        "thr_plan_delta_existing",
+        "turn_plan_delta_existing",
+        "plan_item",
+      );
+      expect(planItem?.semanticKind).toBe("proposedPlan");
+      expect(planItem?.markdownText).toBe("Draft plan from deltas");
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_plan_delta_existing",
+        turnId: "turn_plan_delta_existing",
+        item: {
+          id: "plan_item",
+          type: "plan",
+          text: "Final authoritative plan",
+        },
+      });
+
+      planItem = getRecordedItem(
+        serviceInternals,
+        "thr_plan_delta_existing",
+        "turn_plan_delta_existing",
+        "plan_item",
+      );
+      expect(planItem?.semanticKind).toBe("proposedPlan");
+      expect(planItem?.markdownText).toBe("Final authoritative plan");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("handles serverRequest/resolved by clearing pending approvals and user inputs", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {

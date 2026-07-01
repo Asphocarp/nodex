@@ -266,6 +266,8 @@ Do not append a generic `Waiting for response...` or `Working` row to active tur
 
 `Writing plan` is its own plan-card state, not a generic `Plan` card plus a separate eyebrow. Codex switches the header copy from `Plan` to `Writing plan` while the proposed plan is still streaming, and keeps that in-progress card in the collapsed preview state by default. Expanding plan cards automatically during streaming or layering an extra `Proposed plan` label above the card drifts immediately from the real transcript hierarchy.
 
+Proposed-plan side panels are a renderer-local view over the final transcript plan item, not another execution-plan data source. Keep the boundaries explicit: `item/plan/delta` may append markdown to an already-started plan item, `item/completed` for `{ type: "plan" }` is the authoritative proposed-plan content, `turn/plan/updated` owns todo/checklist progress, and `planImplementation` owns the composer follow-up request. Mixing these paths makes the side-panel Plan tab show execution checklist text or causes todo updates to create confirmation cards.
+
 Thread transcript height compensation must anchor against the bottom of fully offscreen turns, not the top of partially visible ones. The virtualized turn list uses spacer-based flow layout and only adjusts `scrollTop` when a measured height delta happens above the viewport or while sticking to bottom. A naive `turnTop < scrollTop` check makes visible headers jump when a nested tool-call accordion opens.
 
 ### Turn-diff previews are shell-context-aware, not row-local overlays

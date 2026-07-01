@@ -69,6 +69,22 @@ export interface ThreadTurnDiffFileSidePanelTarget {
   title: string;
 }
 
+export interface ThreadPlanSidePanelTarget {
+  planKey: string;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  content: string;
+  cwd: string | null;
+  hideCodeBlocks?: boolean;
+}
+
+export interface ThreadPlanSidePanelState {
+  rightPanelEnabled: boolean;
+  activePlanKey: string | null;
+  activeRightPanelTabId: string | null;
+}
+
 export interface ThreadStageRouteInput {
   projectId: string;
   projectWorkspacePath?: string | null;
@@ -112,6 +128,7 @@ export interface ThreadStageRouteInput {
   searchOpenTick: number;
   summarySideChatRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
   summaryBrowserRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   composerIntent: CodexComposerIntent | null;
   primaryRequest: CodexConversationLiveRequest | null;
   sideChatContext?: {
@@ -151,6 +168,8 @@ export interface ThreadStageActions {
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
   onOpenSideChat?: (input?: { prompt?: string; promptInput?: CodexPromptInput }) => Promise<void>;
   onOpenMcpAppSidePanel?: (input: ThreadMcpAppSidePanelInput) => Promise<void>;
+  onOpenPlanInSidePanel?: (input: ThreadPlanSidePanelTarget) => void | Promise<void>;
+  onClosePlanSidePanel?: (input: { planKey: string }) => void | Promise<void>;
   onRequestRenameThread?: () => void;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;

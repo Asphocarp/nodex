@@ -41,6 +41,7 @@ import { selectVisibleConversationTurnEntries } from "../selectors";
 import type {
   ThreadBodyModel,
   ThreadBodyUiStateOverrides,
+  ThreadPlanSidePanelState,
   ThreadStageActions,
 } from "../thread-stage-types";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
@@ -290,6 +291,7 @@ interface LocalConversationThreadBodyOwnerProps {
     updatedAt: number;
   } | null;
   actions: ThreadStageActions;
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   onErrorMessage: (message: string | null) => void;
   initialUiState?: ThreadBodyUiStateOverrides;
   turnDiffHoverPreviewDisabled?: boolean;
@@ -310,6 +312,7 @@ export function LocalConversationThreadBodyOwner({
   projectWorkspacePath,
   threadStartProgress,
   actions,
+  planSidePanelState,
   onErrorMessage,
   initialUiState,
   turnDiffHoverPreviewDisabled = false,
@@ -813,6 +816,9 @@ export function LocalConversationThreadBodyOwner({
           onOpenSideChat={actions.onOpenSideChat}
           onOpenThread={actions.onOpenThread}
           onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+          onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
+          onClosePlanSidePanel={actions.onClosePlanSidePanel}
+          planSidePanelState={planSidePanelState}
           turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         />
       ) : null}
@@ -901,6 +907,9 @@ export function LocalConversationThreadBodyOwner({
                 onOpenSideChat={actions.onOpenSideChat}
                 onOpenThread={actions.onOpenThread}
                 onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+                onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
+                onClosePlanSidePanel={actions.onClosePlanSidePanel}
+                planSidePanelState={planSidePanelState}
                 turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
                 initialScrollOffset={initialRestoreSnapshot?.distanceFromBottomPx ?? 0}
                 initialRestoreState={initialRestoreSnapshot?.virtualizedTurnList ?? null}

@@ -341,6 +341,11 @@ mock.module("./workbench-card-stage", () => ({
   },
 }));
 
+mock.module("./plan-side-panel-tab", () => ({
+  PlanSidePanelTab: (props: { content: string }) =>
+    createElement("div", { "data-plan-side-panel-tab": "true" }, props.content),
+}));
+
 mock.module("./workbench-history-panel", () => ({
   HistoryPanel: (props: Record<string, unknown>) => {
     (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps = props;
@@ -5082,6 +5087,75 @@ describe("workbench session shell", () => {
       call[0] === "project-session-tabs:create"
       && JSON.stringify(call[1]).includes('"kind":"files"')
     )).toBeTrue();
+  });
+
+  test("proposed-plan side panel opens as a renderer-local singleton tab", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actions = getLastThreadStageActions();
+    const openPlan = actions.onOpenPlanInSidePanel as ((input: {
+      planKey: string;
+      threadId: string;
+      turnId: string;
+      itemId: string;
+      content: string;
+      cwd: string | null;
+    }) => Promise<void>) | undefined;
+    expect(typeof openPlan).toBe("function");
+    const closePlan = actions.onClosePlanSidePanel as ((input: { planKey: string }) => Promise<void>) | undefined;
+    expect(typeof closePlan).toBe("function");
+
+    await act(async () => {
+      await openPlan?.({
+        planKey: "turn-plan-1",
+        threadId: "thread-alpha",
+        turnId: "turn-plan-1",
+        itemId: "plan-item-1",
+        content: "# First plan\n\nUse the side panel.",
+        cwd: "/Users/asc/repo/nodex",
+      });
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Plan" }) !== null).toBeTrue();
+    expect(textContent(screen.container).includes("First plan")).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(JSON.stringify({
+      rightPanelEnabled: true,
+      activePlanKey: "turn-plan-1",
+      activeRightPanelTabId: "plan",
+    }));
+
+    await act(async () => {
+      await openPlan?.({
+        planKey: "turn-plan-2",
+        threadId: "thread-alpha",
+        turnId: "turn-plan-2",
+        itemId: "plan-item-2",
+        content: "# Second plan\n\nReplace the singleton content.",
+        cwd: "/Users/asc/repo/nodex",
+      });
+    });
+    await settleAsyncRender();
+
+    const planTabs = screen.getAllByRole("tab").filter((tab) => textContent(tab).includes("Plan"));
+    expect(planTabs.length).toBe(1);
+    expect(textContent(screen.container).includes("First plan")).toBeFalse();
+    expect(textContent(screen.container).includes("Second plan")).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(JSON.stringify({
+      rightPanelEnabled: true,
+      activePlanKey: "turn-plan-2",
+      activeRightPanelTabId: "plan",
+    }));
   });
 
   test("right-panel add menu keeps custom action icons compact", async () => {

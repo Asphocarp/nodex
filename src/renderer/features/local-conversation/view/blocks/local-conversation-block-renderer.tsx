@@ -27,7 +27,11 @@ import {
   ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
 import type { CodexTurnDiffReviewTarget } from "../../../../lib/types";
-import type { ThreadBlockModel, ThreadStageActions } from "../../thread-stage-types";
+import type {
+  ThreadBlockModel,
+  ThreadPlanSidePanelState,
+  ThreadStageActions,
+} from "../../thread-stage-types";
 
 interface ThreadBlockRendererProps {
   block: ThreadBlockModel;
@@ -44,6 +48,9 @@ interface ThreadBlockRendererProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   allowInProgressTurnDiff?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
 }
@@ -63,6 +70,9 @@ export function ThreadBlockRenderer({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
   allowInProgressTurnDiff = false,
   turnDiffHoverPreviewDisabled = false,
 }: ThreadBlockRendererProps) {
@@ -221,6 +231,10 @@ export function ThreadBlockRenderer({
         block={block}
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
+        threadCwd={threadCwd}
+        onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+        onClosePlanSidePanel={onClosePlanSidePanel}
+        planSidePanelState={planSidePanelState}
       />
     );
   }
@@ -267,6 +281,9 @@ export function ThreadBlockRenderer({
                   onOpenSideChat={onOpenSideChat}
                   onOpenThread={onOpenThread}
                   onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+                  onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+                  onClosePlanSidePanel={onClosePlanSidePanel}
+                  planSidePanelState={planSidePanelState}
                   allowInProgressTurnDiff={allowInProgressTurnDiff}
                   turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
                 />

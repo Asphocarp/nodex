@@ -1,6 +1,10 @@
 import { createPortal } from "react-dom";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
-import type { ThreadBlockModel, ThreadStageActions } from "../thread-stage-types";
+import type {
+  ThreadBlockModel,
+  ThreadPlanSidePanelState,
+  ThreadStageActions,
+} from "../thread-stage-types";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 import { usePortalHost } from "./use-portal-host";
 
@@ -53,6 +57,9 @@ interface LocalConversationAboveComposerPortalProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
 }
 
@@ -67,6 +74,9 @@ export function LocalConversationAboveComposerPortal({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
 }: LocalConversationAboveComposerPortalProps) {
   const host = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID);
@@ -88,6 +98,9 @@ export function LocalConversationAboveComposerPortal({
           onOpenSideChat={onOpenSideChat}
           onOpenThread={onOpenThread}
           onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+          onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+          onClosePlanSidePanel={onClosePlanSidePanel}
+          planSidePanelState={planSidePanelState}
           allowInProgressTurnDiff={true}
           turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         />

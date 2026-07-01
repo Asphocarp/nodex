@@ -64,6 +64,7 @@ import { cn } from "../../../../lib/utils";
 import type {
   ThreadAssistantMessageActionsModel,
   ThreadBlockModel,
+  ThreadPlanSidePanelState,
   ThreadStageActions,
   ThreadTranscriptBlockModel,
   ThreadWorkedForBlockModel,
@@ -86,6 +87,9 @@ export interface ThreadLeafBlockProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   allowInProgressTurnDiff?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
   assistantAfter?: ReactNode;
@@ -102,6 +106,9 @@ export interface ThreadSpecialBlockProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
 }
 
@@ -1359,10 +1366,22 @@ export function ThreadPlanCardBlock({
   block,
   isLatestTurn,
   isStreamingTurn,
+  threadCwd,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
 }: ThreadLeafBlockProps) {
   const item = block.entry;
   const isInProgress = item.status === "inProgress";
   const shouldParseIncompleteMarkdown = isStreamingTurn && (isInProgress || isLatestTurn);
+  const planKey = item.turnId || item.itemId;
+  const isSidePanelActive = Boolean(
+    block.type === "proposedPlan"
+    && !isInProgress
+    && planSidePanelState?.rightPanelEnabled
+    && planSidePanelState.activePlanKey === planKey
+    && planSidePanelState.activeRightPanelTabId === "plan",
+  );
 
   return (
     block.type === "todoList" ? (
@@ -1372,7 +1391,26 @@ export function ThreadPlanCardBlock({
         content={item.markdownText ?? ""}
         completed={!isInProgress}
         parseIncompleteMarkdown={shouldParseIncompleteMarkdown}
-        defaultCollapsed={isInProgress}
+        isSidePanelActive={isSidePanelActive}
+        onOpenInSidePanel={
+          !isInProgress && planSidePanelState?.rightPanelEnabled && onOpenPlanInSidePanel
+            ? () =>
+                onOpenPlanInSidePanel({
+                  planKey,
+                  threadId: item.threadId,
+                  turnId: item.turnId,
+                  itemId: item.itemId,
+                  content: item.markdownText ?? "",
+                  cwd: item.cwd ?? threadCwd ?? null,
+                  hideCodeBlocks: false,
+                })
+            : undefined
+        }
+        onCloseSidePanel={
+          isSidePanelActive && onClosePlanSidePanel
+            ? () => onClosePlanSidePanel({ planKey })
+            : undefined
+        }
       />
     )
   );
@@ -1681,7 +1719,6 @@ export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
       content={content}
       completed={block.status === "completed"}
       parseIncompleteMarkdown={false}
-      defaultCollapsed={block.status !== "completed"}
     />
   );
 }

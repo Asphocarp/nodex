@@ -45,6 +45,8 @@ export {
   type LocalConversationSearchUnit,
 } from "./selectors";
 export type {
+  ThreadPlanSidePanelState,
+  ThreadPlanSidePanelTarget,
   ThreadStageActions,
   ThreadStageRouteInput,
 } from "./thread-stage-types";

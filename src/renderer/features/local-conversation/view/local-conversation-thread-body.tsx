@@ -2,6 +2,7 @@ import { memo, type ReactNode } from "react";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
+  ThreadPlanSidePanelState,
   ThreadStageActions,
 } from "../thread-stage-types";
 import { LocalConversationThreadBodyOwner } from "./local-conversation-thread-body-owner";
@@ -13,6 +14,7 @@ import {
 interface LocalConversationThreadBodyProps {
   model: ThreadBodySurfaceModel;
   actions: ThreadStageActions;
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   onErrorMessage: (message: string | null) => void;
   contentShiftX?: number;
   footer?: ReactNode;
@@ -23,6 +25,7 @@ interface LocalConversationThreadBodyProps {
 function LocalConversationThreadBodyComponent({
   model,
   actions,
+  planSidePanelState,
   onErrorMessage,
   contentShiftX = 0,
   footer,
@@ -51,6 +54,7 @@ function LocalConversationThreadBodyComponent({
           searchOpenTick={model.searchOpenTick}
           threadStartProgress={model.threadStartProgress}
           actions={actions}
+          planSidePanelState={planSidePanelState}
           onErrorMessage={onErrorMessage}
           initialUiState={initialUiState}
           turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
@@ -64,6 +68,7 @@ export const LocalConversationThreadBody = memo(
   LocalConversationThreadBodyComponent,
   (left, right) =>
     left.actions === right.actions
+    && left.planSidePanelState === right.planSidePanelState
     && left.onErrorMessage === right.onErrorMessage
     && left.contentShiftX === right.contentShiftX
     && left.footer === right.footer

@@ -286,6 +286,136 @@ export const WritingPlanStreaming: Story = {
   ),
 };
 
+export const ProposedPlanCompletedPreview: Story = {
+  render: () => (
+    <StorySurface
+      title="Proposed Plan Completed Preview"
+      description="Completed proposed-plan cards show the 200px preview with the side-panel open action."
+    >
+      <ElectronDarkThreadStorySurface>
+        <ThreadPlanCardBlock
+          block={{
+            id: "plan_story_completed",
+            turnId: "turn_story_completed",
+            createdAt: 1,
+            updatedAt: 2,
+            searchableText: "plan",
+            type: "proposedPlan",
+            entry: {
+              threadId: "thread_story",
+              turnId: "turn_story_completed",
+              itemId: "plan_story_completed",
+              type: "proposedPlan",
+              kind: "plan",
+              semanticKind: "proposedPlan",
+              status: "completed",
+              createdAt: 1,
+              updatedAt: 2,
+              markdownText: `# Implementation plan
+
+1. Audit the proposed-plan transcript item.
+2. Open the side-panel tab with full markdown.
+3. Keep todo-list progress separate from the proposed-plan card.
+4. Verify download, copy, rating, and close affordances.`,
+            },
+          }}
+          isLatestTurn
+          isStreamingTurn={false}
+          planSidePanelState={{
+            rightPanelEnabled: true,
+            activePlanKey: null,
+            activeRightPanelTabId: null,
+          }}
+          onOpenPlanInSidePanel={() => undefined}
+        />
+      </ElectronDarkThreadStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const ProposedPlanActiveSidePanel: Story = {
+  render: () => (
+    <StorySurface
+      title="Proposed Plan Active Side Panel"
+      description="When the right-panel Plan tab is active, the card body remains mounted but inert and collapsed."
+    >
+      <ElectronDarkThreadStorySurface>
+        <ThreadPlanCardBlock
+          block={{
+            id: "plan_story_active",
+            turnId: "turn_story_active",
+            createdAt: 1,
+            updatedAt: 2,
+            searchableText: "plan",
+            type: "proposedPlan",
+            entry: {
+              threadId: "thread_story",
+              turnId: "turn_story_active",
+              itemId: "plan_story_active",
+              type: "proposedPlan",
+              kind: "plan",
+              semanticKind: "proposedPlan",
+              status: "completed",
+              createdAt: 1,
+              updatedAt: 2,
+              markdownText: `# Implementation plan
+
+1. Audit the proposed-plan transcript item.
+2. Open the side-panel tab with full markdown.
+3. Keep todo-list progress separate from the proposed-plan card.`,
+            },
+          }}
+          isLatestTurn
+          isStreamingTurn={false}
+          planSidePanelState={{
+            rightPanelEnabled: true,
+            activePlanKey: "turn_story_active",
+            activeRightPanelTabId: "plan",
+          }}
+          onClosePlanSidePanel={() => undefined}
+        />
+      </ElectronDarkThreadStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const PlanSidePanelMarkdown: Story = {
+  render: () => (
+    <StorySurface
+      title="Right Panel Plan Tab Markdown"
+      description="The renderer-local Plan tab uses the same full markdown renderer inside the right-panel scroll container."
+    >
+      <div data-codex-window-type="electron" className="dark electron-dark">
+        <div className="h-[420px] w-[420px] overflow-hidden border border-token-border bg-token-main-surface-primary text-token-text-primary">
+          <div className="h-full min-h-0 overflow-y-auto px-1">
+            <div className="px-4 py-3">
+              <MarkdownRenderer
+                content={`# Implementation plan
+
+## Scope
+
+- Render the full proposed-plan markdown in the right panel.
+- Preserve code blocks and lists without the thread preview mask.
+
+\`\`\`ts
+const tabId = "plan";
+\`\`\`
+
+## Validation
+
+1. Open the completed plan card.
+2. Confirm the thread preview collapses.
+3. Close the side-panel tab and confirm the preview returns.`}
+                className="codex-markdown-plan text-size-chat"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </StorySurface>
+  ),
+};
+
 export const ReasoningCompleted: Story = {
   render: () => (
     <StorySurface

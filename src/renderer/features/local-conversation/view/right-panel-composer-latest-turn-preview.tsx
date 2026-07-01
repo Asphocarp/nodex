@@ -3,6 +3,7 @@ import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import type {
+  ThreadPlanSidePanelState,
   ThreadStageActions,
   ThreadTurnModel,
 } from "../thread-stage-types";
@@ -28,6 +29,9 @@ interface RightPanelComposerLatestTurnPreviewProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
 }
 
@@ -53,6 +57,9 @@ export function RightPanelComposerLatestTurnPreview({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
 }: RightPanelComposerLatestTurnPreviewProps) {
   const workedForLabel = useWorkedForLabelText({
@@ -118,6 +125,9 @@ export function RightPanelComposerLatestTurnPreview({
               onOpenSideChat={onOpenSideChat}
               onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+              onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+              onClosePlanSidePanel={onClosePlanSidePanel}
+              planSidePanelState={planSidePanelState}
               allowInProgressTurnDiff={true}
               turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
             />

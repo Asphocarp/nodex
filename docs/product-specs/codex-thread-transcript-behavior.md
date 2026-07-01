@@ -78,7 +78,9 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - `serverRequest/resolved` clears stale pending approval and user-input queue entries by request id.
 
 ## Plan Mode Follow-Up
-- `item/plan/delta` streams incremental plan content; both `text` and `markdownText` stay in sync during reducer updates for markdown-first rendering.
+- `item/plan/delta` streams incremental proposed-plan text only for an existing plan item; it must not create a proposed-plan card by itself.
+- The final `item/completed` plan item `{ type: "plan", id, text }` is the authoritative proposed-plan content and overwrites any streamed draft text.
+- `turn/plan/updated` remains the source for structured todo/checklist progress and must not be bucketed as a proposed-plan card.
 - When a completed turn’s latest visible plan item is non-empty, the composer swaps into an `Implement this plan?` request surface.
 - That surface offers `Yes, implement this plan` and `No, and tell Codex what to do differently`.
 - Accepting the plan sends a follow-up prompt prefixed with `PLEASE IMPLEMENT THIS PLAN:` and resets collaboration mode to `Default` for that follow-up turn.
@@ -205,7 +207,9 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Expanded command shell rows render a `Shell` chrome with the command line, copy-command/output controls, and a reversed scroll output area capped at 140px. Blank running output stays empty; blank settled output reads `No output`. The footer is blank while running, then reads `Stopped`, `Success`, `Exit code {code}`, or `Exit code unknown` from canonical command status and exit-code fields.
 - While the current turn is still active, the trailing coalesced exploration section remains visually `in progress` (`Exploring` shimmer) until a non-exploration item appears in that same turn or the turn stops.
 - Exploration groups keep one measured body and switch between `preview`, `expanded`, and `collapsed`; the preview state reveals the same measured content under a shorter height cap instead of mounting a separate preview tree.
-- Proposed-plan cards animate the body height directly between the collapsed cap and the full markdown body, while the collapsed gradient/`Expand plan` overlay remains part of the same animated card.
+- Completed proposed-plan cards render as a 200px in-thread preview with `Plan` header actions for download, copy, rating feedback, and opening the right-panel `Plan` tab. The in-thread card does not own a local accordion.
+- While the right-panel `Plan` tab is active for the same plan key, the card body remains mounted but collapses to `max-height: 0`, `opacity: 0`, `aria-hidden`, and `inert`; clicking the full-card close overlay removes that renderer-local tab. The right-panel tab renders the full markdown in its own scroll container.
+- In-progress proposed-plan cards keep the `Writing plan` header and preview body, suppress the fallback `Thinking` placeholder, and do not expose the side-panel open action until the plan item completes.
 - Exploration sections are expanded by default only while they are `in progress`; once exploration settles, they collapse by default.
 - Running-thread activity uses verb-led summaries: contiguous exploration actions coalesce into `Exploring` / `Explored` groups, generic commands render as `Running …` while active and `Ran …` once settled, and MCP calls render as `Calling …` / `Called …`.
 - Command execution headers show `in <cwd>` only when the command ran outside the active project workspace path.

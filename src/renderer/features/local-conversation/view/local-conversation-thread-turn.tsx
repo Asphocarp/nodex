@@ -6,6 +6,7 @@ import { cn } from "../../../lib/utils";
 import type {
   ThreadAgentEntryModel,
   ThreadBlockModel,
+  ThreadPlanSidePanelState,
   ThreadStageActions,
   ThreadTurnModel,
 } from "../thread-stage-types";
@@ -32,6 +33,9 @@ interface ThreadTurnProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
   latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
 }
@@ -109,6 +113,9 @@ export function ThreadTurn({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
   latestTurnFollowContentRef,
 }: ThreadTurnProps) {
@@ -141,6 +148,9 @@ export function ThreadTurn({
       onOpenSideChat={onOpenSideChat}
       onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+      onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+      onClosePlanSidePanel={onClosePlanSidePanel}
+      planSidePanelState={planSidePanelState}
       turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );
@@ -159,6 +169,9 @@ export function ThreadTurn({
       onOpenSideChat={onOpenSideChat}
       onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+      onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+      onClosePlanSidePanel={onClosePlanSidePanel}
+      planSidePanelState={planSidePanelState}
       turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );

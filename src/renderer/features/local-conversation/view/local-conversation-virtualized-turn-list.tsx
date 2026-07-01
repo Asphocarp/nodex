@@ -13,7 +13,10 @@ import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
-import type { ThreadStageActions } from "../thread-stage-types";
+import type {
+  ThreadPlanSidePanelState,
+  ThreadStageActions,
+} from "../thread-stage-types";
 import {
   buildVirtualizedTurnLayout,
   buildVirtualizedTurnListRestoreState,
@@ -172,6 +175,9 @@ interface LocalConversationVirtualizedTurnListProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
   onApiChange?: (api: LocalConversationVirtualizedTurnListApi | null) => void;
   initialScrollOffset?: number | null;
@@ -274,6 +280,9 @@ interface MeasuredTurnProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
   constrainedHeightPx?: number;
   isLatestTurn: boolean;
@@ -298,6 +307,9 @@ function MeasuredTurnComponent({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
   constrainedHeightPx,
   isLatestTurn,
@@ -353,6 +365,9 @@ function MeasuredTurnComponent({
         onOpenSideChat={onOpenSideChat}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+        onClosePlanSidePanel={onClosePlanSidePanel}
+        planSidePanelState={planSidePanelState}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         latestTurnFollowContentRef={isLatestTurn ? latestTurnFollowContentRef : undefined}
       />
@@ -391,6 +406,9 @@ const MeasuredTurn = memo(
     && left.onOpenSideChat === right.onOpenSideChat
     && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
+    && left.onOpenPlanInSidePanel === right.onOpenPlanInSidePanel
+    && left.onClosePlanSidePanel === right.onClosePlanSidePanel
+    && left.planSidePanelState === right.planSidePanelState
     && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
     && left.constrainedHeightPx === right.constrainedHeightPx
     && left.isLatestTurn === right.isLatestTurn
@@ -415,6 +433,9 @@ function LocalConversationVirtualizedTurnListCore({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
   onApiChange,
   initialScrollOffset,
@@ -1193,6 +1214,9 @@ function LocalConversationVirtualizedTurnListCore({
               onOpenSideChat={onOpenSideChat}
               onOpenThread={onOpenThread}
               onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+              onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+              onClosePlanSidePanel={onClosePlanSidePanel}
+              planSidePanelState={planSidePanelState}
               turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
               constrainedHeightPx={constrainedHeightPx}
               isLatestTurn={isLatestTurn}

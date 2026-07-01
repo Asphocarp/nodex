@@ -2,7 +2,10 @@ import { memo, useMemo } from "react";
 import type { CodexConversationTurn, CodexTurnDiffReviewTarget } from "../../../lib/types";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
-import type { ThreadStageActions } from "../thread-stage-types";
+import type {
+  ThreadPlanSidePanelState,
+  ThreadStageActions,
+} from "../thread-stage-types";
 import { ThreadTurn } from "./local-conversation-thread-turn";
 
 interface LocalConversationTurnEntryProps {
@@ -34,6 +37,9 @@ interface LocalConversationTurnEntryProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
+  onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
   onRendered?: (turnId: string) => void;
   latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
@@ -57,6 +63,9 @@ function LocalConversationTurnEntryComponent({
   onOpenSideChat,
   onOpenThread,
   onOpenMcpAppSidePanel,
+  onOpenPlanInSidePanel,
+  onClosePlanSidePanel,
+  planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
   onRendered,
   latestTurnFollowContentRef,
@@ -105,6 +114,9 @@ function LocalConversationTurnEntryComponent({
         onOpenSideChat={onOpenSideChat}
         onOpenThread={onOpenThread}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+        onClosePlanSidePanel={onClosePlanSidePanel}
+        planSidePanelState={planSidePanelState}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         latestTurnFollowContentRef={latestTurnFollowContentRef}
       />
@@ -134,6 +146,9 @@ export const LocalConversationTurnEntry = memo(
     && left.onOpenSideChat === right.onOpenSideChat
     && left.onOpenThread === right.onOpenThread
     && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
+    && left.onOpenPlanInSidePanel === right.onOpenPlanInSidePanel
+    && left.onClosePlanSidePanel === right.onClosePlanSidePanel
+    && left.planSidePanelState === right.planSidePanelState
     && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
     && left.onRendered === right.onRendered
     && left.latestTurnFollowContentRef === right.latestTurnFollowContentRef,

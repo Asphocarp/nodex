@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
 - Added splitable tab groups for right and bottom session panels, including nested horizontal/vertical groups, sash resizing, tab split actions, leaf-scoped previews and side chats, live tab-row insertion previews, and body-edge drag splitting within a panel.
 - Added temporary Side chat conversations in right or bottom panels, including empty-panel, header-menu, `/side`, and transcript `Ask in side chat` entry points, loading/expired states, background discard on close, and migration cleanup for older saved durable launcher rows.
+- Added a right-panel Plan tab for completed proposed-plan cards, with an in-thread preview card that opens full markdown in the side panel and collapses while that tab is active.
 - Added ephemeral panel previews for Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added chat rename entry points for active project sessions, including title double-click, thread/header actions, command palette, macOS menu, and `Cmd/Ctrl+Alt+R`.

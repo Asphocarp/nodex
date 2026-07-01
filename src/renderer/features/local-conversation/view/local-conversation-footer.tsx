@@ -3,7 +3,11 @@ import { DownArrowIcon } from "@/components/shared/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
 import { selectVisibleConversationTurnEntries } from "../selectors";
-import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
+import type {
+  ThreadFooterModel,
+  ThreadPlanSidePanelState,
+  ThreadStageActions,
+} from "../thread-stage-types";
 import { shouldShowThreadScrollToBottomControl } from "./local-conversation-turn-virtualization";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import {
@@ -27,6 +31,7 @@ interface LocalConversationFooterProps {
     enabled: boolean;
     target: HTMLElement | null;
   };
+  planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
 }
 
@@ -65,6 +70,7 @@ function LocalConversationFooterComponent({
   onErrorMessage,
   variant = "thread",
   rightPanelComposerOverlay,
+  planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
 }: LocalConversationFooterProps) {
   const {
@@ -237,6 +243,9 @@ function LocalConversationFooterComponent({
       onOpenSideChat={actions.onOpenSideChat}
       onOpenThread={actions.onOpenThread}
       onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+      onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
+      onClosePlanSidePanel={actions.onClosePlanSidePanel}
+      planSidePanelState={planSidePanelState}
       turnDiffHoverPreviewDisabled={rightPanelOverlayEnabled || turnDiffHoverPreviewDisabled}
     />
   ) : null;

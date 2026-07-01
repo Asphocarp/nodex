@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
-import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { render, textContent } from "../../../../test/dom";
 import { PlanMessage } from "./plan-message";
 
 describe("PlanMessage", () => {
@@ -16,43 +16,112 @@ describe("PlanMessage", () => {
     });
   });
 
-  test("animates collapsed and expanded height with Motion-style height targets", async () => {
-    const { container, getByRole } = render(
+  test("renders a completed preview card that opens the plan side panel", () => {
+    let openCount = 0;
+    const { container, getByRole, queryByRole } = render(
       <TooltipProvider>
         <PlanMessage
-          completed={false}
+          completed
           content={`# Plan\n\n1. Inspect the codebase.\n2. Implement the change.\n3. Verify the result.`}
-          parseIncompleteMarkdown
-          defaultCollapsed
+          onOpenInSidePanel={() => {
+            openCount += 1;
+          }}
         />
       </TooltipProvider>,
     );
 
-    const body = container.querySelector(`#${getByRole("button", { name: "Expand plan summary" }).getAttribute("aria-controls") ?? ""}`);
+    const body = container.querySelector("[data-plan-preview-body='true']");
+    const overlay = container.querySelector("button[aria-hidden='true'][tabindex='-1']");
+
     expect(Boolean(body)).toBeTrue();
-    expect(Boolean(body?.getAttribute("style")?.includes("height: 320px"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Writing plan"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Expand plan"))).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(body?.getAttribute("style")?.includes("max-height: 160px"))).toBeTrue();
+    expect(Boolean(body?.hasAttribute("inert"))).toBeFalse();
+    expect(Boolean(overlay)).toBeTrue();
+    expect(Boolean(getByRole("button", { name: "Open plan in side panel" }))).toBeTrue();
+    expect(Boolean(queryByRole("button", { name: "Expand plan summary" }))).toBeFalse();
+    expect(Boolean(queryByRole("button", { name: "Expand plan" }))).toBeFalse();
 
-    fireEvent.click(getByRole("button", { name: "Expand plan summary" }));
-    await settleAsyncRender();
-
-    expect(Boolean(body?.getAttribute("style")?.includes("height: auto"))).toBeTrue();
+    fireEvent.click(overlay as HTMLButtonElement);
+    expect(openCount).toBe(1);
   });
 
-  test("renders the completed title without the writing shimmer", () => {
-    const { container } = render(
+  test("collapses the mounted body and close overlay when the side panel is active", () => {
+    let closeCount = 0;
+    const { container, getByRole } = render(
       <TooltipProvider>
         <PlanMessage
           completed
           content={`# Plan\n\n1. Inspect the codebase.`}
+          isSidePanelActive
+          onCloseSidePanel={() => {
+            closeCount += 1;
+          }}
         />
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Plan"))).toBeTrue();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    const body = container.querySelector("[data-plan-preview-body='true']");
+    const actionGroup = container.querySelector("[data-plan-action-group='true']");
+    const closeButton = getByRole("button", { name: "Close plan side panel" });
+
+    expect(Boolean(body)).toBeTrue();
+    expect(body?.getAttribute("aria-hidden")).toBe("true");
+    expect(Boolean(body?.hasAttribute("inert"))).toBeTrue();
+    expect(Boolean(body?.getAttribute("style")?.includes("max-height: 0px"))).toBeTrue();
+    expect(actionGroup?.getAttribute("aria-hidden")).toBe("true");
+    expect(Boolean(actionGroup?.hasAttribute("hidden"))).toBeTrue();
+
+    fireEvent.click(closeButton);
+    expect(closeCount).toBe(1);
+  });
+
+  test("renders streaming writing state without side panel actions", () => {
+    const { container, queryByRole } = render(
+      <TooltipProvider>
+        <PlanMessage
+          completed={false}
+          content={`# Plan\n\n1. Inspect the codebase.`}
+          parseIncompleteMarkdown
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Writing plan"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(queryByRole("button", { name: "Open plan in side panel" }))).toBeFalse();
+  });
+
+  test("downloads markdown as PLAN.md", () => {
+    const originalCreateElement = document.createElement;
+    let downloadedName = "";
+    document.createElement = ((tagName: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement.call(document, tagName, options);
+      if (tagName.toLowerCase() === "a") {
+        Object.defineProperty(element, "click", {
+          configurable: true,
+          value: () => {
+            downloadedName = (element as HTMLAnchorElement).download;
+          },
+        });
+      }
+      return element;
+    }) as typeof document.createElement;
+
+    try {
+      const { getByRole } = render(
+        <TooltipProvider>
+          <PlanMessage
+            completed
+            content={"## Plan heading\n\nParagraph body.\n\n- First bullet"}
+          />
+        </TooltipProvider>,
+      );
+
+      fireEvent.click(getByRole("button", { name: "Download plan" }));
+      expect(downloadedName).toBe("PLAN.md");
+    } finally {
+      document.createElement = originalCreateElement;
+    }
   });
 
   test("renders plan markdown content", () => {
@@ -65,12 +134,8 @@ describe("PlanMessage", () => {
       </TooltipProvider>,
     );
 
-    const heading = container.querySelector("h2");
-    const paragraph = container.querySelector("p");
-    const list = container.querySelector("ul");
-
-    expect(heading?.textContent).toBe("Plan heading");
-    expect(paragraph?.textContent).toBe("Paragraph body.");
-    expect(list?.textContent?.trim()).toBe("First bullet");
+    expect(container.querySelector("h2")?.textContent).toBe("Plan heading");
+    expect(container.querySelector("p")?.textContent).toBe("Paragraph body.");
+    expect(container.querySelector("ul")?.textContent?.trim()).toBe("First bullet");
   });
 });

@@ -925,7 +925,100 @@ describe("ThreadPlanCardBlock", () => {
 
     getByText("Writing plan");
     expect(Boolean(textContent(container).includes("Proposed plan"))).toBeFalse();
-    expect(Boolean(textContent(container).includes("Expand plan"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Expand plan"))).toBeFalse();
+  });
+
+  test("opens the side panel from a completed proposed-plan item", () => {
+    let openedKey = "";
+    let openedContent = "";
+    const { container } = render(
+      <TooltipProvider>
+        <ThreadPlanCardBlock
+          block={{
+            id: "plan-1",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "plan",
+            type: "proposedPlan",
+            entry: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "plan-1",
+              type: "proposedPlan",
+              kind: "plan",
+              semanticKind: "proposedPlan",
+              status: "completed",
+              markdownText: "# Plan\n\n1. Investigate\n2. Implement",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          }}
+          isLatestTurn
+          isStreamingTurn={false}
+          threadCwd="/tmp/project"
+          planSidePanelState={{
+            rightPanelEnabled: true,
+            activePlanKey: null,
+            activeRightPanelTabId: null,
+          }}
+          onOpenPlanInSidePanel={(input) => {
+            openedKey = input.planKey;
+            openedContent = input.content;
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    const overlay = container.querySelector("button[aria-hidden='true'][tabindex='-1']");
+    expect(Boolean(overlay)).toBeTrue();
+
+    fireEvent.click(overlay as HTMLButtonElement);
+
+    expect(openedKey).toBe("turn-1");
+    expect(openedContent).toBe("# Plan\n\n1. Investigate\n2. Implement");
+  });
+
+  test("collapses the proposed-plan preview while its side-panel tab is active", () => {
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadPlanCardBlock
+          block={{
+            id: "plan-1",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "plan",
+            type: "proposedPlan",
+            entry: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "plan-1",
+              type: "proposedPlan",
+              kind: "plan",
+              semanticKind: "proposedPlan",
+              status: "completed",
+              markdownText: "# Plan\n\n1. Investigate\n2. Implement",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          }}
+          isLatestTurn
+          isStreamingTurn={false}
+          planSidePanelState={{
+            rightPanelEnabled: true,
+            activePlanKey: "turn-1",
+            activeRightPanelTabId: "plan",
+          }}
+          onClosePlanSidePanel={() => undefined}
+        />
+      </TooltipProvider>,
+    );
+
+    const body = container.querySelector("[data-plan-preview-body='true']");
+    expect(Boolean(getByRole("button", { name: "Close plan side panel" }))).toBeTrue();
+    expect(body?.getAttribute("aria-hidden")).toBe("true");
+    expect(Boolean(body?.hasAttribute("inert"))).toBeTrue();
   });
 });
 

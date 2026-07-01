@@ -1,34 +1,22 @@
-import { useId, useMemo, useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
-import { ChevronDownIcon } from "@/components/shared/icons";
+import {
+  CodexCloseIcon,
+  CodexPanelRightVisibleIcon,
+  ComposerPlanModeIcon,
+} from "@/components/shared/icons";
 import { MarkdownRenderer } from "./markdown/markdown-renderer";
 import { cn } from "../../../../lib/utils";
 import {
+  AssistantRatingButton,
+  type AssistantMessageRating,
   CopyMessageActionButton,
   ThreadActionIconButton,
 } from "./thread-message-actions";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 
-const COLLAPSED_PLAN_MAX_HEIGHT_PX = 320;
-
-function resolvePlanDownloadFilename(content: string): string {
-  const normalized = content
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "plan";
-
-  const titleSource = normalized
-    .replace(/^#+\s*/, "")
-    .replace(/^title:\s*/i, "")
-    .trim();
-
-  const slug = titleSource
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return `${slug || "plan"}.md`;
-}
+const PLAN_PREVIEW_MAX_HEIGHT_PX = 160;
+const PLAN_DOWNLOAD_FILENAME = "PLAN.md";
 
 function DownloadIcon() {
   return (
@@ -53,20 +41,24 @@ interface PlanMessageProps {
   content: string;
   completed?: boolean;
   parseIncompleteMarkdown?: boolean;
-  defaultCollapsed?: boolean;
+  isSidePanelActive?: boolean;
+  onOpenInSidePanel?: () => void | Promise<void>;
+  onCloseSidePanel?: () => void | Promise<void>;
 }
 
 export function PlanMessage({
   content,
   completed = true,
   parseIncompleteMarkdown = false,
-  defaultCollapsed = false,
+  isSidePanelActive = false,
+  onOpenInSidePanel,
+  onCloseSidePanel,
 }: PlanMessageProps) {
-  const contentId = useId();
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const downloadFilename = useMemo(() => resolvePlanDownloadFilename(content), [content]);
+  const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
+  const canOpenSidePanel = completed && Boolean(onOpenInSidePanel);
 
-  const handleDownload = () => {
+  const handleDownload = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
     if (typeof document === "undefined" || typeof URL === "undefined" || typeof Blob === "undefined") {
       return;
     }
@@ -75,7 +67,7 @@ export function PlanMessage({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = downloadFilename;
+    anchor.download = PLAN_DOWNLOAD_FILENAME;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -84,63 +76,105 @@ export function PlanMessage({
     }, 0);
   };
 
+  const handleOpenSidePanel = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!canOpenSidePanel) return;
+    void onOpenInSidePanel?.();
+  };
+
+  const handleCloseSidePanel = () => {
+    void onCloseSidePanel?.();
+  };
+
   return (
-    <div className="relative overflow-clip rounded-lg bg-token-foreground/5">
-      <div className="relative flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-        <span className={cn("text-base/tight font-semibold text-token-foreground", !completed && "loading-shimmer-pure-text")}>
+    <div
+      className="extension:!bg-token-input-background/50 relative max-h-[200px] cursor-default overflow-clip rounded-lg border border-token-border bg-token-foreground/5 !bg-token-dropdown-background/50 select-none"
+      data-plan-side-panel-active={isSidePanelActive ? "true" : "false"}
+    >
+      {isSidePanelActive ? (
+        <button
+          type="button"
+          aria-label="Close plan side panel"
+          className="absolute inset-0 z-10 flex cursor-interaction items-center justify-end px-3 text-token-text-tertiary focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:ring-inset focus-visible:outline-none"
+          onClick={handleCloseSidePanel}
+        >
+          <span className="electron:rounded-md flex size-6 items-center justify-center rounded-full hover:bg-token-list-hover-background">
+            <CodexCloseIcon className="icon-2xs shrink-0" />
+          </span>
+        </button>
+      ) : canOpenSidePanel ? (
+        <button
+          type="button"
+          aria-hidden="true"
+          tabIndex={-1}
+          className="absolute inset-0 z-10 cursor-interaction"
+          onClick={handleOpenSidePanel}
+        />
+      ) : null}
+
+      <div className="relative flex h-10 flex-wrap items-center justify-between gap-2 px-3 py-2">
+        <span
+          className={cn(
+            "inline-flex items-center gap-2 text-base leading-tight font-normal text-token-text-tertiary",
+            !completed && "loading-shimmer-pure-text",
+          )}
+        >
+          <ComposerPlanModeIcon className="icon-2xs shrink-0" />
           {completed ? "Plan" : "Writing plan"}
         </span>
-        <div className="flex items-center gap-1">
+
+        <div
+          data-plan-action-group="true"
+          aria-hidden={isSidePanelActive ? "true" : "false"}
+          hidden={isSidePanelActive}
+          className="relative z-20 flex items-center gap-1"
+        >
           <ThreadActionIconButton label="Download plan" onClick={handleDownload}>
             <DownloadIcon />
           </ThreadActionIconButton>
-          <CopyMessageActionButton text={content} label="Copy" copiedLabel="Copied" />
-          <ThreadActionIconButton
-            label={collapsed ? "Expand plan summary" : "Collapse plan summary"}
-            aria-controls={contentId}
-            aria-expanded={!collapsed}
-            state={collapsed ? "closed" : "open"}
-            onClick={() => {
-              setCollapsed((current) => !current);
-            }}
-          >
-            <ChevronDownIcon className={cn("transition-transform duration-200", collapsed ? "rotate-180" : "rotate-0")} />
-          </ThreadActionIconButton>
+          <CopyMessageActionButton text={content} label="Copy" copiedLabel="Copied" stopPropagation />
+          {completed ? (
+            <>
+              <AssistantRatingButton
+                rating="thumbs_up"
+                selectedRating={selectedRating}
+                onSelect={setSelectedRating}
+              />
+              <AssistantRatingButton
+                rating="thumbs_down"
+                selectedRating={selectedRating}
+                onSelect={setSelectedRating}
+              />
+              {canOpenSidePanel ? (
+                <ThreadActionIconButton label="Open plan in side panel" onClick={handleOpenSidePanel}>
+                  <CodexPanelRightVisibleIcon className="icon-xs shrink-0" />
+                </ThreadActionIconButton>
+              ) : null}
+            </>
+          ) : null}
         </div>
       </div>
 
       <motion.div
-        id={contentId}
-        className="relative overflow-hidden"
+        data-plan-preview-body="true"
+        className="relative overflow-hidden [mask-image:linear-gradient(to_bottom,black_calc(100%_-_4rem),transparent)]"
         initial={false}
-        animate={{ height: collapsed ? COLLAPSED_PLAN_MAX_HEIGHT_PX : "auto" }}
+        animate={{
+          maxHeight: isSidePanelActive ? 0 : PLAN_PREVIEW_MAX_HEIGHT_PX,
+          opacity: isSidePanelActive ? 0 : 1,
+        }}
         transition={CODEX_THREAD_ACCORDION_TRANSITION}
+        aria-hidden={isSidePanelActive ? true : undefined}
+        inert={isSidePanelActive ? true : undefined}
       >
         <div className="px-4 py-3">
           <MarkdownRenderer
             content={content}
             parseIncompleteMarkdown={parseIncompleteMarkdown}
             animateStreamingText={!completed && parseIncompleteMarkdown}
-            className="codex-markdown-plan"
+            className="codex-markdown-plan text-size-chat"
           />
         </div>
-
-        {collapsed && (
-          <>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-linear-to-t from-token-input-background to-transparent" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-              <button
-                type="button"
-                className="pointer-events-auto flex cursor-interaction items-center gap-1 rounded-full border border-token-border bg-token-foreground px-2 py-0.5 text-sm leading-[18px] text-token-dropdown-background transition-colors select-none no-drag hover:bg-token-foreground/80"
-                onClick={() => {
-                  setCollapsed(false);
-                }}
-              >
-                Expand plan
-              </button>
-            </div>
-          </>
-        )}
       </motion.div>
     </div>
   );

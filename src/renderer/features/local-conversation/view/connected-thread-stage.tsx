@@ -259,6 +259,7 @@ function ConnectedThreadStageBody({
       contentShiftX={contentShiftX}
       footer={footer}
       initialUiState={initialUiState}
+      planSidePanelState={input.planSidePanelState ?? null}
       turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );
@@ -500,6 +501,7 @@ function ConnectedThreadStageFooter({
         enabled: rightPanelComposerOverlayEnabled,
         target: rightPanelComposerOverlayTarget,
       }}
+      planSidePanelState={input.planSidePanelState ?? null}
       turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
   );
