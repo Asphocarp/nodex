@@ -189,7 +189,12 @@ describe("codex-item-normalizer", () => {
   test("preserves MCP plugin, app resource, and metadata fields", () => {
     const item = normalizeMcpItem({
       pluginId: "plugin_docs",
-      mcpAppResourceUri: "ui://docs/search.html",
+      appContext: {
+        connectorId: "docs",
+        linkId: null,
+        resourceUri: "ui://docs/search.html",
+      },
+      mcpAppResourceUri: "ui://legacy/search.html",
       result: {
         content: [
           {

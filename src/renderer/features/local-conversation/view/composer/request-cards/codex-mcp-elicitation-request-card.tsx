@@ -23,9 +23,9 @@ export function CodexMcpElicitationRequestCard({
 }: CodexMcpElicitationRequestCardProps) {
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   const serverName = formatServerName(request.serverName);
-  const detailsText = request.mode === "form"
-    ? JSON.stringify(request.requestedSchema ?? {}, null, 2)
-    : request.url ?? "";
+  const detailsText = request.mode === "url"
+    ? request.url ?? ""
+    : JSON.stringify(request.requestedSchema ?? {}, null, 2);
 
   return (
     <div className="text-size-chat border-token-border bg-token-input-background/70 flex flex-col overflow-hidden rounded-2xl border text-token-foreground backdrop-blur-sm">

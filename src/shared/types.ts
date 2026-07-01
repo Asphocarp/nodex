@@ -2020,7 +2020,7 @@ export interface CodexMcpServerElicitationRequest {
   turnId: string;
   itemId: string;
   kind: "generic" | "mcpToolCall" | "toolSuggestion";
-  mode: "form" | "url";
+  mode: "form" | "openai/form" | "url";
   serverName: string;
   message: string;
   url?: string;

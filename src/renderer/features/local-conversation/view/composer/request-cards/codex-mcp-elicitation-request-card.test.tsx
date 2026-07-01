@@ -13,7 +13,7 @@ const mcpRequest: CodexMcpServerElicitationRequest = {
   itemId: "item_1",
   kind: "generic",
   serverName: "Context7",
-  mode: "form",
+  mode: "openai/form",
   message: "Context7 wants to collect extra arguments.",
   requestedSchema: {
     library: { type: "string" },

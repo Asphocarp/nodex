@@ -76,6 +76,12 @@ function getProcessId(candidate: Record<string, unknown>): string | null {
   return null;
 }
 
+function getMcpAppResourceUri(candidate: Record<string, unknown>): string | null {
+  const appContext = asRecord(candidate.appContext);
+  const appContextResourceUri = appContext ? getString(appContext, ["resourceUri", "resource_uri"]) : undefined;
+  return appContextResourceUri ?? getString(candidate, ["mcpAppResourceUri"]) ?? null;
+}
+
 function normalizeItemStatus(value: unknown): CodexItemStatus | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = normalizeTypeName(value);
@@ -484,7 +490,7 @@ function buildMcpToolCallView(
     callId: getString(candidate, ["id"]) ?? itemId,
     functionName: `${server}__${tool}`,
     pluginId: typeof candidate.pluginId === "string" ? candidate.pluginId : null,
-    mcpAppResourceUri: getString(candidate, ["mcpAppResourceUri"]) ?? null,
+    mcpAppResourceUri: getMcpAppResourceUri(candidate),
     invocation: {
       server,
       tool,

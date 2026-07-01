@@ -7174,6 +7174,28 @@ describe("codex-service startThreadForSession", () => {
 });
 
 describe("codex-service approval fallback", () => {
+  test("answers app-server currentTime/read requests with Unix seconds", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+    };
+    const originalDateNow = Date.now;
+
+    try {
+      Date.now = () => 1_700_000_123_999;
+      const result = await serviceInternals.handleServerRequest({
+        id: "time_req",
+        method: "currentTime/read",
+        params: { threadId: "thr_time" },
+      });
+
+      expect((result as { currentTimeAt?: number }).currentTimeAt ?? 0).toBe(1_700_000_123);
+    } finally {
+      Date.now = originalDateNow;
+      await service.shutdown();
+    }
+  });
+
   test("does not write permission modes disallowed by current requirements", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -8511,10 +8533,10 @@ describe("codex-service item lifecycle status fallback", () => {
         params: {
           threadId: "thr_mcp",
           turnId: "turn_mcp",
-          mode: "form",
+          mode: "openai/form",
           serverName: "Context7",
           message: "Allow this call?",
-          requestedSchema: {},
+          requestedSchema: { type: "object" },
         },
       });
 
@@ -8523,6 +8545,9 @@ describe("codex-service item lifecycle status fallback", () => {
       let item = getRecordedItem(serviceInternals, "thr_mcp", "turn_mcp", "mcp-server-elicitation-mcp_req");
       expect(item?.semanticKind).toBe("mcpServerElicitation");
       expect(item?.status).toBe("inProgress");
+      const rawElicitation = (item?.rawItem as { elicitation?: { mode?: string; requestedSchema?: { type?: string } } } | undefined)?.elicitation;
+      expect(rawElicitation?.mode ?? "").toBe("openai/form");
+      expect(rawElicitation?.requestedSchema?.type ?? "").toBe("object");
 
       const responded = await service.respondToMcpServerElicitation("mcp_req", "accept");
       expect(responded).toBeTrue();

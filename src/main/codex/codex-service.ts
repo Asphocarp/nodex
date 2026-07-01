@@ -17,6 +17,7 @@ import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/Con
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalParams";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
+import type { CurrentTimeReadResponse } from "@nodex/codex-app-server-protocol/v2/CurrentTimeReadResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
@@ -8825,7 +8826,15 @@ export class CodexService extends EventEmitter {
       return this.handleDynamicToolCall(request.params as DynamicToolCallParams);
     }
 
+    if (request.method === "currentTime/read") {
+      return this.handleCurrentTimeRead();
+    }
+
     throw new Error(`Unsupported server request method: ${request.method}`);
+  }
+
+  private handleCurrentTimeRead(): CurrentTimeReadResponse {
+    return { currentTimeAt: Math.floor(Date.now() / 1_000) };
   }
 
   private async handleApprovalRequest(
@@ -9125,7 +9134,7 @@ export class CodexService extends EventEmitter {
       message: params.message,
       url: params.mode === "url" ? params.url : undefined,
       elicitationId: params.mode === "url" ? params.elicitationId : undefined,
-      requestedSchema: params.mode === "form" ? params.requestedSchema : undefined,
+      requestedSchema: params.mode !== "url" ? params.requestedSchema : undefined,
       meta: params._meta,
       createdAt: Date.now(),
     };
