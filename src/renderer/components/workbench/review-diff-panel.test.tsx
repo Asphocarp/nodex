@@ -15,6 +15,7 @@ import type { FileDiffMetadata, FileDiffProps, MultiFileDiffProps } from "@pierr
 const invokeCalls: unknown[][] = [];
 const clipboardWrites: string[] = [];
 let mockInvokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null;
+let lastFileDiffProps: FileDiffProps<unknown> | null = null;
 
 function stripPatchPath(value: string): string {
   return value.replace(/^([ab])\//, "");
@@ -152,32 +153,51 @@ const reviewDiffPanelTestDeps = {
     resolved: "light" as const,
     setTheme: () => { },
   }),
-  FileDiff: <LAnnotation,>({ className, fileDiff, options }: FileDiffProps<LAnnotation>) =>
-    createElement("div", {
+  FileDiff: <LAnnotation,>(props: FileDiffProps<LAnnotation>) => {
+    const { className, fileDiff, options, lineAnnotations, renderAnnotation, selectedLines } = props;
+    lastFileDiffProps = props as unknown as FileDiffProps<unknown>;
+    return createElement("div", {
       className,
       "data-file-diff": fileDiff.name ?? "file",
       "data-file-additions": countTestFileDiffLines((fileDiff as { additionLines?: unknown }).additionLines),
       "data-file-deletions": countTestFileDiffLines((fileDiff as { deletionLines?: unknown }).deletionLines),
+      "data-line-annotations": String(lineAnnotations?.length ?? 0),
+      "data-selected-lines": selectedLines ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}` : "",
       "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
       "data-collapsed-context-threshold": testDiffOptionValue(options, "collapsedContextThreshold"),
       "data-expansion-line-count": testDiffOptionValue(options, "expansionLineCount"),
       "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
       "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
-    }),
-  MultiFileDiff: <LAnnotation,>({ className, oldFile, newFile, options }: MultiFileDiffProps<LAnnotation>) =>
-    createElement("div", {
+    }, lineAnnotations?.map((annotation, index) =>
+      createElement("div", {
+        key: index,
+        "data-rendered-line-annotation": `${annotation.side}:${annotation.lineNumber}`,
+      }, renderAnnotation?.(annotation)),
+    ));
+  },
+  MultiFileDiff: <LAnnotation,>(props: MultiFileDiffProps<LAnnotation>) => {
+    const { className, oldFile, newFile, options, lineAnnotations, renderAnnotation, selectedLines } = props;
+    return createElement("div", {
       className,
       "data-multi-file-diff": "true",
       "data-old-file-name": oldFile.name,
       "data-new-file-name": newFile.name,
       "data-old-file-contents": oldFile.contents,
       "data-new-file-contents": newFile.contents,
+      "data-line-annotations": String(lineAnnotations?.length ?? 0),
+      "data-selected-lines": selectedLines ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}` : "",
       "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
       "data-collapsed-context-threshold": testDiffOptionValue(options, "collapsedContextThreshold"),
       "data-expansion-line-count": testDiffOptionValue(options, "expansionLineCount"),
       "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
       "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
-    }),
+    }, lineAnnotations?.map((annotation, index) =>
+      createElement("div", {
+        key: index,
+        "data-rendered-line-annotation": `${annotation.side}:${annotation.lineNumber}`,
+      }, renderAnnotation?.(annotation)),
+    ));
+  },
 };
 
 function buildConversation(): CodexConversationSnapshot {
@@ -306,6 +326,7 @@ beforeEach(() => {
   invokeCalls.length = 0;
   clipboardWrites.length = 0;
   mockInvokeImpl = null;
+  lastFileDiffProps = null;
   __resetNodexToastStoreForTests();
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -1721,8 +1742,48 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Check value")).toBeTrue();
-    expect(textContent(view.container).includes("L2")).toBeTrue();
-    expect(view.container.querySelector('[data-review-code-comments="true"]')).not.toBeNull();
+    expect(textContent(view.container).includes("Comment on line R2")).toBeTrue();
+    expect(view.container.querySelector('[data-review-code-comments="true"]') === null).toBeTrue();
+    expect(view.container.querySelector('[data-rendered-line-annotation="additions:2"]')).not.toBeNull();
+  });
+
+  test("creates a local comment draft from the diff gutter utility callback", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+
+    expect(lastFileDiffProps?.options).not.toBeNull();
+    await act(async () => {
+      (lastFileDiffProps?.options as { onLineSelectionChange?: (range: { side: "additions"; start: number; end: number }) => void })
+        ?.onLineSelectionChange?.({ side: "additions", start: 2, end: 2 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(view.container.querySelector("[data-file-diff]")?.getAttribute("data-selected-lines")).toBe("additions:2-:2");
+
+    await act(async () => {
+      (lastFileDiffProps?.options as { onGutterUtilityClick?: (range: { side: "additions"; start: number; end: number }) => void })
+        ?.onGutterUtilityClick?.({ side: "additions", start: 2, end: 2 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(textContent(view.container).includes("Local comment")).toBeTrue();
+    expect(textContent(view.container).includes("Comment on line R2")).toBeTrue();
+    expect(view.container.querySelector('[data-placeholder="Request change"]')).not.toBeNull();
+    expect(textContent(view.container).includes("Cancel")).toBeTrue();
+    expect(textContent(view.container).includes("Comment")).toBeTrue();
+    expect(view.container.querySelector("[data-file-diff]")?.getAttribute("data-selected-lines")).toBe("");
   });
 
 });

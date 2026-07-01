@@ -1,7 +1,7 @@
 # Review Right Panel Behavior
 
 Status: Active
-Last updated: 2026-06-30
+Last updated: 2026-07-01
 
 ## Purpose
 
@@ -119,4 +119,10 @@ Explicit review-start actions call `codex:review:start` with protocol-native tar
 
 Delivery defaults to `inline`.
 
-Assistant `::code-comment{title body file start end priority}` directives are parsed separately from normal text and render as anchored review annotations on matching file diffs. PR comments/checks/fix rows are owned by the GitHub PR data plane and attach to Review state rather than being persisted as raw tab content.
+Diff lines are commentable in the Review panel. Hovering a changed line exposes the `@pierre/diffs` gutter utility slot (`data-gutter-utility-slot > button[data-utility-button]`) with the package plus icon. Clicking the plus, dragging a gutter line/range, or right-clicking a hovered line and choosing `Request changes` creates a local line annotation draft unless that exact `${side}:${lineNumber}` already has a model comment, local pending comment, or open draft. `side` is `additions` for right-side/new lines and `deletions` for left-side/removed lines.
+
+Local drafts render in the diff annotation slot as `Local comment` cards. The header shows `Comment on line Rn` / `Comment on line Ln`, or `Comment on lines ... to ...` for ranges. The editor placeholder is `Request change`; empty drafts cannot be submitted. New drafts expose `Cancel` and `Comment`. Submitted local comments stay as editable pending annotation cards with `Save` and `Delete`, and also appear as removable composer attachment chips until sent.
+
+Pending review-diff comments are sent with the next thread turn, queued follow-up, or steer. Renderer stores them in `CodexPromptInput.commentAttachments`; main converts each one into a text user input and also writes structured JSON to `additionalContext["review-diff-comments"]` with `kind: "application"`. Each attachment includes `type: "comment"`, text content, `position.path`, `position.side` (`left`/`right`), `line`, optional `start_line` / `start_side`, and optional `localDiffHunk`.
+
+Assistant `::code-comment{title body file start end priority}` directives are parsed separately from normal text and render as readonly Codex line annotation cards on matching file diffs. File-level comments without `start` still render above the file diff. GitHub pull-request inline review comments use the PR review-comments API, preserving path, line, side, range, reply id, author, URL, and outdated state instead of treating issue-level PR comments as inline annotations.

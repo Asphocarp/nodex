@@ -207,6 +207,14 @@ function parseJson(value: string): unknown {
   return JSON.parse(value) as unknown;
 }
 
+function parseJsonSafely(value: string): unknown {
+  try {
+    return parseJson(value);
+  } catch {
+    return null;
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -221,10 +229,74 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function asBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 function makePrArg(prNumber?: number | null): string[] {
   return typeof prNumber === "number" && Number.isFinite(prNumber) && prNumber > 0
     ? [String(prNumber)]
     : [];
+}
+
+async function resolveGhPrNumber(cwd: string, prNumber?: number | null): Promise<number> {
+  if (typeof prNumber === "number" && Number.isFinite(prNumber) && prNumber > 0) {
+    return prNumber;
+  }
+
+  const result = await runCommand("gh", [
+    "pr",
+    "view",
+    "--json",
+    "number",
+  ], cwd);
+  const number = asNumber(asRecord(parseJson(result.stdout))?.number);
+  if (!number) {
+    throw new Error("Could not resolve pull request number.");
+  }
+  return number;
+}
+
+async function resolveGhPrHeadCommitSha(cwd: string, prNumber: number): Promise<string> {
+  const result = await runCommand("gh", [
+    "pr",
+    "view",
+    String(prNumber),
+    "--json",
+    "headRefOid",
+  ], cwd);
+  const headRefOid = asString(asRecord(parseJson(result.stdout))?.headRefOid);
+  if (!headRefOid) {
+    throw new Error("Could not resolve pull request head commit.");
+  }
+  return headRefOid;
+}
+
+function parseGhPrReviewComment(item: unknown): GhPrComment[] {
+  const record = asRecord(item);
+  if (!record) return [];
+  const author = asRecord(record.user) ?? asRecord(record.author);
+  const numericId = asNumber(record.id);
+  const id = asString(record.node_id)
+    ?? asString(record.id)
+    ?? (numericId !== null ? String(numericId) : null)
+    ?? asString(record.url)
+    ?? "";
+  const side = asString(record.side);
+  const startSide = asString(record.start_side);
+  return [{
+    id,
+    path: asString(record.path),
+    line: asNumber(record.line),
+    side: side === "LEFT" || side === "RIGHT" ? side : null,
+    startLine: asNumber(record.start_line),
+    startSide: startSide === "LEFT" || startSide === "RIGHT" ? startSide : null,
+    replyToId: asNumber(record.in_reply_to_id) !== null ? String(asNumber(record.in_reply_to_id)) : asString(record.in_reply_to_id),
+    outdated: asBoolean(record.outdated),
+    body: asString(record.body) ?? "",
+    author: asString(author?.login) ?? asString(record.author),
+    url: asString(record.html_url) ?? asString(record.url),
+  }];
 }
 
 export async function readGhCliStatus(input: { cwd: string }): Promise<GhCliStatusResult> {
@@ -313,28 +385,19 @@ export async function readGhPrComments(input: GhPrCommentsRequest): Promise<GhPr
   if (!ghStatus.available) return disabledComments(cwd, ghStatus);
 
   try {
+    const prNumber = await resolveGhPrNumber(cwd, input.prNumber);
     const result = await runCommand("gh", [
-      "pr",
-      "view",
-      ...makePrArg(input.prNumber),
-      "--json",
-      "comments",
+      "api",
+      `repos/{owner}/{repo}/pulls/${prNumber}/comments`,
+      "--paginate",
+      "--slurp",
     ], cwd);
-    const commentsValue = asRecord(parseJson(result.stdout))?.comments;
+    const data = parseJson(result.stdout);
+    const commentsValue = Array.isArray(data) && data.every(Array.isArray)
+      ? data.flat()
+      : data;
     const comments = Array.isArray(commentsValue)
-      ? commentsValue.flatMap((item): GhPrComment[] => {
-          const record = asRecord(item);
-          if (!record) return [];
-          const author = asRecord(record.author);
-          return [{
-            id: asString(record.id) ?? asString(record.url) ?? "",
-            path: asString(record.path),
-            line: asNumber(record.line),
-            body: asString(record.body) ?? "",
-            author: asString(author?.login) ?? asString(record.author),
-            url: asString(record.url),
-          }];
-        })
+      ? commentsValue.flatMap(parseGhPrReviewComment)
       : [];
     return {
       cwd,
@@ -376,20 +439,56 @@ export async function createGhPrComment(input: GhPrCommentInput): Promise<GhPrCo
   const cwd = await ensureDirectory(input.cwd);
   const ghStatus = await requireGhCli(cwd);
   if (!ghStatus.available) return disabledMutation(cwd, ghStatus);
+  if (input.body.trim().length === 0) {
+    return disabledMutation(cwd, {
+      ...ghStatus,
+      status: "error",
+      message: "Pull request comment body is required.",
+    });
+  }
 
   try {
-    const result = await runCommand("gh", [
-      "pr",
-      "comment",
-      String(input.prNumber),
-      "--body",
-      input.body,
-    ], cwd);
+    const prNumber = await resolveGhPrNumber(cwd, input.prNumber);
+    const result = input.type === "inline"
+      ? await runCommand("gh", [
+          "api",
+          "-X",
+          "POST",
+          `repos/{owner}/{repo}/pulls/${prNumber}/comments`,
+          "-f",
+          `body=${input.body.trim()}`,
+          "-f",
+          `commit_id=${input.commitSha?.trim() || await resolveGhPrHeadCommitSha(cwd, prNumber)}`,
+          "-f",
+          `path=${input.path}`,
+          "-F",
+          `line=${input.line}`,
+          "-f",
+          `side=${input.side}`,
+          ...(input.startLine ? ["-F", `start_line=${input.startLine}`] : []),
+          ...(input.startSide ? ["-f", `start_side=${input.startSide}`] : []),
+        ], cwd)
+      : input.type === "reply"
+        ? await runCommand("gh", [
+            "api",
+            "-X",
+            "POST",
+            `repos/{owner}/{repo}/pulls/${prNumber}/comments/${input.commentId}/replies`,
+            "-f",
+            `body=${input.body.trim()}`,
+          ], cwd)
+        : await runCommand("gh", [
+            "pr",
+            "comment",
+            String(prNumber),
+            "--body",
+            input.body.trim(),
+          ], cwd);
     return {
       cwd,
       available: true,
       disabledReason: null,
-      url: result.stdout.trim() || null,
+      url: asString(asRecord(parseJsonSafely(result.stdout))?.html_url) ?? (result.stdout.trim() || null),
       message: null,
     };
   } catch (error) {

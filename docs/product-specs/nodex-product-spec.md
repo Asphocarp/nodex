@@ -137,7 +137,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - Git-backed review sources load through main-process `git:review:diff`, branch stats, and merge-base IPC, preserving separate loading, load-failed, timed-out, non-git, empty, and large-diff states
   - `Last turn` renders from the active conversation's turn diff; when the current workspace file still matches the patch, Nodex safely reconstructs full old/new text for the same expandable separator behavior, otherwise it falls back to partial patch rendering; Git-backed sources load exact workspace diffs and full file contents through main-process Git review IPC
   - the right-side file tree is fixed-width, can filter changed files with `Filter files...`, and can be hidden without resetting diff selection or comments
-  - model-produced `::code-comment{...}` directives render as path/line anchored review annotations above the matching file diff
+  - changed diff lines expose a hover `+` gutter utility, right-click `Request changes`, and drag/range selection for creating `Local comment` request-change annotations; submitted local comments become pending composer attachments and are sent with the next turn/steer as both structured review-diff comment context and text user input
+  - model-produced `::code-comment{...}` directives render as readonly path/line anchored review annotation cards above the matching file diff
+  - GitHub PR comments use the inline review-comments API for path/line/side/range/reply metadata instead of showing issue-level comments as fake inline comments
   - very large reviews fall back to a capped one-file-at-a-time mode when they exceed file-count, total-line, total-byte, or single-file changed-line thresholds
   - detailed Review panel behavior lives in [Review Right Panel Behavior](./review-right-panel-behavior.md)
 - Create/delete projects from the sidebar Projects header or project-row action menus.

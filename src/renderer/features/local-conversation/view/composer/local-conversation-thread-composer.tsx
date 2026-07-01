@@ -6,7 +6,13 @@ import {
   resolveCodexReasoningEffortOptions,
 } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
-import type { CodexCollaborationModeKind, CodexPermissionState, CodexPromptInput, CodexReasoningEffort } from "@/lib/types";
+import type {
+  CodexCollaborationModeKind,
+  CodexPermissionState,
+  CodexPromptInput,
+  CodexReasoningEffort,
+  CodexReviewDiffCommentAttachment,
+} from "@/lib/types";
 import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
@@ -33,6 +39,7 @@ import {
   ComposerPluginsIcon,
   MicIcon,
   PlusIcon,
+  ReviewFileDocumentIcon,
   SpinnerIcon,
   StopIcon,
   UpArrowIcon,
@@ -85,6 +92,16 @@ import type {
   ComposerSlashCommandHighlightSource,
   ComposerSlashTriggerState,
 } from "./slash-command-menu/slash-command-types";
+import {
+  addReviewDiffCommentAttachment,
+  clearReviewDiffCommentAttachments,
+  removeReviewDiffCommentAttachment,
+  useReviewDiffCommentAttachments,
+} from "@/lib/review-diff-comment-attachment-store";
+import {
+  formatReviewDiffCommentLineLabel,
+  getReviewDiffCommentText,
+} from "../../../../../shared/review-diff-comments";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -192,6 +209,7 @@ interface ComposerAttachmentState {
   fileAttachments: ComposerFileAttachment[];
   imageAttachments: ComposerImageAttachment[];
   skillMentions: ComposerSkillMentionAttachment[];
+  commentAttachments: CodexReviewDiffCommentAttachment[];
 }
 
 function createComposerAttachmentId(prefix: string): string {
@@ -225,8 +243,9 @@ function buildComposerPromptInput(input: {
     name: attachment.name,
     path: attachment.path,
   }));
+  const commentAttachments = input.attachments.commentAttachments;
 
-  if (images.length === 0 && mentions.length === 0 && skills.length === 0) {
+  if (images.length === 0 && mentions.length === 0 && skills.length === 0 && commentAttachments.length === 0) {
     return undefined;
   }
 
@@ -235,6 +254,7 @@ function buildComposerPromptInput(input: {
     ...(images.length > 0 ? { images } : {}),
     ...(mentions.length > 0 ? { mentions } : {}),
     ...(skills.length > 0 ? { skills } : {}),
+    ...(commentAttachments.length > 0 ? { commentAttachments } : {}),
   };
 }
 
@@ -260,6 +280,7 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
       name: skill.name.trim() || getComposerAttachmentNameFromPath(skill.path, "Skill"),
       path: skill.path,
     })),
+    commentAttachments: promptInput?.commentAttachments ?? [],
   };
 }
 
@@ -275,7 +296,8 @@ function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
 function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState): boolean {
   return attachments.fileAttachments.length > 0
     || attachments.imageAttachments.length > 0
-    || attachments.skillMentions.length > 0;
+    || attachments.skillMentions.length > 0
+    || attachments.commentAttachments.length > 0;
 }
 
 function parseSideChatCommand(prompt: string): string | null {
@@ -744,11 +766,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const dictationShortcutActiveRef = useRef(false);
   const attachmentGenerationRef = useRef(0);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
+  const composerThreadId = model.conversation?.threadId ?? model.threadId;
+  const commentAttachments = useReviewDiffCommentAttachments(composerThreadId);
   const attachmentState = useMemo<ComposerAttachmentState>(() => ({
     fileAttachments,
     imageAttachments,
     skillMentions,
-  }), [fileAttachments, imageAttachments, skillMentions]);
+    commentAttachments,
+  }), [commentAttachments, fileAttachments, imageAttachments, skillMentions]);
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
   const incrementAttachmentGeneration = useCallback(() => {
     attachmentGenerationRef.current += 1;
@@ -813,6 +838,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         recordSuccessfulPromptSubmit(sideChatPrompt);
         input.reset?.();
         resetComposerAttachments();
+        clearReviewDiffCommentAttachments(composerThreadId);
       } catch {
         toast.danger("Failed to open side chat", {
           id: "side-chat-open-failed",
@@ -878,6 +904,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       recordSuccessfulPromptSubmit(nextPrompt);
       input.reset?.();
       resetComposerAttachments();
+      clearReviewDiffCommentAttachments(composerThreadId);
     } catch (error) {
       onErrorMessage(error instanceof Error ? error.message : "Could not send prompt");
     } finally {
@@ -886,6 +913,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }, [
     actions,
     attachmentState,
+    composerThreadId,
     model.activeTurn,
     model.conversation,
     model.isThreadRunning,
@@ -1156,6 +1184,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     setFileAttachments(restoredAttachments.fileAttachments);
     setImageAttachments(restoredAttachments.imageAttachments);
     setSkillMentions(restoredAttachments.skillMentions);
+    clearReviewDiffCommentAttachments(threadId);
+    for (const attachment of restoredAttachments.commentAttachments) {
+      addReviewDiffCommentAttachment(threadId, attachment);
+    }
     promptForm.setFieldValue("prompt", composerIntent.prompt);
     requestAnimationFrame(() => {
       promptEditorRef.current?.focusAtEnd();
@@ -1219,6 +1251,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     incrementAttachmentGeneration();
     setSkillMentions((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }, [incrementAttachmentGeneration]);
+
+  const handleRemoveCommentAttachment = useCallback((attachmentId: string) => {
+    removeReviewDiffCommentAttachment(composerThreadId, attachmentId);
+  }, [composerThreadId]);
 
   const slashCommands = useMemo(() => buildComposerSlashCommands({
     model,
@@ -1586,6 +1622,30 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                       <span className="text-token-description-foreground">x</span>
                     </button>
                   ))}
+                  {commentAttachments.map((attachment) => {
+                    const lineLabel = formatReviewDiffCommentLineLabel({
+                      side: attachment.position.side,
+                      line: attachment.position.line,
+                      ...(attachment.position.start_line ? { startLine: attachment.position.start_line } : {}),
+                      ...(attachment.position.start_side ? { startSide: attachment.position.start_side } : {}),
+                    });
+                    const fileLabel = getComposerAttachmentNameFromPath(attachment.position.path, attachment.position.path);
+                    const commentText = getReviewDiffCommentText(attachment);
+                    return (
+                      <button
+                        key={attachment.id}
+                        type="button"
+                        className="inline-flex max-w-64 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                        onClick={() => handleRemoveCommentAttachment(attachment.id)}
+                        title={`Remove ${lineLabel}: ${commentText}`}
+                      >
+                        <ReviewFileDocumentIcon className="size-3 text-token-description-foreground" />
+                        <span className="min-w-0 truncate">{fileLabel}</span>
+                        <span className="shrink-0 text-token-description-foreground">{lineLabel.replace("Comment on ", "")}</span>
+                        <span className="text-token-description-foreground">x</span>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

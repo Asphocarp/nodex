@@ -178,6 +178,11 @@ import {
   removeOrderedStringIds,
   upsertOrderedStringIds,
 } from "../../shared/codex-turn-order";
+import {
+  REVIEW_DIFF_COMMENTS_ADDITIONAL_CONTEXT_KEY,
+  serializeReviewDiffCommentAttachmentForPrompt,
+  serializeReviewDiffCommentAttachmentsForAdditionalContext,
+} from "../../shared/review-diff-comments";
 import { dbNotifier } from "../local-store/notifier";
 import {
   getProject,
@@ -1314,6 +1319,7 @@ function getSteeringClientUserMessageId(entry: CodexTranscriptEntry): string | n
 interface PreparedPromptForTurn {
   promptText: string;
   inputItems: CodexUserInputItem[];
+  additionalContext?: TurnStartParams["additionalContext"];
   agentConfigOverrides: {
     collaborationMode?: CodexCollaborationModeKind;
     model?: string;
@@ -4203,9 +4209,22 @@ export class CodexService extends EventEmitter {
     const imageItems = (promptInput?.images ?? []).map((image) => this.resolvePromptImageInput(image.source));
     const mentionItems = (promptInput?.mentions ?? []).map((mention) => this.resolvePromptMentionInput(mention));
     const skillItems = (promptInput?.skills ?? []).map((skill) => this.resolvePromptSkillInput(skill));
+    const commentAttachments = (promptInput?.commentAttachments ?? [])
+      .filter((attachment) => attachment.content.some((part) => part.content_type === "text" && part.text.trim().length > 0));
+    const commentItems = commentAttachments
+      .map((attachment) => createTextUserInput(serializeReviewDiffCommentAttachmentForPrompt(attachment)));
+    const additionalContext = commentAttachments.length > 0
+      ? {
+          [REVIEW_DIFF_COMMENTS_ADDITIONAL_CONTEXT_KEY]: {
+            kind: "application" as const,
+            value: serializeReviewDiffCommentAttachmentsForAdditionalContext(commentAttachments),
+          },
+        }
+      : undefined;
     const inputItems: CodexUserInputItem[] = [
       ...(promptText ? [createTextUserInput(promptText)] : []),
       ...textAttachmentItems,
+      ...commentItems,
       ...imageItems,
       ...mentionItems,
       ...skillItems,
@@ -4218,6 +4237,7 @@ export class CodexService extends EventEmitter {
     return {
       promptText,
       inputItems,
+      ...(additionalContext ? { additionalContext } : {}),
       agentConfigOverrides: await this.resolveAgentConfigOverrides(parsedPrompt.agentConfigs),
     };
   }
@@ -6539,6 +6559,7 @@ export class CodexService extends EventEmitter {
         threadId: link.threadId,
         input: preparedPrompt.inputItems,
         cwd: runLocation.cwd,
+        ...(preparedPrompt.additionalContext ? { additionalContext: preparedPrompt.additionalContext } : {}),
         ...turnPermissionOverrides,
         ...(effectiveModel ? { model: effectiveModel } : {}),
         ...buildServiceTierParams(input.serviceTier),
@@ -7381,7 +7402,8 @@ export class CodexService extends EventEmitter {
       || promptInput?.textAttachments?.some((attachment) => attachment.text.trim().length > 0)
       || promptInput?.images?.length
       || promptInput?.mentions?.length
-      || promptInput?.skills?.length,
+      || promptInput?.skills?.length
+      || promptInput?.commentAttachments?.length,
     );
     if (hasInitialPrompt) {
       await this.startTurn(forkedThreadId, input.prompt?.trim() ?? promptInput?.text ?? "", {
@@ -7627,6 +7649,7 @@ export class CodexService extends EventEmitter {
       const turnStartParams: TurnStartParams = {
         threadId,
         ...(workspacePath ? { cwd: workspacePath } : {}),
+        ...(preparedPrompt.additionalContext ? { additionalContext: preparedPrompt.additionalContext } : {}),
         ...turnPermissionOverrides,
         ...(effectiveModel ? { model: effectiveModel } : {}),
         ...buildServiceTierParams(overrides?.serviceTier),
@@ -7748,6 +7771,7 @@ export class CodexService extends EventEmitter {
       expectedTurnId,
       clientUserMessageId: steerId,
       input: preparedPrompt.inputItems,
+      ...(preparedPrompt.additionalContext ? { additionalContext: preparedPrompt.additionalContext } : {}),
     };
     this.upsertSteeringUserMessageEntry(this.buildSteeringUserMessageEntry({
       threadId,

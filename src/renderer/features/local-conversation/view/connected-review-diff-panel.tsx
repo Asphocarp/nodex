@@ -69,6 +69,7 @@ export function ConnectedReviewDiffPanel({
   return (
     <ReviewDiffPanel
       conversation={conversation}
+      threadId={threadId}
       projectWorkspacePath={projectWorkspacePath ?? null}
       selectedTurnDiff={refreshedSelectedTurnDiff}
       searchOpenTick={searchOpenTick}

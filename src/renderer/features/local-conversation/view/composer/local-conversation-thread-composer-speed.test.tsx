@@ -776,6 +776,7 @@ describe("ThreadComposer speed menu", () => {
         fileAttachments: [{ id: "file_1", label: "notes.md", path: "/tmp/notes.md" }],
         imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
         skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
+        commentAttachments: [],
       },
     });
 

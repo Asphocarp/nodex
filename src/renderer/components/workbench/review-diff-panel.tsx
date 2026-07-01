@@ -1,6 +1,6 @@
-import type { FileContents } from "@pierre/diffs";
-import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import type { FileContents, OnDiffLineEnterLeaveProps } from "@pierre/diffs";
+import type { DiffLineAnnotation, FileDiffMetadata, FileDiffProps, SelectedLineRange } from "@pierre/diffs/react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   CheckmarkIcon,
@@ -118,8 +118,36 @@ import type {
   GitReviewSource,
   ReviewDiffResult,
   WorkspaceFileReadResult,
+  CodexReviewDiffCommentAttachment,
+  ReviewDiffAnnotationSide,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { showNativeContextMenu } from "@/lib/native-context-menu";
+import { ComposerPromptEditor } from "@/features/local-conversation/view/composer/composer-prompt-editor";
+import {
+  addReviewDiffCommentAttachment,
+  removeReviewDiffCommentAttachment,
+  updateReviewDiffCommentAttachment,
+  useReviewDiffCommentAttachments,
+} from "@/lib/review-diff-comment-attachment-store";
+import {
+  buildReviewDiffCommentAttachment,
+  buildReviewDiffDraftAnnotation,
+  buildReviewDiffDraftStorageScope,
+  createReviewDiffDraftFromLine,
+  createReviewDiffDraftFromRange,
+  readReviewDiffDraftStorage,
+  shouldBlockReviewDiffDraft,
+  writeReviewDiffDraftStorage,
+  type ReviewDiffAnnotationMetadata,
+  type ReviewDiffDraft,
+} from "@/lib/review-diff-annotations";
+import {
+  buildReviewDiffAnnotationKey,
+  formatReviewDiffCommentLineLabel,
+  getReviewDiffCommentText,
+  mapReviewDiffPositionSideToAnnotationSide,
+} from "../../../shared/review-diff-comments";
 import {
   parsePatchFiles as defaultParsePatchFiles,
   FileDiff as defaultFileDiff,
@@ -143,6 +171,7 @@ type GitReviewLoadStatus = "idle" | "loading" | "loaded" | "load-failed" | "time
 
 interface ReviewDiffPanelProps {
   conversation: CodexConversationSnapshot | null;
+  threadId?: string | null;
   projectWorkspacePath?: string | null;
   selectedTurnDiff?: CodexTurnDiffReviewTarget | null;
   initialSource?: ReviewSource;
@@ -923,6 +952,112 @@ function ReviewPanelEmptyState({
   );
 }
 
+function hashReviewDiffSourceKey(value: string): string {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function createReviewDiffCommentId(): string {
+  return `review_comment_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function ReviewDiffCommentAnnotationCard({
+  metadata,
+  value,
+  readonly = false,
+  onChange,
+  onCancel,
+  onSubmit,
+  onDelete,
+}: {
+  metadata: ReviewDiffAnnotationMetadata;
+  value: string;
+  readonly?: boolean;
+  onChange?: (value: string) => void;
+  onCancel?: () => void;
+  onSubmit?: (value: string) => void;
+  onDelete?: () => void;
+}) {
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    setDraftValue(value);
+  }, [metadata.key, value]);
+
+  const lineLabel = formatReviewDiffCommentLineLabel({
+    side: metadata.side,
+    line: metadata.lineNumber,
+    ...(metadata.startSide ? { startSide: metadata.startSide } : {}),
+    ...(metadata.startLine ? { startLine: metadata.startLine } : {}),
+  });
+  const trimmedValue = draftValue.trim();
+  const isLocalComment = metadata.kind === "local-comment";
+  const authorLabel = metadata.kind === "model-comment" ? "Codex" : "Local comment";
+  const title = metadata.title?.trim() || authorLabel;
+
+  return (
+    <div className="flex w-full justify-center">
+      <div className="w-full max-w-3xl min-w-0 gap-2 p-1.5 font-sans" data-review-diff-comment-card={metadata.kind}>
+        <div className="group/comment overflow-hidden rounded-[12px] border border-token-border/14 bg-token-dropdown-background composer-surface-chrome">
+          <div className="flex min-w-0 items-center gap-2 px-2.5 py-2">
+            <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-token-foreground/8 text-[10px] font-medium text-token-description-foreground">
+              {authorLabel === "Codex" ? "C" : "L"}
+            </div>
+            <div className="min-w-0 truncate text-sm font-medium text-token-foreground">{title}</div>
+            <div className="ml-auto shrink-0 text-xs text-token-description-foreground">{lineLabel}</div>
+          </div>
+          {readonly ? (
+            <div className="px-2.5 pb-2 text-sm leading-5 text-token-foreground whitespace-pre-wrap">
+              {value}
+            </div>
+          ) : (
+            <>
+              <div className="px-2.5 pb-2">
+                <ComposerPromptEditor
+                  value={draftValue}
+                  placeholder="Request change"
+                  disabled={false}
+                  className="max-h-[25dvh] min-h-[52px] px-0 py-0 text-sm"
+                  onChange={(nextValue) => {
+                    setDraftValue(nextValue);
+                    onChange?.(nextValue);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return false;
+                    event.preventDefault();
+                    onSubmit?.(draftValue);
+                    return true;
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-end gap-1 border-t border-token-border/50 px-2.5 py-2">
+                <button
+                  type="button"
+                  className="border-token-border no-drag cursor-interaction flex h-token-button-composer items-center gap-1 rounded-lg border border-transparent px-2 py-0 text-sm leading-[18px] text-token-text-tertiary select-none focus:outline-none enabled:hover:bg-token-list-hover-background enabled:hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={isLocalComment ? onDelete : onCancel}
+                >
+                  {isLocalComment ? "Delete" : "Cancel"}
+                </button>
+                <button
+                  type="button"
+                  className="border-token-border no-drag cursor-interaction flex h-token-button-composer items-center gap-1 rounded-lg border border-transparent bg-token-foreground px-2 py-0 text-sm leading-[18px] text-token-dropdown-background select-none focus:outline-none enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={trimmedValue.length === 0}
+                  onClick={() => onSubmit?.(draftValue)}
+                >
+                  {isLocalComment ? "Save" : "Comment"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReviewFileRow({
   entry,
   diffMode,
@@ -934,6 +1069,9 @@ function ReviewFileRow({
   fullContents,
   fullContentsLoading,
   comments,
+  threadId,
+  sourceKey,
+  pendingCommentAttachments,
   deps,
   onToggleExpanded,
 }: {
@@ -947,6 +1085,9 @@ function ReviewFileRow({
   fullContents: GitReviewFileContents | null;
   fullContentsLoading: boolean;
   comments: ReviewCodeComment[];
+  threadId: string | null;
+  sourceKey: string;
+  pendingCommentAttachments: CodexReviewDiffCommentAttachment[];
   deps: ReviewDiffPanelDeps;
   onToggleExpanded: () => void;
 }) {
@@ -961,11 +1102,308 @@ function ReviewFileRow({
   const lineDiffType = wordDiffsEnabled
     ? "word-alt"
     : "none";
-  const diffOptions = getNodexReviewDiffOptions(resolved === "dark" ? "dark" : "light", true, {
-    diffStyle: diffMode,
-    wrap,
-    lineDiffType,
-  });
+  const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
+  const [draftsByKey, setDraftsByKey] = useState<Record<string, ReviewDiffDraft>>({});
+  const [draftStorageHydratedScope, setDraftStorageHydratedScope] = useState<string | null>(null);
+  const hoveredLineRef = useRef<{ side: ReviewDiffAnnotationSide; lineNumber: number } | null>(null);
+  const draftStorageScope = useMemo(
+    () => buildReviewDiffDraftStorageScope({
+      threadId,
+      sourceKey,
+      path: entry.displayPath,
+    }),
+    [entry.displayPath, sourceKey, threadId],
+  );
+  const fileLevelComments = useMemo(
+    () => comments.filter((comment) => !comment.start),
+    [comments],
+  );
+  const modelLineComments = useMemo(
+    () => comments.filter((comment) => typeof comment.start === "number" && comment.start > 0),
+    [comments],
+  );
+  const pendingFileComments = useMemo(
+    () => pendingCommentAttachments.filter((attachment) => attachment.position.path === entry.displayPath),
+    [entry.displayPath, pendingCommentAttachments],
+  );
+  const existingAnnotationKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const comment of modelLineComments) {
+      if (!comment.start) continue;
+      const lineNumber = comment.end && comment.end !== comment.start ? comment.end : comment.start;
+      keys.add(buildReviewDiffAnnotationKey("additions", lineNumber));
+    }
+    for (const attachment of pendingFileComments) {
+      const side = mapReviewDiffPositionSideToAnnotationSide(attachment.position.side);
+      keys.add(buildReviewDiffAnnotationKey(side, attachment.position.line));
+    }
+    return keys;
+  }, [modelLineComments, pendingFileComments]);
+  const draftKeys = useMemo(() => new Set(Object.keys(draftsByKey)), [draftsByKey]);
+
+  useEffect(() => {
+    const storedDrafts = readReviewDiffDraftStorage(draftStorageScope);
+    setDraftsByKey(Object.fromEntries(
+      Object.entries(storedDrafts).flatMap(([key, text]) => {
+        const [side, rawLineNumber] = key.split(":");
+        if ((side !== "additions" && side !== "deletions") || !rawLineNumber) return [];
+        const lineNumber = Number(rawLineNumber);
+        if (!Number.isFinite(lineNumber) || lineNumber <= 0) return [];
+        const draft = createReviewDiffDraftFromLine({
+          side,
+          lineNumber,
+          path: entry.displayPath,
+          patchText: entry.patchText,
+        });
+        return [[key, { ...draft, text }]];
+      }),
+    ));
+    setDraftStorageHydratedScope(draftStorageScope);
+  }, [draftStorageScope, entry.displayPath, entry.patchText]);
+
+  useEffect(() => {
+    if (draftStorageHydratedScope !== draftStorageScope) return;
+    const persistedDrafts = Object.fromEntries(
+      Object.entries(draftsByKey)
+        .filter(([, draft]) => draft.text.length > 0)
+        .map(([key, draft]) => [key, draft.text]),
+    );
+    writeReviewDiffDraftStorage(draftStorageScope, persistedDrafts);
+  }, [draftStorageHydratedScope, draftStorageScope, draftsByKey]);
+
+  const createDraft = useCallback((draft: ReviewDiffDraft | null) => {
+    if (!draft) return;
+    if (shouldBlockReviewDiffDraft({
+      key: draft.key,
+      existingKeys: existingAnnotationKeys,
+      draftKeys,
+    })) {
+      return;
+    }
+
+    setDraftsByKey((current) => ({
+      ...current,
+      [draft.key]: draft,
+    }));
+  }, [draftKeys, existingAnnotationKeys]);
+
+  const createDraftFromRange = useCallback((range: SelectedLineRange | null) => {
+    if (!range) {
+      setSelectedLines(null);
+      return;
+    }
+    createDraft(createReviewDiffDraftFromRange({
+      range,
+      path: entry.displayPath,
+      patchText: entry.patchText,
+    }));
+    setSelectedLines(null);
+  }, [createDraft, entry.displayPath, entry.patchText]);
+
+  const updateDraftText = useCallback((key: string, text: string) => {
+    setDraftsByKey((current) => {
+      const draft = current[key];
+      if (!draft) return current;
+      return {
+        ...current,
+        [key]: {
+          ...draft,
+          text,
+        },
+      };
+    });
+  }, []);
+
+  const removeDraft = useCallback((key: string) => {
+    setDraftsByKey((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const submitDraft = useCallback((key: string, text: string) => {
+    const draft = draftsByKey[key];
+    const trimmedText = text.trim();
+    if (!draft || trimmedText.length === 0) return;
+
+    addReviewDiffCommentAttachment(threadId, buildReviewDiffCommentAttachment({
+      id: createReviewDiffCommentId(),
+      sessionKey: sourceKey,
+      draft,
+      text: trimmedText,
+      createdAt: Date.now(),
+    }));
+    removeDraft(key);
+  }, [draftsByKey, removeDraft, sourceKey, threadId]);
+
+  const updateLocalComment = useCallback((attachmentId: string, text: string) => {
+    const attachment = pendingFileComments.find((candidate) => candidate.id === attachmentId);
+    const trimmedText = text.trim();
+    if (!attachment || trimmedText.length === 0) return;
+
+    updateReviewDiffCommentAttachment(threadId, {
+      ...attachment,
+      content: [{
+        content_type: "text",
+        text: trimmedText,
+      }],
+    });
+  }, [pendingFileComments, threadId]);
+
+  const removeLocalComment = useCallback((attachmentId: string) => {
+    removeReviewDiffCommentAttachment(threadId, attachmentId);
+  }, [threadId]);
+
+  const handleLineEnter = useCallback((props: OnDiffLineEnterLeaveProps) => {
+    hoveredLineRef.current = {
+      side: props.annotationSide,
+      lineNumber: props.lineNumber,
+    };
+  }, []);
+
+  const handleLineLeave = useCallback(() => {
+    hoveredLineRef.current = null;
+  }, []);
+
+  const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    const hoveredLine = hoveredLineRef.current;
+    if (!hoveredLine) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const key = buildReviewDiffAnnotationKey(hoveredLine.side, hoveredLine.lineNumber);
+    const enabled = !shouldBlockReviewDiffDraft({
+      key,
+      existingKeys: existingAnnotationKeys,
+      draftKeys,
+    });
+
+    void showNativeContextMenu([{
+      id: "request-changes",
+      label: "Request changes",
+      enabled,
+    }], {
+      x: event.clientX,
+      y: event.clientY,
+    })
+      .then((selectedId) => {
+        if (selectedId !== "request-changes") return;
+        createDraft(createReviewDiffDraftFromLine({
+          side: hoveredLine.side,
+          lineNumber: hoveredLine.lineNumber,
+          path: entry.displayPath,
+          patchText: entry.patchText,
+        }));
+      })
+      .catch(() => {});
+  }, [createDraft, draftKeys, entry.displayPath, entry.patchText, existingAnnotationKeys]);
+
+  const lineAnnotations = useMemo<Array<DiffLineAnnotation<ReviewDiffAnnotationMetadata>>>(() => [
+    ...modelLineComments.flatMap((comment): Array<DiffLineAnnotation<ReviewDiffAnnotationMetadata>> => {
+      if (!comment.start) return [];
+      const lineNumber = comment.end && comment.end !== comment.start ? comment.end : comment.start;
+      return [{
+        side: "additions",
+        lineNumber,
+        metadata: {
+          kind: "model-comment",
+          key: buildReviewDiffAnnotationKey("additions", lineNumber),
+          path: entry.displayPath,
+          side: "additions",
+          lineNumber,
+          ...(comment.end && comment.end !== comment.start ? { startLine: comment.start } : {}),
+          title: comment.title,
+          body: comment.body,
+          readonly: true,
+        },
+      }];
+    }),
+    ...pendingFileComments.map((attachment): DiffLineAnnotation<ReviewDiffAnnotationMetadata> => {
+      const side = mapReviewDiffPositionSideToAnnotationSide(attachment.position.side);
+      const startSide = attachment.position.start_side
+        ? mapReviewDiffPositionSideToAnnotationSide(attachment.position.start_side)
+        : undefined;
+      return {
+        side,
+        lineNumber: attachment.position.line,
+        metadata: {
+          kind: "local-comment",
+          key: buildReviewDiffAnnotationKey(side, attachment.position.line),
+          path: entry.displayPath,
+          side,
+          lineNumber: attachment.position.line,
+          ...(startSide ? { startSide } : {}),
+          ...(attachment.position.start_line ? { startLine: attachment.position.start_line } : {}),
+          attachmentId: attachment.id,
+        },
+      };
+    }),
+    ...Object.values(draftsByKey).map(buildReviewDiffDraftAnnotation),
+  ], [draftsByKey, entry.displayPath, modelLineComments, pendingFileComments]);
+
+  const renderAnnotation = useCallback((annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata>) => {
+    const metadata = annotation.metadata;
+    if (!metadata) return null;
+
+    if (metadata.kind === "draft") {
+      const draft = draftsByKey[metadata.key];
+      return (
+        <ReviewDiffCommentAnnotationCard
+          metadata={metadata}
+          value={draft?.text ?? ""}
+          onChange={(nextValue) => updateDraftText(metadata.key, nextValue)}
+          onCancel={() => removeDraft(metadata.key)}
+          onSubmit={(nextValue) => submitDraft(metadata.key, nextValue)}
+        />
+      );
+    }
+
+    if (metadata.kind === "local-comment" && metadata.attachmentId) {
+      const attachment = pendingFileComments.find((candidate) => candidate.id === metadata.attachmentId);
+      return (
+        <ReviewDiffCommentAnnotationCard
+          metadata={metadata}
+          value={attachment ? getReviewDiffCommentText(attachment) : ""}
+          onSubmit={(nextValue) => updateLocalComment(metadata.attachmentId ?? "", nextValue)}
+          onDelete={() => removeLocalComment(metadata.attachmentId ?? "")}
+        />
+      );
+    }
+
+    return (
+      <ReviewDiffCommentAnnotationCard
+        metadata={metadata}
+        value={metadata.body ?? ""}
+        readonly
+      />
+    );
+  }, [
+    draftsByKey,
+    pendingFileComments,
+    removeDraft,
+    removeLocalComment,
+    submitDraft,
+    updateDraftText,
+    updateLocalComment,
+  ]);
+
+  const diffOptions = {
+    ...getNodexReviewDiffOptions(resolved === "dark" ? "dark" : "light", true, {
+      diffStyle: diffMode,
+      wrap,
+      lineDiffType,
+    }),
+    enableLineSelection: true,
+    enableGutterUtility: true,
+    lineHoverHighlight: "both" as const,
+    onGutterUtilityClick: createDraftFromRange,
+    onLineEnter: handleLineEnter,
+    onLineLeave: handleLineLeave,
+    onLineSelected: createDraftFromRange,
+    onLineSelectionChange: setSelectedLines,
+  } as NonNullable<FileDiffProps<ReviewDiffAnnotationMetadata>["options"]>;
   const fullDiffRenderable = loadFullFilesEnabled
     && expanded
     && fullContents
@@ -1057,11 +1495,12 @@ function ReviewFileRow({
           data-code="true"
           data-unified={diffMode === "unified" ? "true" : "false"}
           data-container-size="regular"
+          onContextMenu={handleContextMenu}
         >
-          {comments.length > 0 ? (
+          {fileLevelComments.length > 0 ? (
             <div className="border-b border-token-border bg-token-list-hover-background/40 px-3 py-2" data-review-code-comments="true">
               <div className="flex flex-col gap-2">
-                {comments.map((comment) => (
+                {fileLevelComments.map((comment) => (
                   <div
                     key={`${comment.file}:${comment.start ?? "file"}:${comment.title}:${comment.body}`}
                     className="grid grid-cols-[auto_1fr] gap-2 rounded-md border border-token-border/70 bg-token-main-surface-primary px-2.5 py-2 text-xs"
@@ -1083,19 +1522,25 @@ function ReviewFileRow({
           ) : fullContents?.errorMessage ? (
             <div className="px-3 py-3 text-sm text-token-charts-red">{fullContents.errorMessage}</div>
           ) : oldFile && newFile ? (
-            <MultiFileDiff
+            <MultiFileDiff<ReviewDiffAnnotationMetadata>
               oldFile={oldFile}
               newFile={newFile}
               className={NODEX_DIFF_HOST_CLASS}
               style={diffHostStyle}
               options={diffOptions}
+              lineAnnotations={lineAnnotations}
+              selectedLines={selectedLines}
+              renderAnnotation={renderAnnotation}
             />
           ) : (
-            <FileDiff
+            <FileDiff<ReviewDiffAnnotationMetadata>
               fileDiff={entry.fileDiff}
               className={NODEX_DIFF_HOST_CLASS}
               style={diffHostStyle}
               options={diffOptions}
+              lineAnnotations={lineAnnotations}
+              selectedLines={selectedLines}
+              renderAnnotation={renderAnnotation}
             />
           )}
         </div>
@@ -1622,6 +2067,7 @@ function ReviewDeferredRender({
 
 export function ReviewDiffPanel({
   conversation,
+  threadId,
   projectWorkspacePath,
   selectedTurnDiff = null,
   initialSource = "last-turn",
@@ -1667,6 +2113,8 @@ export function ReviewDiffPanel({
   const gitLoadRequestIdRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const gitLoading = gitLoadStatus === "loading";
+  const reviewThreadId = conversation?.threadId ?? threadId ?? null;
+  const pendingReviewCommentAttachments = useReviewDiffCommentAttachments(reviewThreadId);
 
   const reviewCwd = isTranscriptReviewSource(source)
     ? (source === "selected-turn"
@@ -1869,6 +2317,26 @@ export function ReviewDiffPanel({
     if (source === "last-turn") return lastTurnSnapshot;
     return buildGitSnapshot(gitSnapshot, parsePatchFiles);
   }, [gitSnapshot, lastTurnSnapshot, parsePatchFiles, selectedTurnSnapshot, source]);
+  const reviewDiffCommentSourceKey = useMemo(() => {
+    const sourceParts = [
+      source,
+      commitSha ?? "",
+      selectedTurnDiff?.turnId ?? "",
+      selectedTurnDiff?.entryId ?? "",
+      snapshot.baseRef ?? "",
+      snapshot.currentBranch ?? "",
+      hashReviewDiffSourceKey(snapshot.patch),
+    ];
+    return sourceParts.join(":");
+  }, [
+    commitSha,
+    selectedTurnDiff?.entryId,
+    selectedTurnDiff?.turnId,
+    snapshot.baseRef,
+    snapshot.currentBranch,
+    snapshot.patch,
+    source,
+  ]);
   const selectedCommitSubject = useMemo(
     () => branchCommits.find((commit) => commit.sha === commitSha)?.subject ?? null,
     [branchCommits, commitSha],
@@ -2192,6 +2660,9 @@ export function ReviewDiffPanel({
         fullContents={fullContentsByPath[entry.displayPath] ?? null}
         fullContentsLoading={Boolean(fullContentsLoadingPaths[entry.displayPath])}
         comments={filterReviewCodeCommentsForPath(reviewCodeComments, entry.displayPath)}
+        threadId={reviewThreadId}
+        sourceKey={reviewDiffCommentSourceKey}
+        pendingCommentAttachments={pendingReviewCommentAttachments}
         deps={resolvedDeps}
         onToggleExpanded={() => {
           setExpandedKeys((current) => {

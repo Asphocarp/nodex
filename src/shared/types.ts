@@ -1427,6 +1427,42 @@ export interface CodexPromptTextAttachmentInput {
   text: string;
 }
 
+export type ReviewDiffAnnotationSide = "additions" | "deletions";
+
+export type ReviewDiffCommentPositionSide = "left" | "right";
+
+export interface ReviewDiffLineRange {
+  side: ReviewDiffAnnotationSide;
+  line: number;
+  startSide?: ReviewDiffAnnotationSide;
+  startLine?: number;
+}
+
+export interface ReviewDiffCommentPosition {
+  side: ReviewDiffCommentPositionSide;
+  path: string;
+  line: number;
+  start_line?: number;
+  start_side?: ReviewDiffCommentPositionSide;
+}
+
+export interface CodexReviewDiffCommentAttachment {
+  id: string;
+  type: "comment";
+  content: Array<{
+    content_type: "text";
+    text: string;
+  }>;
+  position: ReviewDiffCommentPosition;
+  localDiffHunk?: string;
+  source?: {
+    kind: "review-diff";
+    label?: string;
+    sessionKey?: string;
+  };
+  createdAt: number;
+}
+
 export interface CodexPromptAgentConfigInput {
   mode?: string;
   model?: string;
@@ -1440,6 +1476,7 @@ export interface CodexPromptInput {
   images?: CodexPromptImageInput[];
   mentions?: CodexPromptMentionInput[];
   skills?: CodexPromptSkillInput[];
+  commentAttachments?: CodexReviewDiffCommentAttachment[];
   agentConfigs?: CodexPromptAgentConfigInput[];
 }
 
@@ -2344,6 +2381,11 @@ export interface GhPrComment {
   id: string;
   path: string | null;
   line: number | null;
+  side?: "LEFT" | "RIGHT" | null;
+  startLine?: number | null;
+  startSide?: "LEFT" | "RIGHT" | null;
+  replyToId?: string | null;
+  outdated?: boolean | null;
   body: string;
   author: string | null;
   url: string | null;
@@ -2375,11 +2417,35 @@ export interface GhPrDiffResult {
   message: string | null;
 }
 
-export interface GhPrCommentInput {
+export interface GhPrBaseCommentInput {
   cwd: string;
   prNumber: number;
   body: string;
 }
+
+export interface GhPrIssueCommentInput extends GhPrBaseCommentInput {
+  type?: "comment";
+}
+
+export interface GhPrInlineCommentInput extends GhPrBaseCommentInput {
+  type: "inline";
+  path: string;
+  line: number;
+  side: "LEFT" | "RIGHT";
+  startLine?: number;
+  startSide?: "LEFT" | "RIGHT";
+  commitSha?: string | null;
+}
+
+export interface GhPrReplyCommentInput extends GhPrBaseCommentInput {
+  type: "reply";
+  commentId: string;
+}
+
+export type GhPrCommentInput =
+  | GhPrIssueCommentInput
+  | GhPrInlineCommentInput
+  | GhPrReplyCommentInput;
 
 export interface GhPrCommentResult {
   cwd: string;

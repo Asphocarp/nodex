@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, type ComponentProps } from "react";
-import type { CodexConversationSnapshot } from "@/lib/types";
+import type { CodexConversationSnapshot, CodexReviewDiffCommentAttachment } from "@/lib/types";
+import {
+  addReviewDiffCommentAttachment,
+  clearReviewDiffCommentAttachments,
+} from "@/lib/review-diff-comment-attachment-store";
 import { ReviewDiffPanel } from "./review-diff-panel";
 
 function buildStoryConversation(): CodexConversationSnapshot {
@@ -152,8 +156,23 @@ function buildReviewParityConversation(): CodexConversationSnapshot {
 
 function ReviewStorySurface({
   openControlLabel,
+  pendingCommentAttachments,
   ...args
-}: ComponentProps<typeof ReviewDiffPanel> & { openControlLabel?: string }) {
+}: ComponentProps<typeof ReviewDiffPanel> & {
+  openControlLabel?: string;
+  pendingCommentAttachments?: CodexReviewDiffCommentAttachment[];
+}) {
+  const storyThreadId = args.conversation?.threadId ?? args.threadId ?? null;
+
+  useEffect(() => {
+    if (!storyThreadId || !pendingCommentAttachments?.length) return;
+    clearReviewDiffCommentAttachments(storyThreadId);
+    for (const attachment of pendingCommentAttachments) {
+      addReviewDiffCommentAttachment(storyThreadId, attachment);
+    }
+    return () => clearReviewDiffCommentAttachments(storyThreadId);
+  }, [pendingCommentAttachments, storyThreadId]);
+
   useEffect(() => {
     if (!openControlLabel) return;
     const timerId = window.setTimeout(() => {
@@ -168,6 +187,39 @@ function ReviewStorySurface({
       <ReviewDiffPanel {...args} />
     </div>
   );
+}
+
+function buildStoryPendingComment(input: {
+  id: string;
+  path: string;
+  side: "left" | "right";
+  line: number;
+  startLine?: number;
+  startSide?: "left" | "right";
+  text: string;
+}): CodexReviewDiffCommentAttachment {
+  return {
+    id: input.id,
+    type: "comment",
+    content: [{
+      content_type: "text",
+      text: input.text,
+    }],
+    position: {
+      side: input.side,
+      path: input.path,
+      line: input.line,
+      ...(input.startLine ? { start_line: input.startLine } : {}),
+      ...(input.startSide ? { start_side: input.startSide } : {}),
+    },
+    localDiffHunk: "@@ -1768,6 +1768,10 @@\n       title: \"Diffs\",\n+        <ReviewDiffPanel conversation={activeThreadConversation} />",
+    source: {
+      kind: "review-diff",
+      label: "Comment on line R1771",
+      sessionKey: "storybook",
+    },
+    createdAt: 1,
+  };
 }
 
 const meta = {
@@ -329,4 +381,48 @@ export const InlineComment: Story = {
     conversation: buildCommentStoryConversation(),
     projectWorkspacePath: "/Users/asc/repo/nodex",
   },
+};
+
+export const PendingLocalComment: Story = {
+  args: {
+    conversation: buildStoryConversation(),
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+  render: (args) => (
+    <ReviewStorySurface
+      {...args}
+      pendingCommentAttachments={[
+        buildStoryPendingComment({
+          id: "story_local_comment",
+          path: "src/renderer/components/workbench/workbench-shell.tsx",
+          side: "right",
+          line: 1771,
+          text: "Request this change before the next turn.",
+        }),
+      ]}
+    />
+  ),
+};
+
+export const RangeLocalComment: Story = {
+  args: {
+    conversation: buildStoryConversation(),
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+  render: (args) => (
+    <ReviewStorySurface
+      {...args}
+      pendingCommentAttachments={[
+        buildStoryPendingComment({
+          id: "story_range_comment",
+          path: "src/renderer/components/workbench/workbench-shell.tsx",
+          side: "right",
+          line: 1771,
+          startLine: 1769,
+          startSide: "left",
+          text: "Keep this range aligned with the removed placeholder path.",
+        }),
+      ]}
+    />
+  ),
 };
