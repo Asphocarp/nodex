@@ -117,6 +117,41 @@ describe("use-codex-thread-follower-client", () => {
     }));
   });
 
+  test("omits model and reasoning overrides when follower settings are empty", async () => {
+    resetStorage();
+
+    const { CodexServiceTierSettingsProvider } = await import("./use-codex-service-tier-settings");
+    const { useCodexThreadFollowerClient } = await import("./use-codex-thread-follower-client");
+
+    function Probe() {
+      const client = useCodexThreadFollowerClient({
+        projectId: "project-1",
+        permissionMode: "auto",
+        model: "",
+        reasoningEffort: null,
+      });
+
+      useEffect(() => {
+        void client.startTurn("thread-1", "Ship the change");
+      }, [client.startTurn]);
+
+      return createElement("div");
+    }
+
+    render(
+      <CodexServiceTierSettingsProvider>
+        <Probe />
+      </CodexServiceTierSettingsProvider>,
+    );
+    await settleAsyncRender();
+
+    expect(invokeCalls.length).toBe(1);
+    expect(JSON.stringify(invokeCalls[0]?.[3])).toBe(JSON.stringify({
+      permissionMode: "auto",
+      collaborationMode: undefined,
+    }));
+  });
+
   test("preserves an explicit fast tier when provided", async () => {
     resetStorage();
 

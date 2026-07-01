@@ -67,6 +67,11 @@ function isKnownCollaborationMode(mode: string | null | undefined): mode is Code
   return mode === "default" || mode === "plan";
 }
 
+function normalizeSelectedModel(model: string | null | undefined): string | null {
+  const normalized = model?.trim();
+  return normalized ? normalized : null;
+}
+
 export function resolveEffectiveThreadStageSettings({
   activeThreadId,
   liveThreadSettings,
@@ -103,7 +108,7 @@ export function resolveEffectiveThreadStageSettings({
     : fallbackMode;
   return {
     selectedCollaborationMode,
-    selectedModel: liveThreadSettings?.model ?? fallbackModel,
+    selectedModel: normalizeSelectedModel(liveThreadSettings?.model) ?? fallbackModel,
     selectedReasoningEffort: liveThreadSettings?.reasoningEffort ?? fallbackReasoningEffort,
   };
 }

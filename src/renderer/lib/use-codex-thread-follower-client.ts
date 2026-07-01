@@ -19,8 +19,13 @@ import { useCodexServiceTierSettings } from "./use-codex-service-tier-settings";
 interface UseCodexThreadFollowerClientInput {
   projectId: string;
   permissionMode: CodexPermissionMode;
-  model: string;
-  reasoningEffort: CodexReasoningEffort;
+  model?: string | null;
+  reasoningEffort?: CodexReasoningEffort | null;
+}
+
+function normalizeModelOverride(model: string | null | undefined): string | null {
+  const normalized = model?.trim();
+  return normalized ? normalized : null;
 }
 
 export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClientInput) {
@@ -34,10 +39,11 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
     },
   ): CodexTurnStartOptions => {
     const effectiveServiceTier = resolveCodexRequestServiceTier(overrides, serviceTierSettings.serviceTier);
+    const model = normalizeModelOverride(input.model);
     return {
       permissionMode: input.permissionMode,
-      model: input.model,
-      reasoningEffort: input.reasoningEffort,
+      ...(model ? { model } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       collaborationMode: overrides?.collaborationMode ?? undefined,
       ...(overrides?.promptInput ? { promptInput: overrides.promptInput } : {}),
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),

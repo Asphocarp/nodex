@@ -2297,12 +2297,11 @@ export class CodexService extends EventEmitter {
   }
 
   private buildDefaultCollaborationModeState(): CodexCollaborationModeState {
-    const preset = this.collaborationModePresets.get("default");
     return {
       mode: "default",
       settings: {
-        model: preset?.model ?? "gpt-5.2-codex",
-        reasoning_effort: preset?.reasoningEffort ?? "medium",
+        model: "",
+        reasoning_effort: null,
         developer_instructions: null,
       },
     };
@@ -2317,10 +2316,11 @@ export class CodexService extends EventEmitter {
     const fallback = input.fallback ?? this.buildDefaultCollaborationModeState();
     const mode = input.collaborationMode ?? fallback.mode;
     const preset = this.collaborationModePresets.get(mode);
-    const modelCandidate = input.model ?? preset?.model ?? fallback.settings.model;
-    const model = typeof modelCandidate === "string" && modelCandidate.trim().length > 0
-      ? modelCandidate.trim()
-      : fallback.settings.model;
+    const model =
+      normalizeThreadSettingsModel(input.model)
+      ?? normalizeThreadSettingsModel(preset?.model)
+      ?? normalizeThreadSettingsModel(fallback.settings.model)
+      ?? "";
     const presetReasoningEffort = preset?.reasoningEffort;
     const reasoningEffort = input.reasoningEffort !== undefined
       ? input.reasoningEffort
@@ -2349,8 +2349,9 @@ export class CodexService extends EventEmitter {
       ?? input.fallbackCollaborationMode
       ?? this.buildDefaultCollaborationModeState();
     const model = normalizeThreadSettingsModel(input.model)
-      ?? input.fallback?.model
-      ?? fallbackCollaborationMode.settings.model;
+      ?? normalizeThreadSettingsModel(input.fallback?.model)
+      ?? normalizeThreadSettingsModel(fallbackCollaborationMode.settings.model)
+      ?? "";
     const reasoningEffort = input.reasoningEffort !== undefined
       ? input.reasoningEffort
       : input.fallback?.reasoningEffort ?? fallbackCollaborationMode.settings.reasoning_effort;
@@ -2391,7 +2392,9 @@ export class CodexService extends EventEmitter {
     const mode = parseCollaborationModeKind(candidate.mode);
     if (!mode) return null;
     const settings = asRecord(candidate.settings);
-    const model = normalizeThreadSettingsModel(settings?.model) ?? fallback.settings.model;
+    const model = normalizeThreadSettingsModel(settings?.model)
+      ?? normalizeThreadSettingsModel(fallback.settings.model)
+      ?? "";
     const rawReasoningEffort = settings
       ? hasOwnValue(settings, "reasoning_effort")
         ? settings.reasoning_effort
@@ -2416,8 +2419,9 @@ export class CodexService extends EventEmitter {
     if (!candidate) return null;
     const fallbackMode = fallback?.collaborationMode ?? fallbackCollaborationMode;
     const model = normalizeThreadSettingsModel(candidate.model)
-      ?? fallback?.model
-      ?? fallbackMode.settings.model;
+      ?? normalizeThreadSettingsModel(fallback?.model)
+      ?? normalizeThreadSettingsModel(fallbackMode.settings.model)
+      ?? "";
     const reasoningEffort = parseNullableReasoningEffort(
       hasOwnValue(candidate, "effort") ? candidate.effort : candidate.reasoningEffort,
       fallback?.reasoningEffort ?? fallbackMode.settings.reasoning_effort,
@@ -4308,7 +4312,7 @@ export class CodexService extends EventEmitter {
       const selectedMode = patch.collaborationMode ?? "default";
       params.collaborationMode = this.buildCollaborationModePayload({
         collaborationMode: selectedMode,
-        model: nextSettings.model,
+        model: normalizeThreadSettingsModel(nextSettings.model) ?? undefined,
         reasoningEffort: nextSettings.reasoningEffort,
       });
     }
@@ -6619,7 +6623,9 @@ export class CodexService extends EventEmitter {
     try {
       const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
       const prompt = preparedPrompt.promptText;
-      const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
+      const effectiveModel =
+        normalizeThreadSettingsModel(preparedPrompt.agentConfigOverrides.model)
+        ?? normalizeThreadSettingsModel(input.model);
       const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
       const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
       const explicitThreadName = input.threadName
@@ -6761,7 +6767,7 @@ export class CodexService extends EventEmitter {
 
       const collaborationMode = this.buildCollaborationModePayload({
         collaborationMode: effectiveCollaborationMode,
-        model: effectiveModel,
+        model: effectiveModel ?? undefined,
         reasoningEffort: effectiveReasoningEffort,
       });
       if (effectiveModel || effectiveReasoningEffort || effectiveCollaborationMode) {
@@ -7846,10 +7852,10 @@ export class CodexService extends EventEmitter {
     const latestThreadSettings = record.latestThreadSettings;
     const fallbackCollaborationMode = latestThreadSettings?.collaborationMode ?? record.latestCollaborationMode;
     const effectiveModel =
-      preparedPrompt.agentConfigOverrides.model
-      ?? overrides?.model
-      ?? latestThreadSettings?.model
-      ?? fallbackCollaborationMode.settings.model;
+      normalizeThreadSettingsModel(preparedPrompt.agentConfigOverrides.model)
+      ?? normalizeThreadSettingsModel(overrides?.model)
+      ?? normalizeThreadSettingsModel(latestThreadSettings?.model)
+      ?? normalizeThreadSettingsModel(fallbackCollaborationMode.settings.model);
     const effectiveReasoningEffort =
       preparedPrompt.agentConfigOverrides.reasoningEffort
       ?? overrides?.reasoningEffort
@@ -7894,7 +7900,7 @@ export class CodexService extends EventEmitter {
     this.applyThreadPermissionState(threadId, permissionState);
     const collaborationMode = this.buildCollaborationModePayload({
       collaborationMode: effectiveCollaborationMode,
-      model: effectiveModel,
+      model: effectiveModel ?? undefined,
       reasoningEffort: effectiveReasoningEffort,
     });
     this.applyLatestThreadSettingsForThread(threadId, this.buildConversationThreadSettings({

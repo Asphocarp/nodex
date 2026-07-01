@@ -5647,6 +5647,7 @@ describe("codex-service startTurn", () => {
       expect(requests.length).toBe(1);
       expect((requests[0]?.params as { approvalPolicy?: unknown })?.approvalPolicy).toBe(undefined);
       expect((requests[0]?.params as { sandboxPolicy?: unknown })?.sandboxPolicy).toBe(undefined);
+      expect((requests[0]?.params as { model?: unknown })?.model).toBe(undefined);
     } finally {
       await service.shutdown();
     }

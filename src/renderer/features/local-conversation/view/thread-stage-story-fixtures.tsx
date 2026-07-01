@@ -2253,7 +2253,7 @@ export function buildThreadStageStorySurfaceModels(
     body,
     collaborationModes: DEFAULT_COLLABORATION_MODES,
     selectedCollaborationMode: "default",
-    selectedModel: DEFAULT_MODELS[0]?.model ?? "gpt-5.3-codex",
+    selectedModel: DEFAULT_MODELS[0]?.model ?? "",
     availableModels: DEFAULT_MODELS,
     selectedReasoningEffort: "high",
     reasoningEffortOptions: DEFAULT_REASONING_OPTIONS,

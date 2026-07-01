@@ -90,6 +90,32 @@ describe("codex-thread-settings", () => {
     expect(settings.reasoningEffort).toBe("high");
   });
 
+  test("omits a model fallback when the selector list is unavailable", () => {
+    const settings = resolveCodexThreadSettings(
+      {
+        model: "gpt-5.2-codex",
+        reasoningEffort: "medium",
+      },
+      [],
+    );
+
+    expect(settings.model).toBe("");
+    expect(settings.reasoningEffort).toBe("medium");
+  });
+
+  test("falls back from unavailable stored models to the visible default", () => {
+    const settings = resolveCodexThreadSettings(
+      {
+        model: "gpt-5.2-codex",
+        reasoningEffort: "medium",
+      },
+      MODELS,
+    );
+
+    expect(settings.model).toBe("gpt-5.3-codex");
+    expect(settings.reasoningEffort).toBe("medium");
+  });
+
   test("clamps unsupported reasoning effort when the selected model changes", () => {
     const settings = resolveCodexThreadSettings(
       {
@@ -113,6 +139,7 @@ describe("codex-thread-settings", () => {
 
   test("formats fallback labels for the composer controls", () => {
     expect(formatCodexModelLabel("gpt-5.3-codex", MODELS)).toBe("GPT-5.3-Codex");
+    expect(formatCodexModelLabel(undefined, MODELS)).toBe("Default model");
     expect(
       formatCodexModelLabel("gpt-5.1-codex-max", [
         ...MODELS,

@@ -44,6 +44,7 @@ import type {
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
+  CodexReasoningEffort,
   CodexReasoningEffortOption,
   CodexServiceTier,
   CodexSharedObject,
@@ -137,8 +138,8 @@ const EMPTY_CONVERSATION_CAPABILITY_FLAGS: CodexConversationCapabilityFlags = {
 const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
   mode: "default",
   settings: {
-    model: "gpt-5.2-codex",
-    reasoning_effort: "medium",
+    model: "",
+    reasoning_effort: null,
     developer_instructions: null,
   },
 };
@@ -151,6 +152,30 @@ function normalizeThreadSettingsModel(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function resolveCodexDraftRequestSettings(
+  input: {
+    model?: string;
+    reasoningEffort?: CodexReasoningEffort;
+  },
+  resolvedSettings: Required<CodexThreadSettings>,
+): {
+  model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+} {
+  const model =
+    normalizeThreadSettingsModel(input.model)
+    ?? normalizeThreadSettingsModel(resolvedSettings.model)
+    ?? undefined;
+  const reasoningEffort = input.reasoningEffort ?? (
+    model ? resolvedSettings.reasoningEffort : undefined
+  );
+
+  return {
+    model,
+    reasoningEffort,
+  };
 }
 
 function mergeConversationThreadSettingsPatch(
@@ -3073,11 +3098,11 @@ export function useCodexAppServerControl(activeProjectId: string) {
     },
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
+    const requestSettings = resolveCodexDraftRequestSettings(input, resolvedSettings);
     const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
     const detail = await manager.startThreadForSession({
       ...input,
-      model: input.model ?? resolvedSettings.model,
-      reasoningEffort: resolvedSettings.reasoningEffort,
+      ...requestSettings,
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     });
     await manager.loadThreads(input.projectId);
@@ -3088,13 +3113,13 @@ export function useCodexAppServerControl(activeProjectId: string) {
     input: CodexSideChatStartInput,
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
+    const requestSettings = resolveCodexDraftRequestSettings(input, resolvedSettings);
     const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
     await manager.loadPermissionState(input.projectId);
     return manager.startSideChat({
       ...input,
       permissionMode: manager.readPermissionMode(input.projectId),
-      model: input.model ?? resolvedSettings.model,
-      reasoningEffort: resolvedSettings.reasoningEffort,
+      ...requestSettings,
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     });
   }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
@@ -3264,7 +3289,12 @@ export function useCodexAppServerControl(activeProjectId: string) {
     [manager],
   );
   const setThreadModel = useCallback((model: string) => {
-    updateStoredThreadSettings({ model });
+    const normalizedModel = normalizeThreadSettingsModel(model);
+    if (!normalizedModel) {
+      return;
+    }
+
+    updateStoredThreadSettings({ model: normalizedModel });
   }, [updateStoredThreadSettings]);
   const setThreadReasoningEffort = useCallback((reasoningEffort: CodexThreadSettings["reasoningEffort"]) => {
     if (!reasoningEffort) {

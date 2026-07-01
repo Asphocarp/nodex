@@ -13,8 +13,8 @@ import {
 import { parseJsonStringWithSchema } from "../../shared/schemas/storage";
 
 export const THREAD_SETTINGS_STORAGE_KEY = "nodex-codex-thread-settings-v1";
-const FALLBACK_MODEL_ID = "gpt-5.3-codex";
 export const DEFAULT_CODEX_THREAD_DETAIL_LEVEL: CodexThreadDetailLevel = "STEPS_COMMANDS";
+const DEFAULT_MODEL_LABEL = "Default model";
 
 const FALLBACK_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
   { reasoningEffort: "minimal", description: "Use the lightest reasoning available." },
@@ -66,7 +66,6 @@ function resolveDefaultModel(models: CodexModelOption[]): CodexModelOption | nul
 
   return (
     visibleModels.find((model) => model.isDefault) ??
-    visibleModels.find((model) => model.id === FALLBACK_MODEL_ID) ??
     visibleModels[0] ??
     null
   );
@@ -111,9 +110,9 @@ export function resolveCodexThreadSettings(
   const visibleModelIds = new Set(models.filter((model) => !model.hidden).map((model) => model.id));
 
   const model =
-    stored?.model && (models.length === 0 || visibleModelIds.has(stored.model))
+    stored?.model && visibleModelIds.has(stored.model)
       ? stored.model
-      : defaultModel?.id ?? stored?.model ?? FALLBACK_MODEL_ID;
+      : defaultModel?.id ?? "";
 
   const selectedModel = models.find((candidate) => candidate.id === model && !candidate.hidden) ?? null;
   const reasoningOptions = resolveCodexReasoningEffortOptions(model, models);
@@ -141,7 +140,7 @@ export function resolveCodexThreadSettings(
 }
 
 export function formatCodexModelLabel(modelId: string | undefined, models: CodexModelOption[]): string {
-  if (!modelId) return formatCodexModelLabelFromId(FALLBACK_MODEL_ID);
+  if (!modelId) return DEFAULT_MODEL_LABEL;
 
   const selectedModel = models.find((model) => model.id === modelId);
   const displayName = selectedModel?.displayName.trim();

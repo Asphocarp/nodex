@@ -18,8 +18,8 @@ import type {
 const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
   mode: "default",
   settings: {
-    model: "gpt-5.2-codex",
-    reasoning_effort: "medium",
+    model: "",
+    reasoning_effort: null,
     developer_instructions: null,
   },
 };
