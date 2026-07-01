@@ -366,20 +366,25 @@ async function keyDownComposer(
     shiftKey?: boolean;
     altKey?: boolean;
   },
-): Promise<void> {
+  options?: { waitForContent?: boolean },
+): Promise<boolean> {
   const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
   if (!(composer instanceof HTMLElement)) {
     throw new Error("Expected composer editor.");
   }
 
-  await waitFor(() => {
-    expect(Boolean(composer.textContent ?? "")).toBeTrue();
-  });
+  if (options?.waitForContent !== false) {
+    await waitFor(() => {
+      expect(Boolean(composer.textContent ?? "")).toBeTrue();
+    });
+  }
   composer.focus();
+  let wasNotCanceled = true;
   await act(async () => {
-    fireEvent.keyDown(composer, init);
+    wasNotCanceled = fireEvent.keyDown(composer, init);
     await Promise.resolve();
   });
+  return wasNotCanceled;
 }
 
 describe("ThreadComposer speed menu", () => {
@@ -735,7 +740,12 @@ describe("ThreadComposer speed menu", () => {
   test("add-context menu uses Codex row order without a title row", async () => {
     resetStorage();
     const selectedModes: string[] = [];
-    const view = await renderComposer(undefined, {
+    const view = await renderComposer({
+      composerIntent: {
+        prompt: "toggle mode",
+        focusNonce: 1,
+      },
+    }, {
       onCollaborationModeChange: (mode) => {
         selectedModes.push(mode);
       },
@@ -767,6 +777,95 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(selectedModes[0]).toBe("plan");
+  });
+
+  test("shift-tab toggles Plan mode and blocks focus traversal", async () => {
+    resetStorage();
+    const selectedModes: string[] = [];
+    const view = await renderComposer(undefined, {
+      onCollaborationModeChange: (mode) => {
+        selectedModes.push(mode);
+      },
+    });
+
+    const wasNotCanceled = await keyDownComposer(view, { key: "Tab", shiftKey: true }, { waitForContent: false });
+
+    expect(wasNotCanceled).toBeFalse();
+    expect(selectedModes[0]).toBe("plan");
+  });
+
+  test("Plan mode changes the composer placeholder", async () => {
+    resetStorage();
+    const view = await renderComposer({
+      selectedCollaborationMode: "plan",
+    });
+
+    await waitFor(() => {
+      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Describe your task to generate a plan..."]');
+      if (!placeholder) {
+        throw new Error("Expected Plan mode placeholder.");
+      }
+      expect(placeholder.classList.contains("placeholder")).toBeTrue();
+    });
+  });
+
+  test("plan keyword suggestion can use or dismiss Plan mode", async () => {
+    resetStorage();
+    const selectedModes: string[] = [];
+    const view = await renderComposer({
+      composerIntent: {
+        prompt: "please plan the migration",
+        focusNonce: 1,
+      },
+    }, {
+      onCollaborationModeChange: (mode) => {
+        selectedModes.push(mode);
+      },
+    });
+
+    await waitFor(() => {
+      const suggestion = view.container.querySelector('[data-plan-keyword-suggestion="true"]');
+      if (!suggestion) {
+        throw new Error("Expected plan keyword suggestion.");
+      }
+      expect(Boolean(suggestion.textContent?.includes("Create a plan"))).toBeTrue();
+    });
+
+    const usePlanButton = view.container.querySelector('[data-codex-above-composer-suggestion-action="true"]');
+    if (!(usePlanButton instanceof HTMLElement)) {
+      throw new Error("Expected Use plan mode button.");
+    }
+
+    await act(async () => {
+      fireEvent.click(usePlanButton);
+      await Promise.resolve();
+    });
+
+    expect(selectedModes[0]).toBe("plan");
+    expect(Boolean(view.container.querySelector('[data-codex-above-composer-suggestion="keyword-plan-mode"]'))).toBeTrue();
+    view.unmount();
+
+    const dismissView = await renderComposer({
+      composerIntent: {
+        prompt: "please plan the migration",
+        focusNonce: 2,
+      },
+    });
+    const dismissButton = await waitFor(() => {
+      const button = dismissView.container.querySelector('[aria-label="Dismiss suggestion"]');
+      if (!(button instanceof HTMLElement)) {
+        throw new Error("Expected dismiss plan suggestion button.");
+      }
+      return button;
+    });
+    await act(async () => {
+      fireEvent.click(dismissButton);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(Boolean(dismissView.container.querySelector('[data-plan-keyword-suggestion="true"]'))).toBeFalse();
+    });
   });
 
   test("add-context prompt input keeps file mentions, images, and plugin skills distinct", () => {
@@ -858,6 +957,53 @@ describe("ThreadComposer speed menu", () => {
       expect(Boolean(menu.textContent?.includes("Model"))).toBeTrue();
       expect(Boolean(menu.textContent?.includes("No commands"))).toBeFalse();
     });
+  });
+
+  test("slash Plan command toggles through the shared Plan mode action", async () => {
+    resetStorage();
+    const selectedModes: string[] = [];
+    const view = await renderComposer({
+      composerIntent: {
+        prompt: "/plan",
+        focusNonce: 1,
+      },
+    }, {
+      onCollaborationModeChange: (mode) => {
+        selectedModes.push(mode);
+      },
+    });
+
+    await waitFor(() => {
+      const planRow = view.container.querySelector('[data-slash-command-row="plan-mode"]');
+      if (!planRow) throw new Error("Expected Plan slash command row.");
+      expect(Boolean(planRow.textContent?.includes("Switch to plan mode"))).toBeTrue();
+    });
+
+    await keyDownComposer(view, { key: "Enter" });
+
+    expect(selectedModes[0]).toBe("plan");
+
+    const offView = await renderComposer({
+      selectedCollaborationMode: "plan",
+      composerIntent: {
+        prompt: "/plan",
+        focusNonce: 2,
+      },
+    }, {
+      onCollaborationModeChange: (mode) => {
+        selectedModes.push(mode);
+      },
+    });
+
+    await waitFor(() => {
+      const planRow = offView.container.querySelector('[data-slash-command-row="plan-mode"]');
+      if (!planRow) throw new Error("Expected Plan slash command row.");
+      expect(Boolean(planRow.textContent?.includes("Switch off plan mode"))).toBeTrue();
+    });
+
+    await keyDownComposer(offView, { key: "Enter" });
+
+    expect(selectedModes[1]).toBe("default");
   });
 
   test("keeps slash menu scroll position stable across hover and item recompute", async () => {

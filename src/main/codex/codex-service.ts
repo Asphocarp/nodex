@@ -7,7 +7,11 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { produceWithPatches } from "immer";
-import type { GetAuthStatusResponse, ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
+import type {
+  CollaborationMode as CodexAppServerCollaborationMode,
+  GetAuthStatusResponse,
+  ThreadMemoryMode,
+} from "@nodex/codex-app-server-protocol";
 import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
 import type { AppInfo } from "@nodex/codex-app-server-protocol/v2/AppInfo";
 import type { AppsListResponse } from "@nodex/codex-app-server-protocol/v2/AppsListResponse";
@@ -48,6 +52,10 @@ import type { ThreadGoalGetResponse } from "@nodex/codex-app-server-protocol/v2/
 import type { ThreadGoalSetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetResponse";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
+import type { ThreadSettings } from "@nodex/codex-app-server-protocol/v2/ThreadSettings";
+import type { ThreadSettingsUpdateParams } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateParams";
+import type { ThreadSettingsUpdateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateResponse";
+import type { ThreadSettingsUpdatedNotification } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdatedNotification";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
 import type { ThreadTurnsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadTurnsListResponse";
@@ -78,6 +86,8 @@ import type {
   CodexConversationCapabilityFlags,
   CodexConversationItem,
   CodexConversationResumeState,
+  CodexConversationThreadSettings,
+  CodexConversationThreadSettingsPatch,
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurnPagination,
@@ -518,6 +528,7 @@ interface BroadcastConversationSyncOptions {
   syncQueuedFollowUps?: boolean;
   syncPendingSteers?: boolean;
   syncLatestCollaborationMode?: boolean;
+  syncLatestThreadSettings?: boolean;
   syncCapabilityFlags?: boolean;
   syncBackgroundTerminalRows?: boolean;
   syncChildMemberships?: boolean;
@@ -568,6 +579,7 @@ interface CodexConversationRecord {
   pendingSteers: CodexPendingSteer[];
   turnPagination: CodexConversationTurnPagination;
   latestCollaborationMode: CodexCollaborationModeState;
+  latestThreadSettings: CodexConversationThreadSettings | null;
   resumeState: CodexConversationResumeState;
   streamRole: CodexConversationStreamRole;
   isStreaming: boolean;
@@ -1706,6 +1718,31 @@ function parseCollaborationModeKind(value: unknown): CodexCollaborationModeKind 
   return null;
 }
 
+function parseNullableReasoningEffort(value: unknown, fallback: CodexReasoningEffort | null): CodexReasoningEffort | null {
+  if (value === null) return null;
+  if (value === undefined) return fallback;
+  return parseReasoningEffort(value) ?? fallback;
+}
+
+function normalizeThreadSettingsModel(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function hasOwnValue(record: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function isUnsupportedThreadSettingsUpdateError(error: unknown): boolean {
+  if (!(error instanceof CodexRpcError)) return false;
+  if (error.code === -32601) return true;
+  const message = error.message.toLowerCase();
+  return message.includes("method not found")
+    || message.includes("unknown method")
+    || (message.includes("thread/settings/update") && message.includes("unsupported"));
+}
+
 function parseReasoningEffortOption(value: unknown): CodexReasoningEffortOption | null {
   if (typeof value !== "object" || value === null) return null;
   const candidate = value as Record<string, unknown>;
@@ -1816,6 +1853,7 @@ export class CodexService extends EventEmitter {
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly lastBroadcastConversationById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
+  private readonly pendingThreadSettingsUpdates = new Map<string, Promise<CodexConversationThreadSettings>>();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly olderTurnsLoadInFlight = new Map<string, Promise<CodexConversationSnapshot | null>>();
   private readonly remainingTurnsLoadInFlight = new Map<string, Promise<void>>();
@@ -1844,6 +1882,7 @@ export class CodexService extends EventEmitter {
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
   private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
   private rateLimitsPollInFlight = false;
+  private threadSettingsUpdateSupport: "unknown" | "supported" | "unsupported" = "unknown";
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
   private sidebarSyncInFlightIncludeArchived: boolean | null = null;
   private sidebarLastSuccessfulRefreshAt = 0;
@@ -2037,6 +2076,7 @@ export class CodexService extends EventEmitter {
     draft.updatedAt = detail.updatedAt;
     draft.linkedAt = detail.linkedAt;
     draft.latestCollaborationMode = detail.latestCollaborationMode;
+    draft.latestThreadSettings = detail.latestThreadSettings ?? null;
     draft.resumeState = this.resolveConversationResumeState(detail.threadId);
   }
 
@@ -2088,6 +2128,9 @@ export class CodexService extends EventEmitter {
     const latestCollaborationMode = options.syncLatestCollaborationMode
       ? this.getConversationRecord(threadId).latestCollaborationMode
       : null;
+    const latestThreadSettings = options.syncLatestThreadSettings
+      ? this.getConversationRecord(threadId).latestThreadSettings
+      : undefined;
 
     this.mutateBroadcastConversationState(threadId, (draft) => {
       if (detail && (options.syncDetail || options.turnId)) {
@@ -2107,6 +2150,9 @@ export class CodexService extends EventEmitter {
       }
       if (latestCollaborationMode) {
         draft.latestCollaborationMode = latestCollaborationMode;
+      }
+      if (latestThreadSettings !== undefined) {
+        draft.latestThreadSettings = latestThreadSettings;
       }
       if (detail && options.syncCapabilityFlags) {
         draft.capabilityFlags = this.buildConversationCapabilityFlags(detail, requests ?? draft.requests);
@@ -2292,12 +2338,143 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private buildConversationThreadSettings(input: {
+    model?: string | null;
+    reasoningEffort?: CodexReasoningEffort | null;
+    collaborationMode?: CodexCollaborationModeKind | null;
+    fallback?: CodexConversationThreadSettings | null;
+    fallbackCollaborationMode?: CodexCollaborationModeState | null;
+  }): CodexConversationThreadSettings {
+    const fallbackCollaborationMode = input.fallback?.collaborationMode
+      ?? input.fallbackCollaborationMode
+      ?? this.buildDefaultCollaborationModeState();
+    const model = normalizeThreadSettingsModel(input.model)
+      ?? input.fallback?.model
+      ?? fallbackCollaborationMode.settings.model;
+    const reasoningEffort = input.reasoningEffort !== undefined
+      ? input.reasoningEffort
+      : input.fallback?.reasoningEffort ?? fallbackCollaborationMode.settings.reasoning_effort;
+    const collaborationMode = this.buildCollaborationModeState({
+      collaborationMode: input.collaborationMode ?? fallbackCollaborationMode.mode,
+      model,
+      reasoningEffort,
+      fallback: fallbackCollaborationMode,
+    });
+
+    return {
+      model,
+      reasoningEffort: reasoningEffort ?? null,
+      collaborationMode,
+    };
+  }
+
+  private mergeThreadSettingsPatch(
+    threadId: string,
+    patch: CodexConversationThreadSettingsPatch,
+  ): CodexConversationThreadSettings {
+    const record = this.getConversationRecord(threadId);
+    return this.buildConversationThreadSettings({
+      model: hasOwnValue(patch, "model") ? patch.model ?? null : undefined,
+      reasoningEffort: hasOwnValue(patch, "reasoningEffort") ? patch.reasoningEffort ?? null : undefined,
+      collaborationMode: hasOwnValue(patch, "collaborationMode") ? patch.collaborationMode ?? "default" : undefined,
+      fallback: record.latestThreadSettings,
+      fallbackCollaborationMode: record.latestCollaborationMode,
+    });
+  }
+
+  private parseCollaborationModeStateFromProtocol(
+    value: unknown,
+    fallback: CodexCollaborationModeState,
+  ): CodexCollaborationModeState | null {
+    const candidate = asRecord(value);
+    if (!candidate) return null;
+    const mode = parseCollaborationModeKind(candidate.mode);
+    if (!mode) return null;
+    const settings = asRecord(candidate.settings);
+    const model = normalizeThreadSettingsModel(settings?.model) ?? fallback.settings.model;
+    const rawReasoningEffort = settings
+      ? hasOwnValue(settings, "reasoning_effort")
+        ? settings.reasoning_effort
+        : settings.reasoningEffort
+      : undefined;
+    const reasoningEffort = parseNullableReasoningEffort(rawReasoningEffort, fallback.settings.reasoning_effort);
+
+    return this.buildCollaborationModeState({
+      collaborationMode: mode,
+      model,
+      reasoningEffort,
+      fallback,
+    });
+  }
+
+  private parseConversationThreadSettingsFromProtocol(
+    value: unknown,
+    fallback: CodexConversationThreadSettings | null,
+    fallbackCollaborationMode: CodexCollaborationModeState,
+  ): CodexConversationThreadSettings | null {
+    const candidate = asRecord(value);
+    if (!candidate) return null;
+    const fallbackMode = fallback?.collaborationMode ?? fallbackCollaborationMode;
+    const model = normalizeThreadSettingsModel(candidate.model)
+      ?? fallback?.model
+      ?? fallbackMode.settings.model;
+    const reasoningEffort = parseNullableReasoningEffort(
+      hasOwnValue(candidate, "effort") ? candidate.effort : candidate.reasoningEffort,
+      fallback?.reasoningEffort ?? fallbackMode.settings.reasoning_effort,
+    );
+    const collaborationMode = this.parseCollaborationModeStateFromProtocol(
+      candidate.collaborationMode ?? candidate.collaboration_mode,
+      this.buildCollaborationModeState({
+        collaborationMode: fallbackMode.mode,
+        model,
+        reasoningEffort,
+        fallback: fallbackMode,
+      }),
+    ) ?? this.buildCollaborationModeState({
+      collaborationMode: fallbackMode.mode,
+      model,
+      reasoningEffort,
+      fallback: fallbackMode,
+    });
+
+    return {
+      model,
+      reasoningEffort,
+      collaborationMode,
+    };
+  }
+
+  private applyLatestThreadSettingsForThread(
+    threadId: string,
+    latestThreadSettings: CodexConversationThreadSettings,
+  ): void {
+    const record = this.ensureConversationRecord(threadId);
+    record.latestThreadSettings = latestThreadSettings;
+    if (latestThreadSettings.collaborationMode) {
+      record.latestCollaborationMode = latestThreadSettings.collaborationMode;
+    }
+    if (!record.detail) {
+      return;
+    }
+
+    record.detail = {
+      ...record.detail,
+      latestCollaborationMode: record.latestCollaborationMode,
+      latestThreadSettings,
+    };
+  }
+
   private setLatestCollaborationModeForThread(
     threadId: string,
     latestCollaborationMode: CodexCollaborationModeState,
   ): void {
     const record = this.ensureConversationRecord(threadId);
     record.latestCollaborationMode = latestCollaborationMode;
+    record.latestThreadSettings = {
+      model: latestCollaborationMode.settings.model,
+      reasoningEffort: latestCollaborationMode.settings.reasoning_effort,
+      collaborationMode: latestCollaborationMode,
+    };
     if (!record.detail) {
       return;
     }
@@ -2305,6 +2482,7 @@ export class CodexService extends EventEmitter {
     record.detail = {
       ...record.detail,
       latestCollaborationMode,
+      latestThreadSettings: record.latestThreadSettings,
     };
   }
 
@@ -2355,6 +2533,7 @@ export class CodexService extends EventEmitter {
       pendingSteers: [],
       turnPagination: COMPLETE_TURN_PAGINATION,
       latestCollaborationMode: this.buildDefaultCollaborationModeState(),
+      latestThreadSettings: null,
       resumeState: "resumed",
       streamRole: null,
       isStreaming: false,
@@ -2401,6 +2580,7 @@ export class CodexService extends EventEmitter {
           threadPreview: link.threadPreview,
           cwd: link.cwd,
           latestCollaborationMode: record.latestCollaborationMode,
+          latestThreadSettings: record.latestThreadSettings,
           turns: [],
           transcript: [],
         }
@@ -2419,6 +2599,7 @@ export class CodexService extends EventEmitter {
           updatedAt: 0,
           linkedAt: new Date(0).toISOString(),
           latestCollaborationMode: record.latestCollaborationMode,
+          latestThreadSettings: record.latestThreadSettings,
           turns: [],
           transcript: [],
         };
@@ -4086,8 +4267,8 @@ export class CodexService extends EventEmitter {
   private buildCollaborationModePayload(input: {
     collaborationMode?: CodexCollaborationModeKind;
     model?: string;
-    reasoningEffort?: CodexReasoningEffort;
-  }): { mode: CodexCollaborationModeKind; settings: { model: string; reasoning_effort: CodexReasoningEffort | null; developer_instructions: null } } | null {
+    reasoningEffort?: CodexReasoningEffort | null;
+  }): CodexAppServerCollaborationMode | null {
     const selectedMode = input.collaborationMode;
     if (!selectedMode) return null;
 
@@ -4097,7 +4278,9 @@ export class CodexService extends EventEmitter {
       ? modelCandidate.trim()
       : null;
     if (!model) return null;
-    const reasoningEffort = input.reasoningEffort ?? preset?.reasoningEffort ?? null;
+    const reasoningEffort = input.reasoningEffort !== undefined
+      ? input.reasoningEffort
+      : preset?.reasoningEffort ?? null;
 
     return {
       mode: selectedMode,
@@ -4107,6 +4290,30 @@ export class CodexService extends EventEmitter {
         developer_instructions: null,
       },
     };
+  }
+
+  private buildThreadSettingsUpdateParams(
+    threadId: string,
+    patch: CodexConversationThreadSettingsPatch,
+    nextSettings: CodexConversationThreadSettings,
+  ): ThreadSettingsUpdateParams {
+    const params: ThreadSettingsUpdateParams = { threadId };
+    if (hasOwnValue(patch, "model")) {
+      params.model = patch.model ?? null;
+    }
+    if (hasOwnValue(patch, "reasoningEffort")) {
+      params.effort = patch.reasoningEffort ?? null;
+    }
+    if (hasOwnValue(patch, "collaborationMode")) {
+      const selectedMode = patch.collaborationMode ?? "default";
+      params.collaborationMode = this.buildCollaborationModePayload({
+        collaborationMode: selectedMode,
+        model: nextSettings.model,
+        reasoningEffort: nextSettings.reasoningEffort,
+      });
+    }
+
+    return params;
   }
 
   private async resolveAgentConfigOverrides(
@@ -5760,7 +5967,11 @@ export class CodexService extends EventEmitter {
     const retainedTurnIds = new Set(detail.turns.map((turn) => turn.turnId));
     this.clearThreadPendingRequestsForRemovedTurns(detail.threadId, retainedTurnIds);
     this.pruneThreadTransientState(detail.threadId, retainedTurnIds);
-    record.latestCollaborationMode = detail.latestCollaborationMode ?? record.latestCollaborationMode;
+    record.latestThreadSettings = detail.latestThreadSettings ?? record.latestThreadSettings;
+    record.latestCollaborationMode =
+      record.latestThreadSettings?.collaborationMode
+      ?? detail.latestCollaborationMode
+      ?? record.latestCollaborationMode;
     const previousDetail = record.detail;
     record.detail = {
       ...detail,
@@ -5768,6 +5979,7 @@ export class CodexService extends EventEmitter {
       approvalsReviewer: detail.approvalsReviewer ?? previousDetail?.approvalsReviewer ?? null,
       sandbox: detail.sandbox ?? previousDetail?.sandbox ?? null,
       latestCollaborationMode: record.latestCollaborationMode,
+      latestThreadSettings: record.latestThreadSettings,
       turns: [...detail.turns],
       transcript: [...detail.transcript],
     };
@@ -5907,6 +6119,11 @@ export class CodexService extends EventEmitter {
       updatedAt: normalizeTimestamp(thread.updatedAt),
       linkedAt: new Date().toISOString(),
       latestCollaborationMode: input.latestCollaborationMode,
+      latestThreadSettings: {
+        model: input.latestCollaborationMode.settings.model,
+        reasoningEffort: input.latestCollaborationMode.settings.reasoning_effort,
+        collaborationMode: input.latestCollaborationMode,
+      },
       turns: [],
       transcript: [],
     };
@@ -6547,12 +6764,14 @@ export class CodexService extends EventEmitter {
         model: effectiveModel,
         reasoningEffort: effectiveReasoningEffort,
       });
-      if (effectiveCollaborationMode) {
-        this.setLatestCollaborationModeForThread(link.threadId, this.buildCollaborationModeState({
-          collaborationMode: effectiveCollaborationMode,
+      if (effectiveModel || effectiveReasoningEffort || effectiveCollaborationMode) {
+        const record = this.getConversationRecord(link.threadId);
+        this.applyLatestThreadSettingsForThread(link.threadId, this.buildConversationThreadSettings({
           model: effectiveModel ?? null,
           reasoningEffort: effectiveReasoningEffort ?? null,
-          fallback: this.getConversationRecord(link.threadId).latestCollaborationMode,
+          collaborationMode: effectiveCollaborationMode ?? record.latestCollaborationMode.mode,
+          fallback: record.latestThreadSettings,
+          fallbackCollaborationMode: record.latestCollaborationMode,
         }));
       }
 
@@ -7521,16 +7740,56 @@ export class CodexService extends EventEmitter {
     threadId: string,
     collaborationMode: CodexCollaborationModeKind,
   ): Promise<CodexCollaborationModeState> {
-    await this.ensureClientReady();
-    const nextMode = this.buildCollaborationModeState({
-      collaborationMode,
-      fallback: this.getConversationRecord(threadId).latestCollaborationMode,
-    });
-    this.setLatestCollaborationModeForThread(threadId, nextMode);
-    this.syncBroadcastConversation(threadId, {
-      syncLatestCollaborationMode: true,
-    });
-    return nextMode;
+    const nextSettings = await this.updateThreadSettingsForNextTurn(threadId, { collaborationMode });
+    return nextSettings.collaborationMode ?? this.getConversationRecord(threadId).latestCollaborationMode;
+  }
+
+  async updateThreadSettingsForNextTurn(
+    threadId: string,
+    patch: CodexConversationThreadSettingsPatch,
+  ): Promise<CodexConversationThreadSettings> {
+    const previousUpdate = this.pendingThreadSettingsUpdates.get(threadId) ?? Promise.resolve(null);
+    const update = previousUpdate
+      .catch(() => null)
+      .then(async () => {
+        await this.ensureClientReady();
+        const nextSettings = this.mergeThreadSettingsPatch(threadId, patch);
+        this.applyLatestThreadSettingsForThread(threadId, nextSettings);
+        this.syncBroadcastConversation(threadId, {
+          syncLatestCollaborationMode: true,
+          syncLatestThreadSettings: true,
+        });
+
+        if (this.threadSettingsUpdateSupport !== "unsupported") {
+          const params = this.buildThreadSettingsUpdateParams(threadId, patch, nextSettings);
+          try {
+            await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
+              "thread/settings/update",
+              params,
+            );
+            this.threadSettingsUpdateSupport = "supported";
+            return nextSettings;
+          } catch (error) {
+            if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
+            this.threadSettingsUpdateSupport = "unsupported";
+            this.logger.warn("Codex app-server does not support thread/settings/update; using local next-turn settings fallback", {
+              threadId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        return nextSettings;
+      });
+
+    this.pendingThreadSettingsUpdates.set(threadId, update);
+    try {
+      return await update;
+    } finally {
+      if (this.pendingThreadSettingsUpdates.get(threadId) === update) {
+        this.pendingThreadSettingsUpdates.delete(threadId);
+      }
+    }
   }
 
   async startThreadCompaction(threadId: string): Promise<void> {
@@ -7583,9 +7842,24 @@ export class CodexService extends EventEmitter {
 
     const preparedPrompt = await this.preparePromptForTurn(prompt, overrides?.promptInput);
     const promptText = preparedPrompt.promptText;
-    const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? overrides?.model;
-    const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? overrides?.reasoningEffort;
-    const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? overrides?.collaborationMode;
+    const record = this.getConversationRecord(threadId);
+    const latestThreadSettings = record.latestThreadSettings;
+    const fallbackCollaborationMode = latestThreadSettings?.collaborationMode ?? record.latestCollaborationMode;
+    const effectiveModel =
+      preparedPrompt.agentConfigOverrides.model
+      ?? overrides?.model
+      ?? latestThreadSettings?.model
+      ?? fallbackCollaborationMode.settings.model;
+    const effectiveReasoningEffort =
+      preparedPrompt.agentConfigOverrides.reasoningEffort
+      ?? overrides?.reasoningEffort
+      ?? latestThreadSettings?.reasoningEffort
+      ?? fallbackCollaborationMode.settings.reasoning_effort;
+    const effectiveCollaborationMode =
+      preparedPrompt.agentConfigOverrides.collaborationMode
+      ?? overrides?.collaborationMode
+      ?? latestThreadSettings?.collaborationMode?.mode
+      ?? fallbackCollaborationMode.mode;
 
     const threadRef = this.parseThreadRef(threadId);
     const threadCwd = threadRef?.cwd?.trim() || null;
@@ -7623,14 +7897,13 @@ export class CodexService extends EventEmitter {
       model: effectiveModel,
       reasoningEffort: effectiveReasoningEffort,
     });
-    if (effectiveCollaborationMode) {
-      this.setLatestCollaborationModeForThread(threadId, this.buildCollaborationModeState({
-        collaborationMode: effectiveCollaborationMode,
-        model: effectiveModel ?? null,
-        reasoningEffort: effectiveReasoningEffort ?? null,
-        fallback: this.getConversationRecord(threadId).latestCollaborationMode,
-      }));
-    }
+    this.applyLatestThreadSettingsForThread(threadId, this.buildConversationThreadSettings({
+      model: effectiveModel,
+      reasoningEffort: effectiveReasoningEffort ?? null,
+      collaborationMode: effectiveCollaborationMode,
+      fallback: latestThreadSettings,
+      fallbackCollaborationMode,
+    }));
     const startedAt = Date.now();
 
     this.logger.info("Starting Codex turn", {
@@ -9708,8 +9981,39 @@ export class CodexService extends EventEmitter {
       return;
     }
 
+    if (method === "thread/settings/updated") {
+      const payload = asRecord(params) as ThreadSettingsUpdatedNotification | null;
+      if (!payload || typeof payload.threadId !== "string") return;
+
+      const known = getCodexThread(payload.threadId);
+      if (!known) {
+        this.scheduleSidebarThreadListRepair(method, payload.threadId);
+        return;
+      }
+
+      const record = this.getConversationRecord(payload.threadId);
+      const nextSettings = this.parseConversationThreadSettingsFromProtocol(
+        (payload as { threadSettings?: ThreadSettings }).threadSettings,
+        record.latestThreadSettings,
+        record.latestCollaborationMode,
+      );
+      if (nextSettings) {
+        this.applyLatestThreadSettingsForThread(payload.threadId, nextSettings);
+      }
+
+      this.emitEvent({ type: "threadSummary", thread: known });
+      this.syncBroadcastConversation(payload.threadId, {
+        syncDetail: true,
+        syncLatestCollaborationMode: true,
+        syncLatestThreadSettings: true,
+        syncCapabilityFlags: true,
+      });
+      this.notifyLinkedProjectSessionsChanged(payload.threadId);
+      this.emitSidebarSyncUpdatedForThread(known, "host-message");
+      return;
+    }
+
     if (
-      method === "thread/settings/updated" ||
       method === "thread/goal/updated" ||
       method === "thread/goal/cleared"
     ) {
@@ -10209,6 +10513,7 @@ export class CodexService extends EventEmitter {
       approvalsReviewer: detail?.approvalsReviewer ?? null,
       sandbox: detail?.sandbox ?? null,
       latestCollaborationMode: detail?.latestCollaborationMode ?? record?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
+      latestThreadSettings: detail?.latestThreadSettings ?? record?.latestThreadSettings ?? null,
       updatedAt: Math.max(link.updatedAt, transcriptUpdatedAt),
       turns,
       transcript,

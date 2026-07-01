@@ -7,7 +7,6 @@ import {
 } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type {
-  CodexCollaborationModeKind,
   CodexPermissionState,
   CodexPromptInput,
   CodexReasoningEffort,
@@ -29,6 +28,7 @@ import {
 } from "../shared/composer-action";
 import { cn } from "../../../../lib/utils";
 import {
+  CodexCloseIcon,
   CodexFastModeIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -102,6 +102,11 @@ import {
   formatReviewDiffCommentLineLabel,
   getReviewDiffCommentText,
 } from "../../../../../shared/review-diff-comments";
+import {
+  hasPlanMode,
+  resolveNextComposerPlanMode,
+  shouldShowComposerPlanKeywordSuggestion,
+} from "./composer-plan-mode";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -352,6 +357,15 @@ function ComposerAddContextDropdown({
   const showIdeContext = ideContext?.isConnected === true;
   const plugins = model.composerPlugins ?? [];
   const hasPlugins = plugins.length > 0;
+  const planModeAvailable = hasPlanMode(model.collaborationModes);
+  const togglePlanMode = () => {
+    const nextMode = resolveNextComposerPlanMode({
+      currentMode: model.selectedCollaborationMode,
+      modes: model.collaborationModes,
+    });
+    if (!nextMode) return;
+    void actions.onCollaborationModeChange(nextMode);
+  };
 
   return (
     <NodexDropdownMenu
@@ -381,7 +395,7 @@ function ComposerAddContextDropdown({
         {primaryLabel}
       </NodexDropdownItem>
 
-      {(showIdeContext || model.collaborationModes.some((mode) => mode.mode === "plan")) ? (
+      {(showIdeContext || planModeAvailable) ? (
         <NodexDropdownSeparator />
       ) : null}
 
@@ -398,13 +412,11 @@ function ComposerAddContextDropdown({
         </NodexDropdownItem>
       ) : null}
 
-      {model.collaborationModes.some((mode) => mode.mode === "plan") ? (
+      {planModeAvailable ? (
         <NodexDropdownItem
           leftSlot={<ComposerPlanModeIcon className="opacity-75 group-focus:opacity-100 group-hover:opacity-100" />}
           rightSlot={<ComposerMenuSwitch checked={model.selectedCollaborationMode === "plan"} />}
-          onSelect={() => {
-            actions.onCollaborationModeChange(model.selectedCollaborationMode === "plan" ? "default" : "plan");
-          }}
+          onSelect={togglePlanMode}
           data-add-context-row="plan-mode"
         >
           Plan mode
@@ -453,10 +465,10 @@ function ComposerAddContextDropdown({
 
 function ActiveComposerModeChip({
   model,
-  onSelect,
+  onToggle,
 }: {
   model: ThreadFooterModel;
-  onSelect: (mode: CodexCollaborationModeKind) => void;
+  onToggle: () => void;
 }) {
   if (model.selectedCollaborationMode !== "plan") {
     return null;
@@ -475,7 +487,7 @@ function ActiveComposerModeChip({
         aria-label="Plan"
         className="group inline-flex h-7 shrink-0 cursor-interaction items-center gap-1 rounded-full border border-transparent bg-token-text-link-foreground/10 px-2 py-0 text-sm/4.5 text-token-text-link-foreground hover:bg-token-text-link-foreground/10 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
         onClick={() => {
-          onSelect("default");
+          onToggle();
         }}
       >
         <span data-plan-mode-icon="plan" className="inline-flex shrink-0 group-hover:hidden">
@@ -498,6 +510,73 @@ function PlanModeTooltipContent() {
         <ShortcutKeycaps keys={["Shift + Tab"]} />
         <span>to toggle</span>
       </span>
+    </div>
+  );
+}
+
+function PlanKeywordSuggestion({
+  onUsePlanMode,
+  onDismiss,
+}: {
+  onUsePlanMode: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      className="@container pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 flex justify-center"
+      data-plan-keyword-suggestion="true"
+    >
+      <div className="pointer-events-auto flex w-full max-w-full justify-center">
+        <div
+          className="relative inline-flex max-w-full min-w-0 items-center justify-between gap-4 overflow-hidden rounded-3xl border border-token-border/80 bg-token-dropdown-background/90 py-1.5 pr-2 pl-3 text-token-foreground shadow-md backdrop-blur-sm"
+          data-codex-above-composer-suggestion="keyword-plan-mode"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="flex items-center justify-center text-token-foreground">
+              <ComposerPlanModeIcon className="icon-xs shrink-0" />
+            </span>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="truncate text-sm leading-[18px] font-medium text-token-foreground">
+                Create a plan
+              </span>
+              <span className="hidden text-sm leading-none text-token-description-foreground @[500px]:inline">
+                <button
+                  type="button"
+                  className="border-token-border no-drag cursor-interaction pointer-events-none flex !h-auto items-center gap-1 rounded-md border bg-token-bg-fog px-1 py-0.5 text-xs leading-[18px] !leading-none whitespace-nowrap text-token-button-tertiary-foreground select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                >
+                  Shift + Tab
+                </button>
+              </span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              className="border-token-border no-drag cursor-interaction flex items-center gap-1 rounded-full border border-transparent bg-token-foreground/5 px-2.5 py-0.5 text-sm leading-[18px] whitespace-nowrap text-token-foreground select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10"
+              data-codex-above-composer-suggestion-action="true"
+              onClick={(event) => {
+                event.stopPropagation();
+                onUsePlanMode();
+              }}
+            >
+              Use plan mode
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss suggestion"
+              className="no-drag flex size-[22px] shrink-0 cursor-interaction items-center justify-center rounded-full border border-transparent text-token-description-foreground select-none hover:bg-token-list-hover-background focus:outline-none"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDismiss();
+              }}
+            >
+              <CodexCloseIcon className="icon-xs" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -760,6 +839,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [nestedSlashCommand, setNestedSlashCommand] = useState<ComposerSlashCommand | null>(null);
   const [slashDialogOpen, setSlashDialogOpen] = useState(false);
   const [desktopPetVisible, setDesktopPetVisible] = useState(false);
+  const [planKeywordSuggestionDismissed, setPlanKeywordSuggestionDismissed] = useState(false);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
   const resetPromptHistorySelectionRef = useRef<() => void>(() => {});
@@ -1279,6 +1359,23 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }), [prompt, slashCommands, slashTrigger.active, slashTrigger.query]);
   const slashGroups = useMemo(() => groupComposerSlashCommandMatches(slashMatches), [slashMatches]);
   const slashMenuOpen = slashTrigger.active || nestedSlashCommand !== null;
+  const planModeAvailable = hasPlanMode(model.collaborationModes);
+  const togglePlanMode = useCallback((): boolean => {
+    const nextMode = resolveNextComposerPlanMode({
+      currentMode: model.selectedCollaborationMode,
+      modes: model.collaborationModes,
+    });
+    if (!nextMode) return false;
+    void actions.onCollaborationModeChange(nextMode);
+    setPlanKeywordSuggestionDismissed(false);
+    return true;
+  }, [actions, model.collaborationModes, model.selectedCollaborationMode]);
+  const showPlanKeywordSuggestion = shouldShowComposerPlanKeywordSuggestion({
+    prompt,
+    currentMode: model.selectedCollaborationMode,
+    modes: model.collaborationModes,
+    dismissed: planKeywordSuggestionDismissed,
+  });
   const highlightedSlashCommandId = slashHighlight.commandId;
   const highlightedSlashCommandSource = slashHighlight.source;
   const promptHistoryScopeKey = model.conversation?.threadId
@@ -1346,6 +1443,13 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       return { commandId, source };
     });
   }, [slashMatches, slashMenuOpen]);
+
+  useEffect(() => {
+    if (prompt.trim().length > 0 && model.selectedCollaborationMode !== "plan") {
+      return;
+    }
+    setPlanKeywordSuggestionDismissed(false);
+  }, [model.selectedCollaborationMode, prompt]);
 
   const closeSlashMenu = useCallback(() => {
     setSlashTrigger(inactiveSlashTrigger());
@@ -1442,6 +1546,21 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       }
     }
 
+    if (
+      event.key === "Tab" &&
+      event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !slashMenuOpen &&
+      planModeAvailable
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      togglePlanMode();
+      return true;
+    }
+
     if (handlePromptHistoryKeyDown(event)) {
       return true;
     }
@@ -1499,12 +1618,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     model.newThreadTarget,
     nestedSlashCommand,
     handlePromptHistoryKeyDown,
+    planModeAvailable,
     prompt,
     promptForm,
     selectSlashCommand,
     slashMatches,
     slashMenuOpen,
     submitPrompt,
+    togglePlanMode,
   ]);
 
   const hasDraftContent = prompt.trim().length > 0 || hasAttachments;
@@ -1523,7 +1644,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     hasDraftContent &&
     (model.conversation !== null || canStartNewThreadTarget(model)),
   );
-  const promptPlaceholder = model.conversation
+  const promptPlaceholder = model.selectedCollaborationMode === "plan"
+    ? "Describe your task to generate a plan..."
+    : model.conversation
     ? "Ask for follow-up changes"
     : model.isNewThreadTab
       ? model.newThreadTarget
@@ -1577,6 +1700,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           >
             {dictationToastMessage}
           </button>
+        ) : null}
+        {showPlanKeywordSuggestion ? (
+          <PlanKeywordSuggestion
+            onUsePlanMode={() => {
+              togglePlanMode();
+            }}
+            onDismiss={() => {
+              setPlanKeywordSuggestionDismissed(true);
+            }}
+          />
         ) : null}
         <div className="composer-surface-chrome relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
           <div className="relative z-10 flex min-h-0 flex-1 flex-col">
@@ -1730,7 +1863,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
                   <ActiveComposerModeChip
                     model={model}
-                    onSelect={actions.onCollaborationModeChange}
+                    onToggle={togglePlanMode}
                   />
 
                   <PermissionModeDropdown

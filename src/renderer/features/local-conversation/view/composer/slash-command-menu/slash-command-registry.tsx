@@ -34,6 +34,7 @@ import type {
   ComposerSlashCommandContentProps,
   ComposerSlashInlineSelection,
 } from "./slash-command-types";
+import { hasPlanMode, resolveNextComposerPlanMode } from "../composer-plan-mode";
 
 interface BuildSlashCommandsInput {
   model: ThreadFooterModel;
@@ -245,11 +246,19 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
     {
       id: "plan-mode",
       title: "Plan",
-      description: "Switch to plan mode",
+      description: input.model.selectedCollaborationMode === "plan" ? "Switch off plan mode" : "Switch to plan mode",
       group: "Commands",
       icon: <ClipboardListIcon className={iconClassName} />,
       requiresEmptyComposer: true,
-      onSelect: () => input.actions.onCollaborationModeChange("plan"),
+      isVisible: hasPlanMode(input.model.collaborationModes),
+      onSelect: () => {
+        const nextMode = resolveNextComposerPlanMode({
+          currentMode: input.model.selectedCollaborationMode,
+          modes: input.model.collaborationModes,
+        });
+        if (!nextMode) return;
+        void input.actions.onCollaborationModeChange(nextMode);
+      },
     },
     {
       id: "status",

@@ -542,6 +542,37 @@ export const PlanModeActive: Story = {
   },
 };
 
+export const PlanKeywordSuggestion: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "Plan the migration from local fallback settings to thread-owned next-turn settings.",
+    selectedCollaborationMode: "default",
+  },
+};
+
+export const ExistingThreadSettingsReflected: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    selectedCollaborationMode: "plan",
+    selectedModel: "gpt-5.3-codex",
+    selectedModelDisplayName: "GPT-5.3 Codex",
+    selectedModelReasoningSupport: "default",
+  },
+};
+
+export const NewThreadDraftPlanMode: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    threadState: "newChat",
+    selectedCollaborationMode: "plan",
+  },
+};
+
 export const AddContextIdeConnected: Story = {
   args: {
     addContextState: "ideConnected",

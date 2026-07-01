@@ -28,6 +28,8 @@ import type {
   CodexConversationItem,
   CodexConversationServerRequest,
   CodexConversationSnapshot,
+  CodexConversationThreadSettings,
+  CodexConversationThreadSettingsPatch,
   CodexConversationTurn,
   CodexDictationStateSnapshot,
   CodexConversationLiveRequest,
@@ -140,6 +142,49 @@ const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
     developer_instructions: null,
   },
 };
+
+function hasOwnValue(record: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function normalizeThreadSettingsModel(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function mergeConversationThreadSettingsPatch(
+  conversation: CodexConversationSnapshot | null,
+  patch: CodexConversationThreadSettingsPatch,
+): CodexConversationThreadSettings {
+  const fallbackMode =
+    conversation?.latestThreadSettings?.collaborationMode
+    ?? conversation?.latestCollaborationMode
+    ?? DEFAULT_COLLABORATION_MODE_STATE;
+  const model = hasOwnValue(patch, "model")
+    ? normalizeThreadSettingsModel(patch.model) ?? fallbackMode.settings.model
+    : conversation?.latestThreadSettings?.model ?? fallbackMode.settings.model;
+  const reasoningEffort = hasOwnValue(patch, "reasoningEffort")
+    ? patch.reasoningEffort ?? null
+    : conversation?.latestThreadSettings?.reasoningEffort ?? fallbackMode.settings.reasoning_effort;
+  const mode = hasOwnValue(patch, "collaborationMode")
+    ? patch.collaborationMode ?? "default"
+    : conversation?.latestThreadSettings?.collaborationMode?.mode ?? fallbackMode.mode;
+  const collaborationMode: CodexCollaborationModeState = {
+    mode,
+    settings: {
+      model,
+      reasoning_effort: reasoningEffort ?? null,
+      developer_instructions: null,
+    },
+  };
+
+  return {
+    model,
+    reasoningEffort: reasoningEffort ?? null,
+    collaborationMode,
+  };
+}
 
 const DEFAULT_CODEX_DICTATION_STATE: CodexDictationStateSnapshot = {
   isEnabled: false,
@@ -866,6 +911,10 @@ export class CodexAppServerManager {
     return this.conversationsById.get(threadId)?.latestCollaborationMode ?? null;
   }
 
+  readConversationThreadSettings(threadId: string): CodexConversationThreadSettings | null {
+    return this.conversationsById.get(threadId)?.latestThreadSettings ?? null;
+  }
+
   readComposerIntent(threadId: string): CodexComposerIntent | null {
     return this.composerIntentsByThread.get(threadId) ?? null;
   }
@@ -1183,42 +1232,49 @@ export class CodexAppServerManager {
     return invoke("codex:turn:start", threadId, prompt, opts);
   }
 
-  async setLatestCollaborationModeForConversation(
+  async setThreadSettingsForConversation(
     threadId: string,
-    mode: CodexCollaborationModeKind,
-  ): Promise<CodexCollaborationModeState> {
+    patch: CodexConversationThreadSettingsPatch,
+  ): Promise<CodexConversationThreadSettings> {
     const currentConversation = this.conversationsById.get(threadId);
-    const nextMode: CodexCollaborationModeState = {
-      ...(currentConversation?.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE),
-      mode,
-    };
-    if (currentConversation && currentConversation.latestCollaborationMode?.mode !== mode) {
+    const optimisticSettings = mergeConversationThreadSettingsPatch(currentConversation ?? null, patch);
+    if (currentConversation) {
       this.applyConversationSnapshot(threadId, {
         ...currentConversation,
-        latestCollaborationMode: nextMode,
+        latestCollaborationMode: optimisticSettings.collaborationMode ?? currentConversation.latestCollaborationMode,
+        latestThreadSettings: optimisticSettings,
       });
       this.streamRoles.set(threadId, "owner");
     }
 
     try {
-      const persistedMode = (await invoke(
-        "codex:thread:collaboration-mode:set",
+      const persistedSettings = (await invoke(
+        "codex:thread:settings:update",
         threadId,
-        mode,
-      )) as CodexCollaborationModeState;
+        patch,
+      )) as CodexConversationThreadSettings;
       const refreshedConversation = this.conversationsById.get(threadId);
       if (refreshedConversation) {
         this.applyConversationSnapshot(threadId, {
           ...refreshedConversation,
-          latestCollaborationMode: persistedMode,
+          latestCollaborationMode: persistedSettings.collaborationMode ?? refreshedConversation.latestCollaborationMode,
+          latestThreadSettings: persistedSettings,
         });
         this.streamRoles.set(threadId, "owner");
       }
-      return persistedMode;
+      return persistedSettings;
     } catch (error) {
       this.resyncConversation(threadId);
       throw error;
     }
+  }
+
+  async setLatestCollaborationModeForConversation(
+    threadId: string,
+    mode: CodexCollaborationModeKind,
+  ): Promise<CodexCollaborationModeState> {
+    const persistedSettings = await this.setThreadSettingsForConversation(threadId, { collaborationMode: mode });
+    return persistedSettings.collaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE;
   }
 
   async enqueueQueuedFollowUp(threadId: string, prompt: string, opts?: CodexTurnStartOptions): Promise<void> {
@@ -2827,6 +2883,12 @@ export function useConversationCollaborationMode(
   return useCodexConversationValue(threadId, (conversation) => conversation?.latestCollaborationMode ?? null);
 }
 
+export function useConversationThreadSettings(
+  threadId: string | null,
+): CodexConversationThreadSettings | null {
+  return useCodexConversationValue(threadId, (conversation) => conversation?.latestThreadSettings ?? null);
+}
+
 export function useConversationSubset(threadIds: readonly string[]): Record<string, CodexConversationSnapshot> {
   const registry = useCodexAppServerRegistry();
   return useExternalSelector(
@@ -3060,40 +3122,34 @@ export function useCodexAppServerControl(activeProjectId: string) {
     prompt: string,
     opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
-    const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
     const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
     await manager.loadPermissionState(resolvedProjectId);
     const turnOpts: CodexTurnStartOptions = {
       permissionMode: manager.readPermissionMode(resolvedProjectId),
-      model: resolvedSettings.model,
-      reasoningEffort: resolvedSettings.reasoningEffort,
       collaborationMode: opts?.collaborationMode,
       ...(opts?.promptInput ? { promptInput: opts.promptInput } : {}),
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     };
     return manager.startTurn(threadId, prompt, turnOpts);
-  }, [activeProjectId, availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
+  }, [activeProjectId, manager, serviceTierSettings.serviceTier]);
 
   const enqueueQueuedFollowUp = useCallback(async (
     threadId: string,
     prompt: string,
     opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
-    const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
     const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
     await manager.loadPermissionState(resolvedProjectId);
     const turnOpts: CodexTurnStartOptions = {
       permissionMode: manager.readPermissionMode(resolvedProjectId),
-      model: resolvedSettings.model,
-      reasoningEffort: resolvedSettings.reasoningEffort,
       collaborationMode: opts?.collaborationMode ?? undefined,
       ...(opts?.promptInput ? { promptInput: opts.promptInput } : {}),
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     };
     await manager.enqueueQueuedFollowUp(threadId, prompt, turnOpts);
-  }, [activeProjectId, availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
+  }, [activeProjectId, manager, serviceTierSettings.serviceTier]);
 
   const removeQueuedFollowUp = useCallback(
     async (threadId: string, followUpId: string) => manager.removeQueuedFollowUp(threadId, followUpId),
@@ -3165,6 +3221,11 @@ export function useCodexAppServerControl(activeProjectId: string) {
   const setConversationCollaborationMode = useCallback(
     async (threadId: string, mode: CodexCollaborationModeKind) =>
       manager.setLatestCollaborationModeForConversation(threadId, mode),
+    [manager],
+  );
+  const setConversationThreadSettings = useCallback(
+    async (threadId: string, patch: CodexConversationThreadSettingsPatch) =>
+      manager.setThreadSettingsForConversation(threadId, patch),
     [manager],
   );
   const removePlanImplementationRequest = useCallback(
@@ -3246,6 +3307,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
     setComposerIntent,
     consumeComposerIntent,
     setConversationCollaborationMode,
+    setConversationThreadSettings,
     removePlanImplementationRequest,
     steerTurn,
     interruptTurn,

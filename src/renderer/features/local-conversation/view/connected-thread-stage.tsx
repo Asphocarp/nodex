@@ -5,6 +5,7 @@ import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex
 import type {
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
+  CodexConversationThreadSettings,
 } from "@/lib/types";
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
@@ -24,6 +25,7 @@ import {
   useConversationChildMemberships,
   useConversation,
   useConversationCollaborationMode,
+  useConversationThreadSettings,
   useConversationCwd,
   useConversationPendingSteers,
   useConversationPrimaryRequest,
@@ -65,28 +67,45 @@ function isKnownCollaborationMode(mode: string | null | undefined): mode is Code
   return mode === "default" || mode === "plan";
 }
 
-function resolveEffectiveCollaborationMode({
+export function resolveEffectiveThreadStageSettings({
   activeThreadId,
+  liveThreadSettings,
   liveMode,
   fallbackMode,
+  fallbackModel,
+  fallbackReasoningEffort,
   availableModes,
 }: {
   activeThreadId: string | null;
+  liveThreadSettings: CodexConversationThreadSettings | null;
   liveMode: CodexCollaborationModeState | null;
   fallbackMode: CodexCollaborationModeKind;
+  fallbackModel: string;
+  fallbackReasoningEffort: ConnectedThreadStageInput["selectedReasoningEffort"];
   availableModes: ConnectedThreadStageInput["collaborationModes"];
-}): CodexCollaborationModeKind {
-  if (!activeThreadId || !isKnownCollaborationMode(liveMode?.mode)) {
-    return fallbackMode;
+}): {
+  selectedCollaborationMode: CodexCollaborationModeKind;
+  selectedModel: string;
+  selectedReasoningEffort: ConnectedThreadStageInput["selectedReasoningEffort"];
+} {
+  const candidateMode = liveThreadSettings?.collaborationMode?.mode ?? liveMode?.mode;
+  const fallback = {
+    selectedCollaborationMode: fallbackMode,
+    selectedModel: fallbackModel,
+    selectedReasoningEffort: fallbackReasoningEffort,
+  };
+  if (!activeThreadId || !isKnownCollaborationMode(candidateMode)) {
+    return fallback;
   }
 
-  if (availableModes.length === 0) {
-    return liveMode.mode;
-  }
-
-  return availableModes.some((mode) => mode.mode === liveMode.mode)
-    ? liveMode.mode
+  const selectedCollaborationMode = availableModes.length === 0 || availableModes.some((mode) => mode.mode === candidateMode)
+    ? candidateMode
     : fallbackMode;
+  return {
+    selectedCollaborationMode,
+    selectedModel: liveThreadSettings?.model ?? fallbackModel,
+    selectedReasoningEffort: liveThreadSettings?.reasoningEffort ?? fallbackReasoningEffort,
+  };
 }
 
 interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
@@ -302,6 +321,7 @@ function ConnectedThreadStageFooter({
   const composerIntent = useComposerIntent(activeThreadId);
   const primaryRequest = useConversationPrimaryRequest(activeThreadId);
   const liveCollaborationMode = useConversationCollaborationMode(activeThreadId);
+  const liveThreadSettings = useConversationThreadSettings(activeThreadId);
   const account = useLocalConversationAccount();
   const dictation = useCodexDictationState();
   const childThreadIds = useMemo(
@@ -344,12 +364,20 @@ function ConnectedThreadStageFooter({
     () => [...turns].reverse().find((turn) => turn.status === "inProgress") ?? null,
     [turns],
   );
-  const selectedCollaborationMode = resolveEffectiveCollaborationMode({
+  const effectiveSettings = resolveEffectiveThreadStageSettings({
     activeThreadId,
+    liveThreadSettings,
     liveMode: liveCollaborationMode,
     fallbackMode: input.selectedCollaborationMode,
+    fallbackModel: input.selectedModel,
+    fallbackReasoningEffort: input.selectedReasoningEffort,
     availableModes: input.collaborationModes,
   });
+  const {
+    selectedCollaborationMode,
+    selectedModel,
+    selectedReasoningEffort,
+  } = effectiveSettings;
   const body = useMemo(
     () =>
       buildThreadBodyModel({
@@ -410,6 +438,7 @@ function ConnectedThreadStageFooter({
             updatedAt: input.activeThreadSummary?.updatedAt ?? 0,
             linkedAt: input.activeThreadSummary?.linkedAt ?? "",
             latestCollaborationMode: liveCollaborationMode ?? undefined,
+            latestThreadSettings: liveThreadSettings,
             resumeState: resumeState ?? "needs_resume",
             turns,
             requests,
@@ -440,9 +469,9 @@ function ConnectedThreadStageFooter({
       body,
       collaborationModes: input.collaborationModes,
       selectedCollaborationMode,
-      selectedModel: input.selectedModel,
+      selectedModel,
       availableModels: input.availableModels,
-      selectedReasoningEffort: input.selectedReasoningEffort,
+      selectedReasoningEffort,
       reasoningEffortOptions: input.reasoningEffortOptions,
       permissionMode: input.permissionMode,
       isQueueingEnabled: input.isQueueingEnabled,
@@ -476,13 +505,14 @@ function ConnectedThreadStageFooter({
       input.projectId,
       input.projectWorkspacePath,
       input.reasoningEffortOptions,
-      input.selectedModel,
-      input.selectedReasoningEffort,
       liveCollaborationMode,
+      liveThreadSettings,
       pendingSteers,
       queuedFollowUps,
       requests,
       selectedCollaborationMode,
+      selectedModel,
+      selectedReasoningEffort,
       resumeState,
       statusActiveFlags,
       statusType,

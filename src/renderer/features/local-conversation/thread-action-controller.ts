@@ -1,6 +1,7 @@
 import type { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import type {
   CodexCollaborationModeKind,
+  CodexReasoningEffort,
   ProjectSession,
 } from "@/lib/types";
 import type { useCodexAppServerControl } from "./local-conversation-store";
@@ -51,6 +52,27 @@ function requireActiveThreadId(activeThreadId: string | null, action: string): s
 }
 
 export function createThreadStageActions(input: ThreadActionControllerInput): ThreadStageActions {
+  const updateThreadSettingsOrDraft = (patch: {
+    collaborationMode?: CodexCollaborationModeKind;
+    model?: string;
+    reasoningEffort?: CodexReasoningEffort;
+  }) => {
+    if (input.activeThreadId) {
+      void input.codexControl.setConversationThreadSettings(input.activeThreadId, patch);
+      return;
+    }
+
+    if (patch.collaborationMode) {
+      input.setSelectedCollaborationMode(patch.collaborationMode);
+    }
+    if (patch.model) {
+      input.codexControl.setThreadModel(patch.model);
+    }
+    if (patch.reasoningEffort) {
+      input.codexControl.setThreadReasoningEffort(patch.reasoningEffort);
+    }
+  };
+
   const actions = {
     onRefreshAccount: input.accountActions.refreshAccount,
     onStartChatGptLogin: input.accountActions.startChatGptLogin,
@@ -61,9 +83,15 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onLogout: async () => {
       await input.accountActions.logout();
     },
-    onCollaborationModeChange: input.setSelectedCollaborationMode,
-    onModelChange: input.codexControl.setThreadModel,
-    onReasoningEffortChange: input.codexControl.setThreadReasoningEffort,
+    onCollaborationModeChange: (collaborationMode) => {
+      updateThreadSettingsOrDraft({ collaborationMode });
+    },
+    onModelChange: (model) => {
+      updateThreadSettingsOrDraft({ model });
+    },
+    onReasoningEffortChange: (reasoningEffort) => {
+      updateThreadSettingsOrDraft({ reasoningEffort });
+    },
     onPermissionModeChange: (mode) => {
       void input.codexControl.setPermissionMode(input.projectId, mode);
     },

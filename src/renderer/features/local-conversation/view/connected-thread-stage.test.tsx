@@ -49,6 +49,70 @@ mock.module("../local-conversation-deps", () => ({
   },
 }));
 
+describe("resolveEffectiveThreadStageSettings", () => {
+  test("prefers active conversation thread settings over shell fallbacks", async () => {
+    const { resolveEffectiveThreadStageSettings } = await import("./connected-thread-stage");
+    const settings = resolveEffectiveThreadStageSettings({
+      activeThreadId: "thread_1",
+      liveThreadSettings: {
+        model: "gpt-thread",
+        reasoningEffort: "medium",
+        collaborationMode: {
+          mode: "plan",
+          settings: {
+            model: "gpt-thread",
+            reasoning_effort: "medium",
+            developer_instructions: null,
+          },
+        },
+      },
+      liveMode: null,
+      fallbackMode: "default",
+      fallbackModel: "gpt-draft",
+      fallbackReasoningEffort: "high",
+      availableModes: [
+        { mode: "default", name: "Default", model: null },
+        { mode: "plan", name: "Plan", model: null },
+      ],
+    });
+
+    expect(settings.selectedCollaborationMode).toBe("plan");
+    expect(settings.selectedModel).toBe("gpt-thread");
+    expect(settings.selectedReasoningEffort).toBe("medium");
+  });
+
+  test("uses shell fallbacks for new-thread drafts", async () => {
+    const { resolveEffectiveThreadStageSettings } = await import("./connected-thread-stage");
+    const settings = resolveEffectiveThreadStageSettings({
+      activeThreadId: null,
+      liveThreadSettings: {
+        model: "gpt-thread",
+        reasoningEffort: "medium",
+        collaborationMode: {
+          mode: "plan",
+          settings: {
+            model: "gpt-thread",
+            reasoning_effort: "medium",
+            developer_instructions: null,
+          },
+        },
+      },
+      liveMode: null,
+      fallbackMode: "default",
+      fallbackModel: "gpt-draft",
+      fallbackReasoningEffort: "high",
+      availableModes: [
+        { mode: "default", name: "Default", model: null },
+        { mode: "plan", name: "Plan", model: null },
+      ],
+    });
+
+    expect(settings.selectedCollaborationMode).toBe("default");
+    expect(settings.selectedModel).toBe("gpt-draft");
+    expect(settings.selectedReasoningEffort).toBe("high");
+  });
+});
+
 function buildThreadSummary(archived: boolean): CodexThreadSummary {
   return {
     threadId: archived ? "thread_archived" : "thread_active",

@@ -105,7 +105,12 @@ import {
   readGhPrStatus,
   updateGhPr,
 } from "./github-pr-service";
-import type { AppUpdateSettings, AppUpdateStatus, CodexPromptInput } from "../shared/types";
+import type {
+  AppUpdateSettings,
+  AppUpdateStatus,
+  CodexConversationThreadSettingsPatch,
+  CodexPromptInput,
+} from "../shared/types";
 import type {
   BrowserBrowsingDataKind,
   BrowserSidebarCommand,
@@ -1465,6 +1470,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     (_, threadId: string, collaborationMode: "default" | "plan") =>
       codexService.setConversationCollaborationMode(threadId, collaborationMode),
   );
+
+  registerHandle(
+    "codex:thread:settings:update",
+    (_, threadId: string, patch: CodexConversationThreadSettingsPatch) =>
+      codexService.updateThreadSettingsForNextTurn(threadId, patch),
+  );
+
   registerHandle(
     "codex:thread:plan-implementation:remove",
     (_, threadId: string, turnId: string) =>

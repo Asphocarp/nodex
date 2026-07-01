@@ -138,9 +138,9 @@ export interface ThreadStageRouteInput {
 }
 
 export interface ThreadStageActions {
-  onCollaborationModeChange: (mode: CodexCollaborationModeKind) => void;
-  onModelChange: (model: string) => void;
-  onReasoningEffortChange: (reasoningEffort: CodexReasoningEffort) => void;
+  onCollaborationModeChange: (mode: CodexCollaborationModeKind) => void | Promise<void>;
+  onModelChange: (model: string) => void | Promise<void>;
+  onReasoningEffortChange: (reasoningEffort: CodexReasoningEffort) => void | Promise<void>;
   onPermissionModeChange: (mode: CodexPermissionMode) => void;
   onQueueingEnabledChange: (enabled: boolean) => void;
   onComposerIdeContextEnabledChange?: (enabled: boolean) => void;

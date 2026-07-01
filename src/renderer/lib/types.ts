@@ -99,6 +99,8 @@ export type {
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
+  CodexConversationThreadSettings,
+  CodexConversationThreadSettingsPatch,
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,

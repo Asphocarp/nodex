@@ -1812,9 +1812,9 @@ export function WorkbenchShell({
   const threadPlanSidePanelState = useMemo<ThreadPlanSidePanelState | null>(() => {
     if (!activeSession) return null;
     return {
-      rightPanelEnabled: sidePanelOpen,
+      rightPanelEnabled: activeSession.projectId !== null,
       activePlanKey: activePlanKeyBySession[activeSession.id] ?? null,
-      activeRightPanelTabId: rightActiveTabId,
+      activeRightPanelTabId: sidePanelOpen ? rightActiveTabId : null,
     };
   }, [activePlanKeyBySession, activeSession, rightActiveTabId, sidePanelOpen]);
   useEffect(() => {

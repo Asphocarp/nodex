@@ -169,6 +169,10 @@ interface TestableCodexService {
     threadId: string,
     collaborationMode: "default" | "plan",
   ) => Promise<import("../../shared/types").CodexCollaborationModeState>;
+  updateThreadSettingsForNextTurn: (
+    threadId: string,
+    patch: import("../../shared/types").CodexConversationThreadSettingsPatch,
+  ) => Promise<import("../../shared/types").CodexConversationThreadSettings>;
   removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
 }
 
@@ -5710,11 +5714,17 @@ describe("codex-service collaboration modes", () => {
     const ran = await withTempDatabase(async () => {
 
       const service = createService();
+      const serviceInternals = service as unknown as {
+        ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
+      };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
       };
 
       client.start = async () => undefined;
+      client.request = async () => ({});
+      serviceInternals.ensureConversationDetail("thr_plan_mode");
 
       try {
         const nextMode = await service.setConversationCollaborationMode("thr_plan_mode", "plan");
@@ -5731,6 +5741,214 @@ describe("codex-service collaboration modes", () => {
     });
 
     if (!ran) expect(true).toBeTrue();
+  });
+
+  test("updates next-turn thread settings through app-server and mirrors snapshots", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        requests.push({ method, params: params as Record<string, unknown> });
+        return {};
+      };
+      serviceInternals.ensureConversationDetail("thr_settings_update");
+
+      try {
+        const settings = await service.updateThreadSettingsForNextTurn("thr_settings_update", {
+          model: "gpt-5.9-codex",
+          reasoningEffort: "high",
+          collaborationMode: "plan",
+        });
+        const snapshot = service.serializeConversationSnapshot("thr_settings_update");
+        const updateRequest = requests.find((request) => request.method === "thread/settings/update");
+        const collaborationMode = updateRequest?.params.collaborationMode as {
+          mode?: string;
+          settings?: { model?: string; reasoning_effort?: string | null; developer_instructions?: string | null };
+        } | undefined;
+
+        expect(settings.model).toBe("gpt-5.9-codex");
+        expect(settings.reasoningEffort).toBe("high");
+        expect(settings.collaborationMode?.mode).toBe("plan");
+        expect(updateRequest?.params.threadId).toBe("thr_settings_update");
+        expect(updateRequest?.params.model).toBe("gpt-5.9-codex");
+        expect(updateRequest?.params.effort).toBe("high");
+        expect(collaborationMode?.mode).toBe("plan");
+        expect(collaborationMode?.settings?.developer_instructions).toBe(null);
+        expect(snapshot?.latestThreadSettings?.model).toBe("gpt-5.9-codex");
+        expect(snapshot?.latestThreadSettings?.collaborationMode?.mode).toBe("plan");
+        expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("falls back to local next-turn settings when app-server settings update is unavailable", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method === "thread/settings/update") {
+          throw new CodexRpcError("Method not found: thread/settings/update", -32601);
+        }
+        return {};
+      };
+      serviceInternals.ensureConversationDetail("thr_settings_fallback");
+
+      try {
+        const settings = await service.updateThreadSettingsForNextTurn("thr_settings_fallback", {
+          collaborationMode: "plan",
+        });
+        const snapshot = service.serializeConversationSnapshot("thr_settings_fallback");
+
+        expect(settings.collaborationMode?.mode).toBe("plan");
+        expect(snapshot?.latestThreadSettings?.collaborationMode?.mode).toBe("plan");
+        expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("thread settings notifications update active conversation snapshots", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+        ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+      };
+
+      client.start = async () => undefined;
+      serviceInternals.ensureConversationDetail("thr_settings_notification");
+      upsertCodexThread({
+        ...makeThreadDetail("thr_settings_notification"),
+        statusType: "idle",
+      });
+
+      try {
+        await serviceInternals.handleNotification("thread/settings/updated", {
+          threadId: "thr_settings_notification",
+          threadSettings: {
+            cwd: "/tmp",
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandboxPolicy: { mode: "read-only" },
+            activePermissionProfile: null,
+            model: "gpt-5.8-codex",
+            modelProvider: "openai",
+            serviceTier: null,
+            effort: "medium",
+            summary: null,
+            collaborationMode: {
+              mode: "plan",
+              settings: {
+                model: "gpt-5.8-codex",
+                reasoning_effort: "medium",
+                developer_instructions: null,
+              },
+            },
+          },
+        });
+        const snapshot = service.serializeConversationSnapshot("thr_settings_notification");
+
+        expect(snapshot?.latestThreadSettings?.model).toBe("gpt-5.8-codex");
+        expect(snapshot?.latestThreadSettings?.reasoningEffort).toBe("medium");
+        expect(snapshot?.latestThreadSettings?.collaborationMode?.mode).toBe("plan");
+        expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("startTurn prefers explicit overrides over latest thread settings and legacy mode", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
+      parseThreadRef: (threadId: string) => { projectId: string | null; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+
+    serviceInternals.parseThreadRef = () => null;
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params: params as Record<string, unknown> });
+      if (method === "thread/settings/update") return {};
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: `turn_${requests.length}`,
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      return {};
+    };
+    serviceInternals.ensureConversationDetail("thr_start_settings_priority");
+
+    try {
+      await service.updateThreadSettingsForNextTurn("thr_start_settings_priority", {
+        model: "gpt-settings",
+        reasoningEffort: "medium",
+        collaborationMode: "plan",
+      });
+      await service.startTurn("thr_start_settings_priority", "Use settings");
+      await service.startTurn("thr_start_settings_priority", "Use explicit", {
+        model: "gpt-explicit",
+        reasoningEffort: "high",
+        collaborationMode: "default",
+      });
+
+      const turnRequests = requests.filter((request) => request.method === "turn/start");
+      const firstTurn = turnRequests[0]?.params;
+      const secondTurn = turnRequests[1]?.params;
+      const firstMode = firstTurn?.collaborationMode as { mode?: string } | undefined;
+      const secondMode = secondTurn?.collaborationMode as { mode?: string } | undefined;
+
+      expect(firstTurn?.model).toBe("gpt-settings");
+      expect(firstTurn?.effort).toBe("medium");
+      expect(firstMode?.mode).toBe("plan");
+      expect(secondTurn?.model).toBe("gpt-explicit");
+      expect(secondTurn?.effort).toBe("high");
+      expect(secondMode?.mode).toBe("default");
+    } finally {
+      await service.shutdown();
+    }
   });
 });
 

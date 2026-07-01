@@ -245,6 +245,10 @@ export function ThreadBlockRenderer({
         block={block}
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
+        threadCwd={threadCwd}
+        onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+        onClosePlanSidePanel={onClosePlanSidePanel}
+        planSidePanelState={planSidePanelState}
       />
     );
   }

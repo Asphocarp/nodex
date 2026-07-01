@@ -20,6 +20,7 @@ import {
   ThreadTurnDiffBlock,
   UserMessageBubble,
 } from "./local-conversation-block-leaves";
+import { ThreadBlockRenderer } from "./local-conversation-block-renderer";
 import type {
   ThreadCollapsedToolActivitySummaryStats,
   ThreadTranscriptBlockModel,
@@ -1019,6 +1020,58 @@ describe("ThreadPlanCardBlock", () => {
     expect(Boolean(getByRole("button", { name: "Close plan side panel" }))).toBeTrue();
     expect(body?.getAttribute("aria-hidden")).toBe("true");
     expect(Boolean(body?.hasAttribute("inert"))).toBeTrue();
+  });
+});
+
+describe("ThreadBlockRenderer proposed-plan block", () => {
+  test("forwards side-panel actions into the plan card", () => {
+    let openedKey = "";
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadBlockRenderer
+          block={{
+            id: "plan-1",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "plan",
+            type: "proposedPlan",
+            entry: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "plan-1",
+              type: "proposedPlan",
+              kind: "plan",
+              semanticKind: "proposedPlan",
+              status: "completed",
+              markdownText: "# Plan\n\nOpen this in a side panel.",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          }}
+          isLatestTurn
+          isStreamingTurn={false}
+          threadCwd="/tmp/project"
+          planSidePanelState={{
+            rightPanelEnabled: true,
+            activePlanKey: null,
+            activeRightPanelTabId: null,
+          }}
+          onOpenPlanInSidePanel={(input) => {
+            openedKey = input.planKey;
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(getByRole("button", { name: "Open plan in side panel" }))).toBeTrue();
+
+    const overlay = container.querySelector("button[aria-hidden='true'][tabindex='-1']");
+    expect(Boolean(overlay)).toBeTrue();
+
+    fireEvent.click(overlay as HTMLButtonElement);
+
+    expect(openedKey).toBe("turn-1");
   });
 });
 

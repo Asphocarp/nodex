@@ -19,6 +19,7 @@ import type {
   ReviewStartParams as CodexAppServerReviewStartParams,
   ReviewStartResponse as CodexAppServerReviewStartResponse,
   ReviewTarget as CodexAppServerReviewTarget,
+  ThreadSettings as CodexAppServerThreadSettings,
   ThreadItem as CodexAppServerThreadItem,
   TurnItemsView as CodexAppServerTurnItemsView,
   UserInput as CodexAppServerUserInput,
@@ -1340,6 +1341,18 @@ export interface CodexCollaborationModePreset {
   reasoningEffort?: CodexReasoningEffort | null;
 }
 
+export interface CodexConversationThreadSettings {
+  model: CodexAppServerThreadSettings["model"];
+  reasoningEffort: CodexReasoningEffort | null;
+  collaborationMode: CodexCollaborationModeState | null;
+}
+
+export interface CodexConversationThreadSettingsPatch {
+  model?: string | null;
+  reasoningEffort?: CodexReasoningEffort | null;
+  collaborationMode?: CodexCollaborationModeKind | null;
+}
+
 export interface CodexReasoningEffortOption {
   reasoningEffort: CodexReasoningEffort;
   description: string;
@@ -1897,6 +1910,7 @@ export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFie
 
 export interface CodexThreadDetail extends CodexThreadSummary {
   latestCollaborationMode?: CodexCollaborationModeState;
+  latestThreadSettings?: CodexConversationThreadSettings | null;
   turns: CodexTurnSummary[];
   transcript: CodexTranscriptEntry[];
 }
@@ -2509,6 +2523,7 @@ export type CodexConversationLiveRequest = CodexConversationServerRequest;
 
 export interface CodexConversationSnapshot extends CodexThreadSummary {
   latestCollaborationMode?: CodexCollaborationModeState;
+  latestThreadSettings?: CodexConversationThreadSettings | null;
   resumeState: CodexConversationResumeState;
   turnPagination?: CodexConversationTurnPagination;
   turns: CodexConversationTurn[];

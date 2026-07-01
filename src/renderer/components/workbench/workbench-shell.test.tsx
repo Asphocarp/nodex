@@ -5091,10 +5091,17 @@ describe("workbench session shell", () => {
 
   test("proposed-plan side panel opens as a renderer-local singleton tab", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession()] },
+      sessionsByProject: { alpha: [makeAttachedSession({ rightCollapsed: true })] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
+
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(JSON.stringify({
+      rightPanelEnabled: true,
+      activePlanKey: null,
+      activeRightPanelTabId: null,
+    }));
 
     const actions = getLastThreadStageActions();
     const openPlan = actions.onOpenPlanInSidePanel as ((input: {
@@ -5125,7 +5132,7 @@ describe("workbench session shell", () => {
     expect(textContent(screen.container).includes("First plan")).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
 
-    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(JSON.stringify({
       rightPanelEnabled: true,
       activePlanKey: "turn-plan-1",

@@ -88,6 +88,7 @@ export function buildCodexConversationSnapshot(input: {
   return {
     ...detail,
     latestCollaborationMode: input.detail.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE,
+    latestThreadSettings: input.detail.latestThreadSettings ?? null,
     resumeState: input.resumeState,
     turnPagination: input.turnPagination ?? {
       olderCursor: null,

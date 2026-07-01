@@ -14,6 +14,8 @@ import type {
   CodexDictationStateSnapshot,
   CodexCollaborationModePreset,
   CodexCollaborationModeState,
+  CodexConversationThreadSettings,
+  CodexConversationThreadSettingsPatch,
   CodexEvent,
   CodexReviewStartParams,
   CodexReviewStartResponse,
@@ -933,6 +935,10 @@ export interface IpcApi {
   "codex:thread:collaboration-mode:set": {
     args: [threadId: string, collaborationMode: "default" | "plan"];
     result: CodexCollaborationModeState;
+  };
+  "codex:thread:settings:update": {
+    args: [threadId: string, patch: CodexConversationThreadSettingsPatch];
+    result: CodexConversationThreadSettings;
   };
   "codex:thread:plan-implementation:remove": {
     args: [threadId: string, turnId: string];
