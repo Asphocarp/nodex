@@ -617,6 +617,8 @@ interface OutputDeltaUpdate {
 }
 
 const FRAME_TEXT_DELTA_FLUSH_MS = 16;
+const FRAME_TEXT_DELTA_TARGET_CHARS_PER_FRAME = 24;
+const FRAME_TEXT_DELTA_MAX_DRAIN_FRAMES = 8;
 const OUTPUT_DELTA_FLUSH_MS = 50;
 const MAX_COMMAND_OUTPUT_CHARS = 20_000;
 const TRUNCATED_OUTPUT_PREFIX = "[output truncated]\n";
@@ -699,12 +701,16 @@ function formatStoredAggregatedOutput(
 
 class FrameTextDeltaQueue {
   private readonly buffers = new Map<string, FrameTextDeltaUpdate>();
+  private readonly drainCallbacks: Array<() => void> = [];
   private flushHandle: ReturnType<typeof setTimeout> | null = null;
   private frameHandle: number | null = null;
+  private drainFramesRemaining = 0;
 
   constructor(
     private readonly onFlush: (updates: FrameTextDeltaUpdate[]) => void,
     private readonly flushIntervalMs = FRAME_TEXT_DELTA_FLUSH_MS,
+    private readonly targetCharsPerFrame = FRAME_TEXT_DELTA_TARGET_CHARS_PER_FRAME,
+    private readonly maxDrainFrames = FRAME_TEXT_DELTA_MAX_DRAIN_FRAMES,
   ) {}
 
   enqueue(update: FrameTextDeltaUpdate): void {
@@ -719,15 +725,37 @@ class FrameTextDeltaQueue {
 
   flushNow(): void {
     this.cancelScheduledFlush();
-    if (this.buffers.size === 0) return;
+    if (this.buffers.size === 0) {
+      this.completeDrainIfIdle();
+      return;
+    }
     const updates = Array.from(this.buffers.values());
     this.buffers.clear();
     this.onFlush(updates);
+    this.completeDrainIfIdle();
+  }
+
+  drainBefore(callback: () => void): boolean {
+    if (this.buffers.size === 0) {
+      return false;
+    }
+
+    if (this.getBufferedDeltaLength() <= this.targetCharsPerFrame) {
+      this.flushNow();
+      return false;
+    }
+
+    this.drainCallbacks.push(callback);
+    this.drainFramesRemaining = Math.max(this.drainFramesRemaining, this.maxDrainFrames);
+    this.scheduleFlush();
+    return true;
   }
 
   cancel(): void {
     this.cancelScheduledFlush();
     this.buffers.clear();
+    this.drainCallbacks.length = 0;
+    this.drainFramesRemaining = 0;
   }
 
   private scheduleFlush(): void {
@@ -738,15 +766,76 @@ class FrameTextDeltaQueue {
     if (typeof browserGlobals.requestAnimationFrame === "function" && isVisibleDocumentAvailable()) {
       this.frameHandle = browserGlobals.requestAnimationFrame(() => {
         this.frameHandle = null;
-        this.flushNow();
+        this.flushFrame();
       });
       return;
     }
 
     this.flushHandle = setTimeout(() => {
       this.flushHandle = null;
-      this.flushNow();
+      this.flushFrame();
     }, this.flushIntervalMs);
+  }
+
+  private flushFrame(): void {
+    if (this.buffers.size === 0) {
+      this.completeDrainIfIdle();
+      return;
+    }
+
+    const draining = this.drainCallbacks.length > 0;
+    const drainFramesRemaining = draining ? Math.max(1, this.drainFramesRemaining) : 0;
+    const updates: FrameTextDeltaUpdate[] = [];
+
+    for (const [key, update] of this.buffers.entries()) {
+      const deltaLength = this.getFrameDeltaLength(update.delta.length, drainFramesRemaining);
+      const delta = update.delta.slice(0, deltaLength);
+      const remainingDelta = update.delta.slice(deltaLength);
+      updates.push({
+        ...update,
+        delta,
+      });
+
+      if (remainingDelta.length === 0) {
+        this.buffers.delete(key);
+      } else {
+        this.buffers.set(key, {
+          ...update,
+          delta: remainingDelta,
+        });
+      }
+    }
+
+    if (updates.length > 0) {
+      this.onFlush(updates);
+    }
+
+    if (draining) {
+      this.drainFramesRemaining = Math.max(0, this.drainFramesRemaining - 1);
+      if (this.drainFramesRemaining === 0 && this.buffers.size > 0) {
+        this.flushNow();
+        return;
+      }
+    }
+
+    if (this.buffers.size > 0) {
+      this.scheduleFlush();
+      return;
+    }
+
+    this.completeDrainIfIdle();
+  }
+
+  private completeDrainIfIdle(): void {
+    if (this.buffers.size > 0 || this.drainCallbacks.length === 0) {
+      return;
+    }
+
+    this.drainFramesRemaining = 0;
+    const callbacks = this.drainCallbacks.splice(0);
+    for (const callback of callbacks) {
+      callback();
+    }
   }
 
   private cancelScheduledFlush(): void {
@@ -773,6 +862,29 @@ class FrameTextDeltaQueue {
       case "reasoningContent":
         return `${update.threadId}:${update.turnId}:${update.itemId}:reasoningContent:${update.target.contentIndex}`;
     }
+  }
+
+  private getBufferedDeltaLength(): number {
+    let total = 0;
+    for (const update of this.buffers.values()) {
+      total += update.delta.length;
+    }
+    return total;
+  }
+
+  private getFrameDeltaLength(deltaLength: number, drainFramesRemaining: number): number {
+    if (deltaLength <= this.targetCharsPerFrame) {
+      return deltaLength;
+    }
+
+    if (drainFramesRemaining > 0) {
+      return Math.min(
+        deltaLength,
+        Math.max(this.targetCharsPerFrame, Math.ceil(deltaLength / drainFramesRemaining)),
+      );
+    }
+
+    return this.targetCharsPerFrame;
   }
 }
 
@@ -9556,7 +9668,7 @@ export class CodexService extends EventEmitter {
 
     if (updatesByThreadId.size === 0) return;
     for (const [threadId, threadUpdates] of updatesByThreadId.entries()) {
-      this.mutateBroadcastConversationCacheSilently(threadId, (draft) => {
+      this.mutateBroadcastConversationState(threadId, (draft) => {
         for (const update of threadUpdates) {
           const turn = draft.turns.find((candidate) => candidate.turnId === update.turnId);
           if (!turn) {
@@ -9692,7 +9804,7 @@ export class CodexService extends EventEmitter {
 
     if (updatesByThreadId.size === 0) return;
     for (const [threadId, threadUpdates] of updatesByThreadId.entries()) {
-      this.mutateBroadcastConversationState(threadId, (draft) => {
+      this.mutateBroadcastConversationCacheSilently(threadId, (draft) => {
         for (const update of threadUpdates) {
           const turn = draft.turns.find((candidate) => candidate.turnId === update.turnId);
           if (!turn) {
@@ -10071,7 +10183,11 @@ export class CodexService extends EventEmitter {
       method === "turn/failed"
     ) {
       if (method !== "turn/started") {
-        this.frameTextDeltaQueue.flushNow();
+        if (this.frameTextDeltaQueue.drainBefore(() => {
+          void this.handleNotification(method, params);
+        })) {
+          return;
+        }
         this.outputDeltaQueue.flushNow();
       }
       const payload =
@@ -10237,8 +10353,14 @@ export class CodexService extends EventEmitter {
     }
 
     if (method === "item/started" || method === "item/completed") {
-      this.frameTextDeltaQueue.flushNow();
-      this.outputDeltaQueue.flushNow();
+      if (method === "item/completed") {
+        if (this.frameTextDeltaQueue.drainBefore(() => {
+          void this.handleNotification(method, params);
+        })) {
+          return;
+        }
+        this.outputDeltaQueue.flushNow();
+      }
       const payload =
         typeof params === "object" && params !== null
           ? params as Record<string, unknown>

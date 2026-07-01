@@ -587,6 +587,66 @@ describe("local-conversation-store", () => {
     expect(String(summaryRenderCount)).toBe("0");
   });
 
+  test("applies assistant text patches into renderer conversation state", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["assistant-1"],
+          items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "")],
+        }],
+      };
+      const nextConversation: CodexConversationSnapshot = {
+        ...baseConversation,
+        turns: [{
+          ...baseConversation.turns[0]!,
+          items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "hello")],
+        }],
+      };
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 2,
+        change: {
+          type: "patches",
+          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
+        },
+        sourceClientId: null,
+      });
+
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("hello");
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("coalesces command output mcp notifications into renderer conversation state", async () => {
     invokeCalls = [];
     hostMessageListener = null;

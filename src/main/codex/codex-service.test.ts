@@ -260,8 +260,9 @@ async function waitForCondition(
 
 function projectConversationFromHostMessages(
   messages: readonly CodexHostMessage[],
+  initialConversation: CodexConversationSnapshot | null = null,
 ): CodexConversationSnapshot | null {
-  let conversation: CodexConversationSnapshot | null = null;
+  let conversation: CodexConversationSnapshot | null = initialConversation;
   for (const message of messages) {
     if (message.type !== "threadStreamStateChanged") {
       continue;
@@ -7655,8 +7656,14 @@ describe("codex-service streaming notification parity", () => {
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
+    const hostMessages: CodexHostMessage[] = [];
 
     serviceInternals.persistThreadSnapshot = () => {};
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
 
     try {
       serviceInternals.mergeTurn("thr_plan_delta_existing", {
@@ -7675,6 +7682,10 @@ describe("codex-service streaming notification parity", () => {
           text: "",
         },
       });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
       await serviceInternals.handleNotification("item/plan/delta", {
         threadId: "thr_plan_delta_existing",
         turnId: "turn_plan_delta_existing",
@@ -7687,7 +7698,17 @@ describe("codex-service streaming notification parity", () => {
         itemId: "plan_item",
         delta: " from deltas",
       });
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await waitForCondition(() => hostMessages.length > 0, 120);
+
+      expect(hostMessages.length > 0).toBeTrue();
+      const firstHostMessage = hostMessages[0];
+      expect(
+        firstHostMessage?.type === "threadStreamStateChanged"
+          ? firstHostMessage.change.type
+          : "snapshot",
+      ).toBe("patches");
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Draft plan from deltas");
 
       let planItem = getRecordedItem(
         serviceInternals,
@@ -7716,6 +7737,93 @@ describe("codex-service streaming notification parity", () => {
       );
       expect(planItem?.semanticKind).toBe("proposedPlan");
       expect(planItem?.markdownText).toBe("Final authoritative plan");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("streams reasoning summary deltas through thread stream patch updates", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_reasoning_delta"),
+      turns: [{
+        threadId: "thr_reasoning_delta",
+        turnId: "turn_reasoning_delta",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_reasoning_delta",
+        turnId: "turn_reasoning_delta",
+        item: {
+          id: "reasoning_delta_item",
+          type: "reasoning",
+          summary: [],
+          content: [],
+        },
+      });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      await serviceInternals.handleNotification("item/reasoning/summaryTextDelta", {
+        threadId: "thr_reasoning_delta",
+        turnId: "turn_reasoning_delta",
+        itemId: "reasoning_delta_item",
+        summaryIndex: 0,
+        delta: "Thinking",
+      });
+      await waitForCondition(() => hostMessages.length > 0, 120);
+
+      expect(hostMessages.length > 0).toBeTrue();
+      const firstHostMessage = hostMessages[0];
+      expect(
+        firstHostMessage?.type === "threadStreamStateChanged"
+          ? firstHostMessage.change.type
+          : "snapshot",
+      ).toBe("patches");
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Thinking");
+      const rawItem = latest?.turns[0]?.items[0]?.rawItem;
+      const summary = rawItem && typeof rawItem === "object"
+        ? (rawItem as { summary?: unknown[] }).summary
+        : null;
+      expect(Array.isArray(summary)).toBeTrue();
+      expect(String(summary?.[0] ?? "")).toBe("Thinking");
+
+      hostMessages.length = 0;
+      await serviceInternals.handleNotification("item/reasoning/textDelta", {
+        threadId: "thr_reasoning_delta",
+        turnId: "turn_reasoning_delta",
+        itemId: "reasoning_delta_item",
+        contentIndex: 0,
+        delta: "Private chain",
+      });
+      await waitForCondition(() => hostMessages.length > 0, 120);
+
+      const contentLatest = projectConversationFromHostMessages(hostMessages, latest);
+      const contentRawItem = contentLatest?.turns[0]?.items[0]?.rawItem;
+      const content = contentRawItem && typeof contentRawItem === "object"
+        ? (contentRawItem as { content?: unknown[] }).content
+        : null;
+      expect(Array.isArray(content)).toBeTrue();
+      expect(String(content?.[0] ?? "")).toBe("Private chain");
     } finally {
       await service.shutdown();
     }
@@ -9150,56 +9258,73 @@ describe("codex-service terminal turn reconciliation", () => {
   });
 
   test("streams assistant deltas through thread stream patch updates", async () => {
-    const ran = await withTempDatabase(async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
 
-      const service = createService();
-      const serviceInternals = service as unknown as {
-        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
-      };
-      const hostMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
-
-      serviceInternals.setConversationRecordDetail({
-        ...makeThreadDetail("thr_streaming_delta"),
-        turns: [
-          {
-            threadId: "thr_streaming_delta",
-            turnId: "turn_streaming_delta",
-            status: "inProgress",
-            itemIds: [],
-          },
-        ],
-        transcript: [],
-      });
-
-      try {
-        await serviceInternals.handleNotification("item/agentMessage/delta", {
-          threadId: "thr_streaming_delta",
-          turnId: "turn_streaming_delta",
-          itemId: "assistant_streaming_delta",
-          delta: "hello",
-        });
-        await new Promise((resolve) => setTimeout(resolve, 30));
-
-        const latest = projectConversationFromHostMessages(hostMessages);
-        expect(latest).not.toBeNull();
-        expect(latest?.turns.length).toBe(1);
-        expect(typeof latest?.turns[0]?.turnStartedAtMs).toBe("number");
-        expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
-        expect(latest?.turns[0]?.items.length).toBe(1);
-        expect(latest?.turns[0]?.items[0]?.markdownText).toBe("hello");
-      } finally {
-        await service.shutdown();
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_delta"),
+      turns: [
+        {
+          threadId: "thr_streaming_delta",
+          turnId: "turn_streaming_delta",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_streaming_delta",
+        turnId: "turn_streaming_delta",
+        item: {
+          id: "assistant_streaming_delta",
+          type: "agentMessage",
+          text: "",
+        },
+      });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thr_streaming_delta",
+        turnId: "turn_streaming_delta",
+        itemId: "assistant_streaming_delta",
+        delta: "hello",
+      });
+      await waitForCondition(() => hostMessages.length > 0, 120);
+
+      expect(hostMessages.length > 0).toBeTrue();
+      const firstHostMessage = hostMessages[0];
+      expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
+      expect(
+        firstHostMessage?.type === "threadStreamStateChanged"
+          ? firstHostMessage.change.type
+          : "snapshot",
+      ).toBe("patches");
+
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(latest).not.toBeNull();
+      expect(latest?.turns.length).toBe(1);
+      expect(typeof latest?.turns[0]?.turnStartedAtMs).toBe("number");
+      expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
+      expect(latest?.turns[0]?.items.length).toBe(1);
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("hello");
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("refreshes assistant display timestamp when a completed agent message arrives", async () => {
@@ -9311,168 +9436,300 @@ describe("codex-service terminal turn reconciliation", () => {
   });
 
   test("avoids full conversation serialization during assistant delta flushes once the broadcast cache is primed", async () => {
-    const ran = await withTempDatabase(async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
 
-      const service = createService();
-      const serviceInternals = service as unknown as {
-        serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
-        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
-      };
-      const hostMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
-
-      serviceInternals.setConversationRecordDetail({
-        ...makeThreadDetail("thr_streaming_delta_hot_path"),
-        turns: [
-          {
-            threadId: "thr_streaming_delta_hot_path",
-            turnId: "turn_streaming_delta_hot_path",
-            status: "inProgress",
-            itemIds: ["assistant_streaming_delta_hot_path"],
-          },
-        ],
-        transcript: [{
-          threadId: "thr_streaming_delta_hot_path",
-          turnId: "turn_streaming_delta_hot_path",
-          itemId: "assistant_streaming_delta_hot_path",
-          type: "assistant_message",
-          kind: "assistantMessage",
-          semanticKind: "assistantMessage",
-          markdownText: "",
-          role: "assistant",
-          createdAt: 1,
-          updatedAt: 1,
-        }],
-      });
-
-      try {
-        await service.requestConversationSnapshot("thr_streaming_delta_hot_path");
-        hostMessages.length = 0;
-
-        const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
-        let serializeConversationSnapshotCallCount = 0;
-        serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
-          serializeConversationSnapshotCallCount += 1;
-          return originalSerializeConversationSnapshot(threadId);
-        });
-
-        await serviceInternals.handleNotification("item/agentMessage/delta", {
-          threadId: "thr_streaming_delta_hot_path",
-          turnId: "turn_streaming_delta_hot_path",
-          itemId: "assistant_streaming_delta_hot_path",
-          delta: "hello",
-        });
-        await new Promise((resolve) => setTimeout(resolve, 30));
-
-        expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBeTrue();
-        const firstHostMessage = hostMessages[0];
-        expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
-        expect(
-          firstHostMessage?.type === "threadStreamStateChanged"
-            ? firstHostMessage.change.type
-            : "snapshot",
-        ).toBe("patches");
-        const latest = projectConversationFromHostMessages(hostMessages);
-        expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
-      } finally {
-        await service.shutdown();
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_delta_hot_path"),
+      turns: [
+        {
+          threadId: "thr_streaming_delta_hot_path",
+          turnId: "turn_streaming_delta_hot_path",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_streaming_delta_hot_path",
+        turnId: "turn_streaming_delta_hot_path",
+        item: {
+          id: "assistant_streaming_delta_hot_path",
+          type: "agentMessage",
+          text: "",
+        },
+      });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+      let serializeConversationSnapshotCallCount = 0;
+      serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
+        serializeConversationSnapshotCallCount += 1;
+        return originalSerializeConversationSnapshot(threadId);
+      });
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thr_streaming_delta_hot_path",
+        turnId: "turn_streaming_delta_hot_path",
+        itemId: "assistant_streaming_delta_hot_path",
+        delta: "hello",
+      });
+      await waitForCondition(() => hostMessages.length > 0, 120);
+
+      expect(String(serializeConversationSnapshotCallCount)).toBe("0");
+      expect(hostMessages.length > 0).toBeTrue();
+      const firstHostMessage = hostMessages[0];
+      expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
+      expect(
+        firstHostMessage?.type === "threadStreamStateChanged"
+          ? firstHostMessage.change.type
+          : "snapshot",
+      ).toBe("patches");
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("splits large assistant deltas across frame-sized thread stream patches", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    const largeDelta = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_large_delta"),
+      turns: [{
+        threadId: "thr_streaming_large_delta",
+        turnId: "turn_streaming_large_delta",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_streaming_large_delta",
+        turnId: "turn_streaming_large_delta",
+        item: {
+          id: "assistant_large_delta",
+          type: "agentMessage",
+          text: "",
+        },
+      });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thr_streaming_large_delta",
+        turnId: "turn_streaming_large_delta",
+        itemId: "assistant_large_delta",
+        delta: largeDelta,
+      });
+      await waitForCondition(() => hostMessages.length >= 3, 180);
+
+      expect(hostMessages.length > 1).toBeTrue();
+      const firstFrame = projectConversationFromHostMessages([hostMessages[0]!], baseConversation);
+      expect(firstFrame?.turns[0]?.items[0]?.markdownText?.length ?? -1).toBe(24);
+
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("drains pending assistant deltas before applying item/completed", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    const largeDelta = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_completion_drain"),
+      turns: [{
+        threadId: "thr_streaming_completion_drain",
+        turnId: "turn_streaming_completion_drain",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_streaming_completion_drain",
+        turnId: "turn_streaming_completion_drain",
+        item: {
+          id: "assistant_completion_drain",
+          type: "agentMessage",
+          text: "",
+        },
+      });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thr_streaming_completion_drain",
+        turnId: "turn_streaming_completion_drain",
+        itemId: "assistant_completion_drain",
+        delta: largeDelta,
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_streaming_completion_drain",
+        turnId: "turn_streaming_completion_drain",
+        item: {
+          id: "assistant_completion_drain",
+          type: "agentMessage",
+          text: largeDelta,
+        },
+      });
+      await waitForCondition(() => {
+        const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+        return latest?.turns[0]?.items[0]?.status === "completed";
+      }, 240);
+
+      let completedMessageIndex = -1;
+      let conversation = baseConversation;
+      for (let index = 0; index < hostMessages.length; index += 1) {
+        conversation = projectConversationFromHostMessages([hostMessages[index]!], conversation);
+        if (conversation?.turns[0]?.items[0]?.status === "completed") {
+          completedMessageIndex = index;
+          break;
+        }
+      }
+
+      expect(completedMessageIndex > 0).toBeTrue();
+      const beforeCompleted = projectConversationFromHostMessages(
+        hostMessages.slice(0, completedMessageIndex),
+        baseConversation,
+      );
+      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("streams command output deltas as raw mcp notifications while keeping snapshots canonical", async () => {
-    const ran = await withTempDatabase(async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const threadMessages: CodexHostMessage[] = [];
+    const mcpMessages: CodexHostMessage[] = [];
 
-      const service = createService();
-      const serviceInternals = service as unknown as {
-        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
-      };
-      const threadMessages: CodexHostMessage[] = [];
-      const mcpMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          threadMessages.push(message);
-        }
-        if (message.type === "mcpNotification") {
-          mcpMessages.push(message);
-        }
-      });
-
-      serviceInternals.setConversationRecordDetail({
-        ...makeThreadDetail("thr_streaming_output"),
-        turns: [
-          {
-            threadId: "thr_streaming_output",
-            turnId: "turn_streaming_output",
-            status: "inProgress",
-            itemIds: ["exec_streaming_output"],
-          },
-        ],
-        transcript: [],
-      });
-
-      try {
-        await serviceInternals.handleNotification("item/started", {
-          threadId: "thr_streaming_output",
-          turnId: "turn_streaming_output",
-          item: {
-            id: "exec_streaming_output",
-            type: "commandExecution",
-            command: "bun test",
-            cwd: "/tmp",
-            status: "in_progress",
-          },
-        });
-        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-          threadId: "thr_streaming_output",
-          turnId: "turn_streaming_output",
-          itemId: "exec_streaming_output",
-          delta: "1340 pass\n",
-        });
-
-        expect(String(mcpMessages.length)).toBe("1");
-        const mcpMessage = mcpMessages[0];
-        expect(mcpMessage?.type).toBe("mcpNotification");
-        expect(
-          mcpMessage?.type === "mcpNotification"
-            ? mcpMessage.method
-            : "",
-        ).toBe("item/commandExecution/outputDelta");
-        expect(
-          mcpMessage?.type === "mcpNotification"
-            ? mcpMessage.params.delta
-            : "",
-        ).toBe("1340 pass\n");
-
-        const threadMessageCountAfterStarted = threadMessages.length;
-        await new Promise((resolve) => setTimeout(resolve, 70));
-        expect(String(threadMessages.length)).toBe(String(threadMessageCountAfterStarted));
-
-        const snapshot = await service.requestConversationSnapshot("thr_streaming_output");
-        expect(snapshot).not.toBeNull();
-        expect(snapshot?.turns.length).toBe(1);
-        expect(snapshot?.turns[0]?.items.length).toBe(1);
-        expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
-        expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
-        expect(typeof snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
-        expect(snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
-      } finally {
-        await service.shutdown();
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        threadMessages.push(message);
+      }
+      if (message.type === "mcpNotification") {
+        mcpMessages.push(message);
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_output"),
+      turns: [
+        {
+          threadId: "thr_streaming_output",
+          turnId: "turn_streaming_output",
+          status: "inProgress",
+          itemIds: ["exec_streaming_output"],
+        },
+      ],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_streaming_output",
+        turnId: "turn_streaming_output",
+        item: {
+          id: "exec_streaming_output",
+          type: "commandExecution",
+          command: "bun test",
+          cwd: "/tmp",
+          status: "in_progress",
+        },
+      });
+      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+        threadId: "thr_streaming_output",
+        turnId: "turn_streaming_output",
+        itemId: "exec_streaming_output",
+        delta: "1340 pass\n",
+      });
+
+      expect(String(mcpMessages.length)).toBe("1");
+      const mcpMessage = mcpMessages[0];
+      expect(mcpMessage?.type).toBe("mcpNotification");
+      expect(
+        mcpMessage?.type === "mcpNotification"
+          ? mcpMessage.method
+          : "",
+      ).toBe("item/commandExecution/outputDelta");
+      expect(
+        mcpMessage?.type === "mcpNotification"
+          ? mcpMessage.params.delta
+          : "",
+      ).toBe("1340 pass\n");
+
+      const threadMessageCountAfterStarted = threadMessages.length;
+      await new Promise((resolve) => setTimeout(resolve, 70));
+      expect(String(threadMessages.length)).toBe(String(threadMessageCountAfterStarted));
+
+      const snapshot = await service.requestConversationSnapshot("thr_streaming_output");
+      expect(snapshot).not.toBeNull();
+      expect(snapshot?.turns.length).toBe(1);
+      expect(snapshot?.turns[0]?.items.length).toBe(1);
+      expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
+      expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
+      expect(typeof snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
+      expect(snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("item completed backfills first work item start without overwriting an existing stamp", async () => {
@@ -9670,54 +9927,50 @@ describe("codex-service terminal turn reconciliation", () => {
   });
 
   test("skips frame-text deltas that arrive before the canonical item exists", async () => {
-    const ran = await withTempDatabase(async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const threadMessages: CodexHostMessage[] = [];
+    const mcpMessages: CodexHostMessage[] = [];
 
-      const service = createService();
-      const serviceInternals = service as unknown as {
-        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleNotification: (method: string, params: unknown) => Promise<void>;
-      };
-      const threadMessages: CodexHostMessage[] = [];
-      const mcpMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          threadMessages.push(message);
-        }
-        if (message.type === "mcpNotification") {
-          mcpMessages.push(message);
-        }
-      });
-
-      serviceInternals.setConversationRecordDetail({
-        ...makeThreadDetail("thr_streaming_missing_item"),
-        turns: [
-          {
-            threadId: "thr_streaming_missing_item",
-            turnId: "turn_streaming_missing_item",
-            status: "inProgress",
-            itemIds: [],
-          },
-        ],
-        transcript: [],
-      });
-
-      try {
-        await serviceInternals.handleNotification("item/agentMessage/delta", {
-          threadId: "thr_streaming_missing_item",
-          turnId: "turn_streaming_missing_item",
-          itemId: "assistant_missing_item",
-          delta: "hello",
-        });
-        await new Promise((resolve) => setTimeout(resolve, 30));
-
-        expect(threadMessages.length).toBe(0);
-      } finally {
-        await service.shutdown();
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        threadMessages.push(message);
+      }
+      if (message.type === "mcpNotification") {
+        mcpMessages.push(message);
       }
     });
 
-    if (!ran) expect(true).toBeTrue();
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_missing_item"),
+      turns: [
+        {
+          threadId: "thr_streaming_missing_item",
+          turnId: "turn_streaming_missing_item",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thr_streaming_missing_item",
+        turnId: "turn_streaming_missing_item",
+        itemId: "assistant_missing_item",
+        delta: "hello",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(threadMessages.length).toBe(0);
+      expect(mcpMessages.length).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("skips command output deltas that arrive before the canonical item exists", async () => {
