@@ -2,6 +2,7 @@
   "name": "nodex",
   "version": "0.1.10",
   "description": "Block-based Agent Orchestrator",
+  "license": "MIT",
   "private": false,
   "packageManager": "bun@1.3.14",
   "workspaces": [
