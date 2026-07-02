@@ -134,4 +134,35 @@ describe("createThreadStageActions settings routing", () => {
     expect(JSON.stringify(draftModels)).toBe(JSON.stringify(["gpt-5.9-codex"]));
     expect(JSON.stringify(draftReasoning)).toBe(JSON.stringify(["medium"]));
   });
+
+  test("routes permission request responses through Codex control with conversation context", async () => {
+    const calls: unknown[] = [];
+    const input = buildInput({
+      codexControl: {
+        respondPermissionRequest: async (requestId: string, response: unknown, conversationId: string | null) => {
+          calls.push({ requestId, response, conversationId });
+          return true;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onRespondPermissionRequest?.("permission-1", {
+      permissions: {},
+      scope: "turn",
+    }, {
+      conversationId: "thread-1",
+    });
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      {
+        requestId: "permission-1",
+        response: {
+          permissions: {},
+          scope: "turn",
+        },
+        conversationId: "thread-1",
+      },
+    ]));
+  });
 });

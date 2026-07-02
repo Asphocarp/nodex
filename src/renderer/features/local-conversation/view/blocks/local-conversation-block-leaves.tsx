@@ -59,6 +59,7 @@ import { useWorkedForLabelText } from "../shared/use-worked-for-label";
 import type { CodexCommandAction } from "../../../../lib/types";
 import type { CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
+import { logAssistantStreamingDebugState } from "../../../../lib/assistant-streaming-debug";
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../lib/utils";
 import type {
@@ -530,6 +531,8 @@ function humanizeBlockType(type: ThreadBlockModel["type"]): string {
       return "Context automatically compacted";
     case "automaticApprovalReview":
       return "Approval review";
+    case "autoReviewInterruptionWarning":
+      return "Auto-review interrupted";
     case "hook":
       return "Hook";
     case "planImplementation":
@@ -1604,8 +1607,35 @@ export function ThreadAssistantBodyBlock({
   assistantAfter,
 }: ThreadLeafBlockProps) {
   const markdownText = block.entry.markdownText ?? "";
-  const isStreamingAssistantText = isStreamingTurn && (block.entry.status === "inProgress" || isLatestTurn);
+  const isAssistantItemStreaming = isStreamingTurn && block.entry.status === "inProgress";
   const assistantActions = block.assistantMessageActions;
+
+  useEffect(() => {
+    logAssistantStreamingDebugState(
+      "renderer-assistant-block-render",
+      `${block.entry.threadId}:${block.turnId}:${block.entry.itemId}`,
+      `${isStreamingTurn}:${block.entry.status ?? "null"}:${isAssistantItemStreaming}:${markdownText.length}`,
+      {
+        threadId: block.entry.threadId,
+        turnId: block.turnId,
+        itemId: block.entry.itemId,
+        itemStatus: block.entry.status ?? null,
+        isLatestTurn,
+        isStreamingTurn,
+        isAssistantItemStreaming,
+        markdownLength: markdownText.length,
+      },
+    );
+  }, [
+    block.entry.itemId,
+    block.entry.status,
+    block.entry.threadId,
+    block.turnId,
+    isAssistantItemStreaming,
+    isLatestTurn,
+    isStreamingTurn,
+    markdownText.length,
+  ]);
 
   return (
     <div
@@ -1619,8 +1649,8 @@ export function ThreadAssistantBodyBlock({
         <div className={THREAD_VISUAL_TOKENS.assistantBody}>
           <MarkdownRenderer
             content={markdownText}
-            parseIncompleteMarkdown={isStreamingAssistantText}
-            animateStreamingText={isStreamingAssistantText}
+            parseIncompleteMarkdown={isAssistantItemStreaming}
+            animateStreamingText={isAssistantItemStreaming}
           />
         </div>
         {assistantAfter ? (

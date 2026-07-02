@@ -18,7 +18,7 @@ import {
   buildTranscriptFromBootstrapEvents,
   resolveThreadPreviewFromTranscript,
 } from "./codex-transcript-projection";
-import { projectCodexReasoningSummary } from "./codex-reasoning-projection";
+import { projectCodexReasoningSummary } from "../../shared/codex-reasoning-projection";
 
 interface SessionFileMatch {
   filePath: string;

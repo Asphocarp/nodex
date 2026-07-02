@@ -45,6 +45,13 @@ describe("buildRendererItemStream", () => {
           markdownText: "Rerouted to gpt-5.4",
         }),
         buildEntry({
+          itemId: "auto_review_interruption_1",
+          type: "autoReviewInterruptionWarning",
+          kind: "systemEvent",
+          semanticKind: "autoReviewInterruptionWarning",
+          markdownText: "Automatic approval review rejected too many approval requests for this turn",
+        }),
+        buildEntry({
           itemId: "steered_1",
           type: "steered",
           kind: "systemEvent",
@@ -67,7 +74,7 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("todoList,turnDiff,modelRerouted,steered,webSearch");
+    expect(items.map((item) => item.type).join(",")).toBe("todoList,turnDiff,modelRerouted,autoReviewInterruptionWarning,steered,webSearch");
   });
 
   test("maps bundle-native hook, planImplementation, and userInputResponse families", () => {

@@ -36,32 +36,23 @@ function makeConversation(): CodexConversationSnapshot {
 describe("codex context window indicator", () => {
   test("keeps the raw token count when usage exceeds the model context window", () => {
     const conversation = makeConversation();
-    conversation.turns = [
-      {
-        threadId: conversation.threadId,
-        turnId: "turn_over_limit",
-        status: "inProgress",
-        itemIds: [],
-        items: [],
-        tokenUsage: {
-          total: {
-            totalTokens: 300_000,
-            inputTokens: 260_000,
-            cachedInputTokens: 10_000,
-            outputTokens: 40_000,
-            reasoningOutputTokens: 5_000,
-          },
-          last: {
-            totalTokens: 300_000,
-            inputTokens: 260_000,
-            cachedInputTokens: 10_000,
-            outputTokens: 40_000,
-            reasoningOutputTokens: 5_000,
-          },
-          modelContextWindow: 258_000,
-        },
+    conversation.latestTokenUsageInfo = {
+      total: {
+        totalTokens: 300_000,
+        inputTokens: 260_000,
+        cachedInputTokens: 10_000,
+        outputTokens: 40_000,
+        reasoningOutputTokens: 5_000,
       },
-    ];
+      last: {
+        totalTokens: 300_000,
+        inputTokens: 260_000,
+        cachedInputTokens: 10_000,
+        outputTokens: 40_000,
+        reasoningOutputTokens: 5_000,
+      },
+      modelContextWindow: 258_000,
+    };
 
     const state = resolveContextWindowIndicatorState(conversation);
 
@@ -69,5 +60,32 @@ describe("codex context window indicator", () => {
     expect(state.percentFull).toBe(100);
     expect(state.usedTokens).toBe(300_000);
     expect(state.windowTokens).toBe(258_000);
+  });
+
+  test("ignores stale token usage while conversation is not resumed", () => {
+    const conversation = makeConversation();
+    conversation.resumeState = "needs_resume";
+    conversation.latestTokenUsageInfo = {
+      total: {
+        totalTokens: 100,
+        inputTokens: 70,
+        cachedInputTokens: 0,
+        outputTokens: 30,
+        reasoningOutputTokens: 5,
+      },
+      last: {
+        totalTokens: 100,
+        inputTokens: 70,
+        cachedInputTokens: 0,
+        outputTokens: 30,
+        reasoningOutputTokens: 5,
+      },
+      modelContextWindow: 1000,
+    };
+
+    const state = resolveContextWindowIndicatorState(conversation);
+
+    expect(state.status).toBe("unavailable");
+    expect(state.usedTokens).toBe(null);
   });
 });

@@ -1670,6 +1670,19 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
       },
     },
   }),
+  autoReviewInterruptionWarning: buildToolItemBase({
+    itemId: "story_auto_review_interruption_warning",
+    entryId: "story_auto_review_interruption_warning",
+    type: "autoReviewInterruptionWarning",
+    kind: "systemEvent",
+    semanticKind: "autoReviewInterruptionWarning",
+    status: "completed",
+    markdownText: "Automatic approval review rejected too many approval requests for this turn",
+    rawItem: {
+      id: "story_auto_review_interruption_warning",
+      type: "autoReviewInterruptionWarning",
+    },
+  }),
   multiAgentSettled: [
     buildToolItemBase({
       itemId: "story_multi_agent_settled_spawn",
@@ -1851,6 +1864,29 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
       "2. Add a composed stage story plus focused leaf stories.",
       "3. Validate with build:storybook, typecheck, lint, and targeted Bun tests.",
     ].join("\n"),
+  },
+  permissionRequest: {
+    type: "permissionRequest" as const,
+    requestId: "permission_story_card",
+    projectId: STORY_PROJECT_ID,
+    threadId: STORY_THREAD_ID,
+    turnId: "turn_story_request",
+    itemId: "item_story_request_permission",
+    cwd: STORY_WORKSPACE_PATH,
+    reason: "Codex needs network access and read access to the generated Storybook output for this turn.",
+    permissions: {
+      network: {
+        enabled: true,
+      },
+      fileSystem: {
+        read: [STORY_WORKSPACE_PATH],
+        write: null,
+        entries: [],
+      },
+    },
+    response: null,
+    completed: false,
+    createdAt: 1,
   },
   mcpServerElicitation: {
     type: "mcpServerElicitation" as const,

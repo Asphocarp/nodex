@@ -39,8 +39,12 @@ import type { McpResourceReadParams } from "@nodex/codex-app-server-protocol/v2/
 import type { McpResourceReadResponse } from "@nodex/codex-app-server-protocol/v2/McpResourceReadResponse";
 import type { McpServerStatus } from "@nodex/codex-app-server-protocol/v2/McpServerStatus";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
+import type { ModelReroutedNotification } from "@nodex/codex-app-server-protocol/v2/ModelReroutedNotification";
+import type { PermissionsRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalParams";
+import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
+import type { ThreadBackgroundTerminalsCleanResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsCleanResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
@@ -60,6 +64,7 @@ import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/Thre
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
 import type { ThreadTurnsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadTurnsListResponse";
 import type { ThreadUnarchiveResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnarchiveResponse";
+import type { ThreadUnsubscribeParams } from "@nodex/codex-app-server-protocol/v2/ThreadUnsubscribeParams";
 import type { ThreadUnsubscribeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnsubscribeResponse";
 import type { ReviewStartParams } from "@nodex/codex-app-server-protocol/v2/ReviewStartParams";
 import type { ReviewStartResponse } from "@nodex/codex-app-server-protocol/v2/ReviewStartResponse";
@@ -81,6 +86,7 @@ import type {
   CodexApprovalDecision,
   CodexApprovalRequest,
   CodexBackgroundTerminalRow,
+  CodexCommandAction,
   CodexComposerIntent,
   CodexConversationChildMembership,
   CodexConversationCapabilityFlags,
@@ -102,6 +108,9 @@ import type {
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationRequest,
   CodexModelOption,
+  CodexOwnerAppServerRequestInput,
+  CodexPermissionRequest,
+  CodexPermissionRequestResponse,
   CodexPlanImplementationServerRequest,
   CodexPendingSteer,
   CodexPermissionMode,
@@ -131,7 +140,12 @@ import type {
   CodexTurnDiffPatchBatch,
   CodexThreadStartProgressPhase,
   CodexThreadStartProgressStream,
+  CodexThreadTokenUsage,
   CodexThreadStartForSessionInput,
+  CodexThreadOwnerNotificationAckInput,
+  CodexThreadOwnerStreamStatePublishInput,
+  CodexThreadOwnerNotificationMethod,
+  CodexThreadOwnerServerRequest,
   CodexTurnStartOptions,
   CodexTurnStatus,
   CodexTurnSummary,
@@ -152,6 +166,10 @@ import type {
   WorktreeStartMode,
 } from "../../shared/types";
 import { parseAssetSource } from "../../shared/assets";
+import {
+  getTerminalInteractionBufferKey,
+  parseTerminalInteractionInput,
+} from "../../shared/codex-terminal-interaction";
 import { parseInlineContent } from "../../shared/nfm";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
 import {
@@ -169,9 +187,12 @@ import {
   buildPlanImplementationRequestId,
   selectPrimaryConversationRequest,
 } from "../../shared/codex-conversation-request";
+import { isRenderableMcpServerElicitationRequest } from "../../shared/codex-mcp-elicitation";
 import {
+  AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX,
   buildAutomaticApprovalReviewSummary,
   normalizeAutomaticApprovalReviewPayload,
+  shouldShowAutoReviewInterruptionWarning,
 } from "../../shared/codex-transcript-special-items";
 import { buildCodexTurnDiffFromPatchBatches } from "../../shared/codex-file-change";
 import {
@@ -194,6 +215,16 @@ import {
   serializeReviewDiffCommentAttachmentForPrompt,
   serializeReviewDiffCommentAttachmentsForAdditionalContext,
 } from "../../shared/review-diff-comments";
+import {
+  buildCodexUserAttachmentsFromContent,
+  buildTurnErrorItemView,
+  normalizeThreadItem,
+  resolveContextCompactionMarkdown,
+} from "../../shared/codex-item-normalizer";
+import {
+  parseCodexReasoningBuffers,
+  projectCodexReasoningSummary,
+} from "../../shared/codex-reasoning-projection";
 import { dbNotifier } from "../local-store/notifier";
 import {
   getProject,
@@ -223,16 +254,6 @@ import {
 import { readCodexSessionThreadDetail } from "./codex-session-store";
 import { createManagedWorktree, removeManagedWorktree } from "./git-worktree-service";
 import {
-  buildCodexUserAttachmentsFromContent,
-  buildTurnErrorItemView,
-  normalizeThreadItem,
-  resolveContextCompactionMarkdown,
-} from "./codex-item-normalizer";
-import {
-  parseCodexReasoningBuffers,
-  projectCodexReasoningSummary,
-} from "./codex-reasoning-projection";
-import {
   applyLiveTranscriptMutation,
   applyOptimisticUserPrompt,
   buildTranscriptFromBootstrapEvents,
@@ -247,6 +268,7 @@ import {
   buildCodexConversationTurn,
 } from "./codex-conversation-snapshot";
 import {
+  applyCodexConversationStateUpdates,
   convertImmerPatchesToCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
@@ -472,6 +494,49 @@ interface PendingMcpServerElicitation {
   reject: (reason?: unknown) => void;
 }
 
+interface PendingPermissionRequest {
+  request: CodexPermissionRequest;
+  resolve: (value: PermissionsRequestApprovalResponse) => void;
+  reject: (reason?: unknown) => void;
+}
+
+interface PendingDynamicToolCall {
+  request: CodexServerRequest & { method: "item/tool/call"; params: DynamicToolCallParams };
+  resolve: (value: DynamicToolCallResponse) => void;
+  reject: (reason?: unknown) => void;
+}
+
+interface BufferedResumeNotification {
+  type: "notification";
+  method: string;
+  params: unknown;
+}
+
+interface BufferedResumeRequest {
+  type: "request";
+  request: CodexServerRequest;
+  resolve: (value: unknown) => void;
+  reject: (reason?: unknown) => void;
+}
+
+type BufferedResumeEvent = BufferedResumeNotification | BufferedResumeRequest;
+
+type SourceNullSnapshotReason =
+  | "cold-load"
+  | "explicit-resync"
+  | "no-owner-fallback"
+  | "inactive-owner-cleanup"
+  | "durable-recovery";
+
+interface RequestConversationResumeOptions {
+  emitSourceNullSnapshots?: boolean;
+  replayBufferedNotifications?: boolean;
+}
+
+interface HandleNotificationOptions {
+  bypassResumeBuffer?: boolean;
+}
+
 type CodexAppHandoffStatusType = "running" | "success" | "warning" | "error";
 
 interface CodexAppHandoffStep {
@@ -502,7 +567,13 @@ interface ParsedThreadStatus {
   statusActiveFlags: CodexThreadActiveFlag[];
 }
 
-type StartTurnOverrides = CodexTurnStartOptions;
+type StartTurnOverrides = CodexTurnStartOptions & {
+  clientUserMessageId?: string;
+};
+
+interface SourceNullBroadcastOptions {
+  emitSourceNullUpdates?: boolean;
+}
 
 interface ResolvedThreadRunLocation {
   cwd: string;
@@ -566,6 +637,9 @@ interface GenerateThreadTitleAdapterInput {
 type CodexServiceOptions = {
   runtime?: ResolvedCodexRuntime;
   rateLimitsPollIntervalMs?: number;
+  inactiveRendererOwnerRetentionMs?: number;
+  inactiveRendererOwnerMaxRetained?: number;
+  inactiveRendererOwnerRetryMs?: number;
   commandPaletteThreadSearchClient?: CommandPaletteThreadSearchClient;
 };
 
@@ -580,6 +654,10 @@ interface CodexConversationRecord {
   turnPagination: CodexConversationTurnPagination;
   latestCollaborationMode: CodexCollaborationModeState;
   latestThreadSettings: CodexConversationThreadSettings | null;
+  latestTokenUsageInfo: CodexThreadTokenUsage | null;
+  threadGoal: ThreadGoal | null;
+  completedThreadGoal: ThreadGoal | null;
+  threadGoalResumeConfirmation: ThreadGoal | null;
   resumeState: CodexConversationResumeState;
   streamRole: CodexConversationStreamRole;
   isStreaming: boolean;
@@ -618,11 +696,16 @@ interface OutputDeltaUpdate {
 
 const FRAME_TEXT_DELTA_FLUSH_MS = 16;
 const FRAME_TEXT_DELTA_TARGET_CHARS_PER_FRAME = 24;
-const FRAME_TEXT_DELTA_MAX_DRAIN_FRAMES = 8;
+const RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES = 8;
+const RENDERER_OWNER_NOTIFICATION_DRAIN_TIMEOUT_MS =
+  FRAME_TEXT_DELTA_FLUSH_MS * RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES;
 const OUTPUT_DELTA_FLUSH_MS = 50;
 const MAX_COMMAND_OUTPUT_CHARS = 20_000;
 const TRUNCATED_OUTPUT_PREFIX = "[output truncated]\n";
 const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
+const INACTIVE_RENDERER_OWNER_RETENTION_MS = 60 * 60 * 1000;
+const INACTIVE_RENDERER_OWNER_MAX_RETAINED = 4;
+const INACTIVE_RENDERER_OWNER_RETRY_MS = 15_000;
 const THREAD_TURNS_PAGE_SIZE = 5;
 const THREAD_TURNS_PAGE_ITEMS_VIEW = "full" as const;
 const COMPLETE_TURN_PAGINATION: CodexConversationTurnPagination = {
@@ -636,14 +719,8 @@ const COMPLETE_TURN_PAGINATION: CodexConversationTurnPagination = {
 };
 const THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD = "thread-follower-command-approval-decision";
 const THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD = "thread-follower-file-approval-decision";
-const AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE = "automatic-approval-review";
-
-function isVisibleDocumentAvailable(): boolean {
-  const browserGlobals = globalThis as typeof globalThis & {
-    document?: { visibilityState?: string };
-  };
-  return browserGlobals.document?.visibilityState === "visible";
-}
+const AUTOMATIC_APPROVAL_REVIEW_ITEM_ID_PREFIX = "automatic-approval-review";
+const AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE = "automaticApprovalReview";
 
 function truncateBufferedOutput(input: {
   existingText: string;
@@ -699,18 +776,85 @@ function formatStoredAggregatedOutput(
   return value.truncated ? `${TRUNCATED_OUTPUT_PREFIX}${value.text}` : value.text;
 }
 
+function buildUnknownCommandActions(commands: readonly string[]): CodexCommandAction[] {
+  return commands.map((command) => ({
+    type: "unknown",
+    command,
+  }));
+}
+
+function appendTerminalInteractionCommandActions(
+  item: CodexItemView,
+  commands: readonly string[],
+): CodexItemView {
+  const commandActions = [
+    ...(item.commandActions ?? []),
+    ...buildUnknownCommandActions(commands),
+  ];
+  const toolCallArgs = item.toolCall?.args && typeof item.toolCall.args === "object"
+    ? {
+        ...(item.toolCall.args as Record<string, unknown>),
+        commandActions,
+      }
+    : item.toolCall?.args;
+  const rawItem = item.rawItem && typeof item.rawItem === "object"
+    ? {
+        ...(item.rawItem as Record<string, unknown>),
+        commandActions,
+      }
+    : item.rawItem;
+
+  return {
+    ...item,
+    commandActions,
+    rawItem,
+    toolCall: item.toolCall
+      ? {
+          ...item.toolCall,
+          args: toolCallArgs,
+        }
+      : item.toolCall,
+    updatedAt: Date.now(),
+  };
+}
+
+function appendTerminalInteractionCommandActionsInPlace(
+  item: CodexConversationItem,
+  commands: readonly string[],
+): void {
+  const commandActions = [
+    ...(item.commandActions ?? []),
+    ...buildUnknownCommandActions(commands),
+  ];
+  item.commandActions = commandActions;
+  item.updatedAt = Date.now();
+  if (item.toolCall) {
+    item.toolCall = {
+      ...item.toolCall,
+      args: item.toolCall.args && typeof item.toolCall.args === "object"
+        ? {
+            ...(item.toolCall.args as Record<string, unknown>),
+            commandActions,
+          }
+        : item.toolCall.args,
+    };
+  }
+  if (item.rawItem && typeof item.rawItem === "object") {
+    item.rawItem = {
+      ...(item.rawItem as Record<string, unknown>),
+      commandActions,
+    };
+  }
+}
+
 class FrameTextDeltaQueue {
   private readonly buffers = new Map<string, FrameTextDeltaUpdate>();
-  private readonly drainCallbacks: Array<() => void> = [];
   private flushHandle: ReturnType<typeof setTimeout> | null = null;
-  private frameHandle: number | null = null;
-  private drainFramesRemaining = 0;
 
   constructor(
     private readonly onFlush: (updates: FrameTextDeltaUpdate[]) => void,
     private readonly flushIntervalMs = FRAME_TEXT_DELTA_FLUSH_MS,
     private readonly targetCharsPerFrame = FRAME_TEXT_DELTA_TARGET_CHARS_PER_FRAME,
-    private readonly maxDrainFrames = FRAME_TEXT_DELTA_MAX_DRAIN_FRAMES,
   ) {}
 
   enqueue(update: FrameTextDeltaUpdate): void {
@@ -720,56 +864,35 @@ class FrameTextDeltaQueue {
       ...update,
       delta: `${existing?.delta ?? ""}${update.delta}`,
     });
+
     this.scheduleFlush();
   }
 
   flushNow(): void {
     this.cancelScheduledFlush();
-    if (this.buffers.size === 0) {
-      this.completeDrainIfIdle();
-      return;
-    }
+    if (this.buffers.size === 0) return;
     const updates = Array.from(this.buffers.values());
     this.buffers.clear();
     this.onFlush(updates);
-    this.completeDrainIfIdle();
   }
 
-  drainBefore(callback: () => void): boolean {
-    if (this.buffers.size === 0) {
+  drainBefore(threadId: string, callback: () => void): boolean {
+    void callback;
+    if (this.getBufferedDeltaLength(threadId) === 0) {
       return false;
     }
 
-    if (this.getBufferedDeltaLength() <= this.targetCharsPerFrame) {
-      this.flushNow();
-      return false;
-    }
-
-    this.drainCallbacks.push(callback);
-    this.drainFramesRemaining = Math.max(this.drainFramesRemaining, this.maxDrainFrames);
-    this.scheduleFlush();
-    return true;
+    this.flushNow();
+    return false;
   }
 
   cancel(): void {
     this.cancelScheduledFlush();
     this.buffers.clear();
-    this.drainCallbacks.length = 0;
-    this.drainFramesRemaining = 0;
   }
 
   private scheduleFlush(): void {
-    if (this.flushHandle !== null || this.frameHandle !== null) return;
-    const browserGlobals = globalThis as typeof globalThis & {
-      requestAnimationFrame?: (callback: (timestamp: number) => void) => number;
-    };
-    if (typeof browserGlobals.requestAnimationFrame === "function" && isVisibleDocumentAvailable()) {
-      this.frameHandle = browserGlobals.requestAnimationFrame(() => {
-        this.frameHandle = null;
-        this.flushFrame();
-      });
-      return;
-    }
+    if (this.flushHandle !== null) return;
 
     this.flushHandle = setTimeout(() => {
       this.flushHandle = null;
@@ -779,16 +902,13 @@ class FrameTextDeltaQueue {
 
   private flushFrame(): void {
     if (this.buffers.size === 0) {
-      this.completeDrainIfIdle();
       return;
     }
 
-    const draining = this.drainCallbacks.length > 0;
-    const drainFramesRemaining = draining ? Math.max(1, this.drainFramesRemaining) : 0;
     const updates: FrameTextDeltaUpdate[] = [];
 
     for (const [key, update] of this.buffers.entries()) {
-      const deltaLength = this.getFrameDeltaLength(update.delta.length, drainFramesRemaining);
+      const deltaLength = this.getFrameDeltaLength(update.delta.length);
       const delta = update.delta.slice(0, deltaLength);
       const remainingDelta = update.delta.slice(deltaLength);
       updates.push({
@@ -810,31 +930,8 @@ class FrameTextDeltaQueue {
       this.onFlush(updates);
     }
 
-    if (draining) {
-      this.drainFramesRemaining = Math.max(0, this.drainFramesRemaining - 1);
-      if (this.drainFramesRemaining === 0 && this.buffers.size > 0) {
-        this.flushNow();
-        return;
-      }
-    }
-
     if (this.buffers.size > 0) {
       this.scheduleFlush();
-      return;
-    }
-
-    this.completeDrainIfIdle();
-  }
-
-  private completeDrainIfIdle(): void {
-    if (this.buffers.size > 0 || this.drainCallbacks.length === 0) {
-      return;
-    }
-
-    this.drainFramesRemaining = 0;
-    const callbacks = this.drainCallbacks.splice(0);
-    for (const callback of callbacks) {
-      callback();
     }
   }
 
@@ -842,13 +939,6 @@ class FrameTextDeltaQueue {
     if (this.flushHandle !== null) {
       clearTimeout(this.flushHandle);
       this.flushHandle = null;
-    }
-    if (this.frameHandle !== null) {
-      const browserGlobals = globalThis as typeof globalThis & {
-        cancelAnimationFrame?: (handle: number) => void;
-      };
-      browserGlobals.cancelAnimationFrame?.(this.frameHandle);
-      this.frameHandle = null;
     }
   }
 
@@ -864,27 +954,17 @@ class FrameTextDeltaQueue {
     }
   }
 
-  private getBufferedDeltaLength(): number {
-    let total = 0;
-    for (const update of this.buffers.values()) {
-      total += update.delta.length;
-    }
-    return total;
+  private getFrameDeltaLength(deltaLength: number): number {
+    return Math.min(deltaLength, this.targetCharsPerFrame);
   }
 
-  private getFrameDeltaLength(deltaLength: number, drainFramesRemaining: number): number {
-    if (deltaLength <= this.targetCharsPerFrame) {
-      return deltaLength;
+  private getBufferedDeltaLength(threadId?: string): number {
+    let length = 0;
+    for (const update of this.buffers.values()) {
+      if (threadId && update.threadId !== threadId) continue;
+      length += update.delta.length;
     }
-
-    if (drainFramesRemaining > 0) {
-      return Math.min(
-        deltaLength,
-        Math.max(this.targetCharsPerFrame, Math.ceil(deltaLength / drainFramesRemaining)),
-      );
-    }
-
-    return this.targetCharsPerFrame;
+    return length;
   }
 }
 
@@ -1006,6 +1086,47 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function readStringField(record: Record<string, unknown> | null, key: string): string | null {
+  const value = record?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function shouldLogAssistantStreamingNotification(method: string): boolean {
+  return method === "turn/started"
+    || method === "turn/completed"
+    || method === "turn/interrupted"
+    || method === "turn/failed"
+    || method === "item/started"
+    || method === "item/completed"
+    || method === "item/agentMessage/delta"
+    || method === "item/plan/delta";
+}
+
+function isAssistantStreamingDebugEnabled(): boolean {
+  return process.env.NODEX_ASSISTANT_STREAMING_DEBUG === "1";
+}
+
+function summarizeAssistantStreamingNotification(
+  method: string,
+  params: unknown,
+): Record<string, unknown> {
+  const payload = asRecord(params);
+  const item = asRecord(payload?.item);
+  const turn = asRecord(payload?.turn);
+  const delta = typeof payload?.delta === "string" ? payload.delta : null;
+
+  return {
+    method,
+    threadId: readStringField(payload, "threadId") ?? readStringField(item, "threadId"),
+    turnId: readStringField(payload, "turnId") ?? readStringField(turn, "id"),
+    turnStatus: readStringField(turn, "status") ?? readStringField(payload, "status"),
+    itemId: readStringField(payload, "itemId") ?? readStringField(item, "id"),
+    itemType: readStringField(item, "type"),
+    itemStatus: readStringField(item, "status"),
+    deltaLength: delta?.length ?? null,
+  };
+}
+
 function isFirstTurnWorkItem(item: CodexItemView): boolean {
   if (item.normalizedKind === "userMessage" || item.normalizedKind === "assistantMessage") {
     return false;
@@ -1124,6 +1245,44 @@ function parseThreadStatus(status: unknown): ParsedThreadStatus {
   }
 
   return { statusType: "notLoaded", statusActiveFlags: [] };
+}
+
+function shouldShowThreadGoalResumeConfirmation(status: ThreadGoal["status"]): boolean {
+  return status === "paused" || status === "blocked" || status === "usageLimited";
+}
+
+function parseThreadGoalPayload(value: unknown): ThreadGoal | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Partial<ThreadGoal>;
+  if (
+    typeof candidate.threadId !== "string" ||
+    typeof candidate.objective !== "string" ||
+    (
+      candidate.status !== "active" &&
+      candidate.status !== "paused" &&
+      candidate.status !== "blocked" &&
+      candidate.status !== "usageLimited" &&
+      candidate.status !== "budgetLimited" &&
+      candidate.status !== "complete"
+    ) ||
+    typeof candidate.tokensUsed !== "number" ||
+    typeof candidate.timeUsedSeconds !== "number" ||
+    typeof candidate.createdAt !== "number" ||
+    typeof candidate.updatedAt !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    threadId: candidate.threadId,
+    objective: candidate.objective,
+    status: candidate.status,
+    tokenBudget: typeof candidate.tokenBudget === "number" ? candidate.tokenBudget : null,
+    tokensUsed: candidate.tokensUsed,
+    timeUsedSeconds: candidate.timeUsedSeconds,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+  };
 }
 
 function parseThreadSourceParentThreadId(source: unknown): string | null {
@@ -1954,17 +2113,36 @@ export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexAppServerClient;
   private readonly rateLimitsPollIntervalMs: number;
+  private readonly inactiveRendererOwnerRetentionMs: number;
+  private readonly inactiveRendererOwnerMaxRetained: number;
+  private readonly inactiveRendererOwnerRetryMs: number;
 
   private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
   private readonly collaborationModePresets = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly pendingUserInputs = new Map<string, PendingUserInput>();
   private readonly pendingMcpElicitations = new Map<string, PendingMcpServerElicitation>();
+  private readonly pendingPermissionRequests = new Map<string, PendingPermissionRequest>();
+  private readonly pendingDynamicToolCalls = new Map<string, PendingDynamicToolCall>();
   private readonly codexAppHandoffOperations = new Map<string, CodexAppHandoffOperation>();
   private readonly codexAppHandoffWaiters = new Map<string, Set<() => void>>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
+  private readonly resumeNotificationBuffersByThreadId = new Map<string, BufferedResumeEvent[]>();
+  private readonly deferredThreadStartThreadIds = new Set<string>();
+  private readonly readyDeferredThreadStartThreadIds = new Set<string>();
+  private threadStartNotificationDeferralDepth = 0;
   private readonly lastBroadcastConversationById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
+  private readonly conversationStreamRevisionById = new Map<string, number>();
+  private readonly rendererOwnerClientIdByConversationId = new Map<string, string>();
+  private readonly activeRendererViewClientIdsByConversationId = new Map<string, Set<string>>();
+  private readonly inactiveRendererOwnerCandidateSinceByConversationId = new Map<string, number>();
+  private readonly inactiveRendererOwnerCleanupTimersByConversationId = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly inactiveRendererOwnerCleanupInFlight = new Set<string>();
+  private readonly ownerNotificationSequenceByConversationId = new Map<string, number>();
+  private readonly ownerNotificationAckSequenceByConversationId = new Map<string, number>();
+  private readonly ownerNotificationDrainCallbacksByConversationId = new Map<string, Array<() => void>>();
+  private readonly ownerNotificationDrainTimersByConversationId = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pendingThreadSettingsUpdates = new Map<string, Promise<CodexConversationThreadSettings>>();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly olderTurnsLoadInFlight = new Map<string, Promise<CodexConversationSnapshot | null>>();
@@ -1975,6 +2153,7 @@ export class CodexService extends EventEmitter {
   private readonly outputDeltaQueue = new OutputDeltaQueue((updates) => {
     this.applyOutputDeltas(updates);
   });
+  private readonly terminalInputBuffers = new Map<string, string>();
   private readonly commandPaletteThreadSearchService: CommandPaletteThreadSearchCoordinator;
   private readonly dictationService = new CodexDictationService({
     readConfig: async () => await this.readConfigForDictation(),
@@ -2008,6 +2187,18 @@ export class CodexService extends EventEmitter {
 
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
     this.rateLimitsPollIntervalMs = options?.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
+    this.inactiveRendererOwnerRetentionMs = Math.max(
+      0,
+      options?.inactiveRendererOwnerRetentionMs ?? INACTIVE_RENDERER_OWNER_RETENTION_MS,
+    );
+    this.inactiveRendererOwnerMaxRetained = Math.max(
+      0,
+      Math.floor(options?.inactiveRendererOwnerMaxRetained ?? INACTIVE_RENDERER_OWNER_MAX_RETAINED),
+    );
+    this.inactiveRendererOwnerRetryMs = Math.max(
+      0,
+      options?.inactiveRendererOwnerRetryMs ?? INACTIVE_RENDERER_OWNER_RETRY_MS,
+    );
     this.commandPaletteThreadSearchService = new CommandPaletteThreadSearchCoordinator({
       client: options?.commandPaletteThreadSearchClient,
       onIndexUpdated: (event) => this.emit("threadSearchIndexUpdated", event),
@@ -2065,16 +2256,374 @@ export class CodexService extends EventEmitter {
     this.emit("hostMessage", message);
   }
 
+  private beginResumeNotificationBuffer(threadId: string): void {
+    if (this.resumeNotificationBuffersByThreadId.has(threadId)) return;
+    this.resumeNotificationBuffersByThreadId.set(threadId, []);
+  }
+
+  private beginThreadStartNotificationDeferral(): void {
+    this.threadStartNotificationDeferralDepth += 1;
+  }
+
+  private bufferThreadStartNotificationIfNeeded(method: string, params: unknown): boolean {
+    if (method !== "thread/started") return false;
+    if (this.threadStartNotificationDeferralDepth === 0) return false;
+
+    const threadId = parseEventThreadId(asRecord(params));
+    if (!threadId) return false;
+    if (this.readyDeferredThreadStartThreadIds.has(threadId)) return false;
+
+    this.deferredThreadStartThreadIds.add(threadId);
+    this.beginResumeNotificationBuffer(threadId);
+    return this.bufferResumeNotificationIfNeeded(method, params);
+  }
+
+  private bufferNotificationForReplayIfNeeded(method: string, params: unknown): boolean {
+    if (this.bufferThreadStartNotificationIfNeeded(method, params)) {
+      return true;
+    }
+    return this.bufferResumeNotificationIfNeeded(method, params);
+  }
+
+  private async completeThreadStartNotificationDeferral(threadId: string | null): Promise<void> {
+    if (!threadId) return;
+
+    this.readyDeferredThreadStartThreadIds.add(threadId);
+    await this.releaseDeferredThreadStartBuffer(threadId);
+  }
+
+  private async endThreadStartNotificationDeferral(): Promise<void> {
+    if (this.threadStartNotificationDeferralDepth <= 0) return;
+
+    this.threadStartNotificationDeferralDepth -= 1;
+    if (this.threadStartNotificationDeferralDepth > 0) return;
+
+    const pendingThreadIds = [...this.deferredThreadStartThreadIds];
+    for (const threadId of pendingThreadIds) {
+      await this.releaseDeferredThreadStartBuffer(threadId);
+    }
+    this.readyDeferredThreadStartThreadIds.clear();
+  }
+
+  private async releaseDeferredThreadStartBuffer(threadId: string): Promise<void> {
+    if (!this.deferredThreadStartThreadIds.delete(threadId)) return;
+
+    try {
+      await this.replayBufferedResumeNotifications(threadId);
+    } catch (error) {
+      this.logger.error("Failed to replay deferred thread-start events", {
+        threadId,
+        error,
+      });
+    }
+  }
+
+  private bufferResumeNotificationIfNeeded(method: string, params: unknown): boolean {
+    const payload = asRecord(params);
+    const threadId = parseEventThreadId(payload);
+    if (!threadId) return false;
+
+    const buffer = this.resumeNotificationBuffersByThreadId.get(threadId);
+    if (!buffer) return false;
+
+    buffer.push({ type: "notification", method, params });
+    return true;
+  }
+
+  private bufferResumeServerRequestIfNeeded(request: CodexServerRequest): Promise<unknown> | null {
+    const threadId = this.resolveServerRequestThreadId(request);
+    if (!threadId) return null;
+
+    const buffer = this.resumeNotificationBuffersByThreadId.get(threadId);
+    if (!buffer) return null;
+
+    return new Promise((resolve, reject) => {
+      buffer.push({
+        type: "request",
+        request,
+        resolve,
+        reject,
+      });
+    });
+  }
+
+  private cancelResumeNotificationBuffer(threadId: string): void {
+    const buffered = this.resumeNotificationBuffersByThreadId.get(threadId) ?? [];
+    this.resumeNotificationBuffersByThreadId.delete(threadId);
+    for (const event of buffered) {
+      if (event.type !== "request") continue;
+      this.handleBufferedResumeRequest(event);
+    }
+  }
+
+  private async replayBufferedResumeNotifications(threadId: string): Promise<void> {
+    try {
+      for (;;) {
+        const buffered = this.resumeNotificationBuffersByThreadId.get(threadId) ?? [];
+        if (buffered.length === 0) break;
+
+        this.resumeNotificationBuffersByThreadId.set(threadId, []);
+        const events = this.dedupeBufferedResumeEvents(threadId, buffered);
+        for (const event of events) {
+          if (event.type === "request") {
+            this.handleBufferedResumeRequest(event);
+            continue;
+          }
+
+          await this.handleNotification(event.method, event.params, {
+            bypassResumeBuffer: true,
+          });
+        }
+      }
+    } finally {
+      this.resumeNotificationBuffersByThreadId.delete(threadId);
+    }
+  }
+
+  async releaseConversationResumeBuffer(threadId: string): Promise<boolean> {
+    await this.replayBufferedResumeNotifications(threadId);
+    await this.waitForRendererOwnerNotificationDrain(threadId);
+    this.syncInactiveRendererOwnerCleanup(threadId);
+    return true;
+  }
+
+  private handleBufferedResumeRequest(event: BufferedResumeRequest): void {
+    void this.handleServerRequestNow(event.request).then(event.resolve, event.reject);
+  }
+
+  private rejectBufferedResumeRequests(reason: unknown): void {
+    for (const buffered of this.resumeNotificationBuffersByThreadId.values()) {
+      for (const event of buffered) {
+        if (event.type === "request") {
+          event.reject(reason);
+        }
+      }
+    }
+    this.resumeNotificationBuffersByThreadId.clear();
+  }
+
+  private dedupeBufferedResumeEvents(
+    threadId: string,
+    events: BufferedResumeEvent[],
+  ): BufferedResumeEvent[] {
+    const completedAgentItemKeys = new Set<string>();
+    for (const notification of events) {
+      if (notification.type !== "notification") continue;
+      if (notification.method !== "item/completed") continue;
+
+      const payload = asRecord(notification.params);
+      if (parseEventThreadId(payload) !== threadId) continue;
+
+      const turnId = parseEventTurnId(payload);
+      const item = asRecord(payload?.item);
+      const itemId = typeof payload?.itemId === "string"
+        ? payload.itemId
+        : typeof item?.id === "string"
+          ? item.id
+          : null;
+      if (!turnId || !itemId || item?.type !== "agentMessage") continue;
+
+      completedAgentItemKeys.add(`${turnId}:${itemId}`);
+    }
+
+    const deduped: BufferedResumeEvent[] = [];
+    for (const notification of events) {
+      if (notification.type === "request") {
+        deduped.push(notification);
+        continue;
+      }
+
+      if (notification.method === "item/agentMessage/delta") {
+        const payload = asRecord(notification.params);
+        const turnId = parseEventTurnId(payload);
+        const itemId = typeof payload?.itemId === "string" ? payload.itemId : null;
+        const delta = typeof payload?.delta === "string" ? payload.delta : "";
+        if (!payload || !turnId || !itemId || delta.length === 0) continue;
+        if (completedAgentItemKeys.has(`${turnId}:${itemId}`)) continue;
+
+        const existing = this.getRecordedItem(threadId, turnId, itemId);
+        const trimmedDelta = this.trimReplayDelta(existing?.markdownText ?? "", delta);
+        if (trimmedDelta.length === 0) continue;
+
+        deduped.push({
+          type: "notification",
+          method: notification.method,
+          params: trimmedDelta === delta ? notification.params : { ...payload, delta: trimmedDelta },
+        });
+        continue;
+      }
+
+      if (notification.method === "item/commandExecution/outputDelta") {
+        const payload = asRecord(notification.params);
+        const turnId = parseEventTurnId(payload);
+        const itemId = typeof payload?.itemId === "string" ? payload.itemId : null;
+        const delta = typeof payload?.delta === "string" ? payload.delta : "";
+        if (!payload || !turnId || !itemId || delta.length === 0) continue;
+
+        const existing = this.getRecordedItem(threadId, turnId, itemId);
+        const existingOutput = parseStoredAggregatedOutput(existing?.aggregatedOutput).text;
+        const trimmedDelta = this.trimReplayDelta(existingOutput, delta);
+        if (trimmedDelta.length === 0) continue;
+
+        deduped.push({
+          type: "notification",
+          method: notification.method,
+          params: trimmedDelta === delta ? notification.params : { ...payload, delta: trimmedDelta },
+        });
+        continue;
+      }
+
+      deduped.push(notification);
+    }
+
+    return deduped;
+  }
+
+  private trimReplayDelta(existingText: string, delta: string): string {
+    if (!existingText || !delta) return delta;
+
+    const maxOverlap = Math.min(existingText.length, delta.length);
+    for (let length = maxOverlap; length > 0; length -= 1) {
+      if (existingText.endsWith(delta.slice(0, length))) {
+        return delta.slice(length);
+      }
+    }
+
+    return delta;
+  }
+
+  private resolveServerRequestThreadId(request: CodexServerRequest): string | null {
+    return parseEventThreadId(asRecord(request.params));
+  }
+
+  private emitRendererOwnerHostMessage(threadId: string, message: CodexHostMessage): boolean {
+    const targetClientId = this.rendererOwnerClientIdByConversationId.get(threadId);
+    if (!targetClientId) return false;
+
+    this.emit("rendererOwnerHostMessage", {
+      targetClientId,
+      message,
+    });
+    return true;
+  }
+
+  private getNextOwnerNotificationSequence(conversationId: string): number {
+    const sequence = (this.ownerNotificationSequenceByConversationId.get(conversationId) ?? 0) + 1;
+    this.ownerNotificationSequenceByConversationId.set(conversationId, sequence);
+    return sequence;
+  }
+
+  private ackOwnerNotificationSequence(conversationId: string, sequence: number): void {
+    const currentSequence = this.ownerNotificationAckSequenceByConversationId.get(conversationId) ?? 0;
+    if (sequence <= currentSequence) return;
+
+    this.ownerNotificationAckSequenceByConversationId.set(conversationId, sequence);
+    this.completeOwnerNotificationDrainIfReady(conversationId);
+  }
+
+  private completeOwnerNotificationDrainIfReady(conversationId: string): void {
+    const sentSequence = this.ownerNotificationSequenceByConversationId.get(conversationId) ?? 0;
+    const ackSequence = this.ownerNotificationAckSequenceByConversationId.get(conversationId) ?? 0;
+    if (ackSequence < sentSequence) return;
+
+    const callbacks = this.ownerNotificationDrainCallbacksByConversationId.get(conversationId);
+    if (!callbacks || callbacks.length === 0) return;
+
+    this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
+    const timer = this.ownerNotificationDrainTimersByConversationId.get(conversationId);
+    if (timer) {
+      clearTimeout(timer);
+      this.ownerNotificationDrainTimersByConversationId.delete(conversationId);
+    }
+
+    for (const callback of callbacks) {
+      callback();
+    }
+  }
+
+  private drainRendererOwnerNotificationsBefore(conversationId: string, callback: () => void): boolean {
+    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(conversationId);
+    if (!ownerClientId) return false;
+
+    const sentSequence = this.ownerNotificationSequenceByConversationId.get(conversationId) ?? 0;
+    const ackSequence = this.ownerNotificationAckSequenceByConversationId.get(conversationId) ?? 0;
+    if (ackSequence >= sentSequence) return false;
+
+    const callbacks = this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
+    callbacks.push(callback);
+    this.ownerNotificationDrainCallbacksByConversationId.set(conversationId, callbacks);
+
+    if (this.ownerNotificationDrainTimersByConversationId.has(conversationId)) {
+      return true;
+    }
+
+    const timer = setTimeout(() => {
+      this.ownerNotificationDrainTimersByConversationId.delete(conversationId);
+      const pendingCallbacks = this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
+      this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
+      this.ownerNotificationAckSequenceByConversationId.set(conversationId, sentSequence);
+      this.logger.warn("Timed out waiting for renderer owner text-delta ack before terminal lifecycle", {
+        conversationId,
+        sentSequence,
+        ackSequence,
+      });
+      for (const pendingCallback of pendingCallbacks) {
+        pendingCallback();
+      }
+    }, RENDERER_OWNER_NOTIFICATION_DRAIN_TIMEOUT_MS);
+    this.ownerNotificationDrainTimersByConversationId.set(conversationId, timer);
+    return true;
+  }
+
+  private waitForRendererOwnerNotificationDrain(conversationId: string): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.drainRendererOwnerNotificationsBefore(conversationId, resolve)) {
+        resolve();
+      }
+    });
+  }
+
+  private clearOwnerNotificationDrain(conversationId: string): void {
+    const timer = this.ownerNotificationDrainTimersByConversationId.get(conversationId);
+    if (timer) {
+      clearTimeout(timer);
+      this.ownerNotificationDrainTimersByConversationId.delete(conversationId);
+    }
+    this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
+  }
+
+  private releaseOwnerNotificationDrain(conversationId: string): void {
+    const callbacks = this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
+    this.clearOwnerNotificationDrain(conversationId);
+    for (const callback of callbacks) {
+      callback();
+    }
+  }
+
   private getNextConversationVersion(threadId: string): number {
     const nextVersion = (this.conversationVersionById.get(threadId) ?? 0) + 1;
     this.conversationVersionById.set(threadId, nextVersion);
     return nextVersion;
   }
 
+  private advanceConversationStreamRevision(threadId: string): { baseRevision: number; revision: number } {
+    const baseRevision = this.conversationStreamRevisionById.get(threadId) ?? 0;
+    const revision = baseRevision + 1;
+    this.conversationStreamRevisionById.set(threadId, revision);
+    return { baseRevision, revision };
+  }
+
   private emitThreadStreamSnapshot(
     threadId: string,
     conversation: CodexConversationSnapshot,
+    reason: SourceNullSnapshotReason,
   ): void {
+    if (this.shouldSuppressSourceNullSnapshot(threadId, reason)) {
+      this.lastBroadcastConversationById.set(threadId, conversation);
+      return;
+    }
+
+    const { revision } = this.advanceConversationStreamRevision(threadId);
     this.lastBroadcastConversationById.set(threadId, conversation);
     this.emitHostMessage({
       type: "threadStreamStateChanged",
@@ -2082,11 +2631,16 @@ export class CodexService extends EventEmitter {
       conversationId: threadId,
       change: {
         type: "snapshot",
+        revision,
         conversationState: conversation,
       },
       version: this.getNextConversationVersion(threadId),
       sourceClientId: null,
     });
+  }
+
+  private shouldSuppressSourceNullSnapshot(threadId: string, reason: SourceNullSnapshotReason): boolean {
+    return reason === "no-owner-fallback" && this.rendererOwnerClientIdByConversationId.has(threadId);
   }
 
   private emitThreadStreamPatches(
@@ -2098,6 +2652,7 @@ export class CodexService extends EventEmitter {
       return;
     }
 
+    const { baseRevision, revision } = this.advanceConversationStreamRevision(threadId);
     this.lastBroadcastConversationById.set(threadId, conversation);
     this.emitHostMessage({
       type: "threadStreamStateChanged",
@@ -2105,10 +2660,411 @@ export class CodexService extends EventEmitter {
       conversationId: threadId,
       change: {
         type: "patches",
+        baseRevision,
+        revision,
         patches,
       },
       version: this.getNextConversationVersion(threadId),
       sourceClientId: null,
+    });
+  }
+
+  setRendererConversationOwner(threadId: string, clientId: string | null | undefined): void {
+    if (!clientId) return;
+
+    const previousClientId = this.rendererOwnerClientIdByConversationId.get(threadId);
+    this.rendererOwnerClientIdByConversationId.set(threadId, clientId);
+    this.syncInactiveRendererOwnerCleanup(threadId);
+    if (previousClientId === clientId) return;
+
+    this.clearOwnerNotificationDrain(threadId);
+    this.ownerNotificationAckSequenceByConversationId.set(
+      threadId,
+      this.ownerNotificationSequenceByConversationId.get(threadId) ?? 0,
+    );
+  }
+
+  getRendererConversationOwner(threadId: string): string | null {
+    return this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
+  }
+
+  setRendererConversationViewActive(
+    threadId: string,
+    clientId: string | null | undefined,
+    active: boolean,
+  ): void {
+    if (!clientId) return;
+
+    if (active) {
+      let clientIds = this.activeRendererViewClientIdsByConversationId.get(threadId);
+      if (!clientIds) {
+        clientIds = new Set();
+        this.activeRendererViewClientIdsByConversationId.set(threadId, clientIds);
+      }
+      clientIds.add(clientId);
+      this.syncInactiveRendererOwnerCleanup(threadId);
+      return;
+    }
+
+    const clientIds = this.activeRendererViewClientIdsByConversationId.get(threadId);
+    if (!clientIds) {
+      this.syncInactiveRendererOwnerCleanup(threadId);
+      return;
+    }
+
+    clientIds.delete(clientId);
+    if (clientIds.size === 0) {
+      this.activeRendererViewClientIdsByConversationId.delete(threadId);
+    }
+    this.syncInactiveRendererOwnerCleanup(threadId);
+  }
+
+  private removeRendererClientActiveViews(clientId: string): string[] {
+    const affectedConversationIds: string[] = [];
+
+    for (const [conversationId, clientIds] of this.activeRendererViewClientIdsByConversationId.entries()) {
+      if (!clientIds.delete(clientId)) continue;
+      affectedConversationIds.push(conversationId);
+      if (clientIds.size === 0) {
+        this.activeRendererViewClientIdsByConversationId.delete(conversationId);
+      }
+    }
+
+    return affectedConversationIds;
+  }
+
+  private hasActiveRendererView(threadId: string): boolean {
+    return (this.activeRendererViewClientIdsByConversationId.get(threadId)?.size ?? 0) > 0;
+  }
+
+  private hasActiveRuntimeForInactiveOwner(threadId: string): boolean {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record) return false;
+    if (record.detail?.statusType === "active") return true;
+    if ((record.detail?.statusActiveFlags.length ?? 0) > 0) return true;
+    if (this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress")) return true;
+    return this.listPendingConversationRequests(threadId).length > 0;
+  }
+
+  private isInactiveRendererOwnerCandidate(threadId: string): boolean {
+    if (!this.rendererOwnerClientIdByConversationId.has(threadId)) return false;
+    if (this.hasActiveRendererView(threadId)) return false;
+
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record) return false;
+    if (record.streamRole !== "owner") return false;
+    if (!record.isStreaming) return false;
+    if (record.resumeState !== "resumed") return false;
+    if (this.hasActiveRuntimeForInactiveOwner(threadId)) return false;
+    return true;
+  }
+
+  private clearInactiveRendererOwnerCleanup(threadId: string): void {
+    const timer = this.inactiveRendererOwnerCleanupTimersByConversationId.get(threadId);
+    if (timer) {
+      clearTimeout(timer);
+      this.inactiveRendererOwnerCleanupTimersByConversationId.delete(threadId);
+    }
+    this.inactiveRendererOwnerCandidateSinceByConversationId.delete(threadId);
+  }
+
+  private scheduleInactiveRendererOwnerCleanup(threadId: string, delayMs: number, reason: string): void {
+    if (this.inactiveRendererOwnerCleanupTimersByConversationId.has(threadId)) return;
+
+    const timer = setTimeout(() => {
+      this.inactiveRendererOwnerCleanupTimersByConversationId.delete(threadId);
+      void this.cleanupInactiveRendererOwner(threadId, reason);
+    }, Math.max(0, delayMs));
+    this.inactiveRendererOwnerCleanupTimersByConversationId.set(threadId, timer);
+  }
+
+  private listInactiveRendererOwnerCandidates(): string[] {
+    return [...this.inactiveRendererOwnerCandidateSinceByConversationId.entries()]
+      .filter(([threadId]) => this.isInactiveRendererOwnerCandidate(threadId))
+      .sort((left, right) => {
+        const diff = left[1] - right[1];
+        return diff !== 0 ? diff : left[0].localeCompare(right[0]);
+      })
+      .map(([threadId]) => threadId);
+  }
+
+  private enforceInactiveRendererOwnerRetentionLimit(): void {
+    const overflowCount = this.listInactiveRendererOwnerCandidates().length - this.inactiveRendererOwnerMaxRetained;
+    if (overflowCount <= 0) return;
+
+    for (const threadId of this.listInactiveRendererOwnerCandidates().slice(0, overflowCount)) {
+      const timer = this.inactiveRendererOwnerCleanupTimersByConversationId.get(threadId);
+      if (timer) {
+        clearTimeout(timer);
+        this.inactiveRendererOwnerCleanupTimersByConversationId.delete(threadId);
+      }
+      void this.cleanupInactiveRendererOwner(threadId, "inactive-owner-retained-limit");
+    }
+  }
+
+  private syncInactiveRendererOwnerCleanup(threadId: string): void {
+    if (!this.isInactiveRendererOwnerCandidate(threadId)) {
+      this.clearInactiveRendererOwnerCleanup(threadId);
+      return;
+    }
+
+    const now = Date.now();
+    const candidateSince = this.inactiveRendererOwnerCandidateSinceByConversationId.get(threadId) ?? now;
+    this.inactiveRendererOwnerCandidateSinceByConversationId.set(threadId, candidateSince);
+    const elapsedMs = now - candidateSince;
+    const delayMs = Math.max(0, this.inactiveRendererOwnerRetentionMs - elapsedMs);
+    this.scheduleInactiveRendererOwnerCleanup(threadId, delayMs, "inactive-owner-retention");
+    this.enforceInactiveRendererOwnerRetentionLimit();
+  }
+
+  private async unsubscribeRendererOwnerThread(threadId: string): Promise<void> {
+    await this.client.request<"thread/unsubscribe", ThreadUnsubscribeResponse>("thread/unsubscribe", {
+      threadId,
+    } satisfies ThreadUnsubscribeParams);
+  }
+
+  private async cleanupInactiveRendererOwner(threadId: string, reason: string): Promise<void> {
+    if (this.inactiveRendererOwnerCleanupInFlight.has(threadId)) return;
+    if (!this.isInactiveRendererOwnerCandidate(threadId)) {
+      this.clearInactiveRendererOwnerCleanup(threadId);
+      return;
+    }
+
+    this.inactiveRendererOwnerCleanupInFlight.add(threadId);
+    try {
+      await this.unsubscribeRendererOwnerThread(threadId);
+    } catch (error) {
+      this.logger.warn("Failed to unsubscribe inactive renderer owner", {
+        threadId,
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (this.isInactiveRendererOwnerCandidate(threadId)) {
+        this.scheduleInactiveRendererOwnerCleanup(threadId, this.inactiveRendererOwnerRetryMs, "inactive-owner-retry");
+      } else {
+        this.clearInactiveRendererOwnerCleanup(threadId);
+      }
+      return;
+    } finally {
+      this.inactiveRendererOwnerCleanupInFlight.delete(threadId);
+    }
+
+    const record = this.getMaybeConversationRecord(threadId);
+    if (record) {
+      record.resumeState = "needs_resume";
+      record.streamRole = null;
+      record.isStreaming = false;
+      if (record.detail) {
+        record.detail = {
+          ...record.detail,
+          statusType: "idle",
+          statusActiveFlags: [],
+        };
+      }
+    }
+
+    this.rendererOwnerClientIdByConversationId.delete(threadId);
+    this.ownerNotificationSequenceByConversationId.delete(threadId);
+    this.ownerNotificationAckSequenceByConversationId.delete(threadId);
+    this.releaseOwnerNotificationDrain(threadId);
+    this.clearInactiveRendererOwnerCleanup(threadId);
+    this.emitThreadStreamSnapshotFromRecord(threadId, "inactive-owner-cleanup");
+  }
+
+  handleRendererClientDisposed(clientId: string): void {
+    const viewConversationIds = this.removeRendererClientActiveViews(clientId);
+    const conversationIds = [...this.rendererOwnerClientIdByConversationId.entries()]
+      .filter(([, ownerClientId]) => ownerClientId === clientId)
+      .map(([conversationId]) => conversationId);
+
+    for (const conversationId of conversationIds) {
+      this.rendererOwnerClientIdByConversationId.delete(conversationId);
+      this.ownerNotificationSequenceByConversationId.delete(conversationId);
+      this.ownerNotificationAckSequenceByConversationId.delete(conversationId);
+      this.releaseOwnerNotificationDrain(conversationId);
+      this.clearInactiveRendererOwnerCleanup(conversationId);
+      this.rejectPendingDynamicToolCallsForThread(
+        conversationId,
+        new Error("Dynamic tool call owner disconnected"),
+      );
+    }
+
+    for (const conversationId of viewConversationIds) {
+      if (conversationIds.includes(conversationId)) continue;
+      this.syncInactiveRendererOwnerCleanup(conversationId);
+    }
+
+    if (conversationIds.length === 0) return;
+
+    this.emitHostMessage({
+      type: "threadOwnerUnavailable",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      ownerClientId: clientId,
+      conversationIds,
+    });
+  }
+
+  private rejectPendingDynamicToolCallsForThread(threadId: string, reason: unknown): void {
+    for (const [requestId, pending] of [...this.pendingDynamicToolCalls.entries()]) {
+      if (pending.request.params.threadId !== threadId) continue;
+      pending.reject(reason);
+      this.pendingDynamicToolCalls.delete(requestId);
+    }
+  }
+
+  publishRendererThreadStreamStateChange(
+    sourceClientId: string,
+    input: CodexThreadOwnerStreamStatePublishInput,
+  ): boolean {
+    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(input.conversationId);
+    if (ownerClientId && ownerClientId !== sourceClientId) {
+      this.logger.warn("Rejected renderer stream change from non-owner client", {
+        conversationId: input.conversationId,
+        sourceClientId,
+        ownerClientId,
+      });
+      return false;
+    }
+
+    if (!ownerClientId) {
+      this.rendererOwnerClientIdByConversationId.set(input.conversationId, sourceClientId);
+    }
+
+    const nextConversation = this.resolveRendererPublishedConversation(input);
+    if (!nextConversation) return false;
+
+    this.lastBroadcastConversationById.set(input.conversationId, nextConversation);
+    this.conversationStreamRevisionById.set(input.conversationId, input.change.revision);
+    this.emitHostMessage({
+      type: "threadStreamStateChanged",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversationId: input.conversationId,
+      change: input.change,
+      version: this.getNextConversationVersion(input.conversationId),
+      sourceClientId,
+    });
+    if (typeof input.ownerNotificationSequence === "number") {
+      this.ackOwnerNotificationSequence(input.conversationId, input.ownerNotificationSequence);
+    }
+    return true;
+  }
+
+  ackRendererThreadOwnerNotification(
+    sourceClientId: string,
+    input: CodexThreadOwnerNotificationAckInput,
+  ): boolean {
+    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(input.conversationId);
+    if (ownerClientId && ownerClientId !== sourceClientId) {
+      this.logger.warn("Rejected renderer owner notification ack from non-owner client", {
+        conversationId: input.conversationId,
+        sourceClientId,
+        ownerClientId,
+      });
+      return false;
+    }
+
+    if (!ownerClientId) {
+      this.rendererOwnerClientIdByConversationId.set(input.conversationId, sourceClientId);
+    }
+
+    this.ackOwnerNotificationSequence(input.conversationId, input.sequence);
+    return true;
+  }
+
+  private resolveRendererPublishedConversation(
+    input: CodexThreadOwnerStreamStatePublishInput,
+  ): CodexConversationSnapshot | null {
+    if (input.change.type === "snapshot") {
+      return input.change.conversationState;
+    }
+
+    const currentConversation = this.lastBroadcastConversationById.get(input.conversationId);
+    if (!currentConversation) {
+      this.logger.warn("Rejected renderer stream patches without broadcast cache", {
+        conversationId: input.conversationId,
+        baseRevision: input.change.baseRevision,
+        revision: input.change.revision,
+      });
+      return null;
+    }
+
+    const currentRevision = this.conversationStreamRevisionById.get(input.conversationId) ?? 0;
+    if (currentRevision !== input.change.baseRevision) {
+      this.logger.warn("Rejected renderer stream patches with mismatched base revision", {
+        conversationId: input.conversationId,
+        currentRevision,
+        baseRevision: input.change.baseRevision,
+        revision: input.change.revision,
+      });
+      return null;
+    }
+
+    try {
+      return applyCodexConversationStateUpdates(currentConversation, input.change.patches);
+    } catch (error) {
+      this.logger.warn("Rejected renderer stream patches that could not apply to broadcast cache", {
+        conversationId: input.conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  private forwardNotificationToRendererOwner(
+    method: CodexThreadOwnerNotificationMethod,
+    payload: Record<string, unknown>,
+  ): boolean {
+    if (typeof payload.threadId !== "string") return false;
+    return this.forwardNotificationToRendererOwnerForConversation(payload.threadId, method, payload);
+  }
+
+  private forwardNotificationToRendererOwnerForConversation(
+    conversationId: string,
+    method: CodexThreadOwnerNotificationMethod,
+    params: unknown,
+  ): boolean {
+    const targetClientId = this.rendererOwnerClientIdByConversationId.get(conversationId);
+    if (!targetClientId) {
+      if (isAssistantStreamingDebugEnabled() && shouldLogAssistantStreamingNotification(method)) {
+        this.logger.info("Assistant streaming debug", {
+          phase: "main-no-renderer-owner",
+          conversationId,
+          ...summarizeAssistantStreamingNotification(method, params),
+        });
+      }
+      return false;
+    }
+    const sequence = this.getNextOwnerNotificationSequence(conversationId);
+
+    if (isAssistantStreamingDebugEnabled() && shouldLogAssistantStreamingNotification(method)) {
+      this.logger.info("Assistant streaming debug", {
+        phase: "main-forward-renderer-owner",
+        conversationId,
+        targetClientId,
+        sequence,
+        ...summarizeAssistantStreamingNotification(method, params),
+      });
+    }
+
+    return this.emitRendererOwnerHostMessage(conversationId, {
+      type: "threadOwnerNotification",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      method,
+      sequence,
+      params,
+    });
+  }
+
+  private forwardServerRequestToRendererOwner(request: CodexThreadOwnerServerRequest): boolean {
+    const threadId = request.params.threadId;
+    if (!this.rendererOwnerClientIdByConversationId.has(threadId)) return false;
+    const sequence = this.getNextOwnerNotificationSequence(threadId);
+
+    return this.emitRendererOwnerHostMessage(threadId, {
+      type: "threadOwnerRequest",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      request,
+      sequence,
     });
   }
 
@@ -2118,7 +3074,7 @@ export class CodexService extends EventEmitter {
   ): void {
     const currentConversation = this.lastBroadcastConversationById.get(threadId);
     if (!currentConversation) {
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId, "durable-recovery");
       return;
     }
 
@@ -2134,7 +3090,7 @@ export class CodexService extends EventEmitter {
         threadId,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId, "durable-recovery");
     }
   }
 
@@ -2158,12 +3114,18 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private emitThreadStreamSnapshotFromRecord(threadId: string): void {
+  private syncBroadcastConversationSnapshotCacheSilently(threadId: string): void {
+    const conversation = this.serializeConversationSnapshot(threadId);
+    if (!conversation) return;
+    this.lastBroadcastConversationById.set(threadId, conversation);
+  }
+
+  private emitThreadStreamSnapshotFromRecord(threadId: string, reason: SourceNullSnapshotReason): void {
     try {
       this.outputDeltaQueue.flushNow();
       const conversation = this.serializeConversationSnapshot(threadId);
       if (!conversation) return;
-      this.emitThreadStreamSnapshot(threadId, conversation);
+      this.emitThreadStreamSnapshot(threadId, conversation, reason);
     } catch (error) {
       this.logger.warn("Could not serialize conversation snapshot for host message", {
         threadId,
@@ -2189,6 +3151,7 @@ export class CodexService extends EventEmitter {
     draft.linkedAt = detail.linkedAt;
     draft.latestCollaborationMode = detail.latestCollaborationMode;
     draft.latestThreadSettings = detail.latestThreadSettings ?? null;
+    draft.latestTokenUsageInfo = detail.latestTokenUsageInfo ?? null;
     draft.resumeState = this.resolveConversationResumeState(detail.threadId);
   }
 
@@ -2222,7 +3185,7 @@ export class CodexService extends EventEmitter {
     );
     const detail = requiresDetail ? this.serializeThreadDetail(threadId) : null;
     if (requiresDetail && !detail) {
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId, "durable-recovery");
       return;
     }
 
@@ -2400,11 +3363,11 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private emitThreadStreamSnapshots(threadIds?: string[]): void {
+  private emitThreadStreamSnapshots(threadIds: string[] | undefined, reason: SourceNullSnapshotReason): void {
     const nextThreadIds = (threadIds ?? listCodexThreadLinks({ includeArchived: true }).map((thread) => thread.threadId))
       .filter((threadId, index, values) => threadId.length > 0 && values.indexOf(threadId) === index);
     for (const threadId of nextThreadIds) {
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId, reason);
     }
   }
 
@@ -2580,6 +3543,22 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private applyLatestTokenUsageForThread(
+    threadId: string,
+    latestTokenUsageInfo: CodexThreadTokenUsage,
+  ): void {
+    const record = this.ensureConversationRecord(threadId);
+    record.latestTokenUsageInfo = latestTokenUsageInfo;
+    if (!record.detail) {
+      return;
+    }
+
+    record.detail = {
+      ...record.detail,
+      latestTokenUsageInfo,
+    };
+  }
+
   private setLatestCollaborationModeForThread(
     threadId: string,
     latestCollaborationMode: CodexCollaborationModeState,
@@ -2650,6 +3629,10 @@ export class CodexService extends EventEmitter {
       turnPagination: COMPLETE_TURN_PAGINATION,
       latestCollaborationMode: this.buildDefaultCollaborationModeState(),
       latestThreadSettings: null,
+      latestTokenUsageInfo: null,
+      threadGoal: null,
+      completedThreadGoal: null,
+      threadGoalResumeConfirmation: null,
       resumeState: "resumed",
       streamRole: null,
       isStreaming: false,
@@ -2697,6 +3680,7 @@ export class CodexService extends EventEmitter {
           cwd: link.cwd,
           latestCollaborationMode: record.latestCollaborationMode,
           latestThreadSettings: record.latestThreadSettings,
+          latestTokenUsageInfo: record.latestTokenUsageInfo,
           turns: [],
           transcript: [],
         }
@@ -2716,6 +3700,7 @@ export class CodexService extends EventEmitter {
           linkedAt: new Date(0).toISOString(),
           latestCollaborationMode: record.latestCollaborationMode,
           latestThreadSettings: record.latestThreadSettings,
+          latestTokenUsageInfo: record.latestTokenUsageInfo,
           turns: [],
           transcript: [],
         };
@@ -2745,7 +3730,7 @@ export class CodexService extends EventEmitter {
       record.isStreaming = false;
     }
 
-    this.emitThreadStreamSnapshots(Array.from(knownThreadIds));
+    this.emitThreadStreamSnapshots(Array.from(knownThreadIds), "durable-recovery");
   }
 
   private markConversationsNeedResumeAfterReconnect(): void {
@@ -2789,6 +3774,20 @@ export class CodexService extends EventEmitter {
       pending.reject(new Error("MCP elicitation cleared after thread history changed"));
       this.pendingMcpElicitations.delete(requestId);
     }
+
+    for (const [requestId, pending] of [...this.pendingPermissionRequests.entries()]) {
+      if (pending.request.threadId !== threadId) continue;
+      if (retainedTurnIds.has(pending.request.turnId)) continue;
+      pending.reject(new Error("Permission request cleared after thread history changed"));
+      this.pendingPermissionRequests.delete(requestId);
+    }
+
+    for (const [requestId, pending] of [...this.pendingDynamicToolCalls.entries()]) {
+      if (pending.request.params.threadId !== threadId) continue;
+      if (retainedTurnIds.has(pending.request.params.turnId)) continue;
+      pending.reject(new Error("Dynamic tool call cleared after thread history changed"));
+      this.pendingDynamicToolCalls.delete(requestId);
+    }
   }
 
   private forgetThreadLocalState(threadId: string): void {
@@ -2796,6 +3795,17 @@ export class CodexService extends EventEmitter {
     this.conversationRecords.delete(threadId);
     this.lastBroadcastConversationById.delete(threadId);
     this.conversationVersionById.delete(threadId);
+    this.conversationStreamRevisionById.delete(threadId);
+    this.rendererOwnerClientIdByConversationId.delete(threadId);
+    this.activeRendererViewClientIdsByConversationId.delete(threadId);
+    this.clearInactiveRendererOwnerCleanup(threadId);
+    this.inactiveRendererOwnerCleanupInFlight.delete(threadId);
+    this.ownerNotificationSequenceByConversationId.delete(threadId);
+    this.ownerNotificationAckSequenceByConversationId.delete(threadId);
+    this.clearOwnerNotificationDrain(threadId);
+    for (const key of [...this.terminalInputBuffers.keys()]) {
+      if (key.startsWith(`${threadId}:`)) this.terminalInputBuffers.delete(key);
+    }
     this.queuedFollowUpDispatchInFlight.delete(threadId);
   }
 
@@ -3383,9 +4393,27 @@ export class CodexService extends EventEmitter {
       pendingApprovals: this.pendingApprovals.size,
       pendingUserInputs: this.pendingUserInputs.size,
       pendingMcpElicitations: this.pendingMcpElicitations.size,
+      pendingPermissionRequests: this.pendingPermissionRequests.size,
+      pendingDynamicToolCalls: this.pendingDynamicToolCalls.size,
     });
     this.frameTextDeltaQueue.cancel();
     this.outputDeltaQueue.cancel();
+    this.terminalInputBuffers.clear();
+    for (const timer of this.ownerNotificationDrainTimersByConversationId.values()) {
+      clearTimeout(timer);
+    }
+    this.ownerNotificationDrainTimersByConversationId.clear();
+    this.ownerNotificationDrainCallbacksByConversationId.clear();
+    for (const timer of this.inactiveRendererOwnerCleanupTimersByConversationId.values()) {
+      clearTimeout(timer);
+    }
+    this.inactiveRendererOwnerCleanupTimersByConversationId.clear();
+    this.inactiveRendererOwnerCandidateSinceByConversationId.clear();
+    this.inactiveRendererOwnerCleanupInFlight.clear();
+    this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));
+    this.deferredThreadStartThreadIds.clear();
+    this.readyDeferredThreadStartThreadIds.clear();
+    this.threadStartNotificationDeferralDepth = 0;
     this.commandPaletteThreadSearchService.shutdown();
     this.stopRateLimitsPolling();
     if (this.sidebarThreadListRepairTimer !== null) {
@@ -3406,6 +4434,16 @@ export class CodexService extends EventEmitter {
       pending.reject(new Error("Codex service shutting down"));
     }
     this.pendingMcpElicitations.clear();
+
+    for (const pending of this.pendingPermissionRequests.values()) {
+      pending.reject(new Error("Codex service shutting down"));
+    }
+    this.pendingPermissionRequests.clear();
+
+    for (const pending of this.pendingDynamicToolCalls.values()) {
+      pending.reject(new Error("Codex service shutting down"));
+    }
+    this.pendingDynamicToolCalls.clear();
 
     await this.client.stop();
   }
@@ -4864,6 +5902,7 @@ export class CodexService extends EventEmitter {
             itemIds: mergedItemIds,
             interruptedCommandExecutionItemIds: mergedInterruptedCommandExecutionItemIds,
             tokenUsage: turn.tokenUsage ?? existing.tokenUsage,
+            safetyBuffering: turn.safetyBuffering ?? existing.safetyBuffering,
           });
   }
 
@@ -5055,6 +6094,7 @@ export class CodexService extends EventEmitter {
     turnId: string;
     itemId: string;
     changes: FileUpdateChange[];
+    suppressConversationSync?: boolean;
   }): void {
     if (input.changes.length === 0) return;
 
@@ -5074,8 +6114,13 @@ export class CodexService extends EventEmitter {
     this.markFirstTurnWorkItemStartedAt(input.threadId, turnId);
     this.upsertCanonicalTurnItem(input.threadId, turnId, normalizedItem.itemId, "inProgress");
     this.mergeItem(normalizedItem);
+    if (input.suppressConversationSync) {
+      this.syncBroadcastConversationSnapshotCacheSilently(input.threadId);
+      return;
+    }
+
     if (reboundFromTurnId) {
-      this.emitThreadStreamSnapshotFromRecord(input.threadId);
+      this.emitThreadStreamSnapshotFromRecord(input.threadId, "no-owner-fallback");
       return;
     }
 
@@ -5083,6 +6128,25 @@ export class CodexService extends EventEmitter {
       syncBackgroundTerminalRows: true,
       syncCapabilityFlags: true,
     });
+  }
+
+  private applyThreadGoalUpdated(threadId: string, goal: ThreadGoal): void {
+    const record = this.ensureConversationRecord(threadId);
+    record.threadGoal = goal;
+    if (goal.status === "complete") {
+      record.completedThreadGoal = goal;
+    } else {
+      record.completedThreadGoal = null;
+    }
+    if (!shouldShowThreadGoalResumeConfirmation(goal.status)) {
+      record.threadGoalResumeConfirmation = null;
+    }
+  }
+
+  private applyThreadGoalCleared(threadId: string): void {
+    const record = this.ensureConversationRecord(threadId);
+    record.threadGoal = null;
+    record.threadGoalResumeConfirmation = null;
   }
 
   private listKnownTurns(threadId: string): CodexTurnSummary[] {
@@ -5111,6 +6175,10 @@ export class CodexService extends EventEmitter {
 
   private buildMcpServerElicitationItemId(requestId: string): string {
     return `mcp-server-elicitation-${requestId}`;
+  }
+
+  private buildPermissionRequestItemId(requestId: string): string {
+    return `permission-request-${requestId}`;
   }
 
   private buildPlanImplementationServerRequest(
@@ -5402,6 +6470,30 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private buildModelReroutedItemView(input: ModelReroutedNotification): CodexItemView {
+    const now = Date.now();
+    const itemId = `model-rerouted:${input.turnId}:${now}`;
+
+    return {
+      threadId: input.threadId,
+      turnId: input.turnId,
+      itemId,
+      type: "modelRerouted",
+      normalizedKind: "systemEvent",
+      semanticKind: "modelRerouted",
+      status: "completed",
+      rawItem: {
+        id: itemId,
+        type: "modelRerouted",
+        fromModel: input.fromModel,
+        toModel: input.toModel,
+        reason: input.reason,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
   private removeTranscriptEntry(threadId: string, entryId: string): void {
     const nextTranscript = this.getThreadTranscript(threadId).filter((entry) => (entry.entryId ?? entry.itemId) !== entryId);
     this.setThreadTranscript(
@@ -5530,6 +6622,7 @@ export class CodexService extends EventEmitter {
     promptText: string,
     userAttachments?: CodexUserAttachment[],
     itemId?: string,
+    clientUserMessageId?: string,
   ): CodexTranscriptEntry {
     const createdAt = Date.now();
     const resolvedItemId = itemId ?? `item-${++this.syntheticItemIdCounter}`;
@@ -5544,6 +6637,12 @@ export class CodexService extends EventEmitter {
       role: "user",
       markdownText: promptText,
       userAttachments,
+      rawItem: {
+        id: resolvedItemId,
+        type: "userMessage",
+        ...(clientUserMessageId ? { clientUserMessageId } : {}),
+        content: buildUserMessageInputFallback(promptText),
+      },
       createdAt,
       updatedAt: createdAt,
     };
@@ -5912,13 +7011,21 @@ export class CodexService extends EventEmitter {
     const threadId = typeof payload.threadId === "string" ? payload.threadId : null;
     const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
     const targetItemId = typeof payload.targetItemId === "string" ? payload.targetItemId : null;
-    if (!threadId || !turnId || !targetItemId) return null;
+    const reviewId = typeof payload.reviewId === "string" ? payload.reviewId : null;
+    if (!threadId || !turnId || !reviewId) return null;
 
     const review = normalizeAutomaticApprovalReviewPayload(payload, targetItemId);
     if (!review) return null;
 
-    const itemId = `${AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE}:${targetItemId}`;
+    const itemId = `${AUTOMATIC_APPROVAL_REVIEW_ITEM_ID_PREFIX}:${reviewId}`;
     const now = Date.now();
+    const existing = this.getRecordedItem(threadId, turnId, itemId);
+    const existingRaw = asRecord(existing?.rawItem);
+    const existingStartedAtMs = typeof existingRaw?.startedAtMs === "number" && Number.isFinite(existingRaw.startedAtMs)
+      ? existingRaw.startedAtMs
+      : null;
+    const startedAtMs = existingStartedAtMs ?? now;
+    const completedAtMs = review.status === "inProgress" ? null : now;
     this.upsertCanonicalTurnItem(threadId, turnId, itemId, "inProgress");
     return this.mergeItem({
       threadId,
@@ -5932,18 +7039,70 @@ export class CodexService extends EventEmitter {
       rawItem: {
         id: itemId,
         type: AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE,
-        targetItemId,
-        review: {
-          status: review.status,
-          riskScore: review.riskScore,
-          riskLevel: review.riskLevel,
-          rationale: review.rationale,
-        },
+        targetItemId: review.targetItemId,
         action: review.action,
+        startedAtMs,
+        completedAtMs,
+        status: review.status,
+        riskScore: review.riskScore,
+        riskLevel: review.riskLevel,
+        userAuthorization: review.userAuthorization,
+        rationale: review.rationale,
+      },
+      createdAt: existing?.createdAt ?? startedAtMs,
+      updatedAt: now,
+    });
+  }
+
+  private appendAutoReviewInterruptionWarningItem(payload: Record<string, unknown>): CodexTranscriptEntry | null {
+    const threadId = typeof payload.threadId === "string" ? payload.threadId : null;
+    if (!threadId || !shouldShowAutoReviewInterruptionWarning(payload)) return null;
+
+    const turnId = this.resolveLiveTurnId(threadId, null);
+    if (!turnId) return null;
+
+    const now = Date.now();
+    const itemId = `auto-review-interruption-warning:${randomUUID()}`;
+    this.upsertCanonicalTurnItem(threadId, turnId, itemId, "inProgress");
+    return this.mergeItem({
+      threadId,
+      turnId,
+      itemId,
+      type: "autoReviewInterruptionWarning",
+      normalizedKind: "systemEvent",
+      semanticKind: "autoReviewInterruptionWarning",
+      status: "completed",
+      markdownText: AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX,
+      rawItem: {
+        id: itemId,
+        type: "autoReviewInterruptionWarning",
       },
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  private parseModelReroutedNotification(payload: Record<string, unknown>): ModelReroutedNotification | null {
+    const threadId = typeof payload.threadId === "string" ? payload.threadId : null;
+    const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
+    const fromModel = typeof payload.fromModel === "string" ? payload.fromModel : null;
+    const toModel = typeof payload.toModel === "string" ? payload.toModel : null;
+    const reason = typeof payload.reason === "string" ? payload.reason : null;
+    if (!threadId || !turnId || !fromModel || !toModel || !reason) return null;
+
+    return {
+      threadId,
+      turnId,
+      fromModel,
+      toModel,
+      reason: reason as ModelReroutedNotification["reason"],
+    };
+  }
+
+  private appendModelReroutedItem(input: ModelReroutedNotification): CodexTranscriptEntry {
+    const item = this.buildModelReroutedItemView(input);
+    this.upsertCanonicalTurnItem(input.threadId, input.turnId, item.itemId, "inProgress");
+    return this.mergeItem(item);
   }
 
   private mergeItem(item: CodexItemView, source: CodexTranscriptEntrySource = "live"): CodexTranscriptEntry {
@@ -6084,6 +7243,7 @@ export class CodexService extends EventEmitter {
     this.clearThreadPendingRequestsForRemovedTurns(detail.threadId, retainedTurnIds);
     this.pruneThreadTransientState(detail.threadId, retainedTurnIds);
     record.latestThreadSettings = detail.latestThreadSettings ?? record.latestThreadSettings;
+    record.latestTokenUsageInfo = detail.latestTokenUsageInfo ?? record.latestTokenUsageInfo;
     record.latestCollaborationMode =
       record.latestThreadSettings?.collaborationMode
       ?? detail.latestCollaborationMode
@@ -6096,6 +7256,7 @@ export class CodexService extends EventEmitter {
       sandbox: detail.sandbox ?? previousDetail?.sandbox ?? null,
       latestCollaborationMode: record.latestCollaborationMode,
       latestThreadSettings: record.latestThreadSettings,
+      latestTokenUsageInfo: record.latestTokenUsageInfo,
       turns: [...detail.turns],
       transcript: [...detail.transcript],
     };
@@ -6814,15 +7975,22 @@ export class CodexService extends EventEmitter {
         dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
         ...threadPermissionOverrides,
       };
-      const threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
+      this.beginThreadStartNotificationDeferral();
+      let threadStart: ThreadStartResponse;
+      let link: CodexThreadSummary | null = null;
+      try {
+        threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
+        link = this.upsertSessionLinkFromThread(threadStart.thread, {
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+        }, runLocation.cwd);
 
-      const link = this.upsertSessionLinkFromThread(threadStart.thread, {
-        projectId: input.projectId,
-        sessionId: input.sessionId,
-      }, runLocation.cwd);
-
-      if (!link) {
-        throw new Error("Codex thread/start returned an invalid thread payload");
+        if (!link) {
+          throw new Error("Codex thread/start returned an invalid thread payload");
+        }
+        await this.completeThreadStartNotificationDeferral(link.threadId);
+      } finally {
+        await this.endThreadStartNotificationDeferral();
       }
       progressThreadId = link.threadId;
       this.setThreadPermissionFields(link.threadId, {
@@ -6930,7 +8098,7 @@ export class CodexService extends EventEmitter {
         durationMs: Date.now() - startedAt,
       });
       this.markThreadAsActive(link.threadId);
-      this.emitThreadStreamSnapshotFromRecord(link.threadId);
+      this.emitThreadStreamSnapshotFromRecord(link.threadId, "no-owner-fallback");
 
       const detail = this.serializeThreadDetail(link.threadId);
       if (!detail) {
@@ -7085,7 +8253,7 @@ export class CodexService extends EventEmitter {
       this.setLatestCollaborationModeForThread(detail.threadId, latestCollaborationMode);
     }
     this.emitEvent({ type: "threadSummary", thread: summary });
-    this.emitThreadStreamSnapshotFromRecord(summary.threadId);
+    this.emitThreadStreamSnapshotFromRecord(summary.threadId, "no-owner-fallback");
 
     const session = projectSessionService.getProjectSession(nextSession.id);
     if (!session) {
@@ -7113,7 +8281,7 @@ export class CodexService extends EventEmitter {
     this.outputDeltaQueue.flushNow();
     const existingConversation = this.serializeConversationSnapshot(threadId);
     if (existingConversation) {
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId, "explicit-resync");
       return existingConversation;
     }
 
@@ -7234,35 +8402,58 @@ export class CodexService extends EventEmitter {
     return this.resumeConversationRecord(threadId);
   }
 
-  async requestConversationResume(threadId: string): Promise<CodexConversationSnapshot | null> {
+  async requestConversationResume(
+    threadId: string,
+    options: RequestConversationResumeOptions = {},
+  ): Promise<CodexConversationSnapshot | null> {
+    const emitSourceNullSnapshots = options.emitSourceNullSnapshots !== false;
+    const replayBufferedNotifications = options.replayBufferedNotifications !== false;
+    const syncOrEmitSnapshot = (): void => {
+      if (emitSourceNullSnapshots) {
+        this.emitThreadStreamSnapshotFromRecord(threadId, "explicit-resync");
+        return;
+      }
+
+      this.syncBroadcastConversationSnapshotCacheSilently(threadId);
+    };
+
     const existingLink = this.getThreadLinkSafely(threadId);
     if (existingLink?.archived) {
       this.ensureConversationDetail(threadId);
       this.setConversationResumeState(threadId, "needs_resume");
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      syncOrEmitSnapshot();
+      this.syncInactiveRendererOwnerCleanup(threadId);
       return this.serializeConversationSnapshot(threadId);
     }
 
+    this.beginResumeNotificationBuffer(threadId);
     this.setConversationResumeState(threadId, "resuming");
     this.ensureConversationDetail(threadId);
-    this.emitThreadStreamSnapshotFromRecord(threadId);
+    syncOrEmitSnapshot();
 
     try {
       const detail = await this.resumeThread(threadId);
       if (!detail) {
+        this.cancelResumeNotificationBuffer(threadId);
         this.setConversationResumeState(threadId, "needs_resume");
-        this.emitThreadStreamSnapshotFromRecord(threadId);
+        syncOrEmitSnapshot();
+        this.syncInactiveRendererOwnerCleanup(threadId);
         return null;
       }
 
       this.setConversationResumeState(threadId, "resumed");
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      syncOrEmitSnapshot();
+      if (replayBufferedNotifications) {
+        await this.releaseConversationResumeBuffer(threadId);
+      }
       return this.serializeConversationSnapshot(threadId);
     } catch (error) {
+      this.cancelResumeNotificationBuffer(threadId);
       this.setConversationResumeState(threadId, "needs_resume");
       const record = this.ensureConversationRecord(threadId);
       record.streamRole = null;
       record.isStreaming = false;
+      this.syncInactiveRendererOwnerCleanup(threadId);
       if (isThreadArchivedError(error)) {
         const summary = updateCodexThreadArchived(threadId, true);
         if (summary) {
@@ -7273,10 +8464,10 @@ export class CodexService extends EventEmitter {
           detail.archived = true;
         }
         this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
-        this.emitThreadStreamSnapshotFromRecord(threadId);
+        syncOrEmitSnapshot();
         return this.serializeConversationSnapshot(threadId);
       }
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      syncOrEmitSnapshot();
       throw error;
     }
   }
@@ -7326,7 +8517,11 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private async fallbackToFullTurnHistory(threadId: string, reason: string): Promise<CodexConversationSnapshot | null> {
+  private async fallbackToFullTurnHistory(
+    threadId: string,
+    reason: string,
+    options: { broadcastResult: boolean } = { broadcastResult: true },
+  ): Promise<CodexConversationSnapshot | null> {
     this.logger.warn("Falling back to full Codex thread history", {
       threadId,
       reason,
@@ -7334,8 +8529,8 @@ export class CodexService extends EventEmitter {
     const detail = await this.readThreadWithTurnsFlag(threadId, true);
     if (!detail) return null;
     const snapshot = this.serializeConversationSnapshot(threadId);
-    if (snapshot) {
-      this.emitThreadStreamSnapshot(threadId, snapshot);
+    if (snapshot && options.broadcastResult) {
+      this.emitThreadStreamSnapshot(threadId, snapshot, "explicit-resync");
     }
     return snapshot;
   }
@@ -7344,7 +8539,7 @@ export class CodexService extends EventEmitter {
     const inFlight = this.olderTurnsLoadInFlight.get(threadId);
     if (inFlight) return inFlight;
 
-    const request = this.loadOlderThreadTurnsPage(threadId, { broadcastLoading: true });
+    const request = this.loadOlderThreadTurnsPage(threadId, { broadcastLoading: true, broadcastResult: true });
     this.olderTurnsLoadInFlight.set(threadId, request);
     try {
       return await request;
@@ -7355,9 +8550,14 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  async loadCompleteThreadHistory(threadId: string): Promise<CodexConversationSnapshot | null> {
+    await this.loadRemainingThreadTurns(threadId, { broadcastResult: false });
+    return this.serializeConversationSnapshot(threadId);
+  }
+
   private async loadOlderThreadTurnsPage(
     threadId: string,
-    options: { broadcastLoading: boolean },
+    options: { broadcastLoading: boolean; broadcastResult: boolean },
   ): Promise<CodexConversationSnapshot | null> {
     await this.ensureClientReady();
     const record = this.ensureConversationRecord(threadId);
@@ -7367,7 +8567,11 @@ export class CodexService extends EventEmitter {
     const pagination = record.turnPagination;
     if (pagination.hasLoadedOldest || pagination.olderCursor === null) {
       record.turnPagination = this.buildCompleteTurnPagination(detail.turns.length);
-      return this.serializeConversationSnapshot(threadId);
+      const snapshot = this.serializeConversationSnapshot(threadId);
+      if (snapshot && options.broadcastResult) {
+        this.emitThreadStreamSnapshot(threadId, snapshot, "explicit-resync");
+      }
+      return snapshot;
     }
 
     const requestedCursor = pagination.olderCursor;
@@ -7381,7 +8585,7 @@ export class CodexService extends EventEmitter {
     if (options.broadcastLoading) {
       const loadingSnapshot = this.serializeConversationSnapshot(threadId);
       if (loadingSnapshot) {
-        this.emitThreadStreamSnapshot(threadId, loadingSnapshot);
+        this.emitThreadStreamSnapshot(threadId, loadingSnapshot, "explicit-resync");
       }
     }
 
@@ -7406,8 +8610,8 @@ export class CodexService extends EventEmitter {
       if (page.data.length === 0) {
         currentRecord.turnPagination = this.buildCompleteTurnPagination(currentDetail.turns.length);
         const snapshot = this.serializeConversationSnapshot(threadId);
-        if (snapshot) {
-          this.emitThreadStreamSnapshot(threadId, snapshot);
+        if (snapshot && options.broadcastResult) {
+          this.emitThreadStreamSnapshot(threadId, snapshot, "explicit-resync");
         }
         return snapshot;
       }
@@ -7426,8 +8630,8 @@ export class CodexService extends EventEmitter {
       });
       this.persistThreadDetailSummary(mergedDetail);
       const snapshot = this.serializeConversationSnapshot(threadId);
-      if (snapshot) {
-        this.emitThreadStreamSnapshot(threadId, snapshot);
+      if (snapshot && options.broadcastResult) {
+        this.emitThreadStreamSnapshot(threadId, snapshot, "explicit-resync");
       }
       return snapshot;
     } catch (error) {
@@ -7435,7 +8639,9 @@ export class CodexService extends EventEmitter {
         threadId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return this.fallbackToFullTurnHistory(threadId, "older-page-failed");
+      return this.fallbackToFullTurnHistory(threadId, "older-page-failed", {
+        broadcastResult: options.broadcastResult,
+      });
     }
   }
 
@@ -7446,7 +8652,7 @@ export class CodexService extends EventEmitter {
     }
     if (this.remainingTurnsLoadInFlight.has(threadId)) return;
 
-    const request = this.loadRemainingThreadTurns(threadId).catch((error) => {
+    const request = this.loadRemainingThreadTurns(threadId, { broadcastResult: true }).catch((error) => {
       this.logger.warn("Failed to load remaining Codex thread turns after resume", {
         threadId,
         error: error instanceof Error ? error.message : String(error),
@@ -7460,13 +8666,19 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private async loadRemainingThreadTurns(threadId: string): Promise<void> {
+  private async loadRemainingThreadTurns(
+    threadId: string,
+    options: { broadcastResult: boolean },
+  ): Promise<void> {
     for (;;) {
       const record = this.getMaybeConversationRecord(threadId);
       if (!record || record.turnPagination.hasLoadedOldest || record.turnPagination.olderCursor === null) {
         return;
       }
-      await this.loadOlderThreadTurns(threadId);
+      await this.loadOlderThreadTurnsPage(threadId, {
+        broadcastLoading: options.broadcastResult,
+        broadcastResult: options.broadcastResult,
+      });
     }
   }
 
@@ -7510,60 +8722,138 @@ export class CodexService extends EventEmitter {
     return { detail: fallbackDetail, summary };
   }
 
-  async editLastUserTurn(
-    threadId: string,
-    turnId: string,
-    message: string,
-    opts?: { serviceTier?: CodexServiceTier },
-  ): Promise<CodexThreadActionResult> {
+  async handleRendererOwnerAppServerRequest(
+    sourceClientId: string | null,
+    input: CodexOwnerAppServerRequestInput,
+  ): Promise<unknown> {
     await this.ensureClientReady();
 
-    const currentDetail = this.serializeThreadDetail(threadId);
-    if (!currentDetail) {
-      throw new Error(`Thread '${threadId}' was not found`);
+    const conversationId = input.conversationId.trim();
+    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(conversationId) ?? null;
+    if (!sourceClientId || ownerClientId !== sourceClientId) {
+      throw new Error(`Renderer client ${sourceClientId ?? "unknown"} is not owner for ${conversationId}`);
     }
 
-    const latestEditableTurn = this.resolveLatestEditableTurn(currentDetail);
-    if (!latestEditableTurn || latestEditableTurn.turnId !== turnId) {
-      throw new Error("Only the latest completed user turn can be edited");
+    const params = asRecord(input.request.params);
+    if (!params || params.threadId !== conversationId) {
+      throw new Error(`Owner app-server request '${input.request.method}' must target ${conversationId}`);
     }
 
-    const rollbackResult = await this.client.request<"thread/rollback", ThreadRollbackResponse>("thread/rollback", {
-      threadId,
-      numTurns: 1,
-    });
-    const threadRef = this.parseThreadRef(threadId);
-    const { detail, summary } = this.materializeThreadDetailFromThreadPayload(
-      rollbackResult.thread,
-      threadRef,
-      currentDetail.cwd,
-    );
-    this.setConversationRecordDetail(detail);
-
-    try {
-      await this.startTurn(threadId, message, {
-        serviceTier: opts?.serviceTier,
-      });
-    } catch (error) {
-      if (summary) {
-        this.emitEvent({ type: "threadSummary", thread: summary });
+    switch (input.request.method) {
+      case "thread/rollback": {
+        await this.waitForRendererOwnerNotificationDrain(conversationId);
+        const numTurns = getFiniteNumber(params.numTurns);
+        if (numTurns !== 1) {
+          throw new Error("Owner thread/rollback currently supports numTurns: 1");
+        }
+        const turnId = readStringField(params, "turnId");
+        if (turnId) {
+          const currentDetail = this.serializeThreadDetail(conversationId);
+          if (!currentDetail) {
+            throw new Error(`Thread '${conversationId}' was not found`);
+          }
+          const latestEditableTurn = this.resolveLatestEditableTurn(currentDetail);
+          if (!latestEditableTurn || latestEditableTurn.turnId !== turnId) {
+            throw new Error("Only the latest completed user turn can be edited");
+          }
+        }
+        const rollbackResult = await this.client.request<"thread/rollback", ThreadRollbackResponse>("thread/rollback", {
+          threadId: conversationId,
+          numTurns,
+        });
+        const currentDetail = this.serializeThreadDetail(conversationId);
+        const threadRef = this.parseThreadRef(conversationId);
+        const { detail, summary } = this.materializeThreadDetailFromThreadPayload(
+          rollbackResult.thread,
+          threadRef,
+          currentDetail?.cwd ?? null,
+        );
+        this.setConversationRecordDetail(detail);
+        if (summary) {
+          this.emitEvent({ type: "threadSummary", thread: summary });
+        }
+        this.syncBroadcastConversationSnapshotCacheSilently(conversationId);
+        return rollbackResult;
       }
-      this.emitThreadStreamSnapshotFromRecord(threadId);
-      throw error;
+      case "thread/fork": {
+        const turnId = readStringField(params, "turnId");
+        const message = readStringField(params, "message");
+        if (!turnId) {
+          throw new Error("Owner thread/fork requires a turnId");
+        }
+        if (message === null) {
+          throw new Error("Owner thread/fork requires a message");
+        }
+        return await this.forkConversationFromTurn(conversationId, turnId, message, {
+          emitSourceNullUpdates: false,
+        });
+      }
+      case "turn/start": {
+        await this.waitForRendererOwnerNotificationDrain(conversationId);
+        const prompt = readStringField(params, "prompt") ?? "";
+        const opts = asRecord(params.opts);
+        const promptInput = asRecord(params.promptInput);
+        const clientUserMessageId = readStringField(params, "clientUserMessageId") ?? undefined;
+        const startOverrides: StartTurnOverrides | undefined = opts || promptInput || clientUserMessageId
+          ? {
+              ...(opts ? opts as CodexTurnStartOptions : {}),
+              ...(promptInput && !asRecord(opts)?.promptInput
+                ? { promptInput: promptInput as unknown as CodexPromptInput }
+                : {}),
+              ...(clientUserMessageId ? { clientUserMessageId } : {}),
+            }
+          : undefined;
+        const result = await this.startTurn(
+          conversationId,
+          prompt,
+          startOverrides,
+          { emitSourceNullUpdates: false },
+        );
+        return result;
+      }
+      case "turn/steer":
+        return await this.steerTurn(input.request.params as CodexSteerTurnInput, { emitSourceNullUpdates: false });
+      case "turn/interrupt":
+        return await this.interruptTurn(
+          conversationId,
+          readStringField(params, "turnId") ?? undefined,
+          { emitSourceNullUpdates: false },
+        );
+      case "thread/settings/update":
+        return await this.updateThreadSettingsForNextTurn(
+          conversationId,
+          asRecord(params.patch) as CodexConversationThreadSettingsPatch,
+          { emitSourceNullUpdates: false },
+        );
+      case "thread/goal/set": {
+        const objective = readStringField(params, "objective") ?? "";
+        const tokenBudget = getFiniteNumber(params.tokenBudget);
+        return await this.setThreadGoal({
+          threadId: conversationId,
+          objective,
+          tokenBudget,
+        });
+      }
+      case "thread/goal/clear":
+        await this.clearThreadGoal(conversationId);
+        return null;
+      case "thread/memoryMode/set": {
+        const mode = params.mode === "enabled" ? "enabled" : params.mode === "disabled" ? "disabled" : null;
+        if (!mode) throw new Error("Invalid thread memory mode");
+        await this.setThreadMemoryMode({ threadId: conversationId, mode });
+        return null;
+      }
+      case "thread/compact/start":
+        await this.startThreadCompaction(conversationId);
+        return null;
     }
-
-    this.emitThreadStreamSnapshotFromRecord(threadId);
-
-    return {
-      threadId,
-      composerIntent: this.buildComposerIntent(message),
-    };
   }
 
   async forkConversationFromTurn(
     threadId: string,
     turnId: string,
     message: string,
+    options: { emitSourceNullUpdates?: boolean } = {},
   ): Promise<CodexThreadActionResult> {
     await this.ensureClientReady();
 
@@ -7619,7 +8909,11 @@ export class CodexService extends EventEmitter {
     if (summary) {
       this.emitEvent({ type: "threadSummary", thread: summary });
     }
-    this.emitThreadStreamSnapshotFromRecord(detail.threadId);
+    if (options.emitSourceNullUpdates === false) {
+      this.syncBroadcastConversationSnapshotCacheSilently(detail.threadId);
+    } else {
+      this.emitThreadStreamSnapshotFromRecord(detail.threadId, "no-owner-fallback");
+    }
 
     return {
       threadId: detail.threadId,
@@ -7727,7 +9021,7 @@ export class CodexService extends EventEmitter {
     });
     this.setConversationRecordDetail(detail);
     this.setConversationResumeState(forkedThreadId, "resumed");
-    this.emitThreadStreamSnapshotFromRecord(forkedThreadId);
+    this.emitThreadStreamSnapshotFromRecord(forkedThreadId, "no-owner-fallback");
 
     const promptInput = input.promptInput
       ? {
@@ -7865,7 +9159,9 @@ export class CodexService extends EventEmitter {
   async updateThreadSettingsForNextTurn(
     threadId: string,
     patch: CodexConversationThreadSettingsPatch,
+    options: SourceNullBroadcastOptions = {},
   ): Promise<CodexConversationThreadSettings> {
+    const emitSourceNullUpdates = options.emitSourceNullUpdates ?? true;
     const previousUpdate = this.pendingThreadSettingsUpdates.get(threadId) ?? Promise.resolve(null);
     const update = previousUpdate
       .catch(() => null)
@@ -7873,10 +9169,12 @@ export class CodexService extends EventEmitter {
         await this.ensureClientReady();
         const nextSettings = this.mergeThreadSettingsPatch(threadId, patch);
         this.applyLatestThreadSettingsForThread(threadId, nextSettings);
-        this.syncBroadcastConversation(threadId, {
-          syncLatestCollaborationMode: true,
-          syncLatestThreadSettings: true,
-        });
+        if (emitSourceNullUpdates) {
+          this.syncBroadcastConversation(threadId, {
+            syncLatestCollaborationMode: true,
+            syncLatestThreadSettings: true,
+          });
+        }
 
         if (this.threadSettingsUpdateSupport !== "unsupported") {
           const params = this.buildThreadSettingsUpdateParams(threadId, patch, nextSettings);
@@ -7955,8 +9253,10 @@ export class CodexService extends EventEmitter {
     threadId: string,
     prompt: string,
     overrides?: StartTurnOverrides,
+    options: SourceNullBroadcastOptions = {},
   ): Promise<CodexTurnSummary | null> {
     await this.ensureClientReady();
+    const emitSourceNullUpdates = options.emitSourceNullUpdates ?? true;
 
     const preparedPrompt = await this.preparePromptForTurn(prompt, overrides?.promptInput);
     const promptText = preparedPrompt.promptText;
@@ -8023,6 +9323,7 @@ export class CodexService extends EventEmitter {
       fallbackCollaborationMode,
     }));
     const startedAt = Date.now();
+    const clientUserMessageId = overrides?.clientUserMessageId ?? randomUUID();
 
     this.logger.info("Starting Codex turn", {
       threadId,
@@ -8040,6 +9341,7 @@ export class CodexService extends EventEmitter {
     const startTurnRequest = () => {
       const turnStartParams: TurnStartParams = {
         threadId,
+        clientUserMessageId,
         ...(workspacePath ? { cwd: workspacePath } : {}),
         ...(preparedPrompt.additionalContext ? { additionalContext: preparedPrompt.additionalContext } : {}),
         ...turnPermissionOverrides,
@@ -8085,10 +9387,14 @@ export class CodexService extends EventEmitter {
         observedTurn.turnId,
         promptText,
         optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
+        undefined,
+        clientUserMessageId,
       );
       this.clearPausedQueuedFollowUps(threadId, false);
       this.markThreadAsActive(threadId);
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      if (emitSourceNullUpdates) {
+        this.emitThreadStreamSnapshotFromRecord(threadId, "no-owner-fallback");
+      }
       this.logger.info("Started Codex turn", {
         threadId,
         turnId: observedTurn.turnId,
@@ -8099,7 +9405,9 @@ export class CodexService extends EventEmitter {
 
     this.markThreadAsActive(threadId);
     this.clearPausedQueuedFollowUps(threadId, false);
-    this.emitThreadStreamSnapshotFromRecord(threadId);
+    if (emitSourceNullUpdates) {
+      this.emitThreadStreamSnapshotFromRecord(threadId, "no-owner-fallback");
+    }
     const detail = this.serializeThreadDetail(threadId);
     if (!detail || detail.turns.length === 0) return null;
     this.logger.info("Started Codex turn from canonical conversation state", {
@@ -8130,8 +9438,12 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
+  async steerTurn(
+    input: CodexSteerTurnInput,
+    options: SourceNullBroadcastOptions = {},
+  ): Promise<{ turnId: string } | null> {
     await this.ensureClientReady();
+    const emitSourceNullUpdates = options.emitSourceNullUpdates ?? true;
 
     const threadId = input.threadId;
     const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
@@ -8181,25 +9493,29 @@ export class CodexService extends EventEmitter {
       targetTurnStartedAtMs: activeTurn?.turnStartedAtMs ?? activeTurn?.startedAt ?? null,
     }));
     this.upsertCanonicalTurnItem(threadId, expectedTurnId, steerId, "inProgress");
-    this.syncBroadcastConversationTurnState(threadId, expectedTurnId, {
-      syncBackgroundTerminalRows: true,
-      syncCapabilityFlags: true,
-    });
+    if (emitSourceNullUpdates) {
+      this.syncBroadcastConversationTurnState(threadId, expectedTurnId, {
+        syncBackgroundTerminalRows: true,
+        syncCapabilityFlags: true,
+      });
+    }
     let result: TurnSteerResponse;
     try {
       result = await this.client.request<"turn/steer", TurnSteerResponse>("turn/steer", steerParams);
     } catch (error) {
       this.removeSteeringUserMessage(threadId, steerId);
-      this.syncBroadcastConversationTurnState(threadId, expectedTurnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
-      });
+      if (emitSourceNullUpdates) {
+        this.syncBroadcastConversationTurnState(threadId, expectedTurnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
+      }
       if (isSteerTurnInactiveError(error)) {
         return this.startTurn(threadId, input.prompt, {
           collaborationMode: input.collaborationMode ?? undefined,
           serviceTier: input.serviceTier,
           ...(input.promptInput ? { promptInput: input.promptInput } : {}),
-        });
+        }, options);
       }
       throw error;
     }
@@ -8218,8 +9534,13 @@ export class CodexService extends EventEmitter {
     return { turnId: result.turnId };
   }
 
-  async interruptTurn(threadId: string, turnId?: string): Promise<boolean> {
+  async interruptTurn(
+    threadId: string,
+    turnId?: string,
+    options: SourceNullBroadcastOptions = {},
+  ): Promise<boolean> {
     await this.ensureClientReady();
+    const emitSourceNullUpdates = options.emitSourceNullUpdates ?? true;
 
     const resolvedTurnId = await this.resolveInterruptTurnId(threadId, turnId);
     if (!resolvedTurnId) {
@@ -8254,7 +9575,9 @@ export class CodexService extends EventEmitter {
     this.syncThreadStatusFromKnownTurns(threadId);
     this.reconcileTurnItemsToTerminalStatus(threadId, resolvedTurnId, "interrupted");
     this.emitEvent({ type: "turn", turn: interruptedTurn });
-    this.emitThreadStreamSnapshotFromRecord(threadId);
+    if (emitSourceNullUpdates) {
+      this.emitThreadStreamSnapshotFromRecord(threadId, "no-owner-fallback");
+    }
     this.maybeDispatchQueuedFollowUp(threadId);
     return true;
   }
@@ -8286,6 +9609,74 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
+  async cleanBackgroundTerminalsSilently(threadId: string): Promise<boolean> {
+    await this.ensureClientReady();
+
+    await this.client.request<"thread/backgroundTerminals/clean", ThreadBackgroundTerminalsCleanResponse>(
+      "thread/backgroundTerminals/clean",
+      { threadId },
+    );
+    this.markBackgroundTerminalsInterruptedSilently(threadId);
+    return true;
+  }
+
+  private markBackgroundTerminalsInterruptedSilently(threadId: string): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    const detail = record?.detail;
+    if (!record || !detail) {
+      return;
+    }
+
+    const commandIdsByTurnId = new Map<string, string[]>();
+    for (const entry of detail.transcript) {
+      if (entry.kind !== "commandExecution" || entry.status !== "inProgress") {
+        continue;
+      }
+
+      const existing = commandIdsByTurnId.get(entry.turnId);
+      if (existing) {
+        existing.push(entry.itemId);
+      } else {
+        commandIdsByTurnId.set(entry.turnId, [entry.itemId]);
+      }
+    }
+    if (commandIdsByTurnId.size === 0) {
+      return;
+    }
+
+    let didChange = false;
+    const nextTurns = detail.turns.map((turn) => {
+      const commandIds = commandIdsByTurnId.get(turn.turnId);
+      if (!commandIds || commandIds.length === 0) {
+        return turn;
+      }
+
+      const nextInterruptedIds = new Set(turn.interruptedCommandExecutionItemIds ?? []);
+      const previousSize = nextInterruptedIds.size;
+      for (const commandId of commandIds) {
+        nextInterruptedIds.add(commandId);
+      }
+      if (nextInterruptedIds.size === previousSize) {
+        return turn;
+      }
+
+      didChange = true;
+      return {
+        ...turn,
+        interruptedCommandExecutionItemIds: [...nextInterruptedIds],
+      };
+    });
+    if (!didChange) {
+      return;
+    }
+
+    record.detail = {
+      ...detail,
+      turns: nextTurns,
+    };
+    this.syncBroadcastConversationSnapshotCacheSilently(threadId);
+  }
+
   async respondToApproval(requestId: string, decision: CodexApprovalDecision): Promise<boolean> {
     const pending = this.pendingApprovals.get(requestId);
     if (!pending) return false;
@@ -8315,6 +9706,7 @@ export class CodexService extends EventEmitter {
       pending.resolve({ decision });
       this.pendingApprovals.delete(requestId);
     }
+    const ownerRouted = this.rendererOwnerClientIdByConversationId.has(pending.request.threadId);
     this.clearApprovalRequestAttachment(
       pending.request.threadId,
       pending.request.turnId,
@@ -8322,10 +9714,12 @@ export class CodexService extends EventEmitter {
       requestId,
     );
     this.emitEvent({ type: "approvalResolved", requestId, decision });
-    this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
-      syncRequests: true,
-      syncCapabilityFlags: true,
-    });
+    if (!ownerRouted) {
+      this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
+        syncRequests: true,
+        syncCapabilityFlags: true,
+      });
+    }
     return true;
   }
 
@@ -8366,10 +9760,12 @@ export class CodexService extends EventEmitter {
     const resolvedEntry = this.upsertResolvedUserInputItem(pending.request, transcriptAnswers);
     void resolvedEntry;
     this.emitEvent({ type: "userInputResolved", requestId });
-    this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
-      syncRequests: true,
-      syncCapabilityFlags: true,
-    });
+    if (!this.rendererOwnerClientIdByConversationId.has(pending.request.threadId)) {
+      this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
+        syncRequests: true,
+        syncCapabilityFlags: true,
+      });
+    }
     return true;
   }
 
@@ -8397,10 +9793,41 @@ export class CodexService extends EventEmitter {
       completed: true,
       action,
     });
-    this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
-      syncRequests: true,
-      syncCapabilityFlags: true,
+    if (!this.rendererOwnerClientIdByConversationId.has(pending.request.threadId)) {
+      this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
+        syncRequests: true,
+        syncCapabilityFlags: true,
+      });
+    }
+    return true;
+  }
+
+  async respondToPermissionRequest(
+    requestId: string,
+    response: CodexPermissionRequestResponse,
+  ): Promise<boolean> {
+    const pending = this.pendingPermissionRequests.get(requestId);
+    if (!pending) return false;
+
+    this.logger.info("Resolving Codex permissions request", {
+      requestId,
+      threadId: pending.request.threadId,
+      turnId: pending.request.turnId,
+      scope: response.scope,
     });
+
+    pending.resolve(response);
+    this.pendingPermissionRequests.delete(requestId);
+    this.upsertPermissionRequestItem(pending.request, {
+      completed: true,
+      response,
+    });
+    if (!this.rendererOwnerClientIdByConversationId.has(pending.request.threadId)) {
+      this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
+        syncRequests: true,
+        syncCapabilityFlags: true,
+      });
+    }
     return true;
   }
 
@@ -8429,6 +9856,36 @@ export class CodexService extends EventEmitter {
         questions: request.questions,
         answers,
         completed: true,
+      },
+      createdAt: request.createdAt,
+      updatedAt: Date.now(),
+    });
+  }
+
+  private upsertPermissionRequestItem(
+    request: CodexPermissionRequest,
+    options: { completed: boolean; response: CodexPermissionRequestResponse | null },
+  ): CodexTranscriptEntry | null {
+    const itemId = this.buildPermissionRequestItemId(request.requestId);
+    this.upsertCanonicalTurnItem(request.threadId, request.turnId, itemId, "inProgress");
+    return this.mergeItem({
+      threadId: request.threadId,
+      turnId: request.turnId,
+      itemId,
+      type: "permissionRequest",
+      normalizedKind: "systemEvent",
+      semanticKind: "permissionRequest",
+      status: options.completed ? "completed" : "inProgress",
+      markdownText: request.reason ?? "Permission request",
+      rawItem: {
+        id: itemId,
+        type: "permissionRequest",
+        requestId: request.requestId,
+        turnId: request.turnId,
+        reason: request.reason,
+        permissions: request.permissions,
+        completed: options.completed,
+        response: options.response,
       },
       createdAt: request.createdAt,
       updatedAt: Date.now(),
@@ -9096,7 +10553,7 @@ export class CodexService extends EventEmitter {
         const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, null, sourceDetail.cwd);
         this.setConversationRecordDetail(detail);
         if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-        this.emitThreadStreamSnapshotFromRecord(detail.threadId);
+        this.emitThreadStreamSnapshotFromRecord(detail.threadId, "no-owner-fallback");
         return this.buildDynamicToolSuccess({ threadId: detail.threadId });
       }
 
@@ -9135,7 +10592,7 @@ export class CodexService extends EventEmitter {
           model: this.parseDynamicString(args.model) ?? undefined,
           reasoningEffort: this.parseDynamicReasoningEffort(args.thinking),
         });
-        this.emitThreadStreamSnapshotFromRecord(detail.threadId);
+        this.emitThreadStreamSnapshotFromRecord(detail.threadId, "no-owner-fallback");
         return this.buildDynamicToolSuccess({ threadId: detail.threadId });
       }
 
@@ -9180,12 +10637,62 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  private async handleDynamicToolCallRequest(
+    request: CodexServerRequest & { method: "item/tool/call"; params: DynamicToolCallParams },
+  ): Promise<DynamicToolCallResponse> {
+    const threadId = request.params.threadId;
+    if (!this.rendererOwnerClientIdByConversationId.has(threadId)) {
+      return await this.handleDynamicToolCall(request.params);
+    }
+
+    return await new Promise<DynamicToolCallResponse>((resolve, reject) => {
+      const requestId = String(request.id);
+      this.pendingDynamicToolCalls.set(requestId, {
+        request,
+        resolve,
+        reject,
+      });
+
+      const ownerRouted = this.forwardServerRequestToRendererOwner({
+        id: requestId,
+        method: "item/tool/call",
+        params: request.params,
+      });
+      if (ownerRouted) {
+        this.syncInactiveRendererOwnerCleanup(threadId);
+        return;
+      }
+
+      this.pendingDynamicToolCalls.delete(requestId);
+      void this.handleDynamicToolCall(request.params).then(resolve, reject);
+    });
+  }
+
+  async respondToDynamicToolCall(requestId: string): Promise<DynamicToolCallResponse | null> {
+    const pending = this.pendingDynamicToolCalls.get(requestId);
+    if (!pending) return null;
+
+    this.pendingDynamicToolCalls.delete(requestId);
+    const response = await this.handleDynamicToolCall(pending.request.params);
+    pending.resolve(response);
+    return response;
+  }
+
   private async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
     this.logger.info("Handling Codex server request", {
       requestId: String(request.id),
       method: request.method,
     });
 
+    const buffered = this.bufferResumeServerRequestIfNeeded(request);
+    if (buffered) {
+      return buffered;
+    }
+
+    return this.handleServerRequestNow(request);
+  }
+
+  private async handleServerRequestNow(request: CodexServerRequest): Promise<unknown> {
     if (request.method === "item/commandExecution/requestApproval") {
       return this.handleApprovalRequest(
         String(request.id),
@@ -9202,6 +10709,13 @@ export class CodexService extends EventEmitter {
       );
     }
 
+    if (request.method === "item/permissions/requestApproval") {
+      return this.handlePermissionsRequestApproval(
+        String(request.id),
+        request.params as PermissionsRequestApprovalParams,
+      );
+    }
+
     if (request.method === "item/tool/requestUserInput") {
       return this.handleRequestUserInput(String(request.id), request.params as ToolRequestUserInputParams);
     }
@@ -9214,7 +10728,9 @@ export class CodexService extends EventEmitter {
     }
 
     if (request.method === "item/tool/call") {
-      return this.handleDynamicToolCall(request.params as DynamicToolCallParams);
+      return this.handleDynamicToolCallRequest(
+        request as CodexServerRequest & { method: "item/tool/call"; params: DynamicToolCallParams },
+      );
     }
 
     if (request.method === "currentTime/read") {
@@ -9325,7 +10841,24 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
-      if (kind === "command") {
+
+      const ownerRouted = this.forwardServerRequestToRendererOwner(
+        kind === "command"
+          ? {
+              id: requestId,
+              method: "item/commandExecution/requestApproval",
+              params: params as CommandExecutionRequestApprovalParams,
+            }
+          : {
+              id: requestId,
+              method: "item/fileChange/requestApproval",
+              params: params as FileChangeRequestApprovalParams,
+            },
+      );
+
+      if (ownerRouted) {
+        this.syncInactiveRendererOwnerCleanup(threadId);
+      } else if (kind === "command") {
         this.syncBroadcastConversationTurnState(threadId, turnId, {
           syncRequests: true,
           syncCapabilityFlags: true,
@@ -9446,6 +10979,71 @@ export class CodexService extends EventEmitter {
     });
   }
 
+  private async handlePermissionsRequestApproval(
+    requestId: string,
+    params: PermissionsRequestApprovalParams,
+  ): Promise<PermissionsRequestApprovalResponse> {
+    const threadId = params.threadId;
+    const turnId = params.turnId;
+    const itemId = params.itemId;
+
+    if (!threadId || !turnId || !itemId) {
+      return { permissions: {}, scope: "turn" };
+    }
+
+    const ref = this.parseThreadRef(threadId);
+    const payload: CodexPermissionRequest = {
+      type: "permissionRequest",
+      requestId,
+      projectId: ref?.projectId ?? null,
+      threadId,
+      turnId,
+      itemId,
+      cwd: params.cwd,
+      reason: params.reason,
+      permissions: params.permissions,
+      response: null,
+      completed: false,
+      createdAt: params.startedAtMs,
+    };
+
+    this.logger.info("Received Codex permissions request", {
+      requestId,
+      projectId: payload.projectId,
+      threadId,
+      turnId,
+      itemId,
+      cwd: payload.cwd,
+      reason: payload.reason,
+    });
+    this.upsertPermissionRequestItem(payload, {
+      completed: false,
+      response: null,
+    });
+
+    return await new Promise<PermissionsRequestApprovalResponse>((resolve, reject) => {
+      this.pendingPermissionRequests.set(requestId, {
+        request: payload,
+        resolve,
+        reject,
+      });
+
+      const ownerRouted = this.forwardServerRequestToRendererOwner({
+        id: requestId,
+        method: "item/permissions/requestApproval",
+        params,
+      });
+      if (ownerRouted) {
+        this.syncInactiveRendererOwnerCleanup(threadId);
+      } else {
+        this.syncBroadcastConversationTurnState(threadId, turnId, {
+          syncRequests: true,
+          syncCapabilityFlags: true,
+        });
+      }
+    });
+  }
+
   private async handleRequestUserInput(
     requestId: string,
     params: ToolRequestUserInputParams,
@@ -9497,7 +11095,16 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
-      this.syncBroadcastConversationRequests(threadId, { syncCapabilityFlags: true });
+      const ownerRouted = this.forwardServerRequestToRendererOwner({
+        id: requestId,
+        method: "item/tool/requestUserInput",
+        params,
+      });
+      if (ownerRouted) {
+        this.syncInactiveRendererOwnerCleanup(threadId);
+      } else {
+        this.syncBroadcastConversationRequests(threadId, { syncCapabilityFlags: true });
+      }
       this.emitEvent({ type: "userInputRequested", request: payload });
     });
   }
@@ -9509,6 +11116,16 @@ export class CodexService extends EventEmitter {
     const threadId = params.threadId;
     if (!threadId) {
       return { action: "cancel", content: null, _meta: null };
+    }
+
+    if (!isRenderableMcpServerElicitationRequest(params)) {
+      this.logger.info("Declining unsupported Codex MCP elicitation request", {
+        requestId,
+        threadId,
+        mode: params.mode,
+        serverName: params.serverName,
+      });
+      return { action: "decline", content: null, _meta: null };
     }
 
     const ref = this.parseThreadRef(threadId);
@@ -9549,11 +11166,36 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
-      this.syncBroadcastConversationTurnState(threadId, payload.turnId, {
-        syncRequests: true,
-        syncCapabilityFlags: true,
+      const ownerRouted = this.forwardServerRequestToRendererOwner({
+        id: requestId,
+        method: "mcpServer/elicitation/request",
+        params,
       });
+      if (ownerRouted) {
+        this.syncInactiveRendererOwnerCleanup(threadId);
+      } else {
+        this.syncBroadcastConversationTurnState(threadId, payload.turnId, {
+          syncRequests: true,
+          syncCapabilityFlags: true,
+        });
+      }
     });
+  }
+
+  private frameTextDeltaItemMatchesTarget(
+    item: Pick<CodexItemView, "normalizedKind" | "semanticKind"> | Pick<CodexConversationItem, "kind" | "semanticKind">,
+    target: FrameTextDeltaTarget,
+  ): boolean {
+    const kind = "normalizedKind" in item ? item.normalizedKind : item.kind;
+    if (target.type === "agentMessage") {
+      return kind === "assistantMessage" || item.semanticKind === "assistantMessage";
+    }
+
+    if (target.type === "plan") {
+      return kind === "plan" || item.semanticKind === "proposedPlan";
+    }
+
+    return kind === "reasoning" || item.semanticKind === "reasoning";
   }
 
   private applyFrameTextDeltas(updates: FrameTextDeltaUpdate[]): void {
@@ -9568,8 +11210,9 @@ export class CodexService extends EventEmitter {
         turnId: update.turnId,
         itemId: update.itemId,
       });
-      const existing = byItem.get(itemKey);
       const now = Date.now();
+      const knownTurn = this.getKnownTurn(update.threadId, update.turnId);
+      const existing = byItem.get(itemKey);
 
       if (!existing) {
         this.logger.warn("Skipping frame-text delta for unknown conversation item", {
@@ -9577,10 +11220,27 @@ export class CodexService extends EventEmitter {
           turnId: update.turnId,
           itemId: update.itemId,
           target: update.target.type,
+          knownTurn: Boolean(knownTurn),
           deltaPreview: previewText(update.delta),
         });
         continue;
       }
+
+      if (!this.frameTextDeltaItemMatchesTarget(existing, update.target)) {
+        this.logger.warn("Skipping frame-text delta for item kind mismatch", {
+          threadId: update.threadId,
+          turnId: update.turnId,
+          itemId: update.itemId,
+          target: update.target.type,
+          itemKind: existing.normalizedKind,
+          semanticKind: existing.semanticKind,
+        });
+        continue;
+      }
+
+      const shouldMarkItemInProgress =
+        existing.status !== "failed" &&
+        existing.status !== "interrupted";
 
       if (update.target.type === "agentMessage" || update.target.type === "plan") {
         if (update.target.type === "agentMessage") {
@@ -9589,6 +11249,7 @@ export class CodexService extends EventEmitter {
         const nextText = `${existing.markdownText ?? ""}${update.delta}`;
         const next: CodexItemView = {
           ...existing,
+          status: shouldMarkItemInProgress ? "inProgress" : existing.status,
           markdownText: nextText,
           updatedAt: now,
         };
@@ -9632,6 +11293,7 @@ export class CodexService extends EventEmitter {
 
       const next: CodexItemView = {
         ...existing,
+        status: shouldMarkItemInProgress ? "inProgress" : existing.status,
         markdownText: projectCodexReasoningSummary(nextSummary),
         rawItem: {
           ...(asRecord(existing.rawItem) ?? {}),
@@ -9672,12 +11334,40 @@ export class CodexService extends EventEmitter {
         for (const update of threadUpdates) {
           const turn = draft.turns.find((candidate) => candidate.turnId === update.turnId);
           if (!turn) {
-            throw new Error(`Missing broadcast turn for frame-text delta: ${update.turnId}`);
+            this.logger.warn("Skipping frame-text delta broadcast for missing turn", {
+              threadId,
+              turnId: update.turnId,
+              itemId: update.itemId,
+              target: update.target.type,
+            });
+            continue;
           }
 
           const item = turn.items.find((candidate) => candidate.itemId === update.itemId);
           if (!item) {
-            throw new Error(`Missing broadcast item for frame-text delta: ${update.itemId}`);
+            this.logger.warn("Skipping frame-text delta broadcast for missing item", {
+              threadId,
+              turnId: update.turnId,
+              itemId: update.itemId,
+              target: update.target.type,
+            });
+            continue;
+          }
+
+          if (!this.frameTextDeltaItemMatchesTarget(item, update.target)) {
+            this.logger.warn("Skipping frame-text delta broadcast for item kind mismatch", {
+              threadId,
+              turnId: update.turnId,
+              itemId: update.itemId,
+              target: update.target.type,
+              itemKind: item.kind,
+              semanticKind: item.semanticKind,
+            });
+            continue;
+          }
+
+          if (item.status !== "failed" && item.status !== "interrupted") {
+            item.status = "inProgress";
           }
 
           switch (update.target.type) {
@@ -9843,7 +11533,98 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private resolvePendingServerRequest(requestId: string): void {
+  private applyTerminalInteraction(input: {
+    threadId: string;
+    turnId: string | null;
+    itemId: string;
+    stdin: string;
+  }): void {
+    const bufferKey = getTerminalInteractionBufferKey(input.threadId, input.itemId);
+    const parsed = parseTerminalInteractionInput(
+      this.terminalInputBuffers.get(bufferKey) ?? "",
+      input.stdin,
+    );
+    if (parsed.inputBuffer.length > 0) {
+      this.terminalInputBuffers.set(bufferKey, parsed.inputBuffer);
+    } else {
+      this.terminalInputBuffers.delete(bufferKey);
+    }
+    if (parsed.commands.length === 0) return;
+
+    const target = this.findRecordedCommandExecutionByItemId(input.threadId, input.itemId);
+    if (!target) {
+      this.logger.warn("Dropping commandExecution/terminalInteraction for missing item", {
+        threadId: input.threadId,
+        turnId: input.turnId,
+        itemId: input.itemId,
+      });
+      return;
+    }
+
+    const next = appendTerminalInteractionCommandActions(target.item, parsed.commands);
+    target.itemsByTurn.set(target.itemKey, next);
+    const entry = projectItemToLiveTranscriptEntry(
+      next,
+      "live",
+      this.getThreadTranscript(input.threadId),
+      this.getKnownTurn(input.threadId, target.turnId)?.itemIds,
+    );
+    this.setThreadTranscript(
+      input.threadId,
+      applyLiveTranscriptMutation(this.getThreadTranscript(input.threadId), {
+        type: "upsert",
+        entry,
+      }),
+    );
+
+    this.mutateBroadcastConversationCacheSilently(input.threadId, (draft) => {
+      for (let turnIndex = draft.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+        const turn = draft.turns[turnIndex];
+        if (!turn) continue;
+
+        const item = turn.items.find((candidate) =>
+          candidate.itemId === input.itemId && candidate.kind === "commandExecution"
+        );
+        if (!item) continue;
+
+        appendTerminalInteractionCommandActionsInPlace(item, parsed.commands);
+        return;
+      }
+    });
+  }
+
+  private findRecordedCommandExecutionByItemId(
+    threadId: string,
+    itemId: string,
+  ): {
+    turnId: string;
+    itemKey: string;
+    itemsByTurn: Map<string, CodexItemView>;
+    item: CodexItemView;
+  } | null {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record) return null;
+
+    const turnEntries = [...record.itemsByTurn.entries()].reverse();
+    for (const [turnId, itemsByTurn] of turnEntries) {
+      for (const [itemKey, item] of itemsByTurn.entries()) {
+        if (item.itemId !== itemId || item.normalizedKind !== "commandExecution") continue;
+        return {
+          turnId,
+          itemKey,
+          itemsByTurn,
+          item,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private resolvePendingServerRequest(
+    requestId: string,
+    options: { suppressConversationSync?: boolean } = {},
+  ): void {
     let emittedApprovalResolved = false;
     let emittedUserInputResolved = false;
 
@@ -9852,6 +11633,7 @@ export class CodexService extends EventEmitter {
       pendingApproval: this.pendingApprovals.has(requestId),
       pendingUserInput: this.pendingUserInputs.has(requestId),
       pendingMcpElicitation: this.pendingMcpElicitations.has(requestId),
+      pendingPermissionRequest: this.pendingPermissionRequests.has(requestId),
     });
 
     const pendingApproval = this.pendingApprovals.get(requestId);
@@ -9865,10 +11647,12 @@ export class CodexService extends EventEmitter {
         String(requestId),
       );
       this.emitEvent({ type: "approvalResolved", requestId, decision: "cancel" });
-      this.syncBroadcastConversationTurnState(pendingApproval.request.threadId, pendingApproval.request.turnId, {
-        syncRequests: true,
-        syncCapabilityFlags: true,
-      });
+      if (!options.suppressConversationSync) {
+        this.syncBroadcastConversationTurnState(pendingApproval.request.threadId, pendingApproval.request.turnId, {
+          syncRequests: true,
+          syncCapabilityFlags: true,
+        });
+      }
       emittedApprovalResolved = true;
     }
 
@@ -9877,7 +11661,9 @@ export class CodexService extends EventEmitter {
       pendingUserInput.resolve({ answers: {} });
       this.pendingUserInputs.delete(requestId);
       this.emitEvent({ type: "userInputResolved", requestId });
-      this.syncBroadcastConversationRequests(pendingUserInput.request.threadId, { syncCapabilityFlags: true });
+      if (!options.suppressConversationSync) {
+        this.syncBroadcastConversationRequests(pendingUserInput.request.threadId, { syncCapabilityFlags: true });
+      }
       emittedUserInputResolved = true;
     }
 
@@ -9885,7 +11671,30 @@ export class CodexService extends EventEmitter {
     if (pendingMcpElicitation) {
       pendingMcpElicitation.resolve({ action: "cancel", content: null, _meta: null });
       this.pendingMcpElicitations.delete(requestId);
-      this.syncBroadcastConversationRequests(pendingMcpElicitation.request.threadId, { syncCapabilityFlags: true });
+      if (!options.suppressConversationSync) {
+        this.syncBroadcastConversationRequests(pendingMcpElicitation.request.threadId, { syncCapabilityFlags: true });
+      }
+    }
+
+    const pendingPermissionRequest = this.pendingPermissionRequests.get(requestId);
+    if (pendingPermissionRequest) {
+      const response: PermissionsRequestApprovalResponse = { permissions: {}, scope: "turn" };
+      pendingPermissionRequest.resolve(response);
+      this.pendingPermissionRequests.delete(requestId);
+      this.upsertPermissionRequestItem(pendingPermissionRequest.request, {
+        completed: true,
+        response,
+      });
+      if (!options.suppressConversationSync) {
+        this.syncBroadcastConversationTurnState(
+          pendingPermissionRequest.request.threadId,
+          pendingPermissionRequest.request.turnId,
+          {
+            syncRequests: true,
+            syncCapabilityFlags: true,
+          },
+        );
+      }
     }
 
     if (!emittedApprovalResolved) {
@@ -9907,11 +11716,14 @@ export class CodexService extends EventEmitter {
     const mcpElicitations = Array.from(this.pendingMcpElicitations.values())
       .map((pending) => pending.request)
       .filter((request) => request.threadId === threadId);
+    const permissionRequests = Array.from(this.pendingPermissionRequests.values())
+      .map((pending) => pending.request)
+      .filter((request) => request.threadId === threadId);
     const planImplementationRequests = Array.from(
       this.getConversationRecord(threadId).planImplementationRequestsByTurnId.values(),
     );
 
-    return [...approvals, ...userInputs, ...mcpElicitations, ...planImplementationRequests]
+    return [...approvals, ...userInputs, ...mcpElicitations, ...permissionRequests, ...planImplementationRequests]
       .sort((left, right) => left.createdAt - right.createdAt);
   }
 
@@ -9938,7 +11750,15 @@ export class CodexService extends EventEmitter {
     }, SIDEBAR_THREAD_SYNC_REPAIR_DEBOUNCE_MS);
   }
 
-  private async handleNotification(method: string, params: unknown): Promise<void> {
+  private async handleNotification(
+    method: string,
+    params: unknown,
+    options: HandleNotificationOptions = {},
+  ): Promise<void> {
+    if (!options.bypassResumeBuffer && this.bufferNotificationForReplayIfNeeded(method, params)) {
+      return;
+    }
+
     if (method === "thread/started") {
       const thread =
         typeof params === "object" && params !== null
@@ -9952,6 +11772,11 @@ export class CodexService extends EventEmitter {
       });
       const summary = result.summary;
       if (summary) {
+        const ownerRouted = this.forwardNotificationToRendererOwnerForConversation(
+          summary.threadId,
+          "thread/started",
+          { thread },
+        );
         this.logger.info("Received Codex thread started notification", {
           threadId: summary.threadId,
           projectId: summary.projectId,
@@ -9959,7 +11784,9 @@ export class CodexService extends EventEmitter {
           materialized: result.materialized,
         });
         this.emitEvent({ type: "threadSummary", thread: summary });
-        this.emitThreadStreamSnapshotFromRecord(summary.threadId);
+        if (!ownerRouted) {
+          this.emitThreadStreamSnapshotFromRecord(summary.threadId, "no-owner-fallback");
+        }
         const metadata = createSidebarThreadSyncMetadata();
         mergeSidebarThreadMaterialization(metadata, result);
         this.emitSidebarSyncUpdatedFromMetadata(metadata, "host-message");
@@ -9975,6 +11802,7 @@ export class CodexService extends EventEmitter {
 
       if (!payload || typeof payload.threadId !== "string") return;
 
+      const ownerRouted = this.forwardNotificationToRendererOwner("thread/status/changed", payload);
       const parsed = parseThreadStatus(payload.status);
       this.logger.info("Received Codex thread status change", {
         threadId: payload.threadId,
@@ -9988,7 +11816,9 @@ export class CodexService extends EventEmitter {
       } else {
         this.scheduleSidebarThreadListRepair(method, payload.threadId);
       }
-      this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
+      if (!ownerRouted) {
+        this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
+      }
       this.notifyLinkedProjectSessionsChanged(payload.threadId);
       this.emitEvent({
         type: "threadStatus",
@@ -10087,6 +11917,9 @@ export class CodexService extends EventEmitter {
         : typeof payload.name === "string"
           ? payload.name
           : null;
+      const ownerRouted = typeof name === "string" && name.trim().length > 0
+        ? this.forwardNotificationToRendererOwner("thread/name/updated", payload)
+        : false;
       const updated = updateCodexThreadName(payload.threadId, name);
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
@@ -10094,7 +11927,9 @@ export class CodexService extends EventEmitter {
       } else {
         this.scheduleSidebarThreadListRepair(method, payload.threadId);
       }
-      this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
+      if (!ownerRouted) {
+        this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
+      }
       this.notifyLinkedProjectSessionsChanged(payload.threadId);
       return;
     }
@@ -10102,6 +11937,9 @@ export class CodexService extends EventEmitter {
     if (method === "thread/settings/updated") {
       const payload = asRecord(params) as ThreadSettingsUpdatedNotification | null;
       if (!payload || typeof payload.threadId !== "string") return;
+      const ownerRouted = asRecord((payload as { threadSettings?: ThreadSettings }).threadSettings)
+        ? this.forwardNotificationToRendererOwner("thread/settings/updated", payload as unknown as Record<string, unknown>)
+        : false;
 
       const known = getCodexThread(payload.threadId);
       if (!known) {
@@ -10120,12 +11958,14 @@ export class CodexService extends EventEmitter {
       }
 
       this.emitEvent({ type: "threadSummary", thread: known });
-      this.syncBroadcastConversation(payload.threadId, {
-        syncDetail: true,
-        syncLatestCollaborationMode: true,
-        syncLatestThreadSettings: true,
-        syncCapabilityFlags: true,
-      });
+      if (!ownerRouted) {
+        this.syncBroadcastConversation(payload.threadId, {
+          syncDetail: true,
+          syncLatestCollaborationMode: true,
+          syncLatestThreadSettings: true,
+          syncCapabilityFlags: true,
+        });
+      }
       this.notifyLinkedProjectSessionsChanged(payload.threadId);
       this.emitSidebarSyncUpdatedForThread(known, "host-message");
       return;
@@ -10137,42 +11977,48 @@ export class CodexService extends EventEmitter {
     ) {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string") return;
+      const goal = method === "thread/goal/updated"
+        ? parseThreadGoalPayload(payload.goal)
+        : null;
+      if (method === "thread/goal/updated" && !goal) return;
+      const ownerRouted = method === "thread/goal/updated" || method === "thread/goal/cleared"
+        ? this.forwardNotificationToRendererOwner(method, payload)
+        : false;
 
-      const known = getCodexThread(payload.threadId);
+      if (method === "thread/goal/updated" && goal) {
+        this.applyThreadGoalUpdated(payload.threadId, goal);
+      } else {
+        this.applyThreadGoalCleared(payload.threadId);
+      }
+
+      const known = this.getThreadLinkSafely(payload.threadId);
       if (!known) {
-        this.scheduleSidebarThreadListRepair(method, payload.threadId);
+        if (!ownerRouted) {
+          this.scheduleSidebarThreadListRepair(method, payload.threadId);
+        }
         return;
       }
 
       this.emitEvent({ type: "threadSummary", thread: known });
-      this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
-      this.notifyLinkedProjectSessionsChanged(payload.threadId);
-      this.emitSidebarSyncUpdatedForThread(known, "host-message");
+      if (!ownerRouted) {
+        this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
+        this.notifyLinkedProjectSessionsChanged(payload.threadId);
+        this.emitSidebarSyncUpdatedForThread(known, "host-message");
+      }
       return;
     }
 
     if (method === "thread/tokenUsage/updated") {
       const payload = asRecord(params);
-      if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
+      if (!payload || typeof payload.threadId !== "string") return;
 
       const tokenUsage = parseCodexThreadTokenUsage(payload.tokenUsage ?? payload.token_usage);
       if (!tokenUsage) return;
-
-      const turn = this.getKnownTurn(payload.threadId, payload.turnId) ?? {
-        threadId: payload.threadId,
-        turnId: payload.turnId,
-        status: "inProgress" as const,
-        itemIds: [],
-      };
-
-      const nextTurn: CodexTurnSummary = {
-        ...turn,
-        tokenUsage,
-      };
-
-      this.mergeTurn(payload.threadId, nextTurn);
-      this.emitEvent({ type: "turn", turn: nextTurn });
-      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId);
+      const ownerRouted = this.forwardNotificationToRendererOwner("thread/tokenUsage/updated", payload);
+      this.applyLatestTokenUsageForThread(payload.threadId, tokenUsage);
+      if (!ownerRouted) {
+        this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
+      }
       return;
     }
 
@@ -10182,14 +12028,6 @@ export class CodexService extends EventEmitter {
       method === "turn/interrupted" ||
       method === "turn/failed"
     ) {
-      if (method !== "turn/started") {
-        if (this.frameTextDeltaQueue.drainBefore(() => {
-          void this.handleNotification(method, params);
-        })) {
-          return;
-        }
-        this.outputDeltaQueue.flushNow();
-      }
       const payload =
         typeof params === "object" && params !== null
           ? params as Record<string, unknown>
@@ -10225,6 +12063,21 @@ export class CodexService extends EventEmitter {
             : null;
       if (!threadId) return;
 
+      const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
+      if (method !== "turn/started" && !ownerRouted) {
+        if (this.drainRendererOwnerNotificationsBefore(threadId, () => {
+          void this.handleNotification(method, params, options);
+        })) {
+          return;
+        }
+        if (this.frameTextDeltaQueue.drainBefore(threadId, () => {
+          void this.handleNotification(method, params, options);
+        })) {
+          return;
+        }
+        this.outputDeltaQueue.flushNow();
+      }
+
       const turn = this.asTurnSummary(threadId, turnRecord);
       if (!turn) return;
       const observedTurn: CodexTurnSummary = method === "turn/started"
@@ -10259,16 +12112,20 @@ export class CodexService extends EventEmitter {
         );
       }
       this.emitEvent({ type: "turn", turn: mergedTurn });
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      if (!ownerRouted) {
+        this.emitThreadStreamSnapshotFromRecord(threadId, "no-owner-fallback");
+      }
       if (mergedTurn.status !== "inProgress") {
         this.maybeDispatchQueuedFollowUp(threadId);
       }
+      this.syncInactiveRendererOwnerCleanup(threadId);
       return;
     }
 
     if (method === "turn/plan/updated") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
+      const ownerRouted = this.forwardNotificationToRendererOwner("turn/plan/updated", payload);
       const plan = Array.isArray(payload.plan)
         ? payload.plan.flatMap((candidate) => {
             const parsed = asRecord(candidate);
@@ -10285,20 +12142,64 @@ export class CodexService extends EventEmitter {
       });
       this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
       this.mergeItem(item);
-      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
-      });
+      if (!ownerRouted) {
+        this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
+      }
+      return;
+    }
+
+    if (method === "model/safetyBuffering/updated") {
+      const payload = asRecord(params);
+      if (
+        !payload ||
+        typeof payload.threadId !== "string" ||
+        !Array.isArray(payload.useCases) ||
+        !Array.isArray(payload.reasons) ||
+        typeof payload.showBufferingUi !== "boolean"
+      ) {
+        return;
+      }
+      const ownerRouted = this.forwardNotificationToRendererOwner("model/safetyBuffering/updated", payload);
+      if (typeof payload.turnId !== "string") return;
+
+      const existingTurn = this.getKnownTurn(payload.threadId, payload.turnId) ?? {
+        threadId: payload.threadId,
+        turnId: payload.turnId,
+        status: "inProgress" as const,
+        itemIds: [],
+      };
+      const nextTurn: CodexTurnSummary = {
+        ...existingTurn,
+        safetyBuffering: {
+          useCases: payload.useCases.map((value) => String(value ?? "")),
+          reasons: payload.reasons.map((value) => String(value ?? "")),
+          showBufferingUi: payload.showBufferingUi,
+          fasterModel: typeof payload.fasterModel === "string" ? payload.fasterModel : null,
+        },
+      };
+
+      this.mergeTurn(payload.threadId, nextTurn);
+      this.emitEvent({ type: "turn", turn: nextTurn });
+      if (!ownerRouted) {
+        this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
+      }
       return;
     }
 
     if (method === "hook/started" || method === "hook/completed") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string") return;
-      const turnId = this.resolveLiveTurnId(payload.threadId, typeof payload.turnId === "string" ? payload.turnId : null);
-      if (!turnId) return;
       const run = asRecord(payload.run);
       if (!run) return;
+      const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
+      const turnId = this.resolveLiveTurnId(payload.threadId, typeof payload.turnId === "string" ? payload.turnId : null);
+      if (!turnId) return;
       const item = this.buildHookItemView({
         threadId: payload.threadId,
         turnId,
@@ -10307,16 +12208,19 @@ export class CodexService extends EventEmitter {
       if (!item) return;
       this.upsertCanonicalTurnItem(payload.threadId, turnId, item.itemId, "inProgress");
       this.mergeItem(item);
-      this.syncBroadcastConversationTurnState(payload.threadId, turnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
-      });
+      if (!ownerRouted) {
+        this.syncBroadcastConversationTurnState(payload.threadId, turnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
+      }
       return;
     }
 
     if (method === "turn/diff/updated") {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
+      const ownerRouted = this.forwardNotificationToRendererOwner("turn/diff/updated", payload);
       const diff = typeof payload.diff === "string" ? payload.diff : undefined;
       const existingTurn = this.getKnownTurn(payload.threadId, payload.turnId) ?? {
         threadId: payload.threadId,
@@ -10331,11 +12235,29 @@ export class CodexService extends EventEmitter {
 
       this.mergeTurn(payload.threadId, nextTurn);
       this.emitEvent({ type: "turn", turn: nextTurn });
-      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
-        syncBackgroundTerminalRows: true,
-        syncChildMemberships: true,
-        syncCapabilityFlags: true,
-      });
+      if (!ownerRouted) {
+        this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+          syncBackgroundTerminalRows: true,
+          syncChildMemberships: true,
+          syncCapabilityFlags: true,
+        });
+      }
+      return;
+    }
+
+    if (method === "model/rerouted") {
+      const payload = asRecord(params);
+      if (!payload) return;
+      const notification = this.parseModelReroutedNotification(payload);
+      if (!notification) return;
+      const ownerRouted = this.forwardNotificationToRendererOwner("model/rerouted", payload);
+      const entry = this.appendModelReroutedItem(notification);
+      if (!ownerRouted) {
+        this.syncBroadcastConversationTurnState(entry.threadId, entry.turnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
+      }
       return;
     }
 
@@ -10343,33 +12265,67 @@ export class CodexService extends EventEmitter {
       const payload = asRecord(params);
       if (!payload) return;
       const lifecycleStatus = method === "item/autoApprovalReview/started" ? "inProgress" as const : "completed" as const;
+      const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
       const entry = this.upsertAutomaticApprovalReviewItem(payload, lifecycleStatus);
       if (!entry) return;
-      this.syncBroadcastConversationTurnState(entry.threadId, entry.turnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
-      });
+      if (!ownerRouted) {
+        this.syncBroadcastConversationTurnState(entry.threadId, entry.turnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
+      }
+      return;
+    }
+
+    if (method === "guardianWarning") {
+      const payload = asRecord(params);
+      if (!payload) return;
+      const ownerRouted = this.forwardNotificationToRendererOwner("guardianWarning", payload);
+      const entry = this.appendAutoReviewInterruptionWarningItem(payload);
+      if (!entry) return;
+      if (!ownerRouted) {
+        this.syncBroadcastConversationTurnState(entry.threadId, entry.turnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
+      }
       return;
     }
 
     if (method === "item/started" || method === "item/completed") {
-      if (method === "item/completed") {
-        if (this.frameTextDeltaQueue.drainBefore(() => {
-          void this.handleNotification(method, params);
-        })) {
-          return;
-        }
-        this.outputDeltaQueue.flushNow();
-      }
       const payload =
         typeof params === "object" && params !== null
           ? params as Record<string, unknown>
           : null;
       if (!payload) return;
-      if (typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
+      if (typeof payload.threadId !== "string" || !Object.prototype.hasOwnProperty.call(payload, "item")) return;
+      const incomingTurnId = typeof payload.turnId === "string" ? payload.turnId : null;
+
+      const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
+      const turnId = incomingTurnId ?? this.resolveLiveTurnId(payload.threadId, null);
+      if (!turnId) {
+        if (ownerRouted) {
+          this.syncInactiveRendererOwnerCleanup(payload.threadId);
+        }
+        return;
+      }
+
+      if (method === "item/completed" && !ownerRouted) {
+        if (this.drainRendererOwnerNotificationsBefore(payload.threadId, () => {
+          void this.handleNotification(method, params, options);
+        })) {
+          return;
+        }
+        if (this.frameTextDeltaQueue.drainBefore(payload.threadId, () => {
+          void this.handleNotification(method, params, options);
+        })) {
+          return;
+        }
+        this.outputDeltaQueue.flushNow();
+      }
 
       const lifecycleStatus = method === "item/started" ? "inProgress" as const : "completed" as const;
-      const normalizedItem = normalizeThreadItem(payload.item, payload.threadId, payload.turnId);
+      const normalizedItem = normalizeThreadItem(payload.item, payload.threadId, turnId);
       if (!normalizedItem) return;
       const item = normalizedItem.status
           ? normalizedItem
@@ -10388,28 +12344,35 @@ export class CodexService extends EventEmitter {
 
         const acceptedSteerEntry = this.acceptPendingSteeringMessage(item, matchingPendingSteer);
         if (acceptedSteerEntry) {
-          this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
-            syncBackgroundTerminalRows: true,
-            syncChildMemberships: true,
-            syncCapabilityFlags: true,
-          });
+          if (!ownerRouted) {
+            this.syncBroadcastConversationTurnState(payload.threadId, turnId, {
+              syncBackgroundTerminalRows: true,
+              syncChildMemberships: true,
+              syncCapabilityFlags: true,
+            });
+          }
+          this.syncInactiveRendererOwnerCleanup(payload.threadId);
           return;
         }
       }
-      this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
+      this.upsertCanonicalTurnItem(payload.threadId, turnId, item.itemId, "inProgress");
       if (isFirstTurnWorkItem(item)) {
-        this.markFirstTurnWorkItemStartedAt(payload.threadId, payload.turnId);
+        this.markFirstTurnWorkItemStartedAt(payload.threadId, turnId);
       }
       this.mergeItem(item);
       if (item.normalizedKind === "assistantMessage" || item.semanticKind === "assistantMessage") {
-        this.markFinalAssistantStartedAt(payload.threadId, payload.turnId);
+        this.markFinalAssistantStartedAt(payload.threadId, turnId);
       }
-      const knownTurn = this.getKnownTurn(payload.threadId, payload.turnId);
+      const knownTurn = this.getKnownTurn(payload.threadId, turnId);
       const isPatchItem = item.normalizedKind === "fileChange" || item.semanticKind === "patch";
       if (method === "item/completed" && isPatchItem && knownTurn && knownTurn.status !== "inProgress") {
-        this.syncTurnDiffItem(payload.threadId, payload.turnId, knownTurn.diff, knownTurn.status);
+        this.syncTurnDiffItem(payload.threadId, turnId, knownTurn.diff, knownTurn.status);
       }
-      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+      if (ownerRouted) {
+        this.syncInactiveRendererOwnerCleanup(payload.threadId);
+        return;
+      }
+      this.syncBroadcastConversationTurnState(payload.threadId, turnId, {
         syncBackgroundTerminalRows: true,
         syncChildMemberships: true,
         syncCapabilityFlags: true,
@@ -10430,20 +12393,27 @@ export class CodexService extends EventEmitter {
       if (!payload) return;
       if (
         typeof payload.threadId !== "string" ||
-        typeof payload.turnId !== "string" ||
         typeof payload.itemId !== "string" ||
         typeof payload.delta !== "string"
       ) {
         return;
       }
+      if (this.forwardNotificationToRendererOwner(method, payload)) {
+        return;
+      }
+      const turnId = typeof payload.turnId === "string"
+        ? payload.turnId
+        : this.resolveLiveTurnId(payload.threadId, null);
+      if (!turnId) return;
+
       const observedAtMs = Date.now();
       if (method === "item/agentMessage/delta" || method === "item/plan/delta") {
         if (method === "item/agentMessage/delta") {
-          this.markFinalAssistantStartedAt(payload.threadId, payload.turnId, observedAtMs);
+          this.markFinalAssistantStartedAt(payload.threadId, turnId, observedAtMs);
         }
         this.frameTextDeltaQueue.enqueue({
           threadId: payload.threadId,
-          turnId: payload.turnId,
+          turnId,
           itemId: payload.itemId,
           delta: payload.delta,
           observedAtMs,
@@ -10458,7 +12428,7 @@ export class CodexService extends EventEmitter {
         if (typeof payload.summaryIndex !== "number") return;
         this.frameTextDeltaQueue.enqueue({
           threadId: payload.threadId,
-          turnId: payload.turnId,
+          turnId,
           itemId: payload.itemId,
           delta: payload.delta,
           observedAtMs,
@@ -10473,7 +12443,7 @@ export class CodexService extends EventEmitter {
       if (typeof payload.contentIndex !== "number") return;
       this.frameTextDeltaQueue.enqueue({
         threadId: payload.threadId,
-        turnId: payload.turnId,
+        turnId,
         itemId: payload.itemId,
         delta: payload.delta,
         observedAtMs,
@@ -10485,6 +12455,21 @@ export class CodexService extends EventEmitter {
       return;
     }
 
+    if (method === "item/reasoning/summaryPartAdded") {
+      const payload = asRecord(params);
+      if (
+        !payload
+        || typeof payload.threadId !== "string"
+        || typeof payload.turnId !== "string"
+        || typeof payload.itemId !== "string"
+        || typeof payload.summaryIndex !== "number"
+      ) {
+        return;
+      }
+      this.forwardNotificationToRendererOwner("item/reasoning/summaryPartAdded", payload);
+      return;
+    }
+
     if (method === "item/commandExecution/outputDelta") {
       const payload =
         typeof params === "object" && params !== null
@@ -10493,29 +12478,79 @@ export class CodexService extends EventEmitter {
       if (!payload) return;
       if (
         typeof payload.threadId !== "string"
-        || typeof payload.turnId !== "string"
         || typeof payload.itemId !== "string"
         || typeof payload.delta !== "string"
       ) {
         return;
       }
+      const turnId = typeof payload.turnId === "string"
+        ? payload.turnId
+        : this.resolveLiveTurnId(payload.threadId, null);
+      if (this.forwardNotificationToRendererOwner("item/commandExecution/outputDelta", payload)) {
+        if (!turnId) return;
+        this.outputDeltaQueue.enqueue({
+          threadId: payload.threadId,
+          turnId,
+          itemId: payload.itemId,
+          delta: payload.delta,
+        });
+        return;
+      }
+      if (!turnId) return;
+
       this.emitHostMessage({
         type: "mcpNotification",
         hostId: DEFAULT_CODEX_HOST_ID,
         method: "item/commandExecution/outputDelta",
         params: {
           threadId: payload.threadId,
-          turnId: payload.turnId,
+          turnId,
           itemId: payload.itemId,
           delta: payload.delta,
         },
       });
       this.outputDeltaQueue.enqueue({
         threadId: payload.threadId,
-        turnId: payload.turnId,
+        turnId,
         itemId: payload.itemId,
         delta: payload.delta,
       });
+      return;
+    }
+
+    if (method === "item/commandExecution/terminalInteraction") {
+      const payload = asRecord(params);
+      if (
+        !payload
+        || typeof payload.threadId !== "string"
+        || typeof payload.itemId !== "string"
+        || typeof payload.stdin !== "string"
+      ) {
+        return;
+      }
+
+      this.forwardNotificationToRendererOwner("item/commandExecution/terminalInteraction", payload);
+      this.applyTerminalInteraction({
+        threadId: payload.threadId,
+        turnId: typeof payload.turnId === "string" ? payload.turnId : null,
+        itemId: payload.itemId,
+        stdin: payload.stdin,
+      });
+      return;
+    }
+
+    if (method === "item/fileChange/outputDelta") {
+      const payload = asRecord(params);
+      if (
+        !payload
+        || typeof payload.threadId !== "string"
+        || typeof payload.turnId !== "string"
+        || typeof payload.itemId !== "string"
+        || typeof payload.delta !== "string"
+      ) {
+        return;
+      }
+      this.forwardNotificationToRendererOwner("item/fileChange/outputDelta", payload);
       return;
     }
 
@@ -10524,10 +12559,13 @@ export class CodexService extends EventEmitter {
       if (
         !payload
         || typeof payload.threadId !== "string"
-        || typeof payload.turnId !== "string"
         || typeof payload.itemId !== "string"
         || !Array.isArray(payload.changes)
       ) {
+        return;
+      }
+      const ownerRouted = this.forwardNotificationToRendererOwner("item/fileChange/patchUpdated", payload);
+      if (typeof payload.turnId !== "string") {
         return;
       }
 
@@ -10536,7 +12574,23 @@ export class CodexService extends EventEmitter {
         turnId: payload.turnId,
         itemId: payload.itemId,
         changes: payload.changes as FileUpdateChange[],
+        suppressConversationSync: ownerRouted,
       });
+      return;
+    }
+
+    if (method === "item/mcpToolCall/progress") {
+      const payload = asRecord(params);
+      if (
+        !payload
+        || typeof payload.threadId !== "string"
+        || typeof payload.turnId !== "string"
+        || typeof payload.itemId !== "string"
+        || typeof payload.message !== "string"
+      ) {
+        return;
+      }
+      this.forwardNotificationToRendererOwner("item/mcpToolCall/progress", payload);
       return;
     }
 
@@ -10544,7 +12598,10 @@ export class CodexService extends EventEmitter {
       const payload = asRecord(params);
       const requestId = payload?.requestId ?? payload?.request_id;
       if (requestId === undefined || requestId === null) return;
-      this.resolvePendingServerRequest(String(requestId));
+      const ownerRouted = typeof payload?.threadId === "string"
+        ? this.forwardNotificationToRendererOwner("serverRequest/resolved", payload)
+        : false;
+      this.resolvePendingServerRequest(String(requestId), { suppressConversationSync: ownerRouted });
       return;
     }
 
@@ -10601,6 +12658,9 @@ export class CodexService extends EventEmitter {
           ? errorRecord.additionalDetails
           : null;
       const willRetry = Boolean(payload?.willRetry);
+      const ownerRouted = threadId && turnId && errorRecord
+        ? this.forwardNotificationToRendererOwner("error", payload as Record<string, unknown>)
+        : false;
 
       if (threadId && turnId) {
         this.syncTurnErrorItem({
@@ -10610,10 +12670,12 @@ export class CodexService extends EventEmitter {
           additionalDetails,
           willRetry,
         });
-        this.syncBroadcastConversationTurnState(threadId, turnId, {
-          syncBackgroundTerminalRows: true,
-          syncCapabilityFlags: true,
-        });
+        if (!ownerRouted) {
+          this.syncBroadcastConversationTurnState(threadId, turnId, {
+            syncBackgroundTerminalRows: true,
+            syncCapabilityFlags: true,
+          });
+        }
       }
 
       this.emitEvent({ type: "error", message, detail: additionalDetails ?? undefined });
@@ -10642,6 +12704,7 @@ export class CodexService extends EventEmitter {
       sandbox: detail?.sandbox ?? null,
       latestCollaborationMode: detail?.latestCollaborationMode ?? record?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
       latestThreadSettings: detail?.latestThreadSettings ?? record?.latestThreadSettings ?? null,
+      latestTokenUsageInfo: detail?.latestTokenUsageInfo ?? record?.latestTokenUsageInfo ?? null,
       updatedAt: Math.max(link.updatedAt, transcriptUpdatedAt),
       turns,
       transcript,
@@ -10698,6 +12761,9 @@ export class CodexService extends EventEmitter {
       pendingSteers: this.listPendingSteers(threadId),
       capabilityFlags: this.buildConversationCapabilityFlags(detail, requests),
       turnPagination: this.normalizeTurnPagination(record.turnPagination, detail.turns.length),
+      threadGoal: record.threadGoal,
+      completedThreadGoal: record.completedThreadGoal,
+      threadGoalResumeConfirmation: record.threadGoalResumeConfirmation,
     });
   }
 

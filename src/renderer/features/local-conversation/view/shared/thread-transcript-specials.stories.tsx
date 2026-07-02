@@ -9,11 +9,13 @@ import { MultiAgentActionSurface } from "./multi-agent-action-surface";
 import { ReasoningSurface } from "./reasoning-surface";
 import { TodoListSurface } from "./todo-list-surface";
 import {
+  ThreadAssistantBodyBlock,
   ThreadExplorationGroupBlock,
   ThreadContextCompactionBlock,
   ThreadPlanCardBlock,
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
+  ThreadSystemBannerBlock,
 } from "../blocks/local-conversation-block-leaves";
 import { buildRendererItemStream } from "../../projection/build-renderer-item-stream";
 import type { ThreadExplorationGroupBlockModel, ThreadTranscriptBlockModel } from "../../thread-stage-types";
@@ -165,6 +167,36 @@ export const AssistantStreamingWordFade: Story = {
     >
       <ConversationStorySurface>
         <StreamingAssistantMarkdownPreview />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const CompletedLatestAssistantStatic: Story = {
+  render: () => (
+    <StorySurface
+      title="Completed Latest Assistant Static"
+      description="The assistant item has completed while the containing turn is still active, so the markdown stays in the static completed-message path instead of replaying the Streamdown word fade."
+    >
+      <ConversationStorySurface>
+        <ThreadAssistantBodyBlock
+          block={buildSpecialTranscriptBlock({
+            threadId: "thread_story",
+            turnId: "turn_story_completed_latest",
+            itemId: "assistant_story_completed_latest",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            status: "completed",
+            role: "assistant",
+            assistantPhase: "final_answer",
+            markdownText: "Completed assistant prose remains static even while the latest turn is waiting on trailing lifecycle rows.",
+            createdAt: 1,
+            updatedAt: 1,
+          })}
+          isLatestTurn
+          isStreamingTurn
+        />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -638,6 +670,23 @@ export const AutomaticApprovalReviewInProgress: Story = {
       <ConversationStorySurface>
         <AutomaticApprovalReviewSurface
           item={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.automaticApprovalReviewInProgress}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const AutoReviewInterruptionWarning: Story = {
+  render: () => (
+    <StorySurface
+      title="Auto Review Interruption Warning"
+      description="Guardian too-many-denials warnings render as a dedicated auto-review interruption transcript row."
+    >
+      <ConversationStorySurface>
+        <ThreadSystemBannerBlock
+          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.autoReviewInterruptionWarning)}
+          isLatestTurn
+          isStreamingTurn={false}
         />
       </ConversationStorySurface>
     </StorySurface>

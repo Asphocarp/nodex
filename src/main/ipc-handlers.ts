@@ -39,6 +39,17 @@ import {
 import { resolveAssetPath } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
+import type {
+  RendererClientRouter,
+  RendererClientWebContents,
+} from "./codex/renderer-client-router";
+import {
+  ackRendererThreadOwnerNotification,
+  broadcastCodexHostMessageToRendererClients,
+  publishRendererThreadOwnerStreamState,
+  runThreadFollowerActionThroughOwner,
+  sendRendererOwnerHostMessage,
+} from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
 import {
   listWorkspaceDirectoryEntries,
@@ -132,6 +143,7 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
 const ipcPayloadLogger = getLogger({ subsystem: "ipc", component: "kanban-read-model" });
+const rendererDiagnosticsLogger = getLogger({ subsystem: "renderer", component: "diagnostics" });
 
 function approximatePayloadBytes(value: unknown): number | null {
   try {
@@ -312,6 +324,7 @@ interface RegisterIpcHandlersOptions {
   onInstallAppUpdate?: () => boolean;
   onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
+  rendererClientRouter?: RendererClientRouter;
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
@@ -338,15 +351,78 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     gitBranchWatches.delete(webContentsId);
   };
 
+  const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
+    options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents).clientId ?? null;
+
+  const broadcastRendererClientMessage = (
+    channel: string,
+    args: readonly unknown[],
+    optionsOverride?: { sourceClientId?: string | null; includeSource?: boolean },
+  ) => {
+    if (options.rendererClientRouter) {
+      return options.rendererClientRouter.broadcast(channel, args, optionsOverride);
+    }
+
+    return safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args);
+  };
+
   codexService.on("event", (event) => {
-    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:event", [event]);
+    broadcastRendererClientMessage("codex:event", [event]);
   });
   codexService.on("hostMessage", (message) => {
-    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:host-message", [message]);
+    broadcastCodexHostMessageToRendererClients(
+      options.rendererClientRouter,
+      (channel, args) => safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args),
+      message,
+    );
+  });
+  codexService.on("rendererOwnerHostMessage", (event: { targetClientId: string; message: unknown }) => {
+    sendRendererOwnerHostMessage(options.rendererClientRouter, event);
   });
   codexService.on("threadSearchIndexUpdated", (event) => {
     safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:threads:palette:index-updated", [event]);
   });
+
+  registerHandle("diagnostics:renderer-log", (_, input) => {
+    if (process.env.NODEX_ASSISTANT_STREAMING_DEBUG !== "1") {
+      return;
+    }
+    rendererDiagnosticsLogger.info(input.message, input.fields);
+  });
+
+  registerHandle("codex:renderer-client:id", (event) =>
+    resolveRendererClientId(event)
+  );
+  registerHandle("codex:renderer-client:response", (event, response) =>
+    options.rendererClientRouter?.handleResponse(event.sender as RendererClientWebContents, response) ?? false
+  );
+  options.rendererClientRouter?.addClientDisposedListener((event) => {
+    codexService.handleRendererClientDisposed(event.clientId);
+  });
+  registerHandle("codex:thread-owner:stream-state:publish", (event, input) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return publishRendererThreadOwnerStreamState(codexService, sourceClientId, input);
+  });
+  registerHandle("codex:thread-owner:notification:ack", (event, input) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return ackRendererThreadOwnerNotification(codexService, sourceClientId, input);
+  });
+  registerHandle("codex:thread-owner:app-server-request", async (event, input) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return await codexService.handleRendererOwnerAppServerRequest(sourceClientId, input);
+  });
+  registerHandle("codex:thread-follower:action", async (event, input) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return await runThreadFollowerActionThroughOwner(
+      codexService,
+      options.rendererClientRouter,
+      sourceClientId,
+      input,
+    );
+  });
+  registerHandle("codex:dynamic-tool-call:respond", (_, requestId: string) =>
+    codexService.respondToDynamicToolCall(requestId)
+  );
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
   registerHandle("persisted-atom:update", (_, update) => {
@@ -928,7 +1004,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       totalBytes: null,
       checkedAt: null,
       message: "App updates are unavailable.",
-    }
+    } satisfies AppUpdateStatus
   );
 
   registerHandle("app:update:check", async () =>
@@ -945,7 +1021,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       totalBytes: null,
       checkedAt: null,
       message: "App updates are unavailable.",
-    }
+    } satisfies AppUpdateStatus
   );
 
   registerHandle("app:update:install", () => options.onInstallAppUpdate?.() ?? false);
@@ -1352,8 +1428,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle(
     "codex:thread:start-for-session",
-    (
-      _,
+    async (
+      event,
       input: {
         projectId: string;
         sessionId: string;
@@ -1371,8 +1447,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         worktreeStartMode?: "autoBranch" | "detachedHead";
         worktreeBranchPrefix?: string;
       },
-    ) =>
-      codexService.startThreadForSession(input),
+    ) => {
+      const ownerClientId = resolveRendererClientId(event);
+      const detail = await codexService.startThreadForSession(input);
+      codexService.setRendererConversationOwner(detail.threadId, ownerClientId);
+      return detail;
+    },
   );
 
   registerHandle(
@@ -1427,12 +1507,31 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.requestConversationSnapshot(threadId)
   );
 
-  registerHandle("codex:thread:resume:request", (_, threadId: string) =>
-    codexService.requestConversationResume(threadId)
+  registerHandle("codex:thread:resume:request", (event, threadId: string) => {
+    codexService.setRendererConversationOwner(threadId, resolveRendererClientId(event));
+    return codexService.requestConversationResume(threadId, {
+      emitSourceNullSnapshots: false,
+      replayBufferedNotifications: false,
+    });
+  });
+
+  registerHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>
+    codexService.releaseConversationResumeBuffer(threadId)
   );
+
+  registerHandle("codex:thread:view-active:set", (event, input: { threadId?: unknown; active?: unknown }) => {
+    if (typeof input.threadId !== "string") return false;
+    const clientId = resolveRendererClientId(event);
+    if (!clientId) return false;
+    codexService.setRendererConversationViewActive(input.threadId, clientId, input.active === true);
+    return true;
+  });
 
   registerHandle("codex:thread:turns:load-older", (_, threadId: string) =>
     codexService.loadOlderThreadTurns(threadId)
+  );
+  registerHandle("codex:thread:turns:load-complete", (_, threadId: string) =>
+    codexService.loadCompleteThreadHistory(threadId)
   );
 
   registerHandle("codex:thread:name:set", (_, threadId: string, name: string) =>
@@ -1486,7 +1585,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle(
     "codex:turn:start",
     (
-      _,
+      event,
       threadId: string,
       prompt: string,
       opts?: {
@@ -1497,8 +1596,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         collaborationMode?: "default" | "plan";
         promptInput?: CodexPromptInput;
       },
-    ) =>
-      codexService.startTurn(threadId, prompt, opts),
+    ) => {
+      codexService.setRendererConversationOwner(threadId, resolveRendererClientId(event));
+      return codexService.startTurn(threadId, prompt, opts);
+    },
   );
 
   registerHandle("codex:review:start", (_, input) =>
@@ -1541,18 +1642,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       codexService.sendQueuedFollowUpNow(threadId, followUpId),
   );
 
-  registerHandle(
-    "codex:thread:edit-last-user-turn",
-    (_, threadId: string, turnId: string, message: string, opts?: { serviceTier?: null | "fast" }) =>
-      codexService.editLastUserTurn(threadId, turnId, message, opts),
-  );
-
-  registerHandle(
-    "codex:thread:fork-from-turn",
-    (_, threadId: string, turnId: string, message: string) =>
-      codexService.forkConversationFromTurn(threadId, turnId, message),
-  );
-
   registerHandle("codex:thread:compact:start", (_, threadId: string) =>
     codexService.startThreadCompaction(threadId)
   );
@@ -1590,6 +1679,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.cleanBackgroundTerminals(threadId)
   );
 
+  registerHandle("codex:thread:background-terminals:clean-silent", (_, threadId: string) =>
+    codexService.cleanBackgroundTerminalsSilently(threadId)
+  );
+
   registerHandle("codex:mcp-resource:read", (_, params) =>
     codexService.readMcpResource(params)
   );
@@ -1612,6 +1705,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:mcp-elicitation:respond", (_, requestId: string, action: "accept" | "decline" | "cancel") =>
     codexService.respondToMcpServerElicitation(requestId, action)
+  );
+
+  registerHandle("codex:permission-request:respond", (_, requestId: string, response) =>
+    codexService.respondToPermissionRequest(requestId, response)
   );
 
   registerHandle("codex:permission:mode:set", async (

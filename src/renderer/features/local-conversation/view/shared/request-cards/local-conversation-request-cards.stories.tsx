@@ -8,6 +8,7 @@ import {
 import { CodexApprovalRequestCard } from "../../composer/request-cards/codex-approval-request-card";
 import { CodexImplementPlanRequestCard } from "../../composer/request-cards/codex-implement-plan-request-card";
 import { CodexMcpElicitationRequestCard } from "../../composer/request-cards/codex-mcp-elicitation-request-card";
+import { CodexPermissionRequestCard } from "../../composer/request-cards/codex-permission-request-card";
 import { THREAD_REQUEST_CARD_STORY_DATA } from "../../thread-stage-story-fixtures";
 
 function RequestSurface({
@@ -39,7 +40,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused request-card coverage for approval, request-user-input, answered user-input transcript rows, and the implement-plan follow-up surface.",
+          "Focused request-card coverage for approval, permissions, request-user-input, answered user-input transcript rows, and the implement-plan follow-up surface.",
       },
     },
   },
@@ -166,6 +167,20 @@ export const ImplementPlan: Story = {
     >
       <CodexImplementPlanRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.implementPlan}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const PermissionRequest: Story = {
+  render: () => (
+    <RequestSurface
+      title="Permission Request"
+      description="Codex-style permissions card with requested permission payload, deny action, and turn-scoped allow action."
+    >
+      <CodexPermissionRequestCard
+        request={THREAD_REQUEST_CARD_STORY_DATA.permissionRequest}
         onRespond={async () => { }}
       />
     </RequestSurface>

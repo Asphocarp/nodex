@@ -4,6 +4,7 @@ import {
   upsertCodexTranscriptEntry,
 } from "../../shared/codex-thread-detail-reducer";
 import { shouldTerminalizeItemWithTurn } from "../../shared/codex-turn-terminalization";
+import { projectCodexItemViewToTranscriptEntry } from "../../shared/codex-item-normalizer";
 import type {
   CodexItemView,
   CodexTranscriptEntry,
@@ -20,52 +21,6 @@ export interface CodexTranscriptProjectionMutation {
   delta?: string;
 }
 
-function projectItemToTranscriptEntry(
-  item: CodexItemView,
-  source: CodexTranscriptEntrySource,
-  sequence: number,
-): CodexTranscriptEntry {
-  return {
-    threadId: item.threadId,
-    turnId: item.turnId,
-    entryId: item.itemId,
-    itemId: item.itemId,
-    type: item.type,
-    kind: item.normalizedKind,
-    semanticKind: item.semanticKind,
-    assistantPhase: item.assistantPhase,
-    timeLabel: item.timeLabel,
-    status: item.status,
-    role: item.role,
-    source,
-    sequence,
-    toolCall: item.toolCall,
-    mcpToolCall: item.mcpToolCall,
-    dynamicToolCall: item.dynamicToolCall,
-    command: item.command,
-    cwd: item.cwd,
-    processId: item.processId,
-    commandActions: item.commandActions,
-    aggregatedOutput: item.aggregatedOutput,
-    exitCode: item.exitCode,
-    durationMs: item.durationMs,
-    approvalRequestId: item.approvalRequestId,
-    networkApprovalContext: item.networkApprovalContext,
-    proposedExecpolicyAmendment: item.proposedExecpolicyAmendment,
-    grantRoot: item.grantRoot,
-    fileChange: item.fileChange,
-    markdownText: item.markdownText,
-    userAttachments: item.userAttachments,
-    additionalDetails: item.additionalDetails,
-    willRetry: item.willRetry,
-    userInputQuestions: item.userInputQuestions,
-    userInputAnswers: item.userInputAnswers,
-    rawItem: item.rawItem,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-  };
-}
-
 export function buildTranscriptFromBootstrapEvents(input: {
   items?: CodexItemView[];
   transcript?: CodexTranscriptEntry[];
@@ -77,7 +32,7 @@ export function buildTranscriptFromBootstrapEvents(input: {
         source: entry.source ?? input.source,
         sequence: Number.isFinite(entry.sequence) ? entry.sequence : index,
       }))
-    : (input.items ?? []).map((item, index) => projectItemToTranscriptEntry(item, input.source, index));
+    : (input.items ?? []).map((item, index) => projectCodexItemViewToTranscriptEntry(item, input.source, index));
 
   return dedupeCodexTranscriptEntries(seededEntries);
 }
@@ -202,7 +157,7 @@ export function projectItemToLiveTranscriptEntry(
 
   const canonicalSequence = canonicalTurnItemIds?.indexOf(item.itemId) ?? -1;
 
-  return projectItemToTranscriptEntry(
+  return projectCodexItemViewToTranscriptEntry(
     item,
     source,
     existingEntry?.sequence ?? (canonicalSequence >= 0 ? canonicalSequence : existingTranscript.length),

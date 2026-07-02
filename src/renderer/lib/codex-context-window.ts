@@ -20,7 +20,10 @@ function normalizeTokenCount(value: number): number {
 export function resolveContextWindowIndicatorState(
   conversation: CodexConversationSnapshot | null,
 ): ContextWindowIndicatorState {
-  if (!conversation || conversation.turns.length === 0) {
+  const tokenUsage = conversation?.resumeState === "resumed"
+    ? conversation.latestTokenUsageInfo
+    : null;
+  if (!tokenUsage) {
     return {
       status: "unavailable",
       percentFull: 0,
@@ -29,44 +32,31 @@ export function resolveContextWindowIndicatorState(
     };
   }
 
-  for (let index = conversation.turns.length - 1; index >= 0; index -= 1) {
-    const turn = conversation.turns[index];
-    const tokenUsage = turn?.tokenUsage;
-    if (!tokenUsage) continue;
-
-    const usedTokens = normalizeTokenCount(tokenUsage.last.totalTokens);
-    const windowTokensRaw = tokenUsage.modelContextWindow;
-    if (typeof windowTokensRaw === "number" && Number.isFinite(windowTokensRaw) && windowTokensRaw > 0) {
-      const windowTokens = normalizeTokenCount(windowTokensRaw);
-      if (windowTokens <= 0) {
-        return {
-          status: "usageOnly",
-          percentFull: 0,
-          usedTokens,
-          windowTokens: null,
-        };
-      }
-
+  const usedTokens = normalizeTokenCount(tokenUsage.last.totalTokens);
+  const windowTokensRaw = tokenUsage.modelContextWindow;
+  if (typeof windowTokensRaw === "number" && Number.isFinite(windowTokensRaw) && windowTokensRaw > 0) {
+    const windowTokens = normalizeTokenCount(windowTokensRaw);
+    if (windowTokens <= 0) {
       return {
-        status: "ready",
-        percentFull: clampPercent((usedTokens / windowTokens) * 100),
+        status: "usageOnly",
+        percentFull: 0,
         usedTokens,
-        windowTokens,
+        windowTokens: null,
       };
     }
 
     return {
-      status: "usageOnly",
-      percentFull: 0,
+      status: "ready",
+      percentFull: clampPercent((usedTokens / windowTokens) * 100),
       usedTokens,
-      windowTokens: null,
+      windowTokens,
     };
   }
 
   return {
-    status: "unavailable",
+    status: "usageOnly",
     percentFull: 0,
-    usedTokens: null,
+    usedTokens,
     windowTokens: null,
   };
 }

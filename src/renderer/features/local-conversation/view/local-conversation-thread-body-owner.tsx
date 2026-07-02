@@ -79,6 +79,16 @@ const PROGRESS_PHASES = [
 
 const DEFER_TURN_COUNT_THRESHOLD = 40;
 
+function turnHasUserMessage(turn: CodexConversationTurn): boolean {
+  return turn.items.some((item) => item.kind === "userMessage" || item.semanticKind === "userMessage");
+}
+
+function resolveLatestEditableTurnId(turns: CodexConversationTurn[]): string | null {
+  const latestTurn = turns.at(-1) ?? null;
+  if (!latestTurn || latestTurn.status === "inProgress") return null;
+  return turnHasUserMessage(latestTurn) ? latestTurn.turnId : null;
+}
+
 function countNeedleOccurrences(text: string, normalizedQuery: string): number {
   if (!normalizedQuery) return 0;
   const haystack = text.toLowerCase();
@@ -395,9 +405,7 @@ export function LocalConversationThreadBodyOwner({
   const latestTurnId = body.latestTurnId;
   const editableTurnId =
     capabilityFlags.canEditLastUserTurn
-      ? [...turns]
-          .reverse()
-          .find((turn) => turn.status !== "inProgress")?.turnId ?? null
+      ? resolveLatestEditableTurnId(turns)
       : null;
   const canForkFromTurn =
     capabilityFlags.canForkFromTurn;

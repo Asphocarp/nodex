@@ -1652,6 +1652,13 @@ function subscribeCodexHostMessages(
   return () => { };
 }
 
+function subscribeCodexRendererClientRequests(
+  callback: (message: import("./types").CodexRendererClientRequestMessage) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 function subscribeDesktopNotificationActions(
   callback: (payload: import("./types").DesktopNotificationActionPayload & {
     conversationId: string | null;
@@ -1722,6 +1729,7 @@ export const browserRendererTransport = {
   subscribeProjectSessionChanges,
   subscribeProjectChanges,
   subscribeCodexHostMessages,
+  subscribeCodexRendererClientRequests,
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,
   subscribeAppUpdateStatus,

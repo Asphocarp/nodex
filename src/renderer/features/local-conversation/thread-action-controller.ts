@@ -152,14 +152,17 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       const threadId = requireActiveThreadId(input.activeThreadId, "Stopping Codex");
       await input.codexControl.interruptTurn(threadId, turnId);
     },
-    onRespondApproval: async (requestId, decision) => {
-      await input.codexControl.respondApproval(requestId, decision);
+    onRespondApproval: async (requestId, decision, context) => {
+      await input.codexControl.respondApproval(requestId, decision, context?.conversationId ?? null);
     },
-    onRespondUserInput: async (requestId, answers) => {
-      await input.codexControl.respondUserInput(requestId, answers);
+    onRespondUserInput: async (requestId, answers, context) => {
+      await input.codexControl.respondUserInput(requestId, answers, context?.conversationId ?? null);
     },
-    onRespondMcpElicitation: async (requestId, action) => {
-      await input.codexControl.respondMcpElicitation(requestId, action);
+    onRespondMcpElicitation: async (requestId, action, context) => {
+      await input.codexControl.respondMcpElicitation(requestId, action, context?.conversationId ?? null);
+    },
+    onRespondPermissionRequest: async (requestId, response, context) => {
+      await input.codexControl.respondPermissionRequest(requestId, response, context?.conversationId ?? null);
     },
     onResolvePlanImplementationRequest: async (threadId, turnId) => {
       await input.codexControl.removePlanImplementationRequest(threadId, turnId);
@@ -190,7 +193,6 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     },
     onEditLastUserTurn: async ({ threadId, turnId, message }) => {
       await input.codexControl.editLastUserTurn(threadId, turnId, message);
-      await input.codexControl.requestThreadStreamSnapshot(threadId);
     },
     onForkFromTurn: async ({ threadId, turnId, message }) => {
       if (input.onForkSessionFromTurn) {
@@ -205,7 +207,9 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
 
       const result = await input.codexControl.forkConversationFromTurn(threadId, turnId, message);
       await input.codexControl.requestThreadStreamSnapshot(result.threadId);
-      input.codexControl.setComposerIntent(result.threadId, result.composerIntent);
+      if (result.composerIntent) {
+        input.codexControl.setComposerIntent(result.threadId, result.composerIntent);
+      }
       await input.codexControl.setConversationCollaborationMode(result.threadId, input.selectedCollaborationMode);
       input.onOpenThread(result.threadId);
     },

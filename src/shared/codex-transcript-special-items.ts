@@ -4,17 +4,29 @@ import { CodexUnknownRecordSchema } from "./schemas/codex";
 const NullableStringSchema = z.string().nullable().optional().catch(null).transform((value) => value ?? null);
 const NullableFiniteNumberSchema = z.number().finite().nullable().optional().catch(null).transform((value) => value ?? null);
 
+export const AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX =
+  "Automatic approval review rejected too many approval requests for this turn";
+
 const CodexAutomaticApprovalReviewStatusSchema = z.enum([
   "approved",
   "denied",
   "aborted",
   "inProgress",
+  "timedOut",
 ]);
 
 const CodexAutomaticApprovalReviewRiskLevelSchema = z.enum([
   "high",
   "medium",
   "low",
+  "critical",
+]);
+
+const CodexAutomaticApprovalReviewUserAuthorizationSchema = z.enum([
+  "unknown",
+  "low",
+  "medium",
+  "high",
 ]);
 
 const CodexMultiAgentActionNameSchema = z.enum([
@@ -49,6 +61,7 @@ export interface CodexAutomaticApprovalReviewPayload {
   status: CodexAutomaticApprovalReviewStatus;
   riskScore: number | null;
   riskLevel: CodexAutomaticApprovalReviewRiskLevel | null;
+  userAuthorization: "unknown" | "low" | "medium" | "high" | null;
   rationale: string | null;
   action: unknown;
 }
@@ -95,11 +108,13 @@ const CodexAutomaticApprovalReviewRecordSchema = CodexUnknownRecordSchema.transf
   }
 
   const riskLevel = CodexAutomaticApprovalReviewRiskLevelSchema.safeParse(value.riskLevel);
+  const userAuthorization = CodexAutomaticApprovalReviewUserAuthorizationSchema.safeParse(value.userAuthorization);
 
   return {
     status: status.data,
     riskScore: NullableFiniteNumberSchema.parse(value.riskScore),
     riskLevel: riskLevel.success ? riskLevel.data : null,
+    userAuthorization: userAuthorization.success ? userAuthorization.data : null,
     rationale: NullableStringSchema.parse(value.rationale),
   };
 });
@@ -225,6 +240,16 @@ export function buildAutomaticApprovalReviewSummary(
     return "A carefully prompted reviewer agent stopped reviewing this request before Codex ran it.";
   }
   return "A carefully prompted reviewer agent reviewed this request.";
+}
+
+export function shouldShowAutoReviewInterruptionWarning(rawNotification: unknown): boolean {
+  const candidate = CodexUnknownRecordSchema.safeParse(rawNotification);
+  if (!candidate.success) return false;
+
+  if (candidate.data.kind === "tooManyDenials") return true;
+
+  const message = candidate.data.message;
+  return typeof message === "string" && message.startsWith(AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX);
 }
 
 export function normalizeMultiAgentActionPayload(rawItem: unknown): CodexMultiAgentActionPayload | null {

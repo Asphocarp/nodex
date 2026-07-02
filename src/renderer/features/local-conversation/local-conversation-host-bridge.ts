@@ -34,6 +34,34 @@ function applyHostMessage(message: CodexHostMessage): void {
     return;
   }
 
+  if (message.type === "threadOwnerNotification") {
+    dispatchCodexAppServerMessage("thread-owner-notification", {
+      hostId: message.hostId,
+      method: message.method,
+      sequence: message.sequence,
+      params: message.params,
+    });
+    return;
+  }
+
+  if (message.type === "threadOwnerRequest") {
+    dispatchCodexAppServerMessage("thread-owner-request", {
+      hostId: message.hostId,
+      request: message.request,
+      sequence: message.sequence,
+    });
+    return;
+  }
+
+  if (message.type === "threadOwnerUnavailable") {
+    dispatchCodexAppServerMessage("thread-owner-unavailable", {
+      hostId: message.hostId,
+      ownerClientId: message.ownerClientId,
+      conversationIds: message.conversationIds,
+    });
+    return;
+  }
+
   if (message.type === "threadTitleUpdated") {
     dispatchCodexAppServerMessage("thread-title-updated", {
       hostId: message.hostId,

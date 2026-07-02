@@ -2,6 +2,8 @@ import type {
   CodexConnectionState,
   CodexMcpNotificationMessage,
   CodexSharedObject,
+  CodexThreadOwnerNotificationMethod,
+  CodexThreadOwnerServerRequest,
   CodexThreadStreamStateChange,
 } from "../../lib/types";
 
@@ -44,12 +46,34 @@ export interface CodexErrorEvent {
 
 export type CodexMcpNotificationEvent = Omit<CodexMcpNotificationMessage, "type">;
 
+export interface CodexThreadOwnerNotificationEvent {
+  hostId: string;
+  method: CodexThreadOwnerNotificationMethod;
+  sequence: number;
+  params: unknown;
+}
+
+export interface CodexThreadOwnerRequestEvent {
+  hostId: string;
+  request: CodexThreadOwnerServerRequest;
+  sequence: number;
+}
+
+export interface CodexThreadOwnerUnavailableEvent {
+  hostId: string;
+  ownerClientId: string;
+  conversationIds: string[];
+}
+
 interface CodexAppServerMessageMap {
   "shared-object-updated": CodexSharedObjectUpdatedEvent;
   "thread-stream-state-changed": CodexThreadStreamStateChangedEvent;
   "client-status-changed": CodexClientStatusChangedEvent;
   "thread-title-updated": CodexThreadTitleUpdatedEvent;
   "thread-deleted": CodexThreadDeletedEvent;
+  "thread-owner-notification": CodexThreadOwnerNotificationEvent;
+  "thread-owner-request": CodexThreadOwnerRequestEvent;
+  "thread-owner-unavailable": CodexThreadOwnerUnavailableEvent;
   "mcp-notification": CodexMcpNotificationEvent;
   error: CodexErrorEvent;
 }
@@ -62,6 +86,9 @@ const listenersByType: {
   "client-status-changed": new Set(),
   "thread-title-updated": new Set(),
   "thread-deleted": new Set(),
+  "thread-owner-notification": new Set(),
+  "thread-owner-request": new Set(),
+  "thread-owner-unavailable": new Set(),
   "mcp-notification": new Set(),
   error: new Set(),
 };

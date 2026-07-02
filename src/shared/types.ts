@@ -5,25 +5,34 @@ import type {
   CommandAction as CodexAppServerCommandAction,
   CommandExecutionOutputDeltaNotification as CodexAppServerCommandExecutionOutputDeltaNotification,
   CommandExecutionRequestApprovalParams as CodexAppServerCommandExecutionRequestApprovalParams,
+  FileChangeRequestApprovalParams as CodexAppServerFileChangeRequestApprovalParams,
   DynamicToolCallOutputContentItem as CodexAppServerDynamicToolCallOutputContentItem,
+  DynamicToolCallParams as CodexAppServerDynamicToolCallParams,
+  DynamicToolCallResponse as CodexAppServerDynamicToolCallResponse,
   ExecPolicyAmendment as CodexAppServerExecPolicyAmendment,
   ListMcpServerStatusResponse as CodexAppServerListMcpServerStatusResponse,
   McpResourceReadParams as CodexAppServerMcpResourceReadParams,
   McpResourceReadResponse as CodexAppServerMcpResourceReadResponse,
+  McpServerElicitationRequestParams as CodexAppServerMcpServerElicitationRequestParams,
   McpServerStatus as CodexAppServerMcpServerStatus,
   McpToolCallError as CodexAppServerMcpToolCallError,
   McpToolCallResult as CodexAppServerMcpToolCallResult,
   NetworkApprovalContext as CodexAppServerNetworkApprovalContext,
+  PermissionsRequestApprovalParams as CodexAppServerPermissionsRequestApprovalParams,
+  PermissionsRequestApprovalResponse as CodexAppServerPermissionsRequestApprovalResponse,
   SandboxMode as CodexAppServerSandboxMode,
   SandboxPolicy as CodexAppServerSandboxPolicy,
   ReviewStartParams as CodexAppServerReviewStartParams,
   ReviewStartResponse as CodexAppServerReviewStartResponse,
   ReviewTarget as CodexAppServerReviewTarget,
+  ThreadGoal as CodexAppServerThreadGoal,
   ThreadSettings as CodexAppServerThreadSettings,
   ThreadItem as CodexAppServerThreadItem,
+  ToolRequestUserInputParams as CodexAppServerToolRequestUserInputParams,
   TurnItemsView as CodexAppServerTurnItemsView,
   UserInput as CodexAppServerUserInput,
 } from "@nodex/codex-app-server-protocol/v2";
+import type { ThreadMemoryMode as CodexAppServerThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 
 export type Priority = "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
 
@@ -1298,6 +1307,7 @@ export interface CodexThreadSummary {
   approvalPolicy?: CodexApprovalPolicy | null;
   approvalsReviewer?: CodexApprovalsReviewer | null;
   sandbox?: CodexSandboxPolicy | null;
+  latestTokenUsageInfo?: CodexThreadTokenUsage | null;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;
@@ -1521,7 +1531,28 @@ export interface CodexComposerIntent {
 
 export interface CodexThreadActionResult {
   threadId: string;
-  composerIntent: CodexComposerIntent;
+  composerIntent?: CodexComposerIntent;
+  streamRevision?: number;
+}
+
+export type CodexOwnerAppServerRequestMethod =
+  | "thread/rollback"
+  | "thread/fork"
+  | "turn/start"
+  | "turn/steer"
+  | "turn/interrupt"
+  | "thread/settings/update"
+  | "thread/goal/set"
+  | "thread/goal/clear"
+  | "thread/memoryMode/set"
+  | "thread/compact/start";
+
+export interface CodexOwnerAppServerRequestInput {
+  conversationId: string;
+  request: {
+    method: CodexOwnerAppServerRequestMethod;
+    params: unknown;
+  };
 }
 
 export type CodexPermissionPreset = "read-only" | "auto" | "guardian-approvals" | "full-access";
@@ -1561,6 +1592,13 @@ export interface CodexThreadTokenUsage {
   modelContextWindow: number | null;
 }
 
+export interface CodexSafetyBufferingState {
+  useCases: string[];
+  reasons: string[];
+  showBufferingUi: boolean;
+  fasterModel: string | null;
+}
+
 export interface CodexTurnSummary {
   threadId: string;
   turnId: string;
@@ -1576,6 +1614,7 @@ export interface CodexTurnSummary {
   durationMs?: number | null;
   interruptedCommandExecutionItemIds?: string[];
   tokenUsage?: CodexThreadTokenUsage;
+  safetyBuffering?: CodexSafetyBufferingState;
 }
 
 export type CodexItemNormalizedKind =
@@ -1607,6 +1646,7 @@ export type CodexSemanticItemKind =
   | "webSearch"
   | "workedFor"
   | "mcpServerElicitation"
+  | "permissionRequest"
   | "streamError"
   | "systemError"
   | "remoteTaskCreated"
@@ -1616,6 +1656,7 @@ export type CodexSemanticItemKind =
   | "modelRerouted"
   | "contextCompaction"
   | "automaticApprovalReview"
+  | "autoReviewInterruptionWarning"
   | "multiAgentAction"
   | "steered"
   | "userInputResponse"
@@ -1655,6 +1696,8 @@ export type ProtocolCommandExecutionItem = Extract<ProtocolThreadItem, { type: "
 export type ProtocolMcpToolCallItem = Extract<ProtocolThreadItem, { type: "mcpToolCall" }>;
 export type ProtocolDynamicToolCallItem = Extract<ProtocolThreadItem, { type: "dynamicToolCall" }>;
 export type ProtocolDynamicToolCallOutputContentItem = CodexAppServerDynamicToolCallOutputContentItem;
+export type ProtocolDynamicToolCallParams = CodexAppServerDynamicToolCallParams;
+export type ProtocolDynamicToolCallResponse = CodexAppServerDynamicToolCallResponse;
 export type ProtocolCommandAction = CodexAppServerCommandAction;
 export type ProtocolMcpToolCallResult = CodexAppServerMcpToolCallResult;
 export type ProtocolMcpToolCallError = CodexAppServerMcpToolCallError;
@@ -2045,6 +2088,23 @@ export interface CodexMcpServerElicitationRequest {
 }
 
 export type CodexMcpServerElicitationAction = "accept" | "decline" | "cancel";
+
+export interface CodexPermissionRequest {
+  type: "permissionRequest";
+  requestId: string;
+  projectId: string | null;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  cwd: string;
+  reason: string | null;
+  permissions: CodexAppServerPermissionsRequestApprovalParams["permissions"];
+  response: CodexAppServerPermissionsRequestApprovalResponse | null;
+  completed: boolean;
+  createdAt: number;
+}
+
+export type CodexPermissionRequestResponse = CodexAppServerPermissionsRequestApprovalResponse;
 
 export interface CodexPendingSteer {
   steerId: string;
@@ -2517,6 +2577,7 @@ export type CodexConversationServerRequest =
   | CodexApprovalRequest
   | CodexUserInputRequest
   | CodexMcpServerElicitationRequest
+  | CodexPermissionRequest
   | CodexPlanImplementationServerRequest;
 
 export type CodexConversationLiveRequest = CodexConversationServerRequest;
@@ -2524,6 +2585,10 @@ export type CodexConversationLiveRequest = CodexConversationServerRequest;
 export interface CodexConversationSnapshot extends CodexThreadSummary {
   latestCollaborationMode?: CodexCollaborationModeState;
   latestThreadSettings?: CodexConversationThreadSettings | null;
+  latestTokenUsageInfo?: CodexThreadTokenUsage | null;
+  threadGoal?: CodexAppServerThreadGoal | null;
+  completedThreadGoal?: CodexAppServerThreadGoal | null;
+  threadGoalResumeConfirmation?: CodexAppServerThreadGoal | null;
   resumeState: CodexConversationResumeState;
   turnPagination?: CodexConversationTurnPagination;
   turns: CodexConversationTurn[];
@@ -2629,8 +2694,233 @@ export type CodexSharedObject =
     };
 
 export type CodexThreadStreamStateChange =
-  | { type: "snapshot"; conversationState: CodexConversationSnapshot }
-  | { type: "patches"; patches: CodexConversationStateUpdate[] };
+  | {
+      type: "snapshot";
+      revision: number;
+      conversationState: CodexConversationSnapshot;
+    }
+  | {
+      type: "patches";
+      baseRevision: number;
+      revision: number;
+      patches: CodexConversationStateUpdate[];
+    };
+
+export interface CodexRendererClientRequestMessage {
+  requestId: string;
+  method: string;
+  params: unknown;
+}
+
+export type CodexRendererClientResponseMessage =
+  | {
+      type: "success";
+      requestId: string;
+      result: unknown;
+    }
+  | {
+      type: "error";
+      requestId: string;
+      error: string;
+    };
+
+export type CodexRendererThreadRole = "owner" | "follower";
+
+export interface CodexRendererThreadRoleRequest {
+  conversationId: string;
+}
+
+export type CodexThreadOwnerActionRequest =
+  | {
+      type: "startTurn";
+      threadId: string;
+      prompt: string;
+      opts?: CodexTurnStartOptions;
+    }
+  | {
+      type: "steerTurn";
+      input: CodexSteerTurnInput;
+    }
+  | {
+      type: "interruptTurn";
+      threadId: string;
+      turnId?: string;
+    }
+  | {
+      type: "updateThreadSettings";
+      threadId: string;
+      patch: CodexConversationThreadSettingsPatch;
+    }
+  | {
+      type: "compactThread";
+      threadId: string;
+    }
+  | {
+      type: "setThreadGoal";
+      threadId: string;
+      objective: string;
+      tokenBudget?: number | null;
+    }
+  | {
+      type: "clearThreadGoal";
+      threadId: string;
+    }
+  | {
+      type: "setThreadMemoryMode";
+      threadId: string;
+      mode: CodexAppServerThreadMemoryMode;
+    }
+  | {
+      type: "editLastUserTurn";
+      threadId: string;
+      turnId: string;
+      message: string;
+      opts?: { serviceTier?: CodexServiceTier };
+    }
+  | {
+      type: "forkConversationFromTurn";
+      threadId: string;
+      turnId: string;
+      message: string;
+    }
+  | {
+      type: "loadCompleteHistory";
+      threadId: string;
+    }
+  | {
+      type: "enqueueQueuedFollowUp";
+      threadId: string;
+      prompt: string;
+      opts?: CodexTurnStartOptions;
+    }
+  | {
+      type: "removeQueuedFollowUp";
+      threadId: string;
+      followUpId: string;
+    }
+  | {
+      type: "reorderQueuedFollowUps";
+      threadId: string;
+      orderedFollowUpIds: string[];
+    }
+  | {
+      type: "sendQueuedFollowUpNow";
+      threadId: string;
+      followUpId: string;
+    }
+  | {
+      type: "respondApproval";
+      requestId: string;
+      decision: CodexApprovalDecision;
+    }
+  | {
+      type: "respondUserInput";
+      requestId: string;
+      answers: Record<string, string[]>;
+    }
+  | {
+      type: "respondMcpElicitation";
+      requestId: string;
+      action: CodexMcpServerElicitationAction;
+    }
+  | {
+      type: "respondPermissionRequest";
+      requestId: string;
+      response: CodexPermissionRequestResponse;
+    }
+  | {
+      type: "removePlanImplementationRequest";
+      threadId: string;
+      turnId: string;
+    };
+
+export interface CodexThreadFollowerActionInput {
+  conversationId: string;
+  action: CodexThreadOwnerActionRequest;
+}
+
+export interface CodexThreadOwnerLoadCompleteHistoryResult {
+  revision: number;
+}
+
+export interface CodexThreadOwnerStreamStatePublishInput {
+  conversationId: string;
+  change: CodexThreadStreamStateChange;
+  ownerNotificationSequence?: number;
+}
+
+export interface CodexThreadOwnerNotificationAckInput {
+  conversationId: string;
+  sequence: number;
+}
+
+export type CodexThreadOwnerServerRequest =
+  | {
+      id: string;
+      method: "item/commandExecution/requestApproval";
+      params: CodexAppServerCommandExecutionRequestApprovalParams;
+    }
+  | {
+      id: string;
+      method: "item/fileChange/requestApproval";
+      params: CodexAppServerFileChangeRequestApprovalParams;
+    }
+  | {
+      id: string;
+      method: "item/permissions/requestApproval";
+      params: CodexAppServerPermissionsRequestApprovalParams;
+    }
+  | {
+      id: string;
+      method: "item/tool/requestUserInput";
+      params: CodexAppServerToolRequestUserInputParams;
+    }
+  | {
+      id: string;
+      method: "item/tool/call";
+      params: CodexAppServerDynamicToolCallParams;
+    }
+  | {
+      id: string;
+      method: "mcpServer/elicitation/request";
+      params: CodexAppServerMcpServerElicitationRequestParams;
+    };
+
+export type CodexThreadOwnerNotificationMethod =
+  | "thread/started"
+  | "thread/name/updated"
+  | "thread/settings/updated"
+  | "thread/status/changed"
+  | "thread/tokenUsage/updated"
+  | "thread/goal/updated"
+  | "thread/goal/cleared"
+  | "turn/started"
+  | "turn/completed"
+  | "turn/interrupted"
+  | "turn/failed"
+  | "turn/diff/updated"
+  | "turn/plan/updated"
+  | "model/safetyBuffering/updated"
+  | "hook/started"
+  | "hook/completed"
+  | "item/autoApprovalReview/started"
+  | "item/autoApprovalReview/completed"
+  | "guardianWarning"
+  | "item/started"
+  | "item/completed"
+  | "item/agentMessage/delta"
+  | "item/plan/delta"
+  | "item/reasoning/summaryTextDelta"
+  | "item/reasoning/summaryPartAdded"
+  | "item/reasoning/textDelta"
+  | "item/commandExecution/outputDelta"
+  | "item/commandExecution/terminalInteraction"
+  | "item/fileChange/outputDelta"
+  | "item/fileChange/patchUpdated"
+  | "item/mcpToolCall/progress"
+  | "serverRequest/resolved"
+  | "model/rerouted"
+  | "error";
 
 export type CodexMcpNotificationMessage =
   {
@@ -2653,6 +2943,25 @@ export type CodexHostMessage =
       change: CodexThreadStreamStateChange;
       version: number;
       sourceClientId?: string | null;
+    }
+  | {
+      type: "threadOwnerNotification";
+      hostId: string;
+      method: CodexThreadOwnerNotificationMethod;
+      sequence: number;
+      params: unknown;
+    }
+  | {
+      type: "threadOwnerRequest";
+      hostId: string;
+      request: CodexThreadOwnerServerRequest;
+      sequence: number;
+    }
+  | {
+      type: "threadOwnerUnavailable";
+      hostId: string;
+      ownerClientId: string;
+      conversationIds: string[];
     }
   | {
       type: "threadTitleUpdated";

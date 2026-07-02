@@ -24,6 +24,7 @@ import type {
   CodexConversationTurnPagination,
   CodexModelOption,
   CodexPermissionMode,
+  CodexPermissionRequestResponse,
   CodexPromptInput,
   CodexSteerTurnInput,
   CodexThreadStatusType,
@@ -173,9 +174,26 @@ export interface ThreadStageActions {
   onRequestRenameThread?: () => void;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
-  onRespondApproval: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
-  onRespondUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<void>;
-  onRespondMcpElicitation: (requestId: string, action: CodexMcpServerElicitationAction) => Promise<void>;
+  onRespondApproval: (
+    requestId: string,
+    decision: CodexApprovalDecision,
+    context?: ThreadRequestResponseContext,
+  ) => Promise<void>;
+  onRespondUserInput: (
+    requestId: string,
+    answers: Record<string, string[]>,
+    context?: ThreadRequestResponseContext,
+  ) => Promise<void>;
+  onRespondMcpElicitation: (
+    requestId: string,
+    action: CodexMcpServerElicitationAction,
+    context?: ThreadRequestResponseContext,
+  ) => Promise<void>;
+  onRespondPermissionRequest?: (
+    requestId: string,
+    response: CodexPermissionRequestResponse,
+    context?: ThreadRequestResponseContext,
+  ) => Promise<void>;
   onResolvePlanImplementationRequest: (threadId: string, turnId: string) => Promise<void>;
   onEnqueueQueuedFollowUp: (
     threadId: string,
@@ -207,6 +225,10 @@ export interface ThreadStageActions {
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string) => void;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
+}
+
+export interface ThreadRequestResponseContext {
+  conversationId?: string | null;
 }
 
 export interface ThreadMcpWidgetCspModel {
@@ -311,6 +333,7 @@ export interface ThreadTranscriptBlockModel {
     | "modelRerouted"
     | "contextCompaction"
     | "automaticApprovalReview"
+    | "autoReviewInterruptionWarning"
     | "multiAgentAction"
     | "steered"
     | "systemEvent"
@@ -433,7 +456,7 @@ export interface ThreadPendingTurnRequestModel {
   createdAt: number;
   updatedAt: number;
   searchableText: string;
-  type: "approval" | "userInput" | "implementPlan";
+  type: CodexTurnScopedConversationRequest["type"];
   request: CodexTurnScopedConversationRequest;
 }
 

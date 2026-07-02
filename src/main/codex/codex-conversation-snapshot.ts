@@ -14,6 +14,7 @@ import type {
   CodexThreadDetail,
   CodexTranscriptEntry,
 } from "../../shared/types";
+import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 
 const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
   mode: "default",
@@ -81,6 +82,9 @@ export function buildCodexConversationSnapshot(input: {
   childMemberships?: CodexConversationChildMembership[];
   capabilityFlags: CodexConversationCapabilityFlags;
   turnPagination?: CodexConversationTurnPagination;
+  threadGoal?: ThreadGoal | null;
+  completedThreadGoal?: ThreadGoal | null;
+  threadGoalResumeConfirmation?: ThreadGoal | null;
 }): CodexConversationSnapshot {
   const { transcript, ...detail } = input.detail;
   void transcript;
@@ -89,6 +93,10 @@ export function buildCodexConversationSnapshot(input: {
     ...detail,
     latestCollaborationMode: input.detail.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE,
     latestThreadSettings: input.detail.latestThreadSettings ?? null,
+    latestTokenUsageInfo: input.detail.latestTokenUsageInfo ?? null,
+    threadGoal: input.threadGoal ?? null,
+    completedThreadGoal: input.completedThreadGoal ?? null,
+    threadGoalResumeConfirmation: input.threadGoalResumeConfirmation ?? null,
     resumeState: input.resumeState,
     turnPagination: input.turnPagination ?? {
       olderCursor: null,

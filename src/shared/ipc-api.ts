@@ -8,22 +8,27 @@ import type {
   BoardSummary,
   CodexAccountSnapshot,
   CodexApprovalDecision,
-  CodexThreadActionResult,
   CodexConversationSnapshot,
   CodexConnectionState,
   CodexDictationStateSnapshot,
+  ProtocolDynamicToolCallResponse,
   CodexCollaborationModePreset,
   CodexCollaborationModeState,
   CodexConversationThreadSettings,
   CodexConversationThreadSettingsPatch,
   CodexEvent,
+  CodexOwnerAppServerRequestInput,
   CodexReviewStartParams,
   CodexReviewStartResponse,
+  CodexRendererClientRequestMessage,
+  CodexRendererClientResponseMessage,
+  CodexThreadFollowerActionInput,
+  CodexThreadOwnerNotificationAckInput,
+  CodexThreadOwnerStreamStatePublishInput,
   CodexSidebarRefreshPolicy,
   CodexSidebarRefreshReason,
   CodexSidebarSnapshot,
   CodexSidebarSyncResult,
-  CodexServiceTier,
   BranchDiffStatsRequest,
   BranchDiffStatsResult,
   GitApplyPatchInput,
@@ -63,6 +68,7 @@ import type {
   CodexHostMessage,
   CodexModelOption,
   CodexPermissionMode,
+  CodexPermissionRequestResponse,
   CodexPermissionState,
   CodexSteerTurnInput,
   CodexSideChatStartInput,
@@ -429,7 +435,16 @@ export interface WorkspacePickDirectoryInput {
   createDirectory?: boolean;
 }
 
+export interface RendererDiagnosticsLogInput {
+  message: string;
+  fields?: Record<string, unknown>;
+}
+
 export interface IpcApi {
+  "diagnostics:renderer-log": {
+    args: [input: RendererDiagnosticsLogInput];
+    result: void;
+  };
   "persisted-atom:sync-request": { args: []; result: PersistedAtomState };
   "persisted-atom:update": { args: [update: PersistedAtomUpdate]; result: PersistedAtomState };
   "projects:list": { args: []; result: Project[] };
@@ -894,6 +909,38 @@ export interface IpcApi {
     args: [threadId: string];
     result: boolean;
   };
+  "codex:renderer-client:id": {
+    args: [];
+    result: string | null;
+  };
+  "codex:renderer-client:response": {
+    args: [response: CodexRendererClientResponseMessage];
+    result: boolean;
+  };
+  "codex:thread-owner:stream-state:publish": {
+    args: [input: CodexThreadOwnerStreamStatePublishInput];
+    result: boolean;
+  };
+  "codex:thread:resume-buffer:release": {
+    args: [threadId: string];
+    result: boolean;
+  };
+  "codex:thread-owner:notification:ack": {
+    args: [input: CodexThreadOwnerNotificationAckInput];
+    result: boolean;
+  };
+  "codex:thread-owner:app-server-request": {
+    args: [input: CodexOwnerAppServerRequestInput];
+    result: unknown;
+  };
+  "codex:thread-follower:action": {
+    args: [input: CodexThreadFollowerActionInput];
+    result: unknown;
+  };
+  "codex:dynamic-tool-call:respond": {
+    args: [requestId: string];
+    result: ProtocolDynamicToolCallResponse | null;
+  };
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };
   "worktrees:environments:list": { args: [projectId: string]; result: WorktreeEnvironmentOption[] };
   "worktrees:environments:configs:list": { args: [projectId: string]; result: WorktreeEnvironmentConfigRecord[] };
@@ -914,7 +961,15 @@ export interface IpcApi {
     args: [threadId: string];
     result: CodexConversationSnapshot | null;
   };
+  "codex:thread:view-active:set": {
+    args: [input: { threadId: string; active: boolean }];
+    result: boolean;
+  };
   "codex:thread:turns:load-older": {
+    args: [threadId: string];
+    result: CodexConversationSnapshot | null;
+  };
+  "codex:thread:turns:load-complete": {
     args: [threadId: string];
     result: CodexConversationSnapshot | null;
   };
@@ -968,14 +1023,6 @@ export interface IpcApi {
     args: [threadId: string, followUpId: string];
     result: void;
   };
-  "codex:thread:edit-last-user-turn": {
-    args: [threadId: string, turnId: string, message: string, opts?: { serviceTier?: CodexServiceTier }];
-    result: CodexThreadActionResult;
-  };
-  "codex:thread:fork-from-turn": {
-    args: [threadId: string, turnId: string, message: string];
-    result: CodexThreadActionResult;
-  };
   "codex:thread:compact:start": {
     args: [threadId: string];
     result: void;
@@ -1012,6 +1059,10 @@ export interface IpcApi {
     args: [threadId: string];
     result: boolean;
   };
+  "codex:thread:background-terminals:clean-silent": {
+    args: [threadId: string];
+    result: boolean;
+  };
   "codex:mcp-resource:read": {
     args: [params: ProtocolMcpResourceReadParams];
     result: ProtocolMcpResourceReadResponse;
@@ -1034,6 +1085,10 @@ export interface IpcApi {
   };
   "codex:mcp-elicitation:respond": {
     args: [requestId: string, action: "accept" | "decline" | "cancel"];
+    result: boolean;
+  };
+  "codex:permission-request:respond": {
+    args: [requestId: string, response: CodexPermissionRequestResponse];
     result: boolean;
   };
   "codex:permission:mode:set": {
@@ -1071,6 +1126,7 @@ export interface IpcEvents {
   "terminal-exit": TerminalExitEvent;
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
+  "codex:renderer-client:request": CodexRendererClientRequestMessage;
   "codex:threads:palette:index-updated": CommandPaletteThreadIndexUpdatedEvent;
   "browser-sidebar-state": BrowserSidebarStateSnapshot;
   "browser-sidebar-local-servers": BrowserSidebarLocalServersSnapshot;

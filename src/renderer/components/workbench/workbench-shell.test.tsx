@@ -3767,7 +3767,7 @@ describe("workbench session shell", () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
   });
 
-  test("inline message edit calls rollback edit and refreshes the active snapshot without seeding composer intent", async () => {
+  test("inline message edit calls rollback edit without refreshing source-null snapshot or seeding composer intent", async () => {
     renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
     });
@@ -3794,7 +3794,7 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(editLastUserTurnCalls)).toBe(JSON.stringify([
       ["thread-alpha", "turn-latest", "Rewrite the latest prompt"],
     ]));
-    expect(JSON.stringify(requestThreadStreamSnapshotCalls)).toBe(JSON.stringify(["thread-alpha"]));
+    expect(JSON.stringify(requestThreadStreamSnapshotCalls)).toBe(JSON.stringify([]));
     expect(setComposerIntentCalls.length).toBe(0);
   });
 

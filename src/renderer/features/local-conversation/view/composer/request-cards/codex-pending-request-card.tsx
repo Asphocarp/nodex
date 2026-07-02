@@ -2,6 +2,7 @@ import type { ThreadComposerShellPendingRequestModel, ThreadStageActions } from 
 import { CodexApprovalRequestCard } from "./codex-approval-request-card";
 import { CodexImplementPlanRequestCard } from "./codex-implement-plan-request-card";
 import { CodexMcpElicitationRequestCard } from "./codex-mcp-elicitation-request-card";
+import { CodexPermissionRequestCard } from "./codex-permission-request-card";
 import { CodexUserInputRequestCard } from "./codex-user-input-request-card";
 
 interface CodexPendingRequestCardProps {
@@ -31,7 +32,9 @@ export function CodexPendingRequestCard({
           requestItem={entry.requestItem}
           actorName={entry.actorName ?? null}
           approvalQuestionActor={approvalQuestionActor}
-          onRespond={actions.onRespondApproval}
+          onRespond={async (requestId, decision) => {
+            await actions.onRespondApproval(requestId, decision, { conversationId: entry.conversationId });
+          }}
           onSubmitLocalFollowup={async (prompt) => {
             await actions.onSendPrompt(prompt);
           }}
@@ -41,14 +44,31 @@ export function CodexPendingRequestCard({
       return (
         <CodexUserInputRequestCard
           request={entry.request}
-          onRespond={actions.onRespondUserInput}
+          onRespond={async (requestId, answers) => {
+            await actions.onRespondUserInput(requestId, answers, { conversationId: entry.conversationId });
+          }}
         />
       );
     case "mcpServerElicitation":
       return (
         <CodexMcpElicitationRequestCard
           request={entry.request}
-          onRespond={actions.onRespondMcpElicitation}
+          onRespond={async (requestId, action) => {
+            await actions.onRespondMcpElicitation(requestId, action, { conversationId: entry.conversationId });
+          }}
+        />
+      );
+    case "permissionRequest":
+      return (
+        <CodexPermissionRequestCard
+          request={entry.request}
+          onRespond={async (requestId, response) => {
+            await (actions.onRespondPermissionRequest ?? (async () => {}))(
+              requestId,
+              response,
+              { conversationId: entry.conversationId },
+            );
+          }}
         />
       );
     case "implementPlan":

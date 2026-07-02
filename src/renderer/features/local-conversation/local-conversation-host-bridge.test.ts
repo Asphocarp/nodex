@@ -106,4 +106,75 @@ describe("local conversation host bridge", () => {
     unsubscribe();
     __resetLocalConversationHostBridgeForTests();
   });
+
+  test("dispatches owner-only thread notifications onto the app-server message bus", async () => {
+    const received: Array<{ method: string; sequence: number; delta: string | null }> = [];
+    const unsubscribe = subscribeCodexAppServerMessage("thread-owner-notification", (event) => {
+      const params = typeof event.params === "object" && event.params !== null
+        ? event.params as { delta?: unknown }
+        : null;
+      received.push({
+        method: event.method,
+        sequence: event.sequence,
+        delta: typeof params?.delta === "string" ? params.delta : null,
+      });
+    });
+
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const stop = startLocalConversationHostBridge();
+    hostMessageListener?.({
+      type: "threadOwnerNotification",
+      hostId: "default",
+      method: "item/agentMessage/delta",
+      sequence: 7,
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "assistant-1",
+        delta: "hello",
+      },
+    });
+
+    expect(JSON.stringify(received)).toBe(JSON.stringify([
+      {
+        method: "item/agentMessage/delta",
+        sequence: 7,
+        delta: "hello",
+      },
+    ]));
+
+    stop();
+    unsubscribe();
+    __resetLocalConversationHostBridgeForTests();
+  });
+
+  test("dispatches owner unavailable messages onto the app-server message bus", async () => {
+    const received: Array<{ ownerClientId: string; conversationIds: string }> = [];
+    const unsubscribe = subscribeCodexAppServerMessage("thread-owner-unavailable", (event) => {
+      received.push({
+        ownerClientId: event.ownerClientId,
+        conversationIds: event.conversationIds.join(","),
+      });
+    });
+
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const stop = startLocalConversationHostBridge();
+    hostMessageListener?.({
+      type: "threadOwnerUnavailable",
+      hostId: "default",
+      ownerClientId: "owner-a",
+      conversationIds: ["thread-1", "thread-2"],
+    });
+
+    expect(JSON.stringify(received)).toBe(JSON.stringify([
+      {
+        ownerClientId: "owner-a",
+        conversationIds: "thread-1,thread-2",
+      },
+    ]));
+
+    stop();
+    unsubscribe();
+    __resetLocalConversationHostBridgeForTests();
+  });
 });

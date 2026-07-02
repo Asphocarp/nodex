@@ -76,6 +76,7 @@ function isRenderableAgentItem(item: ThreadRendererItemModel): item is ThreadAge
     case "streamError":
     case "systemError":
     case "contextCompaction":
+    case "autoReviewInterruptionWarning":
     case "steered":
     case "reasoning":
     case "userInputResponse":

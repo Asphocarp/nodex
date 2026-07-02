@@ -15,10 +15,10 @@ All notable changes to this project will be documented in this file.
 - Added a real project Files tab with a workspace tree, Codex-style filtering and file tab ids, local file previews, external-open actions, and migration from older placeholder tabs.
 - Added a slash-command menu above the Thread composer, including inline grouped filtering, keyboard selection, nested command panels, app-server-backed Compact/Goal/Memory/Feedback actions, MCP status, model/reasoning/service-tier controls, contextual hidden commands, and Storybook coverage.
 - Added Browser tabs with Electron webview navigation chrome, local-server new-tab discovery, full-bleed retained page hosting across tab switches and panel hide/show, device toolbar presets, zoom and browsing-data controls, screenshot/comment affordances, browser-use overlay state, and multi-tab context actions.
-- Added Codex-style project session shell parity for session pinning and native sidebar session context menus, including direct filled row pin buttons, archive/unread state, copy/reveal/fork/open actions, and `nodex://sessions/<session-id>` deeplinks.
+- Added Codex-style project session shell behavior for session pinning and native sidebar session context menus, including direct filled row pin buttons, archive/unread state, copy/reveal/fork/open actions, and `nodex://sessions/<session-id>` deeplinks.
 - Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
 - Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
-- Added a Notion-style floating text action menu for NFM rich-text selections, with tokenized parity chrome, supported text/link/block actions, development-only reference mock controls, and Nodex send-block actions where Card Stage callbacks are available.
+- Added a Notion-style floating text action menu for NFM rich-text selections, with tokenized chrome, supported text/link/block actions, development-only mock controls, and Nodex send-block actions where Card Stage callbacks are available.
 - Added Settings -> Keyboard shortcuts with searchable editable command shortcuts, capture, conflict checks, per-command reset, reset-all, shared runtime/menu labels, and user-level config persistence.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
 - Added splitable tab groups for right and bottom session panels, including nested horizontal/vertical groups, sash resizing, tab split actions, leaf-scoped previews and side chats, live tab-row insertion previews, and body-edge drag splitting within a panel.
@@ -44,8 +44,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Renamed the main local-store server environment variables from `KANBAN_*` to `NODEX_*` and the SQLite database file from `kanban.db` to `nodex.db`; startup moves an existing legacy database file when no `nodex.db` exists.
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.
-- Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and unsupported parity rows are now development-only mock entries instead of production command results.
-- Production card and NFM editor action menus now hide reference-only mock rows; development and Storybook still show them as disabled `Mock` entries for parity work.
+- Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and unsupported placeholder rows are now development-only mock entries instead of production command results.
+- Production card and NFM editor action menus now hide reference-only mock rows; development and Storybook still show them as disabled `Mock` entries for future surface work.
 - Card Stage history now opens as an app-shell version-history modal with post-change card snapshot previews rendered through the read-only NFM editor surface.
 - Codex thread previews now prefer the first user message from available transcript history, so thread mention fallback labels and thread pickers reflect the original request instead of the latest assistant response.
 - Project names are now display-only: renaming a project no longer changes its stable server-generated UUID.
@@ -89,6 +89,12 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
+- Fixed editing the last Thread user message in multi-window live streams so local edits first resume renderer ownership when needed, materialize rollback in the renderer owner, tombstone late old-turn notifications, start the replacement as an owner-local optimistic turn, and no longer let main-generated post-start snapshots reintroduce the removed turn.
+- Fixed forking from a Thread turn in owner/follower streams so no-role local forks first resume renderer ownership and active forks use the owner app-server facade instead of the removed renderer fork fallback IPC.
+- Fixed multi-window active Thread actions so normal turn starts, settings/goals, queued follow-ups, steer pending state, plan-dismissal rows, and owner-routed app-server requests publish through the live owner stream, wait for the owner revision when needed, and no longer rely on stale main-process fallback patches.
+- Fixed multi-window Thread request responses so approval, permission, user-input, MCP, and notification actions route by the owning thread before falling back to local request lookup, and mark the thread for resume instead of direct-answering when the previous owner is unavailable.
+- Fixed live assistant, plan, and reasoning streaming so out-of-order delta notifications no longer create fake transcript rows before the matching item starts.
+- Fixed active Thread recovery paths so owner helper failures and reconnect refreshes no longer overwrite live partial transcript text with stale fallback snapshots.
 - Fixed Card Stage long-description saves so description autosaves use staged chunk transport, durable writes run in the card worker, and board/search views read persisted summary indexes instead of reparsing full descriptions while `Saving...` is shown.
 - Fixed new Codex session rows so generated and manually renamed thread titles replace the initial `New thread` label in the sidebar.
 - Fixed the NFM text-selection toolbar so collapsing a rich-text selection to a cursor no longer reopens the legacy formatting toolbar.

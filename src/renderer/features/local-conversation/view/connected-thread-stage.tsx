@@ -22,6 +22,7 @@ import type {
 } from "../thread-stage-types";
 import {
   requestLocalConversationResume,
+  setLocalConversationThreadViewActive,
   useComposerIntent,
   useConversationBackgroundTerminalRows,
   useConversationCapabilityFlags,
@@ -636,6 +637,15 @@ export function ConnectedThreadStage({
       turns,
     ],
   );
+  useEffect(() => {
+    if (!activeThreadId) return;
+
+    void setLocalConversationThreadViewActive(activeThreadId, true).catch(() => {});
+    return () => {
+      void setLocalConversationThreadViewActive(activeThreadId, false).catch(() => {});
+    };
+  }, [activeThreadId]);
+
   useEffect(() => {
     if (!input.activeThreadId || input.isNewThreadTab || isSideChat) {
       return;

@@ -9,7 +9,7 @@ import {
 } from "../../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexFileChange, CodexFileChangeView, CodexTranscriptEntry } from "../../../../../lib/types";
-import { normalizeThreadItem } from "../../../../../../main/codex/codex-item-normalizer";
+import { normalizeThreadItem } from "../../../../../../shared/codex-item-normalizer";
 import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
 

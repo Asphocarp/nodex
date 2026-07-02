@@ -15,6 +15,7 @@ import type {
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
+  CodexThreadOwnerStreamStatePublishInput,
   CodexTranscriptEntry,
   CodexTurnSummary,
   CommandPaletteThreadContentSearchResult,
@@ -22,7 +23,10 @@ import type {
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
 } from "../../shared/types";
-import { applyCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
+import {
+  applyCodexConversationStateUpdates,
+  buildCodexConversationStateUpdates,
+} from "../../shared/codex-conversation-patches";
 import { closeDatabase, initializeDatabase } from "../local-store/database";
 import { createProject } from "../local-store/projects";
 import {
@@ -57,7 +61,10 @@ import {
 import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-sessions";
 
 interface TestableCodexService {
-  on: (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void) => unknown;
+  on: {
+    (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void): unknown;
+    (event: "rendererOwnerHostMessage", listener: (message: { targetClientId: string; message: unknown }) => void): unknown;
+  };
   shutdown: () => Promise<void>;
   readAccountSnapshot: () => Promise<import("../../shared/types").CodexAccountSnapshot>;
   logoutAccount: () => Promise<boolean>;
@@ -76,17 +83,19 @@ interface TestableCodexService {
     limit?: number;
   }) => Promise<CommandPaletteThreadContentSearchResult[]>;
   requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
-  requestConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+  requestConversationResume: (
+    threadId: string,
+    options?: { emitSourceNullSnapshots?: boolean; replayBufferedNotifications?: boolean },
+  ) => Promise<CodexConversationSnapshot | null>;
+  releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
+  ackRendererThreadOwnerNotification: (
+    sourceClientId: string,
+    input: { conversationId: string; sequence: number },
+  ) => boolean;
   loadOlderThreadTurns: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
   resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
-  editLastUserTurn: (
-    threadId: string,
-    turnId: string,
-    message: string,
-    opts?: { serviceTier?: null | "fast" },
-  ) => Promise<CodexThreadActionResult>;
   forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
   forkProjectSessionThread: (sessionId: string, input: {
     target: "local" | "newWorktree";
@@ -160,6 +169,7 @@ interface TestableCodexService {
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
+  cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
   respondToUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<boolean>;
   setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
   getCustomPermissionModeDescription: (projectId: string) => string;
@@ -174,6 +184,18 @@ interface TestableCodexService {
     patch: import("../../shared/types").CodexConversationThreadSettingsPatch,
   ) => Promise<import("../../shared/types").CodexConversationThreadSettings>;
   removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
+  setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+  setRendererConversationViewActive: (
+    threadId: string,
+    clientId: string | null | undefined,
+    active: boolean,
+  ) => void;
+  getRendererConversationOwner: (threadId: string) => string | null;
+  handleRendererClientDisposed: (clientId: string) => void;
+  publishRendererThreadStreamStateChange: (
+    sourceClientId: string,
+    input: CodexThreadOwnerStreamStatePublishInput,
+  ) => boolean;
 }
 
 function makeThreadDetail(threadId: string): CodexThreadDetail {
@@ -196,12 +218,58 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
   };
 }
 
+function makeConversationSnapshot(input: {
+  threadId: string;
+  text?: string;
+  revision?: number;
+}): CodexConversationSnapshot {
+  return {
+    ...makeThreadDetail(input.threadId),
+    resumeState: "resumed",
+    turns: [{
+      threadId: input.threadId,
+      turnId: "turn-1",
+      status: "inProgress",
+      itemIds: ["assistant-1"],
+      items: [{
+        threadId: input.threadId,
+        turnId: "turn-1",
+        itemId: "assistant-1",
+        type: "assistant_message",
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        status: "inProgress",
+        markdownText: input.text ?? "",
+        createdAt: input.revision ?? 1,
+        updatedAt: input.revision ?? 1,
+      }],
+    }],
+    requests: [],
+    queuedFollowUps: [],
+    pendingSteers: [],
+    backgroundTerminalRows: [],
+    childMemberships: [],
+    capabilityFlags: {
+      canEditLastUserTurn: false,
+      canForkFromTurn: false,
+      canSearch: false,
+      canCollapseTurns: false,
+    },
+  };
+}
+
 function createService(options?: {
   rateLimitsPollIntervalMs?: number;
+  inactiveRendererOwnerRetentionMs?: number;
+  inactiveRendererOwnerMaxRetained?: number;
+  inactiveRendererOwnerRetryMs?: number;
   commandPaletteThreadSearchClient?: CommandPaletteThreadSearchClient;
 }): TestableCodexService {
   return new CodexService({
     rateLimitsPollIntervalMs: options?.rateLimitsPollIntervalMs,
+    inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
+    inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
+    inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,
     commandPaletteThreadSearchClient:
       options?.commandPaletteThreadSearchClient ?? createInlineCommandPaletteThreadSearchClient(),
   }) as unknown as TestableCodexService;
@@ -258,6 +326,47 @@ async function waitForCondition(
   }
 }
 
+function installRendererOwnerConversation(
+  service: TestableCodexService,
+  input: {
+    threadId: string;
+    ownerClientId?: string;
+    turnStatus?: CodexTurnSummary["status"];
+    statusType?: CodexThreadDetail["statusType"];
+  },
+): void {
+  const threadId = input.threadId;
+  const turnStatus = input.turnStatus ?? "completed";
+  const serviceInternals = service as unknown as {
+    setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    getConversationRecord: (threadId: string) => {
+      resumeState: string;
+      streamRole: string | null;
+      isStreaming: boolean;
+    };
+  };
+
+  serviceInternals.setConversationRecordDetail({
+    ...makeThreadDetail(threadId),
+    statusType: input.statusType ?? "idle",
+    statusActiveFlags: [],
+    turns: [
+      {
+        threadId,
+        turnId: `${threadId}-turn`,
+        status: turnStatus,
+        itemIds: [],
+      },
+    ],
+    transcript: [],
+  });
+  const record = serviceInternals.getConversationRecord(threadId);
+  record.resumeState = "resumed";
+  record.streamRole = "owner";
+  record.isStreaming = true;
+  service.setRendererConversationOwner(threadId, input.ownerClientId ?? "renderer-owner");
+}
+
 function projectConversationFromHostMessages(
   messages: readonly CodexHostMessage[],
   initialConversation: CodexConversationSnapshot | null = null,
@@ -282,6 +391,1125 @@ function projectConversationFromHostMessages(
 
   return conversation;
 }
+
+describe("codex-service renderer owner stream publishing", () => {
+  test("forwards migrated live notification rows to renderer owner without source-null stream patches", async () => {
+    const service = createService();
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-owner-migrated",
+        ownerClientId: "owner-a",
+        turnStatus: "inProgress",
+        statusType: "active",
+      });
+
+      await serviceInternals.handleNotification("thread/tokenUsage/updated", {
+        threadId: "thread-owner-migrated",
+        tokenUsage: {
+          total: {
+            totalTokens: 100,
+            inputTokens: 60,
+            cachedInputTokens: 10,
+            outputTokens: 40,
+            reasoningOutputTokens: 15,
+          },
+          last: {
+            totalTokens: 20,
+            inputTokens: 12,
+            cachedInputTokens: 2,
+            outputTokens: 8,
+            reasoningOutputTokens: 3,
+          },
+          modelContextWindow: 128000,
+        },
+      });
+      await serviceInternals.handleNotification("turn/plan/updated", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        explanation: "Plan",
+        plan: [{ step: "Patch owner reducer", status: "completed" }],
+      });
+      await serviceInternals.handleNotification("model/safetyBuffering/updated", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        model: "gpt-5.4-codex",
+        useCases: ["latency"],
+        reasons: ["warming"],
+        showBufferingUi: true,
+        fasterModel: "gpt-5.4-mini",
+      });
+      await serviceInternals.handleNotification("model/rerouted", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        fromModel: "gpt-5.4-codex",
+        toModel: "gpt-5.4-mini",
+        reason: "highRiskCyberActivity",
+      });
+      await serviceInternals.handleNotification("hook/started", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        run: {
+          id: "hook-run-1",
+          eventName: "preToolUse",
+          status: "running",
+          statusMessage: "Preparing context",
+          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+        },
+      });
+      await serviceInternals.handleNotification("hook/completed", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        run: {
+          id: "hook-run-1",
+          eventName: "preToolUse",
+          status: "completed",
+          statusMessage: "Preparing context",
+          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+        },
+      });
+      await serviceInternals.handleNotification("item/autoApprovalReview/started", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        reviewId: "review-1",
+        targetItemId: "item-command-1",
+        review: {
+          status: "inProgress",
+          riskLevel: "medium",
+          userAuthorization: "unknown",
+          rationale: null,
+        },
+        action: {
+          type: "command",
+          source: "shell",
+          command: "bun test",
+          cwd: "/tmp/project",
+        },
+      });
+      await serviceInternals.handleNotification("item/autoApprovalReview/completed", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        reviewId: "review-1",
+        targetItemId: "item-command-1",
+        decisionSource: "agent",
+        review: {
+          status: "approved",
+          riskLevel: "low",
+          userAuthorization: "low",
+          rationale: "This only runs tests.",
+        },
+        action: {
+          type: "command",
+          source: "shell",
+          command: "bun test",
+          cwd: "/tmp/project",
+        },
+      });
+      await serviceInternals.handleNotification("guardianWarning", {
+        threadId: "thread-owner-migrated",
+        kind: "tooManyDenials",
+        message: "Automatic approval review rejected too many approval requests for this turn.",
+      });
+      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        itemId: "reasoning-1",
+        summaryIndex: 1,
+      });
+      await serviceInternals.handleNotification("item/fileChange/outputDelta", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        itemId: "patch-legacy-output",
+        delta: "legacy apply_patch output",
+      });
+      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        itemId: "exec-1",
+        processId: "proc-1",
+        stdin: "bun test\n",
+      });
+      await serviceInternals.handleNotification("item/mcpToolCall/progress", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        itemId: "mcp-call-1",
+        message: "Searching docs",
+      });
+      await serviceInternals.handleNotification("error", {
+        threadId: "thread-owner-migrated",
+        turnId: "thread-owner-migrated-turn",
+        error: {
+          message: "Tool failed",
+          additionalDetails: "exit 1",
+        },
+        willRetry: false,
+      });
+      await serviceInternals.handleNotification("serverRequest/resolved", {
+        threadId: "thread-owner-migrated",
+        requestId: "request-1",
+      });
+
+      const methods = ownerMessages
+        .map((message) => message.message)
+        .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
+          message.type === "threadOwnerNotification"
+        )
+        .map((message) => message.method)
+        .join(",");
+
+      expect(methods).toBe(
+        "thread/tokenUsage/updated,turn/plan/updated,model/safetyBuffering/updated,model/rerouted,hook/started,hook/completed,item/autoApprovalReview/started,item/autoApprovalReview/completed,guardianWarning,item/reasoning/summaryPartAdded,item/fileChange/outputDelta,item/commandExecution/terminalInteraction,item/mcpToolCall/progress,error,serverRequest/resolved",
+      );
+      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBeTrue();
+      expect(String(hostMessages.length)).toBe("0");
+      const snapshot = await service.requestConversationSnapshot("thread-owner-migrated");
+      expect(snapshot?.latestTokenUsageInfo?.total.totalTokens).toBe(100);
+      expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBeTrue();
+      expect(snapshot?.turns[0]?.safetyBuffering?.showBufferingUi).toBeTrue();
+      expect(snapshot?.turns[0]?.safetyBuffering?.fasterModel).toBe("gpt-5.4-mini");
+      const rerouteItem = snapshot?.turns[0]?.items.find((item) => item.semanticKind === "modelRerouted");
+      const rerouteRaw = rerouteItem?.rawItem as { fromModel?: string; toModel?: string; reason?: string } | undefined;
+      expect(rerouteItem?.status).toBe("completed");
+      expect(rerouteRaw?.fromModel).toBe("gpt-5.4-codex");
+      expect(rerouteRaw?.toModel).toBe("gpt-5.4-mini");
+      expect(rerouteRaw?.reason).toBe("highRiskCyberActivity");
+      const hookItem = snapshot?.turns[0]?.items.find((item) => item.itemId === "hook-run-1");
+      expect(hookItem?.semanticKind).toBe("hook");
+      expect(hookItem?.status).toBe("completed");
+      const reviewItem = snapshot?.turns[0]?.items.find((item) => item.itemId === "automatic-approval-review:review-1");
+      const reviewRaw = reviewItem?.rawItem as { status?: string; targetItemId?: string | null } | undefined;
+      expect(reviewItem?.semanticKind).toBe("automaticApprovalReview");
+      expect(reviewItem?.status).toBe("completed");
+      expect(reviewRaw?.status).toBe("approved");
+      expect(reviewRaw?.targetItemId).toBe("item-command-1");
+      const warningItem = snapshot?.turns[0]?.items.find((item) => item.semanticKind === "autoReviewInterruptionWarning");
+      expect(warningItem?.status).toBe("completed");
+      expect(warningItem?.markdownText).toBe("Automatic approval review rejected too many approval requests for this turn");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes thread-started owner notifications without requiring a top-level thread id", async () => {
+    const service = createService();
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      forwardNotificationToRendererOwnerForConversation: (
+        conversationId: string,
+        method: string,
+        params: unknown,
+      ) => boolean;
+    };
+
+    try {
+      service.setRendererConversationOwner("thread-started-owner", "owner-a");
+
+      const accepted = serviceInternals.forwardNotificationToRendererOwnerForConversation(
+        "thread-started-owner",
+        "thread/started",
+        {
+          thread: {
+            id: "thread-started-owner",
+            preview: "Started from owner route",
+          },
+        },
+      );
+      const ownerNotification = ownerMessages[0]?.message;
+
+      expect(accepted).toBeTrue();
+      expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+      expect(ownerNotification?.type).toBe("threadOwnerNotification");
+      if (ownerNotification?.type === "threadOwnerNotification") {
+        expect(ownerNotification.method).toBe("thread/started");
+        const params = ownerNotification.params as { thread?: { id?: string } };
+        expect(params.thread?.id).toBe("thread-started-owner");
+      }
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("forwards prose deltas to the renderer owner instead of broadcasting main patches", async () => {
+    const service = createService();
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      service.setRendererConversationOwner("thread-owner", "owner-a");
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thread-owner",
+        turnId: "turn-1",
+        itemId: "assistant-1",
+        delta: "hello",
+      });
+
+      expect(String(ownerMessages.length)).toBe("1");
+      expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+      expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
+      if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[0].message.method).toBe("item/agentMessage/delta");
+        expect(ownerMessages[0].message.sequence).toBe(1);
+      }
+      expect(String(hostMessages.length)).toBe("0");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("projects token usage notifications onto conversation state without requiring a turn id", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thread-token-usage"),
+        turns: [],
+        transcript: [],
+      });
+
+      await serviceInternals.handleNotification("thread/tokenUsage/updated", {
+        threadId: "thread-token-usage",
+        tokenUsage: {
+          total: {
+            totalTokens: 120,
+            inputTokens: 80,
+            cachedInputTokens: 10,
+            outputTokens: 40,
+            reasoningOutputTokens: 15,
+          },
+          last: {
+            totalTokens: 30,
+            inputTokens: 20,
+            cachedInputTokens: 5,
+            outputTokens: 10,
+            reasoningOutputTokens: 4,
+          },
+          modelContextWindow: 128000,
+        },
+      });
+
+      const snapshot = await service.requestConversationSnapshot("thread-token-usage");
+      const latest = projectConversationFromHostMessages(hostMessages);
+      expect(snapshot?.latestTokenUsageInfo?.last.totalTokens).toBe(30);
+      expect(latest?.latestTokenUsageInfo?.last.totalTokens).toBe(30);
+      expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBeTrue();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("forwards live fileChange patch updates to owner while silently updating canonical cache", async () => {
+    const service = createService();
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-owner-file-change",
+        ownerClientId: "owner-a",
+        turnStatus: "inProgress",
+        statusType: "active",
+      });
+
+      await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+        threadId: "thread-owner-file-change",
+        turnId: "thread-owner-file-change-turn",
+        itemId: "patch-live",
+        changes: [{
+          path: "src/app.ts",
+          kind: { type: "update" },
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+        }],
+      });
+
+      expect(String(ownerMessages.length)).toBe("1");
+      expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+      expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
+      if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[0].message.method).toBe("item/fileChange/patchUpdated");
+      }
+      expect(String(hostMessages.length)).toBe("0");
+
+      const snapshot = await service.requestConversationSnapshot("thread-owner-file-change");
+      const item = snapshot?.turns[0]?.items[0] ?? null;
+      expect(item?.itemId ?? "").toBe("patch-live");
+      expect(item?.status ?? "").toBe("inProgress");
+      expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
+      expect(item?.fileChange?.paths.join(",") ?? "").toBe("src/app.ts");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("forwards thread goal updates to owner without source-null patches", async () => {
+    const service = createService();
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-owner-goal",
+        ownerClientId: "owner-a",
+        turnStatus: "completed",
+        statusType: "idle",
+      });
+
+      await serviceInternals.handleNotification("thread/goal/updated", {
+        threadId: "thread-owner-goal",
+        turnId: null,
+        goal: {
+          threadId: "thread-owner-goal",
+          objective: "Finish owner parity",
+          status: "active",
+          tokenBudget: 40000,
+          tokensUsed: 12,
+          timeUsedSeconds: 4,
+          createdAt: 100,
+          updatedAt: 101,
+        },
+      });
+
+      await serviceInternals.handleNotification("thread/goal/cleared", {
+        threadId: "thread-owner-goal",
+      });
+
+      const methods = ownerMessages
+        .map((message) => message.message)
+        .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
+          message.type === "threadOwnerNotification"
+        )
+        .map((message) => message.method)
+        .join(",");
+      expect(methods).toBe("thread/goal/updated,thread/goal/cleared");
+      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBeTrue();
+      expect(String(hostMessages.length)).toBe("0");
+
+      const snapshot = await service.requestConversationSnapshot("thread-owner-goal");
+      expect(snapshot?.threadGoal ?? null).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("forwards nullable-turn item notifications to the renderer owner", async () => {
+    const service = createService();
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      service.setRendererConversationOwner("thread-owner-null-turn", "owner-a");
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thread-owner-null-turn",
+        itemId: "assistant-1",
+        delta: "hello",
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thread-owner-null-turn",
+        item: {
+          id: "assistant-1",
+          type: "agentMessage",
+          text: "hello",
+        },
+      });
+      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+        threadId: "thread-owner-null-turn",
+        itemId: "cmd-1",
+        delta: "output",
+      });
+
+      const methods = ownerMessages
+        .map((message) => message.message)
+        .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
+          message.type === "threadOwnerNotification"
+        )
+        .map((message) => message.method)
+        .join(",");
+
+      expect(methods).toBe("item/agentMessage/delta,item/completed,item/commandExecution/outputDelta");
+      expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBeTrue();
+      expect(String(hostMessages.length)).toBe("0");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("publishes owner stream patches with source client id and updates the broadcast cache", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    try {
+      const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
+      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "hello" });
+      service.setRendererConversationOwner("thread-owner", "owner-a");
+
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+      })).toBeTrue();
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner",
+        change: {
+          type: "patches",
+          baseRevision: 1,
+          revision: 2,
+          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
+        },
+      })).toBeTrue();
+
+      const latest = projectConversationFromHostMessages(hostMessages);
+      const lastMessage = hostMessages[hostMessages.length - 1];
+      expect(String(hostMessages.length)).toBe("2");
+      expect(lastMessage?.type).toBe("threadStreamStateChanged");
+      if (lastMessage?.type === "threadStreamStateChanged") {
+        expect(lastMessage.sourceClientId).toBe("owner-a");
+        expect(lastMessage.version).toBe(2);
+      }
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("hello");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("accepts renderer owner repair snapshot and acks the carried notification sequence", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    const serviceInternals = service as unknown as {
+      getNextOwnerNotificationSequence: (conversationId: string) => number;
+      drainRendererOwnerNotificationsBefore: (conversationId: string, callback: () => void) => boolean;
+    };
+
+    try {
+      const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
+      const repairedConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "live text" });
+      service.setRendererConversationOwner("thread-owner", "owner-a");
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+      })).toBeTrue();
+
+      for (let index = 0; index < 5; index += 1) {
+        serviceInternals.getNextOwnerNotificationSequence("thread-owner");
+      }
+      let drained = false;
+      expect(serviceInternals.drainRendererOwnerNotificationsBefore("thread-owner", () => {
+        drained = true;
+      })).toBeTrue();
+
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner",
+        ownerNotificationSequence: 5,
+        change: {
+          type: "snapshot",
+          revision: 5,
+          conversationState: repairedConversation,
+        },
+      })).toBeTrue();
+
+      const latest = projectConversationFromHostMessages(hostMessages);
+      const lastMessage = hostMessages[hostMessages.length - 1];
+      expect(drained).toBeTrue();
+      expect(String(hostMessages.length)).toBe("2");
+      expect(lastMessage?.type).toBe("threadStreamStateChanged");
+      if (lastMessage?.type === "threadStreamStateChanged") {
+        expect(lastMessage.sourceClientId).toBe("owner-a");
+        expect(lastMessage.change.type).toBe("snapshot");
+        expect(lastMessage.change.revision).toBe(5);
+      }
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("live text");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("suppresses no-owner fallback source-null snapshots while a renderer owner exists from bundle 40592-40606", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      emitThreadStreamSnapshotFromRecord: (
+        threadId: string,
+        reason: "no-owner-fallback" | "explicit-resync",
+      ) => void;
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thread-source-null-guard"),
+        turns: [],
+        transcript: [],
+      });
+      service.setRendererConversationOwner("thread-source-null-guard", "owner-a");
+
+      serviceInternals.emitThreadStreamSnapshotFromRecord("thread-source-null-guard", "no-owner-fallback");
+      expect(String(hostMessages.length)).toBe("0");
+
+      const snapshot = await service.requestConversationSnapshot("thread-source-null-guard");
+      expect(snapshot).not.toBeNull();
+      expect(String(hostMessages.length)).toBe("1");
+      const message = hostMessages[0];
+      expect(message?.type).toBe("threadStreamStateChanged");
+      if (message?.type === "threadStreamStateChanged") {
+        expect(message.sourceClientId).toBe(null);
+        expect(message.change.type).toBe("snapshot");
+      }
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("clears renderer-owned conversations and broadcasts owner unavailable when a renderer client is disposed", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      hostMessages.push(message);
+    });
+
+    try {
+      service.setRendererConversationOwner("thread-a", "owner-a");
+      service.setRendererConversationOwner("thread-b", "owner-b");
+      service.setRendererConversationOwner("thread-c", "owner-a");
+
+      service.handleRendererClientDisposed("owner-a");
+
+      expect(service.getRendererConversationOwner("thread-a")).toBe(null);
+      expect(service.getRendererConversationOwner("thread-b")).toBe("owner-b");
+      expect(service.getRendererConversationOwner("thread-c")).toBe(null);
+      const unavailableMessage = hostMessages.find((message) =>
+        message.type === "threadOwnerUnavailable"
+      );
+      expect(unavailableMessage?.type).toBe("threadOwnerUnavailable");
+      if (unavailableMessage?.type === "threadOwnerUnavailable") {
+        expect(unavailableMessage.ownerClientId).toBe("owner-a");
+        expect(unavailableMessage.conversationIds.join(",")).toBe("thread-a,thread-c");
+      }
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("unsubscribes a resumed renderer owner after its active view becomes inactive", async () => {
+    const service = createService({
+      inactiveRendererOwnerRetentionMs: 5,
+      inactiveRendererOwnerRetryMs: 5,
+    });
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/unsubscribe") return { status: "unsubscribed" };
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-inactive-owner",
+        ownerClientId: "owner-a",
+      });
+      service.setRendererConversationViewActive("thread-inactive-owner", "owner-a", true);
+      service.setRendererConversationViewActive("thread-inactive-owner", "owner-a", false);
+
+      await waitForCondition(
+        () => requests.length > 0 && service.getRendererConversationOwner("thread-inactive-owner") === null,
+        120,
+      );
+
+      expect(requests[0]?.method).toBe("thread/unsubscribe");
+      expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thread-inactive-owner");
+      expect(service.getRendererConversationOwner("thread-inactive-owner")).toBe(null);
+      expect(service.serializeConversationSnapshot("thread-inactive-owner")?.resumeState).toBe("needs_resume");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("keeps inactive renderer owners loaded while a turn is still in progress", async () => {
+    const service = createService({
+      inactiveRendererOwnerRetentionMs: 5,
+      inactiveRendererOwnerRetryMs: 5,
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+    };
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/unsubscribe") return { status: "unsubscribed" };
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-inactive-in-progress",
+        ownerClientId: "owner-a",
+        turnStatus: "inProgress",
+      });
+      service.setRendererConversationViewActive("thread-inactive-in-progress", "owner-a", false);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(String(requests.length)).toBe("0");
+      expect(service.getRendererConversationOwner("thread-inactive-in-progress")).toBe("owner-a");
+
+      await serviceInternals.handleNotification("turn/completed", {
+        threadId: "thread-inactive-in-progress",
+        turnId: "thread-inactive-in-progress-turn",
+      });
+      await waitForCondition(
+        () => requests.length > 0 && service.getRendererConversationOwner("thread-inactive-in-progress") === null,
+        120,
+      );
+
+      expect(requests[0]?.method).toBe("thread/unsubscribe");
+      expect(service.getRendererConversationOwner("thread-inactive-in-progress")).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("retries inactive renderer owner unsubscribe failures", async () => {
+    const service = createService({
+      inactiveRendererOwnerRetentionMs: 5,
+      inactiveRendererOwnerRetryMs: 5,
+    });
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    let requestCount = 0;
+    client.request = async (method: string) => {
+      if (method !== "thread/unsubscribe") {
+        throw new Error(`Unexpected client request: ${method}`);
+      }
+      requestCount += 1;
+      if (requestCount === 1) {
+        throw new Error("temporary unsubscribe failure");
+      }
+      return { status: "unsubscribed" };
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-inactive-retry",
+        ownerClientId: "owner-a",
+      });
+      service.setRendererConversationViewActive("thread-inactive-retry", "owner-a", false);
+
+      await waitForCondition(() => requestCount >= 2, 160);
+
+      expect(String(requestCount)).toBe("2");
+      expect(service.getRendererConversationOwner("thread-inactive-retry")).toBe(null);
+      expect(service.serializeConversationSnapshot("thread-inactive-retry")?.resumeState).toBe("needs_resume");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("unsubscribes the oldest inactive renderer owner when retention limit is exceeded", async () => {
+    const service = createService({
+      inactiveRendererOwnerRetentionMs: 60_000,
+      inactiveRendererOwnerMaxRetained: 1,
+      inactiveRendererOwnerRetryMs: 5,
+    });
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/unsubscribe") return { status: "unsubscribed" };
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-inactive-limit-a",
+        ownerClientId: "owner-a",
+      });
+      installRendererOwnerConversation(service, {
+        threadId: "thread-inactive-limit-b",
+        ownerClientId: "owner-b",
+      });
+
+      await waitForCondition(
+        () => requests.length > 0 && service.getRendererConversationOwner("thread-inactive-limit-a") === null,
+        120,
+      );
+
+      expect(requests[0]?.method).toBe("thread/unsubscribe");
+      expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thread-inactive-limit-a");
+      expect(service.getRendererConversationOwner("thread-inactive-limit-a")).toBe(null);
+      expect(service.getRendererConversationOwner("thread-inactive-limit-b")).toBe("owner-b");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes item lifecycle and prose deltas to renderer owner without main source-null patches", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+    };
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+    const hostMessages: CodexHostMessage[] = [];
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thread-owner-drain"),
+      turns: [{
+        threadId: "thread-owner-drain",
+        turnId: "turn-owner-drain",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      service.setRendererConversationOwner("thread-owner-drain", "owner-a");
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thread-owner-drain",
+        turnId: "turn-owner-drain",
+        item: {
+          id: "assistant-owner-drain",
+          type: "agentMessage",
+          text: "",
+        },
+      });
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thread-owner-drain",
+        turnId: "turn-owner-drain",
+        itemId: "assistant-owner-drain",
+        delta: "hello",
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thread-owner-drain",
+        turnId: "turn-owner-drain",
+        item: {
+          id: "assistant-owner-drain",
+          type: "agentMessage",
+          text: "hello",
+        },
+      });
+
+      expect(String(hostMessages.length)).toBe("0");
+      expect(String(ownerMessages.length)).toBe("3");
+      expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+      expect(ownerMessages[1]?.targetClientId).toBe("owner-a");
+      expect(ownerMessages[2]?.targetClientId).toBe("owner-a");
+      expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
+      expect(ownerMessages[1]?.message.type).toBe("threadOwnerNotification");
+      expect(ownerMessages[2]?.message.type).toBe("threadOwnerNotification");
+      if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[0].message.method).toBe("item/started");
+        expect(ownerMessages[0].message.sequence).toBe(1);
+      }
+      if (ownerMessages[1]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[1].message.method).toBe("item/agentMessage/delta");
+        expect(ownerMessages[1].message.sequence).toBe(2);
+      }
+      if (ownerMessages[2]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[2].message.method).toBe("item/completed");
+        expect(ownerMessages[2].message.sequence).toBe(3);
+      }
+
+      const snapshot = await service.requestConversationSnapshot("thread-owner-drain");
+      expect(snapshot?.turns[0]?.items[0]?.markdownText).toBe("hello");
+      expect(snapshot?.turns[0]?.items[0]?.status).toBe("completed");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes turn lifecycle to renderer owner without main source-null snapshots", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+    };
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+    const hostMessages: CodexHostMessage[] = [];
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thread-owner-turn"),
+      turns: [],
+      transcript: [],
+    });
+
+    try {
+      service.setRendererConversationOwner("thread-owner-turn", "owner-a");
+      await serviceInternals.handleNotification("turn/started", {
+        threadId: "thread-owner-turn",
+        turn: {
+          id: "turn-owner",
+          status: "inProgress",
+        },
+      });
+      await serviceInternals.handleNotification("turn/completed", {
+        threadId: "thread-owner-turn",
+        turn: {
+          id: "turn-owner",
+          status: "completed",
+          durationMs: 42,
+        },
+      });
+
+      expect(String(hostMessages.length)).toBe("0");
+      expect(String(ownerMessages.length)).toBe("2");
+      expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
+      expect(ownerMessages[1]?.message.type).toBe("threadOwnerNotification");
+      if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[0].message.method).toBe("turn/started");
+        expect(ownerMessages[0].message.sequence).toBe(1);
+      }
+      if (ownerMessages[1]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[1].message.method).toBe("turn/completed");
+        expect(ownerMessages[1].message.sequence).toBe(2);
+      }
+
+      const snapshot = await service.requestConversationSnapshot("thread-owner-turn");
+      expect(snapshot?.turns[0]?.status).toBe("completed");
+      expect(snapshot?.turns[0]?.durationMs).toBe(42);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("rejects renderer stream patches from a non-owner client", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    try {
+      const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
+      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "wrong" });
+      service.setRendererConversationOwner("thread-owner", "owner-a");
+
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+      })).toBeTrue();
+      expect(service.publishRendererThreadStreamStateChange("owner-b", {
+        conversationId: "thread-owner",
+        change: {
+          type: "patches",
+          baseRevision: 1,
+          revision: 2,
+          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
+        },
+      })).toBeFalse();
+
+      const latest = projectConversationFromHostMessages(hostMessages);
+      expect(String(hostMessages.length)).toBe("1");
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("rejects renderer stream patches with a mismatched base revision", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    try {
+      const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
+      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "stale" });
+      service.setRendererConversationOwner("thread-owner", "owner-a");
+
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner",
+        change: {
+          type: "snapshot",
+          revision: 3,
+          conversationState: baseConversation,
+        },
+      })).toBeTrue();
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner",
+        change: {
+          type: "patches",
+          baseRevision: 2,
+          revision: 4,
+          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
+        },
+      })).toBeFalse();
+
+      const latest = projectConversationFromHostMessages(hostMessages);
+      expect(String(hostMessages.length)).toBe("1");
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("");
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
 
 function collectProjectSessionChangeEvents(): {
   events: ProjectSessionsChangeEvent[];
@@ -777,6 +2005,67 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("routes thread-started notifications through the renderer owner when one is registered", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const streamMessages: CodexHostMessage[] = [];
+      const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          streamMessages.push(message);
+        }
+      });
+      (service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }).on("rendererOwnerHostMessage", (message) => {
+        ownerMessages.push(message);
+      });
+
+      try {
+        installRendererOwnerConversation(service, {
+          threadId: "thr_started_owner",
+          ownerClientId: "owner-a",
+          statusType: "active",
+          turnStatus: "inProgress",
+        });
+
+        await serviceInternals.handleNotification("thread/started", {
+          thread: makeSidebarListThread({
+            id: "thr_started_owner",
+            cwd: "/tmp/codex",
+            preview: "Owner-started thread",
+            name: "Owner started",
+            updatedAt: 30,
+          }),
+        });
+
+        const linked = listProjectSessions(defaultProjectId)
+          .find((session) => session.thread?.threadId === "thr_started_owner");
+        const ownerNotification = ownerMessages[0]?.message;
+
+        expect(linked !== undefined).toBeTrue();
+        expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+        expect(ownerNotification?.type).toBe("threadOwnerNotification");
+        if (ownerNotification?.type === "threadOwnerNotification") {
+          expect(ownerNotification.method).toBe("thread/started");
+          const params = ownerNotification.params as { thread?: { id?: string } };
+          expect(params.thread?.id).toBe("thr_started_owner");
+        }
+        expect(String(streamMessages.length)).toBe("0");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("materializes projectless sidebar sessions from unmatched thread-started notifications", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -1179,6 +2468,17 @@ describe("codex-service readThread fallback", () => {
         exposeUnknownThread = true;
         await serviceInternals.handleNotification("thread/goal/updated", {
           threadId: "thr_unknown_goal_repair",
+          turnId: null,
+          goal: {
+            threadId: "thr_unknown_goal_repair",
+            objective: "Repair unknown goal thread",
+            status: "active",
+            tokenBudget: null,
+            tokensUsed: 0,
+            timeUsedSeconds: 0,
+            createdAt: 100,
+            updatedAt: 101,
+          },
         });
         await waitForCondition(() => getCodexThread("thr_unknown_goal_repair") !== null, 1_000);
 
@@ -2649,6 +3949,287 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("buffers resume-time notifications and trims hydrated text/output before replay", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+        emit: (eventName: string, payload: unknown) => boolean;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/resume") {
+          client.emit("notification", {
+            method: "item/agentMessage/delta",
+            params: {
+              threadId: "thr_resume_buffer",
+              turnId: "turn_resume_buffer",
+              itemId: "assistant_resume_buffer",
+              delta: "hello world",
+            },
+          });
+          client.emit("notification", {
+            method: "item/commandExecution/outputDelta",
+            params: {
+              threadId: "thr_resume_buffer",
+              turnId: "turn_resume_buffer",
+              itemId: "cmd_resume_buffer",
+              delta: "abcdef",
+            },
+          });
+          return {
+            thread: {
+              id: "thr_resume_buffer",
+              preview: "stream while resuming",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1_711_278_000,
+              updatedAt: 1_711_278_002,
+              status: { type: "active", active_flags: ["streaming"] },
+              path: "/tmp/resume-buffer/rollout.jsonl",
+              cwd: "/tmp/resume-buffer",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Resume buffer",
+              turns: [
+                {
+                  id: "turn_resume_buffer",
+                  status: "in_progress",
+                  items: [
+                    {
+                      id: "cmd_resume_buffer",
+                      type: "commandExecution",
+                      status: "in_progress",
+                      command: "printf abcdef",
+                      cwd: "/tmp/resume-buffer",
+                      aggregatedOutput: "abc",
+                    },
+                    {
+                      id: "assistant_resume_buffer",
+                      type: "agentMessage",
+                      text: "hello",
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run during buffered resume");
+        }
+        return {};
+      };
+
+      try {
+        await service.requestConversationResume("thr_resume_buffer");
+        await waitForCondition(() => {
+          const conversation = service.serializeConversationSnapshot("thr_resume_buffer");
+          const assistant = conversation?.turns[0]?.items.find((item) => item.itemId === "assistant_resume_buffer");
+          const command = conversation?.turns[0]?.items.find((item) => item.itemId === "cmd_resume_buffer");
+          return assistant?.markdownText === "hello world" && command?.aggregatedOutput === "abcdef";
+        }, 160);
+
+        const conversation = service.serializeConversationSnapshot("thr_resume_buffer");
+        const command = conversation?.turns[0]?.items.find((item) => item.itemId === "cmd_resume_buffer");
+        const assistant = conversation?.turns[0]?.items.find((item) => item.itemId === "assistant_resume_buffer");
+        const outputDeltaMessage = hostMessages.find((message) =>
+          message.type === "mcpNotification" &&
+          message.params.threadId === "thr_resume_buffer"
+        );
+        expect(assistant?.markdownText).toBe("hello world");
+        expect(command?.aggregatedOutput).toBe("abcdef");
+        expect(outputDeltaMessage?.type).toBe("mcpNotification");
+        if (outputDeltaMessage?.type === "mcpNotification") {
+          expect(outputDeltaMessage.params.delta).toBe("def");
+        }
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("renderer-owned resume defers replay and suppresses source-null snapshots from bundle 47680-47815", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const threadId = "thr_renderer_resume_boundary";
+      const ownerClientId = "owner-client-resume";
+      const hostMessages: CodexHostMessage[] = [];
+      const ownerMessages: unknown[] = [];
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+      service.on("rendererOwnerHostMessage", (event: { targetClientId: string; message: unknown }) => {
+        ownerMessages.push(event.message);
+        const message = event.message as {
+          type?: string;
+          sequence?: number;
+        };
+        if (message.type === "threadOwnerNotification" && typeof message.sequence === "number") {
+          service.ackRendererThreadOwnerNotification(ownerClientId, {
+            conversationId: threadId,
+            sequence: message.sequence,
+          });
+        }
+      });
+
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+        emit: (eventName: string, payload: unknown) => boolean;
+      };
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/resume") {
+          client.emit("notification", {
+            method: "item/agentMessage/delta",
+            params: {
+              threadId,
+              turnId: "turn-renderer-resume",
+              itemId: "assistant-renderer-resume",
+              delta: " buffered",
+            },
+          });
+          return {
+            thread: {
+              id: threadId,
+              preview: "renderer resume",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1_711_278_000,
+              updatedAt: 1_711_278_002,
+              status: { type: "active", active_flags: ["streaming"] },
+              path: "/tmp/renderer-resume/rollout.jsonl",
+              cwd: "/tmp/renderer-resume",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Renderer resume",
+              turns: [
+                {
+                  id: "turn-renderer-resume",
+                  status: "in_progress",
+                  items: [
+                    {
+                      id: "assistant-renderer-resume",
+                      type: "agentMessage",
+                      text: "hydrated",
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run during renderer-owned resume boundary test");
+        }
+        return {};
+      };
+
+      try {
+        service.setRendererConversationOwner(threadId, ownerClientId);
+        const conversation = await service.requestConversationResume(threadId, {
+          emitSourceNullSnapshots: false,
+          replayBufferedNotifications: false,
+        });
+
+        expect(conversation?.threadId ?? "").toBe(threadId);
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBeFalse();
+        expect(ownerMessages.length).toBe(0);
+
+        await service.releaseConversationResumeBuffer(threadId);
+
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBeFalse();
+        expect(ownerMessages.some((message) => {
+          const record = message as { type?: string; method?: string };
+          return record.type === "threadOwnerNotification" && record.method === "item/agentMessage/delta";
+        })).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("renderer-owned resume failure rolls back without source-null snapshots from bundle 47815-47835", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const threadId = "thr_renderer_resume_failure";
+      const ownerClientId = "owner-client-resume-failure";
+      const hostMessages: CodexHostMessage[] = [];
+      const ownerMessages: unknown[] = [];
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+      service.on("rendererOwnerHostMessage", (event: { targetClientId: string; message: unknown }) => {
+        ownerMessages.push(event.message);
+      });
+
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+        emit: (eventName: string, payload: unknown) => boolean;
+      };
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/resume") {
+          client.emit("notification", {
+            method: "item/agentMessage/delta",
+            params: {
+              threadId,
+              turnId: "turn-renderer-resume-failure",
+              itemId: "assistant-renderer-resume-failure",
+              delta: " buffered",
+            },
+          });
+          throw new Error("resume failed");
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run during renderer-owned resume failure test");
+        }
+        return {};
+      };
+
+      try {
+        service.setRendererConversationOwner(threadId, ownerClientId);
+        let threw = false;
+        try {
+          await service.requestConversationResume(threadId, {
+            emitSourceNullSnapshots: false,
+            replayBufferedNotifications: false,
+          });
+        } catch {
+          threw = true;
+        }
+
+        const snapshot = service.serializeConversationSnapshot(threadId);
+        expect(threw).toBeTrue();
+        expect(snapshot?.resumeState).toBe("needs_resume");
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBeFalse();
+        expect(ownerMessages.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("resume sends apply-patch streaming feature override", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -2710,6 +4291,109 @@ describe("codex-service session-backed transcript recovery", () => {
     });
 
     if (!ran) expect(true).toBeTrue();
+  });
+
+  test("replays resume-buffered server requests in notification order from bundle 46730-46950", async () => {
+    const service = createService();
+    const threadId = "thr_resume_request_order";
+    const order: string[] = [];
+    const serviceInternals = service as unknown as {
+      beginResumeNotificationBuffer: (threadId: string) => void;
+      replayBufferedResumeNotifications: (threadId: string) => Promise<void>;
+      handleNotification: (
+        method: string,
+        params: unknown,
+        options?: { bypassResumeBuffer?: boolean },
+      ) => Promise<void>;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequestNow: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+    };
+    const originalHandleNotification = serviceInternals.handleNotification.bind(service);
+    const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
+
+    serviceInternals.handleNotification = async (method, params, options) => {
+      if (options?.bypassResumeBuffer) {
+        order.push(`notification:${method}`);
+      }
+      return originalHandleNotification(method, params, options);
+    };
+    serviceInternals.handleServerRequestNow = async (request) => {
+      order.push(`request:${request.method}`);
+      return originalHandleServerRequestNow(request);
+    };
+
+    try {
+      serviceInternals.beginResumeNotificationBuffer(threadId);
+      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
+        threadId,
+        turnId: "turn-1",
+        itemId: "reasoning-1",
+        summaryIndex: 0,
+      });
+      const requestPromise = serviceInternals.handleServerRequest({
+        id: "time_req",
+        method: "currentTime/read",
+        params: { threadId },
+      });
+      await serviceInternals.handleNotification("item/mcpToolCall/progress", {
+        threadId,
+        turnId: "turn-1",
+        itemId: "mcp-1",
+        message: "Still working",
+      });
+
+      expect(order.join(",")).toBe("");
+
+      await serviceInternals.replayBufferedResumeNotifications(threadId);
+      const result = await requestPromise;
+
+      expect((result as { currentTimeAt?: number }).currentTimeAt !== undefined).toBeTrue();
+      expect(order.join(",")).toBe(
+        "notification:item/reasoning/summaryPartAdded,request:currentTime/read,notification:item/mcpToolCall/progress",
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("defers early thread-started notifications until creation context is ready from bundle 46730-47020 and 50470-50520", async () => {
+    const service = createService();
+    const replayedThreadIds: string[] = [];
+    const serviceInternals = service as unknown as {
+      beginThreadStartNotificationDeferral: () => void;
+      completeThreadStartNotificationDeferral: (threadId: string | null) => Promise<void>;
+      endThreadStartNotificationDeferral: () => Promise<void>;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      replayBufferedResumeNotifications: (threadId: string) => Promise<void>;
+    };
+    const originalReplay = serviceInternals.replayBufferedResumeNotifications.bind(service);
+
+    serviceInternals.replayBufferedResumeNotifications = async (threadId) => {
+      replayedThreadIds.push(threadId);
+    };
+
+    try {
+      serviceInternals.beginThreadStartNotificationDeferral();
+      await serviceInternals.handleNotification("thread/started", {
+        thread: {
+          id: "thr_deferred_creation_context",
+          parentThreadId: null,
+          preview: "Started before creation context is ready",
+          ephemeral: false,
+          cwd: "/tmp/codex",
+        },
+      });
+
+      expect(replayedThreadIds.join(",")).toBe("");
+
+      await serviceInternals.completeThreadStartNotificationDeferral("thr_deferred_creation_context");
+
+      expect(replayedThreadIds.join(",")).toBe("thr_deferred_creation_context");
+    } finally {
+      serviceInternals.replayBufferedResumeNotifications = originalReplay;
+      await serviceInternals.endThreadStartNotificationDeferral();
+      await service.shutdown();
+    }
   });
 
   test("resume bootstraps the latest turn page and loads older turns through thread/turns/list", async () => {
@@ -3358,23 +5042,109 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("cleanBackgroundTerminalsSilently uses app-server clean without turn interrupts", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      return {};
+    };
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_clean_background_terminals_silent"),
+      projectId: defaultProjectId,
+      threadName: "Clean background terminals silently",
+      turns: [
+        {
+          threadId: "thr_clean_background_terminals_silent",
+          turnId: "turn_background",
+          status: "completed",
+          itemIds: ["exec_background"],
+        },
+        {
+          threadId: "thr_clean_background_terminals_silent",
+          turnId: "turn_latest",
+          status: "completed",
+          itemIds: [],
+        },
+      ],
+      transcript: [
+        {
+          threadId: "thr_clean_background_terminals_silent",
+          turnId: "turn_background",
+          itemId: "exec_background",
+          type: "commandExecution",
+          kind: "commandExecution",
+          semanticKind: "exec",
+          status: "inProgress",
+          toolCall: {
+            toolName: "bash",
+            subtype: "command",
+            args: {
+              command: "bun run dev",
+            },
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    try {
+      const before = service.serializeConversationSnapshot("thr_clean_background_terminals_silent");
+      const cleaned = await service.cleanBackgroundTerminalsSilently("thr_clean_background_terminals_silent");
+      const after = service.serializeConversationSnapshot("thr_clean_background_terminals_silent");
+
+      expect(cleaned).toBeTrue();
+      expect(before?.backgroundTerminalRows.length).toBe(1);
+      expect(requests.length).toBe(1);
+      expect(requests[0]?.method).toBe("thread/backgroundTerminals/clean");
+      expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_clean_background_terminals_silent");
+      expect(requests.some((request) => request.method === "turn/interrupt")).toBeFalse();
+      expect(after?.backgroundTerminalRows.length).toBe(0);
+      expect(after?.turns[0]?.interruptedCommandExecutionItemIds?.[0]).toBe("exec_background");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
 });
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {
-  test("rolls back the latest editable turn only on submit and starts a replacement turn", async () => {
+  test("renderer owner rollback edit only rolls back and returns an owner-publishable snapshot", async () => {
     const ran = await withTempDatabase(async () => {
-
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const serviceInternals = service as unknown as {
-        ensureConversationRecord: (threadId: string) => { queuedFollowUps: unknown[]; pendingSteers: unknown[] };
-        pendingApprovals: Map<string, { request: { threadId: string; turnId: string }; reject: (error: Error) => void }>;
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        handleRendererOwnerAppServerRequest: (
+          sourceClientId: string | null,
+          input: {
+            conversationId: string;
+            request: {
+              method: "thread/rollback";
+              params: {
+                threadId: string;
+                turnId: string;
+                numTurns: number;
+              };
+            };
+          },
+        ) => Promise<unknown>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
-      let clearedApprovalMessage = "";
 
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
@@ -3382,7 +5152,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         if (method === "thread/rollback") {
           return {
             thread: {
-              id: "thr_edit",
+              id: "thr_owner_edit",
               modelProvider: "openai",
               createdAt: 1,
               updatedAt: 10,
@@ -3396,23 +5166,9 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
                       type: "userMessage",
                       content: [{ type: "text", text: "Older prompt" }],
                     },
-                    {
-                      id: "assistant_older",
-                      type: "agentMessage",
-                      text: "Older answer",
-                    },
                   ],
                 },
               ],
-            },
-          };
-        }
-        if (method === "turn/start") {
-          return {
-            turn: {
-              id: "turn_edited",
-              status: "in_progress",
-              transcript: [],
             },
           };
         }
@@ -3420,27 +5176,27 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       };
 
       service.readThread = async () => ({
-        ...makeThreadDetail("thr_edit"),
+        ...makeThreadDetail("thr_owner_edit"),
         projectId: defaultProjectId,
-        threadName: "Editable thread",
-        cwd: "/tmp/edit-thread",
+        threadName: "Owner editable thread",
+        cwd: "/tmp/owner-edit-thread",
         turns: [
           {
-            threadId: "thr_edit",
+            threadId: "thr_owner_edit",
             turnId: "turn_older",
             status: "completed",
-            itemIds: ["user_older", "assistant_older"],
+            itemIds: ["user_older"],
           },
           {
-            threadId: "thr_edit",
+            threadId: "thr_owner_edit",
             turnId: "turn_latest",
             status: "completed",
-            itemIds: ["user_latest", "assistant_latest"],
+            itemIds: ["user_latest"],
           },
         ],
         transcript: [
           {
-            threadId: "thr_edit",
+            threadId: "thr_owner_edit",
             turnId: "turn_older",
             itemId: "user_older",
             type: "user_message",
@@ -3453,81 +5209,47 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
             updatedAt: 1,
           },
           {
-            threadId: "thr_edit",
-            turnId: "turn_older",
-            itemId: "assistant_older",
-            type: "assistant_message",
-            kind: "assistantMessage",
-            semanticKind: "assistantMessage",
-            role: "assistant",
-            sequence: 2,
-            markdownText: "Older answer",
-            createdAt: 2,
-            updatedAt: 2,
-          },
-          {
-            threadId: "thr_edit",
+            threadId: "thr_owner_edit",
             turnId: "turn_latest",
             itemId: "user_latest",
             type: "user_message",
             kind: "userMessage",
             semanticKind: "userMessage",
             role: "user",
-            sequence: 3,
+            sequence: 2,
             markdownText: "Latest prompt",
-            createdAt: 3,
-            updatedAt: 3,
-          },
-          {
-            threadId: "thr_edit",
-            turnId: "turn_latest",
-            itemId: "assistant_latest",
-            type: "assistant_message",
-            kind: "assistantMessage",
-            semanticKind: "assistantMessage",
-            role: "assistant",
-            sequence: 4,
-            markdownText: "Latest answer",
-            createdAt: 4,
-            updatedAt: 4,
+            createdAt: 2,
+            updatedAt: 2,
           },
         ],
       });
-
-      const conversationRecord = serviceInternals.ensureConversationRecord("thr_edit");
-      conversationRecord.queuedFollowUps = [{ followUpId: "followup_1" }];
-      conversationRecord.pendingSteers = [
-        { threadId: "thr_edit", turnId: "turn_latest", prompt: "Continue", createdAt: 5 },
-      ];
-      serviceInternals.pendingApprovals.set("approval_1", {
-        request: {
-          threadId: "thr_edit",
-          turnId: "turn_latest",
-        },
-        reject: (error) => {
-          clearedApprovalMessage = error.message;
-        },
-      });
+      serviceInternals.setRendererConversationOwner("thr_owner_edit", "owner-a");
 
       try {
-        const result = await service.editLastUserTurn("thr_edit", "turn_latest", "Rewrite the latest prompt");
-        const snapshot = service.serializeConversationSnapshot("thr_edit");
-        const detail = service.serializeThreadDetail("thr_edit");
+        const result = await serviceInternals.handleRendererOwnerAppServerRequest(
+          "owner-a",
+          {
+            conversationId: "thr_owner_edit",
+            request: {
+              method: "thread/rollback",
+              params: {
+                threadId: "thr_owner_edit",
+                turnId: "turn_latest",
+                numTurns: 1,
+              },
+            },
+          },
+        ) as { thread?: { id?: string; turns?: Array<{ id?: string }> } };
+        const detail = service.serializeThreadDetail("thr_owner_edit");
 
+        expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("thread/rollback");
         expect((requests[0]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
-        expect(requests[1]?.method).toBe("turn/start");
-        expect(result.threadId).toBe("thr_edit");
-        expect(result.composerIntent.prompt).toBe("Rewrite the latest prompt");
-        expect(snapshot?.turns.length).toBe(2);
-        expect(snapshot?.turns[0]?.turnId).toBe("turn_older");
-        expect(snapshot?.turns[1]?.turnId).toBe("turn_edited");
-        expect(detail?.turns.length).toBe(2);
-        expect(detail?.turns[1]?.turnId).toBe("turn_edited");
-        expect(detail?.transcript[detail.transcript.length - 1]?.markdownText).toBe("Rewrite the latest prompt");
-        expect(conversationRecord.queuedFollowUps.length).toBe(0);
-        expect(conversationRecord.pendingSteers.length).toBe(0);
-        expect(clearedApprovalMessage).toBe("Approval request cleared after thread history changed");
+        expect(result.thread?.id).toBe("thr_owner_edit");
+        expect(String(result.thread?.turns?.length ?? -1)).toBe("1");
+        expect(result.thread?.turns?.[0]?.id).toBe("turn_older");
+        expect(detail?.turns.length).toBe(1);
+        expect(detail?.turns[0]?.turnId).toBe("turn_older");
       } finally {
         await service.shutdown();
       }
@@ -3536,48 +5258,395 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("forwards the effective service tier when edit-last-user-turn starts the replacement turn", async () => {
+  test("renderer owner rollback edit rejects non-owner callers before app-server rollback", async () => {
     const ran = await withTempDatabase(async () => {
-
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
+      const serviceInternals = service as unknown as {
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        handleRendererOwnerAppServerRequest: (
+          sourceClientId: string | null,
+          input: {
+            conversationId: string;
+            request: {
+              method: "thread/rollback";
+              params: {
+                threadId: string;
+                turnId: string;
+                numTurns: number;
+              };
+            };
+          },
+        ) => Promise<unknown>;
+      };
       const requests: Array<{ method: string; params: unknown }> = [];
+      let errorMessage = "";
 
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
-        if (method === "thread/rollback") {
+        return {};
+      };
+      serviceInternals.setRendererConversationOwner("thr_owner_edit", "owner-a");
+
+      try {
+        try {
+          await serviceInternals.handleRendererOwnerAppServerRequest(
+            "owner-b",
+            {
+              conversationId: "thr_owner_edit",
+              request: {
+                method: "thread/rollback",
+                params: {
+                  threadId: "thr_owner_edit",
+                  turnId: "turn_latest",
+                  numTurns: 1,
+                },
+              },
+            },
+          );
+        } catch (error) {
+          errorMessage = error instanceof Error ? error.message : String(error);
+        }
+
+        expect(requests.length).toBe(0);
+        expect(errorMessage.includes("not owner")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("renderer owner turn start returns raw result without source-null stream patches", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        handleRendererOwnerAppServerRequest: (
+          sourceClientId: string | null,
+          input: {
+            conversationId: string;
+            request: {
+              method: "turn/start";
+              params: {
+                threadId: string;
+                prompt: string;
+                opts?: { permissionMode?: "auto"; serviceTier?: "fast" };
+                clientUserMessageId?: string;
+              };
+            };
+          },
+        ) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_prompt",
+              items: [],
+              itemsView: "full",
+              status: "inProgress",
+              error: null,
+              startedAt: 1,
+              completedAt: null,
+              durationMs: null,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      serviceInternals.setRendererConversationOwner("thr_owner_start", "owner-a");
+
+      try {
+        const result = await serviceInternals.handleRendererOwnerAppServerRequest(
+          "owner-a",
+          {
+            conversationId: "thr_owner_start",
+            request: {
+              method: "turn/start",
+              params: {
+                threadId: "thr_owner_start",
+                prompt: "Ship the fix",
+                clientUserMessageId: "client-owner-start",
+                opts: { permissionMode: "auto", serviceTier: "fast" },
+              },
+            },
+          },
+        ) as { turnId?: string; conversationState?: unknown };
+        const detail = service.serializeThreadDetail("thr_owner_start");
+        const promptItem = detail?.transcript[0];
+
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.method).toBe("turn/start");
+        const requestParams = requests[0]?.params as { threadId?: string; serviceTier?: unknown; clientUserMessageId?: unknown } | undefined;
+        expect(requestParams?.threadId).toBe("thr_owner_start");
+        expect(requestParams?.serviceTier).toBe("fast");
+        expect(requestParams?.clientUserMessageId).toBe("client-owner-start");
+        expect(result.turnId).toBe("turn_prompt");
+        expect(result.conversationState === undefined).toBeTrue();
+        expect(promptItem?.kind).toBe("userMessage");
+        expect(promptItem?.role).toBe("user");
+        expect(promptItem?.markdownText).toBe("Ship the fix");
+        expect((promptItem?.rawItem as { clientUserMessageId?: unknown } | undefined)?.clientUserMessageId).toBe("client-owner-start");
+        expect(detail?.turns[0]?.turnId).toBe("turn_prompt");
+        expect(String(hostMessages.length)).toBe("0");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("renderer owner app-server facade updates settings without source-null stream patches", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        handleRendererOwnerAppServerRequest: (
+          sourceClientId: string | null,
+          input: {
+            conversationId: string;
+            request: {
+              method: "thread/settings/update";
+              params: {
+                threadId: string;
+                patch: { reasoningEffort?: string; collaborationMode?: string };
+              };
+            };
+          },
+        ) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/settings/update") {
+          return {};
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      serviceInternals.setRendererConversationOwner("thr_owner_settings", "owner-a");
+
+      try {
+        const result = await serviceInternals.handleRendererOwnerAppServerRequest(
+          "owner-a",
+          {
+            conversationId: "thr_owner_settings",
+            request: {
+              method: "thread/settings/update",
+              params: {
+                threadId: "thr_owner_settings",
+                patch: {
+                  reasoningEffort: "high",
+                  collaborationMode: "plan",
+                },
+              },
+            },
+          },
+        ) as { reasoningEffort?: string; collaborationMode?: { mode?: string } };
+
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.method).toBe("thread/settings/update");
+        expect(result.reasoningEffort).toBe("high");
+        expect(result.collaborationMode?.mode).toBe("plan");
+        expect(String(hostMessages.length)).toBe("0");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("renderer owner app-server facade steers without source-null stream patches", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        handleRendererOwnerAppServerRequest: (
+          sourceClientId: string | null,
+          input: {
+            conversationId: string;
+            request: {
+              method: "turn/steer";
+              params: CodexSteerTurnInput;
+            };
+          },
+        ) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "turn/steer") {
+          return { turnId: "turn_active" };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_owner_steer"),
+        statusType: "active",
+        statusActiveFlags: [],
+        turns: [{
+          threadId: "thr_owner_steer",
+          turnId: "turn_active",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      serviceInternals.setRendererConversationOwner("thr_owner_steer", "owner-a");
+
+      try {
+        const result = await serviceInternals.handleRendererOwnerAppServerRequest(
+          "owner-a",
+          {
+            conversationId: "thr_owner_steer",
+            request: {
+              method: "turn/steer",
+              params: {
+                threadId: "thr_owner_steer",
+                expectedTurnId: "turn_active",
+                prompt: "Keep going",
+              },
+            },
+          },
+        ) as { turnId?: string } | null;
+        const snapshot = await service.requestConversationSnapshot("thr_owner_steer");
+
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.method).toBe("turn/steer");
+        expect(result?.turnId).toBe("turn_active");
+        expect(String(hostMessages.length)).toBe("0");
+        expect(snapshot?.turns[0]?.items[0]?.semanticKind).toBe("steeringUserMessage");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("renderer owner app-server facade forks from turn without source-null stream patches", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        handleRendererOwnerAppServerRequest: (
+          sourceClientId: string | null,
+          input: {
+            conversationId: string;
+            request: {
+              method: "thread/fork";
+              params: {
+                threadId: string;
+                turnId: string;
+                message: string;
+              };
+            };
+          },
+        ) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/fork") {
           return {
             thread: {
-              id: "thr_edit_fast",
+              id: "thr_owner_forked",
               modelProvider: "openai",
               createdAt: 1,
-              updatedAt: 10,
+              updatedAt: 11,
               turns: [
                 {
-                  id: "turn_older",
+                  id: "turn_1",
                   status: "completed",
                   items: [
-                    {
-                      id: "user_older",
-                      type: "userMessage",
-                      content: [{ type: "text", text: "Older prompt" }],
-                    },
+                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
+                  ],
+                },
+                {
+                  id: "turn_2",
+                  status: "completed",
+                  items: [
+                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
                   ],
                 },
               ],
             },
           };
         }
-        if (method === "turn/start") {
+        if (method === "thread/rollback") {
           return {
-            turn: {
-              id: "turn_edited_fast",
-              status: "in_progress",
-              transcript: [],
+            thread: {
+              id: "thr_owner_forked",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 12,
+              turns: [
+                {
+                  id: "turn_1",
+                  status: "completed",
+                  items: [
+                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
+                  ],
+                },
+              ],
             },
           };
         }
@@ -3585,59 +5654,72 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       };
 
       service.readThread = async () => ({
-        ...makeThreadDetail("thr_edit_fast"),
+        ...makeThreadDetail("thr_owner_fork_source"),
         projectId: defaultProjectId,
-        threadName: "Editable fast thread",
-        cwd: "/tmp/edit-fast-thread",
+        threadName: "Owner fork source",
+        cwd: "/tmp/owner-fork-thread",
         turns: [
-          {
-            threadId: "thr_edit_fast",
-            turnId: "turn_older",
-            status: "completed",
-            itemIds: ["user_older"],
-          },
-          {
-            threadId: "thr_edit_fast",
-            turnId: "turn_latest",
-            status: "completed",
-            itemIds: ["user_latest"],
-          },
+          { threadId: "thr_owner_fork_source", turnId: "turn_1", status: "completed", itemIds: ["user_1"] },
+          { threadId: "thr_owner_fork_source", turnId: "turn_2", status: "completed", itemIds: ["user_2"] },
         ],
         transcript: [
           {
-            threadId: "thr_edit_fast",
-            turnId: "turn_older",
-            itemId: "user_older",
+            threadId: "thr_owner_fork_source",
+            turnId: "turn_1",
+            itemId: "user_1",
             type: "user_message",
             kind: "userMessage",
             semanticKind: "userMessage",
             role: "user",
             sequence: 1,
-            markdownText: "Older prompt",
+            markdownText: "Prompt 1",
             createdAt: 1,
             updatedAt: 1,
           },
           {
-            threadId: "thr_edit_fast",
-            turnId: "turn_latest",
-            itemId: "user_latest",
+            threadId: "thr_owner_fork_source",
+            turnId: "turn_2",
+            itemId: "user_2",
             type: "user_message",
             kind: "userMessage",
             semanticKind: "userMessage",
             role: "user",
             sequence: 2,
-            markdownText: "Latest prompt",
+            markdownText: "Prompt 2",
             createdAt: 2,
             updatedAt: 2,
           },
         ],
       });
+      serviceInternals.setRendererConversationOwner("thr_owner_fork_source", "owner-a");
 
       try {
-        await service.editLastUserTurn("thr_edit_fast", "turn_latest", "Rewrite quickly", { serviceTier: "fast" });
+        const result = await serviceInternals.handleRendererOwnerAppServerRequest(
+          "owner-a",
+          {
+            conversationId: "thr_owner_fork_source",
+            request: {
+              method: "thread/fork",
+              params: {
+                threadId: "thr_owner_fork_source",
+                turnId: "turn_1",
+                message: "Continue from the fork",
+              },
+            },
+          },
+        ) as CodexThreadActionResult;
+        const snapshot = service.serializeConversationSnapshot("thr_owner_forked");
 
-        expect(requests[1]?.method).toBe("turn/start");
-        expect((requests[1]?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
+        expect(requests.map((request) => request.method).join(",")).toBe("thread/fork,thread/rollback");
+        expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_owner_fork_source");
+        expect((requests[1]?.params as { threadId?: string; numTurns?: number } | undefined)?.threadId).toBe("thr_owner_forked");
+        expect((requests[1]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
+        expect(result.threadId).toBe("thr_owner_forked");
+        expect(Boolean(result.composerIntent)).toBeTrue();
+        expect(result.composerIntent?.prompt).toBe("Continue from the fork");
+        expect(snapshot?.turns.length).toBe(1);
+        expect(snapshot?.turns[0]?.turnId).toBe("turn_1");
+        expect(String(hostMessages.length)).toBe("0");
       } finally {
         await service.shutdown();
       }
@@ -3797,7 +5879,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect((requests[1]?.params as { threadId?: string; numTurns?: number } | undefined)?.threadId).toBe("thr_forked");
         expect((requests[1]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
         expect(result.threadId).toBe("thr_forked");
-        expect(result.composerIntent.prompt).toBe("Continue from turn 2");
+        expect(Boolean(result.composerIntent)).toBeTrue();
+        expect(result.composerIntent?.prompt).toBe("Continue from turn 2");
         expect(snapshot?.turns.length).toBe(2);
         expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
         expect(events.some((event) => event.type === "threadSummary" && event.thread.threadId === "thr_forked")).toBeTrue();
@@ -6051,6 +8134,96 @@ describe("codex-service setThreadName", () => {
 });
 
 describe("codex-service startThreadForSession", () => {
+  test("defers early thread-started notifications until the session link is ready", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session composer" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+        emit: (eventName: string, payload: unknown) => boolean;
+      };
+      const sidebarThreadMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "sidebarSyncUpdated") {
+          sidebarThreadMessages.push(message);
+        }
+      });
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          client.emit("notification", {
+            method: "thread/started",
+            params: {
+              thread: {
+                id: "thr_session_deferred_started",
+                parentThreadId: null,
+                preview: "Started before response",
+                ephemeral: false,
+                modelProvider: "openai",
+                cwd: "/tmp/codex",
+                createdAt: 1_780_800_000_000,
+                updatedAt: 1_780_800_000_000,
+                status: { type: "idle" },
+                name: null,
+                source: "local",
+              },
+            },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(
+            listProjectSessions(defaultProjectId)
+              .some((candidate) => candidate.thread?.threadId === "thr_session_deferred_started"),
+          ).toBeFalse();
+          return {
+            thread: {
+              id: "thr_session_deferred_started",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 1_780_800_000_000,
+              updatedAt: 1_780_800_000_000,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_deferred_started",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        const detail = await service.startThreadForSession({
+          projectId: defaultProjectId,
+          sessionId: session.id,
+          prompt: "Start after early notification",
+          permissionMode: "auto",
+          skipAutoTitleGeneration: true,
+        });
+
+        const linkedSessions = listProjectSessions(defaultProjectId)
+          .filter((candidate) => candidate.thread?.threadId === "thr_session_deferred_started");
+        expect(detail.threadId).toBe("thr_session_deferred_started");
+        expect(linkedSessions.length).toBe(1);
+        expect(linkedSessions[0]?.id).toBe(session.id);
+        expect(sidebarThreadMessages.length > 0).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("starts a session thread in the project workspace and persists the project session link", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session composer" });
@@ -7540,6 +9713,254 @@ describe("codex-service approval fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("routes approval request ingress to renderer owner without source-null stream patches", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+        handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+        pendingApprovals: Map<
+          string,
+          {
+            reject: (reason?: unknown) => void;
+          }
+        >;
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+      const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+      serviceInternals.on("rendererOwnerHostMessage", (message) => {
+        ownerMessages.push(message);
+      });
+      serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
+      await service.setProjectPermissionMode(defaultProjectId, "auto");
+      serviceInternals.setRendererConversationOwner("thr_owner_request", "owner-a");
+
+      try {
+        const requestPromise = serviceInternals.handleServerRequest({
+          id: "req_owner_approval",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "thr_owner_request",
+            turnId: "turn_owner_request",
+            itemId: "item_owner_request",
+            startedAtMs: 10,
+            environmentId: null,
+            reason: "Needs permissions",
+            command: "bun test",
+          },
+        });
+
+        await Promise.resolve();
+        expect(serviceInternals.pendingApprovals.has("req_owner_approval")).toBeTrue();
+        expect(String(hostMessages.length)).toBe("0");
+        expect(String(ownerMessages.length)).toBe("1");
+        expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+        expect(ownerMessages[0]?.message.type).toBe("threadOwnerRequest");
+        if (ownerMessages[0]?.message.type === "threadOwnerRequest") {
+          expect(ownerMessages[0].message.request.id).toBe("req_owner_approval");
+          expect(ownerMessages[0].message.request.method).toBe("item/commandExecution/requestApproval");
+          expect(ownerMessages[0].message.sequence).toBe(1);
+        }
+
+        for (const pending of serviceInternals.pendingApprovals.values()) {
+          pending.reject(new Error("test cleanup"));
+        }
+        await requestPromise.catch(() => undefined);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("routes dynamic tool-call requests through renderer owner from bundle 51920-52390", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      pendingDynamicToolCalls: Map<string, unknown>;
+      respondToDynamicToolCall: (requestId: string) => Promise<{ success: boolean } | null>;
+      setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    serviceInternals.on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    serviceInternals.setRendererConversationOwner("thr_dynamic_tool", "owner-dynamic");
+
+    try {
+      const requestPromise = serviceInternals.handleServerRequest({
+        id: "req_dynamic_tool",
+        method: "item/tool/call",
+        params: {
+          threadId: "thr_dynamic_tool",
+          turnId: "turn_dynamic_tool",
+          callId: "call_dynamic_tool",
+          namespace: "codex_app",
+          tool: "unsupported_test_tool",
+          arguments: {},
+        },
+      });
+
+      await Promise.resolve();
+      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBeTrue();
+      expect(String(hostMessages.length)).toBe("0");
+      expect(String(ownerMessages.length)).toBe("1");
+      expect(ownerMessages[0]?.targetClientId).toBe("owner-dynamic");
+      expect(ownerMessages[0]?.message.type).toBe("threadOwnerRequest");
+      if (ownerMessages[0]?.message.type === "threadOwnerRequest") {
+        expect(ownerMessages[0].message.request.id).toBe("req_dynamic_tool");
+        expect(ownerMessages[0].message.request.method).toBe("item/tool/call");
+        expect(ownerMessages[0].message.sequence).toBe(1);
+      }
+
+      const ownerResponse = await serviceInternals.respondToDynamicToolCall("req_dynamic_tool");
+      const serverResponse = await requestPromise as { success: boolean };
+      expect(ownerResponse?.success).toBeFalse();
+      expect(serverResponse.success).toBeFalse();
+      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBeFalse();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes permissions request ingress and response through renderer owner from bundle 51920 and 38740", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+        handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+        respondToPermissionRequest: (
+          requestId: string,
+          response: { permissions: { network?: { enabled: boolean | null } }; scope: "turn" | "session" },
+        ) => Promise<boolean>;
+        pendingPermissionRequests: Map<
+          string,
+          {
+            reject: (reason?: unknown) => void;
+          }
+        >;
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+      const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+      serviceInternals.on("rendererOwnerHostMessage", (message) => {
+        ownerMessages.push(message);
+      });
+      serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
+      serviceInternals.setRendererConversationOwner("thr_owner_permission", "owner-a");
+
+      try {
+        const requestPromise = serviceInternals.handleServerRequest({
+          id: "req_owner_permission",
+          method: "item/permissions/requestApproval",
+          params: {
+            threadId: "thr_owner_permission",
+            turnId: "turn_owner_permission",
+            itemId: "permission_call_1",
+            environmentId: "env-1",
+            startedAtMs: 20,
+            cwd: "/repo",
+            reason: "Need network",
+            permissions: {
+              network: { enabled: true },
+              fileSystem: null,
+            },
+          },
+        });
+
+        await Promise.resolve();
+        expect(serviceInternals.pendingPermissionRequests.has("req_owner_permission")).toBeTrue();
+        expect(String(hostMessages.length)).toBe("0");
+        expect(String(ownerMessages.length)).toBe("1");
+        expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+        expect(ownerMessages[0]?.message.type).toBe("threadOwnerRequest");
+        if (ownerMessages[0]?.message.type === "threadOwnerRequest") {
+          expect(ownerMessages[0].message.request.id).toBe("req_owner_permission");
+          expect(ownerMessages[0].message.request.method).toBe("item/permissions/requestApproval");
+          expect(ownerMessages[0].message.sequence).toBe(1);
+        }
+
+        const pendingItem = getRecordedItem(
+          serviceInternals,
+          "thr_owner_permission",
+          "turn_owner_permission",
+          "permission-request-req_owner_permission",
+        );
+        expect(pendingItem?.semanticKind).toBe("permissionRequest");
+        expect(pendingItem?.status).toBe("inProgress");
+
+        const response = { permissions: { network: { enabled: true } }, scope: "turn" as const };
+        const accepted = await serviceInternals.respondToPermissionRequest("req_owner_permission", response);
+        const result = await requestPromise;
+        const completedItem = getRecordedItem(
+          serviceInternals,
+          "thr_owner_permission",
+          "turn_owner_permission",
+          "permission-request-req_owner_permission",
+        );
+
+        expect(accepted).toBeTrue();
+        expect(JSON.stringify(result)).toBe(JSON.stringify(response));
+        expect(serviceInternals.pendingPermissionRequests.has("req_owner_permission")).toBeFalse();
+        expect(completedItem?.status).toBe("completed");
+        expect(JSON.stringify(completedItem?.rawItem)).toBe(JSON.stringify({
+          id: "permission-request-req_owner_permission",
+          type: "permissionRequest",
+          requestId: "req_owner_permission",
+          turnId: "turn_owner_permission",
+          reason: "Need network",
+          permissions: {
+            network: { enabled: true },
+            fileSystem: null,
+          },
+          completed: true,
+          response,
+        }));
+        expect(String(hostMessages.length)).toBe("0");
+      } finally {
+        for (const pending of serviceInternals.pendingPermissionRequests.values()) {
+          pending.reject(new Error("test cleanup"));
+        }
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("keys pending approvals by JSON-RPC request.id", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -7599,7 +10020,7 @@ describe("codex-service approval fallback", () => {
 });
 
 describe("codex-service streaming notification parity", () => {
-  test("ignores item/plan/delta updates until the canonical item lifecycle inserts the plan item", async () => {
+  test("drops plan and reasoning deltas that arrive before item/started", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       getConversationRecord: (threadId: string) => {
@@ -7608,13 +10029,14 @@ describe("codex-service streaming notification parity", () => {
       handleNotification: (method: string, params: unknown) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
-      on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
     };
-    const events: CodexEvent[] = [];
+    const hostMessages: CodexHostMessage[] = [];
 
     serviceInternals.persistThreadSnapshot = () => {};
-    serviceInternals.on("event", (event) => {
-      events.push(event);
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
     });
 
     try {
@@ -7622,7 +10044,7 @@ describe("codex-service streaming notification parity", () => {
         threadId: "thr_plan_delta",
         turnId: "turn_plan_delta",
         status: "inProgress",
-        itemIds: ["plan_item"],
+        itemIds: [],
       });
       await serviceInternals.handleNotification("item/plan/delta", {
         threadId: "thr_plan_delta",
@@ -7630,17 +10052,33 @@ describe("codex-service streaming notification parity", () => {
         itemId: "plan_item",
         delta: "1. Clarify requirements",
       });
-      await serviceInternals.handleNotification("item/plan/delta", {
+      await serviceInternals.handleNotification("item/reasoning/summaryTextDelta", {
         threadId: "thr_plan_delta",
         turnId: "turn_plan_delta",
-        itemId: "plan_item",
-        delta: "\n2. Implement changes",
+        itemId: "reasoning_item",
+        summaryIndex: 0,
+        delta: "Thinking",
+      });
+      await serviceInternals.handleNotification("item/reasoning/textDelta", {
+        threadId: "thr_plan_delta",
+        turnId: "turn_plan_delta",
+        itemId: "reasoning_item",
+        contentIndex: 0,
+        delta: "Private",
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
 
       const planItem = getRecordedItem(serviceInternals, "thr_plan_delta", "turn_plan_delta", "plan_item");
+      const reasoningItem = getRecordedItem(
+        serviceInternals,
+        "thr_plan_delta",
+        "turn_plan_delta",
+        "reasoning_item",
+      );
 
       expect(Boolean(planItem)).toBeFalse();
+      expect(Boolean(reasoningItem)).toBeFalse();
+      expect(String(hostMessages.length)).toBe("0");
     } finally {
       await service.shutdown();
     }
@@ -8729,16 +11167,19 @@ describe("codex-service item lifecycle status fallback", () => {
       await serviceInternals.handleNotification("item/autoApprovalReview/started", {
         threadId: "thr_auto_review",
         turnId: "turn_auto_review",
+        reviewId: "review_auto",
         targetItemId: "item_command",
         review: {
           status: "inProgress",
-          riskScore: 0.52,
           riskLevel: "medium",
+          userAuthorization: "unknown",
           rationale: null,
         },
         action: {
-          type: "commandExecution",
+          type: "command",
+          source: "shell",
           command: "bun test",
+          cwd: "/tmp/project",
         },
       });
 
@@ -8746,7 +11187,7 @@ describe("codex-service item lifecycle status fallback", () => {
         serviceInternals,
         "thr_auto_review",
         "turn_auto_review",
-        "automatic-approval-review:item_command",
+        "automatic-approval-review:review_auto",
       );
       expect(item?.semanticKind).toBe("automaticApprovalReview");
       expect(item?.status).toBe("inProgress");
@@ -8754,16 +11195,20 @@ describe("codex-service item lifecycle status fallback", () => {
       await serviceInternals.handleNotification("item/autoApprovalReview/completed", {
         threadId: "thr_auto_review",
         turnId: "turn_auto_review",
+        reviewId: "review_auto",
         targetItemId: "item_command",
+        decisionSource: "agent",
         review: {
           status: "approved",
-          riskScore: 0.11,
           riskLevel: "low",
+          userAuthorization: "low",
           rationale: "This only runs the local test suite.",
         },
         action: {
-          type: "commandExecution",
+          type: "command",
+          source: "shell",
           command: "bun test",
+          cwd: "/tmp/project",
         },
       });
 
@@ -8771,11 +11216,59 @@ describe("codex-service item lifecycle status fallback", () => {
         serviceInternals,
         "thr_auto_review",
         "turn_auto_review",
-        "automatic-approval-review:item_command",
+        "automatic-approval-review:review_auto",
       );
       expect(item?.status).toBe("completed");
-      expect((item?.rawItem as { review?: { status?: string } } | undefined)?.review?.status).toBe("approved");
+      expect((item?.rawItem as { status?: string } | undefined)?.status).toBe("approved");
       expect(item?.markdownText).toBe("This only runs the local test suite.");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("projects guardian too-many-denials warning onto the latest canonical turn", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_guardian_warning", {
+        threadId: "thr_guardian_warning",
+        turnId: "turn_guardian_warning",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      await serviceInternals.handleNotification("guardianWarning", {
+        threadId: "thr_guardian_warning",
+        message: "Unrelated guardian warning",
+      });
+
+      let snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
+      let warningItems = snapshot?.turns[0]?.items.filter((item) =>
+        item.semanticKind === "autoReviewInterruptionWarning"
+      ) ?? [];
+      expect(String(warningItems.length)).toBe("0");
+
+      await serviceInternals.handleNotification("guardianWarning", {
+        threadId: "thr_guardian_warning",
+        kind: "tooManyDenials",
+        message: "Unrelated guardian warning",
+      });
+
+      snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
+      warningItems = snapshot?.turns[0]?.items.filter((item) =>
+        item.semanticKind === "autoReviewInterruptionWarning"
+      ) ?? [];
+      const warning = warningItems[0];
+      expect(String(warningItems.length)).toBe("1");
+      expect(warning?.type).toBe("autoReviewInterruptionWarning");
+      expect(warning?.markdownText).toBe("Automatic approval review rejected too many approval requests for this turn");
     } finally {
       await service.shutdown();
     }
@@ -8834,6 +11327,54 @@ describe("codex-service item lifecycle status fallback", () => {
     }
   });
 
+  test("projects model reroute notifications into canonical turn items without a renderer owner", async () => {
+    const service = createService();
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_model_reroute", {
+        threadId: "thr_model_reroute",
+        turnId: "turn_model_reroute",
+        status: "inProgress",
+        itemIds: [],
+      });
+      hostMessages.length = 0;
+
+      await serviceInternals.handleNotification("model/rerouted", {
+        threadId: "thr_model_reroute",
+        turnId: "turn_model_reroute",
+        fromModel: "gpt-5.4-codex",
+        toModel: "gpt-5.4-mini",
+        reason: "highRiskCyberActivity",
+      });
+
+      const snapshot = await service.requestConversationSnapshot("thr_model_reroute");
+      const item = snapshot?.turns[0]?.items.find((candidate) => candidate.semanticKind === "modelRerouted");
+      const raw = item?.rawItem as { fromModel?: string; toModel?: string; reason?: string } | undefined;
+      expect(item?.status).toBe("completed");
+      expect(raw?.fromModel).toBe("gpt-5.4-codex");
+      expect(raw?.toModel).toBe("gpt-5.4-mini");
+      expect(raw?.reason).toBe("highRiskCyberActivity");
+      expect(hostMessages.length > 0).toBeTrue();
+      const latest = projectConversationFromHostMessages(hostMessages);
+      expect(latest?.turns[0]?.items[0]?.semanticKind).toBe("modelRerouted");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("projects MCP elicitation requests into canonical turn items and completes them on response", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -8883,6 +11424,59 @@ describe("codex-service item lifecycle status fallback", () => {
       item = getRecordedItem(serviceInternals, "thr_mcp", "turn_mcp", "mcp-server-elicitation-mcp_req");
       expect(item?.status).toBe("completed");
       expect((item?.rawItem as { action?: string } | undefined)?.action).toBe("accept");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("declines unsupported MCP elicitation requests before owner routing from bundle 27071 and 52137", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      pendingMcpElicitations: Map<string, unknown>;
+      setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    serviceInternals.on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    serviceInternals.setRendererConversationOwner("thr_mcp_invalid", "owner-a");
+
+    try {
+      const result = await serviceInternals.handleServerRequest({
+        id: "mcp_invalid",
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId: "thr_mcp_invalid",
+          turnId: "turn_mcp_invalid",
+          mode: "url",
+          serverName: "browser",
+          message: "Open this URL?",
+          url: "http://example.test",
+          elicitationId: "elicitation-1",
+          _meta: null,
+        },
+      });
+
+      expect(JSON.stringify(result)).toBe(JSON.stringify({
+        action: "decline",
+        content: null,
+        _meta: null,
+      }));
+      expect(serviceInternals.pendingMcpElicitations.has("mcp_invalid")).toBeFalse();
+      expect(String(ownerMessages.length)).toBe("0");
+      expect(String(hostMessages.length)).toBe("0");
     } finally {
       await service.shutdown();
     }
@@ -9322,6 +11916,7 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
       expect(latest?.turns[0]?.items.length).toBe(1);
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe("hello");
+      expect(latest?.turns[0]?.items[0]?.status).toBe("inProgress");
     } finally {
       await service.shutdown();
     }
@@ -9567,7 +12162,29 @@ describe("codex-service terminal turn reconciliation", () => {
     }
   });
 
-  test("drains pending assistant deltas before applying item/completed", async () => {
+  test("synchronously drains pending assistant deltas in main fallback before applying item/completed", async () => {
+    const previousRequestAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame");
+    const previousCancelAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(globalThis, "cancelAnimationFrame");
+    const previousDocumentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+    let requestAnimationFrameCalled = false;
+    Object.defineProperty(globalThis, "requestAnimationFrame", {
+      configurable: true,
+      value: () => {
+        requestAnimationFrameCalled = true;
+        return 1;
+      },
+    });
+    Object.defineProperty(globalThis, "cancelAnimationFrame", {
+      configurable: true,
+      value: () => {},
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        visibilityState: "visible",
+      },
+    });
+
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
@@ -9622,6 +12239,103 @@ describe("codex-service terminal turn reconciliation", () => {
           text: largeDelta,
         },
       });
+
+      let completedMessageIndex = -1;
+      let conversation = baseConversation;
+      for (let index = 0; index < hostMessages.length; index += 1) {
+        conversation = projectConversationFromHostMessages([hostMessages[index]!], conversation);
+        if (conversation?.turns[0]?.items[0]?.status === "completed") {
+          completedMessageIndex = index;
+          break;
+        }
+      }
+
+      expect(completedMessageIndex > 0).toBeTrue();
+      const beforeCompleted = projectConversationFromHostMessages(
+        hostMessages.slice(0, completedMessageIndex),
+        baseConversation,
+      );
+      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
+      expect(beforeCompleted?.turns[0]?.items[0]?.status).toBe("inProgress");
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
+      expect(requestAnimationFrameCalled).toBeFalse();
+    } finally {
+      await service.shutdown();
+      if (previousRequestAnimationFrameDescriptor) {
+        Object.defineProperty(globalThis, "requestAnimationFrame", previousRequestAnimationFrameDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, "requestAnimationFrame");
+      }
+      if (previousCancelAnimationFrameDescriptor) {
+        Object.defineProperty(globalThis, "cancelAnimationFrame", previousCancelAnimationFrameDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
+      }
+      if (previousDocumentDescriptor) {
+        Object.defineProperty(globalThis, "document", previousDocumentDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, "document");
+      }
+    }
+  });
+
+  test("drains short assistant deltas before applying item/completed", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    const delta = "short response";
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_short_completion_drain"),
+      turns: [{
+        threadId: "thr_streaming_short_completion_drain",
+        turnId: "turn_streaming_short_completion_drain",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_streaming_short_completion_drain",
+        turnId: "turn_streaming_short_completion_drain",
+        item: {
+          id: "assistant_short_completion_drain",
+          type: "agentMessage",
+          text: "",
+        },
+      });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thr_streaming_short_completion_drain",
+        turnId: "turn_streaming_short_completion_drain",
+        itemId: "assistant_short_completion_drain",
+        delta,
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_streaming_short_completion_drain",
+        turnId: "turn_streaming_short_completion_drain",
+        item: {
+          id: "assistant_short_completion_drain",
+          type: "agentMessage",
+          text: delta,
+        },
+      });
       await waitForCondition(() => {
         const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
         return latest?.turns[0]?.items[0]?.status === "completed";
@@ -9642,10 +12356,93 @@ describe("codex-service terminal turn reconciliation", () => {
         hostMessages.slice(0, completedMessageIndex),
         baseConversation,
       );
-      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
+      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(delta);
+      expect(beforeCompleted?.turns[0]?.items[0]?.status).toBe("inProgress");
       const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
       expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
-      expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe(delta);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("synchronously drains pending assistant deltas in main fallback before applying turn/completed", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    const delta = "turn completion drains this full response first";
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_streaming_turn_completion_drain"),
+      turns: [{
+        threadId: "thr_streaming_turn_completion_drain",
+        turnId: "turn_streaming_turn_completion_drain",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_streaming_turn_completion_drain",
+        turnId: "turn_streaming_turn_completion_drain",
+        item: {
+          id: "assistant_turn_completion_drain",
+          type: "agentMessage",
+          text: "",
+        },
+      });
+      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId: "thr_streaming_turn_completion_drain",
+        turnId: "turn_streaming_turn_completion_drain",
+        itemId: "assistant_turn_completion_drain",
+        delta,
+      });
+      await serviceInternals.handleNotification("turn/completed", {
+        threadId: "thr_streaming_turn_completion_drain",
+        turn: {
+          id: "turn_streaming_turn_completion_drain",
+          status: "completed",
+          items: [],
+        },
+      });
+
+      let completedMessageIndex = -1;
+      let conversation = baseConversation;
+      for (let index = 0; index < hostMessages.length; index += 1) {
+        conversation = projectConversationFromHostMessages([hostMessages[index]!], conversation);
+        if (conversation?.turns[0]?.status === "completed") {
+          completedMessageIndex = index;
+          break;
+        }
+      }
+
+      expect(completedMessageIndex > 0).toBeTrue();
+      const beforeCompleted = projectConversationFromHostMessages(
+        hostMessages.slice(0, completedMessageIndex),
+        baseConversation,
+      );
+      expect(beforeCompleted?.turns[0]?.status).toBe("inProgress");
+      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(delta);
+      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(latest?.turns[0]?.status).toBe("completed");
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe(delta);
     } finally {
       await service.shutdown();
     }
@@ -9727,6 +12524,172 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
       expect(typeof snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
       expect(snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("forwards command output deltas to renderer owner instead of broadcasting raw mcp notifications", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const mcpMessages: CodexHostMessage[] = [];
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "mcpNotification") {
+        mcpMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_owner_streaming_output"),
+      turns: [
+        {
+          threadId: "thr_owner_streaming_output",
+          turnId: "turn_owner_streaming_output",
+          status: "inProgress",
+          itemIds: ["exec_owner_streaming_output"],
+        },
+      ],
+      transcript: [],
+    });
+
+    try {
+      service.setRendererConversationOwner("thr_owner_streaming_output", "owner-a");
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_owner_streaming_output",
+        turnId: "turn_owner_streaming_output",
+        item: {
+          id: "exec_owner_streaming_output",
+          type: "commandExecution",
+          command: "bun test",
+          cwd: "/tmp",
+          status: "in_progress",
+        },
+      });
+      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+        threadId: "thr_owner_streaming_output",
+        turnId: "turn_owner_streaming_output",
+        itemId: "exec_owner_streaming_output",
+        delta: "owner output\n",
+      });
+
+      const outputOwnerMessages = ownerMessages.filter((message) =>
+        message.message.type === "threadOwnerNotification" &&
+        message.message.method === "item/commandExecution/outputDelta"
+      );
+      expect(String(mcpMessages.length)).toBe("0");
+      expect(String(outputOwnerMessages.length)).toBe("1");
+      expect(outputOwnerMessages[0]?.targetClientId).toBe("owner-a");
+      expect(outputOwnerMessages[0]?.message.type).toBe("threadOwnerNotification");
+      if (outputOwnerMessages[0]?.message.type === "threadOwnerNotification") {
+        expect(outputOwnerMessages[0].message.method).toBe("item/commandExecution/outputDelta");
+        expect(outputOwnerMessages[0].message.sequence).toBe(2);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 70));
+      const snapshot = await service.requestConversationSnapshot("thr_owner_streaming_output");
+      expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("owner output\n");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("forwards terminal interactions to renderer owner and records command actions silently", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
+    (service as unknown as {
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    }).on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_owner_terminal_interaction"),
+      turns: [
+        {
+          threadId: "thr_owner_terminal_interaction",
+          turnId: "turn_owner_terminal_interaction",
+          status: "inProgress",
+          itemIds: ["exec_owner_terminal_interaction"],
+        },
+      ],
+      transcript: [],
+    });
+
+    try {
+      service.setRendererConversationOwner("thr_owner_terminal_interaction", "owner-a");
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_owner_terminal_interaction",
+        turnId: "turn_owner_terminal_interaction",
+        item: {
+          id: "exec_owner_terminal_interaction",
+          type: "commandExecution",
+          command: "python",
+          cwd: "/tmp",
+          processId: "proc-1",
+          status: "in_progress",
+          commandActions: [],
+        },
+      });
+      const streamMessagesBeforeTerminal = hostMessages.length;
+      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
+        threadId: "thr_owner_terminal_interaction",
+        turnId: "turn_owner_terminal_interaction",
+        itemId: "exec_owner_terminal_interaction",
+        processId: "proc-1",
+        stdin: "bun tes",
+      });
+      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
+        threadId: "thr_owner_terminal_interaction",
+        turnId: "turn_owner_terminal_interaction",
+        itemId: "exec_owner_terminal_interaction",
+        processId: "proc-1",
+        stdin: "t\n",
+      });
+
+      const terminalOwnerMessages = ownerMessages.filter((message) =>
+        message.message.type === "threadOwnerNotification" &&
+        message.message.method === "item/commandExecution/terminalInteraction"
+      );
+      expect(String(hostMessages.length)).toBe(String(streamMessagesBeforeTerminal));
+
+      const snapshot = await service.requestConversationSnapshot("thr_owner_terminal_interaction");
+      const item = snapshot?.turns[0]?.items[0];
+      const commandAction = item?.commandActions?.[0];
+      const toolCallArgs = item?.toolCall?.args as { commandActions?: Array<{ command?: string }> } | undefined;
+
+      expect(String(terminalOwnerMessages.length)).toBe("2");
+      expect(terminalOwnerMessages[0]?.targetClientId).toBe("owner-a");
+      expect(terminalOwnerMessages[1]?.targetClientId).toBe("owner-a");
+      expect(commandAction?.type).toBe("unknown");
+      expect(commandAction?.command).toBe("bun test");
+      expect(toolCallArgs?.commandActions?.[0]?.command).toBe("bun test");
     } finally {
       await service.shutdown();
     }
@@ -9926,7 +12889,7 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("skips frame-text deltas that arrive before the canonical item exists", async () => {
+  test("drops assistant frame-text deltas that arrive before item/started", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
@@ -9968,6 +12931,8 @@ describe("codex-service terminal turn reconciliation", () => {
 
       expect(threadMessages.length).toBe(0);
       expect(mcpMessages.length).toBe(0);
+      const latest = projectConversationFromHostMessages(threadMessages);
+      expect(Boolean(latest)).toBeFalse();
     } finally {
       await service.shutdown();
     }
@@ -10919,6 +13884,18 @@ describe("codex-service terminal turn reconciliation", () => {
 
       try {
         await service.requestConversationSnapshot("thr_queue_direct_patch");
+        const snapshotMessage = hostMessages[0];
+        expect(
+          snapshotMessage?.type === "threadStreamStateChanged"
+            ? snapshotMessage.change.type
+            : "patches",
+        ).toBe("snapshot");
+        expect(
+          snapshotMessage?.type === "threadStreamStateChanged" &&
+            snapshotMessage.change.type === "snapshot"
+            ? String(snapshotMessage.change.revision)
+            : "missing",
+        ).toBe("1");
         hostMessages.length = 0;
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
@@ -10938,6 +13915,12 @@ describe("codex-service terminal turn reconciliation", () => {
             ? hostMessages[0].change.type
             : "snapshot",
         ).toBe("patches");
+        expect(
+          hostMessages[0]?.type === "threadStreamStateChanged" &&
+            hostMessages[0].change.type === "patches"
+            ? `${hostMessages[0].change.baseRevision}->${hostMessages[0].change.revision}`
+            : "missing",
+        ).toBe("1->2");
 
         const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();

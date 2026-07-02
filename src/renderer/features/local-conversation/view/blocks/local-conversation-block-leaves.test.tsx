@@ -12,6 +12,7 @@ import { TestQueryProvider } from "../../../../test/query";
 import {
   ThreadContextCompactionBlock,
   ThreadCollapsedToolActivityBlock,
+  ThreadAssistantBodyBlock,
   ThreadExplorationGroupBlock,
   ThreadPendingMcpToolCallsBlock,
   ThreadPlanCardBlock,
@@ -157,6 +158,36 @@ function buildUserMessageBlock(text: string): ThreadTranscriptBlockModel {
       kind: "userMessage",
       semanticKind: "userMessage",
       role: "user",
+      markdownText: text,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  };
+}
+
+function buildAssistantMessageBlock({
+  text,
+  status,
+}: {
+  text: string;
+  status: CodexConversationItem["status"];
+}): ThreadTranscriptBlockModel {
+  return {
+    id: "assistant-message-1",
+    turnId: "turn-1",
+    createdAt: 1,
+    updatedAt: 1,
+    searchableText: text,
+    type: "assistantMessage",
+    entry: {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "assistant-message-1",
+      entryId: "assistant-message-1",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      status,
       markdownText: text,
       createdAt: 1,
       updatedAt: 1,
@@ -314,6 +345,42 @@ describe("UserMessageBubble collapse", () => {
     await settleAsyncRender();
 
     expect(view.getByText("Show more").closest("button")?.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("ThreadAssistantBodyBlock streaming markdown", () => {
+  test("keeps a completed latest assistant item static while the turn is still active", async () => {
+    const { container } = render(
+      <ThreadAssistantBodyBlock
+        block={buildAssistantMessageBlock({
+          text: "Completed assistant prose should not reanimate while another turn item is still active.",
+          status: "completed",
+        })}
+        isLatestTurn={true}
+        isStreamingTurn={true}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(container.querySelector("[data-sd-animate]") === null).toBeTrue();
+  });
+
+  test("keeps animation enabled for the in-progress assistant item", async () => {
+    const { container } = render(
+      <ThreadAssistantBodyBlock
+        block={buildAssistantMessageBlock({
+          text: "Streaming assistant prose should still use Streamdown word fade while the item is in progress.",
+          status: "inProgress",
+        })}
+        isLatestTurn={true}
+        isStreamingTurn={true}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(container.querySelectorAll("[data-sd-animate]").length > 0).toBeTrue();
   });
 });
 

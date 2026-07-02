@@ -7,7 +7,7 @@ It is split into explicit entry modes so command recall, chat search, and card r
 - root mode searches command/action rows only
 - chats mode searches the current non-archived sidebar chats
 - cards mode searches workspace cards and owns the card filter controls
-- files mode keeps the reference command-menu shell available for parity work, but file search stays a development-only disabled mock until Nodex has a real file-search backend
+- files mode keeps the command-menu shell available for future file-search work, but file search stays a development-only disabled mock until Nodex has a real file-search backend
 - result ranking favors fast recall over exhaustive inspection
 - matching context is visible directly in the result row through inline highlights and short previews
 
@@ -39,7 +39,7 @@ Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 - Disabled commands remain visible so users can understand available affordances, but they are skipped by keyboard selection and cannot be executed.
 - Commands use customized command-keymap shortcut labels where a matching command id exists.
 - Commands are grouped as Suggested, Chat, Navigation, Panels, Project, Configure, Skills, and App.
-- Unsupported Codex-parity commands appear only in development as disabled mock rows with a `Mock` badge; production hides them entirely. Supported Nodex-only actions appear in the closest matching group.
+- Unsupported shell commands appear only in development as disabled mock rows with a `Mock` badge; production hides them entirely. Supported Nodex-only actions appear in the closest matching group.
 - `Toggle browser panel` and `Open Card Stage` are intentionally not part of the root command catalog.
 
 ### Chats Mode
@@ -65,7 +65,7 @@ Cards mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode
 ### Files Mode
 Files mode is a reference-shell placeholder.
 
-- Files mode keeps the command-menu layout, input, loading, empty, and disabled-row states available for parity work.
+- Files mode keeps the command-menu layout, input, loading, empty, and disabled-row states available for future file-search work.
 - Until Nodex has real workspace file search, file search does not claim `Cmd/Ctrl+P` and does not execute backend actions.
 
 ## Card Search Model

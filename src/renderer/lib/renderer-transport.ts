@@ -13,6 +13,9 @@ export interface RendererTransport {
   ) => () => void;
   subscribeProjectChanges: (callback: (event: import("../../shared/ipc-api").ProjectsChangeEvent) => void) => () => void;
   subscribeCodexHostMessages: (callback: (message: import("./types").CodexHostMessage) => void) => () => void;
+  subscribeCodexRendererClientRequests: (
+    callback: (message: import("./types").CodexRendererClientRequestMessage) => void,
+  ) => () => void;
   subscribeDesktopNotificationActions: (
     callback: (payload: import("./types").DesktopNotificationActionPayload & {
       conversationId: string | null;

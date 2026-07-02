@@ -1,7 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { act, fireEvent } from "@testing-library/react";
-import type { CodexPlanImplementationRequest } from "@/lib/types";
+import type {
+  CodexMcpServerElicitationRequest,
+  CodexPermissionRequest,
+  CodexPlanImplementationRequest,
+} from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
 import type {
   ThreadComposerShellPendingRequestModel,
@@ -71,9 +75,18 @@ function createActions(log: string[]): ThreadStageActions {
     },
     onSteerPrompt: async () => {},
     onInterruptTurn: async () => {},
-    onRespondApproval: async () => {},
-    onRespondUserInput: async () => {},
-    onRespondMcpElicitation: async () => {},
+    onRespondApproval: async (requestId, decision, context) => {
+      log.push(`approval:${requestId}:${decision}:${context?.conversationId ?? "none"}`);
+    },
+    onRespondUserInput: async (requestId, answers, context) => {
+      log.push(`userInput:${requestId}:${answers.q1?.[0] ?? "none"}:${context?.conversationId ?? "none"}`);
+    },
+    onRespondMcpElicitation: async (requestId, action, context) => {
+      log.push(`mcp:${requestId}:${action}:${context?.conversationId ?? "none"}`);
+    },
+    onRespondPermissionRequest: async (requestId, response, context) => {
+      log.push(`permission:${requestId}:${response.scope}:${context?.conversationId ?? "none"}`);
+    },
     onResolvePlanImplementationRequest: async (threadId, turnId) => {
       log.push(`resolve:${threadId}:${turnId}`);
     },
@@ -93,6 +106,82 @@ function createActions(log: string[]): ThreadStageActions {
 }
 
 describe("CodexPendingRequestCard", () => {
+  test("passes conversation context to direct request-card response actions", async () => {
+    const { CodexPendingRequestCard } = await import("./codex-pending-request-card");
+    const log: string[] = [];
+    const actions = createActions(log);
+    const entries: Array<{
+      buttonText: string;
+      entry: ThreadComposerShellPendingRequestModel;
+    }> = [
+      {
+        buttonText: "Cancel",
+        entry: {
+          conversationId: "thread_1",
+          surface: "activeThread",
+          request: {
+            type: "mcpServerElicitation",
+            requestId: "mcp_1",
+            projectId: "project_1",
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "mcp_item_1",
+            kind: "generic",
+            mode: "form",
+            serverName: "server",
+            message: "Confirm",
+            createdAt: 3,
+          } satisfies CodexMcpServerElicitationRequest,
+        },
+      },
+      {
+        buttonText: "Deny",
+        entry: {
+          conversationId: "thread_1",
+          surface: "activeThread",
+          request: {
+            type: "permissionRequest",
+            requestId: "permission_1",
+            projectId: "project_1",
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "permission_item_1",
+            cwd: "/repo",
+            reason: "Need access",
+            permissions: {
+              network: null,
+              fileSystem: null,
+            },
+            response: null,
+            completed: false,
+            createdAt: 4,
+          } satisfies CodexPermissionRequest,
+        },
+      },
+    ];
+
+    for (const { buttonText, entry } of entries) {
+      const { getByText, unmount } = render(
+        <CodexPendingRequestCard
+          entry={entry}
+          actions={actions}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(getByText(buttonText));
+        await settleAsyncRender();
+      });
+
+      unmount();
+    }
+
+    expect(JSON.stringify(log)).toBe(JSON.stringify([
+      "mcp:mcp_1:decline:thread_1",
+      "permission:permission_1:turn:thread_1",
+    ]));
+  });
+
   test("implementing a plan resets collaboration mode before sending the follow-up", async () => {
     const { CodexPendingRequestCard } = await import("./codex-pending-request-card");
     const log: string[] = [];

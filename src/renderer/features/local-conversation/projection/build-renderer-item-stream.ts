@@ -105,6 +105,8 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "contextCompaction";
     case "automaticApprovalReview":
       return "automaticApprovalReview";
+    case "autoReviewInterruptionWarning":
+      return "autoReviewInterruptionWarning";
     case "multiAgentAction":
       return "multiAgentAction";
     case "steered":
@@ -145,6 +147,14 @@ function resolveRequestSearchableText(request: CodexTurnScopedConversationReques
 
   if (request.type === "userInput") {
     return request.questions.map((question) => question.question).join("\n").trim();
+  }
+
+  if (request.type === "permissionRequest") {
+    return [
+      request.reason ?? "",
+      request.cwd,
+      JSON.stringify(request.permissions),
+    ].join("\n").trim();
   }
 
   return request.planContent.trim();

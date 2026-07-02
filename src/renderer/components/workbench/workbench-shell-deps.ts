@@ -49,7 +49,6 @@ export {
   useProjectThreadSummaries,
 } from "@/features/local-conversation";
 export { useCodexAccountActions } from "@/lib/use-codex-account-actions";
-export { useCodexThreadFollowerClient } from "@/lib/use-codex-thread-follower-client";
 export { useKanban } from "@/lib/use-kanban";
 export { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 export { StatusIcon as SharedStatusIcon } from "@/lib/status-chip";

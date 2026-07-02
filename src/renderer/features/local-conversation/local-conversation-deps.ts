@@ -1,1 +1,5 @@
-export { invoke, subscribeCodexHostMessages } from "../../lib/api";
+export {
+  invoke,
+  subscribeCodexHostMessages,
+  subscribeCodexRendererClientRequests,
+} from "../../lib/api";

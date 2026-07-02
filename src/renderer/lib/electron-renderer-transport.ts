@@ -1,6 +1,7 @@
 import type {
   AppUpdateStatus,
   CodexHostMessage,
+  CodexRendererClientRequestMessage,
   CommandPaletteThreadIndexUpdatedEvent,
   DesktopNotificationActionPayload,
 } from "./types";
@@ -46,6 +47,13 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
       return bridge.on("codex:host-message", (...args: unknown[]) => {
         const payload = args[0] as CodexHostMessage | undefined;
         if (!payload) return;
+        callback(payload);
+      });
+    },
+    subscribeCodexRendererClientRequests(callback: (message: CodexRendererClientRequestMessage) => void) {
+      return bridge.on("codex:renderer-client:request", (...args: unknown[]) => {
+        const payload = args[0] as CodexRendererClientRequestMessage | undefined;
+        if (!payload || typeof payload.requestId !== "string" || typeof payload.method !== "string") return;
         callback(payload);
       });
     },

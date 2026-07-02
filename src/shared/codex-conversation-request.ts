@@ -6,6 +6,7 @@ import type {
   CodexConversationServerRequest,
   CodexConversationTurn,
   CodexMcpServerElicitationRequest,
+  CodexPermissionRequest,
   CodexPlanImplementationServerRequest,
   CodexPlanImplementationRequest,
   CodexUserInputRequest,
@@ -141,6 +142,7 @@ function deriveConversationRequestSelection(
   const latestApprovalByTurnId = new Map<string, CodexApprovalRequest>();
   const latestUserInputByTurnId = new Map<string, CodexUserInputRequest>();
   const latestMcpElicitationByTurnId = new Map<string, CodexMcpServerElicitationRequest>();
+  const latestPermissionRequestByTurnId = new Map<string, CodexPermissionRequest>();
   for (const request of conversation.requests) {
     switch (request.type) {
       case "approval":
@@ -151,6 +153,9 @@ function deriveConversationRequestSelection(
         break;
       case "mcpServerElicitation":
         upsertLatestTurnRequest(latestMcpElicitationByTurnId, request);
+        break;
+      case "permissionRequest":
+        upsertLatestTurnRequest(latestPermissionRequestByTurnId, request);
         break;
       case "implementPlan":
         break;
@@ -170,6 +175,11 @@ function deriveConversationRequestSelection(
     const approval = latestApprovalByTurnId.get(turn.turnId);
     if (approval) {
       liveRequests.push(approval);
+    }
+
+    const permissionRequest = latestPermissionRequestByTurnId.get(turn.turnId);
+    if (permissionRequest) {
+      liveRequests.push(permissionRequest);
     }
 
     const mcpElicitation = latestMcpElicitationByTurnId.get(turn.turnId);
@@ -262,6 +272,15 @@ export function areConversationLiveRequestsEqual(
         && left.serverName === right.serverName
         && left.message === right.message
       );
+    case "permissionRequest":
+      return (
+        right.type === "permissionRequest"
+        &&
+        left.reason === right.reason
+        && left.completed === right.completed
+        && left.permissions === right.permissions
+        && left.response === right.response
+      );
     case "implementPlan":
       if (right.type !== "implementPlan") return false;
       return left.planContent === right.planContent;
@@ -335,5 +354,6 @@ export function isBlockingConversationRequest(
 ): boolean {
   return request.type === "approval"
     || request.type === "userInput"
-    || request.type === "mcpServerElicitation";
+    || request.type === "mcpServerElicitation"
+    || request.type === "permissionRequest";
 }

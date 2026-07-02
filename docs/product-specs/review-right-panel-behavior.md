@@ -7,8 +7,6 @@ Last updated: 2026-07-01
 
 The Review right-panel tab is Nodex's code-review workspace for an attached thread. It selects a review source, renders changed files, navigates the file tree, opens source previews, starts protocol review requests, and routes commit or pull-request follow-up work through the active thread.
 
-The parity evidence pack for this surface is kept under `/Users/asc/repo/devtools-codex/codex_electron_26.623.42026_to_be_readable/.readable/`.
-
 ## Shell And DOM Contract
 
 Review is a session singleton, but its durable tab id stays separate from the DOM id used by the right-panel shell. Review tab chrome and the active tabpanel expose `data-tab-id="diff"`. The active panel exposes `role="tabpanel"`, `aria-label="Review"`, and `data-app-shell-tab-panel-controller="right"` when mounted in the right panel.

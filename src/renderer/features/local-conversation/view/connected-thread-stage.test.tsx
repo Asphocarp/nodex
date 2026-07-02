@@ -13,12 +13,24 @@ import type {
 } from "../../../lib/types";
 import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-types";
 
-let invokeCalls: Array<{ channel: string; threadId?: string }> = [];
+let invokeCalls: Array<{ channel: string; args: unknown[]; threadId?: string; active?: boolean }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 
 mock.module("../local-conversation-deps", () => ({
-  invoke: async (channel: string, threadId?: string) => {
-    invokeCalls.push({ channel, threadId });
+  invoke: async (channel: string, ...args: unknown[]) => {
+    const firstArg = args[0];
+    invokeCalls.push({
+      channel,
+      args,
+      threadId: typeof firstArg === "string"
+        ? firstArg
+        : typeof firstArg === "object" && firstArg !== null && typeof (firstArg as { threadId?: unknown }).threadId === "string"
+          ? (firstArg as { threadId: string }).threadId
+          : undefined,
+      active: typeof firstArg === "object" && firstArg !== null && typeof (firstArg as { active?: unknown }).active === "boolean"
+        ? (firstArg as { active: boolean }).active
+        : undefined,
+    });
     if (channel === "codex:account:read") {
       return {
         account: null,
@@ -49,6 +61,7 @@ mock.module("../local-conversation-deps", () => ({
       }
     };
   },
+  subscribeCodexRendererClientRequests: () => () => {},
 }));
 
 describe("resolveEffectiveThreadStageSettings", () => {
@@ -232,7 +245,7 @@ async function renderStage(summary: CodexThreadSummary) {
   const { ConnectedThreadStage } = await import("./connected-thread-stage");
   __resetLocalConversationStoreForTests();
 
-  render(
+  const view = render(
     <TestQueryProvider>
       <TooltipProvider>
         <LocalConversationProvider>
@@ -263,6 +276,7 @@ async function renderStage(summary: CodexThreadSummary) {
     </TestQueryProvider>,
   );
   await settleAsyncRender();
+  return view;
 }
 
 async function renderNewThreadHome(overrides?: {
@@ -385,6 +399,36 @@ async function renderNewThreadHome(overrides?: {
 }
 
 describe("ConnectedThreadStage archived resume behavior", () => {
+  test("reports active thread view mount and unmount to main", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    const view = await renderStage(buildThreadSummary(false));
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(
+      invokeCalls.some((call) =>
+        call.channel === "codex:thread:view-active:set" &&
+        call.threadId === "thread_active" &&
+        call.active === true),
+    ).toBeTrue();
+
+    await act(async () => {
+      view.unmount();
+      await settleAsyncRender();
+    });
+
+    expect(
+      invokeCalls.some((call) =>
+        call.channel === "codex:thread:view-active:set" &&
+        call.threadId === "thread_active" &&
+        call.active === false),
+    ).toBeTrue();
+  });
+
   test("does not auto-resume archived active thread summaries", async () => {
     installAsyncRequestAnimationFrame();
     invokeCalls = [];

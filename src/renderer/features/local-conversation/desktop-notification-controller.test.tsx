@@ -45,7 +45,7 @@ let userInputRequestListener:
     }) => void)
   | null = null;
 const startTurnCalls: Array<[string, string]> = [];
-const respondApprovalCalls: Array<[string, string]> = [];
+const respondApprovalCalls: Array<[string, string, string | null]> = [];
 
 const mockManager = {
   addTurnCompletedListener(listener: NonNullable<typeof turnCompletedListener>) {
@@ -91,8 +91,8 @@ const mockManager = {
     startTurnCalls.push([threadId, prompt]);
     return null;
   },
-  async respondApproval(requestId: string, decision: string) {
-    respondApprovalCalls.push([requestId, decision]);
+  async respondApproval(requestId: string, decision: string, conversationId: string | null) {
+    respondApprovalCalls.push([requestId, decision, conversationId]);
     return true;
   },
 };
@@ -276,5 +276,6 @@ describe("DesktopNotificationController", () => {
     expect(openThreadCalls[1]?.[1]).toBe("thread-1");
     expect(respondApprovalCalls[0]?.[0]).toBe("request-1");
     expect(respondApprovalCalls[0]?.[1]).toBe("acceptForSession");
+    expect(respondApprovalCalls[0]?.[2]).toBe("thread-1");
   });
 });

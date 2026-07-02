@@ -21,13 +21,17 @@ function getStatusLabel(status: CodexAutomaticApprovalReviewStatus): string {
       return "Denied";
     case "aborted":
       return "Aborted";
+    case "timedOut":
+      return "Timed out";
     case "inProgress":
       return "Reviewing";
   }
 }
 
-function getRiskLabel(riskLevel: "high" | "medium" | "low"): string {
+function getRiskLabel(riskLevel: "critical" | "high" | "medium" | "low"): string {
   switch (riskLevel) {
+    case "critical":
+      return "Critical risk";
     case "high":
       return "High risk";
     case "medium":
@@ -41,6 +45,7 @@ function getStatusClasses(status: CodexAutomaticApprovalReviewStatus): string {
   if (status === "approved") return "text-token-success bg-token-success/15";
   if (status === "denied") return "text-token-danger bg-token-danger/15";
   if (status === "aborted") return "text-token-description-foreground bg-token-foreground/5";
+  if (status === "timedOut") return "text-token-description-foreground bg-token-foreground/5";
   return "text-token-foreground";
 }
 

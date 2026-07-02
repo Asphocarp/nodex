@@ -104,6 +104,12 @@ export function subscribeCodexHostMessages(
   return resolveRendererTransport().subscribeCodexHostMessages(callback);
 }
 
+export function subscribeCodexRendererClientRequests(
+  callback: (message: import("./types").CodexRendererClientRequestMessage) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexRendererClientRequests(callback);
+}
+
 export function subscribeDesktopNotificationActions(
   callback: (
     payload: import("./types").DesktopNotificationActionPayload & {

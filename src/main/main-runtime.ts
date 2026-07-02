@@ -89,6 +89,10 @@ import {
   safeSendToWindow,
 } from "./ipc-safe-send";
 import {
+  RendererClientRouter,
+  type RendererClientRegistration,
+} from "./codex/renderer-client-router";
+import {
   resolveElectronWindowBackdrop,
   shouldUseOpaqueElectronWindowSurface,
 } from "./electron-window-backdrop";
@@ -119,6 +123,7 @@ let latestDatabaseMigrationProgress: DatabaseMigrationProgress | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateService: AppUpdateService | null = null;
 let mediaPermissionHandlersRegistered = false;
+let rendererClientRouter: RendererClientRouter | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
 const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
@@ -706,6 +711,10 @@ function createWindow(
 
   const webContentsId = window.webContents.id;
   openWindows.set(webContentsId, window);
+  let rendererClientRegistration: RendererClientRegistration | null = null;
+  if (rendererClientRouter) {
+    rendererClientRegistration = rendererClientRouter.register(window.webContents);
+  }
   windowSessionState?.assignWindow(webContentsId, options.session.id);
   syncMacWindowTitle(window);
   applyElectronWindowBackdrop(window, true);
@@ -807,6 +816,8 @@ function createWindow(
     });
   });
   window.on("closed", () => {
+    rendererClientRegistration?.dispose();
+    rendererClientRegistration = null;
     nativeTheme.off("updated", refreshWindowBackdropForTheme);
     windowSessionState?.clearWindow(webContentsId);
     pendingCloseResolvers.delete(webContentsId);
@@ -1089,7 +1100,9 @@ export async function runMainAppStartup(
   serverUrlForWindows = serverUrl;
   configureMacWindowMenus();
   registerInitializationIpcHandlers();
+  rendererClientRouter = new RendererClientRouter();
   registerIpcHandlers({
+    rendererClientRouter,
     desktopNotificationManager,
     onCreateWindow: (seed) => {
       openNewWindow(seed);
