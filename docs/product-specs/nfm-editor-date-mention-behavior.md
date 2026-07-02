@@ -1,7 +1,7 @@
 # NFM Editor Date Mention Behavior
 
 Status: Active
-Last Updated: 2026-06-29
+Last Updated: 2026-07-02
 
 ## Summary
 
@@ -34,6 +34,7 @@ Date mentions are inline rich-editor tokens for planning text. They are stored i
 - The inline token is atomic and `contentEditable=false`.
 - The chip is text-level, not a filled pill: it inherits body text color, renders a muted `@` prefix, the formatted label, and an optional reminder icon.
 - Pending inline reminders use the blue chart token; overdue inline reminders use the red/error token.
+- Relative date labels and inline reminder tones are renderer-time display state. Mounted editor, preview, and static renderer surfaces refresh them as local time crosses date/minute boundaries without changing the underlying NFM payload.
 - Plain-text serialization emits deterministic labels such as `@Jun 28, 2026`, never time-dependent labels such as `@Today`.
 
 ## Editing Popover

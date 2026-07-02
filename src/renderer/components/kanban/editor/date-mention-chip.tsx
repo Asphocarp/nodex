@@ -30,7 +30,6 @@ import {
   dateMentionValueToTime,
   dateMentionValueToUtcOffset,
   dateToIsoDate,
-  formatDateMentionLabel,
   formatDateMentionPlainText,
   getDateFormatLabel,
   getLocalDateMentionTimeZone,
@@ -49,6 +48,7 @@ import {
 } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
 import { cn } from "@/lib/utils";
+import { DateMentionInlineVisual } from "../date-mention-inline-visual";
 
 export interface DateMentionProps {
   start: string;
@@ -177,47 +177,6 @@ export function buildDateMentionUpdate(
     type: "dateMention",
     props: dateMentionPayloadToProps(nextPayload),
   };
-}
-
-function DateMentionInlineVisual({
-  payload,
-  interactive,
-  className,
-  ...props
-}: {
-  payload: NfmDateMentionInlineContent;
-  interactive?: boolean;
-} & Omit<React.ComponentPropsWithoutRef<"button">, "children">) {
-  const label = formatDateMentionLabel(payload);
-  const reminderTone = resolveReminderTone(payload);
-
-  return (
-    <span className="inline align-baseline" data-date-mention-inline-root="true">
-      <span aria-hidden="true" className="inline-block w-0 overflow-hidden align-baseline" data-date-mention-guard="start" />
-      <button
-        type="button"
-        contentEditable={false}
-        className={cn(
-          "notion-reminder inline-flex max-w-full items-baseline whitespace-nowrap rounded-[2px] px-[0.1em] font-medium align-baseline outline-hidden",
-          "focus-visible:ring-token-focus focus-visible:ring-2",
-          interactive && "cursor-interaction hover:bg-token-foreground/5",
-          reminderTone === "pending" && "text-token-charts-blue",
-          reminderTone === "overdue" && "text-token-charts-red",
-          className,
-        )}
-        data-date-mention-chip="true"
-        data-reminder-tone={reminderTone}
-        {...props}
-      >
-        <span className="leading-[inherit] opacity-50">@</span>
-        <span className="min-w-0 truncate leading-[inherit]">{label}</span>
-        {payload.reminder ? (
-          <BellIcon className="ml-[0.25em] inline-block size-[0.95em] shrink-0 self-center opacity-80" />
-        ) : null}
-      </button>
-      <span aria-hidden="true" className="inline-block w-0 overflow-hidden align-baseline" data-date-mention-guard="end" />
-    </span>
-  );
 }
 
 function DateMentionHeader({
@@ -713,8 +672,11 @@ export function DateMentionInlineContentView({
         <NodexPopoverAnchor asChild>
           <span className="inline align-baseline">
             <DateMentionInlineVisual
+              as="button"
               payload={payload}
               interactive
+              withGuards
+              contentEditable={false}
               title={title}
               aria-label={title}
               onMouseDown={(event) => {
@@ -754,7 +716,9 @@ export function createReadonlyDateMentionInlineContentSpec() {
         const payload = dateMentionPropsToPayload((inlineContent as { props: Partial<DateMentionProps> }).props);
         return (
           <DateMentionInlineVisual
+            as="button"
             payload={payload}
+            withGuards
             contentEditable={false}
             title={formatDateMentionPlainText(payload)}
             tabIndex={-1}
@@ -783,7 +747,9 @@ export function createDateMentionInlineContentSpec() {
         const payload = dateMentionPropsToPayload((inlineContent as { props: Partial<DateMentionProps> }).props);
         return (
           <DateMentionInlineVisual
+            as="button"
             payload={payload}
+            withGuards
             contentEditable={false}
             title={formatDateMentionPlainText(payload)}
           />
@@ -801,19 +767,6 @@ const dateMentionPropSchema = {
   timeFormat: { default: "" },
   reminder: { default: "" },
 };
-
-function resolveReminderTone(payload: NfmDateMentionInlineContent): "none" | "pending" | "overdue" {
-  if (!payload.reminder) return "none";
-  const date = dateMentionValueToIsoDate(payload.start) ?? todayIsoDate();
-  const payloadTime = dateMentionValueToTime(payload.start);
-  const time = payloadTime
-    ?? (payload.reminder.startsWith("day:")
-      ? payload.reminder.split("@")[1] ?? "09:00"
-      : "23:59");
-  const candidate = new Date(`${date}T${time}:00`);
-  if (Number.isNaN(candidate.getTime())) return "pending";
-  return candidate.getTime() < Date.now() ? "overdue" : "pending";
-}
 
 function addMonth(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, 1);

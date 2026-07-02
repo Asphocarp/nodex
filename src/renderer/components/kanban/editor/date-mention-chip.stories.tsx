@@ -7,6 +7,7 @@ import {
   type DateMentionProps,
 } from "./date-mention-chip";
 import { ReadonlyNfmBlockNotePreview } from "./readonly-nfm-blocknote-preview";
+import { addIsoDateDays, todayIsoDate } from "@/lib/nfm/date-mention";
 
 function DateMentionChipStorySurface({
   initialProps,
@@ -57,6 +58,27 @@ export const Normal: Story = {
       type: "dateMention",
       start: "2050-06-28",
       format: "relative",
+    }),
+  },
+};
+
+export const RelativeToday: Story = {
+  args: {
+    initialProps: dateMentionPayloadToProps({
+      type: "dateMention",
+      start: todayIsoDate(),
+      format: "relative",
+    }),
+  },
+};
+
+export const RelativeYesterdayReminder: Story = {
+  args: {
+    initialProps: dateMentionPayloadToProps({
+      type: "dateMention",
+      start: addIsoDateDays(todayIsoDate(), -1),
+      format: "relative",
+      reminder: "day:0@09:00",
     }),
   },
 };

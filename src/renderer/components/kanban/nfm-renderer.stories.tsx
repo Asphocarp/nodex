@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { addIsoDateDays, todayIsoDate } from "@/lib/nfm/date-mention";
 import { NfmRenderer } from "./nfm-renderer";
 
 const meta = {
@@ -39,6 +40,15 @@ export const RelativeFileLink: Story = {
   args: {
     content: "Relative file link: [spec](folder/abc/file)",
     projectWorkspacePath: "/Users/asc/repo/nodex2",
+  },
+};
+
+export const DateMentionInline: Story = {
+  args: {
+    content: [
+      `Relative date: <mention-date start="${todayIsoDate()}" format="relative" />`,
+      `Overdue reminder: <mention-date start="${addIsoDateDays(todayIsoDate(), -1)}" format="relative" reminder="day:0@09:00" />`,
+    ].join("\n\n"),
   },
 };
 

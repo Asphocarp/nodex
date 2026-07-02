@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
+import {
+  createDateMentionClockStore,
+  setDateMentionClockStoreForTest,
+} from "@/lib/nfm/date-mention-clock";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
 
+let restoreDateMentionClockStore: (() => void) | null = null;
+
 afterEach(() => {
+  restoreDateMentionClockStore?.();
+  restoreDateMentionClockStore = null;
+
   const keys: string[] = [];
   for (let index = 0; index < localStorage.length; index += 1) {
     const key = localStorage.key(index);
@@ -12,6 +21,23 @@ afterEach(() => {
     localStorage.removeItem(key);
   }
 });
+
+function installDateMentionClock(start: string) {
+  let currentNow = new Date(start);
+  const store = createDateMentionClockStore({
+    now: () => new Date(currentNow.getTime()),
+    setTimeout: () => 0,
+    clearTimeout: () => undefined,
+  });
+  restoreDateMentionClockStore = setDateMentionClockStoreForTest(store);
+
+  return {
+    store,
+    setNow: (value: string) => {
+      currentNow = new Date(value);
+    },
+  };
+}
 
 describe("readonly NFM BlockNote preview", () => {
   test("renders NFM content through the read-only BlockNote surface", async () => {
@@ -94,6 +120,37 @@ describe("readonly NFM BlockNote preview", () => {
     expect(textContent(view.container).includes("019-thread")).toBeTrue();
     expect(document.body.querySelector('[role="dialog"]') === null).toBeTrue();
     expect(document.body.querySelector('[data-radix-popper-content-wrapper]') === null).toBeTrue();
+  });
+
+  test("refreshes readonly date mention labels while mounted", async () => {
+    const clock = installDateMentionClock("2026-06-28T12:00:00");
+    const { ReadonlyNfmBlockNotePreview } = await import("./readonly-nfm-blocknote-preview");
+    const view = render(
+      <ReadonlyNfmBlockNotePreview
+        content={'Readonly note with <mention-date start="2026-06-28" format="relative" />.'}
+        projectId="alpha"
+        cardId="card-1"
+        historyId={5}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("@Today")) {
+        throw new Error("Date mention did not render as Today");
+      }
+    });
+
+    await act(async () => {
+      clock.setNow("2026-06-29T00:00:02");
+      clock.store.refresh();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("@Yesterday")) {
+        throw new Error("Date mention did not refresh to Yesterday");
+      }
+    });
   });
 
   test("initializes and cleans preview toggle state", async () => {

@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { act } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import {
+  createDateMentionClockStore,
+  setDateMentionClockStoreForTest,
+} from "@/lib/nfm/date-mention-clock";
 import {
   render,
   settleAsyncRender,
@@ -7,6 +12,30 @@ import {
   waitForStreamdownCodeHighlight,
 } from "../../test/dom";
 import { NfmRenderer } from "./nfm-renderer";
+
+let restoreDateMentionClockStore: (() => void) | null = null;
+
+afterEach(() => {
+  restoreDateMentionClockStore?.();
+  restoreDateMentionClockStore = null;
+});
+
+function installDateMentionClock(start: string) {
+  let currentNow = new Date(start);
+  const store = createDateMentionClockStore({
+    now: () => new Date(currentNow.getTime()),
+    setTimeout: () => 0,
+    clearTimeout: () => undefined,
+  });
+  restoreDateMentionClockStore = setDateMentionClockStoreForTest(store);
+
+  return {
+    store,
+    setNow: (value: string) => {
+      currentNow = new Date(value);
+    },
+  };
+}
 
 describe("NfmRenderer", () => {
   test("renders inline code with the shared inline-markdown span contract", async () => {
@@ -101,6 +130,24 @@ describe("NfmRenderer", () => {
 
     expect(textContent(container).includes("GPT-5.5")).toBeTrue();
     expect(textContent(container).includes("gpt-5.5 · high")).toBeFalse();
+  });
+
+  test("refreshes relative date mention labels while mounted", async () => {
+    const clock = installDateMentionClock("2026-06-28T12:00:00");
+    const { container } = render(
+      <NfmRenderer content={'Plan around <mention-date start="2026-06-28" format="relative" />.'} />,
+    );
+
+    await settleAsyncRender();
+    expect(textContent(container).includes("@Today")).toBeTrue();
+
+    await act(async () => {
+      clock.setNow("2026-06-29T00:00:02");
+      clock.store.refresh();
+      await Promise.resolve();
+    });
+
+    expect(textContent(container).includes("@Yesterday")).toBeTrue();
   });
 
   test("renders consecutive numbered list items in one ordered list with preserved numbering", async () => {

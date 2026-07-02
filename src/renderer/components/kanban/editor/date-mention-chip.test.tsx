@@ -1,13 +1,24 @@
-import { describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { afterEach, describe, expect, test } from "bun:test";
+import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import {
+  createDateMentionClockStore,
+  setDateMentionClockStoreForTest,
+} from "@/lib/nfm/date-mention-clock";
 import {
   buildDateMentionUpdate,
   DateMentionInlineContentView,
   dateMentionPayloadToProps,
 } from "./date-mention-chip";
 import type { DateMentionInlineContentUpdate, DateMentionProps } from "./date-mention-chip";
+
+let restoreDateMentionClockStore: (() => void) | null = null;
+
+afterEach(() => {
+  restoreDateMentionClockStore?.();
+  restoreDateMentionClockStore = null;
+});
 
 function renderDateMentionChip({
   props,
@@ -26,6 +37,23 @@ function renderDateMentionChip({
   );
 }
 
+function installDateMentionClock(start: string) {
+  let currentNow = new Date(start);
+  const store = createDateMentionClockStore({
+    now: () => new Date(currentNow.getTime()),
+    setTimeout: () => 0,
+    clearTimeout: () => undefined,
+  });
+  restoreDateMentionClockStore = setDateMentionClockStoreForTest(store);
+
+  return {
+    store,
+    setNow: (value: string) => {
+      currentNow = new Date(value);
+    },
+  };
+}
+
 describe("DateMentionInlineContentView", () => {
   test("renders a text-level date mention chip with stable non-editable guards", () => {
     const view = renderDateMentionChip({
@@ -42,6 +70,32 @@ describe("DateMentionInlineContentView", () => {
     expect(chip.getAttribute("data-date-mention-chip")).toBe("true");
     expect(view.container.querySelector('[data-date-mention-guard="start"]')).not.toBeNull();
     expect(view.container.querySelector('[data-date-mention-guard="end"]')).not.toBeNull();
+  });
+
+  test("refreshes relative labels across local day without mutating payload", async () => {
+    const clock = installDateMentionClock("2026-06-28T12:00:00");
+    let updateCount = 0;
+    const view = renderDateMentionChip({
+      props: dateMentionPayloadToProps({
+        type: "dateMention",
+        start: "2026-06-28",
+        format: "relative",
+      }),
+      onUpdate: () => {
+        updateCount += 1;
+      },
+    });
+
+    expect(view.getByRole("button").textContent).toBe("@Today");
+
+    await act(async () => {
+      clock.setNow("2026-06-29T00:00:02");
+      clock.store.refresh();
+      await Promise.resolve();
+    });
+
+    expect(view.getByRole("button").textContent).toBe("@Yesterday");
+    expect(updateCount).toBe(0);
   });
 
   test("opens the date popover and updates payload when Include time is toggled", async () => {
@@ -93,6 +147,33 @@ describe("DateMentionInlineContentView", () => {
       }),
     });
     expect(overdue.getByRole("button").getAttribute("data-reminder-tone")).toBe("overdue");
+  });
+
+  test("refreshes reminder tone on the minute clock without mutating payload", async () => {
+    const clock = installDateMentionClock("2026-06-28T08:59:30");
+    let updateCount = 0;
+    const view = renderDateMentionChip({
+      props: dateMentionPayloadToProps({
+        type: "dateMention",
+        start: "2026-06-28",
+        format: "relative",
+        reminder: "day:0@09:00",
+      }),
+      onUpdate: () => {
+        updateCount += 1;
+      },
+    });
+
+    expect(view.getByRole("button").getAttribute("data-reminder-tone")).toBe("pending");
+
+    await act(async () => {
+      clock.setNow("2026-06-28T09:01:00");
+      clock.store.refresh();
+      await Promise.resolve();
+    });
+
+    expect(view.getByRole("button").getAttribute("data-reminder-tone")).toBe("overdue");
+    expect(updateCount).toBe(0);
   });
 
   test("buildDateMentionUpdate repairs reversed ranges", () => {

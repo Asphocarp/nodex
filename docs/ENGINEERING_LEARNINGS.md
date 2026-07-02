@@ -765,3 +765,6 @@ When a blank session submits its first prompt, app-server `thread/started` can a
 
 ### Turn-diff fallback belongs in main/shared projection
 Completed turn diffs should prefer the app-server/read-model `turn.diff` whenever it is non-empty. If that diff is missing or empty, main may synthesize a visible `turn-diff` card from completed `fileChange` patch batches, but the synthesis must live in a shared pure helper with path-aware hunk folding. Renderer Review should only fold duplicate display paths defensively; it must not rebuild canonical turn diffs from raw patch rows.
+
+### Time-sensitive inline editor chrome needs a shared external clock
+Inline chips whose visible state depends on wall-clock boundaries should subscribe to a renderer-level external store instead of owning per-node intervals inside BlockNote/ProseMirror renderers. Date mention labels and reminder tones use stable string/number snapshots (`todayIso`, minute epoch) so mounted editor, preview, and static renderer surfaces rerender at date/minute boundaries without mutating NFM payloads, triggering autosave, or restarting timers for every chip.
