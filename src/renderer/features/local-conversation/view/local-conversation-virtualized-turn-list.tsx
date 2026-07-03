@@ -82,7 +82,13 @@ function readMeasuredBlockSizePx(entry: ResizeObserverEntry): number {
   }
   const rectHeight = entry.contentRect.height;
   if (Number.isFinite(rectHeight) && rectHeight > 0) return rectHeight;
-  return (entry.target as HTMLElement).offsetHeight;
+  return readElementBlockSizePx(entry.target as HTMLElement);
+}
+
+function readElementBlockSizePx(element: HTMLElement): number {
+  const rectHeight = element.getBoundingClientRect().height;
+  if (Number.isFinite(rectHeight) && rectHeight > 0) return rectHeight;
+  return element.offsetHeight;
 }
 
 function normalizeMeasuredHeightPx(heightPx: number): number {
@@ -284,7 +290,6 @@ interface MeasuredTurnProps {
   onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
   planSidePanelState?: ThreadPlanSidePanelState | null;
   turnDiffHoverPreviewDisabled?: boolean;
-  constrainedHeightPx?: number;
   isLatestTurn: boolean;
   latestTurnFollowContentRef?: (element: HTMLDivElement | null) => void;
   latestTurnY: MotionValue<number> | null;
@@ -311,7 +316,6 @@ function MeasuredTurnComponent({
   onClosePlanSidePanel,
   planSidePanelState,
   turnDiffHoverPreviewDisabled = false,
-  constrainedHeightPx,
   isLatestTurn,
   latestTurnFollowContentRef,
   latestTurnY,
@@ -380,12 +384,7 @@ function MeasuredTurnComponent({
     </motion.div>
   ) : turnContent;
 
-  if (constrainedHeightPx == null) return animatedTurnContent;
-  return (
-    <div style={{ height: constrainedHeightPx, overflow: "hidden" }}>
-      {animatedTurnContent}
-    </div>
-  );
+  return animatedTurnContent;
 }
 
 const MeasuredTurn = memo(
@@ -410,7 +409,6 @@ const MeasuredTurn = memo(
     && left.onClosePlanSidePanel === right.onClosePlanSidePanel
     && left.planSidePanelState === right.planSidePanelState
     && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
-    && left.constrainedHeightPx === right.constrainedHeightPx
     && left.isLatestTurn === right.isLatestTurn
     && left.latestTurnFollowContentRef === right.latestTurnFollowContentRef
     && left.latestTurnY === right.latestTurnY
@@ -491,6 +489,7 @@ function LocalConversationVirtualizedTurnListCore({
   const followContentHeightsRef = useRef(new Map<HTMLElement, number>());
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const measurementFrameRef = useRef<number | null>(null);
+  const pendingFollowContentMeasurementRef = useRef(false);
   const pendingLayoutEffectRef = useRef<PendingLayoutEffect | null>(null);
 
   layoutRef.current = layout;
@@ -644,8 +643,12 @@ function LocalConversationVirtualizedTurnListCore({
         : getPendingRestoreScrollDistanceFromBottomPx();
 
       for (const [turnKey, measurement] of measurements) {
+        if (!Number.isFinite(measurement.heightPx) || measurement.heightPx <= 0) continue;
         const nextHeightPx = normalizeMeasuredHeightPx(measurement.heightPx);
-        const firstHeightPx = normalizeMeasuredHeightPx(measurement.firstHeightPx);
+        const firstHeightPx =
+          Number.isFinite(measurement.firstHeightPx) && measurement.firstHeightPx > 0
+            ? normalizeMeasuredHeightPx(measurement.firstHeightPx)
+            : nextHeightPx;
         const previousMeasuredHeightPx = currentHeights[turnKey] ?? firstHeightPx;
         if (currentHeights[turnKey] === nextHeightPx) continue;
         if (nextHeights === currentHeights) {
@@ -750,23 +753,36 @@ function LocalConversationVirtualizedTurnListCore({
     ],
   );
 
-  const flushMeasurements = useCallback(
-    (followContentChanged: boolean) => {
-      measurementFrameRef.current = null;
+  const flushPendingTurnMeasurements = useCallback(
+    (sync: boolean): boolean => {
       const measurements = pendingTurnMeasurementsRef.current;
+      if (measurements.size === 0) return false;
       pendingTurnMeasurementsRef.current = new Map();
-      applyTurnMeasurements(measurements, true);
+      return applyTurnMeasurements(measurements, sync);
+    },
+    [applyTurnMeasurements],
+  );
+
+  const flushMeasurements = useCallback(
+    () => {
+      measurementFrameRef.current = null;
+      const followContentChanged = pendingFollowContentMeasurementRef.current;
+      pendingFollowContentMeasurementRef.current = false;
+      flushPendingTurnMeasurements(true);
       if (followContentChanged) {
         reportLatestTurnFollowContentHeight();
       }
     },
-    [applyTurnMeasurements, reportLatestTurnFollowContentHeight],
+    [flushPendingTurnMeasurements, reportLatestTurnFollowContentHeight],
   );
 
   function scheduleMeasurementFlush(followContentChanged = false): void {
+    if (followContentChanged) {
+      pendingFollowContentMeasurementRef.current = true;
+    }
     if (measurementFrameRef.current !== null) return;
     measurementFrameRef.current = window.requestAnimationFrame(() => {
-      flushMeasurements(followContentChanged);
+      flushMeasurements();
     });
   }
 
@@ -774,7 +790,7 @@ function LocalConversationVirtualizedTurnListCore({
     (turnKey: string, element: HTMLElement) => {
       turnElementsByKeyRef.current.set(turnKey, element);
       observedElementMetadataRef.current.set(element, { kind: "turn", turnKey });
-      const measuredHeightPx = element.offsetHeight;
+      const measuredHeightPx = readElementBlockSizePx(element);
       if (measuredHeightPx > 0) {
         const heightPx = normalizeMeasuredHeightPx(measuredHeightPx);
         pendingTurnMeasurementsRef.current.set(turnKey, {
@@ -804,8 +820,11 @@ function LocalConversationVirtualizedTurnListCore({
       latestTurnFollowContentCleanupRef.current = null;
       if (element === null) return;
       observedElementMetadataRef.current.set(element, { kind: "latest-turn-follow-content" });
-      followContentHeightsRef.current.set(element, normalizeMeasuredHeightPx(element.offsetHeight));
-      reportLatestTurnFollowContentHeight();
+      const measuredHeightPx = readElementBlockSizePx(element);
+      if (measuredHeightPx > 0) {
+        followContentHeightsRef.current.set(element, normalizeMeasuredHeightPx(measuredHeightPx));
+        reportLatestTurnFollowContentHeight();
+      }
       const observer = getResizeObserver();
       observer?.observe(element);
       latestTurnFollowContentCleanupRef.current = () => {
@@ -1014,13 +1033,30 @@ function LocalConversationVirtualizedTurnListCore({
   ]);
 
   useLayoutEffect(() => {
+    if (pendingTurnMeasurementsRef.current.size === 0) return;
+    if (pendingFollowContentMeasurementRef.current) return;
+    if (measurementFrameRef.current !== null) {
+      window.cancelAnimationFrame(measurementFrameRef.current);
+      measurementFrameRef.current = null;
+    }
+    flushPendingTurnMeasurements(false);
+  }, [
+    entries,
+    flushPendingTurnMeasurements,
+    visibleRange.endIndex,
+    visibleRange.startIndex,
+  ]);
+
+  useLayoutEffect(() => {
     if (pendingScrollTarget === null) return;
     const scrollElement = getScrollElement();
     if (scrollElement === null) return;
 
     const mountedMeasurements = new Map<string, TurnMeasurement>();
     for (const [turnKey, element] of turnElementsByKeyRef.current) {
-      const heightPx = normalizeMeasuredHeightPx(element.offsetHeight);
+      const measuredHeightPx = readElementBlockSizePx(element);
+      if (measuredHeightPx <= 0) continue;
+      const heightPx = normalizeMeasuredHeightPx(measuredHeightPx);
       mountedMeasurements.set(turnKey, {
         element,
         firstHeightPx: measuredHeightsRef.current[turnKey] ?? heightPx,
@@ -1105,14 +1141,17 @@ function LocalConversationVirtualizedTurnListCore({
     if (!latestTurnKey) return;
     const latestTurnElement = turnElementsByKeyRef.current.get(latestTurnKey);
     if (!latestTurnElement) return;
+    const measuredHeightPx = readElementBlockSizePx(latestTurnElement);
+    if (measuredHeightPx <= 0) return;
+    const heightPx = normalizeMeasuredHeightPx(measuredHeightPx);
     applyTurnMeasurements(
       new Map([
         [
           latestTurnKey,
           {
             element: latestTurnElement,
-            firstHeightPx: latestTurnElement.offsetHeight,
-            heightPx: latestTurnElement.offsetHeight,
+            firstHeightPx: measuredHeightsRef.current[latestTurnKey] ?? heightPx,
+            heightPx,
           },
         ],
       ]),
@@ -1190,12 +1229,6 @@ function LocalConversationVirtualizedTurnListCore({
         {visibleEntries.map((entry, index) => {
           const turnIndex = visibleRange.startIndex + index;
           const isLatestTurn = turnIndex === entries.length - 1;
-          const constrainedHeightPx =
-            !isLatestTurn
-            && pendingScrollTarget?.turnKey !== entry.turnKey
-            && measuredHeights[entry.turnKey] == null
-              ? layout.heightsPx[turnIndex]
-              : undefined;
           return (
             <MeasuredTurn
               key={entry.turnKey}
@@ -1218,7 +1251,6 @@ function LocalConversationVirtualizedTurnListCore({
               onClosePlanSidePanel={onClosePlanSidePanel}
               planSidePanelState={planSidePanelState}
               turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-              constrainedHeightPx={constrainedHeightPx}
               isLatestTurn={isLatestTurn}
               latestTurnFollowContentRef={observeLatestTurnFollowContent}
               latestTurnY={isLatestTurn ? latestTurnYMotion : null}
