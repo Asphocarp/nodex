@@ -1184,6 +1184,7 @@ export class CodexAppServerManager {
         permissionMode: this.readPermissionMode(input.projectId),
       })) as CodexThreadDetail;
 
+      await this.requestThreadStreamSnapshot(detail.threadId).catch(() => null);
       return detail;
     } catch (error) {
       const currentProgress = this.threadStartProgressByTarget.get(progressTargetKey);

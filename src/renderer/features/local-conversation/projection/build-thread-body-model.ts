@@ -55,6 +55,35 @@ export type ThreadBodyModelInput =
   | BuildThreadBodyModelInput
   | LegacyBuildThreadBodyModelInput;
 
+export type ThreadStartProgressPresentation = "hidden" | "panel";
+
+export interface ThreadStartProgressPresentationInput {
+  runInTarget: CardRunInTarget;
+  phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
+}
+
+export function resolveThreadStartProgressPresentation(
+  progress: ThreadStartProgressPresentationInput | null,
+): ThreadStartProgressPresentation {
+  if (!progress) {
+    return "hidden";
+  }
+
+  if (progress.phase === "failed") {
+    return "panel";
+  }
+
+  if (progress.runInTarget !== "newWorktree") {
+    return "hidden";
+  }
+
+  if (progress.phase === "ready") {
+    return "hidden";
+  }
+
+  return "panel";
+}
+
 function normalizeBuildThreadBodyModelInput(input: ThreadBodyModelInput): BuildThreadBodyModelInput {
   if ("conversation" in input) {
     return {
@@ -178,9 +207,14 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
   const conversation = buildBodyConversation(normalized);
   const resumeState = normalized.resumeState;
   const isArchivedThread = Boolean(normalized.activeThreadId && normalized.archived);
+  const threadStartProgressPresentation = resolveThreadStartProgressPresentation(
+    normalized.threadStartProgress,
+  );
   const hasThreadStartProgress = Boolean(normalized.threadStartProgress);
+  const showThreadStartProgressPanel = threadStartProgressPresentation === "panel";
+  const hasSilentThreadStartProgress = hasThreadStartProgress && !showThreadStartProgressPanel;
   const showDetachedThreadStartProgressPanel = Boolean(
-    normalized.isNewThreadTab && !conversation && normalized.newThreadTarget && hasThreadStartProgress,
+    normalized.isNewThreadTab && !conversation && normalized.newThreadTarget && showThreadStartProgressPanel,
   );
 
   if (isArchivedThread) {
@@ -210,7 +244,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
           isThreadRunning: false,
           activeTurnId: null,
           latestTurnId: null,
-          showThreadStartProgressPanel: true,
+          showThreadStartProgressPanel,
           emptyState: { type: "none" },
         };
       }
@@ -236,6 +270,19 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
     }
 
     if (normalized.isNewThreadTab) {
+      if (hasSilentThreadStartProgress) {
+        return {
+          threadId: null,
+          turnCount: 0,
+          hasAboveComposerBlocks: false,
+          isThreadRunning: false,
+          activeTurnId: null,
+          latestTurnId: null,
+          showThreadStartProgressPanel: false,
+          emptyState: { type: "none" },
+        };
+      }
+
       return {
         threadId: null,
         turnCount: 0,
@@ -253,6 +300,19 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
               : "Write the first prompt and send to create a new session thread."
             : "Select a project session to start a new thread.",
         },
+      };
+    }
+
+    if (hasSilentThreadStartProgress) {
+      return {
+        threadId: null,
+        turnCount: 0,
+        hasAboveComposerBlocks: false,
+        isThreadRunning: false,
+        activeTurnId: null,
+        latestTurnId: null,
+        showThreadStartProgressPanel: false,
+        emptyState: { type: "none" },
       };
     }
 
@@ -281,7 +341,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,
-        showThreadStartProgressPanel: true,
+        showThreadStartProgressPanel,
         emptyState: { type: "none" },
       };
     }
@@ -324,7 +384,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
         isThreadRunning,
         activeTurnId,
         latestTurnId,
-        showThreadStartProgressPanel: true,
+        showThreadStartProgressPanel,
         emptyState: { type: "none" },
       };
     }

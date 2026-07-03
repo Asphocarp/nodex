@@ -32,6 +32,7 @@ import type {
 export type ThreadStageStoryPresetId =
   | "new-thread"
   | "session-starting-local"
+  | "session-starting-worktree"
   | "existing-empty"
   | "resuming"
   | "streaming"
@@ -194,8 +195,13 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   },
   {
     id: "session-starting-local",
-    name: "Session Starting",
-    description: "Attached session while the first local-project message is being sent.",
+    name: "Session Started",
+    description: "Materialized first local-project turn with the submitted prompt and Thinking state.",
+  },
+  {
+    id: "session-starting-worktree",
+    name: "Worktree Setup",
+    description: "Visible new-worktree startup progress while setup output is still streaming.",
   },
   {
     id: "existing-empty",
@@ -1916,8 +1922,27 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
 
   if (controls.preset === "session-starting-local") {
     const conversation = buildStoryConversation({
-      statusType: "idle",
-      turns: [],
+      statusType: "active",
+      threadPreview: "Build a direct new-chat handoff.",
+      turns: [
+        buildStoryConversationTurn({
+          turnId: "turn_story_first_local",
+          status: "inProgress",
+          items: [
+            buildStoryConversationItem({
+              turnId: "turn_story_first_local",
+              itemId: "user_story_first_local",
+              type: "user_message",
+              kind: "userMessage",
+              semanticKind: "userMessage",
+              role: "user",
+              markdownText: "Remove the extra new-chat start transitions.",
+              createdAt: 12_000,
+              updatedAt: 12_000,
+            }),
+          ],
+        }),
+      ],
       updatedAt: 12_000,
     });
     return {
@@ -1930,9 +1955,36 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         threadStartProgress: {
           runInTarget: "localProject",
           threadId: conversation.threadId,
-          phase: "startingThread",
-          message: "Sending message…",
+          phase: "ready",
+          message: "Message sent.",
           outputText: "",
+          updatedAt: 12_001,
+        },
+      },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "session-starting-worktree") {
+    const conversation = buildStoryConversation({
+      statusType: "idle",
+      turns: [],
+      updatedAt: 12_000,
+    });
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+        threadStartProgress: {
+          runInTarget: "newWorktree",
+          threadId: conversation.threadId,
+          phase: "runningSetup",
+          message: "Preparing worktree...",
+          outputText: "bun install\nbun run setup:local\n",
           updatedAt: 12_001,
         },
       },
@@ -2179,7 +2231,12 @@ export function buildThreadStageStorySurfaceModels(
   runtime: ThreadStageStoryRuntimeState,
 ): ThreadStageStorySurfaceModels {
   void scenario;
-  const activeThreadId = runtime.isNewThreadTab ? null : runtime.activeThreadId;
+  const readyThreadId = runtime.threadStartProgress?.phase === "ready"
+    ? runtime.threadStartProgress.threadId?.trim()
+    : null;
+  const activeThreadId = runtime.isNewThreadTab
+    ? readyThreadId || null
+    : runtime.activeThreadId;
   const conversation = runtime.conversation;
   const turns = conversation?.turns ?? [];
   const requests = conversation?.requests ?? [];

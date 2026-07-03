@@ -536,9 +536,9 @@ describe("LocalConversationThreadBody", () => {
     expect(Boolean(queryByText("Assistant message"))).toBeFalse();
   });
 
-  test("renders compact local-project thread start progress without worktree steps", async () => {
+  test("keeps local-project thread start progress silent in the body", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
-    const { getByText, queryByText } = render(
+    const { queryByText } = render(
       <TooltipProvider>
         <LocalConversationThreadBody
           model={buildModel({
@@ -558,10 +558,39 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByText("Sending message…"))).toBeTrue();
+    expect(Boolean(queryByText("Sending message…"))).toBeFalse();
+    expect(Boolean(queryByText("Message sent."))).toBeFalse();
     expect(Boolean(queryByText("Worktree"))).toBeFalse();
     expect(Boolean(queryByText("Setup"))).toBeFalse();
     expect(Boolean(queryByText("No messages yet"))).toBeFalse();
+  });
+
+  test("renders local-project thread start failures without worktree steps", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const { getByText, queryByText } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({
+            conversation: buildConversation({ turns: [] }),
+            threadStartProgress: {
+              runInTarget: "localProject",
+              threadId: "thread_1",
+              phase: "failed",
+              message: "Message could not be sent.",
+              outputText: "network failed",
+              updatedAt: 10,
+            },
+          })}
+          actions={buildActions()}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(getByText("Message could not be sent."))).toBeTrue();
+    expect(Boolean(getByText("network failed"))).toBeTrue();
+    expect(Boolean(queryByText("Worktree"))).toBeFalse();
+    expect(Boolean(queryByText("Setup"))).toBeFalse();
   });
 
   test("keeps the new-worktree start progress steps and log output", async () => {

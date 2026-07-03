@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { NewChatProjectSelectorModel, ThreadStageActions } from "../../thread-stage-types";
+import { ThreadComposerExternalFooterSlot } from "./local-conversation-thread-composer-status-strip";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 
 function buildActions(input: {
@@ -109,21 +110,25 @@ function NewChatProjectSelectorStory(args: StoryArgs) {
   const [selectedProjectId, setSelectedProjectId] = useState(args.selectedProjectId);
   return (
     <TooltipProvider>
-      <div className="min-h-[280px] bg-token-main-surface-primary p-8">
+      <div className="min-h-[280px] bg-token-main-surface-primary p-8" data-codex-window-type="electron">
         <div className="max-w-3xl">
-          <div className="relative overflow-hidden rounded-3xl bg-token-input-background/90 p-3 shadow-card-md ring ring-black/10 backdrop-blur-lg">
-            <div className="min-h-16 text-sm text-token-input-placeholder-foreground">Do anything</div>
-            <div className="flex items-center gap-1">
-              <span className="inline-flex size-7 rounded-full bg-token-foreground/5" />
-              <span className="inline-flex h-7 w-24 rounded-full bg-token-foreground/5" />
+          <div className="composer-surface-chrome relative z-10 flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+              <div className="mb-1 min-h-16 px-3 pt-3 text-sm text-token-input-placeholder-foreground">Do anything</div>
+              <div className="mb-2 flex items-center gap-1 px-2">
+                <span className="inline-flex size-7 rounded-full bg-token-foreground/5" />
+                <span className="inline-flex h-7 w-24 rounded-full bg-token-foreground/5" />
+              </div>
             </div>
           </div>
-          <div className="-mt-2 rounded-b-2xl bg-token-sidebar-background px-2 pt-5 pb-2">
-            <NewChatProjectSelector
-              model={buildModel({ selectedProjectId, state: args.state })}
-              actions={buildActions({ onSelect: setSelectedProjectId })}
-            />
-          </div>
+          <ThreadComposerExternalFooterSlot visible>
+            <div className="-mx-px -mt-4.5 flex flex-nowrap items-center gap-1 overflow-hidden rounded-b-2xl bg-token-side-bar-background px-2 pt-[25px] pb-2 select-none dark:bg-token-bg-fog">
+              <NewChatProjectSelector
+                model={buildModel({ selectedProjectId, state: args.state })}
+                actions={buildActions({ onSelect: setSelectedProjectId })}
+              />
+            </div>
+          </ThreadComposerExternalFooterSlot>
         </div>
       </div>
     </TooltipProvider>

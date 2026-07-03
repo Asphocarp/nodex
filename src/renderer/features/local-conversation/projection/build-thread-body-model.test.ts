@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexConversationItem, CodexConversationSnapshot } from "../../../lib/types";
-import { buildThreadBodyModel } from "./build-thread-body-model";
+import {
+  buildThreadBodyModel,
+  resolveThreadStartProgressPresentation,
+} from "./build-thread-body-model";
 
 function buildEntry(overrides: Partial<CodexConversationItem>): CodexConversationItem {
   return {
@@ -153,7 +156,7 @@ describe("buildThreadBodyModel", () => {
     }
   });
 
-  test("shows session start progress for a resumed empty thread", () => {
+  test("keeps local-project start progress silent for a resumed empty thread", () => {
     const model = buildThreadBodyModel({
       activeThreadId: "thread_1",
       conversation: buildConversation({
@@ -174,8 +177,125 @@ describe("buildThreadBodyModel", () => {
       },
     });
 
+    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.emptyState.type).toBe("none");
+  });
+
+  test("keeps local-project ready progress silent while waiting for the first snapshot", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: null,
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: {
+        runInTarget: "localProject",
+        threadId: "thread_1",
+        phase: "ready",
+        message: "Message sent.",
+        outputText: "",
+        updatedAt: 10,
+      },
+    });
+
+    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.emptyState.type).toBe("none");
+  });
+
+  test("shows local-project failures as thread start progress", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({
+        turns: [],
+        resumeState: "resumed",
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: {
+        runInTarget: "localProject",
+        threadId: "thread_1",
+        phase: "failed",
+        message: "Message could not be sent.",
+        outputText: "boom",
+        updatedAt: 10,
+      },
+    });
+
     expect(model.showThreadStartProgressPanel).toBeTrue();
     expect(model.emptyState.type).toBe("none");
+  });
+
+  test("shows new-worktree setup progress", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({
+        turns: [],
+        resumeState: "resumed",
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: {
+        runInTarget: "newWorktree",
+        threadId: "thread_1",
+        phase: "runningSetup",
+        message: "Preparing worktree...",
+        outputText: "setup log",
+        updatedAt: 10,
+      },
+    });
+
+    expect(model.showThreadStartProgressPanel).toBeTrue();
+    expect(model.emptyState.type).toBe("none");
+  });
+
+  test("renders normal transcript state for an in-progress first turn with local progress", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({
+        statusType: "active",
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: {
+        runInTarget: "localProject",
+        threadId: "thread_1",
+        phase: "ready",
+        message: "Message sent.",
+        outputText: "",
+        updatedAt: 10,
+      },
+    });
+
+    expect(model.showThreadStartProgressPanel).toBeFalse();
+    expect(model.turnCount).toBe(1);
+    expect(model.activeTurnId).toBe("turn_1");
+    expect(model.emptyState.type).toBe("none");
+  });
+
+  test("classifies thread start progress presentation by target and phase", () => {
+    expect(resolveThreadStartProgressPresentation({
+      runInTarget: "localProject",
+      phase: "startingThread",
+    })).toBe("hidden");
+    expect(resolveThreadStartProgressPresentation({
+      runInTarget: "localProject",
+      phase: "failed",
+    })).toBe("panel");
+    expect(resolveThreadStartProgressPresentation({
+      runInTarget: "newWorktree",
+      phase: "runningSetup",
+    })).toBe("panel");
+    expect(resolveThreadStartProgressPresentation({
+      runInTarget: "newWorktree",
+      phase: "ready",
+    })).toBe("hidden");
   });
 
   test("keeps true resumed empty threads as empty", () => {

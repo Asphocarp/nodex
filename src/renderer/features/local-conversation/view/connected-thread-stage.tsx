@@ -8,7 +8,10 @@ import type {
   CodexConversationThreadSettings,
 } from "@/lib/types";
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
-import { buildThreadBodyModel } from "../projection/build-thread-body-model";
+import {
+  buildThreadBodyModel,
+  resolveThreadStartProgressPresentation,
+} from "../projection/build-thread-body-model";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
@@ -135,6 +138,19 @@ function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnTyp
     threadPreview: summary.threadPreview || input.activeThreadSummary?.threadPreview || input.newThreadTarget?.threadTitle,
     fallback: input.isNewThreadTab ? "New thread" : "No thread",
   });
+}
+
+function resolveConnectedStageActiveThreadId(input: ConnectedThreadStageInput): string | null {
+  if (input.activeThreadId && !input.isNewThreadTab) {
+    return input.activeThreadId;
+  }
+
+  if (!input.isNewThreadTab || input.threadStartProgress?.phase !== "ready") {
+    return null;
+  }
+
+  const readyThreadId = input.threadStartProgress.threadId?.trim();
+  return readyThreadId ? readyThreadId : null;
 }
 
 function ConnectedThreadStageHeader({
@@ -583,11 +599,13 @@ export function ConnectedThreadStage({
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const activeThreadId = input.activeThreadId && !input.isNewThreadTab
-    ? input.activeThreadId
-    : null;
+  const activeThreadId = resolveConnectedStageActiveThreadId(input);
   const isSideChat = Boolean(input.sideChatContext);
   const isNewThreadHome = input.isNewThreadTab && activeThreadId === null && !isSideChat;
+  const showNewThreadHomeBody = Boolean(
+    input.threadStartProgress &&
+    resolveThreadStartProgressPresentation(input.threadStartProgress) === "panel",
+  );
   const threadHeaderPortalTarget = useThreadHeaderPortalTarget();
   const resumeState = useConversationResumeState(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
@@ -638,7 +656,7 @@ export function ConnectedThreadStage({
     return (
       <LocalConversationNewThreadHomeScreen
         hero={<NewThreadHomeHero input={input} actions={actions} />}
-        body={input.threadStartProgress ? (
+        body={showNewThreadHomeBody ? (
           <ConnectedThreadStageBody
             activeThreadId={activeThreadId}
             input={input}

@@ -15,6 +15,7 @@ let invokeCalls: string[] = [];
 let invokeRecords: Array<{ channel: string; args: unknown[] }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 let threadListByProject: Record<string, CodexThreadSummary[]> = {};
+let snapshotByThread: Record<string, CodexConversationSnapshot | null> = {};
 let startThreadForSessionResult: unknown = null;
 let olderThreadTurnsResult: Promise<CodexConversationSnapshot | null> | CodexConversationSnapshot | null = null;
 const generatedThreadTitleResult: unknown = { title: null };
@@ -70,8 +71,14 @@ mock.module("./local-conversation-deps", () => ({
       } satisfies CodexConnectionState;
     }
 
-    if (channel === "codex:thread:snapshot:request" && threadId === "thread-child") {
-      return buildConversation("thread-child", "project-1");
+    if (channel === "codex:thread:snapshot:request" && typeof threadId === "string") {
+      if (Object.prototype.hasOwnProperty.call(snapshotByThread, threadId)) {
+        return snapshotByThread[threadId];
+      }
+      if (threadId === "thread-child") {
+        return buildConversation("thread-child", "project-1");
+      }
+      return null;
     }
 
     if (channel === "codex:model:list") {
@@ -352,6 +359,56 @@ describe("local-conversation-store", () => {
 
     expect(startInput?.skipAutoTitleGeneration).toBeTrue();
     expect(invokeRecords.some((record) => record.channel === "codex:thread:title:generate")).toBeFalse();
+  });
+
+  test("requests and applies the started session thread snapshot after success", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    snapshotByThread = {
+      "thread-snapshot": {
+        ...buildConversation("thread-snapshot", "project-1"),
+        threadName: "Snapshot applied",
+      },
+    };
+    startThreadForSessionResult = {
+      ...buildThreadSummary("thread-snapshot", "project-1"),
+      threadName: "Start detail",
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.startThreadForSession({
+        projectId: "project-1",
+        sessionId: "session-1",
+        prompt: "Build direct handoff",
+        runInTarget: "localProject",
+      });
+      await settleAsyncRender();
+
+      const startCallIndex = invokeRecords.findIndex((record) =>
+        record.channel === "codex:thread:start-for-session"
+      );
+      const snapshotCallIndex = invokeRecords.findIndex((record) =>
+        record.channel === "codex:thread:snapshot:request" &&
+        record.args[0] === "thread-snapshot"
+      );
+      const startInput = invokeRecords[startCallIndex]?.args[0] as { permissionMode?: string } | undefined;
+
+      expect(startCallIndex >= 0).toBeTrue();
+      expect(snapshotCallIndex > startCallIndex).toBeTrue();
+      expect(startInput?.permissionMode).toBe("custom");
+      expect(manager.readConversation("thread-snapshot")?.threadName).toBe("Snapshot applied");
+    } finally {
+      snapshotByThread = {};
+      manager.destroy();
+    }
   });
 
   test("seeds session thread start progress before invoking main", async () => {

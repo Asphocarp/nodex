@@ -34,6 +34,7 @@ import type {
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import {
   shouldShowThreadComposerStatusStrip,
+  ThreadComposerExternalFooterSlot,
   ThreadComposerStatusStrip,
 } from "./local-conversation-thread-composer-status-strip";
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
@@ -784,6 +785,7 @@ export function LocalConversationComposerShell({
       ) : null}
     </div>
   ) : null;
+  const showStatusStrip = shouldShowThreadComposerStatusStrip(model);
 
   return (
     <div
@@ -794,9 +796,9 @@ export function LocalConversationComposerShell({
       {model.composerShell.showRequestCards ? (
         <>
           <RequestCardStack model={model} actions={actions} />
-          {shouldShowThreadComposerStatusStrip(model) ? (
+          <ThreadComposerExternalFooterSlot visible={showStatusStrip}>
             <ThreadComposerStatusStrip model={model} actions={actions} onErrorMessage={onErrorMessage} />
-          ) : null}
+          </ThreadComposerExternalFooterSlot>
         </>
       ) : (
         <ThreadComposer

@@ -1264,12 +1264,18 @@ describe("ThreadComposer speed menu", () => {
     );
 
     const projectSelector = view.getByLabelText("Select project");
-    const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
-    const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
+    const lowerStatusRow = view.container.querySelector<HTMLElement>('[data-composer-lower-status-row="true"]');
+    const externalFooterSlot = view.container.querySelector<HTMLElement>('[data-composer-external-footer-slot="true"]');
+    const formFooter = view.container.querySelector<HTMLElement>('[data-composer-form-footer="true"]');
+    const composerSurface = view.container.querySelector<HTMLElement>(".composer-surface-chrome");
+    const composerFrame = composerSurface?.parentElement;
     const lowerText = lowerStatusRow?.textContent ?? "";
 
     expect(lowerStatusRow !== null).toBeTrue();
+    expect(externalFooterSlot !== null).toBeTrue();
     expect(formFooter !== null).toBeTrue();
+    expect(externalFooterSlot?.contains(lowerStatusRow)).toBeTrue();
+    expect(composerFrame?.nextElementSibling === externalFooterSlot).toBeTrue();
     expect(lowerStatusRow?.contains(projectSelector)).toBeTrue();
     expect(formFooter?.contains(projectSelector)).toBeFalse();
     expect(lowerText.indexOf("Nodex") >= 0).toBeTrue();
@@ -1291,10 +1297,12 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
+    const externalFooterSlot = view.container.querySelector('[data-composer-external-footer-slot="true"]');
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
 
     expect(formFooter !== null).toBeTrue();
     expect(lowerStatusRow === null).toBeTrue();
+    expect(externalFooterSlot === null).toBeTrue();
   });
 
   test("keeps prompt scrolling owned by the ProseMirror prompt editor", async () => {

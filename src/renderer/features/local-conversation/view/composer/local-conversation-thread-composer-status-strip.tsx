@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, LocalStatusIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
@@ -24,6 +25,40 @@ interface ThreadComposerStatusStripProps {
   onErrorMessage: (message: string | null) => void;
   projectSelectorDisabled?: boolean;
   className?: string;
+}
+
+const THREAD_COMPOSER_EXTERNAL_FOOTER_TRANSITION = {
+  type: "spring",
+  duration: 0.35,
+  bounce: 0.1,
+} as const;
+
+interface ThreadComposerExternalFooterSlotProps {
+  visible: boolean;
+  children: ReactNode;
+}
+
+export function ThreadComposerExternalFooterSlot({
+  visible,
+  children,
+}: ThreadComposerExternalFooterSlotProps) {
+  return (
+    <AnimatePresence initial={false} mode="popLayout">
+      {visible ? (
+        <motion.div
+          key="thread-composer-external-footer"
+          data-composer-external-footer-slot="true"
+          initial={{ y: "-100%" }}
+          animate={{ y: 0 }}
+          exit={{ y: "-100%", pointerEvents: "none" }}
+          transition={THREAD_COMPOSER_EXTERNAL_FOOTER_TRANSITION}
+          className="relative z-0 -mt-2"
+        >
+          {children}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
 }
 
 export function ThreadComposerStatusStrip({
@@ -184,7 +219,7 @@ function ThreadComposerStatusStripContent({
     <div
       data-composer-lower-status-row="true"
       className={cn(
-        "relative z-0 -mx-px -mt-4.5 flex flex-wrap items-center gap-2 overflow-visible rounded-b-2xl bg-token-side-bar-background px-2 pt-[25px] pb-2 select-none dark:bg-token-bg-fog",
+        "-mx-px -mt-4.5 flex flex-nowrap items-center gap-1 overflow-hidden rounded-b-2xl bg-token-side-bar-background px-2 pt-[25px] pb-2 select-none dark:bg-token-bg-fog",
         className,
       )}
     >

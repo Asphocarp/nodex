@@ -6,10 +6,12 @@ import { render, settleAsyncRender, textContent } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import type {
   CodexConnectionState,
+  CodexConversationItem,
+  CodexConversationSnapshot,
   CodexHostMessage,
   CodexThreadSummary,
 } from "../../../lib/types";
-import type { ThreadStageActions } from "../thread-stage-types";
+import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-types";
 
 let invokeCalls: Array<{ channel: string; threadId?: string }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
@@ -131,6 +133,56 @@ function buildThreadSummary(archived: boolean): CodexThreadSummary {
   };
 }
 
+function buildConversation(threadId: string): CodexConversationSnapshot {
+  const userItem: CodexConversationItem = {
+    threadId,
+    turnId: "turn_ready",
+    itemId: "user_ready",
+    type: "user_message",
+    kind: "userMessage",
+    semanticKind: "userMessage",
+    role: "user",
+    markdownText: "Remove the redundant transitions.",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  return {
+    threadId,
+    projectId: "project_1",
+    source: null,
+    threadName: "Ready thread",
+    threadPreview: "Remove redundant transitions.",
+    modelProvider: "openai",
+    cwd: "/tmp/project",
+    statusType: "active",
+    statusActiveFlags: [],
+    archived: false,
+    createdAt: 1,
+    updatedAt: 2,
+    linkedAt: "2026-03-21T00:00:00.000Z",
+    resumeState: "resumed",
+    turns: [{
+      threadId,
+      turnId: "turn_ready",
+      status: "inProgress",
+      itemIds: [userItem.itemId],
+      items: [userItem],
+    }],
+    requests: [],
+    queuedFollowUps: [],
+    pendingSteers: [],
+    backgroundTerminalRows: [],
+    childMemberships: [],
+    capabilityFlags: {
+      canEditLastUserTurn: true,
+      canForkFromTurn: true,
+      canSearch: true,
+      canCollapseTurns: true,
+    },
+  };
+}
+
 function buildActions(): ThreadStageActions {
   const noopAsync = async () => undefined;
   return {
@@ -213,7 +265,9 @@ async function renderStage(summary: CodexThreadSummary) {
   await settleAsyncRender();
 }
 
-async function renderNewThreadHome() {
+async function renderNewThreadHome(overrides?: {
+  threadStartProgress?: ThreadStageRouteInput["threadStartProgress"];
+}) {
   const {
     __resetLocalConversationStoreForTests,
     LocalConversationProvider,
@@ -295,7 +349,7 @@ async function renderNewThreadHome() {
             worktreeStartMode: "detachedHead",
             worktreeBranchPrefix: "nodex/",
           }}
-          threadStartProgress={null}
+          threadStartProgress={overrides?.threadStartProgress ?? null}
           activeThreadId={null}
           activeThreadSummary={null}
           availableModels={[{
@@ -373,6 +427,7 @@ describe("ConnectedThreadStage new-chat home", () => {
     const hero = view.container.querySelector<HTMLElement>("[data-new-thread-home-hero='true']");
     const composer = view.container.querySelector<HTMLElement>("[data-new-thread-home-composer='true']");
     const lowerStatusRow = view.container.querySelector<HTMLElement>("[data-composer-lower-status-row='true']");
+    const externalFooterSlot = view.container.querySelector<HTMLElement>("[data-composer-external-footer-slot='true']");
     const promptEditor = view.container.querySelector<HTMLElement>("[data-codex-composer='true']");
     const projectTriggers = view.getAllByLabelText("Select project") as HTMLButtonElement[];
     const renderedText = textContent(view.container);
@@ -391,9 +446,58 @@ describe("ConnectedThreadStage new-chat home", () => {
     });
     expect(view.getByLabelText("Select Git branch") !== null).toBeTrue();
     expect(lowerStatusRow !== null).toBeTrue();
+    expect(externalFooterSlot?.contains(lowerStatusRow)).toBeTrue();
     expect(renderedText.includes("Work locally")).toBeTrue();
     expect(renderedText.includes("Start a new thread")).toBeFalse();
     expect(renderedText.includes("Connect Codex web")).toBeFalse();
     expect(renderedText.includes("Send to cloud")).toBeFalse();
+  });
+
+  test("uses ready thread start progress to render the materialized first turn", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+    const threadId = "thread_ready";
+    const view = await renderNewThreadHome({
+      threadStartProgress: {
+        runInTarget: "localProject",
+        threadId,
+        phase: "ready",
+        message: "Message sent.",
+        outputText: "",
+        updatedAt: 10,
+      },
+    });
+    const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+
+    await act(async () => {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        version: 1,
+        sourceClientId: null,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation(threadId),
+        },
+      });
+      await settleAsyncRender();
+    });
+
+    const renderedText = textContent(view.container);
+    const home = view.container.querySelector<HTMLElement>("[data-new-thread-home-main='true']");
+
+    expect(home === null).toBeTrue();
+    expect(renderedText.includes("What should we build in Nodex?")).toBeFalse();
+    expect(renderedText.includes("Remove the redundant transitions.")).toBeTrue();
+    expect(renderedText.includes("Thinking")).toBeTrue();
+    expect(renderedText.includes("Sending message")).toBeFalse();
+    expect(renderedText.includes("Message sent.")).toBeFalse();
+    expect(invokeCalls.some((call) =>
+      call.channel === "codex:thread:view-active:set" &&
+      call.threadId === threadId &&
+      call.active === true
+    )).toBeTrue();
   });
 });

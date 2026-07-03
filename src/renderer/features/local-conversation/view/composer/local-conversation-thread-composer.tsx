@@ -69,6 +69,7 @@ import {
 } from "./local-conversation-thread-composer-deps";
 import {
   shouldShowThreadComposerStatusStrip,
+  ThreadComposerExternalFooterSlot,
   ThreadComposerStatusStrip,
 } from "./local-conversation-thread-composer-status-strip";
 import {
@@ -1668,6 +1669,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     isMacPlatform,
   });
   const contextWindowIndicatorState = resolveContextWindowIndicatorState(model.conversation);
+  const showExternalFooter = shouldShowThreadComposerStatusStrip(model);
   const composerActionTooltip = renderComposerActionTooltipContent({
     action: composerActionState.action,
     primarySubmitAction: composerActionState.primarySubmitAction,
@@ -1711,7 +1713,12 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             }}
           />
         ) : null}
-        <div className="composer-surface-chrome relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
+        <div
+          className={cn(
+            "composer-surface-chrome relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2",
+            showExternalFooter && "z-10",
+          )}
+        >
           <div className="relative z-10 flex min-h-0 flex-1 flex-col">
             <div className="_attachmentsDefault_1u8sk_2" data-composer-attachments="true">
               {hasAttachments ? (
@@ -1963,14 +1970,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         </div>
       </div>
 
-      {shouldShowThreadComposerStatusStrip(model) ? (
+      <ThreadComposerExternalFooterSlot visible={showExternalFooter}>
         <ThreadComposerStatusStrip
           model={model}
           actions={actions}
           onErrorMessage={onErrorMessage}
           projectSelectorDisabled={busyAction !== null}
         />
-      ) : null}
+      </ThreadComposerExternalFooterSlot>
       <ExpandedSlashCommandDialog
         open={slashDialogOpen}
         commands={slashCommands}
