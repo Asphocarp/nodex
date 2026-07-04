@@ -261,6 +261,7 @@ function ConnectedThreadStageBody({
     () => ({
       projectId: input.projectId,
       threadId: activeThreadId,
+      isSideChat: Boolean(input.sideChatContext),
       cwd,
       turns,
       turnPagination: conversationSnapshot?.turnPagination ?? null,
@@ -283,6 +284,7 @@ function ConnectedThreadStageBody({
       input.projectId,
       input.projectWorkspacePath,
       input.searchOpenTick,
+      input.sideChatContext,
       input.threadStartProgress,
       parentTurns,
       requests,

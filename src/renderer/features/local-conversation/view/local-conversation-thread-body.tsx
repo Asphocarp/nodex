@@ -42,6 +42,7 @@ function LocalConversationThreadBodyComponent({
           body={model.body}
           projectId={model.projectId}
           threadId={model.threadId}
+          isSideChat={model.isSideChat}
           cwd={model.cwd}
           turns={model.turns}
           turnPagination={model.turnPagination ?? null}
@@ -80,6 +81,7 @@ export const LocalConversationThreadBody = memo(
     && left.model.body === right.model.body
     && left.model.projectId === right.model.projectId
     && left.model.threadId === right.model.threadId
+    && left.model.isSideChat === right.model.isSideChat
     && left.model.cwd === right.model.cwd
     && left.model.resumeState === right.model.resumeState
     && left.model.statusType === right.model.statusType

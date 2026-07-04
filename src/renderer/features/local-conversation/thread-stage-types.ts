@@ -167,7 +167,7 @@ export interface ThreadStageActions {
   onNewThreadProjectChange?: (projectId: string) => void;
   onRequestNewChatProjectCreate?: () => void;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
-  onOpenSideChat?: (input?: { prompt?: string; promptInput?: CodexPromptInput }) => Promise<void>;
+  onOpenSideChat?: (input?: ThreadOpenSideChatInput) => Promise<void>;
   onOpenMcpAppSidePanel?: (input: ThreadMcpAppSidePanelInput) => Promise<void>;
   onOpenPlanInSidePanel?: (input: ThreadPlanSidePanelTarget) => void | Promise<void>;
   onClosePlanSidePanel?: (input: { planKey: string }) => void | Promise<void>;
@@ -226,6 +226,17 @@ export interface ThreadStageActions {
   onOpenThread: (threadId: string) => void;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
 }
+
+export type ThreadOpenSideChatInput =
+  | {
+      kind?: "submit";
+      prompt?: string;
+      promptInput?: CodexPromptInput;
+    }
+  | {
+      kind: "draft";
+      draftPrompt: string;
+    };
 
 export interface ThreadRequestResponseContext {
   conversationId?: string | null;
@@ -645,6 +656,7 @@ export type ThreadSummaryPanelMode = "hidden" | "pinned" | "popover";
 export interface ThreadBodySurfaceModel {
   projectId: string;
   threadId: string | null;
+  isSideChat: boolean;
   cwd: string | null;
   turns: CodexConversationTurn[];
   turnPagination?: CodexConversationTurnPagination | null;

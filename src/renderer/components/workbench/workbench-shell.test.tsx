@@ -5489,6 +5489,39 @@ describe("workbench session shell", () => {
     expect(discardSideChatCalls[0] ?? "").toBe("side-thread-1");
   });
 
+  test("selected-text side chat drafts prefill the side composer without submitting a prompt", async () => {
+    renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actions = getLastThreadStageActions();
+    const openSideChat = actions.onOpenSideChat as ((input?: {
+      kind: "draft";
+      draftPrompt: string;
+    }) => Promise<void>) | undefined;
+    expect(typeof openSideChat).toBe("function");
+
+    await act(async () => {
+      await openSideChat?.({
+        kind: "draft",
+        draftPrompt: "Use this selected paragraph",
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const startInput = startSideChatCalls[0] as { prompt?: unknown; promptInput?: unknown } | undefined;
+    expect(String(startSideChatCalls.length)).toBe("1");
+    expect(Boolean(startInput && "prompt" in startInput)).toBeFalse();
+    expect(Boolean(startInput && "promptInput" in startInput)).toBeFalse();
+    expect(String(setComposerIntentCalls.length)).toBe("1");
+    expect(setComposerIntentCalls[0]?.[0]).toBe("side-thread-1");
+    expect((setComposerIntentCalls[0]?.[1] as { prompt?: string } | undefined)?.prompt).toBe("Use this selected paragraph");
+    expect(typeof (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)?.focusNonce).toBe("number");
+  });
+
   test("plus menu keeps DB and Browser available while hiding singleton Review", async () => {
     const browserTab = makeSessionTab({
       id: "session:alpha:database-view:browser",

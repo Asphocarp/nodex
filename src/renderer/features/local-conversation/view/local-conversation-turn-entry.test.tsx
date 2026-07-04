@@ -140,6 +140,7 @@ describe("LocalConversationTurnEntry", () => {
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
+          onOpenSideChat: async () => {},
         }),
       ),
     );
@@ -147,6 +148,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.getAllByLabelText("Copy message").length > 0).toBeTrue();
     expect(Boolean(view.getByLabelText("Edit message"))).toBeTrue();
     expect(view.queryByLabelText("Fork from this message") === null).toBeTrue();
+    expect(view.queryByLabelText("Ask in side chat") === null).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(staleStartedTime))).toBeFalse();
   });

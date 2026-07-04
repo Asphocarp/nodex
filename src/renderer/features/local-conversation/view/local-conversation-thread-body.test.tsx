@@ -14,6 +14,8 @@ import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 let idleCallbacks: IdleRequestCallback[] = [];
 const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+const originalRangeGetClientRects = Range.prototype.getClientRects;
+const originalRangeGetBoundingClientRect = Range.prototype.getBoundingClientRect;
 
 async function flushIdleCallbacks() {
   const callbacks = idleCallbacks;
@@ -81,6 +83,35 @@ function restoreThreadRailLayoutGeometry() {
   } else {
     Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { offsetWidth?: number }, "offsetWidth");
   }
+}
+
+function installSelectedTextRangeGeometry(readRect?: () => DOMRect) {
+  const resolveRect = readRect ?? (() => makeRect({ left: 240, top: 200, width: 120, height: 20 }));
+  Object.defineProperty(Range.prototype, "getClientRects", {
+    configurable: true,
+    value() {
+      return [resolveRect()];
+    },
+  });
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value() {
+      return resolveRect();
+    },
+  });
+}
+
+function restoreSelectedTextRangeGeometry() {
+  Object.defineProperty(Range.prototype, "getClientRects", {
+    configurable: true,
+    writable: true,
+    value: originalRangeGetClientRects,
+  });
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    writable: true,
+    value: originalRangeGetBoundingClientRect,
+  });
 }
 
 function buildAssistantEntry(
@@ -265,6 +296,7 @@ function buildModel(overrides?: {
   return {
     projectId: conversation?.projectId ?? "project_1",
     threadId: conversation?.threadId ?? null,
+    isSideChat: false,
     cwd: conversation?.cwd ?? null,
     turns: conversation?.turns ?? [],
     requests: conversation?.requests ?? [],
@@ -347,6 +379,8 @@ describe("LocalConversationThreadBody", () => {
   });
 
   afterEach(() => {
+    document.getSelection()?.removeAllRanges();
+    restoreSelectedTextRangeGeometry();
     restoreThreadRailLayoutGeometry();
   });
 
@@ -381,6 +415,146 @@ describe("LocalConversationThreadBody", () => {
     expect(
       Boolean(container.querySelector('input[aria-label="Find in thread"]')),
     ).toBeFalse();
+  });
+
+  test("opens a side chat draft from selected transcript text", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const sideChatInputs: unknown[] = [];
+    installSelectedTextRangeGeometry();
+
+    const view = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel()}
+          actions={buildActions({
+            onOpenSideChat: async (input) => {
+              sideChatInputs.push(input);
+            },
+          })}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    const selectedTextTarget = view.container.querySelector("[data-thread-selected-text-target='true']");
+    if (selectedTextTarget === null) {
+      throw new Error("expected selected text target");
+    }
+    const range = document.createRange();
+    range.selectNodeContents(selectedTextTarget);
+
+    await act(async () => {
+      document.getSelection()?.removeAllRanges();
+      document.getSelection()?.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBeTrue();
+    });
+
+    fireEvent.mouseDown(view.getByLabelText("Ask in side chat"));
+    fireEvent.click(view.getByLabelText("Ask in side chat"));
+
+    expect(JSON.stringify(sideChatInputs)).toBe(JSON.stringify([
+      {
+        kind: "draft",
+        draftPrompt: "run bun test",
+      },
+    ]));
+  });
+
+  test("does not render the selected text side chat overlay inside side chats", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    installSelectedTextRangeGeometry();
+
+    const view = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={{
+            ...buildModel(),
+            isSideChat: true,
+          }}
+          actions={buildActions({
+            onOpenSideChat: async () => {},
+          })}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    const selectedTextTarget = view.container.querySelector("[data-thread-selected-text-target='true']");
+    if (selectedTextTarget === null) {
+      throw new Error("expected selected text target");
+    }
+    const range = document.createRange();
+    range.selectNodeContents(selectedTextTarget);
+
+    await act(async () => {
+      document.getSelection()?.removeAllRanges();
+      document.getSelection()?.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBeFalse();
+  });
+
+  test("repositions the selected text side chat overlay after scroll remeasurement", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    let selectedRangeRect = makeRect({ left: 240, top: 200, width: 120, height: 20 });
+    installSelectedTextRangeGeometry(() => selectedRangeRect);
+
+    const view = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel()}
+          actions={buildActions({
+            onOpenSideChat: async () => {},
+          })}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    const selectedTextTarget = view.container.querySelector("[data-thread-selected-text-target='true']");
+    if (selectedTextTarget === null) {
+      throw new Error("expected selected text target");
+    }
+    const range = document.createRange();
+    range.selectNodeContents(selectedTextTarget);
+
+    await act(async () => {
+      document.getSelection()?.removeAllRanges();
+      document.getSelection()?.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const overlay = await waitFor(() => {
+      const currentOverlay = view.container.querySelector<HTMLElement>("[data-selected-text-side-chat-overlay='true']");
+      expect(Boolean(currentOverlay)).toBeTrue();
+      return currentOverlay;
+    });
+    expect(overlay?.style.left).toBe("220px");
+    expect(overlay?.style.top).toBe("160px");
+
+    selectedRangeRect = makeRect({ left: 300, top: 260, width: 120, height: 20 });
+    const scrollElement = view.container.querySelector("[data-local-conversation-thread-body='true']");
+    if (scrollElement === null) {
+      throw new Error("expected thread scroll element");
+    }
+
+    await act(async () => {
+      fireEvent.scroll(scrollElement);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => {
+      expect(overlay?.style.left).toBe("280px");
+      expect(overlay?.style.top).toBe("220px");
+    });
   });
 
   test("opens the created chat from a create_thread tool card through stage actions", async () => {

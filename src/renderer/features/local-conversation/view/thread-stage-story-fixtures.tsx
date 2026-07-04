@@ -2360,6 +2360,7 @@ export function buildThreadStageStorySurfaceModels(
   const bodyModel: ThreadBodySurfaceModel = {
     projectId: STORY_PROJECT_ID,
     threadId: activeThreadId,
+    isSideChat: false,
     cwd: conversation?.cwd ?? null,
     turns,
     requests,

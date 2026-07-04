@@ -215,6 +215,7 @@ import type {
 } from "@/lib/types";
 import type { ThreadActionControllerInput, ThreadStageActions } from "@/features/local-conversation";
 import type {
+  ThreadOpenSideChatInput,
   ThreadMcpAppSidePanelInput,
   ThreadPlanSidePanelState,
   ThreadPlanSidePanelTarget,
@@ -3704,11 +3705,9 @@ export function WorkbenchShell({
   }, [activeSession]);
 
   const openSideChat = useCallback(async (
-    input: {
+    input: ThreadOpenSideChatInput & {
       targetPanelId?: PanelId;
       targetLeafId?: string;
-      prompt?: string;
-      promptInput?: CodexPromptInput;
       collaborationMode?: CodexCollaborationModeKind;
     } = {},
   ) => {
@@ -3765,12 +3764,15 @@ export function WorkbenchShell({
     await ensureActivePanelOpenWithoutRefresh(panelId);
 
     try {
+      const draftPrompt = input.kind === "draft" ? input.draftPrompt.trim() : "";
       const result = await workbenchCodexControl.startSideChat({
         projectId,
         parentThreadId,
         parentNavigationPath,
-        prompt: input.prompt,
-        promptInput: input.promptInput,
+        ...(input.kind === "draft" ? {} : {
+          prompt: input.prompt,
+          promptInput: input.promptInput,
+        }),
         collaborationMode: input.collaborationMode,
       });
       const readyTabId = `sidechat:${result.threadId}`;
@@ -3795,6 +3797,12 @@ export function WorkbenchShell({
         ...current,
         [makeSideChatPanelKey(activeSession.id, panelId, leafId)]: readyTabId,
       }));
+      if (draftPrompt.length > 0) {
+        workbenchCodexControl.setComposerIntent(result.threadId, {
+          prompt: draftPrompt,
+          focusNonce: Date.now(),
+        });
+      }
     } catch {
       setSideChatTabsBySession((current) => {
         const tabs = current[activeSession.id] ?? [];
@@ -7986,9 +7994,7 @@ function SessionThreadPage({
   summaryBrowserRows: readonly ThreadSummaryPanelAuxiliaryRow[];
   rightPanelComposerOverlayEnabled: boolean;
   rightPanelComposerOverlayTarget: HTMLElement | null;
-  onOpenSideChat: (input?: {
-    prompt?: string;
-    promptInput?: CodexPromptInput;
+  onOpenSideChat: (input?: ThreadOpenSideChatInput & {
     collaborationMode?: CodexCollaborationModeKind;
   }) => Promise<void>;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];

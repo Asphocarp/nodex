@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { motion } from "motion/react";
-import { ChevronRightIcon, CodexSidePanelSideChatIcon } from "@/components/shared/icons";
+import { ChevronRightIcon } from "@/components/shared/icons";
 import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
 import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-review-surface";
 import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
@@ -117,12 +117,6 @@ interface ExplorationDisplayLine {
   key: string;
   label: string;
   leadingIcon?: ToolActivityIconDescriptor;
-}
-
-function resolveSelectedTranscriptText(fallbackText: string): string {
-  if (typeof window === "undefined") return fallbackText.trim();
-  const selectedText = window.getSelection()?.toString().trim() ?? "";
-  return selectedText.length > 0 ? selectedText : fallbackText.trim();
 }
 
 function SteeringStatusIcon() {
@@ -1170,7 +1164,6 @@ export function UserMessageBubble({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onEditLastUserTurn,
-  onOpenSideChat,
 }: ThreadLeafBlockProps) {
   const content = block.entry.markdownText ?? "";
   const userActions = block.userMessageActions;
@@ -1278,6 +1271,7 @@ export function UserMessageBubble({
         ) : (
           <div
             data-user-message-bubble="true"
+            data-thread-selected-text-target="true"
             className={THREAD_VISUAL_TOKENS.userBubble}
           >
             <UserMessageText text={content} />
@@ -1294,20 +1288,6 @@ export function UserMessageBubble({
                     feedbackMs={USER_COPY_FEEDBACK_MS}
                     disabledWhenCopied
                   />
-                  {onOpenSideChat ? (
-                    <ThreadActionIconButton
-                      label="Ask in side chat"
-                      tooltip="Ask in side chat"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void onOpenSideChat({
-                          prompt: resolveSelectedTranscriptText(content),
-                        });
-                      }}
-                    >
-                      <CodexSidePanelSideChatIcon className="icon-xs" />
-                    </ThreadActionIconButton>
-                  ) : null}
                   {canEdit ? (
                     <ThreadActionIconButton
                       label="Edit message"
@@ -1646,7 +1626,10 @@ export function ThreadAssistantBodyBlock({
       data-content-search-unit-key={block.searchUnitKey}
     >
       <div className="group flex min-w-0 flex-col">
-        <div className={THREAD_VISUAL_TOKENS.assistantBody}>
+        <div
+          className={THREAD_VISUAL_TOKENS.assistantBody}
+          data-thread-selected-text-target="true"
+        >
           <MarkdownRenderer
             content={markdownText}
             parseIncompleteMarkdown={isAssistantItemStreaming}

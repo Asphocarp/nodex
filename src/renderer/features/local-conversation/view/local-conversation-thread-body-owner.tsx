@@ -69,6 +69,7 @@ import type {
 import { LocalConversationResumeLoader } from "./shared/local-conversation-resume-loader";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
 import { createLocalConversationSearchSource } from "./local-conversation-search-source";
+import { LocalConversationSelectedTextSideChatOverlay } from "./local-conversation-selected-text-side-chat-overlay";
 import { ThreadUserMessageNavigationRailLazy } from "./thread-user-message-navigation-rail-lazy";
 
 const PROGRESS_PHASES = [
@@ -282,6 +283,7 @@ interface LocalConversationThreadBodyOwnerProps {
   body: ThreadBodyModel;
   projectId: string;
   threadId: string | null;
+  isSideChat: boolean;
   cwd: string | null;
   turns: CodexConversationTurn[];
   turnPagination: CodexConversationTurnPagination | null;
@@ -311,6 +313,7 @@ export function LocalConversationThreadBodyOwner({
   body,
   projectId,
   threadId,
+  isSideChat,
   cwd,
   turns,
   turnPagination,
@@ -805,12 +808,23 @@ export function LocalConversationThreadBodyOwner({
 
   const shouldRenderAboveComposerPortal =
     aboveComposerBlocks.length > 0 && body.activeTurnId !== null;
+  const selectedTextSideChatOverlayEnabled = Boolean(
+    threadId
+    && !isSideChat
+    && actions.onOpenSideChat
+    && body.emptyState.type === "none",
+  );
 
   return (
     <>
       <ThreadUserMessageNavigationRailLazy
         items={userMessageNavigationItems}
         onRevealItem={handleRevealUserMessageNavigationItem}
+      />
+      <LocalConversationSelectedTextSideChatOverlay
+        enabled={selectedTextSideChatOverlayEnabled}
+        scrollElement={scrollElement}
+        onOpenSideChat={actions.onOpenSideChat}
       />
       {shouldRenderAboveComposerPortal ? (
         <LocalConversationAboveComposerPortal
