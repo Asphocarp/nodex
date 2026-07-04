@@ -1448,9 +1448,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         worktreeBranchPrefix?: string;
       },
     ) => {
-      const ownerClientId = resolveRendererClientId(event);
       const detail = await codexService.startThreadForSession(input);
-      codexService.setRendererConversationOwner(detail.threadId, ownerClientId);
       return detail;
     },
   );
@@ -1507,13 +1505,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.requestConversationSnapshot(threadId)
   );
 
-  registerHandle("codex:thread:resume:request", (event, threadId: string) => {
-    codexService.setRendererConversationOwner(threadId, resolveRendererClientId(event));
-    return codexService.requestConversationResume(threadId, {
+  registerHandle("codex:thread:resume:request", (_, threadId: string) =>
+    codexService.requestConversationResume(threadId, {
       emitSourceNullSnapshots: false,
       replayBufferedNotifications: false,
-    });
-  });
+    })
+  );
 
   registerHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>
     codexService.releaseConversationResumeBuffer(threadId)
@@ -1585,7 +1582,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle(
     "codex:turn:start",
     (
-      event,
+      _,
       threadId: string,
       prompt: string,
       opts?: {
@@ -1597,7 +1594,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         promptInput?: CodexPromptInput;
       },
     ) => {
-      codexService.setRendererConversationOwner(threadId, resolveRendererClientId(event));
       return codexService.startTurn(threadId, prompt, opts);
     },
   );

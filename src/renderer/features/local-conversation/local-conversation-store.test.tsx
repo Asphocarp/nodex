@@ -2015,7 +2015,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("renderer resume releases buffered events before final owner snapshot from bundle 47680-47815", async () => {
+  test("renderer resume publishes owner snapshot before releasing buffered events", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -2062,7 +2062,8 @@ describe("local-conversation-store", () => {
 
       expect(result?.threadId ?? "").toBe("thread-resume-owner");
       expect(releaseIndex >= 0).toBeTrue();
-      expect(snapshotPublishIndex > releaseIndex).toBeTrue();
+      expect(snapshotPublishIndex >= 0).toBeTrue();
+      expect(snapshotPublishIndex < releaseIndex).toBeTrue();
       expect(snapshotPublish?.change?.revision).toBe(1);
       expect(snapshotPublish?.change?.conversationState?.resumeState).toBe("resumed");
       expect(snapshotPublish?.change?.conversationState?.turns[0]?.items[0]?.markdownText).toBe("hydrated");

@@ -63,7 +63,8 @@ Main process must:
 - provide stable renderer client ids
 - route owner/follower messages and validate response origins
 - host app-server transport and durable/recovery cache state
-- suppress competing source-null visible stream updates while a renderer owner exists
+- suppress competing source-null visible stream updates while a confirmed renderer owner exists
+- confirm renderer ownership only from an accepted owner stream-state publish, not from a fallible request entry point such as resume or turn start
 
 ## Stream State
 
@@ -169,7 +170,7 @@ Dynamic tool calls that do not create visible request state are owner-gated and 
 
 History-sensitive actions must pass the complete-history barrier before they run from a follower. The owner loads complete history, publishes the target revision, and the follower waits for that revision before edit, fork, or older-turn work continues.
 
-Explicit resume hydrates the latest tail, releases buffered same-thread notifications and requests through the owner path, then publishes the final owner snapshot. Resume failure returns the local conversation to `needs_resume` without using a source-null snapshot to overwrite partial owner state.
+Explicit resume hydrates the latest tail, returns the snapshot to the requesting renderer, and lets that renderer mark itself owner locally. The renderer must publish that owner snapshot before asking main to release buffered same-thread notifications and requests, so the replayed buffer routes through a confirmed owner. Resume failure returns the local conversation to `needs_resume` without registering a stale renderer owner or using a source-null snapshot to overwrite partial owner state.
 
 When the owner client disappears, followers reject revision waiters, clear the owner role, mark the conversation `needs_resume`, and recover through explicit resume.
 
@@ -214,3 +215,4 @@ Required regression coverage includes:
 - request responses route through owner by conversation id
 - stale patches are dropped without source-null resync
 - owner-loss recovery marks followers `needs_resume`
+- failed resume/start requests do not leave stale main-side renderer owner mappings

@@ -4745,13 +4745,13 @@ export class CodexAppServerManager {
       if (conversation) {
         this.applyConversationSnapshot(threadId, conversation);
         this.streamState.markOwner(threadId, baseRevision);
-        await invoke("codex:thread:resume-buffer:release", threadId);
-        const latestConversation = this.conversationsById.get(threadId) ?? conversation;
         await this.publishOwnerSnapshotTransaction(
           threadId,
-          latestConversation,
+          conversation,
           "owner resume",
         );
+        await invoke("codex:thread:resume-buffer:release", threadId);
+        const latestConversation = this.conversationsById.get(threadId) ?? conversation;
         return latestConversation;
       }
       this.markConversationResumeState(threadId, "needs_resume");
