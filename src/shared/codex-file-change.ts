@@ -1,4 +1,11 @@
-import type { CodexFileChange, CodexFileChangeKind, CodexTurnDiffPatchBatch } from "./types";
+import type {
+  CodexFileChange,
+  CodexFileChangeKind,
+  CodexFileChangeMap,
+  CodexFileChangePatch,
+  CodexItemStatus,
+  CodexTurnDiffPatchBatch,
+} from "./types";
 
 function normalizeText(value: string): string {
   return value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
@@ -35,20 +42,119 @@ export function buildCodexFileChangeFromProtocol(input: {
     };
   }
 
-  const unifiedDiff = normalizeText(input.diff).trim();
-  if (unifiedDiff.length === 0) return null;
   return {
     path,
     type: "update",
-    unifiedDiff,
+    unifiedDiff: normalizeText(input.diff),
     movePath: input.movePath ?? null,
   };
 }
 
-export function buildCodexFileChangeUnifiedDiff(change: CodexFileChange): string | null {
+export function toCodexFileChangePatch(change: CodexFileChange): CodexFileChangePatch {
+  if (change.type === "add") {
+    return {
+      type: "add",
+      content: change.content,
+    };
+  }
+
+  if (change.type === "delete") {
+    return {
+      type: "delete",
+      content: change.content,
+    };
+  }
+
+  return {
+    type: "update",
+    unifiedDiff: change.unifiedDiff,
+    movePath: change.movePath,
+  };
+}
+
+export function materializeCodexFileChange(path: string, change: CodexFileChangePatch): CodexFileChange {
+  if (change.type === "add") {
+    return {
+      path,
+      type: "add",
+      content: change.content,
+    };
+  }
+
+  if (change.type === "delete") {
+    return {
+      path,
+      type: "delete",
+      content: change.content,
+    };
+  }
+
+  return {
+    path,
+    type: "update",
+    unifiedDiff: change.unifiedDiff,
+    movePath: change.movePath,
+  };
+}
+
+export function buildCodexFileChangeMap(changes: readonly CodexFileChange[]): CodexFileChangeMap {
+  const map: CodexFileChangeMap = {};
+  for (const change of changes) {
+    map[change.path] = toCodexFileChangePatch(change);
+  }
+  return map;
+}
+
+export function isCodexFileChangePatch(value: unknown): value is CodexFileChangePatch {
+  if (typeof value !== "object" || value === null) return false;
+  const patch = value as Partial<CodexFileChangePatch>;
+  if (patch.type === "add" || patch.type === "delete") return typeof patch.content === "string";
+  if (patch.type === "update") return typeof patch.unifiedDiff === "string";
+  return false;
+}
+
+export function getCodexFileChangeEntries(
+  changes: CodexFileChangeMap | null | undefined,
+): Array<[string, CodexFileChangePatch]> {
+  if (!changes) return [];
+  if (Array.isArray(changes)) return [];
+  return Object.entries(changes)
+    .filter((entry): entry is [string, CodexFileChangePatch] =>
+      entry[0].trim().length > 0 && isCodexFileChangePatch(entry[1])
+    );
+}
+
+export function hasCodexFileChangeEntries(
+  changes: CodexFileChangeMap | null | undefined,
+): boolean {
+  return getCodexFileChangeEntries(changes).length > 0;
+}
+
+export function getCodexFileChangeList(
+  changes: CodexFileChangeMap | null | undefined,
+): CodexFileChange[] {
+  return getCodexFileChangeEntries(changes).map(([path, change]) => materializeCodexFileChange(path, change));
+}
+
+export function resolveCodexPatchSuccess(status: CodexItemStatus | undefined): boolean | null {
+  if (status === "completed") return true;
+  if (status === "failed" || status === "declined") return false;
+  return null;
+}
+
+export function buildCodexFileChangeUnifiedDiff(change: CodexFileChange): string | null;
+export function buildCodexFileChangeUnifiedDiff(path: string, change: CodexFileChangePatch): string | null;
+export function buildCodexFileChangeUnifiedDiff(
+  pathOrChange: string | CodexFileChange,
+  maybeChange?: CodexFileChangePatch,
+): string | null {
+  const path = typeof pathOrChange === "string" ? pathOrChange : pathOrChange.path;
+  const change = typeof pathOrChange === "string" ? maybeChange : toCodexFileChangePatch(pathOrChange);
+  if (!change) return null;
+
   if (change.type === "update") {
-    const currentPath = change.path;
-    const previousPath = change.movePath ?? change.path;
+    const previousPath = path;
+    const currentPath = change.movePath ?? path;
     const unifiedDiff = change.unifiedDiff.trimStart();
     const hasFileHeaders = /\n?---\s/.test(unifiedDiff);
     const hasDiffGitHeader = /^diff --git /m.test(unifiedDiff);
@@ -58,7 +164,6 @@ export function buildCodexFileChangeUnifiedDiff(change: CodexFileChange): string
     return `${hasDiffGitHeader ? "" : `diff --git a/${previousPath} b/${currentPath}\n`}${patch}`;
   }
 
-  const path = change.path;
   const lines = normalizeContentLines(change.content);
   const lineCount = lines.length;
 

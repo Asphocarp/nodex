@@ -37,6 +37,7 @@ import { getWebSearchSummaryDetail } from "../shared/tools/web-search-tool-call"
 import { AnimatedDiffStats } from "../shared/tools/diff-file-shared";
 import { JsonBlock } from "../shared/tools/tool-primitives";
 import { extractCommandActions } from "../shared/tools/command-actions";
+import { buildCollapsedToolActivitySummary } from "../../projection/collapsed-tool-activity-summary";
 import {
   ToolActivityIcon,
   resolveCollapsedToolActivityIcon,
@@ -803,11 +804,17 @@ interface CollapsedTextActiveSummary {
 type CollapsedActivityActiveSummary = CollapsedTextActiveSummary | CollapsedFileChangeActiveSummary;
 
 function resolveCollapsedFileChangeActiveSummary(
-  entry: CodexConversationItem,
+  block: ThreadTranscriptBlockModel,
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
 ): CollapsedFileChangeActiveSummary | null {
-  const rows = buildFileChangeRows(entry, threadCwd, projectWorkspacePath);
+  const rows = buildFileChangeRows(
+    block.entry,
+    threadCwd,
+    projectWorkspacePath,
+    block.isTurnCancelled === true,
+    block.automaticApprovalReviews ?? [],
+  );
   const row = rows.at(-1);
   if (!row) return null;
   return {
@@ -843,7 +850,7 @@ function resolveCollapsedActivityActiveSummaryPass(
       continue;
     }
     if (entry.type === "fileChange" && entry.status === "inProgress") {
-      const summary = resolveCollapsedFileChangeActiveSummary(entry.entry, threadCwd, projectWorkspacePath);
+      const summary = resolveCollapsedFileChangeActiveSummary(entry, threadCwd, projectWorkspacePath);
       if (summary) return summary;
       continue;
     }
@@ -875,6 +882,10 @@ function resolveCollapsedActivityActiveSummary(
     ?? resolveCollapsedActivityActiveSummaryPass(entries, false, threadCwd, projectWorkspacePath);
 }
 
+function isEverydayWorkMode(threadDetailLevel: ReturnType<typeof resolveCodexThreadDetailLevel>): boolean {
+  return threadDetailLevel === "STEPS_PROSE";
+}
+
 function shouldShimmerCollapsedActivitySummary(
   stats: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["summaryStats"],
 ): boolean {
@@ -900,7 +911,7 @@ function CollapsedActivitySummaryText({
 }) {
   if (!shimmer) return summary;
 
-  const writingMatch = summary.match(/ • [^,]*writing \d+ lines?/i);
+  const writingMatch = summary.match(/ • writing (?:a line|\d+ lines?)/i);
   if (!writingMatch || writingMatch.index === undefined) {
     return <CodexShimmerText>{summary}</CodexShimmerText>;
   }
@@ -927,7 +938,6 @@ function CollapsedActivityActiveSummaryText({
     return (
       <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
         <CodexShimmerText
-          variant="cadenced"
           className="shrink-0 whitespace-nowrap"
         >
           {summary.label}
@@ -958,18 +968,27 @@ export function ThreadCollapsedToolActivityBlock({
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
+  const { settings } = useCodexThreadSettings();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isBodyMounted, setIsBodyMounted] = useState(false);
 
   if (block.type !== "collapsedToolActivity") return null;
+  const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
+  const showFileChangeLineCount = isEverydayWorkMode(threadDetailLevel);
   const icon = resolveCollapsedToolActivityIcon(block.entries);
-  const activeSummary = isLatestTurn && isStreamingTurn
+  const resolvedActiveSummary = isLatestTurn && isStreamingTurn
     ? resolveCollapsedActivityActiveSummary(
         block.entries,
         threadCwd ?? undefined,
         projectWorkspacePath ?? undefined,
       )
     : null;
+  const activeSummary = resolvedActiveSummary?.kind === "fileChange" && showFileChangeLineCount
+    ? null
+    : resolvedActiveSummary;
+  const aggregateSummary = block.summaryStats
+    ? buildCollapsedToolActivitySummary(block.summaryStats, { showFileChangeLineCount })?.summary ?? block.summary
+    : block.summary;
   const shouldShimmerAggregate = !activeSummary
     && isLatestTurn
     && isStreamingTurn
@@ -1005,7 +1024,7 @@ export function ThreadCollapsedToolActivityBlock({
               {activeSummary ? (
                 <CollapsedActivityActiveSummaryText summary={activeSummary} />
               ) : (
-                <CollapsedActivitySummaryText summary={block.summary} shimmer={shouldShimmerAggregate} />
+                <CollapsedActivitySummaryText summary={aggregateSummary} shimmer={shouldShimmerAggregate} />
               )}
             </span>
           </span>
@@ -1104,6 +1123,8 @@ export function ThreadToolSurfaceBlock({
       item={item}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
+      isTurnCancelled={block.isTurnCancelled === true}
+      automaticApprovalReviews={block.automaticApprovalReviews ?? []}
       defaultExpandExecShell={nestedInCollapsedActivity && threadDetailLevel !== "STEPS_PROSE"}
       execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
       hideHeader={nestedInCollapsedActivity && block.type === "webSearch"}

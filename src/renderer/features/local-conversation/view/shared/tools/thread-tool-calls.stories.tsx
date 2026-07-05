@@ -6,7 +6,10 @@ import type {
   ThreadCollapsedToolActivityEntryModel,
   ThreadPendingMcpToolCallsBlockModel,
 } from "../../../thread-stage-types";
-import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
+import {
+  buildCodexFileChangeMap,
+  buildCodexFileChangeUnifiedDiff,
+} from "../../../../../../shared/codex-file-change";
 import {
   ThreadCollapsedToolActivityBlock,
   ThreadExplorationGroupBlock,
@@ -46,7 +49,7 @@ function buildStoryFileChangePayload(changes: CodexFileChange[]) {
   return {
     label: changes.length === 1 ? `${changes[0]?.type === "add" ? "Created" : changes[0]?.type === "delete" ? "Deleted" : "Edited"} ${changes[0]?.path}` : undefined,
     paths: changes.map((change) => change.path),
-    changes,
+    changes: buildCodexFileChangeMap(changes),
     diffs: changes
       .map((change) => buildCodexFileChangeUnifiedDiff(change))
       .filter((diff): diff is string => typeof diff === "string"),
@@ -127,12 +130,16 @@ function ToolCallStory({
   description,
   autoOpen = false,
   autoExpandCommandLine = false,
+  isTurnCancelled = false,
+  automaticApprovalReviews = [],
 }: {
   item: CodexTranscriptEntry;
   title: string;
   description: string;
   autoOpen?: boolean;
   autoExpandCommandLine?: boolean;
+  isTurnCancelled?: boolean;
+  automaticApprovalReviews?: CodexTranscriptEntry[];
 }) {
   const ToolComponent = getToolComponent(item);
   if (!ToolComponent) return null;
@@ -182,6 +189,8 @@ function ToolCallStory({
             item={item}
             projectWorkspacePath="/workspace/nodex"
             threadCwd="/workspace/nodex"
+            isTurnCancelled={isTurnCancelled}
+            automaticApprovalReviews={automaticApprovalReviews}
           />
         </div>
       </ConversationStorySurface>
@@ -328,25 +337,27 @@ function buildLiveFileChangeCollapsedActivityStoryBlock(lineCount = 85, itemId =
     updatedAt: 2,
     searchableText: "Creating poem.md",
     type: "collapsedToolActivity",
-    summary: "Creating 1 file",
-    summaryParts: ["Creating 1 file"],
+    summary: lineCount === 1 ? "Creating a file • writing a line" : `Creating a file • writing ${lineCount} lines`,
+    summaryParts: [lineCount === 1 ? "Creating a file • writing a line" : `Creating a file • writing ${lineCount} lines`],
     status: "inProgress",
     summaryStats: {
-      createdFileCount: 0,
+      createdFileCount: 1,
       runningCreatedFileCount: 1,
       stoppedCreatedFileCount: 0,
       editedFileCount: 0,
       runningEditedFileCount: 0,
       deletedFileCount: 0,
       runningDeletedFileCount: 0,
+      changedLineCount: lineCount,
+      runningCreatedLineCount: lineCount,
       exploredFileCount: 0,
       runningExploredFileCount: 0,
       searchCount: 0,
       runningSearchCount: 0,
       listCount: 0,
       runningListCount: 0,
-      approvedRequestCount: 0,
       deniedRequestCount: 0,
+      timedOutRequestCount: 0,
       hookCount: 0,
       runningHookCount: 0,
       commandCount: 0,
@@ -876,9 +887,9 @@ export const FileChangeDeclinedRename: Story = {
       item={(() => {
         const changes: CodexFileChange[] = [
           {
-            path: "src/renamed.ts",
+            path: "src/original.ts",
             type: "update",
-            movePath: "src/original.ts",
+            movePath: "src/renamed.ts",
             unifiedDiff: [
               "@@ -1 +1 @@",
               "-export const value = 'old';",
@@ -899,6 +910,58 @@ export const FileChangeDeclinedRename: Story = {
       title="File Change Declined Rename"
       description="Rejected file edits preserve rename metadata in the renderer and match Codex Electron's plain rejected summary label."
       autoOpen
+    />
+  ),
+};
+
+export const FileChangeStoppedAutoReview: Story = {
+  render: () => (
+    <ToolCallStory
+      item={(() => {
+        const changes: CodexFileChange[] = [
+          {
+            path: "src/stopped.ts",
+            type: "add",
+            content: "export const stopped = true;\n",
+          },
+        ];
+
+        return {
+          ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+          itemId: "tool-call-file-change-stopped-auto-review",
+          entryId: "tool-call-file-change-stopped-auto-review",
+          status: "inProgress",
+          fileChange: buildStoryFileChangePayload(changes),
+          toolCall: buildStoryFileChangeToolCall(changes),
+        };
+      })()}
+      title="File Change Stopped With Auto Review"
+      description="Interrupted turns render stopped patch copy while attached automatic approval reviews stay inside the patch row."
+      autoOpen
+      isTurnCancelled
+      automaticApprovalReviews={[{
+        threadId: "thread_tool_story",
+        turnId: "turn_tool_story",
+        itemId: "automatic-approval-review:story",
+        entryId: "automatic-approval-review:story",
+        type: "automaticApprovalReview",
+        kind: "systemEvent",
+        semanticKind: "automaticApprovalReview",
+        status: "completed",
+        markdownText: "This generated edit touched a protected file.",
+        rawItem: {
+          targetItemId: "tool-call-file-change-stopped-auto-review",
+          review: {
+            status: "denied",
+            riskLevel: "high",
+            userAuthorization: "unknown",
+            rationale: "This generated edit touched a protected file.",
+          },
+          action: null,
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      }]}
     />
   ),
 };

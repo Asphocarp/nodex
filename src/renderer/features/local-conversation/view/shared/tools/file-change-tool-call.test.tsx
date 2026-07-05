@@ -10,14 +10,17 @@ import {
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexFileChange, CodexFileChangeView, CodexTranscriptEntry } from "../../../../../lib/types";
 import { normalizeThreadItem } from "../../../../../../shared/codex-item-normalizer";
-import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
+import {
+  buildCodexFileChangeMap,
+  buildCodexFileChangeUnifiedDiff,
+} from "../../../../../../shared/codex-file-change";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
 
 function buildFileChangeView(changes: CodexFileChange[]): CodexFileChangeView {
   return {
     label: undefined,
     paths: changes.map((change) => change.path),
-    changes,
+    changes: buildCodexFileChangeMap(changes),
     diffs: changes
       .map((change) => buildCodexFileChangeUnifiedDiff(change))
       .filter((diff): diff is string => typeof diff === "string"),
@@ -47,7 +50,7 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
     },
   ];
   const fileChange = overrides?.fileChange ?? buildFileChangeView(defaultChanges);
-  const label = fileChange.label ?? buildFileChangeLabel(fileChange.changes[0]);
+  const label = fileChange.label ?? buildFileChangeLabel(defaultChanges[0]);
 
   return {
     threadId: "thread-1",
@@ -176,7 +179,56 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBeTrue();
     expect(Boolean(container.querySelector(".diff-stat-digit-stack-2"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='edit-files']"))).toBeFalse();
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+  });
+
+  test("derives pending and stopped row states from approval and turn state", () => {
+    const pendingRows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildFileChangeEntry({
+        status: "inProgress",
+        approvalRequestId: "approval-1",
+      }),
+      "/tmp/project",
+      undefined,
+    );
+    const stoppedRows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildFileChangeEntry({
+        status: "inProgress",
+        fileChange: buildFileChangeView([{ type: "add", path: "poem.md", content: "line\n" }]),
+      }),
+      "/tmp/project",
+      undefined,
+      true,
+    );
+
+    expect(pendingRows[0]?.state ?? "").toBe("pending");
+    expect(pendingRows[0]?.showActionLabel ?? true).toBeFalse();
+    expect(stoppedRows[0]?.state ?? "").toBe("stopped");
+    expect(stoppedRows[0]?.label ?? "").toBe("Stopped creating");
+  });
+
+  test("keeps empty update diffs as a visible streaming edit row", () => {
+    const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildNormalizedFileChangeEntry({
+        status: "inProgress",
+        changes: [
+          {
+            path: "src/app.ts",
+            kind: { type: "update", move_path: null },
+            diff: "",
+          },
+        ],
+      }),
+      "/tmp/project",
+      undefined,
+    );
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.state ?? "").toBe("streaming");
+    expect(rows[0]?.label ?? "").toBe("Editing");
+    expect(rows[0]?.displayPath ?? "").toBe("src/app.ts");
+    expect(rows[0]?.summary.additions ?? -1).toBe(0);
+    expect(rows[0]?.summary.deletions ?? -1).toBe(0);
   });
 
   test("resolves the Codex-style open-file target and keeps filename clicks from toggling the row", async () => {
@@ -562,5 +614,51 @@ describe("FileChangeToolCall", () => {
 
     expect(rows[0]?.label ?? null).toBe("Rejected");
     expect(rows[0]?.expandedLabel ?? null).toBe(null);
+  });
+
+  test("renders attached automatic approval reviews inside the expanded patch row", async () => {
+    const reviewItem: CodexTranscriptEntry = {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "automatic-approval-review:review-1",
+      entryId: "automatic-approval-review:review-1",
+      type: "automaticApprovalReview",
+      kind: "systemEvent",
+      semanticKind: "automaticApprovalReview",
+      status: "completed",
+      markdownText: "This edit is high risk.",
+      rawItem: {
+        targetItemId: "tool-1",
+        review: {
+          status: "denied",
+          riskLevel: "high",
+          userAuthorization: "unknown",
+          rationale: "This edit is high risk.",
+        },
+        action: null,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry()}
+          threadCwd="/tmp/project"
+          automaticApprovalReviews={[reviewItem]}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    expect(Boolean(summaryToggle)).toBeTrue();
+    expect(Boolean(summaryToggle?.querySelector("svg"))).toBeTrue();
+
+    fireEvent.click(summaryToggle as HTMLElement);
+    await settleAsyncRender();
+
+    expect(Boolean(textContent(container).includes("Automatic approval review"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("High risk"))).toBeTrue();
   });
 });

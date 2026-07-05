@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildCodexTurnDiffFromPatchBatches } from "./codex-file-change";
-import type { CodexTurnDiffPatchBatch } from "./types";
+import {
+  buildCodexFileChangeFromProtocol,
+  buildCodexFileChangeMap,
+  buildCodexFileChangeUnifiedDiff,
+  buildCodexTurnDiffFromPatchBatches,
+  getCodexFileChangeEntries,
+  hasCodexFileChangeEntries,
+  resolveCodexPatchSuccess,
+} from "./codex-file-change";
+import type { CodexFileChangeMap, CodexTurnDiffPatchBatch } from "./types";
 
 function countDiffGitSections(diff: string, path: string): number {
   return diff.split("\n").filter((line) => line === `diff --git a/${path} b/${path}`).length;
@@ -92,7 +100,7 @@ describe("codex file change turn diff synthesis", () => {
     const diff = buildCodexTurnDiffFromPatchBatches(batches);
 
     expect(countDiffGitSections(diff, "src/app.ts")).toBe(2);
-    expect(diff.includes("diff --git a/src/old-app.ts b/src/app.ts")).toBeTrue();
+    expect(diff.includes("diff --git a/src/app.ts b/src/old-app.ts")).toBeTrue();
   });
 
   test("ignores empty invalid changes and returns an empty diff for no material patches", () => {
@@ -108,5 +116,82 @@ describe("codex file change turn diff synthesis", () => {
     ];
 
     expect(buildCodexTurnDiffFromPatchBatches(batches)).toBe("");
+  });
+
+  test("builds path-keyed patch maps with duplicate paths overwriting earlier changes", () => {
+    const changes = buildCodexFileChangeMap([
+      {
+        path: "src/app.ts",
+        type: "add",
+        content: "first\n",
+      },
+      {
+        path: "src/app.ts",
+        type: "update",
+        movePath: null,
+        unifiedDiff: "@@ -1 +1 @@\n-first\n+second",
+      },
+    ]);
+    const entries = getCodexFileChangeEntries(changes);
+
+    expect(entries.length).toBe(1);
+    expect(entries[0]?.[0] ?? "").toBe("src/app.ts");
+    expect(entries[0]?.[1].type ?? "").toBe("update");
+  });
+
+  test("keeps empty update diffs as renderable patch rows", () => {
+    const change = buildCodexFileChangeFromProtocol({
+      path: "src/app.ts",
+      kind: "update",
+      diff: "",
+    });
+    const diff = change ? buildCodexFileChangeUnifiedDiff(change) : null;
+
+    expect(change?.type ?? null).toBe("update");
+    expect(diff?.startsWith("diff --git a/src/app.ts b/src/app.ts") ?? false).toBeTrue();
+    expect(diff?.includes("--- a/src/app.ts\n+++ b/src/app.ts") ?? false).toBeTrue();
+  });
+
+  test("filters non-canonical patch map entries before rendering", () => {
+    const malformedMap = {
+      "src/good.ts": { type: "add", content: "ok\n" },
+      "": { type: "add", content: "missing path\n" },
+      "0": { path: "src/raw.ts", kind: { type: "update" }, diff: "@@ -1 +1 @@" },
+    } as unknown as CodexFileChangeMap;
+    const rawProtocolArray = [
+      { path: "src/raw.ts", kind: { type: "update" }, diff: "@@ -1 +1 @@" },
+    ] as unknown as CodexFileChangeMap;
+
+    const entries = getCodexFileChangeEntries(malformedMap);
+
+    expect(entries.length).toBe(1);
+    expect(entries[0]?.[0] ?? "").toBe("src/good.ts");
+    expect(hasCodexFileChangeEntries(malformedMap)).toBeTrue();
+    expect(getCodexFileChangeEntries(rawProtocolArray).length).toBe(0);
+    expect(hasCodexFileChangeEntries(rawProtocolArray)).toBeFalse();
+  });
+
+  test("builds Codex-style unified diffs from patch map entries", () => {
+    const movedDiff = buildCodexFileChangeUnifiedDiff("src/app.ts", {
+      type: "update",
+      movePath: "src/app-renamed.ts",
+      unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+    });
+    const emptyCreateDiff = buildCodexFileChangeUnifiedDiff("empty.txt", {
+      type: "add",
+      content: "",
+    });
+
+    expect(Boolean(movedDiff?.startsWith("diff --git a/src/app.ts b/src/app-renamed.ts"))).toBeTrue();
+    expect(Boolean(movedDiff?.includes("--- a/src/app.ts\n+++ b/src/app-renamed.ts"))).toBeTrue();
+    expect(Boolean(emptyCreateDiff?.includes("new file mode 100644"))).toBeTrue();
+    expect(Boolean(emptyCreateDiff?.includes("@@"))).toBeFalse();
+  });
+
+  test("maps file-change item status to patch success", () => {
+    expect(resolveCodexPatchSuccess("inProgress")).toBe(null);
+    expect(resolveCodexPatchSuccess("completed")).toBe(true);
+    expect(resolveCodexPatchSuccess("failed")).toBe(false);
+    expect(resolveCodexPatchSuccess("declined")).toBe(false);
   });
 });

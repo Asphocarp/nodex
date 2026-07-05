@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { ThreadTranscriptBlockModel, ThreadWorkedForBlockModel } from "../thread-stage-types";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
 import { buildTurnViewModel } from "./build-turn-view-model";
@@ -157,7 +158,32 @@ describe("bucketizeTurnItems", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({ id: "exec", type: "exec", status: "completed" }),
-        buildItem({ id: "file", type: "fileChange", status: "completed" }),
+        buildItem({
+          id: "file",
+          type: "fileChange",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "file",
+            type: "file_change",
+            kind: "fileChange",
+            semanticKind: "patch",
+            status: "completed",
+            fileChange: {
+              paths: ["src/app.ts"],
+              changes: buildCodexFileChangeMap([{
+                type: "update",
+                path: "src/app.ts",
+                movePath: null,
+                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+              }]),
+              diffs: [],
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }),
         buildItem({ id: "assistant", type: "assistantMessage" }),
       ],
       turnStatus: "completed",
@@ -195,7 +221,7 @@ describe("bucketizeTurnItems", () => {
             status: "inProgress",
             fileChange: {
               paths: ["poem.md"],
-              changes: [{ type: "add", path: "poem.md", content: "line\n" }],
+              changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content: "line\n" }]),
               diffs: [],
             },
             createdAt: 2,

@@ -1745,10 +1745,27 @@ export type CodexFileChange =
       movePath: string | null;
     };
 
+export type CodexFileChangePatch =
+  | {
+      type: "add";
+      content: string;
+    }
+  | {
+      type: "delete";
+      content: string;
+    }
+  | {
+      type: "update";
+      unifiedDiff: string;
+      movePath: string | null;
+    };
+
+export type CodexFileChangeMap = Record<string, CodexFileChangePatch>;
+
 export interface CodexFileChangeView {
   label?: string;
   paths: string[];
-  changes: CodexFileChange[];
+  changes: CodexFileChangeMap;
   diffs: string[];
 }
 

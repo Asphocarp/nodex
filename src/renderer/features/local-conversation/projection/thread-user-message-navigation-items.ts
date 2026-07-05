@@ -1,4 +1,5 @@
 import type { CodexConversationItem } from "../../../lib/types";
+import { getCodexFileChangeEntries } from "../../../../shared/codex-file-change";
 import { buildTurnRenderModel } from "./build-turn-render-model";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type {
@@ -160,7 +161,7 @@ function addFileOutputs(
   const label = firstNonEmpty(
     entry.fileChange.label,
     entry.fileChange.paths[0],
-    entry.fileChange.changes[0]?.path,
+    getCodexFileChangeEntries(entry.fileChange.changes)[0]?.[0],
   );
   if (!label) return;
   addOutput(outputs, { type: "file", label: basename(label) });

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { selectConversationTurnRequestsByTurnId } from "../conversation-request-helpers";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
 import type { ThreadStageActions } from "../thread-stage-types";
@@ -248,33 +249,38 @@ function buildQueueAndFileChangesModel() {
   };
 }
 
-function buildLiveDraftedEditDiffModel() {
+function buildLiveDraftedEditDiffModel({
+  includeFileChange = false,
+}: {
+  includeFileChange?: boolean;
+} = {}) {
   const controls: ThreadStageStoryControls = {
     ...STORY_CONTROLS,
     preset: "streaming",
   };
   const scenario = buildThreadStageStoryScenario(controls);
+  const liveDraftDiff = [
+    "--- a/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+    "+++ b/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+    "@@ -240,5 +240,14 @@",
+    "-  return <div className=\"old\">Files changed</div>;",
+    "+  return (",
+    "+    <div",
+    "+      className=\"bg-token-input-background/70 text-token-foreground border-token-border/80\"",
+    "+      codex.turn_diff.state=\"in_progress\"",
+    "+    >",
+    "+      <span>1 file changed</span>",
+    "+      <AnimatedDiffStats additions={8} deletions={1} />",
+    "+    </div>",
+    "+  );",
+  ].join("\n");
   const conversation = buildStoryConversation({
     statusType: "active",
     turns: [
       buildStoryConversationTurn({
         turnId: "turn_story_live_draft_diff",
         status: "inProgress",
-        diff: [
-          "--- a/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
-          "+++ b/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
-          "@@ -240,5 +240,14 @@",
-          "-  return <div className=\"old\">Files changed</div>;",
-          "+  return (",
-          "+    <div",
-          "+      className=\"bg-token-input-background/70 text-token-foreground border-token-border/80\"",
-          "+      codex.turn_diff.state=\"in_progress\"",
-          "+    >",
-          "+      <span>1 file changed</span>",
-          "+      <AnimatedDiffStats additions={8} deletions={1} />",
-          "+    </div>",
-          "+  );",
-        ].join("\n"),
+        diff: liveDraftDiff,
         items: [
           buildStoryConversationItem({
             turnId: "turn_story_live_draft_diff",
@@ -287,6 +293,38 @@ function buildLiveDraftedEditDiffModel() {
             createdAt: 10_000,
             updatedAt: 10_000,
           }),
+          ...(includeFileChange
+            ? [
+                buildStoryConversationItem({
+                  turnId: "turn_story_live_draft_diff",
+                  itemId: "patch_story_live_draft_diff",
+                  type: "file_change",
+                  kind: "fileChange",
+                  semanticKind: "patch",
+                  status: "inProgress",
+                  fileChange: {
+                    paths: ["src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx"],
+                    changes: buildCodexFileChangeMap([{
+                      type: "update",
+                      path: "src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+                      unifiedDiff: liveDraftDiff,
+                      movePath: null,
+                    }]),
+                    diffs: [liveDraftDiff],
+                    label: "Edited src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+                  },
+                  toolCall: {
+                    subtype: "fileChange",
+                    toolName: "file_change",
+                    result: {
+                      diff: liveDraftDiff,
+                    },
+                  },
+                  createdAt: 11_000,
+                  updatedAt: 11_000,
+                }),
+              ]
+            : []),
         ],
       }),
     ],
@@ -495,6 +533,16 @@ export const LiveDraftedEditDiffBeforeFileChange: Story = {
     title: "Live Drafted Edit Diff Before FileChange",
     description:
       "Parity fixture for Codex Electron's pre-tool-call turn/diff/updated path: the above-composer files-changed banner is derived from turn.diff before any fileChange row exists.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const LiveDraftedEditDiffWithFileChange: Story = {
+  args: {
+    model: buildLiveDraftedEditDiffModel({ includeFileChange: true }),
+    title: "Live Drafted Edit Diff With FileChange",
+    description:
+      "Parity fixture for the live patchUpdated path: the fileChange row exists in the turn, but the active turn/diff files-changed pill remains in the fixed above-composer portal.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
 };

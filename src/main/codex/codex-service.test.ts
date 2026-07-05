@@ -23,6 +23,7 @@ import type {
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
 } from "../../shared/types";
+import { getCodexFileChangeList } from "../../shared/codex-file-change";
 import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
@@ -13369,7 +13370,7 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(item?.itemId ?? "").toBe("patch_live");
         expect(item?.status ?? "").toBe("inProgress");
         expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
-        expect(item?.fileChange?.changes[0]?.type ?? "").toBe("update");
+        expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? "").toBe("update");
       } finally {
         await service.shutdown();
       }
@@ -13421,7 +13422,7 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(item?.status ?? "").toBe("inProgress");
         expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
         expect(item?.fileChange?.paths.join(",") ?? "").toBe("poem.md");
-        expect(item?.fileChange?.changes[0]?.type ?? "").toBe("add");
+        expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? "").toBe("add");
       } finally {
         await service.shutdown();
       }

@@ -1,12 +1,18 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
+import { Shield } from "lucide-react";
 import { motion } from "motion/react";
 import {
   useMemo,
   useState,
   type CSSProperties,
 } from "react";
-import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
+import {
+  buildCodexFileChangeUnifiedDiff,
+  getCodexFileChangeEntries,
+  materializeCodexFileChange,
+  resolveCodexPatchSuccess,
+} from "../../../../../../shared/codex-file-change";
 import { invoke } from "../../../../../lib/api";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -15,8 +21,10 @@ import {
 } from "../../../../../lib/diff-presentation";
 import { useFileLinkOpener } from "../../../../../lib/use-file-link-opener";
 import { useTheme } from "../../../../../lib/use-theme";
-import type { CodexFileChange, CodexTranscriptEntry } from "../../../../../lib/types";
+import type { CodexFileChange, CodexFileChangePatch, CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
+import { AutomaticApprovalReviewSurface } from "../automatic-approval-review-surface";
+import { CodexShimmerText } from "../codex-shimmer-text";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CopyMessageActionButton } from "../thread-message-actions";
@@ -37,10 +45,12 @@ interface FileChangeToolCallProps {
   item: CodexTranscriptEntry;
   projectWorkspacePath?: string;
   threadCwd?: string;
+  isTurnCancelled?: boolean;
+  automaticApprovalReviews?: CodexTranscriptEntry[];
 }
 
 type FileChangeRowAction = "edit" | "create" | "delete";
-type FileChangeRowState = "applied" | "pending" | "rejected";
+type FileChangeRowState = "applied" | "pending" | "rejected" | "streaming" | "stopped";
 type FileChangeRowPreview =
   | {
       kind: "diff";
@@ -61,14 +71,12 @@ interface FileChangeRowModel {
   action: FileChangeRowAction;
   state: FileChangeRowState;
   label: string;
+  showActionLabel: boolean;
   expandedLabel: string | null;
   summary: DiffSummary;
   preview: FileChangeRowPreview;
   change: CodexFileChange;
-}
-
-function extractParsedChanges(item: CodexTranscriptEntry): CodexFileChange[] {
-  return item.fileChange?.changes ?? [];
+  automaticApprovalReviews: CodexTranscriptEntry[];
 }
 
 function parseSingleFilePatch(patch: string | null): FileDiffMetadata | null {
@@ -92,10 +100,17 @@ function resolveOpenLine(fileDiff: FileDiffMetadata | null | undefined): number 
   return line > 0 ? line : 1;
 }
 
-function resolveRowState(itemStatus: CodexTranscriptEntry["status"] | undefined): FileChangeRowState {
-  if (itemStatus === "inProgress") return "pending";
-  if (itemStatus === "failed" || itemStatus === "declined") return "rejected";
-  return "applied";
+function resolveRowState(input: {
+  itemStatus: CodexTranscriptEntry["status"] | undefined;
+  approvalRequestId: string | null | undefined;
+  isTurnCancelled: boolean;
+}): FileChangeRowState {
+  const success = resolveCodexPatchSuccess(input.itemStatus);
+  if (success === true) return "applied";
+  if (success === false) return "rejected";
+  if (input.approvalRequestId) return "pending";
+  if (input.isTurnCancelled) return "stopped";
+  return "streaming";
 }
 
 function resolveRowAction(change: CodexFileChange): FileChangeRowAction {
@@ -107,23 +122,42 @@ function resolveRowAction(change: CodexFileChange): FileChangeRowAction {
 function resolveRowLabels(
   action: FileChangeRowAction,
   state: FileChangeRowState,
-): { label: string; expandedLabel: string | null } {
-  if (state === "rejected") {
+): { label: string; showActionLabel: boolean; expandedLabel: string | null } {
+  if (state === "pending") {
     return {
-      label: "Rejected",
+      label: action === "create" ? "Creating" : action === "delete" ? "Deleting" : "Editing",
+      showActionLabel: false,
       expandedLabel: null,
     };
   }
 
-  if (state === "pending") {
+  if (state === "rejected") {
+    return {
+      label: "Rejected",
+      showActionLabel: true,
+      expandedLabel: null,
+    };
+  }
+
+  if (state === "stopped") {
+    return {
+      label: action === "create" ? "Stopped creating" : action === "delete" ? "Stopped deleting" : "Stopped editing",
+      showActionLabel: true,
+      expandedLabel: null,
+    };
+  }
+
+  if (state === "streaming") {
     return {
       label: action === "create" ? "Creating" : action === "delete" ? "Deleting" : "Editing",
+      showActionLabel: true,
       expandedLabel: null,
     };
   }
 
   return {
     label: action === "create" ? "Created" : action === "delete" ? "Deleted" : "Edited",
+    showActionLabel: true,
     expandedLabel: action === "create" ? "Created file" : action === "delete" ? "Deleted file" : "Edited file",
   };
 }
@@ -176,15 +210,23 @@ function resolveChangeBasePath(
 }
 
 function buildFileChangeRow(
-  change: CodexFileChange,
+  path: string,
+  changePatch: CodexFileChangePatch,
   index: number,
-  itemStatus: CodexTranscriptEntry["status"] | undefined,
+  item: CodexTranscriptEntry,
   basePath: string | null,
+  isTurnCancelled: boolean,
+  automaticApprovalReviews: CodexTranscriptEntry[],
 ): FileChangeRowModel {
-  const unifiedDiff = buildCodexFileChangeUnifiedDiff(change);
+  const change = materializeCodexFileChange(path, changePatch);
+  const unifiedDiff = buildCodexFileChangeUnifiedDiff(path, changePatch);
   const fileDiff = parseSingleFilePatch(unifiedDiff);
   const action = resolveRowAction(change);
-  const state = resolveRowState(itemStatus);
+  const state = resolveRowState({
+    itemStatus: item.status,
+    approvalRequestId: item.approvalRequestId,
+    isTurnCancelled,
+  });
   const labels = resolveRowLabels(action, state);
   const summary = fileDiff ? summarizeFileDiffMetadata(fileDiff) : summarizeFallbackChange(change, unifiedDiff);
   const preview: FileChangeRowPreview = fileDiff && unifiedDiff
@@ -201,16 +243,18 @@ function buildFileChangeRow(
       };
 
   return {
-    key: `${change.type}:${change.path}:${index}`,
-    displayPath: change.path,
-    openPath: resolveOpenPath(change.path, basePath),
+    key: `${change.type}:${path}:${index}`,
+    displayPath: path,
+    openPath: resolveOpenPath(path, basePath),
     action,
     state,
     label: labels.label,
+    showActionLabel: labels.showActionLabel,
     expandedLabel: labels.expandedLabel,
     summary,
     preview,
     change,
+    automaticApprovalReviews,
   };
 }
 
@@ -218,9 +262,13 @@ export function buildFileChangeRows(
   item: CodexTranscriptEntry,
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
+  isTurnCancelled = false,
+  automaticApprovalReviews: CodexTranscriptEntry[] = [],
 ): FileChangeRowModel[] {
   const basePath = resolveChangeBasePath(threadCwd, projectWorkspacePath);
-  return extractParsedChanges(item).map((change, index) => buildFileChangeRow(change, index, item.status, basePath));
+  return getCodexFileChangeEntries(item.fileChange?.changes).map(([path, change], index) =>
+    buildFileChangeRow(path, change, index, item, basePath, isTurnCancelled, automaticApprovalReviews)
+  );
 }
 
 function FileChangeCodePreview({
@@ -345,13 +393,53 @@ function FileChangeRow({
     }, openerId);
   }
 
-  const summaryLabel = isExpanded && row.expandedLabel ? row.expandedLabel : row.label;
-  const showCollapsedStats = !isExpanded && hasVisibleDiffSummary(row.summary);
-  const showCollapsedIndicator = !isExpanded;
+  const useExpandedSettledHeader = isExpanded && row.expandedLabel !== null;
+  const summaryLabel = useExpandedSettledHeader && row.expandedLabel ? row.expandedLabel : row.label;
+  const showInlineStats = !useExpandedSettledHeader && hasVisibleDiffSummary(row.summary);
+  const showCollapsedIndicator = !useExpandedSettledHeader;
+  const actionLabel = row.showActionLabel ? (
+    row.state === "streaming" ? (
+      <CodexShimmerText className="text-token-description-foreground/80 group-hover:text-token-foreground select-text">
+        {summaryLabel}
+      </CodexShimmerText>
+    ) : (
+      <CodexShimmerText
+        active={false}
+        className="text-token-description-foreground/80 group-hover:text-token-foreground select-text"
+      >
+        {summaryLabel}
+      </CodexShimmerText>
+    )
+  ) : null;
+  const hasApprovalReviews = row.automaticApprovalReviews.length > 0;
+  const body = (
+    <div ref={row.state === "streaming" ? undefined : elementRef}>
+      {hasApprovalReviews ? (
+        <div className="mb-1.5 flex flex-col gap-1">
+          {row.automaticApprovalReviews.map((review) => (
+            <AutomaticApprovalReviewSurface key={review.entryId ?? review.itemId} item={review} />
+          ))}
+        </div>
+      ) : null}
+      <PatchFrame
+        row={row}
+        diffHostClassName={diffHostClassName}
+        diffHostStyle={diffHostStyle}
+        diffOptions={diffOptions}
+        onOpenFile={row.openPath ? openFile : null}
+        isShortView={row.state === "pending"}
+      />
+    </div>
+  );
 
   return (
     <div className="px-0">
-      <div className={cn("flex flex-col overflow-clip transition-[box-shadow] duration-300", isExpanded ? "rounded-xl" : "rounded-lg")}>
+      <div
+        className={cn(
+          "flex flex-col overflow-clip transition-[box-shadow] duration-300",
+          row.state === "pending" ? "rounded-xl" : "rounded-lg",
+        )}
+      >
         <div
           role="button"
           tabIndex={0}
@@ -367,10 +455,8 @@ function FileChangeRow({
           }}
         >
           <div className="text-size-chat flex min-w-0 items-center gap-1 text-token-description-foreground/80">
-            <span className="text-token-description-foreground/80 group-hover:text-token-foreground select-text">
-              {summaryLabel}
-            </span>
-            {!isExpanded ? (
+            {actionLabel}
+            {!useExpandedSettledHeader ? (
               <FilenameButton
                 displayPath={row.displayPath}
                 onOpen={row.openPath ? openFile : null}
@@ -378,43 +464,48 @@ function FileChangeRow({
                 className="max-w-full cursor-interaction truncate text-start text-token-text-link-foreground select-text hover:underline"
               />
             ) : null}
-            {showCollapsedStats ? (
-              row.state === "pending"
+            {showInlineStats ? (
+              row.state === "pending" || row.state === "streaming"
                 ? <AnimatedDiffStats additions={row.summary.additions} deletions={row.summary.deletions} />
                 : <DiffStats additions={row.summary.additions} deletions={row.summary.deletions} />
             ) : null}
             {showCollapsedIndicator ? (
               <DiffSummaryIndicator action={row.action} summary={row.summary} />
             ) : null}
+            {hasApprovalReviews ? (
+              <Shield
+                aria-hidden="true"
+                className="icon-xs shrink-0 text-token-input-placeholder-foreground"
+              />
+            ) : null}
             <Chevron expanded={isExpanded} />
           </div>
           <div className="ml-1 flex items-center gap-1 transition-opacity duration-200" />
         </div>
-        <motion.div
-          data-file-change-row-body=""
-          className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
-          data-thread-find-skip={isExpanded ? undefined : true}
-          initial={false}
-          animate={{
-            height: isExpanded ? elementHeightPx : 0,
-            opacity: isExpanded ? 1 : 0,
-          }}
-          transition={CODEX_THREAD_ACCORDION_TRANSITION}
-          style={{
-            pointerEvents: isExpanded ? "auto" : "none",
-          }}
-        >
-          <div ref={elementRef}>
-            <PatchFrame
-              row={row}
-              diffHostClassName={diffHostClassName}
-              diffHostStyle={diffHostStyle}
-              diffOptions={diffOptions}
-              onOpenFile={row.openPath ? openFile : null}
-              isShortView={row.state === "pending"}
-            />
-          </div>
-        </motion.div>
+        {row.state === "streaming" ? (
+          isExpanded ? (
+            <div data-file-change-row-body="">
+              {body}
+            </div>
+          ) : null
+        ) : (
+          <motion.div
+            data-file-change-row-body=""
+            className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
+            data-thread-find-skip={isExpanded ? undefined : true}
+            initial={false}
+            animate={{
+              height: isExpanded ? elementHeightPx : 0,
+              opacity: isExpanded ? 1 : 0,
+            }}
+            transition={CODEX_THREAD_ACCORDION_TRANSITION}
+            style={{
+              pointerEvents: isExpanded ? "auto" : "none",
+            }}
+          >
+            {body}
+          </motion.div>
+        )}
       </div>
     </div>
   );
@@ -424,10 +515,20 @@ export function FileChangeToolCall({
   item,
   projectWorkspacePath,
   threadCwd,
+  isTurnCancelled = false,
+  automaticApprovalReviews = [],
 }: FileChangeToolCallProps) {
   const { resolved } = useTheme();
   const { opener } = useFileLinkOpener();
-  const rows = useMemo(() => buildFileChangeRows(item, threadCwd, projectWorkspacePath), [
+  const rows = useMemo(() => buildFileChangeRows(
+    item,
+    threadCwd,
+    projectWorkspacePath,
+    isTurnCancelled,
+    automaticApprovalReviews,
+  ), [
+    automaticApprovalReviews,
+    isTurnCancelled,
     item,
     projectWorkspacePath,
     threadCwd,

@@ -351,6 +351,8 @@ export interface ThreadTranscriptBlockModel {
     | "userInputResponse";
   entry: CodexConversationItem;
   status?: CodexConversationItem["status"];
+  isTurnCancelled?: boolean;
+  automaticApprovalReviews?: CodexConversationItem[];
   userMessageActions?: ThreadUserMessageActionsModel;
   assistantMessageActions?: ThreadAssistantMessageActionsModel;
   assistantAfterBlocks?: ThreadBlockModel[];
@@ -428,6 +430,8 @@ export interface ThreadCollapsedToolActivitySummaryStats {
   runningEditedFileCount: number;
   deletedFileCount: number;
   runningDeletedFileCount: number;
+  changedLineCount: number;
+  runningCreatedLineCount: number;
   exploredFileCount: number;
   runningExploredFileCount: number;
   searchCount: number;
@@ -436,8 +440,8 @@ export interface ThreadCollapsedToolActivitySummaryStats {
   runningListCount: number;
   commandCount: number;
   runningCommandCount: number;
-  approvedRequestCount: number;
   deniedRequestCount: number;
+  timedOutRequestCount: number;
   hookCount: number;
   runningHookCount: number;
   mcpToolCallCount: number;

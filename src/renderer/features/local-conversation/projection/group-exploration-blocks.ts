@@ -1,7 +1,14 @@
 import type { CodexConversationItem } from "../../../lib/types";
+import {
+  buildCodexFileChangeUnifiedDiff,
+  getCodexFileChangeEntries,
+  hasCodexFileChangeEntries,
+} from "../../../../shared/codex-file-change";
 import { extractCommandActions, isExplorationAction } from "../view/shared/tools/command-actions";
+import { summarizeDiff } from "../view/shared/tools/diff-file-shared";
 import { buildDynamicToolCallGroupKey, resolveDynamicToolLabel } from "../view/shared/tools/dynamic-tool-call-utils";
 import { humanizeIdentifier } from "../view/shared/tools/tool-call-utils";
+import { buildCollapsedToolActivitySummary } from "./collapsed-tool-activity-summary";
 import type {
   ThreadCollapsedToolActivityBlockModel,
   ThreadCollapsedToolActivityEntryModel,
@@ -20,7 +27,9 @@ type MultiAgentBlock = ThreadTranscriptBlockModel & { type: "multiAgentAction" }
 type McpToolCallBlock = ThreadTranscriptBlockModel & { type: "mcpToolCall" };
 type DynamicToolCallBlock = ThreadTranscriptBlockModel & { type: "dynamicToolCall" };
 
-function isTranscriptBlock(block: ThreadAgentItemModel): block is ThreadTranscriptBlockModel {
+export { buildCollapsedToolActivitySummary } from "./collapsed-tool-activity-summary";
+
+function isTranscriptBlock(block: ThreadAgentItemModel | ThreadAgentEntryModel): block is ThreadTranscriptBlockModel {
   return "entry" in block;
 }
 
@@ -33,6 +42,12 @@ function isExplorationCommandBlock(block: ThreadTranscriptBlockModel): block is 
 function isSettledMultiAgentBlock(block: ThreadTranscriptBlockModel): block is MultiAgentBlock {
   if (block.type !== "multiAgentAction") return false;
   return block.status !== "inProgress";
+}
+
+function isRenderableFileChangeBlock(block: ThreadAgentEntryModel): boolean {
+  if (!isTranscriptBlock(block)) return false;
+  if (block.type !== "fileChange") return false;
+  return hasCodexFileChangeEntries(block.entry.fileChange?.changes);
 }
 
 function mergeStatus(entries: CodexConversationItem[]): CodexConversationItem["status"] {
@@ -167,12 +182,13 @@ function isCollapsedActivityEntry(block: ThreadAgentEntryModel): block is Thread
 
   switch (block.type) {
     case "exec":
-    case "fileChange":
     case "mcpToolCall":
     case "webSearch":
     case "automaticApprovalReview":
     case "hook":
       return true;
+    case "fileChange":
+      return isRenderableFileChangeBlock(block);
     default:
       return false;
   }
@@ -190,10 +206,6 @@ function mergeActivityStatus(entries: ThreadCollapsedToolActivityEntryModel[]): 
   return "completed";
 }
 
-function pluralize(count: number, one: string, other: string): string {
-  return `${count} ${count === 1 ? one : other}`;
-}
-
 function emptyCollapsedToolActivitySummaryStats(): ThreadCollapsedToolActivitySummaryStats {
   return {
     createdFileCount: 0,
@@ -203,6 +215,8 @@ function emptyCollapsedToolActivitySummaryStats(): ThreadCollapsedToolActivitySu
     runningEditedFileCount: 0,
     deletedFileCount: 0,
     runningDeletedFileCount: 0,
+    changedLineCount: 0,
+    runningCreatedLineCount: 0,
     exploredFileCount: 0,
     runningExploredFileCount: 0,
     searchCount: 0,
@@ -211,8 +225,8 @@ function emptyCollapsedToolActivitySummaryStats(): ThreadCollapsedToolActivitySu
     runningListCount: 0,
     commandCount: 0,
     runningCommandCount: 0,
-    approvedRequestCount: 0,
     deniedRequestCount: 0,
+    timedOutRequestCount: 0,
     hookCount: 0,
     runningHookCount: 0,
     mcpToolCallCount: 0,
@@ -221,6 +235,41 @@ function emptyCollapsedToolActivitySummaryStats(): ThreadCollapsedToolActivitySu
     webSearchCount: 0,
     runningWebSearchCount: 0,
   };
+}
+
+interface FileChangePathSummarySets {
+  createdPaths: Set<string>;
+  runningCreatedPaths: Set<string>;
+  stoppedCreatedPaths: Set<string>;
+  editedPaths: Set<string>;
+  runningEditedPaths: Set<string>;
+  deletedPaths: Set<string>;
+  runningDeletedPaths: Set<string>;
+}
+
+function emptyFileChangePathSummarySets(): FileChangePathSummarySets {
+  return {
+    createdPaths: new Set(),
+    runningCreatedPaths: new Set(),
+    stoppedCreatedPaths: new Set(),
+    editedPaths: new Set(),
+    runningEditedPaths: new Set(),
+    deletedPaths: new Set(),
+    runningDeletedPaths: new Set(),
+  };
+}
+
+function applyFileChangePathSummarySets(
+  stats: ThreadCollapsedToolActivitySummaryStats,
+  sets: FileChangePathSummarySets,
+): void {
+  stats.createdFileCount = sets.createdPaths.size;
+  stats.runningCreatedFileCount = sets.runningCreatedPaths.size;
+  stats.stoppedCreatedFileCount = sets.stoppedCreatedPaths.size;
+  stats.editedFileCount = sets.editedPaths.size;
+  stats.runningEditedFileCount = sets.runningEditedPaths.size;
+  stats.deletedFileCount = sets.deletedPaths.size;
+  stats.runningDeletedFileCount = sets.runningDeletedPaths.size;
 }
 
 function countUniqueExplorationActions(entries: CodexConversationItem[], stats: ThreadCollapsedToolActivitySummaryStats): void {
@@ -250,29 +299,62 @@ function countUniqueExplorationActions(entries: CodexConversationItem[], stats: 
   else stats.exploredFileCount += readPaths.size;
 }
 
-function collectFileChangeStats(entry: ThreadTranscriptBlockModel, stats: ThreadCollapsedToolActivitySummaryStats): void {
-  const changes = entry.entry.fileChange?.changes ?? [];
+function countContentLines(content: string): number {
+  const normalized = content.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  if (normalized.length === 0) return 0;
+  const lines = normalized.split("\n");
+  return lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+}
+
+function collectAutomaticApprovalReviewStats(
+  reviews: readonly CodexConversationItem[],
+  stats: ThreadCollapsedToolActivitySummaryStats,
+): void {
+  for (const review of reviews) {
+    const reviewStatus = getAutomaticApprovalReviewStatus(review) ?? review.status;
+    if (reviewStatus === "denied") stats.deniedRequestCount += 1;
+    if (reviewStatus === "timedOut") stats.timedOutRequestCount += 1;
+  }
+}
+
+function collectFileChangeStats(
+  entry: ThreadTranscriptBlockModel,
+  stats: ThreadCollapsedToolActivitySummaryStats,
+  pathSets: FileChangePathSummarySets,
+): void {
+  const changes = getCodexFileChangeEntries(entry.entry.fileChange?.changes);
   if (changes.length === 0) {
-    if (entry.status === "inProgress") stats.runningEditedFileCount += 1;
-    else stats.editedFileCount += 1;
+    collectAutomaticApprovalReviewStats(entry.automaticApprovalReviews ?? [], stats);
     return;
   }
 
   const isRunning = entry.status === "inProgress";
-  for (const change of changes) {
+  const isStopped = isRunning && entry.isTurnCancelled === true;
+  for (const [path, change] of changes) {
+    const diffStats = summarizeDiff(buildCodexFileChangeUnifiedDiff(path, change) ?? undefined);
+    stats.changedLineCount += diffStats.additions + diffStats.deletions;
+
     if (change.type === "add") {
-      if (isRunning) stats.runningCreatedFileCount += 1;
-      else stats.createdFileCount += 1;
+      pathSets.createdPaths.add(path);
+      if (isStopped) {
+        pathSets.stoppedCreatedPaths.add(path);
+        continue;
+      }
+      if (isRunning) {
+        pathSets.runningCreatedPaths.add(path);
+        stats.runningCreatedLineCount += countContentLines(change.content);
+      }
       continue;
     }
     if (change.type === "delete") {
-      if (isRunning) stats.runningDeletedFileCount += 1;
-      else stats.deletedFileCount += 1;
+      pathSets.deletedPaths.add(path);
+      if (isRunning) pathSets.runningDeletedPaths.add(path);
       continue;
     }
-    if (isRunning) stats.runningEditedFileCount += 1;
-    else stats.editedFileCount += 1;
+    pathSets.editedPaths.add(path);
+    if (isRunning) pathSets.runningEditedPaths.add(path);
   }
+  collectAutomaticApprovalReviewStats(entry.automaticApprovalReviews ?? [], stats);
 }
 
 function getAutomaticApprovalReviewStatus(entry: CodexConversationItem): string | null {
@@ -304,6 +386,7 @@ export function collectCollapsedToolActivitySummaryStats(
   entries: ThreadCollapsedToolActivityEntryModel[],
 ): ThreadCollapsedToolActivitySummaryStats {
   const stats = emptyCollapsedToolActivitySummaryStats();
+  const fileChangePathSets = emptyFileChangePathSummarySets();
 
   for (const entry of entries) {
     if (entry.type === "explorationGroup") {
@@ -312,7 +395,7 @@ export function collectCollapsedToolActivitySummaryStats(
     }
 
     if (entry.type === "fileChange") {
-      collectFileChangeStats(entry, stats);
+      collectFileChangeStats(entry, stats, fileChangePathSets);
       continue;
     }
 
@@ -324,11 +407,7 @@ export function collectCollapsedToolActivitySummaryStats(
     }
 
     if (entry.type === "automaticApprovalReview") {
-      const reviewStatus = getAutomaticApprovalReviewStatus(entry.entry) ?? entry.status;
-      if (reviewStatus === "approved") stats.approvedRequestCount += 1;
-      if (reviewStatus === "denied" || reviewStatus === "aborted" || reviewStatus === "declined" || reviewStatus === "failed") {
-        stats.deniedRequestCount += 1;
-      }
+      collectAutomaticApprovalReviewStats([entry.entry], stats);
       continue;
     }
 
@@ -352,136 +431,8 @@ export function collectCollapsedToolActivitySummaryStats(
     }
   }
 
+  applyFileChangePathSummarySets(stats, fileChangePathSets);
   return stats;
-}
-
-function addFileCountPart(parts: string[], count: number, leading: string, trailing: string): void {
-  if (count <= 0) return;
-  const verb = parts.length === 0 ? leading : trailing;
-  parts.push(`${verb} ${pluralize(count, "file", "files")}`);
-}
-
-function formatExplorationSummaryPart(stats: ThreadCollapsedToolActivitySummaryStats, isLeading: boolean): string | null {
-  const exploredFileCount = stats.exploredFileCount + stats.runningExploredFileCount;
-  const searchCount = stats.searchCount + stats.runningSearchCount;
-  const listCount = stats.listCount + stats.runningListCount;
-  const isRunning = stats.runningExploredFileCount > 0 || stats.runningSearchCount > 0 || stats.runningListCount > 0;
-
-  if (exploredFileCount === 0 && searchCount === 0 && listCount === 0) return null;
-  if (exploredFileCount === 0 && searchCount === 0) {
-    if (isRunning) return isLeading ? "Listing files" : "listing files";
-    return isLeading ? "Listed files" : "listed files";
-  }
-
-  const details: string[] = [];
-  if (exploredFileCount > 0) details.push(pluralize(exploredFileCount, "file", "files"));
-  if (searchCount > 0) details.push(pluralize(searchCount, "search", "searches"));
-  if (listCount > 0) details.push(pluralize(listCount, "list", "lists"));
-
-  const verb = isRunning
-    ? isLeading ? "Exploring" : "exploring"
-    : isLeading ? "Explored" : "explored";
-  return `${verb} ${details.join(", ")}`;
-}
-
-function addCountPart(parts: string[], completedCount: number, runningCount: number, labels: {
-  completedLeading: string;
-  completed: string;
-  runningLeading: string;
-  running: string;
-  singular: string;
-  plural: string;
-}): void {
-  if (completedCount > 0) {
-    parts.push(`${parts.length === 0 ? labels.completedLeading : labels.completed} ${pluralize(completedCount, labels.singular, labels.plural)}`);
-  }
-  if (runningCount > 0) {
-    parts.push(`${parts.length === 0 ? labels.runningLeading : labels.running} ${pluralize(runningCount, labels.singular, labels.plural)}`);
-  }
-}
-
-export function buildCollapsedToolActivitySummary(
-  stats: ThreadCollapsedToolActivitySummaryStats,
-): { summary: string; parts: string[] } | null {
-  const parts: string[] = [];
-  const completedCreated = stats.createdFileCount - stats.stoppedCreatedFileCount;
-  addFileCountPart(parts, Math.max(completedCreated, 0), "Created", "created");
-  addFileCountPart(parts, stats.stoppedCreatedFileCount, "Stopped creating", "stopped creating");
-  addFileCountPart(parts, stats.runningCreatedFileCount, "Creating", "creating");
-  addFileCountPart(parts, stats.editedFileCount, "Edited", "edited");
-  addFileCountPart(parts, stats.runningEditedFileCount, "Editing", "editing");
-  addFileCountPart(parts, stats.deletedFileCount, "Deleted", "deleted");
-  addFileCountPart(parts, stats.runningDeletedFileCount, "Deleting", "deleting");
-
-  const explorationPart = formatExplorationSummaryPart(stats, parts.length === 0);
-  if (explorationPart) parts.push(explorationPart);
-
-  addCountPart(parts, stats.approvedRequestCount, 0, {
-    completedLeading: "Approved",
-    completed: "approved",
-    runningLeading: "Approved",
-    running: "approved",
-    singular: "request",
-    plural: "requests",
-  });
-  addCountPart(parts, stats.deniedRequestCount, 0, {
-    completedLeading: "Denied",
-    completed: "denied",
-    runningLeading: "Denied",
-    running: "denied",
-    singular: "request",
-    plural: "requests",
-  });
-  addCountPart(parts, stats.hookCount - stats.runningHookCount, stats.runningHookCount, {
-    completedLeading: "Ran",
-    completed: "ran",
-    runningLeading: "Running",
-    running: "running",
-    singular: "hook",
-    plural: "hooks",
-  });
-  addCountPart(parts, stats.commandCount - stats.runningCommandCount, stats.runningCommandCount, {
-    completedLeading: "Ran",
-    completed: "ran",
-    runningLeading: "Running",
-    running: "running",
-    singular: "command",
-    plural: "commands",
-  });
-
-  if (stats.mcpToolCallCount > 0) {
-    const namedSourceCallCount = stats.mcpToolCallSources.reduce((sum, source) => sum + source.count, 0);
-    const unnamedCount = stats.mcpToolCallCount - namedSourceCallCount;
-    if (stats.mcpToolCallSources.length > 0) {
-      const sourceNames = stats.mcpToolCallSources.map((source) => (
-        source.name === "browser-use" ? "the browser" : source.name
-      ));
-      const sourceText = sourceNames.length === 1
-        ? sourceNames[0]
-        : `${sourceNames.slice(0, -1).join(", ")} and ${sourceNames[sourceNames.length - 1]}`;
-      parts.push(`${parts.length === 0 ? "Used" : "used"} ${sourceText}`);
-    }
-    addCountPart(parts, Math.max(unnamedCount, 0), 0, {
-      completedLeading: "Called",
-      completed: "called",
-      runningLeading: "Called",
-      running: "called",
-      singular: "tool",
-      plural: "tools",
-    });
-  }
-
-  addCountPart(parts, stats.webSearchCount, stats.runningWebSearchCount, {
-    completedLeading: "Searched web",
-    completed: "searched web",
-    runningLeading: "Searching the web",
-    running: "searching the web",
-    singular: "time",
-    plural: "times",
-  });
-
-  if (parts.length === 0) return null;
-  return { summary: parts.join(", "), parts };
 }
 
 function buildCollapsedActivityGroup(
@@ -508,7 +459,53 @@ function buildCollapsedActivityGroup(
 }
 
 function shouldCollapseSingleActivityEntry(entry: ThreadCollapsedToolActivityEntryModel): boolean {
-  return entry.type === "fileChange" && entry.status === "inProgress";
+  return entry.type === "fileChange";
+}
+
+function getAutomaticApprovalReviewTargetItemId(entry: CodexConversationItem): string | null {
+  const raw = typeof entry.rawItem === "object" && entry.rawItem !== null
+    ? entry.rawItem as { targetItemId?: unknown }
+    : null;
+  return typeof raw?.targetItemId === "string" && raw.targetItemId.length > 0 ? raw.targetItemId : null;
+}
+
+function attachAutomaticApprovalReviewsToFileChanges(
+  entries: ThreadAgentEntryModel[],
+): ThreadAgentEntryModel[] {
+  const fileChangeIds = new Set(
+    entries
+      .filter((entry): entry is ThreadTranscriptBlockModel => isTranscriptBlock(entry) && entry.type === "fileChange")
+      .map((entry) => entry.entry.itemId),
+  );
+  if (fileChangeIds.size === 0) return entries;
+
+  const reviewsByTarget = new Map<string, CodexConversationItem[]>();
+  const consumedReviewIds = new Set<string>();
+  for (const entry of entries) {
+    if (!isTranscriptBlock(entry) || entry.type !== "automaticApprovalReview") continue;
+    const targetItemId = getAutomaticApprovalReviewTargetItemId(entry.entry);
+    if (!targetItemId || !fileChangeIds.has(targetItemId)) continue;
+    const reviews = reviewsByTarget.get(targetItemId) ?? [];
+    reviews.push(entry.entry);
+    reviewsByTarget.set(targetItemId, reviews);
+    consumedReviewIds.add(entry.id);
+  }
+
+  if (consumedReviewIds.size === 0) return entries;
+
+  return entries.flatMap((entry) => {
+    if (consumedReviewIds.has(entry.id)) return [];
+    if (!isTranscriptBlock(entry) || entry.type !== "fileChange") return [entry];
+    const reviews = reviewsByTarget.get(entry.entry.itemId);
+    if (!reviews || reviews.length === 0) return [entry];
+    return [{
+      ...entry,
+      automaticApprovalReviews: [
+        ...(entry.automaticApprovalReviews ?? []),
+        ...reviews,
+      ],
+    }];
+  });
 }
 
 export function groupAgentEntries(agentBlocks: ThreadAgentItemModel[]): ThreadAgentEntryModel[] {
@@ -598,10 +595,11 @@ export function groupAgentEntries(agentBlocks: ThreadAgentItemModel[]): ThreadAg
     index = cursor;
   }
 
+  const groupedWithReviewAttachments = attachAutomaticApprovalReviewsToFileChanges(grouped);
   const collapsed: ThreadAgentEntryModel[] = [];
   let collapsedIndex = 0;
-  while (collapsedIndex < grouped.length) {
-    const current = grouped[collapsedIndex];
+  while (collapsedIndex < groupedWithReviewAttachments.length) {
+    const current = groupedWithReviewAttachments[collapsedIndex];
     if (!current) break;
     if (!isCollapsedActivityEntry(current)) {
       collapsed.push(current);
@@ -611,8 +609,8 @@ export function groupAgentEntries(agentBlocks: ThreadAgentItemModel[]): ThreadAg
 
     const entries = [current];
     let cursor = collapsedIndex + 1;
-    while (cursor < grouped.length) {
-      const candidate = grouped[cursor];
+    while (cursor < groupedWithReviewAttachments.length) {
+      const candidate = groupedWithReviewAttachments[cursor];
       if (!candidate || !isCollapsedActivityEntry(candidate)) break;
       entries.push(candidate);
       cursor += 1;

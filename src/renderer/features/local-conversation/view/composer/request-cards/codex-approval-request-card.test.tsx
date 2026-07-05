@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
-import type { CodexApprovalRequest } from "@/lib/types";
+import type { CodexApprovalRequest, CodexConversationItem } from "@/lib/types";
+import { buildCodexFileChangeMap } from "../../../../../../shared/codex-file-change";
 import { CodexApprovalRequestCard } from "./codex-approval-request-card";
 
 const approvalRequest: CodexApprovalRequest = {
@@ -105,5 +106,54 @@ describe("CodexApprovalRequestCard", () => {
     });
 
     expect(decisions[1]).toBe("decline");
+  });
+
+  test("renders file approval previews from the canonical patch row model", async () => {
+    const fileRequest: CodexApprovalRequest = {
+      ...approvalRequest,
+      kind: "file",
+      itemId: "patch-1",
+      approvalReason: undefined,
+      reason: undefined,
+      command: undefined,
+      cmd: undefined,
+      proposedExecpolicyAmendment: undefined,
+      grantRoot: "/workspace/nodex",
+    };
+    const requestItem: CodexConversationItem = {
+      threadId: "thread_1",
+      turnId: "turn_1",
+      itemId: "patch-1",
+      entryId: "patch-1",
+      type: "file_change",
+      kind: "fileChange",
+      semanticKind: "patch",
+      status: "inProgress",
+      approvalRequestId: "approval_1",
+      fileChange: {
+        paths: ["src/app.ts"],
+        changes: buildCodexFileChangeMap([{ type: "add", path: "src/app.ts", content: "export const app = true;\n" }]),
+        diffs: [],
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexApprovalRequestCard
+          request={fileRequest}
+          requestItem={requestItem}
+          onRespond={async () => { }}
+          onSubmitLocalFollowup={async () => { }}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const rendered = textContent(container);
+    expect(Boolean(rendered.includes("Do you want to make these changes?"))).toBeTrue();
+    expect(Boolean(rendered.includes("src/app.ts"))).toBeTrue();
+    expect(Boolean(rendered.includes("+1 -0"))).toBeTrue();
   });
 });

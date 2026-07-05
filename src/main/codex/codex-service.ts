@@ -194,7 +194,10 @@ import {
   normalizeAutomaticApprovalReviewPayload,
   shouldShowAutoReviewInterruptionWarning,
 } from "../../shared/codex-transcript-special-items";
-import { buildCodexTurnDiffFromPatchBatches } from "../../shared/codex-file-change";
+import {
+  buildCodexTurnDiffFromPatchBatches,
+  getCodexFileChangeList,
+} from "../../shared/codex-file-change";
 import {
   canMergeSyntheticTextDuplicate,
   mergeCodexItemView,
@@ -6315,7 +6318,7 @@ export class CodexService extends EventEmitter {
     return items.flatMap((item) => {
       if (item.normalizedKind !== "fileChange" || item.semanticKind !== "patch") return [];
       if (item.status !== "completed") return [];
-      const changes = item.fileChange?.changes ?? [];
+      const changes = getCodexFileChangeList(item.fileChange?.changes);
       if (changes.length === 0) return [];
       return [{
         cwd: item.cwd ?? fallbackCwd,
@@ -10141,7 +10144,7 @@ export class CodexService extends EventEmitter {
         type: "fileChange",
         id: item.itemId,
         status: item.status ?? null,
-        changes: (item.fileChange?.changes ?? []).map((change) => ({
+        changes: getCodexFileChangeList(item.fileChange?.changes).map((change) => ({
           path: change.path,
           kind: change.type,
           ...(includeOutputs

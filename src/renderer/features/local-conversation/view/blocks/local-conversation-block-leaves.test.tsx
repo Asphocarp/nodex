@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import {
@@ -9,6 +9,9 @@ import {
 } from "../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { TestQueryProvider } from "../../../../test/query";
+import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../lib/codex-thread-settings";
+import { CodexThreadSettingsProvider } from "../../../../lib/use-codex-thread-settings";
+import { buildCodexFileChangeMap } from "../../../../../shared/codex-file-change";
 import {
   ThreadContextCompactionBlock,
   ThreadCollapsedToolActivityBlock,
@@ -76,7 +79,7 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
     fileChange: {
       label: undefined,
       paths: ["src/edited.ts"],
-      changes: [
+      changes: buildCodexFileChangeMap([
         {
           path: "src/edited.ts",
           type: "update",
@@ -87,7 +90,7 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
             "+new value",
           ].join("\n"),
         },
-      ],
+      ]),
       diffs: [
         [
           "diff --git a/src/edited.ts b/src/edited.ts",
@@ -121,6 +124,8 @@ function buildCollapsedSummaryStats(
     runningEditedFileCount: 0,
     deletedFileCount: 0,
     runningDeletedFileCount: 0,
+    changedLineCount: 0,
+    runningCreatedLineCount: 0,
     exploredFileCount: 0,
     runningExploredFileCount: 0,
     searchCount: 0,
@@ -129,8 +134,8 @@ function buildCollapsedSummaryStats(
     runningListCount: 0,
     commandCount: 0,
     runningCommandCount: 0,
-    approvedRequestCount: 0,
     deniedRequestCount: 0,
+    timedOutRequestCount: 0,
     hookCount: 0,
     runningHookCount: 0,
     mcpToolCallCount: 0,
@@ -672,7 +677,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     liveFileChangeEntry.fileChange = {
       label: undefined,
       paths: ["poem.md"],
-      changes: [{ type: "add", path: "poem.md", content }],
+      changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content }]),
       diffs: [],
     };
 
@@ -683,9 +688,14 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       updatedAt: 2,
       searchableText: "activity file live",
       type: "collapsedToolActivity" as const,
-      summary: "Creating 1 file",
+      summary: "Creating a file",
       status: "inProgress" as const,
-      summaryStats: buildCollapsedSummaryStats({ runningCreatedFileCount: 1 }),
+      summaryStats: buildCollapsedSummaryStats({
+        createdFileCount: 1,
+        runningCreatedFileCount: 1,
+        changedLineCount: 85,
+        runningCreatedLineCount: 85,
+      }),
       entries: [
         {
           id: liveFileChangeEntry.entryId ?? liveFileChangeEntry.itemId,
@@ -711,17 +721,17 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     );
 
     const summaryButton = getByRole("button", { name: /Creating poem\.md \+ 85 - 0/i });
-    const shimmer = summaryButton.querySelector<HTMLElement>(".codex-cadenced-shimmer");
+    const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
     expect(Boolean(shimmer)).toBeTrue();
-    expect(shimmer?.textContent ?? "").toBe("CreatingCreating");
+    expect(shimmer?.textContent ?? "").toBe("Creating");
     expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBeTrue();
     expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-5"))).toBeTrue();
-    expect(Boolean(textContent(summaryButton).includes("Creating 1 file"))).toBeFalse();
+    expect(Boolean(textContent(summaryButton).includes("Creating a file • writing"))).toBeFalse();
 
     fireEvent.click(summaryButton);
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector("[data-file-change-row-body]"))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="collapsed-tool-activity-body"]'))).toBeTrue();
     expect(Boolean(textContent(container).includes("Creating"))).toBeTrue();
     expect(Boolean(textContent(container).includes("poem.md"))).toBeTrue();
     expect(Boolean(textContent(container).includes("Exploration"))).toBeFalse();
@@ -779,9 +789,13 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       updatedAt: 2,
       searchableText: "activity aggregate",
       type: "collapsedToolActivity" as const,
-      summary: "Editing 1 file • writing 3 lines",
+      summary: "Creating a file • writing 3 lines",
       status: "inProgress" as const,
-      summaryStats: buildCollapsedSummaryStats({ runningEditedFileCount: 1 }),
+      summaryStats: buildCollapsedSummaryStats({
+        createdFileCount: 1,
+        runningCreatedFileCount: 1,
+        runningCreatedLineCount: 3,
+      }),
       entries: [],
     };
 
@@ -795,12 +809,112 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       </TooltipProvider>,
     );
 
-    const summaryButton = getByRole("button", { name: /Editing 1 file/i });
+    const summaryButton = getByRole("button", { name: /Creating a file/i });
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
-    expect(shimmer?.textContent ?? "").toBe("Editing 1 file");
+    expect(shimmer?.textContent ?? "").toBe("Creating a file");
     expect(Boolean(textContent(summaryButton).includes("• writing 3 lines"))).toBeTrue();
     expect(Boolean(shimmer?.textContent?.includes("writing 3 lines"))).toBeFalse();
     expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBeFalse();
+  });
+
+  test("renders a completed single-file change as an aggregate activity header before the row", async () => {
+    const fileChangeEntry = buildFileChangeEntry("item-file-single");
+    const block = {
+      id: "activity-single-file",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "single file activity",
+      type: "collapsedToolActivity" as const,
+      summary: "Edited a file",
+      status: "completed" as const,
+      summaryStats: buildCollapsedSummaryStats({ editedFileCount: 1, changedLineCount: 2 }),
+      entries: [
+        {
+          id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
+          turnId: fileChangeEntry.turnId,
+          createdAt: fileChangeEntry.createdAt,
+          updatedAt: fileChangeEntry.updatedAt,
+          searchableText: "file change",
+          type: "fileChange" as const,
+          entry: fileChangeEntry,
+          status: fileChangeEntry.status,
+        },
+      ],
+    };
+
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryButton = getByRole("button", { name: /Edited a file/i });
+    expect(Boolean(textContent(summaryButton).includes("2 lines"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("edited.ts"))).toBeFalse();
+
+    fireEvent.click(summaryButton);
+    await waitFor(() => {
+      if (!textContent(container).includes("edited.ts")) {
+        throw new Error("Expected expanded file-change row to render.");
+      }
+    });
+
+    const content = textContent(container);
+    expect(Boolean(content.includes("Edited"))).toBeTrue();
+    expect(Boolean(content.includes("edited.ts"))).toBeTrue();
+    expect(Boolean(content.includes("+1"))).toBeTrue();
+    expect(Boolean(content.includes("-1"))).toBeTrue();
+  });
+
+  test("shows aggregate file-change line counts in the prose detail level", () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
+    try {
+      const fileChangeEntry = buildFileChangeEntry("item-file-prose");
+      const block = {
+        id: "activity-file-prose",
+        turnId: "turn-1",
+        createdAt: 1,
+        updatedAt: 2,
+        searchableText: "prose file activity",
+        type: "collapsedToolActivity" as const,
+        summary: "Edited a file",
+        status: "completed" as const,
+        summaryStats: buildCollapsedSummaryStats({ editedFileCount: 1, changedLineCount: 2 }),
+        entries: [
+          {
+            id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
+            turnId: fileChangeEntry.turnId,
+            createdAt: fileChangeEntry.createdAt,
+            updatedAt: fileChangeEntry.updatedAt,
+            searchableText: "file change",
+            type: "fileChange" as const,
+            entry: fileChangeEntry,
+            status: fileChangeEntry.status,
+          },
+        ],
+      };
+
+      const { getByRole } = render(
+        <CodexThreadSettingsProvider>
+          <TooltipProvider>
+            <ThreadCollapsedToolActivityBlock
+              block={block}
+              isLatestTurn={false}
+              isStreamingTurn={false}
+            />
+          </TooltipProvider>
+        </CodexThreadSettingsProvider>,
+      );
+
+      getByRole("button", { name: /Edited a file • 2 lines/i });
+    } finally {
+      localStorage.removeItem(THREAD_SETTINGS_STORAGE_KEY);
+    }
   });
 
   test("keeps the group header icon but strips default icons from nested rows", async () => {
@@ -816,7 +930,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       updatedAt: 2,
       searchableText: "activity icons",
       type: "collapsedToolActivity" as const,
-      summary: "Edited 1 file, explored 1 search, ran 1 command",
+      summary: "Edited a file, explored 1 search, ran 1 command",
       status: "completed" as const,
       entries: [
         {
@@ -869,7 +983,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       </TooltipProvider>,
     );
 
-    const summaryButton = getByRole("button", { name: /Edited 1 file/i });
+    const summaryButton = getByRole("button", { name: /Edited a file/i });
     expect(container.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
     expect(container.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
 

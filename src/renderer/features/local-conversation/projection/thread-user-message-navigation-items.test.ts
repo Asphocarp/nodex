@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import {
   buildThreadUserMessageNavigationItems,
@@ -60,7 +61,7 @@ function buildFileChangeItem(turnId: string): CodexConversationItem {
     status: "completed",
     fileChange: {
       paths: ["src/app.ts"],
-      changes: [{ type: "add", path: "src/app.ts", content: "export {};" }],
+      changes: buildCodexFileChangeMap([{ type: "add", path: "src/app.ts", content: "export {};" }]),
       diffs: [],
       label: "src/app.ts",
     },

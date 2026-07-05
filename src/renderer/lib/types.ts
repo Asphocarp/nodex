@@ -180,6 +180,8 @@ export type {
   ProtocolMcpServerStatus,
   CodexCommandAction,
   CodexFileChange,
+  CodexFileChangeMap,
+  CodexFileChangePatch,
   CodexFileChangeView,
   CodexItemView,
   CodexTurnDiffPatchBatch,

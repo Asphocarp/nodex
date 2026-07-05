@@ -931,9 +931,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     fileChange: {
       label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
       paths: ["src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx"],
-      changes: [
-        {
-          path: "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+      changes: {
+        "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx": {
           type: "update",
           movePath: null,
           unifiedDiff: [
@@ -946,7 +945,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
             " }",
           ].join("\n"),
         },
-      ],
+      },
       diffs: [[
         "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
         "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",

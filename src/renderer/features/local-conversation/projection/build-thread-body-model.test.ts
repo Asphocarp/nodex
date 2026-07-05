@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { CodexConversationItem, CodexConversationSnapshot } from "../../../lib/types";
 import {
   buildThreadBodyModel,
@@ -120,6 +121,65 @@ describe("buildThreadBodyModel", () => {
                 kind: "assistantMessage",
                 role: "assistant",
                 markdownText: "Still working",
+              }),
+            ],
+          },
+        ],
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.hasAboveComposerBlocks).toBeTrue();
+  });
+
+  test("keeps above-composer portal presence when live fileChange rows coexist with turn diff", () => {
+    const liveDiff = [
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+    ].join("\n");
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({
+        turns: [
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            status: "inProgress",
+            diff: liveDiff,
+            itemIds: ["user_1", "patch_live"],
+            items: [
+              buildEntry({
+                itemId: "user_1",
+                type: "user_message",
+                kind: "userMessage",
+                semanticKind: "userMessage",
+                role: "user",
+                markdownText: "Edit src/app.ts.",
+              }),
+              buildEntry({
+                itemId: "patch_live",
+                type: "file_change",
+                kind: "fileChange",
+                semanticKind: "patch",
+                status: "inProgress",
+                fileChange: {
+                  paths: ["src/app.ts"],
+                  changes: buildCodexFileChangeMap([{
+                    type: "update",
+                    path: "src/app.ts",
+                    unifiedDiff: liveDiff,
+                    movePath: null,
+                  }]),
+                  diffs: [liveDiff],
+                  label: "Edited src/app.ts",
+                },
               }),
             ],
           },

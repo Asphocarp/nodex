@@ -15,6 +15,7 @@ import type { CodexAppServerManager as CodexAppServerManagerInstance } from "./l
 import {
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
+import { getCodexFileChangeList } from "../../../shared/codex-file-change";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 
 let invokeCalls: string[] = [];
@@ -6136,7 +6137,7 @@ describe("local-conversation-store", () => {
       expect(item?.status ?? "").toBe("inProgress");
       expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
       expect(item?.fileChange?.paths.join(",") ?? "").toBe("src/app.ts");
-      expect(item?.fileChange?.changes[0]?.type ?? "").toBe("update");
+      expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? "").toBe("update");
       expect(String(publishRecords.length)).toBe("0");
       expect(ackInput?.sequence).toBe(1);
     } finally {

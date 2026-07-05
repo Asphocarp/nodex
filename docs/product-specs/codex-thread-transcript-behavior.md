@@ -192,11 +192,13 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
   - when app-server/read-model turn diff is missing or empty, main synthesizes the visible completed `turn-diff` card from completed `fileChange` patch batches using path-aware hunk folding, so repeated updates to the same file render as one folded file section
   - raw `fileChange` items and their `patchBatches` remain process/provenance data for the underlying `Edited …` rows and undo/reapply; they can provide the fallback display diff only when no available completed turn-level diff exists
   - completed turn-level aggregated `turn.diff` renders as final-assistant after-content when a final assistant exists, so the edited-files card appears before the assistant action strip inside the final assistant DOM
-  - active in-progress turn diffs may surface through the static above-composer portal (`data-above-composer-portal`) as a compact `files changed` banner only when no live file-change row already represents that draft edit
+  - active in-progress turn diffs may surface through the static above-composer portal (`data-above-composer-portal`) as a compact `files changed` banner while live `fileChange` rows remain visible in the transcript/tool activity stream
+  - renderer projection must not treat a live `fileChange` row as a replacement for active `turn.diff`; the turn-level aggregate diff pill and the per-item patch row are separate app-server surfaces and can coexist during the same streaming edit
   - the above-composer diff banner is active-turn-owned `in progress` fixed content, not an item-status heuristic: it renders as the summary-only `Review changes` banner with no embedded per-file rows
   - completed turn diffs render as a dedicated `Edited …` card with per-file collapsed embedded diff rows
   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row
   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card
+  - file-change collapsed activity summaries count unique display paths per kind; repeated edits to the same file render as `Edited a file`, while changed-line suffixes may still aggregate all repeated patch rows
   - live patch labels, live collapsed activity patch headers, and in-progress turn-diff banners animate `+N` / `-N` through the CSS digit-wheel contract, while accordion body expansion still uses Motion measured-height transitions
   - inline diff previews render the real `@pierre/diffs` `diffs-container` host directly, not a nested wrapper, and rely on the diff library's native line highlighting/indicators instead of adding a second left-side gutter overlay
   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { getCodexFileChangeList } from "../../shared/codex-file-change";
 import { buildTurnErrorItemView, normalizeThreadItem } from "./codex-item-normalizer";
 
 function normalizeMcpItem(overrides: Record<string, unknown>) {
@@ -89,8 +90,9 @@ describe("codex-item-normalizer", () => {
     expect(item?.toolCall?.subtype).toBe("fileChange");
     expect(item?.toolCall?.toolName).toBe("file_change");
     expect((item?.toolCall?.args as { label?: string }).label).toBe("Edited src/example.ts");
-    expect(item?.fileChange?.changes[0]?.type ?? null).toBe("update");
-    expect(item?.fileChange?.changes[0]?.type === "update" ? item.fileChange.changes[0].movePath : null).toBe("src/example-old.ts");
+    const updateChange = getCodexFileChangeList(item?.fileChange?.changes)[0];
+    expect(updateChange?.type ?? null).toBe("update");
+    expect(updateChange?.type === "update" ? updateChange.movePath : null).toBe("src/example-old.ts");
     expect((((item?.toolCall?.result as { diffs?: string[] } | undefined)?.diffs ?? [])[0] ?? "").includes("@@ -1 +1 @@")).toBeTrue();
   });
 
@@ -122,7 +124,7 @@ describe("codex-item-normalizer", () => {
     );
 
     expect(item).not.toBeNull();
-    const changes = item?.fileChange?.changes ?? [];
+    const changes = getCodexFileChangeList(item?.fileChange?.changes);
 
     expect(changes.length).toBe(2);
     expect(changes[0]?.type ?? null).toBe("add");
@@ -161,7 +163,35 @@ describe("codex-item-normalizer", () => {
     expect(item?.normalizedKind).toBe("fileChange");
     expect(item?.status).toBe("inProgress");
     expect(item?.fileChange?.paths.join(",") ?? "").toBe("poem.md");
-    expect(item?.fileChange?.changes[0]?.type ?? null).toBe("add");
+    expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? null).toBe("add");
+  });
+
+  test("normalizes empty fileChange update diffs so live patch rows are still addressable", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-empty-file-update",
+        type: "fileChange",
+        status: "inProgress",
+        changes: [
+          {
+            path: "src/app.ts",
+            kind: {
+              type: "update",
+            },
+            diff: "",
+          },
+        ],
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    const change = getCodexFileChangeList(item?.fileChange?.changes)[0];
+
+    expect(item?.normalizedKind ?? null).toBe("fileChange");
+    expect(item?.fileChange?.paths.join(",") ?? "").toBe("src/app.ts");
+    expect(change?.type ?? null).toBe("update");
+    expect(change?.type === "update" ? change.unifiedDiff : null).toBe("");
   });
 
   test("normalizes mcpToolCall items into canonical tool payloads and derived MCP renderer state", () => {

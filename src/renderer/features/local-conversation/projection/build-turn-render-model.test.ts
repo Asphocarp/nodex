@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { buildTurnRenderModel } from "./build-turn-render-model";
 
 const LIVE_DIFF = [
@@ -54,11 +55,11 @@ function buildFileChangeItem(overrides: Partial<CodexConversationItem> = {}): Co
     status: "inProgress",
     fileChange: {
       paths: ["src/app.ts"],
-      changes: [{
+      changes: buildCodexFileChangeMap([{
         type: "add",
         path: "src/app.ts",
         content: "new",
-      }],
+      }]),
       diffs: [],
       label: "Created src/app.ts",
     },
@@ -180,7 +181,7 @@ describe("buildTurnRenderModel", () => {
     expect(model.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
   });
 
-  test("does not derive the live turn-diff banner when a live fileChange row already represents the draft edit", () => {
+  test("keeps the live turn-diff banner when a live fileChange row represents the draft edit", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
         diff: LIVE_DIFF,
@@ -192,8 +193,82 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: true,
     });
 
-    expect(model.aboveComposerBlocks?.length ?? 0).toBe(0);
+    expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
+    expect(model.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
     expect(model.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
+  });
+
+  test("keeps the live turn-diff portal stable across fileChange streaming updates", () => {
+    const beforeFileChange = buildTurnRenderModel({
+      turn: buildTurn({ diff: LIVE_DIFF, itemIds: [], items: [] }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+    const withFileChange = buildTurnRenderModel({
+      turn: buildTurn({
+        diff: LIVE_DIFF,
+        itemIds: ["patch_live"],
+        items: [buildFileChangeItem()],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+    const withUpdatedFileChange = buildTurnRenderModel({
+      turn: buildTurn({
+        diff: LIVE_DIFF,
+        itemIds: ["patch_live"],
+        items: [
+          buildFileChangeItem({
+            fileChange: {
+              paths: ["src/app.ts"],
+              changes: buildCodexFileChangeMap([{
+                type: "update",
+                path: "src/app.ts",
+                unifiedDiff: LIVE_DIFF,
+                movePath: null,
+              }]),
+              diffs: [LIVE_DIFF],
+              label: "Edited src/app.ts",
+            },
+          }),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+
+    expect(beforeFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
+    expect(withFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
+    expect(withUpdatedFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
+    expect(withFileChange.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
+    expect(withUpdatedFileChange.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
+  });
+
+  test("keeps the live turn-diff banner when a live fileChange has no renderable patch entries", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        diff: LIVE_DIFF,
+        itemIds: ["patch_live"],
+        items: [
+          buildFileChangeItem({
+            fileChange: {
+              paths: ["src/app.ts"],
+              changes: buildCodexFileChangeMap([]),
+              diffs: [],
+            },
+          }),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+
+    expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
+    expect(model.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
   });
 
   test("keeps completed derived turn-diff in the trailing body", () => {

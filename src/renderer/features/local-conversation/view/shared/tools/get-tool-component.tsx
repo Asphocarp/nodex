@@ -11,6 +11,8 @@ export interface ToolComponentProps {
   item: CodexTranscriptEntry;
   projectWorkspacePath?: string;
   threadCwd?: string;
+  isTurnCancelled?: boolean;
+  automaticApprovalReviews?: CodexTranscriptEntry[];
   defaultExpandExecShell?: boolean;
   execSummaryTone?: "default" | "muted";
   hideHeader?: boolean;

@@ -19,7 +19,11 @@ import type {
   CodexToolCallView,
   CodexUserInputQuestion,
 } from "./types";
-import { buildCodexFileChangeFromProtocol, buildCodexFileChangeUnifiedDiff } from "./codex-file-change";
+import {
+  buildCodexFileChangeFromProtocol,
+  buildCodexFileChangeMap,
+  buildCodexFileChangeUnifiedDiff,
+} from "./codex-file-change";
 import {
   buildAutomaticApprovalReviewSummary,
   normalizeAutomaticApprovalReviewPayload,
@@ -623,7 +627,7 @@ function buildFileChangeView(data: {
   return {
     label: data.label,
     paths: data.paths,
-    changes: data.parsedChanges,
+    changes: buildCodexFileChangeMap(data.parsedChanges),
     diffs: data.diffs,
   };
 }

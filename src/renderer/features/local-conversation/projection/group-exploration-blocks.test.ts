@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexCommandAction, CodexConversationItem, CodexSemanticItemKind } from "../../../lib/types";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
 import {
   buildCollapsedToolActivitySummary,
@@ -175,12 +176,12 @@ describe("groupAgentEntries collapsed tool activity", () => {
       buildBlock("create", "fileChange", {
         kind: "fileChange",
         semanticKind: "patch",
-        fileChange: { paths: ["new.ts"], diffs: [], changes: [{ type: "add", path: "new.ts", content: "" }] },
+        fileChange: { paths: ["new.ts"], diffs: [], changes: buildCodexFileChangeMap([{ type: "add", path: "new.ts", content: "" }]) },
       }),
       buildBlock("delete", "fileChange", {
         kind: "fileChange",
         semanticKind: "patch",
-        fileChange: { paths: ["old.ts"], diffs: [], changes: [{ type: "delete", path: "old.ts", content: "" }] },
+        fileChange: { paths: ["old.ts"], diffs: [], changes: buildCodexFileChangeMap([{ type: "delete", path: "old.ts", content: "" }]) },
       }),
     ]);
     const fileSummary = buildCollapsedToolActivitySummary(fileStats);
@@ -204,8 +205,149 @@ describe("groupAgentEntries collapsed tool activity", () => {
     ]);
     const listSummary = buildCollapsedToolActivitySummary(listStats);
 
-    expect(fileSummary?.summary ?? "").toBe("Created 1 file, deleted 1 file");
+    expect(fileSummary?.summary ?? "").toBe("Created a file, deleted a file");
     expect(listSummary?.summary ?? "").toBe("Listed files");
+  });
+
+  test("does not collapse fileChange blocks that have no renderable patch entries", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("empty-file-change", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        fileChange: {
+          paths: ["src/app.ts"],
+          diffs: [],
+          changes: buildCodexFileChangeMap([]),
+        },
+      }),
+    ]);
+
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("fileChange");
+  });
+
+  test("formats file-change aggregate summaries with display-mode gated line counts", () => {
+    const stats = collectCollapsedToolActivitySummaryStats([
+      buildBlock("edit", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        fileChange: {
+          paths: ["src/app.ts"],
+          diffs: [],
+          changes: buildCodexFileChangeMap([{
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: [
+              "@@ -1,1 +1,1 @@",
+              "-old value",
+              "+new value",
+            ].join("\n"),
+          }]),
+        },
+      }),
+    ]);
+
+    expect(buildCollapsedToolActivitySummary(stats)?.summary ?? "").toBe("Edited a file");
+    expect(buildCollapsedToolActivitySummary(stats, { showFileChangeLineCount: true })?.summary ?? "").toBe(
+      "Edited a file • 2 lines",
+    );
+  });
+
+  test("deduplicates repeated edits to one path in aggregate file-change summaries", () => {
+    const repeatedEditBlocks = Array.from({ length: 5 }, (_, index) =>
+      buildBlock(`edit-${index}`, "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        fileChange: {
+          paths: ["test30.txt"],
+          diffs: [],
+          changes: buildCodexFileChangeMap([{
+            type: "update",
+            path: "test30.txt",
+            movePath: null,
+            unifiedDiff: [
+              "@@ -1,1 +1,1 @@",
+              `-old value ${index}`,
+              `+new value ${index}`,
+            ].join("\n"),
+          }]),
+        },
+      })
+    );
+    const grouped = groupAgentEntries(repeatedEditBlocks);
+    const group = grouped[0];
+    const stats = group?.type === "collapsedToolActivity" ? group.summaryStats : undefined;
+
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(group?.type === "collapsedToolActivity" ? group.summary : "").toBe("Edited a file");
+    expect(stats?.editedFileCount ?? 0).toBe(1);
+    expect(stats?.changedLineCount ?? 0).toBe(10);
+    expect(group?.type === "collapsedToolActivity" ? group.entries.length : 0).toBe(5);
+    expect(stats ? buildCollapsedToolActivitySummary(stats, { showFileChangeLineCount: true })?.summary ?? "" : "").toBe(
+      "Edited a file • 10 lines",
+    );
+  });
+
+  test("deduplicates repeated edits after creating the same path", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("create", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        fileChange: {
+          paths: ["test30.txt"],
+          diffs: [],
+          changes: buildCodexFileChangeMap([{ type: "add", path: "test30.txt", content: "one\n" }]),
+        },
+      }),
+      ...Array.from({ length: 4 }, (_, index) =>
+        buildBlock(`edit-${index}`, "fileChange", {
+          kind: "fileChange",
+          semanticKind: "patch",
+          fileChange: {
+            paths: ["test30.txt"],
+            diffs: [],
+            changes: buildCodexFileChangeMap([{
+              type: "update",
+              path: "test30.txt",
+              movePath: null,
+              unifiedDiff: [
+                "@@ -1,1 +1,1 @@",
+                `-created value ${index}`,
+                `+edited value ${index}`,
+              ].join("\n"),
+            }]),
+          },
+        })
+      ),
+    ]);
+    const group = grouped[0];
+    const stats = group?.type === "collapsedToolActivity" ? group.summaryStats : undefined;
+
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(group?.type === "collapsedToolActivity" ? group.summary : "").toBe("Created a file, edited a file");
+    expect(stats?.createdFileCount ?? 0).toBe(1);
+    expect(stats?.editedFileCount ?? 0).toBe(1);
+    expect(group?.type === "collapsedToolActivity" ? group.entries.length : 0).toBe(5);
+  });
+
+  test("formats running creation writing text separately from gated aggregate line counts", () => {
+    const stats = collectCollapsedToolActivitySummaryStats([
+      buildBlock("create-live", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        status: "inProgress",
+        fileChange: {
+          paths: ["src/new.ts"],
+          diffs: [],
+          changes: buildCodexFileChangeMap([{ type: "add", path: "src/new.ts", content: "one\n" }]),
+        },
+      }),
+    ]);
+
+    expect(buildCollapsedToolActivitySummary(stats)?.summary ?? "").toBe("Creating a file • writing a line");
+    expect(buildCollapsedToolActivitySummary(stats, { showFileChangeLineCount: true })?.summary ?? "").toBe(
+      "Creating a file • 1 line",
+    );
   });
 
   test("wraps one in-progress file change in a collapsed activity group", () => {
@@ -217,7 +359,7 @@ describe("groupAgentEntries collapsed tool activity", () => {
         fileChange: {
           paths: ["poem.md"],
           diffs: [],
-          changes: [{ type: "add", path: "poem.md", content: "line\n" }],
+          changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content: "line\n" }]),
         },
       }),
     ]);
@@ -230,7 +372,7 @@ describe("groupAgentEntries collapsed tool activity", () => {
     );
   });
 
-  test("keeps one completed file change as a normal row", () => {
+  test("wraps one completed file change in a collapsed activity group", () => {
     const grouped = groupAgentEntries([
       buildBlock("file-done", "fileChange", {
         kind: "fileChange",
@@ -239,12 +381,16 @@ describe("groupAgentEntries collapsed tool activity", () => {
         fileChange: {
           paths: ["poem.md"],
           diffs: [],
-          changes: [{ type: "add", path: "poem.md", content: "line\n" }],
+          changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content: "line\n" }]),
         },
       }),
     ]);
 
-    expect(grouped.map((entry) => entry.type).join(",")).toBe("fileChange");
+    const group = grouped[0];
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "fileChange",
+    );
   });
 
   test("counts running MCP calls for collapsed summary shimmer state", () => {
@@ -266,5 +412,57 @@ describe("groupAgentEntries collapsed tool activity", () => {
 
     expect(stats.mcpToolCallCount).toBe(1);
     expect(stats.runningMcpToolCallCount).toBe(1);
+  });
+
+  test("attaches automatic approval reviews to target file changes and only counts failures", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("file-change", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        status: "inProgress",
+        fileChange: {
+          paths: ["src/app.ts"],
+          diffs: [],
+          changes: buildCodexFileChangeMap([{ type: "add", path: "src/app.ts", content: "line\n" }]),
+        },
+      }),
+      buildBlock("review-denied", "automaticApprovalReview", {
+        kind: "systemEvent",
+        semanticKind: "automaticApprovalReview",
+        status: "completed",
+        rawItem: {
+          targetItemId: "file-change",
+          review: { status: "denied", riskLevel: "high", userAuthorization: "unknown", rationale: "Denied" },
+        },
+      }),
+      buildBlock("review-aborted", "automaticApprovalReview", {
+        kind: "systemEvent",
+        semanticKind: "automaticApprovalReview",
+        status: "completed",
+        rawItem: {
+          targetItemId: "file-change",
+          review: { status: "aborted", riskLevel: "low", userAuthorization: "low", rationale: "Aborted" },
+        },
+      }),
+      buildBlock("review-timeout", "automaticApprovalReview", {
+        kind: "systemEvent",
+        semanticKind: "automaticApprovalReview",
+        status: "completed",
+        rawItem: {
+          targetItemId: "file-change",
+          review: { status: "timedOut", riskLevel: "medium", userAuthorization: "unknown", rationale: "Timed out" },
+        },
+      }),
+    ]);
+
+    const group = grouped[0];
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "fileChange",
+    );
+    const fileEntry = group?.type === "collapsedToolActivity" ? group.entries[0] : null;
+    expect(fileEntry?.type === "fileChange" ? fileEntry.automaticApprovalReviews?.length ?? 0 : 0).toBe(3);
+    expect(group?.type === "collapsedToolActivity" ? group.summaryStats?.deniedRequestCount ?? 0 : 0).toBe(1);
+    expect(group?.type === "collapsedToolActivity" ? group.summaryStats?.timedOutRequestCount ?? 0 : 0).toBe(1);
   });
 });

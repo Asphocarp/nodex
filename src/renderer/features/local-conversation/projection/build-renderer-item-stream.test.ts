@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexConversationItem } from "../../../lib/types";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { buildRendererItemStream } from "./build-renderer-item-stream";
 
 function buildEntry(overrides: Partial<CodexConversationItem>): CodexConversationItem {
@@ -175,7 +176,12 @@ describe("buildRendererItemStream", () => {
           },
           fileChange: {
             paths: ["src/app.tsx"],
-            changes: [],
+            changes: buildCodexFileChangeMap([{
+              type: "update",
+              path: "src/app.tsx",
+              unifiedDiff: "",
+              movePath: null,
+            }]),
             diffs: [],
           },
         }),
@@ -209,6 +215,43 @@ describe("buildRendererItemStream", () => {
     });
 
     expect(items.map((item) => item.type).join(",")).toBe("fileChange,mcpToolCall");
+  });
+
+  test("omits fileChange rows without canonical patch entries", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "empty_patch_1",
+          type: "file_change",
+          kind: "fileChange",
+          semanticKind: "patch",
+          status: "completed",
+          fileChange: {
+            paths: ["src/app.ts"],
+            changes: buildCodexFileChangeMap([]),
+            diffs: [],
+          },
+        }),
+        buildEntry({
+          itemId: "raw_protocol_patch_1",
+          type: "file_change",
+          kind: "fileChange",
+          semanticKind: "patch",
+          status: "completed",
+          fileChange: {
+            paths: ["src/raw.ts"],
+            changes: [
+              { path: "src/raw.ts", kind: { type: "update" }, diff: "@@ -1 +1 @@" },
+            ] as never,
+            diffs: [],
+          },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    expect(items.length).toBe(0);
   });
 
   test("injects turn-scoped requests into the renderer item stream", () => {

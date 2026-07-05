@@ -1,4 +1,5 @@
 import type { CodexConversationItem } from "../../../lib/types";
+import { hasCodexFileChangeEntries } from "../../../../shared/codex-file-change";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import type {
   ThreadPendingTurnRequestModel,
@@ -45,8 +46,15 @@ function resolveSearchableText(entry: CodexConversationItem): string {
   return segments.join("\n").trim();
 }
 
+function hasRenderableFileChangeEntry(entry: CodexConversationItem): boolean {
+  if (hasCodexFileChangeEntries(entry.fileChange?.changes)) return true;
+  return Boolean(entry.toolCall?.error);
+}
+
 function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBlockModel["type"] | null {
-  if (entry.kind === "fileChange") return "fileChange";
+  if (entry.kind === "fileChange") {
+    return hasRenderableFileChangeEntry(entry) ? "fileChange" : null;
+  }
 
   if (entry.kind === "userInputRequest") {
     return null;
@@ -120,7 +128,10 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
   }
 }
 
-function buildTranscriptBlock(entry: CodexConversationItem): ThreadTranscriptBlockModel | null {
+function buildTranscriptBlock(
+  entry: CodexConversationItem,
+  turnStatus: BuildRendererItemStreamInput["turnStatus"],
+): ThreadTranscriptBlockModel | null {
   const type = resolveRendererType(entry);
   if (!type) return null;
   const entryId = entry.entryId ?? entry.itemId;
@@ -134,6 +145,7 @@ function buildTranscriptBlock(entry: CodexConversationItem): ThreadTranscriptBlo
     type,
     entry,
     status: entry.status,
+    isTurnCancelled: turnStatus === "interrupted",
   };
 }
 
@@ -176,7 +188,7 @@ export function buildRendererItemStream(
   input: BuildRendererItemStreamInput,
 ): ThreadRendererItemModel[] {
   const transcriptBlocks = input.entries
-    .map((entry) => buildTranscriptBlock(entry))
+    .map((entry) => buildTranscriptBlock(entry, input.turnStatus))
     .filter((item): item is ThreadTranscriptBlockModel => item !== null);
   const requestBlocks = input.requests.map((request) => buildPendingRequestBlock(request));
   return [...transcriptBlocks, ...requestBlocks];

@@ -38,23 +38,10 @@ function hasTranscriptTurnDiffItem(entries: readonly CodexConversationItem[]): b
   });
 }
 
-function hasLiveFileChangeItem(entries: readonly CodexConversationItem[]): boolean {
-  return entries.some((entry) =>
-    entry.status === "inProgress"
-    && (
-      entry.kind === "fileChange"
-      || entry.semanticKind === "patch"
-      || entry.fileChange !== undefined
-      || entry.toolCall?.subtype === "fileChange"
-    )
-  );
-}
-
 function buildDerivedTurnDiffEntry(turn: CodexConversationTurn): CodexConversationItem | null {
   const unifiedDiff = turn.diff?.trim();
   if (!unifiedDiff) return null;
   if (hasTranscriptTurnDiffItem(turn.items)) return null;
-  if (turn.status === "inProgress" && hasLiveFileChangeItem(turn.items)) return null;
 
   const timestamp = turn.completedAt ?? turn.startedAt ?? turn.turnStartedAtMs ?? Date.now();
   const itemId = `turn-diff:${turn.turnId}`;
