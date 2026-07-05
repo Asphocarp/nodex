@@ -7,6 +7,7 @@ import type {
   CodexConversationItem,
   CodexConversationTurn,
 } from "../../../lib/types";
+import { formatThreadMessageTimestamp } from "./shared/thread-message-timestamp";
 
 const renderCounts = new Map<string, number>();
 
@@ -125,8 +126,11 @@ describe("LocalConversationTurnEntry", () => {
       startedAt: staleStartedAtMs,
       completedAt: 999_000,
     });
-    const expectedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs));
-    const staleStartedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(staleStartedAtMs));
+    const expectedTime = formatThreadMessageTimestamp(sentAtMs);
+    const staleStartedTime = formatThreadMessageTimestamp(staleStartedAtMs);
+    if (expectedTime === null || staleStartedTime === null) {
+      throw new Error("expected finite user timestamps");
+    }
     const view = render(
       createElement(
         TooltipProvider,
@@ -203,8 +207,11 @@ describe("LocalConversationTurnEntry", () => {
       finalAssistantStartedAtMs: sentAtMs,
       completedAt: staleCompletedAtMs,
     });
-    const expectedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs));
-    const staleCompletedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(staleCompletedAtMs));
+    const expectedTime = formatThreadMessageTimestamp(sentAtMs);
+    const staleCompletedTime = formatThreadMessageTimestamp(staleCompletedAtMs);
+    if (expectedTime === null || staleCompletedTime === null) {
+      throw new Error("expected finite assistant timestamps");
+    }
     const view = render(
       createElement(
         TooltipProvider,

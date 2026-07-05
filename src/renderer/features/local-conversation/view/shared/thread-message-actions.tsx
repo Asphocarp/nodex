@@ -3,6 +3,7 @@ import { NodexTooltip } from "./thread-message-actions-deps";
 import { CheckmarkIcon } from "../../../../components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import { writeTextToClipboard } from "../../../../lib/clipboard";
+import { formatThreadMessageTimestamp } from "./thread-message-timestamp";
 
 const USER_COPY_FEEDBACK_MS = 1500;
 const ASSISTANT_COPY_FEEDBACK_MS = 2000;
@@ -77,7 +78,7 @@ export function ThreadMessageActionRow({
     <div
       className={cn(
         align === "end"
-          ? "mr-1 ms-1 flex items-center gap-2 transition-opacity opacity-0 group-hover:opacity-100"
+          ? "mr-1 ms-1 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
           : "extension:-translate-x-1.5 electron:-translate-x-2 mt-1.5 flex h-5 items-center justify-start gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
         className,
       )}
@@ -87,13 +88,14 @@ export function ThreadMessageActionRow({
   );
 }
 
-export function MessageTimestamp({ sentAtMs }: { sentAtMs: number | null | undefined }) {
-  if (sentAtMs == null) return null;
+export function MessageTimestamp({ sentAtMs, nowMs }: { sentAtMs: number | null | undefined; nowMs?: number }) {
+  const timestampText = formatThreadMessageTimestamp(sentAtMs, nowMs);
+  if (timestampText === null) return null;
 
   return (
-    <span className="ml-1.5 flex h-full items-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
-      <span className="text-xs text-token-text-tertiary text-size-chat leading-5 text-token-input-placeholder-foreground">
-        {new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs))}
+    <span className="ml-1.5 flex h-full shrink-0 items-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+      <span className="whitespace-nowrap text-xs leading-5 text-token-text-tertiary">
+        {timestampText}
       </span>
     </span>
   );
