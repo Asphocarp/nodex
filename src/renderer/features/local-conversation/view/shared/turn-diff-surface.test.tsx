@@ -8,7 +8,11 @@ import { NodexTooltipProvider as TooltipProvider } from "../../../../components/
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../../test/dom";
 import type { CodexTranscriptEntry, CodexTurnDiffReviewTarget } from "../../../../lib/types";
-import { TurnDiffSurface, turnDiffSurfaceTestHelpers } from "./turn-diff-surface";
+import {
+  TurnDiffInProgressInlineSummary,
+  TurnDiffSurface,
+  turnDiffSurfaceTestHelpers,
+} from "./turn-diff-surface";
 
 function diffForPath(path: string, oldText = "old", newText = "new"): string {
   return [
@@ -291,6 +295,29 @@ describe("TurnDiffSurface", () => {
 
     fireEvent.click(container.querySelector("button") as HTMLButtonElement);
     expect(reviewTargetPatch.includes("src/file-1.ts")).toBeTrue();
+  });
+
+  test("renders the compact in-progress summary with optional leading separator", () => {
+    let openedPath: string | null = "unset";
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffInProgressInlineSummary
+          item={buildTurnDiffEntry({ unifiedDiff: diffForPath("src/one.ts") })}
+          threadCwd="/tmp/project"
+          showLeadingSeparator
+          onOpenReview={(target) => {
+            openedPath = target.path ?? null;
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.textContent?.includes("·"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("1 file changed"))).toBeTrue();
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBeTrue();
+
+    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
+    expect(openedPath).toBe("src/one.ts");
   });
 
   test("parses Codex-style file stats including quoted paths and duplicate file headers", () => {

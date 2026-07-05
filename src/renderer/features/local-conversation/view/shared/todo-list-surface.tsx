@@ -1,11 +1,12 @@
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
 
-interface TodoListSurfaceProps {
+export interface TodoListSurfaceProps {
   item: Pick<CodexTranscriptEntry, "markdownText" | "rawItem"> & { status?: CodexTranscriptEntry["status"] };
 }
 
@@ -114,6 +115,81 @@ function TodoStatusIcon({
   );
 }
 
+function countCompletedSteps(steps: TodoStep[]): number {
+  return steps.reduce((count, step) => count + (step.status === "completed" ? 1 : 0), 0);
+}
+
+function resolveActiveStepIndex(steps: TodoStep[], completedCount: number): number {
+  const explicitIndex = steps.findIndex((step) => step.status === "in_progress");
+  if (explicitIndex >= 0) return explicitIndex;
+  if (steps.length === 0) return -1;
+  if (completedCount === steps.length) return steps.length - 1;
+
+  const firstIncompleteIndex = steps.findIndex((step) => step.status !== "completed");
+  return firstIncompleteIndex >= 0 ? firstIncompleteIndex : steps.length - 1;
+}
+
+function TodoListCompactTooltip({ steps }: { steps: TodoStep[] }) {
+  return (
+    <div className="flex max-h-[min(var(--radix-tooltip-content-available-height),calc(100vh-16px))] min-h-0 max-w-80 flex-1 flex-col overflow-hidden rounded-xl">
+      <div className="vertical-scroll-fade-mask flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 py-2 [--edge-fade-distance:1rem]">
+        {steps.map((step, index) => (
+          <div key={`${index}:${step.step}`} className="flex max-w-80 min-w-0 items-start gap-2">
+            <TodoStatusIcon status={step.status} />
+            <span
+              className={cn(
+                "text-size-chat max-w-72 min-w-0 break-words leading-4",
+                step.status === "completed" ? "text-token-text-tertiary" : "text-token-text-secondary",
+              )}
+            >
+              {step.step}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function TodoListCompactPillContent({
+  item,
+}: TodoListSurfaceProps) {
+  const steps = useMemo(() => parseTodoSteps(item), [item]);
+  const completedCount = useMemo(() => countCompletedSteps(steps), [steps]);
+  const activeStepIndex = useMemo(() => resolveActiveStepIndex(steps, completedCount), [completedCount, steps]);
+  if (steps.length === 0 || activeStepIndex < 0) return null;
+
+  const activeStep = steps[activeStepIndex];
+  const stepNumber = activeStepIndex + 1;
+
+  return (
+    <NodexTooltip
+      delayDuration={0}
+      interactive
+      surface="rich"
+      side="top"
+      sideOffset={8}
+      tooltipContent={<TodoListCompactTooltip steps={steps} />}
+      style={{
+        maxWidth: "min(24rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
+      }}
+    >
+      <span
+        tabIndex={0}
+        aria-label={`Todo progress: Step ${stepNumber} of ${steps.length}`}
+        className="inline-flex max-w-full min-w-0 cursor-interaction rounded-sm hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+      >
+        <span className="text-size-chat flex max-w-full min-w-0 items-center gap-1.5 text-token-text-secondary">
+          <TodoStatusIcon status={activeStep?.status ?? "pending"} />
+          <span className="whitespace-nowrap tabular-nums">
+            Step {stepNumber} / {steps.length}
+          </span>
+        </span>
+      </span>
+    </NodexTooltip>
+  );
+}
+
 function ExpandIcon() {
   return (
     <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
@@ -129,16 +205,9 @@ export function TodoListSurface({
   item,
 }: TodoListSurfaceProps) {
   const steps = useMemo(() => parseTodoSteps(item), [item]);
-  const completedCount = useMemo(
-    () => steps.reduce((count, step) => count + (step.status === "completed" ? 1 : 0), 0),
-    [steps],
-  );
+  const completedCount = useMemo(() => countCompletedSteps(steps), [steps]);
   const totalCount = steps.length;
-  const activeStepIndex = useMemo(() => {
-    const explicitIndex = steps.findIndex((step) => step.status === "in_progress");
-    if (explicitIndex >= 0) return explicitIndex;
-    return completedCount === totalCount ? totalCount - 1 : -1;
-  }, [completedCount, steps, totalCount]);
+  const activeStepIndex = useMemo(() => resolveActiveStepIndex(steps, completedCount), [completedCount, steps]);
   const [expanded, setExpanded] = useState(true);
   const activeStepRef = useRef<HTMLDivElement | null>(null);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();

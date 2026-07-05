@@ -40,26 +40,35 @@ function LocalConversationFooterChrome({
   actions,
   errorMessage,
   onErrorMessage,
+  catchUpControl,
   latestTurnPreview,
+  showComposer = true,
 }: {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
+  catchUpControl: ReactNode;
   latestTurnPreview?: ReactNode;
+  showComposer?: boolean;
 }) {
   return (
-    <>
-      <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
-      <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
-      {latestTurnPreview}
-      <LocalConversationComposerShell
-        model={model}
-        actions={actions}
-        errorMessage={errorMessage}
-        onErrorMessage={onErrorMessage}
-      />
-    </>
+    <div className="flex flex-col" data-thread-find-composer="true">
+      {catchUpControl}
+      <div className="flex flex-col gap-2" data-thread-footer-stack="true">
+        <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
+        <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
+        {latestTurnPreview}
+        {showComposer ? (
+          <LocalConversationComposerShell
+            model={model}
+            actions={actions}
+            errorMessage={errorMessage}
+            onErrorMessage={onErrorMessage}
+          />
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -206,7 +215,7 @@ function LocalConversationFooterComponent({
     scrollToBottom();
   }, [responseSpacerState, scrollToBottom]);
   const catchUpControl = (
-    <div className="relative h-0">
+    <div className="relative h-0" data-thread-catch-up-control="true">
       <AnimatePresence initial={false}>
         {showCatchUpControl ? (
           <motion.div
@@ -259,12 +268,12 @@ function LocalConversationFooterComponent({
           setLatestTurnPreviewState("collapsed");
         }}
       >
-        {catchUpControl}
         <LocalConversationFooterChrome
           model={model}
           actions={actionsWithSubmitPlacement}
           errorMessage={errorMessage}
           onErrorMessage={onErrorMessage}
+          catchUpControl={catchUpControl}
           latestTurnPreview={latestTurnPreview}
         />
       </RightPanelComposerOverlay>
@@ -274,21 +283,26 @@ function LocalConversationFooterComponent({
   if (isResumingActiveThread) {
     return (
       <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"}>
-        {catchUpControl}
-        <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
-        <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
+        <LocalConversationFooterChrome
+          model={model}
+          actions={actionsWithSubmitPlacement}
+          errorMessage={errorMessage}
+          onErrorMessage={onErrorMessage}
+          catchUpControl={catchUpControl}
+          showComposer={false}
+        />
       </div>
     );
   }
 
   return (
     <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"}>
-      {catchUpControl}
       <LocalConversationFooterChrome
         model={model}
         actions={actionsWithSubmitPlacement}
         errorMessage={errorMessage}
         onErrorMessage={onErrorMessage}
+        catchUpControl={catchUpControl}
       />
     </div>
   );

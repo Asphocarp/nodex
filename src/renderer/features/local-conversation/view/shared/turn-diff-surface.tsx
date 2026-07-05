@@ -304,6 +304,74 @@ function TurnDiffBanner({
   );
 }
 
+export function TurnDiffInProgressInlineSummary({
+  item,
+  projectWorkspacePath,
+  threadCwd,
+  reviewSource = "last-turn",
+  onOpenReview,
+  showLeadingSeparator = false,
+}: {
+  item: CodexTranscriptEntry;
+  projectWorkspacePath?: string;
+  threadCwd?: string;
+  reviewSource?: CodexTurnDiffReviewSource;
+  onOpenReview?: (target: CodexTurnDiffReviewTarget) => void;
+  showLeadingSeparator?: boolean;
+}) {
+  const payload = extractTurnDiffPayload(item);
+  const rows = useMemo(() => buildTurnDiffRows(item, threadCwd, projectWorkspacePath), [item, projectWorkspacePath, threadCwd]);
+  const summary = useMemo(() => summarizeTurnDiffRows(rows), [rows]);
+  const reviewTarget = useMemo(
+    () => buildTurnDiffReviewTarget({
+      item,
+      threadCwd,
+      projectWorkspacePath,
+      source: reviewSource,
+    }),
+    [item, projectWorkspacePath, reviewSource, threadCwd],
+  );
+
+  if (!payload || summary.fileCount === 0) return null;
+
+  const handleOpenReview = onOpenReview && reviewTarget
+    ? () => {
+        onOpenReview({
+          ...reviewTarget,
+          path: summary.fileCount === 1 ? rows[0]?.displayPath ?? null : null,
+        });
+      }
+    : undefined;
+
+  return (
+    <div {...{ "codex.turn_diff.state": "in_progress" }}>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        className="flex min-w-0 items-center gap-2"
+      >
+        {showLeadingSeparator ? (
+          <span aria-hidden="true" className="text-token-text-secondary">
+            ·
+          </span>
+        ) : null}
+        <button
+          type="button"
+          aria-label="Review changed files"
+          className="text-size-chat flex min-w-0 cursor-interaction items-center gap-1 rounded-sm text-token-text-secondary hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+          onClick={handleOpenReview}
+        >
+          <span className="block min-w-0 truncate">
+            {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
+          </span>
+          <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
 export function TurnDiffPatchFailureDialog({
   failure,
   onClose,

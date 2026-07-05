@@ -167,6 +167,11 @@ function buildRenderableTurn(overrides?: Partial<CodexConversationTurn>): CodexC
   };
 }
 
+function isBefore(node: Element | null | undefined, nextNode: Element | null | undefined) {
+  if (!node || !nextNode) return false;
+  return Boolean(node.compareDocumentPosition(nextNode) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
 function buildModelWithRenderableLatestTurn(): ThreadFooterModel {
   const baseModel = buildModel();
   const latestTurn = buildRenderableTurn();
@@ -327,7 +332,21 @@ describe("LocalConversationFooter", () => {
     scrollToCalls.length = 0;
     fireEvent.click(getByLabelText("Scroll to latest message"));
 
-    expect(Boolean(container.querySelector(".relative.h-0"))).toBeTrue();
+    const footerOwner = container.querySelector('[data-thread-find-composer="true"]');
+    const catchUpSlot = footerOwner?.querySelector('[data-thread-catch-up-control="true"]');
+    const footerStack = footerOwner?.querySelector('[data-thread-footer-stack="true"]');
+    const aboveComposerPortal = footerStack?.querySelector("#above-composer-portal");
+    const queuePortal = footerStack?.querySelector("#above-composer-queue-portal");
+    const composerShell = footerStack?.querySelector('[data-local-conversation-composer-shell="true"]');
+    expect(footerOwner !== null).toBeTrue();
+    expect(catchUpSlot !== null).toBeTrue();
+    expect(footerStack !== null).toBeTrue();
+    expect(aboveComposerPortal !== null).toBeTrue();
+    expect(queuePortal !== null).toBeTrue();
+    expect(composerShell !== null).toBeTrue();
+    expect(isBefore(catchUpSlot, footerStack)).toBeTrue();
+    expect(isBefore(aboveComposerPortal, queuePortal)).toBeTrue();
+    expect(isBefore(queuePortal, composerShell)).toBeTrue();
     expect(scrollToCalls.length).toBe(1);
     expect(scrollToCalls[0]?.top).toBe(0);
   });
@@ -354,6 +373,9 @@ describe("LocalConversationFooter", () => {
     await waitFor(() => {
       const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]');
       if (!overlay) throw new Error("Expected right-panel overlay");
+      expect(overlay.querySelector('[data-thread-find-composer="true"]') !== null).toBeTrue();
+      expect(overlay.querySelector('[data-thread-catch-up-control="true"]') !== null).toBeTrue();
+      expect(overlay.querySelector('[data-thread-footer-stack="true"]') !== null).toBeTrue();
       expect(overlay.querySelector("#above-composer-portal") !== null).toBeTrue();
       expect(overlay.querySelector("#above-composer-queue-portal") !== null).toBeTrue();
       expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]') !== null).toBeTrue();
@@ -361,14 +383,18 @@ describe("LocalConversationFooter", () => {
     });
 
     const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
-    const aboveComposerPortal = overlay.querySelector("#above-composer-portal");
-    const queuePortal = overlay.querySelector("#above-composer-queue-portal");
-    const latestTurnPreview = overlay.querySelector('[data-right-panel-latest-turn-preview="true"]');
-    const composerShell = overlay.querySelector('[data-local-conversation-composer-shell="true"]');
+    const footerOwner = overlay.querySelector('[data-thread-find-composer="true"]');
+    const catchUpSlot = footerOwner?.querySelector('[data-thread-catch-up-control="true"]');
+    const footerStack = footerOwner?.querySelector('[data-thread-footer-stack="true"]');
+    const aboveComposerPortal = footerStack?.querySelector("#above-composer-portal");
+    const queuePortal = footerStack?.querySelector("#above-composer-queue-portal");
+    const latestTurnPreview = footerStack?.querySelector('[data-right-panel-latest-turn-preview="true"]');
+    const composerShell = footerStack?.querySelector('[data-local-conversation-composer-shell="true"]');
     if (!aboveComposerPortal || !queuePortal || !latestTurnPreview || !composerShell) {
       throw new Error("Expected overlay fixture nodes");
     }
 
+    expect(isBefore(catchUpSlot, footerStack)).toBeTrue();
     expect(Boolean(aboveComposerPortal.compareDocumentPosition(queuePortal) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
     expect(Boolean(queuePortal.compareDocumentPosition(latestTurnPreview) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
     expect(Boolean(latestTurnPreview.compareDocumentPosition(composerShell) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
@@ -382,6 +408,50 @@ describe("LocalConversationFooter", () => {
     expect(previewToggle?.getAttribute("aria-expanded")).toBe("true");
     fireEvent.pointerDown(document.body);
     expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("keeps queued follow-ups in the queue portal outside the fixed pill", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const baseModel = buildModel();
+    const model = buildModel({
+      isQueueingEnabled: true,
+      composerShell: {
+        ...baseModel.composerShell,
+        queuedFollowUpRows: [
+          {
+            followUpId: "follow-up-1",
+            threadId: "thread_1",
+            prompt: "Run the final checks",
+            displayText: "Run the final checks",
+          },
+        ],
+      },
+    });
+    const { container } = render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={model}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    await waitFor(() => {
+      const queuePortal = container.querySelector("#above-composer-queue-portal");
+      if (!queuePortal?.textContent?.includes("Run the final checks")) {
+        throw new Error("Expected queued follow-up in queue portal");
+      }
+    });
+
+    const aboveComposerPortal = container.querySelector("#above-composer-portal");
+    const queuePortal = container.querySelector("#above-composer-queue-portal");
+    expect(Boolean(queuePortal?.textContent?.includes("Run the final checks"))).toBeTrue();
+    expect(Boolean(aboveComposerPortal?.textContent?.includes("Run the final checks"))).toBeFalse();
+    expect(container.querySelector("[data-above-composer-fixed-pill]") === null).toBeTrue();
   });
 
   test("overlay outside pointerdown collapses preview without globally dismissing tooltips", async () => {
@@ -450,5 +520,8 @@ describe("LocalConversationFooter", () => {
 
     expect(target.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBeTrue();
     expect(container.querySelector('[data-local-conversation-composer-shell="true"]') === null).toBeTrue();
+    expect(container.querySelector('[data-thread-find-composer="true"]') !== null).toBeTrue();
+    expect(container.querySelector("#above-composer-portal") !== null).toBeTrue();
+    expect(container.querySelector("#above-composer-queue-portal") !== null).toBeTrue();
   });
 });

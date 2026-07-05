@@ -1,15 +1,74 @@
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useCallback, useLayoutEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import type {
   ThreadBlockModel,
   ThreadPlanSidePanelState,
   ThreadStageActions,
+  ThreadTranscriptBlockModel,
 } from "../thread-stage-types";
-import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
+import { TodoListCompactPillContent } from "./shared/todo-list-surface";
+import { TurnDiffInProgressInlineSummary } from "./shared/turn-diff-surface";
 import { usePortalHost } from "./use-portal-host";
 
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID = "above-composer-portal";
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID = "above-composer-queue-portal";
+
+type AboveComposerFixedBlock = ThreadTranscriptBlockModel & {
+  type: "todoList" | "turnDiff";
+};
+
+const ABOVE_COMPOSER_FIXED_CONTENT_TRANSITION = {
+  duration: 0.15,
+  ease: "easeOut",
+} as const;
+
+const ABOVE_COMPOSER_PILL_WIDTH_TRANSITION = {
+  duration: 0.18,
+  ease: "easeOut",
+} as const;
+
+function isAboveComposerFixedBlock(block: ThreadBlockModel): block is AboveComposerFixedBlock {
+  if (!("entry" in block)) return false;
+  return block.type === "todoList" || block.type === "turnDiff";
+}
+
+function useMeasuredElementWidth() {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [elementWidthPx, setElementWidthPx] = useState<number | null>(null);
+
+  const elementRef = useCallback((node: HTMLDivElement | null) => {
+    setElement(node);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (element === null) {
+      setElementWidthPx(null);
+      return;
+    }
+
+    const updateWidth = () => {
+      const nextWidth = Math.ceil(element.getBoundingClientRect().width);
+      setElementWidthPx((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth));
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") return;
+
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(element);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [element]);
+
+  return {
+    elementRef,
+    elementWidthPx,
+  };
+}
 
 export function LocalConversationAboveComposerPortalHost({
   conversationId,
@@ -17,17 +76,12 @@ export function LocalConversationAboveComposerPortalHost({
   conversationId?: string | null;
 }) {
   return (
-    <div className="contents" data-thread-find-composer="true">
-      <div className="relative h-0" />
-      <div>
-        <div
-          id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID}
-          data-above-composer-portal="true"
-          data-above-composer-conversation-id={conversationId ?? undefined}
-          className="relative px-5 empty:hidden"
-        />
-      </div>
-    </div>
+    <div
+      id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID}
+      data-above-composer-portal="true"
+      data-above-composer-conversation-id={conversationId ?? undefined}
+      className="relative min-w-0 px-5 empty:hidden"
+    />
   );
 }
 
@@ -41,8 +95,124 @@ export function LocalConversationAboveComposerQueuePortalHost({
       id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID}
       data-above-composer-queue-portal="true"
       data-above-composer-conversation-id={conversationId ?? undefined}
-      className="relative px-5 empty:hidden"
+      className="relative min-w-0 px-5 empty:hidden"
     />
+  );
+}
+
+function AboveComposerMeasuredPill({ children }: { children: ReactNode }) {
+  const reducedMotion = useReducedMotion();
+  const { elementRef, elementWidthPx } = useMeasuredElementWidth();
+  const animateWidth = !reducedMotion && elementWidthPx !== null
+    ? { width: elementWidthPx }
+    : undefined;
+  const instantWidthStyle: CSSProperties | undefined = reducedMotion && elementWidthPx !== null
+    ? { width: elementWidthPx }
+    : undefined;
+
+  return (
+    <motion.div
+      animate={animateWidth}
+      transition={reducedMotion ? { duration: 0 } : ABOVE_COMPOSER_PILL_WIDTH_TRANSITION}
+      className="relative z-10 w-fit max-w-(--thread-content-max-width) min-w-0 overflow-hidden rounded-3xl"
+      data-above-composer-fixed-pill="true"
+      style={instantWidthStyle}
+    >
+      <div
+        ref={elementRef}
+        className="flex w-max max-w-(--thread-content-max-width) min-w-0 items-center gap-2 rounded-3xl border border-token-border/80 bg-token-input-background/70 px-3 py-1.5 text-token-foreground backdrop-blur-sm"
+        data-above-composer-fixed-pill-inner="true"
+      >
+        {children}
+      </div>
+    </motion.div>
+  );
+}
+
+function AboveComposerFixedContentLayer({
+  blocks,
+  projectWorkspacePath,
+  threadCwd,
+  onOpenTurnDiffReview,
+}: {
+  blocks: AboveComposerFixedBlock[];
+  projectWorkspacePath?: string | null;
+  threadCwd?: string | null;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+}) {
+  const reducedMotion = useReducedMotion();
+  const todoBlock = blocks.find((block) => block.type === "todoList") ?? null;
+  const turnDiffBlock = blocks.find((block) => block.type === "turnDiff") ?? null;
+  const hasFixedContent = todoBlock !== null || turnDiffBlock !== null;
+  const motionState = reducedMotion
+    ? {
+        initial: { opacity: 0 },
+        animate: { opacity: 1 },
+        exit: { opacity: 0 },
+      }
+    : {
+        initial: { opacity: 0, y: 4 },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 0, y: 4 },
+      };
+  const transition = reducedMotion ? { duration: 0 } : ABOVE_COMPOSER_FIXED_CONTENT_TRANSITION;
+
+  return (
+    <>
+      <div aria-hidden="true" className="h-8" data-above-composer-fixed-spacer="true" />
+      <AnimatePresence initial={false}>
+        {hasFixedContent ? (
+          <motion.div
+            key="fixed-content"
+            className="absolute inset-x-5 bottom-1 flex min-h-7 items-center justify-center gap-2 pb-1"
+            data-above-composer-fixed-content="true"
+            initial={motionState.initial}
+            animate={motionState.animate}
+            exit={motionState.exit}
+            transition={transition}
+          >
+            <div
+              className="pointer-events-none absolute inset-x-0 -bottom-1 h-7 bg-gradient-to-t from-token-main-surface-primary to-transparent"
+              data-above-composer-fixed-fade="true"
+            />
+            <AboveComposerMeasuredPill>
+              <AnimatePresence initial={false}>
+                {todoBlock ? (
+                  <motion.div
+                    key="todo"
+                    className="max-w-full min-w-0"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={transition}
+                  >
+                    <TodoListCompactPillContent item={todoBlock.entry} />
+                  </motion.div>
+                ) : null}
+                {turnDiffBlock ? (
+                  <motion.div
+                    key="diff"
+                    className="min-w-0"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={transition}
+                  >
+                    <TurnDiffInProgressInlineSummary
+                      item={turnDiffBlock.entry}
+                      projectWorkspacePath={projectWorkspacePath ?? undefined}
+                      threadCwd={threadCwd ?? undefined}
+                      onOpenReview={onOpenTurnDiffReview}
+                      showLeadingSeparator={todoBlock !== null}
+                    />
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </AboveComposerMeasuredPill>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -65,47 +235,25 @@ interface LocalConversationAboveComposerPortalProps {
 
 export function LocalConversationAboveComposerPortal({
   blocks,
-  isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
-  onOpenTurnDiffFileInSidePanel,
-  onOpenSideChat,
-  onOpenThread,
-  onOpenMcpAppSidePanel,
-  onOpenPlanInSidePanel,
-  onClosePlanSidePanel,
-  planSidePanelState,
-  turnDiffHoverPreviewDisabled = false,
 }: LocalConversationAboveComposerPortalProps) {
   const host = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID);
+  const fixedBlocks = blocks.filter(isAboveComposerFixedBlock);
   if (blocks.length === 0) return null;
+  if (!isStreamingTurn) return null;
+  if (fixedBlocks.length === 0) return null;
   if (!host) return null;
 
   return createPortal(
-    <div className="flex flex-col">
-      {blocks.map((block) => (
-        <ThreadBlockRenderer
-          key={block.id}
-          block={block}
-          isLatestTurn={isLatestTurn}
-          isStreamingTurn={isStreamingTurn}
-          projectWorkspacePath={projectWorkspacePath}
-          threadCwd={threadCwd}
-          onOpenTurnDiffReview={onOpenTurnDiffReview}
-          onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-          onOpenSideChat={onOpenSideChat}
-          onOpenThread={onOpenThread}
-          onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-          onOpenPlanInSidePanel={onOpenPlanInSidePanel}
-          onClosePlanSidePanel={onClosePlanSidePanel}
-          planSidePanelState={planSidePanelState}
-          allowInProgressTurnDiff={true}
-          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-        />
-      ))}
-    </div>,
+    <AboveComposerFixedContentLayer
+      blocks={fixedBlocks}
+      projectWorkspacePath={projectWorkspacePath}
+      threadCwd={threadCwd}
+      onOpenTurnDiffReview={onOpenTurnDiffReview}
+    />,
     host,
   );
 }

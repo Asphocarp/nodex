@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
+import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { render, textContent } from "../../../../test/dom";
-import { parseTodoSteps, TodoListSurface } from "./todo-list-surface";
+import { parseTodoSteps, TodoListCompactPillContent, TodoListSurface } from "./todo-list-surface";
 
 describe("parseTodoSteps", () => {
   test("prefers structured raw plan steps when available", () => {
@@ -39,6 +40,27 @@ describe("parseTodoSteps", () => {
 });
 
 describe("TodoListSurface", () => {
+  test("renders compact above-composer step progress from parsed todo steps", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <TodoListCompactPillContent
+          item={{
+            markdownText: [
+              "- [x] Audit the bundle",
+              "- [ ] Port the todo shell",
+              "- [ ] Update stories",
+            ].join("\n"),
+            status: "inProgress",
+            rawItem: undefined,
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Step 2 / 3"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("1 out of 3 tasks completed"))).toBeFalse();
+  });
+
   test("renders the Codex-style completion summary and expandable step list", () => {
     const { container, getByRole } = render(
       <TodoListSurface

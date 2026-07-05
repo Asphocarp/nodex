@@ -90,30 +90,32 @@ function buildShellModel(customize?: (model: ReturnType<typeof buildThreadStageS
   return customize ? customize(model) : model;
 }
 
-function buildPortalTasksAndFileChangesModel() {
+function buildPortalContentModel({
+  includeTodo = true,
+  includeDiff = true,
+}: {
+  includeTodo?: boolean;
+  includeDiff?: boolean;
+} = {}) {
   const controls: ThreadStageStoryControls = {
     ...STORY_CONTROLS,
     preset: "streaming",
   };
   const scenario = buildThreadStageStoryScenario(controls);
-  const conversation = buildStoryConversation({
-    statusType: "active",
-    turns: [
-      buildStoryConversationTurn({
-        turnId: "turn_story_portal",
-        status: "inProgress",
-        items: [
-          buildStoryConversationItem({
-            turnId: "turn_story_portal",
-            itemId: "user_story_portal",
-            type: "user_message",
-            kind: "userMessage",
-            semanticKind: "userMessage",
-            role: "user",
-            markdownText: "Fix context compaction parity and keep the above-composer portal aligned with Codex Electron.",
-            createdAt: 10_000,
-            updatedAt: 10_000,
-          }),
+  const portalItems = [
+    buildStoryConversationItem({
+      turnId: "turn_story_portal",
+      itemId: "user_story_portal",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: "Fix context compaction parity and keep the above-composer portal aligned with Codex Electron.",
+      createdAt: 10_000,
+      updatedAt: 10_000,
+    }),
+    ...(includeTodo
+      ? [
           buildStoryConversationItem({
             turnId: "turn_story_portal",
             itemId: "todo_story_portal",
@@ -145,6 +147,10 @@ function buildPortalTasksAndFileChangesModel() {
             createdAt: 11_000,
             updatedAt: 11_000,
           }),
+        ]
+      : []),
+    ...(includeDiff
+      ? [
           buildStoryConversationItem({
             turnId: "turn_story_portal",
             itemId: "turn_diff_story_portal",
@@ -180,7 +186,16 @@ function buildPortalTasksAndFileChangesModel() {
             createdAt: 12_000,
             updatedAt: 12_000,
           }),
-        ],
+        ]
+      : []),
+  ];
+  const conversation = buildStoryConversation({
+    statusType: "active",
+    turns: [
+      buildStoryConversationTurn({
+        turnId: "turn_story_portal",
+        status: "inProgress",
+        items: portalItems,
       }),
     ],
     queuedFollowUps: [],
@@ -199,6 +214,38 @@ function buildPortalTasksAndFileChangesModel() {
       [conversation.threadId]: conversation,
     },
   });
+}
+
+function buildPortalTasksAndFileChangesModel() {
+  return buildPortalContentModel({ includeTodo: true, includeDiff: true });
+}
+
+function buildPortalFileChangesOnlyModel() {
+  return buildPortalContentModel({ includeTodo: false, includeDiff: true });
+}
+
+function buildPortalTasksOnlyModel() {
+  return buildPortalContentModel({ includeTodo: true, includeDiff: false });
+}
+
+function buildQueueAndFileChangesModel() {
+  const portalModel = buildPortalFileChangesOnlyModel();
+  const queueModel = buildShellModel();
+
+  return {
+    ...portalModel,
+    footerModel: {
+      ...portalModel.footerModel,
+      composerShell: {
+        ...portalModel.footerModel.composerShell,
+        pendingSteerRows: queueModel.footerModel.composerShell.pendingSteerRows,
+        queuedFollowUpRows: queueModel.footerModel.composerShell.queuedFollowUpRows,
+        backgroundAgentRows: queueModel.footerModel.composerShell.backgroundAgentRows,
+        backgroundTerminalRows: queueModel.footerModel.composerShell.backgroundTerminalRows,
+        showRequestCards: queueModel.footerModel.composerShell.showRequestCards,
+      },
+    },
+  };
 }
 
 function buildLiveDraftedEditDiffModel() {
@@ -279,21 +326,26 @@ function AboveComposerStoryFrame({
       <TooltipProvider>
         <div className="flex-1" />
         <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
-          <LocalConversationAboveComposerPortalHost conversationId={model.footerModel.threadId} />
-          <LocalConversationAboveComposerQueuePortalHost conversationId={model.footerModel.threadId} />
-          <LocalConversationAboveComposerPortal
-            blocks={resolveStoryAboveComposerBlocks(model)}
-            isLatestTurn={model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId}
-            isStreamingTurn={true}
-            projectWorkspacePath={model.bodyModel.projectWorkspacePath}
-            threadCwd={model.footerModel.conversation?.cwd ?? null}
-          />
-          <LocalConversationComposerShell
-            model={model.footerModel}
-            actions={buildActions()}
-            errorMessage={null}
-            onErrorMessage={() => { }}
-          />
+          <div className="flex flex-col" data-thread-find-composer="true">
+            <div className="relative h-0" data-thread-catch-up-control="true" />
+            <div className="flex flex-col gap-2" data-thread-footer-stack="true">
+              <LocalConversationAboveComposerPortalHost conversationId={model.footerModel.threadId} />
+              <LocalConversationAboveComposerQueuePortalHost conversationId={model.footerModel.threadId} />
+              <LocalConversationAboveComposerPortal
+                blocks={resolveStoryAboveComposerBlocks(model)}
+                isLatestTurn={model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId}
+                isStreamingTurn={true}
+                projectWorkspacePath={model.bodyModel.projectWorkspacePath}
+                threadCwd={model.footerModel.conversation?.cwd ?? null}
+              />
+              <LocalConversationComposerShell
+                model={model.footerModel}
+                actions={buildActions()}
+                errorMessage={null}
+                onErrorMessage={() => { }}
+              />
+            </div>
+          </div>
         </div>
       </TooltipProvider>
     </div>
@@ -338,6 +390,30 @@ function NarrowRequestCardsStory() {
   );
 }
 
+function RightPanelOverlayNarrowStory() {
+  return (
+    <div className="max-w-[420px]">
+      <AboveComposerStoryFrame
+        model={buildPortalTasksAndFileChangesModel()}
+        title="Right Panel Overlay Narrow"
+        description="Narrow overlay fixture for the shared above-composer fixed layer, compact todo progress, and files-changed pill above the composer."
+      />
+    </div>
+  );
+}
+
+function RightPanelOverlayWideStory() {
+  return (
+    <div className="max-w-[760px]">
+      <AboveComposerStoryFrame
+        model={buildPortalTasksAndFileChangesModel()}
+        title="Right Panel Overlay Wide"
+        description="Wide overlay fixture for the same ordered portal host, queue host, and composer stack used by the right-panel composer overlay."
+      />
+    </div>
+  );
+}
+
 const meta = {
   title: "Workbench/Threads/Above Composer",
   component: AboveComposerStoryFrame,
@@ -373,12 +449,42 @@ export const QueueRowsOnly: Story = {
   render: () => <QueueRowsOnlyStory />,
 };
 
+export const FileChangesOnlyInPortal: Story = {
+  args: {
+    model: buildPortalFileChangesOnlyModel(),
+    title: "File Changes Only In Portal",
+    description:
+      "Focused fixed-layer story for the active turn files-changed summary without todo progress or queue rows.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const TasksOnlyInPortal: Story = {
+  args: {
+    model: buildPortalTasksOnlyModel(),
+    title: "Tasks Only In Portal",
+    description:
+      "Focused fixed-layer story for compact active-turn todo progress without a files-changed summary.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
 export const FileChangesAndTasksInPortal: Story = {
   args: {
     model: buildPortalTasksAndFileChangesModel(),
     title: "File Changes And Tasks In Portal",
     description:
       "Debug fixture for the Codex Electron portal shape where the active turn lifts both the todo/tasks card and the files-changed banner into the fixed above-composer portal while the queue lane stays empty.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const QueueAndFileChangesInPortal: Story = {
+  args: {
+    model: buildQueueAndFileChangesModel(),
+    title: "Queue And File Changes In Portal",
+    description:
+      "Combined fixture proving queue/background rows remain in the queue lane while files-changed renders in the fixed above-composer pill.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
 };
@@ -400,4 +506,22 @@ export const RequestCardsNarrow: Story = {
       "Narrow-width parity story verifying existing-thread request cards replace composer controls without rendering the new-chat-only lower status strip.",
   },
   render: () => <NarrowRequestCardsStory />,
+};
+
+export const RightPanelOverlayNarrow: Story = {
+  args: {
+    title: "Right Panel Overlay Narrow",
+    description:
+      "Narrow overlay-width fixture for the ordered above-composer fixed layer and composer stack.",
+  },
+  render: () => <RightPanelOverlayNarrowStory />,
+};
+
+export const RightPanelOverlayWide: Story = {
+  args: {
+    title: "Right Panel Overlay Wide",
+    description:
+      "Wide overlay-width fixture for the ordered above-composer fixed layer and composer stack.",
+  },
+  render: () => <RightPanelOverlayWideStory />,
 };
