@@ -291,9 +291,9 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
   return (
     <div className="min-h-[320px] rounded-[24px] border border-(--border) bg-(--background) p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
       <div className="mb-4 max-w-2xl">
-        <div className="text-sm font-semibold text-(--foreground)">Composer Send Button</div>
+        <div className="text-sm font-semibold text-(--foreground)">Thread Composer</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          Running-thread composer states reconstructed from the Codex Electron send-button state machine. Hover the primary action to inspect the exact running-thread queue-versus-steer tooltip and platform keycaps.
+          Focused composer footer states for inspecting running-thread actions, Plan mode, permissions, and compact footer wrapping.
         </div>
       </div>
       <TooltipProvider>
@@ -311,7 +311,7 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
 }
 
 const meta = {
-  title: "Workbench/Threads/Composer Send Button",
+  title: "Workbench/Threads/Composer Footer",
   component: ComposerSendButtonStory,
   args: {
     isQueueingEnabled: false,
@@ -386,7 +386,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused Codex-style parity story for the running-thread composer button. Empty draft keeps Stop; any draft switches to submit, which becomes Steer or Queue based on the queue-follow-ups preference and shows the exact platform keycap tooltip rows.",
+          "Focused Codex-style parity story for the thread composer footer. Variants cover running-thread submit modes, active Plan mode, compact footer wrapping, and platform keycap tooltip rows.",
       },
     },
   },
@@ -411,6 +411,22 @@ export const NewChatEmptyNarrow: Story = {
     draftPrompt: "",
     threadState: "newChat",
     surfaceWidth: "narrow",
+  },
+};
+
+export const PlanModeFooterAccessory: Story = {
+  args: {
+    selectedCollaborationMode: "plan",
+    permissionMode: "full-access",
+    draftPrompt: "Draft a migration plan for the composer footer parity work.",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Active Plan mode footer accessory parity: Add context, permission selector, divider, then the Plan toggle chip.",
+      },
+    },
   },
 };
 

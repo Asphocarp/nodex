@@ -11,6 +11,7 @@ import {
   NodexDropdownMenu,
 } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
+import { COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME } from "./composer-footer-controls";
 
 const PERMISSION_MODE_ITEMS: Array<{ value: CodexPermissionMode; label: string }> = [
   { value: "auto", label: "Default permissions" },
@@ -85,7 +86,7 @@ export function PermissionModeDropdown({
         <button
           type="button"
           aria-label="Permission mode"
-          className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px] min-w-0"
+          className={COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME}
         >
           <PermissionModeMenuIcon
             mode={selectedMode}

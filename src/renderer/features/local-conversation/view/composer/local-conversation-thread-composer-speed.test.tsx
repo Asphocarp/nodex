@@ -1601,14 +1601,22 @@ describe("ThreadComposer speed menu", () => {
     );
 
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
+    const addContextButton = view.getByLabelText("Add files and more");
+    const permissionTrigger = view.getByLabelText("Permission mode");
     const planButton = view.getByLabelText("Plan");
+    const planAccessoryDivider = formFooter?.querySelector('[data-composer-footer-accessory-divider="true"]');
 
     expect(formFooter !== null).toBeTrue();
+    expect(formFooter?.contains(addContextButton)).toBeTrue();
+    expect(formFooter?.contains(permissionTrigger)).toBeTrue();
     expect(formFooter?.contains(planButton)).toBeTrue();
     expect(planButton.hasAttribute("aria-haspopup")).toBeFalse();
     expect(planButton.getAttribute("data-slot") === "dropdown-trigger").toBeFalse();
-    expect(planButton.querySelector('[data-plan-mode-icon="plan"]') !== null).toBeTrue();
-    expect(planButton.querySelector('[data-plan-mode-icon="close"]') !== null).toBeTrue();
+    expect(planAccessoryDivider !== null).toBeTrue();
+    expect(Boolean(addContextButton.compareDocumentPosition(permissionTrigger) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(permissionTrigger.compareDocumentPosition(planButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(permissionTrigger.nextElementSibling === planAccessoryDivider).toBeTrue();
+    expect(planAccessoryDivider?.nextElementSibling === planButton).toBeTrue();
 
     await act(async () => {
       fireEvent.click(planButton);

@@ -108,6 +108,13 @@ import {
   resolveNextComposerPlanMode,
   shouldShowComposerPlanKeywordSuggestion,
 } from "./composer-plan-mode";
+import {
+  COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME,
+  COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME,
+  COMPOSER_FOOTER_LABEL_NARROW_CLASS_NAME,
+  COMPOSER_FOOTER_PLAN_ACCESSORY_BUTTON_CLASS_NAME,
+  ComposerFooterAccessoryDivider,
+} from "../shared/composer-footer-controls";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -374,7 +381,7 @@ function ComposerAddContextDropdown({
       triggerButton={(
         <button
           type="button"
-          className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer px-2 py-0 text-sm leading-[18px] aspect-square items-center justify-center !px-0"
+          className={COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME}
           aria-label={triggerLabel}
           title={triggerLabel}
           disabled={disabled}
@@ -486,18 +493,14 @@ function ActiveComposerModeChip({
       <button
         type="button"
         aria-label="Plan"
-        className="group inline-flex h-7 shrink-0 cursor-interaction items-center gap-1 rounded-full border border-transparent bg-token-text-link-foreground/10 px-2 py-0 text-sm/4.5 text-token-text-link-foreground hover:bg-token-text-link-foreground/10 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+        className={COMPOSER_FOOTER_PLAN_ACCESSORY_BUTTON_CLASS_NAME}
         onClick={() => {
           onToggle();
         }}
       >
-        <span data-plan-mode-icon="plan" className="inline-flex shrink-0 group-hover:hidden">
-          <ComposerPlanModeIcon />
-        </span>
-        <span data-plan-mode-icon="close" className="hidden shrink-0 group-hover:inline-flex">
-          <ComposerPlanModeCloseIcon />
-        </span>
-        <span className="composer-footer__label--sm max-w-16 truncate">Plan</span>
+        <ComposerPlanModeIcon className="group-hover:hidden" />
+        <ComposerPlanModeCloseIcon className="hidden group-hover:block" />
+        <span className={COMPOSER_FOOTER_LABEL_NARROW_CLASS_NAME}>Plan</span>
       </button>
     </NodexTooltip>
   );
@@ -719,7 +722,7 @@ function IntelligenceSelectorDropdown({
         <button
           type="button"
           aria-label="Select Codex model and reasoning"
-          className="border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer px-2 py-0 text-sm leading-[18px] min-w-0"
+          className={`${COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME} min-w-0`}
         >
           <span className="flex max-w-40 min-w-0 items-center gap-1.5">
             <span className="flex min-w-0 items-center gap-1 tabular-nums">
@@ -1868,11 +1871,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     onInsertPlugin={handleInsertPluginMention}
                   />
 
-                  <ActiveComposerModeChip
-                    model={model}
-                    onToggle={togglePlanMode}
-                  />
-
                   <PermissionModeDropdown
                     selectedMode={model.permissionMode}
                     availableModes={permissionState?.availableModes}
@@ -1880,6 +1878,15 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     customDescription={permissionState?.customDescription ?? null}
                     accentCurrentMode
                     onSelect={actions.onPermissionModeChange}
+                  />
+
+                  {model.selectedCollaborationMode === "plan" ? (
+                    <ComposerFooterAccessoryDivider />
+                  ) : null}
+
+                  <ActiveComposerModeChip
+                    model={model}
+                    onToggle={togglePlanMode}
                   />
                 </div>
 
