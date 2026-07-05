@@ -8,6 +8,7 @@ import type {
   CodexConversationSnapshot,
   CodexEvent,
   CodexItemView,
+  CodexMcpServerElicitationResponse,
   CodexCollaborationModePreset,
   CodexPermissionMode,
   CodexPermissionState,
@@ -23,7 +24,7 @@ import type {
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
 } from "../../shared/types";
-import { getCodexFileChangeList } from "../../shared/codex-file-change";
+import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
 import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
@@ -147,7 +148,10 @@ interface TestableCodexService {
     },
   ) => Promise<void>;
   sendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
-  respondToMcpServerElicitation: (requestId: string, action: "accept" | "decline" | "cancel") => Promise<boolean>;
+  respondToMcpServerElicitation: (
+    requestId: string,
+    response: "accept" | "decline" | "cancel" | CodexMcpServerElicitationResponse,
+  ) => Promise<boolean>;
   startThreadForSession: (input: {
     projectId: string;
     sessionId: string;
@@ -803,7 +807,7 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(item?.itemId ?? "").toBe("patch-live");
       expect(item?.status ?? "").toBe("inProgress");
       expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
-      expect(item?.fileChange?.paths.join(",") ?? "").toBe("src/app.ts");
+      expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("src/app.ts");
     } finally {
       await service.shutdown();
     }
@@ -11418,9 +11422,22 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(rawElicitation?.mode ?? "").toBe("openai/form");
       expect(rawElicitation?.requestedSchema?.type ?? "").toBe("object");
 
-      const responded = await service.respondToMcpServerElicitation("mcp_req", "accept");
+      const responded = await service.respondToMcpServerElicitation("mcp_req", {
+        action: "accept",
+        content: {
+          library: "react",
+        },
+        _meta: null,
+      });
       expect(responded).toBeTrue();
-      await requestPromise;
+      const response = await requestPromise;
+      expect(JSON.stringify(response)).toBe(JSON.stringify({
+        action: "accept",
+        content: {
+          library: "react",
+        },
+        _meta: null,
+      }));
 
       item = getRecordedItem(serviceInternals, "thr_mcp", "turn_mcp", "mcp-server-elicitation-mcp_req");
       expect(item?.status).toBe("completed");
@@ -13421,7 +13438,7 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(item?.itemId ?? "").toBe("patch_live");
         expect(item?.status ?? "").toBe("inProgress");
         expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
-        expect(item?.fileChange?.paths.join(",") ?? "").toBe("poem.md");
+        expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("poem.md");
         expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? "").toBe("add");
       } finally {
         await service.shutdown();
@@ -13481,8 +13498,9 @@ describe("codex-service terminal turn reconciliation", () => {
         const latest = projectConversationFromHostMessages(hostMessages);
         const items = latest?.turns[0]?.items ?? [];
         expect(items.length).toBe(1);
-        expect(items[0]?.fileChange?.paths.join(",") ?? "").toBe("src/new.ts");
-        expect((items[0]?.fileChange?.diffs[0] ?? "").includes("after")).toBeTrue();
+        const latestChange = getCodexFileChangeList(items[0]?.fileChange?.changes)[0];
+        expect(getCodexFileChangePaths(items[0]?.fileChange?.changes).join(",")).toBe("src/new.ts");
+        expect(latestChange?.type === "update" ? latestChange.unifiedDiff.includes("after") : false).toBeTrue();
       } finally {
         await service.shutdown();
       }

@@ -2,35 +2,107 @@ import type { CodexConversationItem, CodexDynamicToolCallView } from "../../../.
 import { humanizeIdentifier } from "./tool-call-utils";
 
 const CODEX_APP_NAMESPACE = "codex_app";
+const CHROME_EXTENSION_NAMESPACE = "chrome_extension";
 
-const CODEX_APP_META_THREAD_TOOL_NAMES = new Set([
-  "fork_thread",
-  "create_thread",
-  "list_threads",
-  "read_thread",
-  "send_message_to_thread",
-  "set_thread_pinned",
-  "set_thread_archived",
-  "set_thread_title",
-  "handoff_thread",
-  "get_handoff_status",
-]);
+const DYNAMIC_TOOL_COMPLETED_FALLBACK_LABELS: Record<string, string> = {
+  automation_update: "Scheduled task updated",
+  load_workspace_dependencies: "Loaded workspace dependencies",
+  pia_slackbot_dm: "Pia Slackbot DM",
+  read_thread_terminal: "Read thread terminal",
+};
 
-const CODEX_APP_CONTINUING_LIVE_ACTIVITY_TOOLS = new Set([
-  "list_threads",
-  "read_thread",
-]);
+const DYNAMIC_TOOL_ACTIVE_FALLBACK_LABELS: Record<string, string> = {
+  automation_update: "Updating scheduled task",
+  load_workspace_dependencies: "Loading workspace dependencies",
+  pia_slackbot_dm: "Pia Slackbot DM",
+  read_thread_terminal: "Reading thread terminal",
+};
 
-export function stringifyDynamicToolValue(value: unknown, spacing = 2): string {
-  try {
-    return JSON.stringify(
-      value,
-      (_key, nestedValue) => (typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue),
-      spacing,
-    ) ?? "null";
-  } catch {
-    return "";
-  }
+export type DynamicToolRendererKind =
+  | "chromeTabContext"
+  | "codexAppThread"
+  | "settings";
+
+export type DynamicToolRegistryEntry = {
+  namespace: string | null;
+  tool: string;
+  rendererKind: DynamicToolRendererKind;
+  continuesLiveActivityBetweenCalls?: boolean;
+  standaloneInConversation?: boolean;
+  summaryOnlyInConversationGroup?: boolean;
+  resolveLabel: (call: CodexDynamicToolCallView) => string | null;
+  getCompletedSummaryPartKey?: (call: CodexDynamicToolCallView) => string | null;
+};
+
+const CODEX_APP_THREAD_LABELS = {
+  threadsForkActive: "Forking thread",
+  threadsForkCompleted: "Forked thread",
+  threadsForkInWorktreeActive: "Creating worktree fork",
+  threadsForkInWorktreeCompleted: "Created worktree fork",
+  threadsCreateActive: "Creating chat",
+  threadsCreateCompleted: "Created chat",
+  threadsCreateInWorktreeActive: "Creating worktree chat",
+  threadsCreateInWorktreeCompleted: "Created worktree chat",
+  threadsListActive: "Listing threads",
+  threadsListCompleted: "Listed threads",
+  threadsReadActive: "Reading thread",
+  threadsReadCompleted: "Read thread",
+  threadsHandoffStatusActive: "Checking handoff status",
+  threadsHandoffStatusCompleted: "Checked handoff status",
+  threadsSendMessageActive: "Sending message to thread",
+  threadsSendMessageCompleted: "Sent message to thread",
+  threadsSetArchivedActive: "Updating thread archive",
+  threadsSetArchivedCompleted: "Updated thread archive",
+  threadsSetPinnedActive: "Updating thread pin",
+  threadsSetPinnedCompleted: "Updated thread pin",
+  threadsSetTitleActive: "Renaming thread",
+  threadsSetTitleCompleted: "Renamed thread",
+} as const satisfies Record<string, string>;
+
+type CodexAppThreadLabelKey = keyof typeof CODEX_APP_THREAD_LABELS;
+
+export type CodexAppHandoffStatus = "queued" | "running" | "success" | "warning" | "error";
+
+export interface CodexAppHandoffStep {
+  id: string;
+  label: string;
+  message: string | null;
+  status: CodexAppHandoffStatus;
+}
+
+export interface CodexAppHandoffResult {
+  destinationHostDisplayName: string | null;
+  message: string | null;
+  operationId: string;
+  status: CodexAppHandoffStatus;
+  steps: CodexAppHandoffStep[];
+  threadTitle: string | null;
+}
+
+export interface CodexAppHandoffRenderState {
+  activityStatus: "completed" | "failed" | "running";
+  active: boolean;
+  label: string;
+  result: CodexAppHandoffResult | null;
+}
+
+function isKnownHandoffStatus(value: unknown): value is CodexAppHandoffStatus {
+  return value === "queued"
+    || value === "running"
+    || value === "success"
+    || value === "warning"
+    || value === "error";
+}
+
+function resolveSettingsToolLabel(call: CodexDynamicToolCallView): string | null {
+  if (call.tool === "read_settings") return call.completed ? "Read settings" : "Reading settings";
+  if (call.tool === "write_settings") return call.completed ? "Updated settings" : "Updating settings";
+  return null;
+}
+
+function resolveChromeTabContextLabel(call: CodexDynamicToolCallView): string | null {
+  if (parseChromeTabContextTabId(call) === null) return null;
+  return call.completed ? "Read tab" : "Reading tab";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -38,17 +110,305 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function getRequiredString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function parseInputTextJson(call: CodexDynamicToolCallView): Record<string, unknown> | null {
+  const inputText = (call.contentItems ?? []).find((item) => item.type === "inputText")?.text;
+  if (!inputText) return null;
+  try {
+    return asRecord(JSON.parse(inputText));
+  } catch {
+    return null;
+  }
+}
+
+function parseCodexAppHandoffArguments(call: CodexDynamicToolCallView): { destinationHostId: string | null; threadId: string } | null {
+  const args = asRecord(call.arguments);
+  const threadId = getRequiredString(args ?? {}, "threadId");
+  if (!threadId) return null;
+  return {
+    destinationHostId: getRequiredString(args ?? {}, "destinationHostId"),
+    threadId,
+  };
+}
+
+function parseCodexAppHandoffSteps(value: unknown): CodexAppHandoffStep[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): CodexAppHandoffStep[] => {
+    const record = asRecord(item);
+    if (!record) return [];
+    const id = getRequiredString(record, "id");
+    const status = record.status;
+    if (!id || !isKnownHandoffStatus(status)) return [];
+    const label = getRequiredString(record, "label") ?? id;
+    const message = getRequiredString(record, "message");
+    return [{
+      id,
+      label,
+      message,
+      status,
+    }];
+  });
+}
+
+export function parseCodexAppHandoffResult(call: CodexDynamicToolCallView): CodexAppHandoffResult | null {
+  const parsed = parseInputTextJson(call);
+  if (!parsed) return null;
+  const destinationHostDisplayName = getRequiredString(parsed, "destinationHostDisplayName");
+  const operationId = getRequiredString(parsed, "operationId");
+  const threadTitle = getRequiredString(parsed, "threadTitle");
+  const status = parsed.status;
+  if (!operationId || !isKnownHandoffStatus(status)) return null;
+  return {
+    destinationHostDisplayName,
+    message: getRequiredString(parsed, "message"),
+    operationId,
+    status,
+    steps: parseCodexAppHandoffSteps(parsed.steps),
+    threadTitle,
+  };
+}
+
+function isTerminalHandoffStatus(status: CodexAppHandoffStatus): boolean {
+  return status === "success" || status === "warning" || status === "error";
+}
+
+export function resolveCodexAppHandoffRenderState(call: CodexDynamicToolCallView): CodexAppHandoffRenderState {
+  const result = call.success === true ? parseCodexAppHandoffResult(call) : null;
+  const completed = result ? isTerminalHandoffStatus(result.status) : call.completed;
+  const success = result
+    ? result.status === "error" ? false : result.status === "success" || result.status === "warning"
+    : call.success;
+
+  const activityStatus = !completed
+    ? "running"
+    : success === false ? "failed" : "completed";
+
+  if (!result) {
+    return {
+      activityStatus,
+      active: !completed,
+      label: !completed
+        ? "Handing off thread"
+        : success === false ? "Failed to hand off thread" : "Handed off thread",
+      result,
+    };
+  }
+
+  if (!result.threadTitle || !result.destinationHostDisplayName) {
+    return {
+      activityStatus,
+      active: !completed,
+      label: !completed
+        ? "Handing off thread"
+        : success === false ? "Failed to hand off thread" : "Handed off thread",
+      result,
+    };
+  }
+
+  const label = !completed
+    ? `Handing off ${result.threadTitle} to ${result.destinationHostDisplayName}`
+    : success === false
+      ? `Failed to hand off ${result.threadTitle} to ${result.destinationHostDisplayName}`
+      : `Handed off ${result.threadTitle} to ${result.destinationHostDisplayName}`;
+  return {
+    activityStatus,
+    active: !completed,
+    label,
+    result,
+  };
+}
+
+function resolveCodexAppHandoffLabel(call: CodexDynamicToolCallView): string | null {
+  if (!parseCodexAppHandoffArguments(call)) return null;
+  return resolveCodexAppHandoffRenderState(call).label;
+}
+
+function resolveCodexAppThreadLabelKey(call: CodexDynamicToolCallView): CodexAppThreadLabelKey | null {
+  switch (call.tool) {
+    case "fork_thread": {
+      const args = asRecord(call.arguments);
+      if (!args) return null;
+      const isWorktree = asRecord(args?.environment)?.type === "worktree";
+      if (isWorktree) return call.completed ? "threadsForkInWorktreeCompleted" : "threadsForkInWorktreeActive";
+      return call.completed ? "threadsForkCompleted" : "threadsForkActive";
+    }
+    case "create_thread": {
+      const args = asRecord(call.arguments);
+      const target = asRecord(args?.target);
+      if (!target || typeof target.type !== "string") return null;
+      return isCodexAppCreateOrForkWorktree(call)
+        ? call.completed ? "threadsCreateInWorktreeCompleted" : "threadsCreateInWorktreeActive"
+        : call.completed ? "threadsCreateCompleted" : "threadsCreateActive";
+    }
+    case "list_threads":
+      return call.completed ? "threadsListCompleted" : "threadsListActive";
+    case "read_thread":
+      return call.completed ? "threadsReadCompleted" : "threadsReadActive";
+    case "send_message_to_thread":
+      return call.completed ? "threadsSendMessageCompleted" : "threadsSendMessageActive";
+    case "set_thread_pinned":
+      return call.completed ? "threadsSetPinnedCompleted" : "threadsSetPinnedActive";
+    case "set_thread_archived":
+      return call.completed ? "threadsSetArchivedCompleted" : "threadsSetArchivedActive";
+    case "set_thread_title":
+      return call.completed ? "threadsSetTitleCompleted" : "threadsSetTitleActive";
+    case "get_handoff_status":
+      return getRequiredString(asRecord(call.arguments) ?? {}, "operationId")
+        ? call.completed ? "threadsHandoffStatusCompleted" : "threadsHandoffStatusActive"
+        : null;
+    default:
+      return null;
+  }
+}
+
+function resolveCodexAppThreadToolLabel(call: CodexDynamicToolCallView): string | null {
+  if (call.tool === "handoff_thread") return resolveCodexAppHandoffLabel(call);
+  const key = resolveCodexAppThreadLabelKey(call);
+  return key ? CODEX_APP_THREAD_LABELS[key] : null;
+}
+
+function resolveCodexAppThreadSummaryKey(call: CodexDynamicToolCallView): string | null {
+  if (call.tool === "handoff_thread") {
+    const args = parseCodexAppHandoffArguments(call);
+    return args ? JSON.stringify([args.threadId, args.destinationHostId]) : null;
+  }
+  if (call.tool === "get_handoff_status") {
+    return getRequiredString(asRecord(call.arguments) ?? {}, "operationId");
+  }
+  return resolveCodexAppThreadLabelKey(call);
+}
+
+const DYNAMIC_TOOL_REGISTRY: DynamicToolRegistryEntry[] = [
+  {
+    namespace: CHROME_EXTENSION_NAMESPACE,
+    tool: "get_tab_context",
+    rendererKind: "chromeTabContext",
+    resolveLabel: resolveChromeTabContextLabel,
+    getCompletedSummaryPartKey: (call) => {
+      return parseChromeTabContextTabId(call) === null ? null : call.callId;
+    },
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "fork_thread",
+    rendererKind: "codexAppThread",
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "create_thread",
+    rendererKind: "codexAppThread",
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "handoff_thread",
+    rendererKind: "codexAppThread",
+    standaloneInConversation: true,
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "get_handoff_status",
+    rendererKind: "codexAppThread",
+    summaryOnlyInConversationGroup: true,
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "list_threads",
+    rendererKind: "codexAppThread",
+    continuesLiveActivityBetweenCalls: true,
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "read_thread",
+    rendererKind: "codexAppThread",
+    continuesLiveActivityBetweenCalls: true,
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "send_message_to_thread",
+    rendererKind: "codexAppThread",
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "set_thread_pinned",
+    rendererKind: "codexAppThread",
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "set_thread_archived",
+    rendererKind: "codexAppThread",
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "set_thread_title",
+    rendererKind: "codexAppThread",
+    resolveLabel: resolveCodexAppThreadToolLabel,
+    getCompletedSummaryPartKey: resolveCodexAppThreadSummaryKey,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "read_settings",
+    rendererKind: "settings",
+    resolveLabel: resolveSettingsToolLabel,
+  },
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "write_settings",
+    rendererKind: "settings",
+    resolveLabel: resolveSettingsToolLabel,
+  },
+];
+
+export function parseChromeTabContextTabId(call: CodexDynamicToolCallView): number | null {
+  const args = asRecord(call.arguments);
+  const tabId = args?.tabId;
+  return typeof tabId === "number" && Number.isInteger(tabId) && tabId >= 0 ? tabId : null;
+}
+
+export function getDynamicToolRegistryEntry(
+  call: CodexDynamicToolCallView | undefined,
+): DynamicToolRegistryEntry | null {
+  if (!call) return null;
+  return DYNAMIC_TOOL_REGISTRY.find((entry) =>
+    entry.namespace === call.namespace && entry.tool === call.tool
+  ) ?? null;
+}
+
 export function isCodexAppMetaThreadTool(call: CodexDynamicToolCallView | undefined): boolean {
-  return call?.namespace === CODEX_APP_NAMESPACE && CODEX_APP_META_THREAD_TOOL_NAMES.has(call.tool);
+  return getDynamicToolRegistryEntry(call)?.rendererKind === "codexAppThread";
 }
 
 export function continuesCodexAppLiveActivityBetweenCalls(call: CodexDynamicToolCallView | undefined): boolean {
-  return call?.namespace === CODEX_APP_NAMESPACE && CODEX_APP_CONTINUING_LIVE_ACTIVITY_TOOLS.has(call.tool);
+  return getDynamicToolRegistryEntry(call)?.continuesLiveActivityBetweenCalls === true;
 }
 
-export function buildCodexAppLiveActivityGroupKey(call: CodexDynamicToolCallView | undefined): string | null {
-  if (!call || !continuesCodexAppLiveActivityBetweenCalls(call)) return null;
-  return [call.namespace ?? "", call.tool].join("\u001f");
+export function isDynamicToolStandaloneInConversation(call: CodexDynamicToolCallView | undefined): boolean {
+  return getDynamicToolRegistryEntry(call)?.standaloneInConversation === true;
+}
+
+export function isDynamicToolSummaryOnlyInConversationGroup(call: CodexDynamicToolCallView | undefined): boolean {
+  return getDynamicToolRegistryEntry(call)?.summaryOnlyInConversationGroup === true;
 }
 
 export function isCodexAppCreateOrForkWorktree(call: CodexDynamicToolCallView): boolean {
@@ -65,35 +425,12 @@ export function isCodexAppCreateOrForkWorktree(call: CodexDynamicToolCallView): 
 }
 
 export function resolveCodexAppMetaThreadToolLabel(call: CodexDynamicToolCallView): string | null {
-  const completed = call.completed;
-  switch (call.tool) {
-    case "fork_thread":
-      return isCodexAppCreateOrForkWorktree(call)
-        ? completed ? "Created worktree fork" : "Creating worktree fork"
-        : completed ? "Forked thread" : "Forking thread";
-    case "create_thread":
-      return isCodexAppCreateOrForkWorktree(call)
-        ? completed ? "Created worktree chat" : "Creating worktree chat"
-        : completed ? "Created chat" : "Creating chat";
-    case "list_threads":
-      return completed ? "Listed threads" : "Listing threads";
-    case "read_thread":
-      return completed ? "Read thread" : "Reading thread";
-    case "send_message_to_thread":
-      return completed ? "Sent message to thread" : "Sending message to thread";
-    case "set_thread_pinned":
-      return completed ? "Updated thread pin" : "Updating thread pin";
-    case "set_thread_archived":
-      return completed ? "Updated thread archive" : "Updating thread archive";
-    case "set_thread_title":
-      return completed ? "Renamed thread" : "Renaming thread";
-    case "handoff_thread":
-      return completed ? "Handed off thread" : "Handing off thread";
-    case "get_handoff_status":
-      return completed ? "Checked handoff status" : "Checking handoff status";
-    default:
-      return null;
-  }
+  const entry = getDynamicToolRegistryEntry(call);
+  return entry?.rendererKind === "codexAppThread" ? entry.resolveLabel(call) : null;
+}
+
+export function resolveDynamicToolRegistryLabel(call: CodexDynamicToolCallView): string | null {
+  return getDynamicToolRegistryEntry(call)?.resolveLabel(call) ?? null;
 }
 
 export type CodexAppCreateThreadResult =
@@ -119,56 +456,34 @@ export function parseCodexAppCreateThreadResult(call: CodexDynamicToolCallView):
 }
 
 export function resolveDynamicToolLabelFromName(toolName: string): string {
-  if (toolName === "automation_update") return "Updated automation";
-  if (toolName === "load_workspace_dependencies") return "Loaded workspace dependencies";
-  if (toolName === "read_thread_terminal") return "Read terminal";
-  if (toolName === "read_thread") return "Read thread";
-  if (toolName === "create_thread") return "Created chat";
-  if (toolName === "fork_thread") return "Forked thread";
-  if (toolName === "list_threads") return "Listed threads";
-  if (toolName === "send_message_to_thread") return "Sent message to thread";
-  if (toolName === "set_thread_pinned") return "Updated thread pin";
-  if (toolName === "set_thread_archived") return "Updated thread archive";
-  if (toolName === "set_thread_title") return "Renamed thread";
-  if (toolName === "get_handoff_status") return "Checked handoff status";
-  if (toolName === "handoff_thread") return "Handed off thread";
+  const specialLabel = DYNAMIC_TOOL_COMPLETED_FALLBACK_LABELS[toolName];
+  if (specialLabel) return specialLabel;
   return humanizeIdentifier(toolName) || "Dynamic tool call";
 }
 
-export function resolveDynamicToolLeadingLabelFromName(toolName: string, completed: boolean): string {
-  if (toolName === "automation_update") return completed ? "Updated" : "Updating";
-  if (toolName === "load_workspace_dependencies") return completed ? "Loaded" : "Loading";
-  if (toolName === "read_thread_terminal") return completed ? "Read" : "Reading";
-  if (toolName === "read_thread") return completed ? "Read" : "Reading";
-  if (toolName === "create_thread") return completed ? "Created" : "Creating";
-  if (toolName === "fork_thread") return completed ? "Forked" : "Forking";
-  if (toolName === "list_threads") return completed ? "Listed" : "Listing";
-  if (toolName === "send_message_to_thread") return completed ? "Sent" : "Sending";
-  if (toolName === "set_thread_pinned") return completed ? "Updated" : "Updating";
-  if (toolName === "set_thread_archived") return completed ? "Updated" : "Updating";
-  if (toolName === "set_thread_title") return completed ? "Updated" : "Updating";
-  return completed ? "Called" : "Calling";
+export function resolveDynamicToolFallbackLabel(call: CodexDynamicToolCallView): string {
+  const fallbackLabels = call.completed
+    ? DYNAMIC_TOOL_COMPLETED_FALLBACK_LABELS
+    : DYNAMIC_TOOL_ACTIVE_FALLBACK_LABELS;
+  const specialLabel = fallbackLabels[call.tool];
+  if (specialLabel) return specialLabel;
+  return humanizeIdentifier(call.tool) || "Dynamic tool call";
 }
 
 export function resolveDynamicToolLabel(entry: CodexConversationItem): string {
-  if (entry.dynamicToolCall && isCodexAppMetaThreadTool(entry.dynamicToolCall)) {
-    return resolveCodexAppMetaThreadToolLabel(entry.dynamicToolCall) ?? "Dynamic tool call";
+  if (entry.dynamicToolCall) {
+    const registryEntry = getDynamicToolRegistryEntry(entry.dynamicToolCall);
+    const registryLabel = registryEntry?.resolveLabel(entry.dynamicToolCall);
+    if (registryLabel) return registryLabel;
   }
   const toolName = entry.dynamicToolCall?.tool ?? entry.toolCall?.toolName ?? "dynamic_tool";
   return resolveDynamicToolLabelFromName(toolName);
 }
 
-export function buildDynamicToolCallGroupKey(call: CodexDynamicToolCallView | undefined): string {
+export function buildDynamicToolCallSummaryPartKey(call: CodexDynamicToolCallView | undefined): string {
   if (!call) return "";
-  const liveActivityKey = buildCodexAppLiveActivityGroupKey(call);
-  if (liveActivityKey) return liveActivityKey;
-  return [
-    call.namespace ?? "",
-    call.tool,
-    stringifyDynamicToolValue(call.arguments, 0),
-    stringifyDynamicToolValue(call.contentItems, 0),
-    call.success === null ? "null" : String(call.success),
-  ].join("\u001f");
+  const summaryKey = getDynamicToolRegistryEntry(call)?.getCompletedSummaryPartKey?.(call) ?? "";
+  return [call.namespace ?? "", call.tool, summaryKey].join("\u001f");
 }
 
 export function extractDynamicToolTextContent(call: CodexDynamicToolCallView): string[] {

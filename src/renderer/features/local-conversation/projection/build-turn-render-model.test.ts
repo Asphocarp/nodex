@@ -54,13 +54,11 @@ function buildFileChangeItem(overrides: Partial<CodexConversationItem> = {}): Co
     semanticKind: "patch",
     status: "inProgress",
     fileChange: {
-      paths: ["src/app.ts"],
       changes: buildCodexFileChangeMap([{
         type: "add",
         path: "src/app.ts",
         content: "new",
       }]),
-      diffs: [],
       label: "Created src/app.ts",
     },
     createdAt: 1,
@@ -101,6 +99,57 @@ function buildExecItem(overrides: Partial<CodexConversationItem> = {}): CodexCon
       subtype: "command",
       toolName: "exec_command",
       args: {},
+    },
+    createdAt: 2,
+    updatedAt: 2,
+    ...overrides,
+  };
+}
+
+function buildDynamicToolItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "dynamic_1",
+    entryId: "dynamic_1",
+    type: "dynamic_tool_call",
+    kind: "toolCall",
+    semanticKind: "dynamicToolCall",
+    status: "inProgress",
+    dynamicToolCall: {
+      callId: "dynamic_1",
+      namespace: "codex_app",
+      tool: "read_thread",
+      arguments: { threadId: "thread_child" },
+      status: "inProgress",
+      contentItems: null,
+      success: null,
+      durationMs: null,
+      completed: false,
+    },
+    createdAt: 2,
+    updatedAt: 2,
+    ...overrides,
+  };
+}
+
+function buildMcpToolItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "mcp_1",
+    entryId: "mcp_1",
+    type: "mcp_tool_call",
+    kind: "toolCall",
+    semanticKind: "mcpToolCall",
+    status: "inProgress",
+    mcpToolCall: {
+      callId: "mcp_1",
+      functionName: "browser-use__click",
+      invocation: { server: "browser-use", tool: "click", arguments: {} },
+      result: null,
+      durationMs: null,
+      completed: false,
     },
     createdAt: 2,
     updatedAt: 2,
@@ -166,6 +215,80 @@ describe("buildTurnRenderModel", () => {
     expect(model.searchUnits.filter((unit) => unit.text.toLowerCase().includes("missing")).length).toBe(0);
   });
 
+  test("does not index tool-call body text in conversation search units", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        itemIds: ["user_1", "exec_1", "patch_live", "mcp_1", "dynamic_1", "assistant_1"],
+        items: [
+          buildUserItem({ markdownText: "Refactor the renderer" }),
+          buildExecItem({
+            status: "completed",
+            command: "bun test",
+            aggregatedOutput: "HIDDEN_EXEC_OUTPUT",
+            markdownText: "HIDDEN_EXEC_MARKDOWN",
+          }),
+          buildFileChangeItem({
+            status: "completed",
+            fileChange: {
+              changes: buildCodexFileChangeMap([{
+                type: "add",
+                path: "src/hidden-file.ts",
+                content: "HIDDEN_PATCH_BODY",
+              }]),
+              label: "HIDDEN_PATCH_LABEL",
+            },
+          }),
+          buildMcpToolItem({
+            status: "completed",
+            mcpToolCall: {
+              callId: "mcp_1",
+              functionName: "docs__search",
+              invocation: { server: "docs", tool: "search", arguments: { query: "HIDDEN_MCP_QUERY" } },
+              result: {
+                type: "success",
+                content: [{ type: "text", text: "HIDDEN_MCP_RESULT" }],
+                structuredContent: null,
+                raw: {
+                  content: [{ type: "text", text: "HIDDEN_MCP_RESULT" }],
+                  structuredContent: null,
+                },
+              },
+              durationMs: 100,
+              completed: true,
+            },
+          }),
+          buildDynamicToolItem({
+            status: "completed",
+            dynamicToolCall: {
+              callId: "dynamic_1",
+              namespace: "codex_app",
+              tool: "read_thread",
+              arguments: { threadId: "HIDDEN_DYNAMIC_THREAD" },
+              status: "completed",
+              contentItems: [{ type: "inputText", text: "HIDDEN_DYNAMIC_RESULT" }],
+              success: true,
+              durationMs: 100,
+              completed: true,
+            },
+          }),
+          buildAssistantItem({ markdownText: "Done" }),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: false,
+      isStreamingTurn: false,
+    });
+
+    const indexedText = model.searchUnits.map((unit) => unit.text).join("\n");
+    expect(model.searchUnits.map((unit) => `${unit.blockType}:${unit.key}`).join(",")).toBe(
+      "userMessage:turn_1:user:0,assistantMessage:turn_1:assistant",
+    );
+    expect(indexedText.includes("Refactor the renderer")).toBeTrue();
+    expect(indexedText.includes("Done")).toBeTrue();
+    expect(indexedText.includes("HIDDEN_")).toBeFalse();
+  });
+
   test("does not duplicate a transcript turn-diff when turn.diff is also present", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
@@ -222,14 +345,12 @@ describe("buildTurnRenderModel", () => {
         items: [
           buildFileChangeItem({
             fileChange: {
-              paths: ["src/app.ts"],
               changes: buildCodexFileChangeMap([{
                 type: "update",
                 path: "src/app.ts",
                 unifiedDiff: LIVE_DIFF,
                 movePath: null,
               }]),
-              diffs: [LIVE_DIFF],
               label: "Edited src/app.ts",
             },
           }),
@@ -247,6 +368,48 @@ describe("buildTurnRenderModel", () => {
     expect(withUpdatedFileChange.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
   });
 
+  test("keeps latest live single dynamic and MCP activity grouped until assistant content starts", () => {
+    const liveDynamic = buildTurnRenderModel({
+      turn: buildTurn({
+        itemIds: ["dynamic_1"],
+        items: [buildDynamicToolItem()],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+    const liveMcp = buildTurnRenderModel({
+      turn: buildTurn({
+        itemIds: ["mcp_1"],
+        items: [buildMcpToolItem()],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+    const afterAssistantStarts = buildTurnRenderModel({
+      turn: buildTurn({
+        itemIds: ["dynamic_1", "assistant_1"],
+        items: [
+          buildDynamicToolItem(),
+          buildAssistantItem({
+            status: "inProgress",
+            markdownText: "Working through the result",
+          }),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+
+    expect(liveDynamic.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("dynamicToolCallGroup");
+    expect(liveDynamic.blocks.map((block) => block.type).join(",")).toBe("dynamicToolCallGroup");
+    expect(liveMcp.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("pendingMcpToolCalls");
+    expect(afterAssistantStarts.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("dynamicToolCall");
+    expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe("dynamicToolCall,assistantMessage,thinkingPlaceholder");
+  });
+
   test("keeps the live turn-diff banner when a live fileChange has no renderable patch entries", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({
@@ -255,9 +418,7 @@ describe("buildTurnRenderModel", () => {
         items: [
           buildFileChangeItem({
             fileChange: {
-              paths: ["src/app.ts"],
               changes: buildCodexFileChangeMap([]),
-              diffs: [],
             },
           }),
         ],
@@ -303,7 +464,7 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: true,
     });
 
-    expect(model.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("workedFor,exec");
+    expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("workedFor,exec");
     expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,exec");
     expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBeFalse();
     expect(model.searchableText.includes("Working")).toBeFalse();
@@ -330,8 +491,8 @@ describe("buildTurnRenderModel", () => {
     expect(model.workedForItem?.status ?? "").toBe("worked");
     expect(model.workedForItem?.startedAtMs ?? 0).toBe(1_000);
     expect(model.workedForItem?.completedAtMs ?? 0).toBe(8_000);
-    expect(model.agentBodyEntries.some((entry) => entry.type === "workedFor")).toBeFalse();
-    expect(model.hasRenderableAgentBodyEntries).toBeTrue();
+    expect(model.agentBodyUnits.some((unit) => unit.block.type === "workedFor")).toBeFalse();
+    expect(model.hasRenderableAgentBodyUnits).toBeTrue();
   });
 
   test("falls back to completed duration when no explicit worked-for row exists", () => {
@@ -353,7 +514,7 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.workedForItem).toBe(null);
     expect(model.workedDurationMs).toBe(125_000);
-    expect(model.hasRenderableAgentBodyEntries).toBeTrue();
+    expect(model.hasRenderableAgentBodyUnits).toBeTrue();
   });
 
   test("does not keep completed worked-for timing without a renderable final assistant boundary", () => {
@@ -374,7 +535,7 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.workedForItem).toBe(null);
-    expect(model.agentBodyEntries.some((entry) => entry.type === "workedFor")).toBeFalse();
+    expect(model.agentBodyUnits.some((unit) => unit.block.type === "workedFor")).toBeFalse();
     expect(model.collapsedMessageCount).toBe(1);
   });
 });

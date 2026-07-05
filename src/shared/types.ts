@@ -14,6 +14,7 @@ import type {
   McpResourceReadParams as CodexAppServerMcpResourceReadParams,
   McpResourceReadResponse as CodexAppServerMcpResourceReadResponse,
   McpServerElicitationRequestParams as CodexAppServerMcpServerElicitationRequestParams,
+  McpServerElicitationRequestResponse as CodexAppServerMcpServerElicitationRequestResponse,
   McpServerStatus as CodexAppServerMcpServerStatus,
   McpToolCallError as CodexAppServerMcpToolCallError,
   McpToolCallResult as CodexAppServerMcpToolCallResult,
@@ -1764,9 +1765,7 @@ export type CodexFileChangeMap = Record<string, CodexFileChangePatch>;
 
 export interface CodexFileChangeView {
   label?: string;
-  paths: string[];
   changes: CodexFileChangeMap;
-  diffs: string[];
 }
 
 export interface CodexTurnDiffPatchBatch {
@@ -2105,6 +2104,7 @@ export interface CodexMcpServerElicitationRequest {
 }
 
 export type CodexMcpServerElicitationAction = "accept" | "decline" | "cancel";
+export type CodexMcpServerElicitationResponse = CodexAppServerMcpServerElicitationRequestResponse;
 
 export interface CodexPermissionRequest {
   type: "permissionRequest";
@@ -2838,7 +2838,7 @@ export type CodexThreadOwnerActionRequest =
   | {
       type: "respondMcpElicitation";
       requestId: string;
-      action: CodexMcpServerElicitationAction;
+      response: CodexMcpServerElicitationResponse;
     }
   | {
       type: "respondPermissionRequest";

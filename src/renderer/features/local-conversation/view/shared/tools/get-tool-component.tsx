@@ -12,8 +12,8 @@ export interface ToolComponentProps {
   projectWorkspacePath?: string;
   threadCwd?: string;
   isTurnCancelled?: boolean;
+  isStreamingTurn?: boolean;
   automaticApprovalReviews?: CodexTranscriptEntry[];
-  defaultExpandExecShell?: boolean;
   execSummaryTone?: "default" | "muted";
   hideHeader?: boolean;
   showExecSummaryIcon?: boolean;

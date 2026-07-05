@@ -15,7 +15,7 @@ import type { CodexAppServerManager as CodexAppServerManagerInstance } from "./l
 import {
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
-import { getCodexFileChangeList } from "../../../shared/codex-file-change";
+import { getCodexFileChangeList, getCodexFileChangePaths } from "../../../shared/codex-file-change";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 
 let invokeCalls: string[] = [];
@@ -6136,7 +6136,7 @@ describe("local-conversation-store", () => {
       expect(item?.itemId ?? "").toBe("patch-live");
       expect(item?.status ?? "").toBe("inProgress");
       expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
-      expect(item?.fileChange?.paths.join(",") ?? "").toBe("src/app.ts");
+      expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("src/app.ts");
       expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? "").toBe("update");
       expect(String(publishRecords.length)).toBe("0");
       expect(ackInput?.sequence).toBe(1);
@@ -6217,7 +6217,7 @@ describe("local-conversation-store", () => {
       expect(String(conversation?.turns.length ?? -1)).toBe("1");
       expect(conversation?.turns[0]?.turnId).toBe("turn-real");
       expect(conversation?.turns[0]?.items[0]?.itemId).toBe("patch-live");
-      expect(conversation?.turns[0]?.items[0]?.fileChange?.paths.join(",") ?? "").toBe("poem.md");
+      expect(getCodexFileChangePaths(conversation?.turns[0]?.items[0]?.fileChange?.changes).join(",")).toBe("poem.md");
       expect(String(publishRecords.length)).toBe("0");
       expect(ackInput?.sequence).toBe(1);
     } finally {
@@ -7057,8 +7057,7 @@ describe("local-conversation-store", () => {
             requestId?: string;
             decision?: string;
             answers?: Record<string, string[]>;
-            action?: string;
-            response?: { scope?: string };
+            response?: { action?: string; scope?: string };
           };
       });
       expect(approvalAccepted).toBeTrue();
@@ -7078,7 +7077,7 @@ describe("local-conversation-store", () => {
       expect(followerActions[2]?.action?.answers?.q1?.[0]).toBe("A");
       expect(followerActions[3]?.action?.type).toBe("respondMcpElicitation");
       expect(followerActions[3]?.action?.requestId).toBe("mcp-1");
-      expect(followerActions[3]?.action?.action).toBe("decline");
+      expect(followerActions[3]?.action?.response?.action).toBe("decline");
       expect(followerActions[4]?.action?.type).toBe("respondPermissionRequest");
       expect(followerActions[4]?.action?.requestId).toBe("permission-1");
       expect(followerActions[4]?.action?.response?.scope).toBe("turn");
@@ -7143,8 +7142,7 @@ describe("local-conversation-store", () => {
             requestId?: string;
             decision?: string;
             answers?: Record<string, string[]>;
-            action?: string;
-            response?: { scope?: string };
+            response?: { action?: string; scope?: string };
           };
         });
 
@@ -7162,7 +7160,7 @@ describe("local-conversation-store", () => {
       expect(followerActions[1]?.action?.answers?.q1?.[0]).toBe("A");
       expect(followerActions[2]?.action?.type).toBe("respondMcpElicitation");
       expect(followerActions[2]?.action?.requestId).toBe("mcp-missed");
-      expect(followerActions[2]?.action?.action).toBe("decline");
+      expect(followerActions[2]?.action?.response?.action).toBe("decline");
       expect(followerActions[3]?.action?.type).toBe("respondPermissionRequest");
       expect(followerActions[3]?.action?.requestId).toBe("permission-missed");
       expect(followerActions[3]?.action?.response?.scope).toBe("turn");

@@ -39,6 +39,7 @@ describe("CodexApprovalRequestCard", () => {
     const rendered = textContent(container);
     expect(Boolean(rendered.includes("Do you want to let me restage the thread Storybook files and verify the index state before committing?"))).toBeTrue();
     expect(Boolean(rendered.includes("git add docs/FRONTEND.md && git status --short"))).toBeTrue();
+    expect(Boolean(rendered.includes("in /workspace/nodex"))).toBeFalse();
     expect(Boolean(rendered.includes("Yes"))).toBeTrue();
     expect(Boolean(rendered.includes("Yes, and don't ask again for commands that start with"))).toBeTrue();
     expect(Boolean(rendered.includes("No, and tell Codex what to do differently"))).toBeTrue();
@@ -46,6 +47,95 @@ describe("CodexApprovalRequestCard", () => {
     expect(Boolean(rendered.includes("Submit"))).toBeTrue();
     expect(container.querySelector(".request-input-panel__inline-freeform")).not.toBeNull();
     expect(container.querySelector(".rounded-2xl.border.backdrop-blur-sm")).not.toBeNull();
+  });
+
+  test("renders command approval previews from command action commands before raw command text", async () => {
+    const actionRequest: CodexApprovalRequest = {
+      ...approvalRequest,
+      approvalReason: undefined,
+      reason: undefined,
+      command: "bash -lc 'cat package.json'",
+      cmd: ["legacy", "fallback"],
+      commandActions: [
+        { type: "read", command: "cat package.json", name: "package.json", path: "package.json" },
+        { type: "search", command: "rg TODO src", query: "TODO", path: "src" },
+      ],
+    };
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexApprovalRequestCard
+          request={actionRequest}
+          onRespond={async () => { }}
+          onSubmitLocalFollowup={async () => { }}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const rendered = textContent(container);
+    expect(Boolean(rendered.includes("Do you want to run this command?"))).toBeTrue();
+    expect(Boolean(rendered.includes("cat package.json && rg TODO src"))).toBeTrue();
+    expect(Boolean(rendered.includes("bash -lc"))).toBeFalse();
+    expect(Boolean(rendered.includes("legacy fallback"))).toBeFalse();
+  });
+
+  test("renders command approval previews from execpolicy amendment fallback", async () => {
+    const amendmentRequest: CodexApprovalRequest = {
+      ...approvalRequest,
+      approvalReason: undefined,
+      reason: undefined,
+      command: undefined,
+      cmd: undefined,
+      proposedExecpolicyAmendment: ["git", "commit", "-m", "hello world"],
+    };
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexApprovalRequestCard
+          request={amendmentRequest}
+          onRespond={async () => { }}
+          onSubmitLocalFollowup={async () => { }}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const rendered = textContent(container);
+    expect(Boolean(rendered.includes('git commit -m "hello world"'))).toBeTrue();
+  });
+
+  test("renders network approval reason without a command preview", async () => {
+    const networkRequest: CodexApprovalRequest = {
+      ...approvalRequest,
+      approvalReason: undefined,
+      reason: undefined,
+      command: undefined,
+      cmd: undefined,
+      proposedExecpolicyAmendment: undefined,
+      networkApprovalContext: {
+        host: "api.example.com",
+        protocol: "https",
+      },
+      proposedNetworkPolicyAmendments: [{ host: "api.example.com", action: "allow" }],
+    };
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexApprovalRequestCard
+          request={networkRequest}
+          onRespond={async () => { }}
+          onSubmitLocalFollowup={async () => { }}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const rendered = textContent(container);
+    expect(Boolean(rendered.includes('Do you want to approve network access to "api.example.com"?'))).toBeTrue();
+    expect(Boolean(rendered.includes("Reason: api.example.com isn't on the current network allowlist"))).toBeTrue();
+    expect(Boolean(rendered.includes("Yes, and allow this host in the future"))).toBeTrue();
+    expect(Boolean(rendered.includes("git add docs/FRONTEND.md"))).toBeFalse();
   });
 
   test("renders a background actor inline in the prompt instead of as a separate header", async () => {
@@ -108,7 +198,7 @@ describe("CodexApprovalRequestCard", () => {
     expect(decisions[1]).toBe("decline");
   });
 
-  test("renders file approval previews from the canonical patch row model", async () => {
+  test("renders file approval previews from the shared path-keyed patch model", async () => {
     const fileRequest: CodexApprovalRequest = {
       ...approvalRequest,
       kind: "file",
@@ -131,9 +221,20 @@ describe("CodexApprovalRequestCard", () => {
       status: "inProgress",
       approvalRequestId: "approval_1",
       fileChange: {
-        paths: ["src/app.ts"],
-        changes: buildCodexFileChangeMap([{ type: "add", path: "src/app.ts", content: "export const app = true;\n" }]),
-        diffs: [],
+        changes: buildCodexFileChangeMap([
+          { type: "add", path: "src/app.ts", content: "export const app = true;\n" },
+          {
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: [
+              "@@ -1,1 +1,2 @@",
+              "-export const app = false;",
+              "+export const app = true;",
+              "+export const ready = true;",
+            ].join("\n"),
+          },
+        ]),
       },
       createdAt: 1,
       updatedAt: 1,
@@ -154,6 +255,8 @@ describe("CodexApprovalRequestCard", () => {
     const rendered = textContent(container);
     expect(Boolean(rendered.includes("Do you want to make these changes?"))).toBeTrue();
     expect(Boolean(rendered.includes("src/app.ts"))).toBeTrue();
-    expect(Boolean(rendered.includes("+1 -0"))).toBeTrue();
+    expect(rendered.split("src/app.ts").length - 1).toBe(1);
+    expect(Boolean(rendered.includes("+2 -1"))).toBeTrue();
+    expect(Boolean(rendered.includes("+1 -0"))).toBeFalse();
   });
 });

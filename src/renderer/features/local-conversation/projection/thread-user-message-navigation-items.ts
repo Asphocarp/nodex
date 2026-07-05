@@ -1,5 +1,5 @@
 import type { CodexConversationItem } from "../../../lib/types";
-import { getCodexFileChangeEntries } from "../../../../shared/codex-file-change";
+import { getCodexFileChangePaths } from "../../../../shared/codex-file-change";
 import { buildTurnRenderModel } from "./build-turn-render-model";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type {
@@ -90,6 +90,11 @@ function flattenThreadBlocks(blocks: readonly ThreadBlockModel[]): ThreadBlockMo
       continue;
     }
 
+    if (block.type === "webSearchGroup") {
+      flattened.push(...block.entries);
+      continue;
+    }
+
     if (block.type === "collapsedToolActivity") {
       for (const entry of block.entries) {
         if (isExplorationGroupBlock(entry)) {
@@ -105,6 +110,10 @@ function flattenThreadBlocks(blocks: readonly ThreadBlockModel[]): ThreadBlockMo
               status: item.status,
             });
           }
+          continue;
+        }
+        if (entry.type === "webSearchGroup") {
+          flattened.push(...entry.entries);
           continue;
         }
         flattened.push(entry);
@@ -158,10 +167,10 @@ function addFileOutputs(
   entry: CodexConversationItem,
 ) {
   if (!entry.fileChange) return;
+  const paths = getCodexFileChangePaths(entry.fileChange.changes);
   const label = firstNonEmpty(
     entry.fileChange.label,
-    entry.fileChange.paths[0],
-    getCodexFileChangeEntries(entry.fileChange.changes)[0]?.[0],
+    paths[0],
   );
   if (!label) return;
   addOutput(outputs, { type: "file", label: basename(label) });

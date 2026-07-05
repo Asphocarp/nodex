@@ -5,8 +5,6 @@ import type {
   ProtocolMcpServerStatus,
 } from "../../../../../lib/types";
 
-export type McpAppRenderMode = "fallback" | "html" | "dil";
-
 export interface McpWidgetCsp {
   connectDomains?: string[];
   resourceDomains?: string[];
@@ -16,17 +14,20 @@ export interface McpWidgetMetadata {
   domain: string | null;
   csp: McpWidgetCsp | null;
   heightHint: number | null;
+  minFrameHeight: number | null;
   prefersBorder: boolean;
+  isCollapsible: boolean;
 }
 
 export interface McpRenderableResource {
   uri: string;
-  mode: Exclude<McpAppRenderMode, "fallback">;
+  mode: "html";
   html: string;
   mimeType: string | null;
   metadata: McpWidgetMetadata;
 }
 
+export const MCP_APP_HTML_MAX_BYTES = 10_000_000;
 const HTML_MIME_TYPES = new Set(["text/html", "text/html;profile=mcp-app"]);
 const DIL_MIME_TYPES = new Set(["text/x-dil;profile=mcp-app"]);
 const RESOURCE_URI_KEYS = [
@@ -115,7 +116,9 @@ export function resolveMcpWidgetMetadata(meta: unknown): McpWidgetMetadata {
     domain: readStringMeta(meta, ["openai/widgetDomain", "ui.domain", "ui/widgetDomain"]),
     csp: readCspMeta(meta),
     heightHint: readNumberMeta(meta, ["openai/widgetHeightHint", "ui.heightHint", "ui/widgetHeightHint"]),
+    minFrameHeight: readNumberMeta(meta, ["openai/widgetMinFrameHeight", "ui.minFrameHeight", "ui/widgetMinFrameHeight"]),
     prefersBorder: readBooleanMeta(meta, ["openai/widgetPrefersBorder", "ui.prefersBorder", "ui/widgetPrefersBorder"]) ?? false,
+    isCollapsible: !(readBooleanMeta(meta, ["openai/widgetShowCodexWidgetInline", "ui.showCodexWidgetInline", "ui/widgetShowCodexWidgetInline"]) ?? false),
   };
 }
 
@@ -128,16 +131,30 @@ function resolveToolMetadata(
   serverStatuses: readonly ProtocolMcpServerStatus[],
 ): unknown {
   const status = serverStatuses.find((entry) => entry.name === payload.invocation.server);
-  return status?.tools[payload.invocation.tool]?._meta ?? null;
+  if (!status) return null;
+
+  const directTool = status.tools[payload.invocation.tool];
+  if (directTool?._meta) return directTool._meta;
+
+  const namedTool = Object.values(status.tools).find((tool) => tool?.name === payload.invocation.tool);
+  return namedTool?._meta ?? null;
 }
 
-export function resolveMcpAppResourceUri(input: {
+export function resolveMcpAppResourceScopeUri(input: {
   payload: CodexMcpToolCallView;
   serverStatuses?: readonly ProtocolMcpServerStatus[];
 }): string | null {
   const toolMeta = input.serverStatuses ? resolveToolMetadata(input.payload, input.serverStatuses) : null;
   return resolveMcpResourceUriFromMeta(toolMeta)
     ?? (input.payload.result?.type === "success" ? resolveMcpResourceUriFromMeta(input.payload.result.meta) : null)
+    ?? null;
+}
+
+export function resolveMcpAppResourceUri(input: {
+  payload: CodexMcpToolCallView;
+  serverStatuses?: readonly ProtocolMcpServerStatus[];
+}): string | null {
+  return resolveMcpAppResourceScopeUri(input)
     ?? input.payload.mcpAppResourceUri
     ?? null;
 }
@@ -146,31 +163,47 @@ function normalizeMimeType(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? "";
 }
 
+function decodeResourceContent(content: ProtocolMcpResourceReadResponse["contents"][number]): string {
+  if ("text" in content) return content.text;
+  if (!("blob" in content)) return "";
+
+  try {
+    return atob(content.blob);
+  } catch {
+    return "";
+  }
+}
+
 export function resolveMcpRenderableResource(
   resourceUri: string,
   response: ProtocolMcpResourceReadResponse | null,
 ): McpRenderableResource | null {
-  const content = response?.contents.find((entry) => entry.uri === resourceUri) ?? response?.contents[0] ?? null;
-  if (!content) return null;
+  const contents = response?.contents ?? [];
+  const orderedContents = [
+    ...contents.filter((entry) => entry.uri === resourceUri),
+    ...contents.filter((entry) => entry.uri !== resourceUri),
+  ];
 
-  const mimeType = normalizeMimeType(content.mimeType);
-  const mode = HTML_MIME_TYPES.has(mimeType)
-    ? "html"
-    : DIL_MIME_TYPES.has(mimeType)
-      ? "dil"
-      : "fallback";
-  if (mode === "fallback") return null;
+  for (const content of orderedContents) {
+    const mimeType = normalizeMimeType(content.mimeType);
+    const html = decodeResourceContent(content);
+    if (!html.trim()) continue;
 
-  const html = "text" in content ? content.text : "blob" in content ? atob(content.blob) : "";
-  if (!html.trim()) return null;
+    if (HTML_MIME_TYPES.has(mimeType)) {
+      const htmlResource = {
+        uri: content.uri,
+        mode: "html" as const,
+        html,
+        mimeType: content.mimeType ?? null,
+        metadata: resolveMcpWidgetMetadata(content._meta),
+      };
+      return htmlResource;
+    }
 
-  return {
-    uri: content.uri,
-    mode,
-    html,
-    mimeType: content.mimeType ?? null,
-    metadata: resolveMcpWidgetMetadata(content._meta),
-  };
+    if (!DIL_MIME_TYPES.has(mimeType)) continue;
+  }
+
+  return null;
 }
 
 export function shouldHideDuplicateMcpTextContent(
@@ -181,4 +214,97 @@ export function shouldHideDuplicateMcpTextContent(
   const text = content.text.trim();
   if (!text) return false;
   return text === resource.html.trim() || text === resource.uri;
+}
+
+export function stringifyMcpValue(value: unknown, spacing = 2): string {
+  try {
+    return JSON.stringify(
+      value,
+      (_key, nestedValue) => (typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue),
+      spacing,
+    ) ?? "null";
+  } catch {
+    return "";
+  }
+}
+
+function parseSingleJsonTextContent(content: readonly CodexMcpToolCallContentBlock[]): string | null {
+  if (content.length !== 1) return null;
+  const [block] = content;
+  if (!block || block.type !== "text" || block.annotations != null) return null;
+
+  const trimmed = block.text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+
+  try {
+    return stringifyMcpValue(JSON.parse(trimmed), 2);
+  } catch {
+    return null;
+  }
+}
+
+export function resolveMcpExpandedSuccessDisplay(input: {
+  content: readonly CodexMcpToolCallContentBlock[];
+  structuredContentJson: string | null;
+  isExpanded: boolean;
+}): {
+  displayContent: readonly CodexMcpToolCallContentBlock[];
+  displayStructuredContentJson: string | null;
+} {
+  if (!input.isExpanded) {
+    return {
+      displayContent: input.content,
+      displayStructuredContentJson: input.structuredContentJson,
+    };
+  }
+
+  const parsedContentJson = parseSingleJsonTextContent(input.content);
+  if (parsedContentJson === null) {
+    return {
+      displayContent: input.content,
+      displayStructuredContentJson: input.structuredContentJson,
+    };
+  }
+
+  if (input.structuredContentJson === null || parsedContentJson === input.structuredContentJson) {
+    return {
+      displayContent: [],
+      displayStructuredContentJson: input.structuredContentJson ?? parsedContentJson,
+    };
+  }
+
+  return {
+    displayContent: input.content,
+    displayStructuredContentJson: input.structuredContentJson,
+  };
+}
+
+export function shouldShowMcpStructuredContent(input: {
+  structuredContentJson: string | null;
+  hasMcpAppBranch: boolean;
+  hasResourceScope: boolean;
+}): boolean {
+  return Boolean(input.structuredContentJson) && !(input.hasMcpAppBranch && input.hasResourceScope);
+}
+
+export function getMcpAppHtmlByteSize(html: string): number {
+  if (typeof Blob === "function") {
+    return new Blob([html]).size;
+  }
+
+  if (typeof TextEncoder === "function") {
+    return new TextEncoder().encode(html).byteLength;
+  }
+
+  return html.length;
+}
+
+export function isMcpAppHtmlTooLarge(resource: McpRenderableResource): boolean {
+  return getMcpAppHtmlByteSize(resource.html) > MCP_APP_HTML_MAX_BYTES;
+}
+
+export function resolveMcpAppFrameHeight(metadata?: McpWidgetMetadata | null): number {
+  const preferredHeight = metadata?.heightHint ?? 240;
+  const minHeight = metadata?.minFrameHeight ?? 200;
+  return Math.min(Math.max(preferredHeight, minHeight), 720);
 }

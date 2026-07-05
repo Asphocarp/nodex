@@ -170,14 +170,12 @@ describe("buildThreadBodyModel", () => {
                 semanticKind: "patch",
                 status: "inProgress",
                 fileChange: {
-                  paths: ["src/app.ts"],
                   changes: buildCodexFileChangeMap([{
                     type: "update",
                     path: "src/app.ts",
                     unifiedDiff: liveDiff,
                     movePath: null,
                   }]),
-                  diffs: [liveDiff],
                   label: "Edited src/app.ts",
                 },
               }),

@@ -49,6 +49,22 @@ describe("DynamicToolCall", () => {
     expect(textContent(container).includes("Arguments")).toBeFalse();
   });
 
+  test("renders navigable Codex app thread rows through the registry renderer", () => {
+    const openedThreads: string[] = [];
+    const { getByRole } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry()}
+        onOpenThread={(threadId) => {
+          openedThreads.push(threadId);
+        }}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Read thread" }));
+
+    expect(openedThreads.join(",")).toBe("thread-1");
+  });
+
   test("renders completed create_thread success as an open-chat card", () => {
     const openedThreads: string[] = [];
     const { getByRole, container } = render(
@@ -107,5 +123,119 @@ describe("DynamicToolCall", () => {
     } finally {
       window.location.hash = previousHash;
     }
+  });
+
+  test("renders handoff_thread as a status activity when operation steps are available", () => {
+    const { container, getByRole } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          tool: "handoff_thread",
+          arguments: { threadId: "thread-target" },
+          status: "completed",
+          completed: true,
+          success: true,
+          contentItems: [{
+            type: "inputText",
+            text: JSON.stringify({
+              destinationHostDisplayName: "Local",
+              operationId: "operation-1",
+              status: "running",
+              steps: [
+                { id: "resolve-thread", label: "Resolve thread", status: "success", message: null },
+                { id: "handoff", label: "Move thread", status: "running", message: "Preparing thread handoff." },
+              ],
+            }),
+          }],
+        })}
+      />,
+    );
+
+    expect(getByRole("button", { name: /Handing off thread/i }).getAttribute("aria-expanded")).toBe("true");
+    expect(textContent(container).includes("Resolve thread")).toBeTrue();
+    expect(textContent(container).includes("Move thread")).toBeTrue();
+    expect(textContent(container).includes("Arguments")).toBeFalse();
+  });
+
+  test("renders settings and Chrome tab-context calls with registered labels", () => {
+    const { container: settings } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          tool: "read_settings",
+          arguments: {},
+          status: "inProgress",
+          contentItems: null,
+          success: null,
+          durationMs: null,
+          completed: false,
+        })}
+      />,
+    );
+    const { container: chrome } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          namespace: "chrome_extension",
+          tool: "get_tab_context",
+          arguments: { tabId: 12 },
+          status: "completed",
+          completed: true,
+        })}
+      />,
+    );
+
+    expect(textContent(settings)).toBe("Reading settings");
+    expect(textContent(chrome)).toBe("Read tab");
+    expect(textContent(chrome).includes("Get Tab Context")).toBeFalse();
+  });
+
+  test("falls back when a known registry renderer rejects invalid arguments", () => {
+    const { container } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          namespace: "chrome_extension",
+          tool: "get_tab_context",
+          arguments: { tabId: -1 },
+          status: "completed",
+          completed: true,
+        })}
+      />,
+    );
+
+    expect(textContent(container)).toBe("Get Tab Context");
+  });
+
+  test("renders generic dynamic tool fallback as a compact row without output or arguments", () => {
+    const { container, queryByRole } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          namespace: "codex_app",
+          tool: "load_workspace_dependencies",
+          arguments: { includeLibraries: true },
+          contentItems: [{ type: "inputText", text: "{\"node\":\"/tmp/node\"}" }],
+        })}
+      />,
+    );
+
+    expect(textContent(container)).toBe("Loaded workspace dependencies");
+    expect(textContent(container).includes("includeLibraries")).toBeFalse();
+    expect(textContent(container).includes("/tmp/node")).toBeFalse();
+    expect(textContent(container).includes("Arguments")).toBeFalse();
+    expect(Boolean(queryByRole("button"))).toBeFalse();
+  });
+
+  test("uses active fallback labels for in-progress generic dynamic tools", () => {
+    const { container } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          tool: "automation_update",
+          status: "inProgress",
+          contentItems: null,
+          success: null,
+          durationMs: null,
+          completed: false,
+        })}
+      />,
+    );
+
+    expect(textContent(container)).toBe("Updating scheduled task");
   });
 });

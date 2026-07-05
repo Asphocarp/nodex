@@ -12,18 +12,13 @@ import type { CodexFileChange, CodexFileChangeView, CodexTranscriptEntry } from 
 import { normalizeThreadItem } from "../../../../../../shared/codex-item-normalizer";
 import {
   buildCodexFileChangeMap,
-  buildCodexFileChangeUnifiedDiff,
 } from "../../../../../../shared/codex-file-change";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
 
 function buildFileChangeView(changes: CodexFileChange[]): CodexFileChangeView {
   return {
     label: undefined,
-    paths: changes.map((change) => change.path),
     changes: buildCodexFileChangeMap(changes),
-    diffs: changes
-      .map((change) => buildCodexFileChangeUnifiedDiff(change))
-      .filter((diff): diff is string => typeof diff === "string"),
   };
 }
 
@@ -66,9 +61,7 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
       args: {
         label,
       },
-      result: {
-        diffs: fileChange.diffs,
-      },
+      result: { changes: fileChange.changes },
     },
     fileChange,
     createdAt: 1,
@@ -121,6 +114,10 @@ function buildNormalizedFileChangeEntry(input: {
   };
 }
 
+function fileChangeHeaders(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("[data-file-change-row-header]"));
+}
+
 describe("FileChangeToolCall", () => {
   beforeEach(() => {
     installElementScrollHeight(96);
@@ -142,14 +139,12 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    const expandedToggle = container.querySelector('[role="button"][aria-expanded="true"]');
-    expect(Boolean(expandedToggle)).toBeTrue();
     expect(Boolean(container.textContent?.includes("Edited file"))).toBeTrue();
     expect(Boolean(container.textContent?.includes("local-conversation-stage-screen.tsx"))).toBeTrue();
     expect(Boolean(container.textContent?.includes("+2"))).toBeTrue();
@@ -166,7 +161,7 @@ describe("FileChangeToolCall", () => {
     });
   });
 
-  test("renders live file-change stats with the animated digit wheel", () => {
+  test("renders live file-change stats with the static Codex patch-row chip", () => {
     const { container } = render(
       <TooltipProvider>
         <FileChangeToolCall
@@ -176,8 +171,9 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBeTrue();
-    expect(Boolean(container.querySelector(".diff-stat-digit-stack-2"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("+2"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("-0"))).toBeTrue();
+    expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBeFalse();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='edit-files']"))).toBeFalse();
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
   });
@@ -224,11 +220,12 @@ describe("FileChangeToolCall", () => {
     );
 
     expect(rows.length).toBe(1);
+    expect(rows[0]?.key ?? "").toBe("src/app.ts");
     expect(rows[0]?.state ?? "").toBe("streaming");
     expect(rows[0]?.label ?? "").toBe("Editing");
     expect(rows[0]?.displayPath ?? "").toBe("src/app.ts");
-    expect(rows[0]?.summary.additions ?? -1).toBe(0);
-    expect(rows[0]?.summary.deletions ?? -1).toBe(0);
+    expect(rows[0]?.summary?.additions ?? -1).toBe(0);
+    expect(rows[0]?.summary?.deletions ?? -1).toBe(0);
   });
 
   test("resolves the Codex-style open-file target and keeps filename clicks from toggling the row", async () => {
@@ -240,7 +237,7 @@ describe("FileChangeToolCall", () => {
     expect(rows.length).toBe(1);
     const firstRow = rows[0];
     expect(firstRow?.openPath ?? null).toBe("/tmp/project/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx");
-    expect(firstRow && firstRow.preview.kind === "diff" ? firstRow.preview.openLine ?? null : null).toBe(1);
+    expect(firstRow?.openLine ?? null).toBe(1);
 
     const { container } = render(
       <TooltipProvider>
@@ -256,7 +253,7 @@ describe("FileChangeToolCall", () => {
     fireEvent.click(filenameButton as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('[role="button"][aria-expanded="true"]'))).toBeFalse();
+    expect(Boolean(container.textContent?.includes("Edited file"))).toBeFalse();
   });
 
   test("derives parsed file diff stats from actual changed lines", () => {
@@ -302,9 +299,7 @@ describe("FileChangeToolCall", () => {
           args: {
             label: buildFileChangeLabel(changes[0]),
           },
-          result: {
-            diffs: fileChange.diffs,
-          },
+          result: { changes: fileChange.changes },
         },
       }),
       "/tmp/project",
@@ -312,8 +307,42 @@ describe("FileChangeToolCall", () => {
     );
 
     expect(rows.length).toBe(1);
-    expect(rows[0]?.summary.additions ?? null).toBe(3);
-    expect(rows[0]?.summary.deletions ?? null).toBe(2);
+    expect(rows[0]?.summary?.additions ?? null).toBe(3);
+    expect(rows[0]?.summary?.deletions ?? null).toBe(2);
+  });
+
+  test("uses canonical fallback diff stats and open line for malformed update hunks", () => {
+    const changes: CodexFileChange[] = [
+      {
+        path: "src/malformed.ts",
+        type: "update",
+        movePath: null,
+        unifiedDiff: [
+          "this is not a hunk header",
+          "+added",
+          "-removed",
+        ].join("\n"),
+      },
+    ];
+    const fileChange = buildFileChangeView(changes);
+
+    const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildFileChangeEntry({
+        fileChange,
+        toolCall: {
+          subtype: "fileChange",
+          toolName: "file_change",
+          args: { label: buildFileChangeLabel(changes[0]) },
+          result: { changes: fileChange.changes },
+        },
+      }),
+      "/tmp/project",
+      undefined,
+    );
+
+    expect(rows[0]?.summary?.additions ?? null).toBe(1);
+    expect(rows[0]?.summary?.deletions ?? null).toBe(1);
+    expect(rows[0]?.openLine ?? null).toBe(1);
   });
 
   test("toggles multi-file rows independently", async () => {
@@ -349,9 +378,7 @@ describe("FileChangeToolCall", () => {
         args: {
           label: undefined,
         },
-        result: {
-          diffs: fileChange.diffs,
-        },
+        result: { changes: fileChange.changes },
       },
     });
 
@@ -361,16 +388,13 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const toggles = Array.from(container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]'));
+    const toggles = fileChangeHeaders(container);
     expect(toggles.length).toBe(2);
 
-    await waitFor(() => {
-      expect(toggles[0]?.getAttribute("aria-expanded")).toBe("false");
-    });
     fireEvent.click(toggles[0]!);
 
     await waitFor(() => {
-      expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
+      expect(container.querySelectorAll("[data-file-change-row-body] diffs-container").length).toBe(1);
     });
     expect(Boolean(textContent(container).includes("Edited file"))).toBeTrue();
 
@@ -389,7 +413,7 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
 
     fireEvent.click(summaryToggle as HTMLElement);
@@ -398,6 +422,32 @@ describe("FileChangeToolCall", () => {
     const body = container.querySelector<HTMLElement>('[data-file-change-row-body]');
     expect(Boolean(body)).toBeTrue();
     expect(body?.style.height === "auto").toBeFalse();
+  });
+
+  test("does not mount non-streaming collapsed diff content before expansion", async () => {
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry()}
+          threadCwd="/tmp/project"
+        />
+      </TooltipProvider>,
+    );
+
+    const collapsedBody = container.querySelector<HTMLElement>("[data-file-change-row-body]");
+    expect(Boolean(collapsedBody)).toBeTrue();
+    expect(Boolean(collapsedBody?.querySelector("diffs-container"))).toBeFalse();
+    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeFalse();
+
+    const summaryToggle = fileChangeHeaders(container)[0] ?? null;
+    expect(Boolean(summaryToggle)).toBeTrue();
+
+    fireEvent.click(summaryToggle as HTMLElement);
+    await settleAsyncRender();
+
+    const expandedBody = container.querySelector<HTMLElement>("[data-file-change-row-body]");
+    expect(Boolean(expandedBody?.querySelector("diffs-container"))).toBeTrue();
+    expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeTrue();
   });
 
   test("renders created files from v2 protocol changes as inline diffs", async () => {
@@ -421,8 +471,8 @@ describe("FileChangeToolCall", () => {
 
     const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(item, "/tmp/project", undefined);
     expect(rows.length).toBe(1);
-    expect(rows[0]?.summary.additions ?? null).toBe(7);
-    expect(rows[0]?.summary.deletions ?? null).toBe(0);
+    expect(rows[0]?.summary?.additions ?? null).toBe(7);
+    expect(rows[0]?.summary?.deletions ?? null).toBe(0);
 
     const { container } = render(
       <TooltipProvider>
@@ -430,7 +480,7 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
     expect(Boolean(textContent(container).includes("Created"))).toBeTrue();
     expect(Boolean(textContent(container).includes("+7"))).toBeTrue();
@@ -474,9 +524,7 @@ describe("FileChangeToolCall", () => {
               args: {
                 label: undefined,
               },
-              result: {
-                diffs: fileChange.diffs,
-              },
+              result: { changes: fileChange.changes },
             },
           })}
           threadCwd="/tmp/project"
@@ -484,7 +532,7 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const toggles = Array.from(container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]'));
+    const toggles = fileChangeHeaders(container);
     expect(toggles.length).toBe(2);
     fireEvent.click(toggles[0]!);
     await settleAsyncRender();
@@ -526,7 +574,7 @@ describe("FileChangeToolCall", () => {
               args: {
                 label: undefined,
               },
-              result: { diffs: fileChange.diffs },
+              result: { changes: fileChange.changes },
             },
           })}
           threadCwd="/tmp/project"
@@ -534,7 +582,7 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
 
     fireEvent.click(summaryToggle as HTMLElement);
@@ -566,7 +614,7 @@ describe("FileChangeToolCall", () => {
               args: {
                 label: buildFileChangeLabel(changes[0]),
               },
-              result: { diffs: fileChange.diffs },
+              result: { changes: fileChange.changes },
             },
           })}
           threadCwd="/tmp/project"
@@ -576,7 +624,7 @@ describe("FileChangeToolCall", () => {
 
     expect(Boolean(textContent(container).includes("Rejected"))).toBeTrue();
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
 
     fireEvent.click(summaryToggle as HTMLElement);
@@ -605,7 +653,7 @@ describe("FileChangeToolCall", () => {
           args: {
             label: buildFileChangeLabel(changes[0]),
           },
-          result: { diffs: fileChange.diffs },
+          result: { changes: fileChange.changes },
         },
       }),
       "/tmp/project",
@@ -651,14 +699,23 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
     expect(Boolean(summaryToggle?.querySelector("svg"))).toBeTrue();
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("Automatic approval review"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("High risk"))).toBeTrue();
+    const reviewButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((element) => textContent(element).includes("Auto-review denied high risk")) ?? null;
+    expect(Boolean(reviewButton)).toBeTrue();
+    expect(Boolean(textContent(reviewButton as HTMLElement).includes("Auto-review denied high risk"))).toBeTrue();
+    expect(Boolean(textContent(reviewButton as HTMLElement).includes("High risk"))).toBeFalse();
+    expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("false");
+
+    fireEvent.click(reviewButton as HTMLElement);
+    await settleAsyncRender();
+    expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("true");
+    expect(Boolean(textContent(container).includes("This edit is high risk."))).toBeTrue();
   });
 });

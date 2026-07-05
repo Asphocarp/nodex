@@ -29,6 +29,7 @@ import type {
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
+import { getCodexFileChangePaths } from "../../../../../shared/codex-file-change";
 import type { ThreadStageRouteInput, ThreadSummaryPanelAuxiliaryRow } from "../../thread-stage-types";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
@@ -135,7 +136,7 @@ function collectOutputRows(turns: readonly CodexConversationTurn[]): string[] {
   for (const turn of turns) {
     for (const item of turn.items) {
       if (item.fileChange) {
-        for (const path of item.fileChange.paths) {
+        for (const path of getCodexFileChangePaths(item.fileChange.changes)) {
           paths.set(path, path);
         }
       }

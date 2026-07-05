@@ -70,6 +70,22 @@ export const Approval: Story = {
   ),
 };
 
+export const FileApprovalPreview: Story = {
+  render: () => (
+    <RequestSurface
+      title="File Approval Preview"
+      description="File approvals render the same path-keyed patch preview model as in-thread file-change rows, deduping repeated same-path edits into one preview row."
+    >
+      <CodexApprovalRequestCard
+        request={THREAD_REQUEST_CARD_STORY_DATA.fileApproval}
+        requestItem={THREAD_REQUEST_CARD_STORY_DATA.fileApprovalItem}
+        onRespond={async () => { }}
+        onSubmitLocalFollowup={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
 export const BackgroundApproval: Story = {
   render: () => (
     <RequestSurface
@@ -177,7 +193,7 @@ export const PermissionRequest: Story = {
   render: () => (
     <RequestSurface
       title="Permission Request"
-      description="Codex-style permissions card with requested permission payload, deny action, and turn-scoped allow action."
+      description="Codex-style permissions card with normalized access details, skip, turn allow, and session allow actions."
     >
       <CodexPermissionRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.permissionRequest}
@@ -191,7 +207,7 @@ export const McpServerElicitation: Story = {
   render: () => (
     <RequestSurface
       title="MCP Elicitation"
-      description="Codex-style MCP approval card with header, message, expandable details, and footer actions."
+      description="Codex-style MCP elicitation card with form inputs, skip/cancel, and contentful continue responses."
     >
       <CodexMcpElicitationRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation}

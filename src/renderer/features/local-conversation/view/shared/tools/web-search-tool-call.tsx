@@ -1,48 +1,37 @@
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
+import { useState } from "react";
+import { describeWebSearchAction } from "../../../web-search-display";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import { asRecord, getString } from "./tool-call-utils";
-import { ToolActivityIcon, resolveWebSearchFavicon, resolveWebSearchIcon } from "./tool-call-icons";
+import {
+  ToolActivityIcon,
+  resolveWebSearchFavicon,
+  resolveWebSearchIcon,
+  semanticToolIcon,
+} from "./tool-call-icons";
+import {
+  THREAD_ACTIVITY_LIST_7_TO_20_REM_MAX_HEIGHT_BY_STATE,
+  ThreadActivityHeader,
+  ThreadActivityList,
+  ThreadActivityShell,
+} from "./tool-primitives";
 
 interface WebSearchToolCallProps {
   item: CodexTranscriptEntry;
   hideHeader?: boolean;
 }
 
-interface WebSearchActionSnapshot {
-  type: string | null;
-  query: string | null;
-  queries: string[];
-  url: string | null;
-  pattern: string | null;
+interface WebSearchToolCallGroupProps {
+  items: readonly CodexTranscriptEntry[];
+  isActive?: boolean;
+  hideHeader?: boolean;
 }
 
-function getStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.reduce<string[]>((acc, entry) => {
-    if (typeof entry !== "string") return acc;
-    const trimmed = entry.trim();
-    if (trimmed.length === 0) return acc;
-    acc.push(trimmed);
-    return acc;
-  }, []);
-}
-
-function normalizeAction(action: unknown): WebSearchActionSnapshot | null {
-  const candidate = asRecord(action);
-  if (!candidate) return null;
-
-  const query = getString(candidate, "query")?.trim() ?? null;
-  const url = getString(candidate, "url")?.trim() ?? null;
-  const pattern = getString(candidate, "pattern")?.trim() ?? null;
-
-  return {
-    type: getString(candidate, "type") ?? null,
-    query: query && query.length > 0 ? query : null,
-    queries: getStringArray(candidate.queries),
-    url: url && url.length > 0 ? url : null,
-    pattern: pattern && pattern.length > 0 ? pattern : null,
-  };
+interface WebSearchDisplayLine {
+  key: string;
+  detail: string;
+  completed: boolean;
+  item: CodexTranscriptEntry;
 }
 
 function extractFallbackQuery(item: CodexTranscriptEntry): string {
@@ -55,35 +44,6 @@ function extractFallbackQuery(item: CodexTranscriptEntry): string {
   if (rawQuery && rawQuery.length > 0) return rawQuery;
 
   return "";
-}
-
-export function selectPrimaryWebSearchQuery(query: string | null, queries: string[]): string {
-  if (query && query.length > 0) return query;
-  return queries[0] ?? "";
-}
-
-export function describeWebSearchAction(action: unknown, fallbackQuery: string): string {
-  const snapshot = normalizeAction(action);
-  if (!snapshot) return fallbackQuery.trim();
-
-  if (snapshot.type === "search") {
-    const selectedQuery = selectPrimaryWebSearchQuery(snapshot.query, snapshot.queries);
-    if (selectedQuery.length === 0) return fallbackQuery.trim();
-    return snapshot.queries.length > 1 && snapshot.query === null ? `${selectedQuery} ...` : selectedQuery;
-  }
-
-  if (snapshot.type === "openPage") {
-    return snapshot.url ?? "";
-  }
-
-  if (snapshot.type === "findInPage") {
-    if (snapshot.pattern && snapshot.url) return `'${snapshot.pattern}' in ${snapshot.url}`;
-    if (snapshot.pattern) return `'${snapshot.pattern}'`;
-    if (snapshot.url) return snapshot.url;
-    return "";
-  }
-
-  return fallbackQuery.trim();
 }
 
 function extractAction(item: CodexTranscriptEntry): unknown {
@@ -99,9 +59,119 @@ export function getWebSearchSummaryDetail(item: CodexTranscriptEntry): string {
   return describeWebSearchAction(extractAction(item), extractFallbackQuery(item)).trim();
 }
 
+function buildWebSearchDisplayLines(items: readonly CodexTranscriptEntry[]): WebSearchDisplayLine[] {
+  return items.reduce<WebSearchDisplayLine[]>((acc, item, index) => {
+    const detail = getWebSearchSummaryDetail(item);
+    if (detail.length === 0) return acc;
+    acc.push({
+      key: `${detail}:${index}`,
+      detail,
+      completed: item.status !== "inProgress",
+      item,
+    });
+    return acc;
+  }, []);
+}
+
+function getActiveWebSearchDetail(lines: readonly WebSearchDisplayLine[]): string | null {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (line && !line.completed) return line.detail;
+  }
+  return lines.at(-1)?.detail ?? null;
+}
+
+function WebSearchGroupLines({
+  lines,
+  viewState = "expanded",
+}: {
+  lines: readonly WebSearchDisplayLine[];
+  viewState?: "collapsed" | "expanded";
+}) {
+  const items = lines.map((line) => {
+    const favicon = resolveWebSearchFavicon(line.item);
+    return {
+      key: line.key,
+      node: (
+        <div className="text-size-chat flex items-start gap-1.5 font-sans text-token-description-foreground/80">
+          {favicon ? (
+            <ToolActivityIcon descriptor={favicon} className="mt-[3px] size-3.5 text-token-text-secondary" />
+          ) : null}
+          <span className="min-w-0 break-words">{line.detail}</span>
+        </div>
+      ),
+    };
+  });
+
+  return (
+    <div className="pt-0 text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant">
+      <div className="-mx-2.5 mt-1">
+        <ThreadActivityList
+          autoScrollToBottom={false}
+          className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80"
+          items={items}
+          maxHeightByState={THREAD_ACTIVITY_LIST_7_TO_20_REM_MAX_HEIGHT_BY_STATE}
+          testId="web-search-group-lines"
+          viewState={viewState}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function WebSearchToolCallGroup({
+  items,
+  isActive = false,
+  hideHeader = false,
+}: WebSearchToolCallGroupProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const lines = buildWebSearchDisplayLines(items);
+  if (lines.length === 0) return null;
+
+  if (hideHeader) {
+    return <WebSearchGroupLines lines={lines} />;
+  }
+
+  const activeDetail = getActiveWebSearchDetail(lines);
+  const icon = semanticToolIcon("web-search");
+
+  return (
+    <ThreadActivityShell
+      className="pt-0 text-token-conversation-body"
+      header={(
+        <ThreadActivityHeader
+          disclosure={{
+            expanded: isExpanded,
+            onToggle: () => {
+              setIsExpanded((value) => !value);
+            },
+          }}
+        >
+          <ToolActivityIcon descriptor={icon} showFallbackWhileLoading={false} />
+          <span className="min-w-0 truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground">
+            {isActive ? (
+              <>
+                <CodexShimmerText className="shrink-0 whitespace-nowrap text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground">
+                  Searching the web
+                </CodexShimmerText>
+                {activeDetail ? <span className="min-w-0 truncate"> for {activeDetail}</span> : null}
+              </>
+            ) : (
+              <span className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground">
+                Searched the web
+              </span>
+            )}
+          </span>
+        </ThreadActivityHeader>
+      )}
+      body={<WebSearchGroupLines lines={lines} viewState={isExpanded ? "expanded" : "collapsed"} />}
+    />
+  );
+}
+
 export function WebSearchToolCall({ item, hideHeader = false }: WebSearchToolCallProps) {
   const completed = item.status !== "inProgress";
-  const summaryVerb = completed ? "Searched web" : "Searching the web";
+  const summaryVerb = completed ? "Searched the web" : "Searching the web";
   const summaryDetail = getWebSearchSummaryDetail(item);
 
   if (hideHeader) {

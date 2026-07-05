@@ -8,7 +8,14 @@ import {
   RequestComposerView,
   type RequestComposerRequest,
 } from "../../shared/request-cards/local-conversation-request-cards";
-import { buildFileChangeRows } from "../../shared/tools/file-change-tool-call";
+import {
+  buildCodexFileChangePatchRows,
+  type CodexFileChangePatchAction,
+} from "../../../../../../shared/codex-file-change";
+import {
+  buildCodexCommandApprovalPreview,
+  formatCodexExecPolicyAmendmentMenuSummary,
+} from "../../../../../../shared/codex-command-execution";
 
 interface CodexApprovalRequestCardProps {
   request: CodexApprovalRequest;
@@ -70,11 +77,7 @@ function buildPromptNode(
 }
 
 function buildExecAmendmentSummary(request: CodexApprovalRequest): string | null {
-  const amendment = request.proposedExecpolicyAmendment ?? null;
-  if (!amendment || amendment.length === 0) return null;
-  const flattened = amendment.join(" ").trim();
-  if (!flattened) return null;
-  return flattened;
+  return formatCodexExecPolicyAmendmentMenuSummary(request.proposedExecpolicyAmendment);
 }
 
 function buildRequestQuestion(
@@ -156,37 +159,39 @@ function mapApprovalDecision(
 }
 
 function CommandPreviewBody({ request }: { request: CodexApprovalRequest }) {
-  const commandText = request.command?.trim()
-    || request.cmd?.join(" ").trim()
-    || "";
-  if (!commandText) return null;
+  const preview = buildCodexCommandApprovalPreview(request);
+  if (!preview) return null;
+
+  if (preview.kind === "network") {
+    return (
+      <div className="px-3 py-2 text-sm text-token-description-foreground">
+        {preview.reason}
+      </div>
+    );
+  }
 
   return (
     <div className="px-3">
       <div className="bg-token-editor-background text-token-input-placeholder-foreground text-size-code flex w-full flex-col gap-1.5 rounded-md px-2 pt-2 pb-2 font-mono font-medium">
-        <span className="block break-words whitespace-pre-wrap">{commandText}</span>
+        <span className="block break-words whitespace-pre-wrap">{preview.commandText}</span>
       </div>
-      {request.cwd?.trim() ? (
-        <div className="px-1 pt-2 text-xs text-token-description-foreground">in {request.cwd.trim()}</div>
-      ) : null}
-      {request.networkApprovalContext?.host ? (
-        <div className="px-1 pt-2 text-sm text-token-description-foreground">
-          Reason: {request.networkApprovalContext.host} isn&apos;t on the current network allowlist
-        </div>
-      ) : null}
     </div>
   );
 }
 
+function formatPatchPreviewLabel(action: CodexFileChangePatchAction): string {
+  if (action === "create") return "Created file";
+  if (action === "delete") return "Deleted file";
+  return "Edited file";
+}
+
 function PatchPreviewBody({
   item,
-  request,
 }: {
   item: CodexConversationItem | null | undefined;
-  request: CodexApprovalRequest;
 }) {
   if (!item) return null;
-  const rows = buildFileChangeRows(item, request.cwd ?? undefined, undefined);
+  const rows = buildCodexFileChangePatchRows(item.fileChange?.changes);
   if (rows.length === 0) return null;
 
   return (
@@ -197,12 +202,14 @@ function PatchPreviewBody({
           className="border-token-border bg-token-text-code-block-background flex items-center justify-between gap-3 rounded-xl border px-3 py-2"
         >
           <div className="min-w-0">
-            <div className="text-token-foreground">{row.expandedLabel ?? row.label}</div>
-            <div className="truncate text-token-description-foreground">{row.displayPath ?? "Changed file"}</div>
+            <div className="text-token-foreground">{formatPatchPreviewLabel(row.action)}</div>
+            <div className="truncate text-token-description-foreground">{row.path || "Changed file"}</div>
           </div>
-          <div className="shrink-0 text-xs text-token-description-foreground">
-            +{row.summary.additions} -{row.summary.deletions}
-          </div>
+          {row.summary ? (
+            <div className="shrink-0 text-xs text-token-description-foreground">
+              +{row.summary.additions} -{row.summary.deletions}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -221,7 +228,7 @@ export function CodexApprovalRequestCard({
   const prompt = buildPromptNode(request, actorName, approvalQuestionActor);
   const body = request.kind === "command"
     ? <CommandPreviewBody request={request} />
-    : <PatchPreviewBody item={requestItem} request={request} />;
+    : <PatchPreviewBody item={requestItem} />;
 
   return (
     <RequestComposerView

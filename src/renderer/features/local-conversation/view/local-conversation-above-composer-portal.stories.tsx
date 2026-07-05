@@ -303,14 +303,12 @@ function buildLiveDraftedEditDiffModel({
                   semanticKind: "patch",
                   status: "inProgress",
                   fileChange: {
-                    paths: ["src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx"],
                     changes: buildCodexFileChangeMap([{
                       type: "update",
                       path: "src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
                       unifiedDiff: liveDraftDiff,
                       movePath: null,
                     }]),
-                    diffs: [liveDraftDiff],
                     label: "Edited src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
                   },
                   toolCall: {

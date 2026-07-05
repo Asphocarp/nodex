@@ -60,9 +60,7 @@ function buildFileChangeItem(turnId: string): CodexConversationItem {
     semanticKind: "patch",
     status: "completed",
     fileChange: {
-      paths: ["src/app.ts"],
       changes: buildCodexFileChangeMap([{ type: "add", path: "src/app.ts", content: "export {};" }]),
-      diffs: [],
       label: "src/app.ts",
     },
     createdAt: 3,
@@ -79,6 +77,11 @@ function buildWebsiteItem(turnId: string): CodexConversationItem {
     type: "web_search",
     kind: "toolCall",
     semanticKind: "webSearch",
+    toolCall: {
+      subtype: "webSearch",
+      toolName: "web_search",
+      args: { query: "reference docs" },
+    },
     markdownText: "https://example.com/reference",
     createdAt: 4,
     updatedAt: 4,

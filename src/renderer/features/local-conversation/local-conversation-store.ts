@@ -47,6 +47,7 @@ import type {
   CodexItemView,
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationRequest,
+  CodexMcpServerElicitationResponse,
   CodexModelOption,
   CodexOwnerAppServerRequestInput,
   CodexPendingSteer,
@@ -79,6 +80,7 @@ import type {
   CodexThreadSummary,
   CodexTurnStartOptions,
 } from "../../lib/types";
+import { normalizeCodexMcpServerElicitationResponse } from "../../../shared/codex-mcp-elicitation";
 import type { CodexThreadActiveFlag, CodexTurnStatus } from "../../../shared/types";
 import {
   applyCodexConversationStateUpdates,
@@ -5270,7 +5272,7 @@ export class CodexAppServerManager {
         return await this.respondUserInputAsOwner(action.requestId, action.answers);
       case "respondMcpElicitation":
         this.assertOwnerForRequest(action.requestId);
-        return await this.respondMcpElicitationAsOwner(action.requestId, action.action);
+        return await this.respondMcpElicitationAsOwner(action.requestId, action.response);
       case "respondPermissionRequest":
         this.assertOwnerForRequest(action.requestId);
         return await this.respondPermissionRequestAsOwner(action.requestId, action.response);
@@ -6142,30 +6144,31 @@ export class CodexAppServerManager {
 
   async respondMcpElicitation(
     requestId: string,
-    action: CodexMcpServerElicitationAction,
+    response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
     conversationId?: string | null,
   ): Promise<boolean> {
+    const normalizedResponse = normalizeCodexMcpServerElicitationResponse(response);
     const followerConversationId = this.findOwnerRoutedConversationIdForRequestResponse(requestId, conversationId);
     if (followerConversationId) {
       return await this.runFollowerRequestResponseThroughOwner(followerConversationId, {
         type: "respondMcpElicitation",
         requestId,
-        action,
+        response: normalizedResponse,
       });
     }
 
-    return await this.respondMcpElicitationAsOwner(requestId, action);
+    return await this.respondMcpElicitationAsOwner(requestId, normalizedResponse);
   }
 
   private async respondMcpElicitationAsOwner(
     requestId: string,
-    action: CodexMcpServerElicitationAction,
+    response: CodexMcpServerElicitationResponse,
   ): Promise<boolean> {
     const conversationId = this.findConversationIdForRequest(requestId);
-    const accepted = (await invoke("codex:mcp-elicitation:respond", requestId, action)) as boolean;
+    const accepted = (await invoke("codex:mcp-elicitation:respond", requestId, response)) as boolean;
     if (accepted && conversationId) {
       this.publishOwnerActionConversationMutation(conversationId, (conversation) =>
-        applyOwnerMcpElicitationResponseToConversation(conversation, requestId, action)
+        applyOwnerMcpElicitationResponseToConversation(conversation, requestId, response.action)
       );
     }
     return accepted;
@@ -9387,8 +9390,11 @@ export function useCodexAppServerControl(activeProjectId: string) {
     [manager],
   );
   const respondMcpElicitation = useCallback(
-    async (requestId: string, action: CodexMcpServerElicitationAction, conversationId?: string | null) =>
-      manager.respondMcpElicitation(requestId, action, conversationId),
+    async (
+      requestId: string,
+      response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
+      conversationId?: string | null,
+    ) => manager.respondMcpElicitation(requestId, response, conversationId),
     [manager],
   );
   const respondPermissionRequest = useCallback(

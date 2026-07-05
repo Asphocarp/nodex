@@ -82,7 +82,7 @@ function createActions(log: string[]): ThreadStageActions {
       log.push(`userInput:${requestId}:${answers.q1?.[0] ?? "none"}:${context?.conversationId ?? "none"}`);
     },
     onRespondMcpElicitation: async (requestId, action, context) => {
-      log.push(`mcp:${requestId}:${action}:${context?.conversationId ?? "none"}`);
+      log.push(`mcp:${requestId}:${typeof action === "string" ? action : action.action}:${context?.conversationId ?? "none"}`);
     },
     onRespondPermissionRequest: async (requestId, response, context) => {
       log.push(`permission:${requestId}:${response.scope}:${context?.conversationId ?? "none"}`);
@@ -126,16 +126,18 @@ describe("CodexPendingRequestCard", () => {
             threadId: "thread_1",
             turnId: "turn_1",
             itemId: "mcp_item_1",
-            kind: "generic",
-            mode: "form",
+            kind: "toolSuggestion",
+            mode: "url",
             serverName: "server",
             message: "Confirm",
+            url: "https://example.test/continue",
+            elicitationId: "elicitation_1",
             createdAt: 3,
           } satisfies CodexMcpServerElicitationRequest,
         },
       },
       {
-        buttonText: "Deny",
+        buttonText: "Skip",
         entry: {
           conversationId: "thread_1",
           surface: "activeThread",

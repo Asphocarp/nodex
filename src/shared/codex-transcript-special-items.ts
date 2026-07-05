@@ -239,7 +239,78 @@ export function buildAutomaticApprovalReviewSummary(
   if (review.status === "aborted") {
     return "A carefully prompted reviewer agent stopped reviewing this request before Codex ran it.";
   }
+  if (review.status === "timedOut") {
+    return "A carefully prompted reviewer agent timed out before Codex ran this request.";
+  }
   return "A carefully prompted reviewer agent reviewed this request.";
+}
+
+export function buildAutomaticApprovalReviewTitle(
+  review: Pick<CodexAutomaticApprovalReviewPayload, "status" | "riskLevel">,
+): string {
+  if (review.status === "inProgress") return "Auto-reviewing";
+  if (review.status === "approved") return "Auto-review approved";
+  if (review.status === "denied" && review.riskLevel === "high") return "Auto-review denied high risk";
+  if (review.status === "denied") return "Auto-review denied";
+  if (review.status === "timedOut") return "Auto-review timed out";
+  return "Auto-review stopped";
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.reduce<string[]>((acc, entry) => {
+    const parsed = readNonEmptyString(entry);
+    if (parsed) acc.push(parsed);
+    return acc;
+  }, []);
+}
+
+function pluralizeFileCount(count: number): string {
+  return count === 1 ? "a file" : `${count} files`;
+}
+
+export function buildAutomaticApprovalReviewActionSummary(action: unknown): string {
+  const candidate = CodexUnknownRecordSchema.safeParse(action);
+  if (!candidate.success) return "Request";
+
+  const type = readNonEmptyString(candidate.data.type);
+  if (type === "command") {
+    return readNonEmptyString(candidate.data.command) ?? "Request";
+  }
+
+  if (type === "execve") {
+    const program = readNonEmptyString(candidate.data.program);
+    if (!program) return "Request";
+    return [program, ...readStringArray(candidate.data.argv)].join(" ");
+  }
+
+  if (type === "applyPatch") {
+    const files = readStringArray(candidate.data.files);
+    if (files.length === 1) return `Editing ${files[0]}`;
+    return `Editing ${pluralizeFileCount(files.length)}`;
+  }
+
+  if (type === "networkAccess") {
+    const target = readNonEmptyString(candidate.data.target);
+    return target ? `Network access to ${target}` : "Network access";
+  }
+
+  if (type === "mcpToolCall") {
+    const toolName = readNonEmptyString(candidate.data.toolName) ?? readNonEmptyString(candidate.data.toolTitle) ?? "tool";
+    const serverName = readNonEmptyString(candidate.data.connectorName) ?? readNonEmptyString(candidate.data.server);
+    return serverName ? `MCP ${toolName} on ${serverName}` : `MCP ${toolName}`;
+  }
+
+  if (type === "requestPermissions") {
+    const reason = readNonEmptyString(candidate.data.reason);
+    return reason ? `Permission request: ${reason}` : "Permission request";
+  }
+
+  return "Request";
 }
 
 export function shouldShowAutoReviewInterruptionWarning(rawNotification: unknown): boolean {

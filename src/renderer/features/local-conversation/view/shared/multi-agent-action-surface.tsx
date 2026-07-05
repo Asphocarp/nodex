@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
@@ -7,6 +8,7 @@ import {
   normalizeMultiAgentActionPayload,
   type CodexMultiAgentActionName,
   type CodexMultiAgentActionPayload,
+  type CodexMultiAgentReceiverThread,
   type CodexMultiAgentActionStatus,
   type CodexMultiAgentAgentState,
 } from "../../../../../shared/codex-transcript-special-items";
@@ -16,9 +18,9 @@ import { CodexShimmerText } from "./codex-shimmer-text";
 
 function getHeaderLabel(action: CodexMultiAgentActionName, status: CodexMultiAgentActionStatus): string {
   if (action === "spawnAgent") {
-    if (status === "inProgress") return "Spawning";
-    if (status === "completed") return "Spawned";
-    return "Failed to spawn";
+    if (status === "inProgress") return "Creating";
+    if (status === "completed") return "Created";
+    return "Failed to create";
   }
   if (action === "sendInput") {
     if (status === "inProgress") return "Messaging";
@@ -42,9 +44,30 @@ function getRowActionLabel(action: CodexMultiAgentActionName, status: CodexMulti
   if (action === "sendInput") {
     if (status === "inProgress") return "Messaging";
     if (status === "completed") return "Messaged";
-    return "Failed to message";
+    return "Failed messaging";
   }
-  return getHeaderLabel(action, status).replace(/^Failed to /, "Failed ");
+  if (action === "spawnAgent") {
+    if (status === "inProgress") return "Creating";
+    if (status === "completed") return "Created";
+    return "Failed creating";
+  }
+  if (action === "resumeAgent") {
+    if (status === "inProgress") return "Resuming";
+    if (status === "completed") return "Resumed";
+    return "Failed resuming";
+  }
+  if (action === "closeAgent") {
+    if (status === "inProgress") return "Closing";
+    if (status === "completed") return "Closed";
+    return "Failed closing";
+  }
+  return "Waiting";
+}
+
+function getPromptSendInputActionLabel(status: CodexMultiAgentActionStatus): string {
+  if (status === "inProgress") return "Messaging";
+  if (status === "completed") return "Messaged";
+  return "Failed to message";
 }
 
 function getAgentStateLabel(status: CodexMultiAgentAgentState["status"]): string {
@@ -68,14 +91,19 @@ function getAgentStateLabel(status: CodexMultiAgentAgentState["status"]): string
 
 function getAgentDisplayName(
   threadId: string,
-  payload: CodexMultiAgentActionPayload,
+  receiverThread: CodexMultiAgentReceiverThread | undefined,
 ): string {
-  const receiverThread = payload.receiverThreads.find((entry) => entry.threadId === threadId)?.thread;
-  const nickname = receiverThread?.nickname?.trim();
+  const nickname = receiverThread?.thread?.nickname?.trim();
   if (nickname) return nickname.startsWith("@") ? nickname.slice(1) : nickname;
 
   const fallback = threadId.trim();
   return fallback.startsWith("@") ? fallback.slice(1) : fallback;
+}
+
+function getAgentRole(receiverThread: CodexMultiAgentReceiverThread | undefined): string | null {
+  const role = receiverThread?.thread?.agentRole?.trim();
+  if (!role || role === "default") return null;
+  return role;
 }
 
 function getAgentStateSuffix(state: CodexMultiAgentAgentState | undefined): string {
@@ -89,7 +117,6 @@ function getAgentStateSuffix(state: CodexMultiAgentAgentState | undefined): stri
 function listTargetThreadIds(payload: CodexMultiAgentActionPayload): string[] {
   return Array.from(
     new Set([
-      ...payload.receiverThreadIds,
       ...payload.receiverThreads.map((entry) => entry.threadId),
       ...Object.keys(payload.agentsStates),
     ]),
@@ -101,41 +128,216 @@ function countTargets(items: CodexMultiAgentActionPayload[]): number {
   return threadIds.size > 0 ? threadIds.size : items.length;
 }
 
-function renderRows(items: CodexMultiAgentActionPayload[]): string[] {
-  const rows: string[] = [];
+function getCountLabel(count: number): string {
+  if (count <= 0) return "";
+  if (count === 1) return " an agent";
+  return ` ${count} agents`;
+}
 
-  for (const item of items) {
+function resolveGroupStatus(items: CodexMultiAgentActionPayload[]): CodexMultiAgentActionStatus {
+  if (items.some((item) => item.status === "inProgress")) return "inProgress";
+  if (items.some((item) => item.status === "failed")) return "failed";
+  return "completed";
+}
+
+interface MultiAgentRenderedRow {
+  key: string;
+  node: ReactNode;
+}
+
+type OpenMultiAgentThread = (threadId: string) => void | Promise<void>;
+
+function AgentLabel({
+  onOpenThread,
+  threadId,
+  receiverThread,
+}: {
+  onOpenThread?: OpenMultiAgentThread;
+  threadId: string;
+  receiverThread: CodexMultiAgentReceiverThread | undefined;
+}) {
+  const displayName = getAgentDisplayName(threadId, receiverThread);
+  const role = getAgentRole(receiverThread);
+  const label = onOpenThread ? (
+    <button
+      type="button"
+      className="cursor-interaction bg-transparent p-0 align-baseline font-medium"
+      data-testid="multi-agent-action-agent-button"
+      onClick={() => {
+        void onOpenThread(threadId);
+      }}
+    >
+      {displayName}
+    </button>
+  ) : (
+    <span className="font-medium">{displayName}</span>
+  );
+
+  return (
+    <span data-testid="multi-agent-action-agent">
+      {label}
+      {role ? <span>{` (${role})`}</span> : null}
+    </span>
+  );
+}
+
+function useElementOverflow(ref: React.RefObject<HTMLElement | null>, key: string): boolean {
+  const [overflows, setOverflows] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return undefined;
+
+    const update = () => {
+      setOverflows(element.scrollWidth - element.clientWidth > 1);
+    };
+    update();
+
+    if (typeof ResizeObserver === "undefined") return undefined;
+
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [key, ref]);
+
+  return overflows;
+}
+
+function InlinePrompt({ prompt }: { prompt: string }) {
+  const promptRef = useRef<HTMLSpanElement | null>(null);
+  const overflows = useElementOverflow(promptRef, prompt);
+  const promptNode = (
+    <span
+      ref={promptRef}
+      className="min-w-0 flex-1 truncate text-token-conversation-summary-trailing"
+      data-testid="multi-agent-action-inline-prompt"
+    >
+      {prompt}
+    </span>
+  );
+
+  return (
+    <NodexTooltip
+      tooltipContent={<span className="whitespace-pre-wrap">{prompt}</span>}
+      disabled={!overflows}
+    >
+      {promptNode}
+    </NodexTooltip>
+  );
+}
+
+function InlineRow({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex min-w-0 items-baseline gap-1 overflow-hidden whitespace-nowrap">
+      {children}
+    </span>
+  );
+}
+
+function getReceiverThreadMap(payload: CodexMultiAgentActionPayload): Map<string, CodexMultiAgentReceiverThread> {
+  return new Map(payload.receiverThreads.map((entry) => [entry.threadId, entry]));
+}
+
+function makeRowKey(prefix: string, item: CodexMultiAgentActionPayload, fallbackIndex: number, suffix?: string): string {
+  const id = item.id ?? `${item.action}-${fallbackIndex}`;
+  return suffix ? `${prefix}-${id}-${suffix}` : `${prefix}-${id}`;
+}
+
+function renderRows(
+  items: CodexMultiAgentActionPayload[],
+  onOpenThread: OpenMultiAgentThread | undefined,
+): MultiAgentRenderedRow[] {
+  const rows: MultiAgentRenderedRow[] = [];
+
+  for (const [itemIndex, item] of items.entries()) {
     const targetThreadIds = listTargetThreadIds(item);
-    const hasPrompt = (item.prompt?.trim().length ?? 0) > 0;
+    const rawPrompt = item.prompt ?? "";
+    const hasPrompt = rawPrompt.trim().length > 0;
     const isSpawnWithInstructions = item.action === "spawnAgent" && item.status === "completed" && hasPrompt;
     const isSendInputWithPrompt = item.action === "sendInput" && hasPrompt;
+    const receiverThreads = getReceiverThreadMap(item);
 
     if (targetThreadIds.length === 0) {
-      rows.push(getHeaderLabel(item.action, item.status));
+      rows.push({
+        key: makeRowKey("row-generic", item, itemIndex),
+        node: getRowActionLabel(item.action, item.status),
+      });
       continue;
     }
 
     for (const threadId of targetThreadIds) {
-      const agent = getAgentDisplayName(threadId, item);
+      const agent = (
+        <AgentLabel
+          onOpenThread={onOpenThread}
+          receiverThread={receiverThreads.get(threadId)}
+          threadId={threadId}
+        />
+      );
       const stateSuffix = item.action === "closeAgent" || item.action === "resumeAgent"
         ? ""
         : getAgentStateSuffix(item.agentsStates[threadId]);
 
       if (isSpawnWithInstructions) {
-        rows.push(`Created ${agent} with the instructions: ${item.prompt?.trim() ?? ""}`);
+        rows.push({
+          key: makeRowKey("row", item, itemIndex, threadId),
+          node: (
+            <InlineRow>
+              <span>Created</span>
+              {" "}
+              {agent}
+              {" "}
+              <span>with the instructions:</span>
+              {" "}
+              <InlinePrompt prompt={rawPrompt} />
+            </InlineRow>
+          ),
+        });
         continue;
       }
 
       if (isSendInputWithPrompt) {
-        rows.push(`${getRowActionLabel(item.action, item.status)} ${agent}: ${item.prompt?.trim() ?? ""}`);
+        rows.push({
+          key: makeRowKey("row", item, itemIndex, threadId),
+          node: (
+            <InlineRow>
+              <span>{getPromptSendInputActionLabel(item.status)}</span>
+              {" "}
+              <span>
+                {agent}
+                :{" "}
+              </span>
+              <InlinePrompt prompt={rawPrompt} />
+            </InlineRow>
+          ),
+        });
         continue;
       }
 
-      rows.push(`${getRowActionLabel(item.action, item.status)} ${agent}${stateSuffix}`);
+      rows.push({
+        key: makeRowKey("row", item, itemIndex, threadId),
+        node: (
+          <>
+            {getRowActionLabel(item.action, item.status)}
+            {" "}
+            {agent}
+            {stateSuffix}
+          </>
+        ),
+      });
     }
 
     if (!isSpawnWithInstructions && !isSendInputWithPrompt && hasPrompt) {
-      rows.push(`Input: ${item.prompt?.trim() ?? ""}`);
+      rows.push({
+        key: makeRowKey("meta-prompt", item, itemIndex),
+        node: (
+          <>
+            Input:{" "}
+            <span className="break-words whitespace-pre-wrap" data-testid="multi-agent-action-meta-prompt">
+              {rawPrompt}
+            </span>
+          </>
+        ),
+      });
     }
   }
 
@@ -145,9 +347,11 @@ function renderRows(items: CodexMultiAgentActionPayload[]): string[] {
 export function MultiAgentActionSurface({
   items,
   forceInProgress = false,
+  onOpenThread,
 }: {
   items: CodexConversationItem[];
   forceInProgress?: boolean;
+  onOpenThread?: OpenMultiAgentThread;
 }) {
   const normalizedItems = items
     .map((item) => normalizeMultiAgentActionPayload(item.rawItem))
@@ -157,16 +361,14 @@ export function MultiAgentActionSurface({
   const primaryItem = normalizedItems[0];
   if (!primaryItem) return null;
 
-  const resolvedStatus = forceInProgress ? "inProgress" : primaryItem.status;
+  const resolvedStatus = forceInProgress ? "inProgress" : resolveGroupStatus(normalizedItems);
   const isInProgress = resolvedStatus === "inProgress";
   const [expanded, setExpanded] = useState(false);
   const isOpen = isInProgress || expanded;
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
-  const rowText = renderRows(normalizedItems);
+  const rowModels = renderRows(normalizedItems, onOpenThread);
   const targetCount = countTargets(normalizedItems);
-  const countLabel = targetCount > 0
-    ? ` ${targetCount} ${targetCount === 1 ? "agent" : "agents"}`
-    : "";
+  const countLabel = getCountLabel(targetCount);
 
   return (
     <div className="min-w-0 py-0">
@@ -213,9 +415,12 @@ export function MultiAgentActionSurface({
           }}
         >
           <div ref={elementRef} className="flex flex-col gap-0.5" data-testid="multi-agent-action-rows">
-            {rowText.map((row, index) => (
-              <div key={`${index}:${row}`} className="min-w-0 truncate text-size-chat text-token-description-foreground/80">
-                {row}
+            {rowModels.map((row) => (
+              <div
+                key={row.key}
+                className="text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant text-size-chat min-w-0"
+              >
+                {row.node}
               </div>
             ))}
           </div>

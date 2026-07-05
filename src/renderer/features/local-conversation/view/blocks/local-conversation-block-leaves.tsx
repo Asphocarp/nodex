@@ -32,12 +32,32 @@ import {
 } from "../shared/thread-message-actions";
 import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
-import { buildFileChangeRows } from "../shared/tools/file-change-tool-call";
-import { getWebSearchSummaryDetail } from "../shared/tools/web-search-tool-call";
+import { DynamicToolCallSummary } from "../shared/tools/dynamic-tool-call";
+import {
+  buildDynamicToolCallSummaryPartKey,
+  continuesCodexAppLiveActivityBetweenCalls,
+} from "../shared/tools/dynamic-tool-call-utils";
+import { WebSearchToolCallGroup } from "../shared/tools/web-search-tool-call";
 import { AnimatedDiffStats } from "../shared/tools/diff-file-shared";
-import { JsonBlock } from "../shared/tools/tool-primitives";
-import { extractCommandActions } from "../shared/tools/command-actions";
+import {
+  JsonBlock,
+  ThreadActivityDisclosure,
+  ThreadActivityHeader,
+  ThreadActivityList,
+  THREAD_ACTIVITY_LIST_7_TO_20_REM_MAX_HEIGHT_BY_STATE,
+  THREAD_ACTIVITY_LIST_20_REM_MAX_HEIGHT_BY_STATE,
+  ThreadActivityShell,
+  type ThreadActivitySummaryTransition,
+} from "../shared/tools/tool-primitives";
+import { resolveMcpToolDisplayName } from "../shared/tools/mcp-tool-call-labels";
+import {
+  extractCommandActions,
+  normalizeExplorationPath,
+  resolveExplorationPath,
+  resolveExplorationSkillPathInfo,
+} from "../shared/tools/command-actions";
 import { buildCollapsedToolActivitySummary } from "../../projection/collapsed-tool-activity-summary";
+import { shouldDisplayCollapsedToolActivityActiveSummary } from "../../projection/group-exploration-blocks";
 import {
   ToolActivityIcon,
   resolveCollapsedToolActivityIcon,
@@ -66,6 +86,7 @@ import { cn } from "../../../../lib/utils";
 import type {
   ThreadAssistantMessageActionsModel,
   ThreadBlockModel,
+  ThreadCollapsedToolActivityActiveSummary,
   ThreadPlanSidePanelState,
   ThreadStageActions,
   ThreadTranscriptBlockModel,
@@ -149,76 +170,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function normalizeExplorationPath(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-
-  const isAbsolute = trimmed.startsWith("/");
-  const normalizedSegments: string[] = [];
-  for (const segment of trimmed.replaceAll("\\", "/").split("/")) {
-    if (segment.length === 0 || segment === ".") continue;
-    if (segment === "..") {
-      if (normalizedSegments.length > 0 && normalizedSegments[normalizedSegments.length - 1] !== "..") {
-        normalizedSegments.pop();
-        continue;
-      }
-      if (!isAbsolute) normalizedSegments.push(segment);
-      continue;
-    }
-    normalizedSegments.push(segment);
-  }
-
-  const normalizedPath = normalizedSegments.join("/");
-  if (isAbsolute) return normalizedPath.length > 0 ? `/${normalizedPath}` : "/";
-  return normalizedPath.length > 0 ? normalizedPath : null;
-}
-
-function resolveExplorationPath(path: string | null | undefined, cwd: string | null | undefined): string | null {
-  const normalizedPath = normalizeExplorationPath(path);
-  if (!normalizedPath) return null;
-  if (normalizedPath.startsWith("/")) return normalizedPath;
-  const normalizedCwd = normalizeExplorationPath(cwd);
-  if (!normalizedCwd) return normalizedPath;
-  return normalizeExplorationPath(`${normalizedCwd}/${normalizedPath}`);
-}
-
-function formatSkillName(value: string): string {
-  return value
-    .replaceAll("_", "-")
-    .split("-")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => `${segment[0]?.toUpperCase() ?? ""}${segment.slice(1)}`)
-    .join(" ");
-}
-
-function resolveExplorationSkill(path: string | null): { skillName: string } | null {
-  const normalizedPath = normalizeExplorationPath(path);
-  if (!normalizedPath) return null;
-
-  const segments = normalizedPath
-    .replace(/^\/+/, "")
-    .split("/")
-    .filter((segment) => segment.length > 0);
-
-  for (let index = 0; index < segments.length; index += 1) {
-    const current = segments[index]?.toLowerCase();
-    const next = segments[index + 1]?.toLowerCase();
-    if ((current !== ".codex" && current !== ".agents") || next !== "skills") continue;
-
-    const candidate = segments[index + 2] ?? null;
-    const candidateLower = candidate?.toLowerCase();
-    const skillSegment = candidateLower === "_import" || candidateLower === ".system"
-      ? segments[index + 3] ?? null
-      : candidate;
-
-    if (!skillSegment) continue;
-    return { skillName: formatSkillName(skillSegment) };
-  }
-
-  return null;
-}
-
 function extractCommandCwd(entry: CodexConversationItem): string | null {
   return entry.cwd ?? null;
 }
@@ -229,7 +180,7 @@ function formatExplorationLine(action: CodexCommandAction, cwd: string | null): 
     : action.type === "search" || action.type === "listFiles"
       ? resolveExplorationPath(action.path, cwd)
       : null;
-  const resolvedSkill = resolveExplorationSkill(resolvedSkillPath);
+  const resolvedSkill = resolveExplorationSkillPathInfo(resolvedSkillPath);
 
   if (resolvedSkill) {
     if (action.type === "read") return `Read ${resolvedSkill.skillName} skill`;
@@ -540,6 +491,8 @@ function humanizeBlockType(type: ThreadBlockModel["type"]): string {
       return "Multi-agent action";
     case "webSearch":
       return "Web search";
+    case "webSearchGroup":
+      return "Web search";
     case "userInputResponse":
       return "User input response";
     default:
@@ -572,10 +525,68 @@ export function ThreadExplorationGroupBlock({
 
 export function ThreadMultiAgentGroupBlock({
   block,
+  onOpenThread,
 }: ThreadSpecialBlockProps) {
   if (block.type !== "multiAgentGroup") return null;
 
-  return <MultiAgentActionSurface items={block.entries} />;
+  return <MultiAgentActionSurface items={block.entries} onOpenThread={onOpenThread} />;
+}
+
+export function ThreadWebSearchGroupBlock({
+  block,
+  isLatestTurn,
+  isStreamingTurn,
+}: ThreadSpecialBlockProps & { nestedInCollapsedActivity?: boolean }) {
+  if (block.type !== "webSearchGroup") return null;
+
+  return (
+    <WebSearchToolCallGroup
+      items={block.entries.map((entry) => entry.entry)}
+      isActive={isLatestTurn && isStreamingTurn && block.status === "inProgress"}
+    />
+  );
+}
+
+function getMcpCallServer(entry: ThreadTranscriptBlockModel & { type: "mcpToolCall" }): string {
+  return entry.entry.mcpToolCall?.invocation.server ?? entry.entry.toolCall?.server ?? "";
+}
+
+function getPendingMcpSourceList(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): string {
+  const prefix = "Using ";
+  if (block.summary.startsWith(prefix)) return block.summary.slice(prefix.length);
+  return block.entries.length === 1 ? "tool" : `${block.entries.length} tools`;
+}
+
+function isPendingMcpNodeReplGroup(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): boolean {
+  return block.entries.length > 0
+    && block.entries.every((entry) => getMcpCallServer(entry) === "node_repl" && !entry.entry.mcpToolCall?.pluginId && !entry.entry.mcpToolCall?.mcpAppResourceUri);
+}
+
+function isPendingMcpIntegrationGroup(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): boolean {
+  return block.entries.length > 0
+    && block.entries.every((entry) => Boolean(entry.entry.mcpToolCall?.pluginId || entry.entry.mcpToolCall?.mcpAppResourceUri));
+}
+
+function getPendingMcpCompletedSummary(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): string {
+  if (isPendingMcpNodeReplGroup(block)) {
+    return block.entries.length === 1 ? "Ran a command" : `Ran ${block.entries.length} commands`;
+  }
+
+  const sourceList = getPendingMcpSourceList(block);
+  if (isPendingMcpIntegrationGroup(block)) {
+    return block.entries.length === 1 ? `Used ${sourceList} integration` : `Used ${sourceList} integrations`;
+  }
+
+  return `Used ${sourceList}`;
+}
+
+function getPendingMcpActiveEntry(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): (ThreadTranscriptBlockModel & { type: "mcpToolCall" }) | null {
+  for (let index = block.entries.length - 1; index >= 0; index -= 1) {
+    const entry = block.entries[index];
+    if (!entry) continue;
+    if (entry.entry.mcpToolCall?.completed === false || entry.status === "inProgress") return entry;
+  }
+  return block.entries.at(-1) ?? null;
 }
 
 export function ThreadPendingMcpToolCallsBlock({
@@ -593,59 +604,188 @@ export function ThreadPendingMcpToolCallsBlock({
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (block.type !== "pendingMcpToolCalls") return null;
-  const firstEntry = block.entries[0]?.entry;
-  const icon = firstEntry ? resolveMcpSourceIcon(firstEntry) : semanticToolIcon("connector");
+  const activeEntry = isLatestTurn && isStreamingTurn && block.status === "inProgress"
+    ? getPendingMcpActiveEntry(block)
+    : null;
+  const iconEntry = activeEntry?.entry ?? block.entries.at(-1)?.entry ?? block.entries[0]?.entry;
+  const icon = iconEntry ? resolveMcpSourceIcon(iconEntry) : semanticToolIcon("connector");
+  const activePayload = activeEntry?.entry.mcpToolCall ?? null;
+  const summary = activePayload ? (
+    <CodexShimmerText active className="min-w-0 truncate select-none text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground">
+      {resolveMcpToolDisplayName(activePayload)}
+    </CodexShimmerText>
+  ) : (
+    <span className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground">
+      {getPendingMcpCompletedSummary(block)}
+    </span>
+  );
+
+  const bodyItems = block.entries.map((entry) => ({
+    key: entry.entry.mcpToolCall?.callId ?? entry.id,
+    node: (
+      <ThreadToolSurfaceBlock
+        block={entry}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        projectWorkspacePath={projectWorkspacePath}
+        threadCwd={threadCwd}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+        onOpenThread={onOpenThread}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+        nestedInCollapsedActivity
+      />
+    ),
+  }));
 
   return (
-    <div className="flex min-w-0 flex-col pt-0 text-token-conversation-body">
-      <button
-        type="button"
-        className="group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1.5 self-start text-left"
-        aria-expanded={isExpanded}
-        onClick={() => {
-          setIsExpanded((value) => !value);
-        }}
-      >
-        <ToolActivityIcon descriptor={icon} />
-        <CodexShimmerText active className="min-w-0 truncate text-token-description-foreground/90 group-hover/summary:text-token-foreground">
-          {block.summary}
-        </CodexShimmerText>
-        <ChevronRightIcon
-          className={cn(
-            "icon-2xs flex-shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/summary:opacity-100",
-            isExpanded && "rotate-90 opacity-100",
-          )}
-        />
-      </button>
-      <motion.div
-        initial={false}
-        animate={isExpanded ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
-        transition={CODEX_THREAD_ACCORDION_TRANSITION}
-        className={isExpanded ? "overflow-visible" : "overflow-hidden"}
-        data-testid="pending-mcp-tool-calls-body"
-        data-thread-find-skip={isExpanded ? undefined : true}
-        style={{ pointerEvents: isExpanded ? "auto" : "none" }}
-      >
-        <div className="-mx-2.5 mt-1 flex flex-col gap-1 rounded-none border-0 px-2.5">
-          {block.entries.map((entry) => (
-            <ThreadToolSurfaceBlock
-              key={entry.id}
-              block={entry}
-              isLatestTurn={isLatestTurn}
-              isStreamingTurn={isStreamingTurn}
-              projectWorkspacePath={projectWorkspacePath}
-              threadCwd={threadCwd}
-              onOpenTurnDiffReview={onOpenTurnDiffReview}
-              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-              onOpenThread={onOpenThread}
-              onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-              nestedInCollapsedActivity
+    <ThreadActivityShell
+      body={(
+        <div
+          className="pt-0 text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant"
+          data-testid="pending-mcp-tool-calls-body"
+          data-thread-find-skip={isExpanded ? undefined : true}
+        >
+          <div className="-mx-2.5">
+            <ThreadActivityList
+              autoScrollToBottom={false}
+              className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80"
+              contentClassName="pt-1"
+              items={bodyItems}
+              maxHeightByState={THREAD_ACTIVITY_LIST_7_TO_20_REM_MAX_HEIGHT_BY_STATE}
+              viewState={isExpanded ? "expanded" : "collapsed"}
             />
-          ))}
+          </div>
         </div>
-      </motion.div>
-    </div>
+      )}
+      className="pt-0 text-token-conversation-body"
+      header={(
+        <ThreadActivityHeader
+          disclosure={{
+            expanded: isExpanded,
+            onToggle: () => {
+              setIsExpanded((value) => !value);
+            },
+          }}
+        >
+          <ToolActivityIcon descriptor={icon} />
+          <span className="text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground min-w-0 shrink truncate">
+            {summary}
+          </span>
+        </ThreadActivityHeader>
+      )}
+    />
+  );
+}
+
+type DynamicToolCallGroupEntry = Extract<ThreadBlockModel, { type: "dynamicToolCallGroup" }>["entries"][number];
+
+interface DynamicToolCallGroupSummaryPart {
+  key: string;
+  item: NonNullable<DynamicToolCallGroupEntry["entry"]["dynamicToolCall"]>;
+  count: number;
+}
+
+function buildDynamicToolCallGroupSummaryViewParts(
+  entries: DynamicToolCallGroupEntry[],
+): DynamicToolCallGroupSummaryPart[] {
+  const parts: DynamicToolCallGroupSummaryPart[] = [];
+  for (const entry of entries) {
+    const call = entry.entry.dynamicToolCall;
+    if (!call) continue;
+
+    const key = buildDynamicToolCallSummaryPartKey(call);
+    const existing = parts.find((part) => part.key === key);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+
+    parts.push({ key, item: call, count: 1 });
+  }
+  return parts;
+}
+
+function getDynamicToolCallGroupActiveEntry(
+  entries: DynamicToolCallGroupEntry[],
+): DynamicToolCallGroupEntry | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.entry.dynamicToolCall && !entry.entry.dynamicToolCall.completed) return entry;
+  }
+  return null;
+}
+
+function isDynamicToolCallGroupActive(
+  entries: DynamicToolCallGroupEntry[],
+  isActiveTurn: boolean,
+): boolean {
+  if (!isActiveTurn) return false;
+  if (entries.some((entry) => entry.entry.dynamicToolCall && !entry.entry.dynamicToolCall.completed)) return true;
+  const lastCall = entries.at(-1)?.entry.dynamicToolCall;
+  return continuesCodexAppLiveActivityBetweenCalls(lastCall);
+}
+
+function DynamicToolCallGroupSummary({
+  entries,
+}: {
+  entries: DynamicToolCallGroupEntry[];
+}) {
+  const parts = buildDynamicToolCallGroupSummaryViewParts(entries);
+  const firstPart = parts[0];
+  if (!firstPart) return null;
+
+  if (parts.length === 1) {
+    return (
+      <DynamicToolCallGroupSummaryPartLabel
+        item={firstPart.item}
+        count={firstPart.count}
+        variant="summary"
+      />
+    );
+  }
+
+  const allCodexApp = entries.every((entry) => entry.entry.dynamicToolCall?.namespace === "codex_app");
+  const icon = allCodexApp ? semanticToolIcon("plugin") : semanticToolIcon("connector");
+
+  return (
+    <span className="text-size-chat inline-flex min-w-0 items-center gap-2">
+      <ToolActivityIcon descriptor={icon} className="icon-xs shrink-0 text-token-text-secondary" />
+      <span className="truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground">
+        {parts.map((part, index) => (
+          <span key={part.key}>
+            {index > 0 ? " · " : null}
+            <DynamicToolCallGroupSummaryPartLabel
+              item={part.item}
+              count={part.count}
+              variant="summary-text"
+            />
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function DynamicToolCallGroupSummaryPartLabel({
+  item,
+  count,
+  variant,
+}: {
+  item: NonNullable<DynamicToolCallGroupEntry["entry"]["dynamicToolCall"]>;
+  count: number;
+  variant: "summary" | "summary-text";
+}) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      <DynamicToolCallSummary call={item} variant={variant} />
+      {count > 1 ? (
+        <span className="shrink-0 text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground">
+          {` ${count} times`}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -661,63 +801,73 @@ export function ThreadDynamicToolCallGroupBlock({
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
   if (block.type !== "dynamicToolCallGroup") return null;
-  const repeatText = `${block.repeatCount} times`;
+  const canExpand = block.canExpand ?? true;
+  const isActiveGroup = isDynamicToolCallGroupActive(block.entries, isLatestTurn && isStreamingTurn);
+  const activeEntry = isActiveGroup ? getDynamicToolCallGroupActiveEntry(block.entries) : null;
+  const activeCall = activeEntry?.entry.dynamicToolCall ?? null;
+  const lastCall = block.entries.at(-1)?.entry.dynamicToolCall ?? null;
+  const summaryKey = activeCall
+    ? `active:${activeCall.callId}`
+    : `completed:${lastCall?.callId ?? block.id}:${block.entries.length}`;
+  const summaryTransition: ThreadActivitySummaryTransition = isLatestTurn && isStreamingTurn
+    ? activeCall ? "deferred" : "immediate"
+    : "static";
+  const summary = activeCall
+    ? (
+      <DynamicToolCallSummary
+        call={{
+          ...activeCall,
+          completed: false,
+        }}
+        variant="summary"
+      />
+    )
+    : <DynamicToolCallGroupSummary entries={block.entries} />;
+  const bodyItems = block.entries.map((entry) => ({
+    key: entry.entry.dynamicToolCall?.callId ?? entry.id,
+    node: (
+      <ThreadToolSurfaceBlock
+        block={entry}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        projectWorkspacePath={projectWorkspacePath}
+        threadCwd={threadCwd}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+        onOpenThread={onOpenThread}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+        nestedInCollapsedActivity
+      />
+    ),
+  }));
 
   return (
-    <div className="flex min-w-0 flex-col">
-      <button
-        type="button"
-        className="group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left"
-        aria-expanded={isExpanded}
-        onClick={() => {
-          setIsExpanded((value) => !value);
-        }}
-      >
-        <ToolActivityIcon descriptor={semanticToolIcon("plugin")} />
-        <span className="shrink overflow-hidden pr-1 text-token-conversation-summary-trailing [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] group-hover/collapsed-tool-activity:text-token-foreground">
-          {block.summary}
-        </span>
-        <span className="text-token-foreground/40">·</span>
-        <span className="shrink-0 text-token-foreground/40">{repeatText}</span>
-        <ChevronRightIcon
-          className={cn(
-            "inline-chevron icon-2xs flex-shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/collapsed-tool-activity:opacity-100",
-            isExpanded && "rotate-90 opacity-100",
-          )}
-        />
-      </button>
-      <motion.div
-        initial={false}
-        animate={isExpanded ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
-        transition={CODEX_THREAD_ACCORDION_TRANSITION}
-        className={isExpanded ? "overflow-visible" : "overflow-hidden"}
+    <ThreadActivityDisclosure
+      canExpand={canExpand}
+      className="pt-0 text-token-conversation-body"
+      shouldAnimateInitialCollapse={isLatestTurn && isStreamingTurn && canExpand}
+      summary={summary}
+      summaryClassName={canExpand
+        ? "shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/activity-header:text-token-foreground"
+        : undefined}
+      summaryKey={summaryKey}
+      summaryTransition={summaryTransition}
+    >
+      <div
+        className="-mx-2.5 mt-1 text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant"
         data-testid="dynamic-tool-call-group-body"
-        data-thread-find-skip={isExpanded ? undefined : true}
-        style={{ pointerEvents: isExpanded ? "auto" : "none" }}
       >
-        <div className="-mx-2.5 mt-1 max-h-[20rem] vertical-scroll-fade-mask [--edge-fade-distance:1.5rem] overflow-y-auto flex flex-col gap-1 text-token-conversation-body">
-          {block.entries.map((entry) => (
-            <ThreadToolSurfaceBlock
-              key={entry.id}
-              block={entry}
-              isLatestTurn={isLatestTurn}
-              isStreamingTurn={isStreamingTurn}
-              projectWorkspacePath={projectWorkspacePath}
-              threadCwd={threadCwd}
-              onOpenTurnDiffReview={onOpenTurnDiffReview}
-              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-              onOpenThread={onOpenThread}
-              onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-              nestedInCollapsedActivity
-            />
-          ))}
-        </div>
-      </motion.div>
-    </div>
+        <ThreadActivityList
+          autoScrollToBottom={false}
+          className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80"
+          items={bodyItems}
+          maxHeightByState={THREAD_ACTIVITY_LIST_20_REM_MAX_HEIGHT_BY_STATE}
+          viewState="expanded"
+        />
+      </div>
+    </ThreadActivityDisclosure>
   );
 }
 
@@ -757,6 +907,9 @@ function renderCollapsedActivityEntry({
   };
 
   if (entry.type === "explorationGroup") return <ThreadExplorationBodyOnly entries={entry.entries} />;
+  if (entry.type === "webSearchGroup") {
+    return <WebSearchToolCallGroup items={entry.entries.map((item) => item.entry)} hideHeader />;
+  }
   if (entry.type === "automaticApprovalReview") return <ThreadAutomaticApprovalReviewBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "streamError") return <ThreadStreamErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "systemError") return <ThreadSystemErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
@@ -771,117 +924,6 @@ function renderCollapsedActivityEntry({
   return null;
 }
 
-function resolveCollapsedExplorationActiveSummary(entries: CodexConversationItem[]): string | null {
-  for (let entryIndex = entries.length - 1; entryIndex >= 0; entryIndex -= 1) {
-    const entry = entries[entryIndex];
-    if (!entry || entry.status !== "inProgress") continue;
-    const actions = extractCommandActions(entry);
-    for (let actionIndex = actions.length - 1; actionIndex >= 0; actionIndex -= 1) {
-      const action = actions[actionIndex];
-      if (!action) continue;
-      const label = formatExplorationLine(action, extractCommandCwd(entry));
-      if (action.type === "read") return label.replace(/^Read\b/, "Reading");
-      if (action.type === "search") return label.replace(/^Searched\b/, "Searching");
-      if (action.type === "listFiles") return label.replace(/^Listed\b/, "Listing");
-    }
-  }
-  return null;
-}
-
-interface CollapsedFileChangeActiveSummary {
-  kind: "fileChange";
-  label: string;
-  displayPath: string;
-  additions: number;
-  deletions: number;
-}
-
-interface CollapsedTextActiveSummary {
-  kind: "text";
-  label: string;
-}
-
-type CollapsedActivityActiveSummary = CollapsedTextActiveSummary | CollapsedFileChangeActiveSummary;
-
-function resolveCollapsedFileChangeActiveSummary(
-  block: ThreadTranscriptBlockModel,
-  threadCwd: string | undefined,
-  projectWorkspacePath: string | undefined,
-): CollapsedFileChangeActiveSummary | null {
-  const rows = buildFileChangeRows(
-    block.entry,
-    threadCwd,
-    projectWorkspacePath,
-    block.isTurnCancelled === true,
-    block.automaticApprovalReviews ?? [],
-  );
-  const row = rows.at(-1);
-  if (!row) return null;
-  return {
-    kind: "fileChange",
-    label: row.label,
-    displayPath: row.displayPath,
-    additions: row.summary.additions,
-    deletions: row.summary.deletions,
-  };
-}
-
-function getAutomaticApprovalReviewStatus(entry: CodexConversationItem): string | null {
-  const raw = asRecord(entry.rawItem);
-  const review = asRecord(raw?.review);
-  const status = review?.status ?? raw?.status;
-  return typeof status === "string" ? status : null;
-}
-
-function resolveCollapsedActivityActiveSummaryPass(
-  entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
-  inProgressOnly: boolean,
-  threadCwd: string | undefined,
-  projectWorkspacePath: string | undefined,
-): CollapsedActivityActiveSummary | null {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (!entry) continue;
-    if (inProgressOnly && entry.status !== "inProgress") continue;
-
-    if (entry.type === "explorationGroup") {
-      const label = resolveCollapsedExplorationActiveSummary(entry.entries);
-      if (label) return { kind: "text", label };
-      continue;
-    }
-    if (entry.type === "fileChange" && entry.status === "inProgress") {
-      const summary = resolveCollapsedFileChangeActiveSummary(entry, threadCwd, projectWorkspacePath);
-      if (summary) return summary;
-      continue;
-    }
-    if (entry.type === "webSearch") {
-      if (entry.status !== "inProgress") continue;
-      const detail = getWebSearchSummaryDetail(entry.entry);
-      return { kind: "text", label: detail.length > 0 ? `Searching the web for ${detail}` : "Searching the web" };
-    }
-    if (entry.type === "exec") {
-      if (entry.status !== "inProgress") continue;
-      const command = entry.entry.command?.trim();
-      return { kind: "text", label: command && command.length > 0 ? `Running ${command}` : "Running command" };
-    }
-    if (entry.type === "automaticApprovalReview" && !inProgressOnly) {
-      const status = getAutomaticApprovalReviewStatus(entry.entry) ?? entry.status;
-      if (status === "approved") return { kind: "text", label: "Approved request" };
-      if (status === "denied") return { kind: "text", label: "Denied request" };
-    }
-  }
-  return null;
-}
-
-function resolveCollapsedActivityActiveSummary(
-  entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
-  threadCwd: string | undefined,
-  projectWorkspacePath: string | undefined,
-): CollapsedActivityActiveSummary | null {
-  return resolveCollapsedActivityActiveSummaryPass(entries, true, threadCwd, projectWorkspacePath)
-    ?? resolveCollapsedActivityActiveSummaryPass(entries, false, threadCwd, projectWorkspacePath);
-}
-
 function isEverydayWorkMode(threadDetailLevel: ReturnType<typeof resolveCodexThreadDetailLevel>): boolean {
   return threadDetailLevel === "STEPS_PROSE";
 }
@@ -894,10 +936,13 @@ function shouldShimmerCollapsedActivitySummary(
     || stats.runningEditedFileCount > 0
     || stats.runningDeletedFileCount > 0
     || stats.runningExploredFileCount > 0
+    || stats.runningLoadedToolCount > 0
     || stats.runningSearchCount > 0
     || stats.runningListCount > 0
     || stats.runningHookCount > 0
     || stats.runningCommandCount > 0
+    || stats.runningFolderCreationCommandCount > 0
+    || stats.runningWebSearchCommandCount > 0
     || stats.runningMcpToolCallCount > 0
     || stats.runningWebSearchCount > 0;
 }
@@ -932,7 +977,7 @@ function CollapsedActivitySummaryText({
 function CollapsedActivityActiveSummaryText({
   summary,
 }: {
-  summary: CollapsedActivityActiveSummary;
+  summary: ThreadCollapsedToolActivityActiveSummary;
 }) {
   if (summary.kind === "fileChange") {
     return (
@@ -956,6 +1001,33 @@ function CollapsedActivityActiveSummaryText({
   return <CodexShimmerText>{summary.label}</CodexShimmerText>;
 }
 
+function buildCollapsedActivityAggregateSummaryKey(
+  stats: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["summaryStats"],
+  fallbackSummary: string,
+): string {
+  if (!stats) return `summary:${fallbackSummary}`;
+
+  return [
+    "completed",
+    stats.createdFileCount,
+    stats.stoppedCreatedFileCount,
+    stats.changedLineCount,
+    stats.editedFileCount,
+    stats.deletedFileCount,
+    stats.exploredFileCount,
+    stats.loadedToolCount,
+    stats.searchCount,
+    stats.listCount,
+    stats.deniedRequestCount,
+    stats.timedOutRequestCount,
+    stats.commandCount,
+    stats.completedWebSearchCommandCount,
+    stats.mcpToolCallCount,
+    stats.webSearchCount,
+    stats.mcpToolCallSources.map((source) => `${source.key}:${source.count}`).join(","),
+  ].join(":");
+}
+
 export function ThreadCollapsedToolActivityBlock({
   block,
   isLatestTurn,
@@ -969,120 +1041,81 @@ export function ThreadCollapsedToolActivityBlock({
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
   const { settings } = useCodexThreadSettings();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isBodyMounted, setIsBodyMounted] = useState(false);
 
   if (block.type !== "collapsedToolActivity") return null;
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
   const showFileChangeLineCount = isEverydayWorkMode(threadDetailLevel);
+  const showRunningCommandSummary = isEverydayWorkMode(threadDetailLevel);
   const icon = resolveCollapsedToolActivityIcon(block.entries);
-  const resolvedActiveSummary = isLatestTurn && isStreamingTurn
-    ? resolveCollapsedActivityActiveSummary(
-        block.entries,
-        threadCwd ?? undefined,
-        projectWorkspacePath ?? undefined,
-      )
+  const activeSummary = isLatestTurn
+    && isStreamingTurn
+    && shouldDisplayCollapsedToolActivityActiveSummary(block.activeSummary, threadDetailLevel)
+    ? block.activeSummary
     : null;
-  const activeSummary = resolvedActiveSummary?.kind === "fileChange" && showFileChangeLineCount
-    ? null
-    : resolvedActiveSummary;
   const aggregateSummary = block.summaryStats
-    ? buildCollapsedToolActivitySummary(block.summaryStats, { showFileChangeLineCount })?.summary ?? block.summary
+    ? buildCollapsedToolActivitySummary(block.summaryStats, {
+      showFileChangeLineCount,
+      showRunningCommandSummary,
+    })?.summary ?? block.summary
     : block.summary;
   const shouldShimmerAggregate = !activeSummary
     && isLatestTurn
     && isStreamingTurn
     && shouldShimmerCollapsedActivitySummary(block.summaryStats);
-
-  const handleToggle = () => {
-    if (isExpanded) {
-      setIsExpanded(false);
-      return;
-    }
-    if (isBodyMounted) {
-      setIsExpanded(true);
-      return;
-    }
-    setIsBodyMounted(true);
-    requestAnimationFrame(() => {
-      setIsExpanded(true);
-    });
-  };
+  const shouldAnimateSummaryChanges = isLatestTurn && isStreamingTurn;
+  const summaryKey = activeSummary?.key ?? buildCollapsedActivityAggregateSummaryKey(block.summaryStats, aggregateSummary);
+  const summaryTransition: ThreadActivitySummaryTransition = activeSummary
+    ? shouldAnimateSummaryChanges ? "deferred" : "static"
+    : shouldAnimateSummaryChanges ? shouldShimmerAggregate ? "deferred" : "immediate" : "static";
+  const canExpand = block.entries.length > 0 || (isLatestTurn && isStreamingTurn);
+  const summary = (
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
+      {icon ? <ToolActivityIcon descriptor={icon} /> : null}
+      <span className="min-w-0 flex-1 truncate">
+        {activeSummary ? (
+          <CollapsedActivityActiveSummaryText summary={activeSummary} />
+        ) : (
+          <CollapsedActivitySummaryText summary={aggregateSummary} shimmer={shouldShimmerAggregate} />
+        )}
+      </span>
+    </span>
+  );
+  const body = (
+    <div
+      className="flex flex-col"
+      style={{ "--conversation-patch-file-gap": "4px" } as CSSProperties}
+    >
+      {block.entries.map((entry) => (
+        <div key={entry.id}>
+          <div style={{ height: "var(--conversation-patch-file-gap)" }} />
+          {renderCollapsedActivityEntry({
+            entry,
+            isLatestTurn,
+            isStreamingTurn,
+            projectWorkspacePath,
+            threadCwd,
+            onOpenTurnDiffReview,
+            onOpenTurnDiffFileInSidePanel,
+            onOpenThread,
+            onOpenMcpAppSidePanel,
+            turnDiffHoverPreviewDisabled,
+          })}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
-    <div className="flex min-w-0 flex-col">
-      <button
-        type="button"
-        className="group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left"
-        aria-expanded={isExpanded}
-        onClick={handleToggle}
-      >
-        <span className="text-token-foreground/40 block min-w-0 max-w-full truncate shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/collapsed-tool-activity:text-token-foreground">
-          <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
-            {icon ? <ToolActivityIcon descriptor={icon} /> : null}
-            <span className="min-w-0 flex-1 truncate">
-              {activeSummary ? (
-                <CollapsedActivityActiveSummaryText summary={activeSummary} />
-              ) : (
-                <CollapsedActivitySummaryText summary={aggregateSummary} shimmer={shouldShimmerAggregate} />
-              )}
-            </span>
-          </span>
-        </span>
-        <span
-          className={cn(
-            "inline-chevron flex-shrink-0 text-token-input-placeholder-foreground opacity-0 group-hover/summary:opacity-100",
-            isExpanded && "opacity-100",
-          )}
-        >
-          <ChevronRightIcon
-            className={cn(
-              "icon-2xs text-current transition-transform duration-300",
-              isExpanded && "rotate-90",
-            )}
-          />
-        </span>
-      </button>
-      {isBodyMounted ? (
-        <motion.div
-          initial={false}
-          animate={isExpanded ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
-          transition={CODEX_THREAD_ACCORDION_TRANSITION}
-          data-testid="collapsed-tool-activity-body"
-          data-thread-find-skip={isExpanded ? undefined : true}
-          style={{
-            overflow: "hidden",
-            pointerEvents: isExpanded ? "auto" : "none",
-          }}
-          onAnimationComplete={() => {
-            if (!isExpanded) setIsBodyMounted(false);
-          }}
-        >
-          <div
-            className="flex flex-col"
-            style={{ "--conversation-patch-file-gap": "4px" } as CSSProperties}
-          >
-            {block.entries.map((entry) => (
-              <div key={entry.id}>
-                <div style={{ height: "var(--conversation-patch-file-gap)" }} />
-                {renderCollapsedActivityEntry({
-                  entry,
-                  isLatestTurn,
-                  isStreamingTurn,
-                  projectWorkspacePath,
-                  threadCwd,
-                  onOpenTurnDiffReview,
-                  onOpenTurnDiffFileInSidePanel,
-                  onOpenThread,
-                  onOpenMcpAppSidePanel,
-                  turnDiffHoverPreviewDisabled,
-                })}
-              </div>
-            ))}
-          </div>
-        </motion.div>
-      ) : null}
-    </div>
+    <ThreadActivityDisclosure
+      bodyTestId="collapsed-tool-activity-body"
+      canExpand={canExpand}
+      shouldAnimateInitialCollapse={isLatestTurn && isStreamingTurn && summaryKey !== "thinking"}
+      summary={summary}
+      summaryKey={summaryKey}
+      summaryTransition={summaryTransition}
+    >
+      {body}
+    </ThreadActivityDisclosure>
   );
 }
 
@@ -1102,6 +1135,7 @@ export function ThreadThinkingPlaceholderBlock({ block }: ThreadSpecialBlockProp
 
 export function ThreadToolSurfaceBlock({
   block,
+  isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
   onOpenThread,
@@ -1124,8 +1158,8 @@ export function ThreadToolSurfaceBlock({
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
       isTurnCancelled={block.isTurnCancelled === true}
+      isStreamingTurn={isStreamingTurn}
       automaticApprovalReviews={block.automaticApprovalReviews ?? []}
-      defaultExpandExecShell={nestedInCollapsedActivity && threadDetailLevel !== "STEPS_PROSE"}
       execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
       hideHeader={nestedInCollapsedActivity && block.type === "webSearch"}
       showExecSummaryIcon={!nestedInCollapsedActivity}
@@ -1170,9 +1204,9 @@ export function ThreadAutomaticApprovalReviewBlock({ block }: ThreadLeafBlockPro
   return <AutomaticApprovalReviewSurface item={block.entry} />;
 }
 
-export function ThreadMultiAgentActionBlock({ block }: ThreadLeafBlockProps) {
+export function ThreadMultiAgentActionBlock({ block, onOpenThread }: ThreadLeafBlockProps) {
   if (block.type !== "multiAgentAction") return null;
-  return <MultiAgentActionSurface items={[block.entry]} />;
+  return <MultiAgentActionSurface items={[block.entry]} onOpenThread={onOpenThread} />;
 }
 
 export function ThreadUserAttachmentStripBlock({ block }: ThreadSpecialBlockProps) {

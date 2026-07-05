@@ -1,117 +1,143 @@
 import { useState } from "react";
+import { Shield } from "lucide-react";
+import { motion } from "motion/react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import type { CodexConversationItem } from "../../../../lib/types";
 import {
+  buildAutomaticApprovalReviewActionSummary,
   buildAutomaticApprovalReviewSummary,
+  buildAutomaticApprovalReviewTitle,
   normalizeAutomaticApprovalReviewPayload,
-  type CodexAutomaticApprovalReviewStatus,
 } from "../../../../../shared/codex-transcript-special-items";
-import {
-  ToolActivityIcon,
-  resolveApprovalIcon,
-} from "./tools/tool-call-icons";
 import { CodexShimmerText } from "./codex-shimmer-text";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
+import { ThreadActivityDisclosure } from "./tools/tool-primitives";
 
-function getStatusLabel(status: CodexAutomaticApprovalReviewStatus): string {
-  switch (status) {
-    case "approved":
-      return "Approved";
-    case "denied":
-      return "Denied";
-    case "aborted":
-      return "Aborted";
-    case "timedOut":
-      return "Timed out";
-    case "inProgress":
-      return "Reviewing";
-  }
+export function AutomaticApprovalReviewShield({ className }: { className?: string }) {
+  return (
+    <Shield
+      aria-hidden="true"
+      className={cn("icon-xs shrink-0 text-token-input-placeholder-foreground", className)}
+    />
+  );
 }
 
-function getRiskLabel(riskLevel: "critical" | "high" | "medium" | "low"): string {
-  switch (riskLevel) {
-    case "critical":
-      return "Critical risk";
-    case "high":
-      return "High risk";
-    case "medium":
-      return "Medium risk";
-    case "low":
-      return "Low risk";
+export function AutomaticApprovalReviewRow({
+  className,
+  isExpandable = true,
+  item,
+}: {
+  className?: string;
+  isExpandable?: boolean;
+  item: CodexConversationItem;
+}) {
+  const review = normalizeAutomaticApprovalReviewPayload(item.rawItem);
+  if (!review) return null;
+
+  const details = buildAutomaticApprovalReviewSummary(review);
+  const title = buildAutomaticApprovalReviewTitle(review);
+  const [expanded, setExpanded] = useState(false);
+  const isInProgress = review.status === "inProgress";
+  const isHighRiskDenied = review.status === "denied" && review.riskLevel === "high";
+
+  if (!isExpandable) {
+    return (
+      <div className={cn("min-w-0 truncate pt-1 text-token-description-foreground/80", className)}>
+        {title}
+      </div>
+    );
   }
+
+  return (
+    <div className={cn("flex flex-col pt-1", className)}>
+      <button
+        type="button"
+        className="group/automatic-approval-review inline-flex w-fit max-w-full cursor-interaction items-center gap-1.5 text-left"
+        aria-expanded={expanded}
+        onClick={() => {
+          setExpanded((current) => !current);
+        }}
+      >
+        <CodexShimmerText
+          active={isInProgress}
+          className={cn(
+            "min-w-0 truncate",
+            isHighRiskDenied
+              ? "text-token-editor-warning-foreground"
+              : "text-token-description-foreground/80 group-hover/automatic-approval-review:text-token-foreground",
+          )}
+        >
+          {title}
+        </CodexShimmerText>
+        <ChevronRightIcon
+          className={cn(
+            "icon-2xs shrink-0 text-token-input-placeholder-foreground opacity-0 transition-[opacity,transform] duration-200 group-hover/automatic-approval-review:opacity-100",
+            expanded && "rotate-90 opacity-100",
+          )}
+        />
+      </button>
+      <motion.div
+        initial={false}
+        animate={{ height: expanded ? "auto" : 0, opacity: expanded ? 1 : 0 }}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
+        style={{ overflow: "hidden", pointerEvents: expanded ? "auto" : "none" }}
+      >
+        <p className="text-size-chat max-w-[80ch] pt-1 leading-relaxed whitespace-pre-wrap text-token-conversation-body">
+          {details}
+        </p>
+      </motion.div>
+    </div>
+  );
 }
 
-function getStatusClasses(status: CodexAutomaticApprovalReviewStatus): string {
-  if (status === "approved") return "text-token-success bg-token-success/15";
-  if (status === "denied") return "text-token-danger bg-token-danger/15";
-  if (status === "aborted") return "text-token-description-foreground bg-token-foreground/5";
-  if (status === "timedOut") return "text-token-description-foreground bg-token-foreground/5";
-  return "text-token-foreground";
+export function AutomaticApprovalReviewRows({
+  className,
+  isExpandable = true,
+  items,
+}: {
+  className?: string;
+  isExpandable?: boolean;
+  items: readonly CodexConversationItem[];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <>
+      {items.map((item) => (
+        <AutomaticApprovalReviewRow
+          key={item.entryId ?? item.itemId}
+          className={className}
+          isExpandable={isExpandable}
+          item={item}
+        />
+      ))}
+    </>
+  );
 }
 
 export function AutomaticApprovalReviewSurface({ item }: { item: CodexConversationItem }) {
   const review = normalizeAutomaticApprovalReviewPayload(item.rawItem);
   if (!review) return null;
 
-  const details = buildAutomaticApprovalReviewSummary(review);
-  const hasDetails = details.trim().length > 0;
-  const [expanded, setExpanded] = useState(false);
-  const bodyId = `automatic-approval-review-summary-${item.entryId ?? item.itemId}`;
-  const isInProgress = review.status === "inProgress";
-  const statusIcon = resolveApprovalIcon(review.status);
-
-  const content = (
-    <div className="flex min-w-0 items-center gap-1.5">
-      {statusIcon ? <ToolActivityIcon descriptor={statusIcon} /> : null}
-      <span className="text-size-chat font-medium text-token-foreground">Automatic approval review</span>
-      <CodexShimmerText
-        active={isInProgress}
-        className={cn(
-          "text-size-chat min-w-0 font-medium",
-          !isInProgress && "rounded-full px-1.5 py-0.5",
-          getStatusClasses(review.status),
-        )}
-      >
-        {getStatusLabel(review.status)}
-      </CodexShimmerText>
-      {review.riskLevel ? (
-        <span className="text-size-chat min-w-0 text-token-description-foreground">
-          {getRiskLabel(review.riskLevel)}
-        </span>
-      ) : null}
-      {hasDetails ? (
-        <ChevronRightIcon
-          className={cn(
-            "flex-shrink-0 text-token-input-placeholder-foreground transition-transform duration-200",
-            expanded && "rotate-90",
-          )}
-        />
-      ) : null}
-    </div>
-  );
+  const actionSummary = buildAutomaticApprovalReviewActionSummary(review.action);
+  const isInProgress = item.status === "inProgress";
 
   return (
-    <div className="min-w-0 py-0">
-      <div className="flex flex-col gap-1">
-        {hasDetails ? (
-          <button
-            type="button"
-            className="group cursor-pointer text-left"
-            aria-expanded={expanded}
-            aria-controls={bodyId}
-            onClick={() => {
-              setExpanded((current) => !current);
-            }}
+    <ThreadActivityDisclosure
+      shouldAnimateInitialCollapse={false}
+      summary={(
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <AutomaticApprovalReviewShield />
+          <CodexShimmerText
+            active={isInProgress}
+            className="min-w-0 truncate text-token-foreground/30 group-hover/activity-header:text-token-foreground"
           >
-            {content}
-          </button>
-        ) : content}
-        {hasDetails && expanded ? (
-          <p id={bodyId} className="text-size-chat whitespace-pre-wrap text-token-description-foreground">
-            {details}
-          </p>
-        ) : null}
-      </div>
-    </div>
+            {actionSummary}
+          </CodexShimmerText>
+        </span>
+      )}
+    >
+      <AutomaticApprovalReviewRow item={item} />
+    </ThreadActivityDisclosure>
   );
 }

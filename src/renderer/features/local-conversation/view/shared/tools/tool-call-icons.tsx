@@ -1,4 +1,7 @@
 import {
+  CodexSettingsGeneralIcon,
+} from "@/components/shared/icons";
+import {
   cloneElement,
   useEffect,
   useState,
@@ -42,6 +45,7 @@ export type ToolActivityIconId =
   | "list-files"
   | "plugin"
   | "run-command"
+  | "settings"
   | "skill"
   | "web-search";
 
@@ -117,6 +121,8 @@ function SemanticToolIcon({
       return <CodexFoldersIcon aria-hidden className={iconClassName} />;
     case "plugin":
       return <CodexPluginCubeIcon aria-hidden className={iconClassName} />;
+    case "settings":
+      return <CodexSettingsGeneralIcon className={iconClassName} />;
     case "skill":
       return <CodexSkillIcon aria-hidden className={iconClassName} />;
     case "web-search":
@@ -513,6 +519,10 @@ export function resolveApprovalIcon(status: string | undefined): ToolActivityIco
 
 function resolveTranscriptEntryIcon(block: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"][number]): ToolActivityIconDescriptor | null {
   if (block.type === "explorationGroup") return resolveExplorationEntriesIcon(block.entries);
+  if (block.type === "webSearchGroup") {
+    const activeEntry = [...block.entries].reverse().find((entry) => entry.status === "inProgress") ?? block.entries.at(-1);
+    return activeEntry ? resolveWebSearchIcon(activeEntry.entry) : semanticToolIcon("web-search");
+  }
   if (block.type === "webSearch") return resolveWebSearchIcon(block.entry);
   if (block.type === "fileChange") return semanticToolIcon("edit-files");
   if (block.type === "exec") return semanticToolIcon("run-command");
@@ -540,6 +550,11 @@ export function resolveCollapsedToolActivityIcon(
   }
 
   const priority: Array<(entry: (typeof entries)[number]) => ToolActivityIconDescriptor | null> = [
+    (entry) => {
+      if (entry.type !== "webSearchGroup") return null;
+      const activeEntry = [...entry.entries].reverse().find((item) => item.status === "inProgress") ?? entry.entries.at(-1);
+      return activeEntry ? resolveWebSearchIcon(activeEntry.entry) : semanticToolIcon("web-search");
+    },
     (entry) => (entry.type === "webSearch" ? resolveWebSearchIcon(entry.entry) : null),
     (entry) => (entry.type === "explorationGroup" ? resolveExplorationEntriesIcon(entry.entries) : null),
     (entry) => (entry.type === "fileChange" ? semanticToolIcon("edit-files") : null),

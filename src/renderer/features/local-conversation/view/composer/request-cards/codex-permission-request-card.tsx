@@ -1,19 +1,33 @@
 import type {
+  CodexThreadDetailLevel,
   CodexPermissionRequest,
   CodexPermissionRequestResponse,
 } from "../../../../../lib/types";
+import type { ReactNode } from "react";
+import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
+import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
+import {
+  RequestComposerView,
+  type RequestComposerRequest,
+} from "../../shared/request-cards/local-conversation-request-cards";
+import {
+  buildCodexGrantedPermissionProfile,
+  buildCodexPermissionRequestDetails,
+  formatCodexPermissionAccessLabel,
+  resolveCodexPermissionRequestTitleModel,
+  type CodexPermissionRequestDetail,
+  type CodexPermissionRequestFileSystemAccess,
+  type CodexPermissionRequestTitleModel,
+} from "../../../../../../shared/codex-permission-request";
 
 interface CodexPermissionRequestCardProps {
   request: CodexPermissionRequest;
   onRespond: (requestId: string, response: CodexPermissionRequestResponse) => Promise<void>;
+  onSubmitLocalFollowup?: (prompt: string) => Promise<void>;
 }
 
-function buildGrantedPermissions(request: CodexPermissionRequest): CodexPermissionRequestResponse["permissions"] {
-  return {
-    ...(request.permissions.network ? { network: request.permissions.network } : {}),
-    ...(request.permissions.fileSystem ? { fileSystem: request.permissions.fileSystem } : {}),
-  };
-}
+const ALLOW_ONCE_LABEL = "Yes, allow for this turn";
+const ALLOW_FOR_SESSION_LABEL = "Yes, allow for this session";
 
 function buildDeniedResponse(): CodexPermissionRequestResponse {
   return {
@@ -24,51 +38,207 @@ function buildDeniedResponse(): CodexPermissionRequestResponse {
 
 function buildAllowedResponse(request: CodexPermissionRequest): CodexPermissionRequestResponse {
   return {
-    permissions: buildGrantedPermissions(request),
+    permissions: buildCodexGrantedPermissionProfile(request.permissions),
     scope: "turn",
   };
 }
 
-function formatReason(reason: string | null): string {
-  const normalized = reason?.trim();
-  return normalized && normalized.length > 0
-    ? normalized
-    : "Codex is requesting additional permissions for this turn.";
+function buildAllowedForSessionResponse(request: CodexPermissionRequest): CodexPermissionRequestResponse {
+  return {
+    permissions: buildCodexGrantedPermissionProfile(request.permissions),
+    scope: "session",
+  };
+}
+
+function shouldShowAllowForSessionOption(threadDetailLevel: CodexThreadDetailLevel): boolean {
+  return threadDetailLevel !== "STEPS_PROSE";
+}
+
+function buildPermissionComposerRequest(
+  request: CodexPermissionRequest,
+  titleModel: CodexPermissionRequestTitleModel,
+  threadDetailLevel: CodexThreadDetailLevel,
+): RequestComposerRequest {
+  const title = formatPermissionTitleText(titleModel);
+  const options = [
+    {
+      label: ALLOW_ONCE_LABEL,
+      description: "",
+    },
+    ...(shouldShowAllowForSessionOption(threadDetailLevel)
+      ? [{
+          label: ALLOW_FOR_SESSION_LABEL,
+          description: "",
+        }]
+      : []),
+  ];
+
+  return {
+    requestId: request.requestId,
+    questions: [{
+      id: request.requestId,
+      header: title,
+      question: title,
+      isOther: true,
+      isSecret: false,
+      otherPlaceholder: "No, and tell Codex what to do differently",
+      options,
+    }],
+  };
+}
+
+function formatPermissionTitleText(titleModel: CodexPermissionRequestTitleModel): string {
+  if (titleModel.kind === "network") return "Allow network access?";
+  if (titleModel.kind === "additional") return "Allow additional access?";
+
+  if (titleModel.access === "read") return `Allow read access to ${titleModel.path}?`;
+  if (titleModel.access === "write") return `Allow write access to ${titleModel.path}?`;
+  return `Allow read and write access to ${titleModel.path}?`;
+}
+
+function PermissionTitle({ titleModel }: { titleModel: CodexPermissionRequestTitleModel }) {
+  if (titleModel.kind === "network") return "Allow network access?";
+  if (titleModel.kind === "additional") return "Allow additional access?";
+
+  const path = (
+    <span className="font-mono wrap-anywhere text-token-description-foreground" title={titleModel.path}>
+      {titleModel.path}
+    </span>
+  );
+
+  if (titleModel.access === "read") return <>Allow read access to {path}?</>;
+  if (titleModel.access === "write") return <>Allow write access to {path}?</>;
+  return <>Allow read and write access to {path}?</>;
+}
+
+function LabeledPermissionDetail({
+  label,
+  children,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid min-w-0 grid-cols-[minmax(6rem,auto)_1fr] gap-3">
+      <div className="text-token-description-foreground">{label}</div>
+      <div className="min-w-0 text-token-foreground">{children}</div>
+    </div>
+  );
+}
+
+function PermissionPathList({ paths }: { paths: string[] }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      {paths.map((path) => (
+        <div key={path} className="text-size-code font-mono leading-5 text-token-description-foreground">
+          {path}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FileSystemPermissionDetail({
+  access,
+  paths,
+}: {
+  access: CodexPermissionRequestFileSystemAccess;
+  paths: string[];
+}) {
+  return (
+    <LabeledPermissionDetail label={formatCodexPermissionAccessLabel(access)}>
+      <PermissionPathList paths={paths} />
+    </LabeledPermissionDetail>
+  );
+}
+
+function PermissionDetail({ detail }: { detail: CodexPermissionRequestDetail }) {
+  if (detail.kind === "network") {
+    return (
+      <LabeledPermissionDetail label="Network">
+        Internet access
+      </LabeledPermissionDetail>
+    );
+  }
+
+  return <FileSystemPermissionDetail access={detail.access} paths={detail.paths} />;
+}
+
+function PermissionBody({
+  details,
+  reason,
+}: {
+  details: CodexPermissionRequestDetail[];
+  reason: string | null;
+}) {
+  const normalizedReason = reason?.trim() ?? "";
+  if (normalizedReason.length === 0 && details.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1 px-4 pb-1 text-sm">
+      {normalizedReason ? (
+        <LabeledPermissionDetail label="Reason">
+          {normalizedReason}
+        </LabeledPermissionDetail>
+      ) : null}
+      {details.map((detail) => (
+        <PermissionDetail key={JSON.stringify(detail)} detail={detail} />
+      ))}
+    </div>
+  );
 }
 
 export function CodexPermissionRequestCard({
   request,
   onRespond,
+  onSubmitLocalFollowup,
 }: CodexPermissionRequestCardProps) {
+  const { settings } = useCodexThreadSettings();
+  const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
+  const details = buildCodexPermissionRequestDetails(request.permissions);
+  const titleModel = resolveCodexPermissionRequestTitleModel(details);
+  const composerRequest = buildPermissionComposerRequest(request, titleModel, threadDetailLevel);
+
   return (
-    <div className="text-size-chat border-token-border bg-token-input-background/70 flex flex-col overflow-hidden rounded-2xl border text-token-foreground backdrop-blur-sm">
-      <div className="flex flex-col gap-3 p-3">
-        <div className="text-token-description-foreground">Permission request</div>
-        <div className="text-base leading-tight font-medium">{formatReason(request.reason)}</div>
-        <div className="bg-token-text-code-block-background border-token-border/70 max-h-48 overflow-auto rounded-lg border p-2 font-mono text-xs whitespace-pre-wrap text-token-description-foreground">
-          {JSON.stringify(request.permissions, null, 2)}
-        </div>
-      </div>
-      <div className="flex items-center justify-end gap-2 border-t border-token-border/70 px-3 py-2">
-        <button
-          type="button"
-          className="inline-flex h-token-button-composer items-center rounded-full border border-transparent px-2 text-sm text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground"
-          onClick={() => {
-            void onRespond(request.requestId, buildDeniedResponse());
-          }}
-        >
-          Deny
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-token-button-composer items-center rounded-full bg-token-foreground px-2 text-sm font-medium text-token-dropdown-background hover:bg-token-foreground/80"
-          onClick={() => {
-            void onRespond(request.requestId, buildAllowedResponse(request));
-          }}
-        >
-          Allow for turn
-        </button>
-      </div>
-    </div>
+    <RequestComposerView
+      header={<PermissionTitle titleModel={titleModel} />}
+      body={<PermissionBody details={details} reason={request.reason} />}
+      showQuestionBodyWhenHeader={false}
+      request={composerRequest}
+      onSubmit={async (nextRequest, state) => {
+        const selected = state.selectedOptions[nextRequest.requestId];
+        const mode = state.modes[nextRequest.requestId];
+        const freeform = state.drafts[nextRequest.requestId]?.trim() ?? "";
+
+        if (mode === "other") {
+          await onRespond(request.requestId, buildDeniedResponse());
+          if (freeform && onSubmitLocalFollowup) {
+            await onSubmitLocalFollowup(freeform);
+          }
+          return;
+        }
+
+        if (selected === ALLOW_FOR_SESSION_LABEL) {
+          await onRespond(request.requestId, buildAllowedForSessionResponse(request));
+          return;
+        }
+
+        if (selected === ALLOW_ONCE_LABEL) {
+          await onRespond(request.requestId, buildAllowedResponse(request));
+          return;
+        }
+
+        await onRespond(request.requestId, buildDeniedResponse());
+      }}
+      onSkip={async () => {
+        await onRespond(request.requestId, buildDeniedResponse());
+      }}
+      onEscapeDismiss={async () => {
+        await onRespond(request.requestId, buildDeniedResponse());
+      }}
+      submitErrorMessage="Could not submit permission request"
+      skipErrorMessage="Could not skip permission request"
+      dismissErrorMessage="Could not dismiss permission request"
+    />
   );
 }

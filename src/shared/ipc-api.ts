@@ -67,6 +67,7 @@ import type {
   ReviewDiffResult,
   CodexHostMessage,
   CodexModelOption,
+  CodexMcpServerElicitationResponse,
   CodexPermissionMode,
   CodexPermissionRequestResponse,
   CodexPermissionState,
@@ -1084,7 +1085,7 @@ export interface IpcApi {
     result: boolean;
   };
   "codex:mcp-elicitation:respond": {
-    args: [requestId: string, action: "accept" | "decline" | "cancel"];
+    args: [requestId: string, response: CodexMcpServerElicitationResponse];
     result: boolean;
   };
   "codex:permission-request:respond": {

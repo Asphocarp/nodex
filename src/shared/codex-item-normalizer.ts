@@ -22,7 +22,6 @@ import type {
 import {
   buildCodexFileChangeFromProtocol,
   buildCodexFileChangeMap,
-  buildCodexFileChangeUnifiedDiff,
 } from "./codex-file-change";
 import {
   buildAutomaticApprovalReviewSummary,
@@ -559,12 +558,10 @@ function buildDynamicToolCallView(
 
 function extractFileChanges(candidate: Record<string, unknown>): {
   label?: string;
-  paths: string[];
   parsedChanges: CodexFileChange[];
-  diffs: string[];
 } {
   const changes = Array.isArray(candidate.changes) ? candidate.changes : [];
-  if (changes.length === 0) return { paths: [], parsedChanges: [], diffs: [] };
+  if (changes.length === 0) return { parsedChanges: [] };
 
   const paths: string[] = [];
   const parsedChanges: CodexFileChange[] = [];
@@ -593,9 +590,6 @@ function extractFileChanges(candidate: Record<string, unknown>): {
   }
 
   const uniquePaths = Array.from(new Set(paths));
-  const diffs = parsedChanges
-    .map((change) => buildCodexFileChangeUnifiedDiff(change))
-    .filter((diff): diff is string => typeof diff === "string" && diff.trim().length > 0);
   const firstKind = parsedChanges[0]?.type;
   const actionLabel = firstKind === "add"
     ? "Created"
@@ -611,24 +605,18 @@ function extractFileChanges(candidate: Record<string, unknown>): {
 
   return {
     label,
-    paths: uniquePaths,
     parsedChanges,
-    diffs,
   };
 }
 
 function buildFileChangeView(data: {
   label?: string;
-  paths: string[];
   parsedChanges: CodexFileChange[];
-  diffs: string[];
 }): CodexFileChangeView | undefined {
   if (data.parsedChanges.length === 0) return undefined;
   return {
     label: data.label,
-    paths: data.paths,
     changes: buildCodexFileChangeMap(data.parsedChanges),
-    diffs: data.diffs,
   };
 }
 
@@ -842,19 +830,17 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   }
 
   if (isType(itemType, ["fileChange", "file_change"])) {
-    const { label, paths, parsedChanges, diffs } = extractFileChanges(candidate);
+    const { label, parsedChanges } = extractFileChanges(candidate);
+    const changes = buildCodexFileChangeMap(parsedChanges);
     result.normalizedKind = "fileChange";
     result.semanticKind = "patch";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
-    result.fileChange = buildFileChangeView({ label, paths, parsedChanges, diffs });
+    result.fileChange = buildFileChangeView({ label, parsedChanges });
     result.toolCall = buildToolCall("fileChange", "file_change", {
       args: {
         label,
       },
-      result: {
-        paths,
-        diffs,
-      },
+      result: { changes },
       error: resolveToolCallError(candidate),
     });
     return applyFallbackContent(result, itemType);

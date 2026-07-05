@@ -3,13 +3,18 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCodexFileChangeFromProtocol,
   buildCodexFileChangeMap,
+  buildCodexFileChangePatchRows,
   buildCodexFileChangeUnifiedDiff,
   buildCodexTurnDiffFromPatchBatches,
   getCodexFileChangeEntries,
+  getCodexFileChangePaths,
   hasCodexFileChangeEntries,
+  resolveCodexFileChangeDisplayStatus,
   resolveCodexPatchSuccess,
+  summarizeCodexFileChangePatch,
+  summarizeCodexUnifiedDiff,
 } from "./codex-file-change";
-import type { CodexFileChangeMap, CodexTurnDiffPatchBatch } from "./types";
+import type { CodexFileChangeMap, CodexItemStatus, CodexTurnDiffPatchBatch } from "./types";
 
 function countDiffGitSections(diff: string, path: string): number {
   return diff.split("\n").filter((line) => line === `diff --git a/${path} b/${path}`).length;
@@ -137,6 +142,43 @@ describe("codex file change turn diff synthesis", () => {
     expect(entries.length).toBe(1);
     expect(entries[0]?.[0] ?? "").toBe("src/app.ts");
     expect(entries[0]?.[1].type ?? "").toBe("update");
+    expect(getCodexFileChangePaths(changes).join(",")).toBe("src/app.ts");
+  });
+
+  test("builds canonical patch rows from the path-keyed map for thread and request previews", () => {
+    const changes = buildCodexFileChangeMap([
+      {
+        path: "src/app.ts",
+        type: "add",
+        content: "first\n",
+      },
+      {
+        path: "src/app.ts",
+        type: "update",
+        movePath: null,
+        unifiedDiff: [
+          "@@ -1,2 +1,3 @@",
+          " keep",
+          "-first",
+          "+second",
+          "+third",
+        ].join("\n"),
+      },
+    ]);
+
+    const rows = buildCodexFileChangePatchRows(changes);
+    const summary = summarizeCodexFileChangePatch(changes);
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.key ?? "").toBe("src/app.ts");
+    expect(rows[0]?.action ?? "").toBe("edit");
+    expect(rows[0]?.summary?.additions ?? -1).toBe(2);
+    expect(rows[0]?.summary?.deletions ?? -1).toBe(1);
+    expect(summary?.fileCount ?? -1).toBe(1);
+    expect(summary?.additions ?? -1).toBe(2);
+    expect(summary?.deletions ?? -1).toBe(1);
+    expect(summary?.firstPath ?? "").toBe("src/app.ts");
+    expect(summary?.hasChanges ?? false).toBeTrue();
   });
 
   test("keeps empty update diffs as renderable patch rows", () => {
@@ -188,10 +230,77 @@ describe("codex file change turn diff synthesis", () => {
     expect(Boolean(emptyCreateDiff?.includes("@@"))).toBeFalse();
   });
 
+  test("summarizes unified diffs from the same Codex helper used for row body and copy text", () => {
+    const diff = buildCodexFileChangeUnifiedDiff("src/app.ts", {
+      type: "update",
+      movePath: null,
+      unifiedDiff: [
+        "@@ -10,2 +10,3 @@",
+        " keep",
+        "-old",
+        "+new",
+        "+extra",
+      ].join("\n"),
+    });
+    const summary = summarizeCodexUnifiedDiff(diff);
+
+    expect(summary?.additions ?? -1).toBe(2);
+    expect(summary?.deletions ?? -1).toBe(1);
+    expect(summary?.openLine ?? -1).toBe(10);
+  });
+
+  test("falls back to line-scan stats with open line 1 when diff parsing fails", () => {
+    const summary = summarizeCodexUnifiedDiff([
+      "not a unified diff",
+      "+added",
+      "-removed",
+    ].join("\n"));
+
+    expect(summary?.additions ?? -1).toBe(1);
+    expect(summary?.deletions ?? -1).toBe(1);
+    expect(summary?.openLine ?? -1).toBe(1);
+  });
+
+  test("keeps empty but parseable file diffs openable at line 1", () => {
+    const diff = buildCodexFileChangeUnifiedDiff("empty.txt", {
+      type: "add",
+      content: "",
+    });
+    const summary = summarizeCodexUnifiedDiff(diff);
+
+    expect(summary?.additions ?? -1).toBe(0);
+    expect(summary?.deletions ?? -1).toBe(0);
+    expect(summary?.openLine ?? -1).toBe(1);
+  });
+
   test("maps file-change item status to patch success", () => {
     expect(resolveCodexPatchSuccess("inProgress")).toBe(null);
     expect(resolveCodexPatchSuccess("completed")).toBe(true);
     expect(resolveCodexPatchSuccess("failed")).toBe(false);
     expect(resolveCodexPatchSuccess("declined")).toBe(false);
+  });
+
+  test("maps file-change lifecycle to Codex Electron display status precedence", () => {
+    const cases: Array<{
+      itemStatus: CodexItemStatus | undefined;
+      approvalRequestId: string | null | undefined;
+      isTurnCancelled: boolean;
+      expected: string;
+    }> = [
+      { itemStatus: "completed", approvalRequestId: null, isTurnCancelled: false, expected: "applied" },
+      { itemStatus: "completed", approvalRequestId: "approval-1", isTurnCancelled: true, expected: "applied" },
+      { itemStatus: "failed", approvalRequestId: null, isTurnCancelled: false, expected: "rejected" },
+      { itemStatus: "declined", approvalRequestId: "approval-1", isTurnCancelled: true, expected: "rejected" },
+      { itemStatus: "inProgress", approvalRequestId: "approval-1", isTurnCancelled: false, expected: "pending" },
+      { itemStatus: "interrupted", approvalRequestId: "", isTurnCancelled: true, expected: "pending" },
+      { itemStatus: "inProgress", approvalRequestId: null, isTurnCancelled: true, expected: "stopped" },
+      { itemStatus: "interrupted", approvalRequestId: undefined, isTurnCancelled: true, expected: "stopped" },
+      { itemStatus: "inProgress", approvalRequestId: null, isTurnCancelled: false, expected: "streaming" },
+      { itemStatus: undefined, approvalRequestId: undefined, isTurnCancelled: false, expected: "streaming" },
+    ];
+
+    for (const input of cases) {
+      expect(resolveCodexFileChangeDisplayStatus(input)).toBe(input.expected);
+    }
   });
 });

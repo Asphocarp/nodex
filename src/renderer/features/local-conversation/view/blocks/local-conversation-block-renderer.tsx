@@ -24,6 +24,7 @@ import {
   ThreadToolSurfaceBlock,
   ThreadUserInputResponseCard,
   ThreadUserBubbleBlock,
+  ThreadWebSearchGroupBlock,
   ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
 import type { CodexTurnDiffReviewTarget } from "../../../../lib/types";
@@ -96,6 +97,17 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
+        onOpenThread={onOpenThread}
+      />
+    );
+  }
+
+  if (block.type === "webSearchGroup") {
+    return (
+      <ThreadWebSearchGroupBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
       />
     );
   }
@@ -191,7 +203,14 @@ export function ThreadBlockRenderer({
   }
 
   if (block.type === "multiAgentAction") {
-    return <ThreadMultiAgentActionBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadMultiAgentActionBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        onOpenThread={onOpenThread}
+      />
+    );
   }
 
   if (block.type === "turnDiff") {

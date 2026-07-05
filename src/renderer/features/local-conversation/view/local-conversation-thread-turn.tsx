@@ -4,7 +4,7 @@ import { ChevronRightIcon } from "@/components/shared/icons";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type {
-  ThreadAgentEntryModel,
+  ThreadAgentRenderUnit,
   ThreadBlockModel,
   ThreadPlanSidePanelState,
   ThreadStageActions,
@@ -92,11 +92,28 @@ function renderSpacedBlocks<TBlock extends { id: string }>(
   renderBlock: (block: TBlock, index: number) => ReactNode,
 ) {
   return blocks.map((block, index) => (
-    <Fragment key={block.id}>
+    <Fragment key={resolveThreadBlockRenderKey(block)}>
       {index > 0 ? <ThreadGap /> : null}
       {renderBlock(block, index)}
     </Fragment>
   ));
+}
+
+function renderSpacedAgentUnits(
+  units: ThreadAgentRenderUnit[],
+  renderUnit: (unit: ThreadAgentRenderUnit, index: number) => ReactNode,
+) {
+  return units.map((unit, index) => (
+    <Fragment key={resolveThreadBlockRenderKey(unit.block)}>
+      {index > 0 ? <ThreadGap /> : null}
+      {renderUnit(unit, index)}
+    </Fragment>
+  ));
+}
+
+export function resolveThreadBlockRenderKey(block: { id: string; renderKey?: unknown }): string {
+  const renderKey = (block as { renderKey?: unknown }).renderKey;
+  return typeof renderKey === "string" && renderKey.length > 0 ? renderKey : block.id;
 }
 
 export function ThreadTurn({
@@ -120,7 +137,7 @@ export function ThreadTurn({
   latestTurnFollowContentRef,
 }: ThreadTurnProps) {
   const shouldAllowAgentBodyCollapse =
-    turn.hasRenderableAgentBodyEntries
+    turn.hasRenderableAgentBodyUnits
     && (!turn.isLatestTurn || hasPersistedAgentBodyCollapsedState);
   const effectiveAgentBodyCollapsed = shouldAllowAgentBodyCollapse ? agentBodyCollapsed : false;
   const workedForLabel = useWorkedForLabelText({
@@ -155,9 +172,9 @@ export function ThreadTurn({
     />
   );
 
-  const renderAgentEntry = (block: ThreadAgentEntryModel) => (
+  const renderAgentUnit = (unit: ThreadAgentRenderUnit) => (
     <ThreadBlockRenderer
-      block={block}
+      block={unit.block}
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath}
@@ -183,7 +200,7 @@ export function ThreadTurn({
           {renderSpacedBlocks(turn.leadingBlocks, renderBlock)}
         </div>
 
-        {turn.agentBodyEntries.length > 0 ? (
+        {turn.agentBodyUnits.length > 0 ? (
           <>
             {turn.leadingBlocks.length > 0 ? <ThreadGap /> : null}
             <div className="flex flex-col">
@@ -208,7 +225,7 @@ export function ThreadTurn({
                   >
                     {shouldAllowAgentBodyCollapse ? <ThreadGap /> : null}
                     <div className="flex flex-col gap-0">
-                      {renderSpacedBlocks(turn.agentBodyEntries, renderAgentEntry)}
+                      {renderSpacedAgentUnits(turn.agentBodyUnits, renderAgentUnit)}
                     </div>
                   </motion.div>
                 )}
@@ -219,7 +236,7 @@ export function ThreadTurn({
 
         {turn.trailingBlocks.length > 0 ? (
           <>
-            {(turn.leadingBlocks.length > 0 || turn.agentBodyEntries.length > 0) ? <ThreadGap /> : null}
+            {(turn.leadingBlocks.length > 0 || turn.agentBodyUnits.length > 0) ? <ThreadGap /> : null}
             <div className="flex flex-col">
               {renderSpacedBlocks(turn.trailingBlocks, renderBlock)}
             </div>

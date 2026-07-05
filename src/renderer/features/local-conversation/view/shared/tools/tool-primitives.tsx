@@ -1,297 +1,403 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { ChevronRightIcon } from "@/components/shared/icons";
+import { motion } from "motion/react";
+import type { Transition } from "motion/react";
 import { cn } from "../../../../../lib/utils";
-import { CodexShimmerText } from "../codex-shimmer-text";
+import {
+  CODEX_THREAD_ACCORDION_TRANSITION,
+  CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
+  CODEX_THREAD_DIVIDER_EXIT,
+} from "../thread-motion";
 
-export type ToolRenderStatus =
-  | "inProgress"
-  | "completed"
-  | "failed"
-  | "declined"
-  | "interrupted"
-  | string
-  | undefined;
+const THREAD_ACTIVITY_SUMMARY_DEFER_MS = 1000;
 
 /* ------------------------------------------------------------------ */
-/*  InlineToolToggle                                                   */
+/*  ThreadActivityShell                                                */
 /* ------------------------------------------------------------------ */
 
-interface InlineToolToggleProps {
-  /** Primary label text (rendered as uppercase text). */
-  label: string;
-  /** Optional leading phrase rendered with stronger emphasis than the trailing detail. */
-  leadingLabel?: string;
-  /** Optional secondary text after the label (e.g. diff stats). */
-  subtitle?: ReactNode;
-  /** Render the label in monospace font (e.g. for filenames). */
-  monoLabel?: boolean;
-  status?: ToolRenderStatus;
-  defaultExpanded?: boolean;
-  /** Automatically expand after the item has remained in-progress for the given delay. */
-  autoExpandDelayMs?: number;
-  /** Auto-collapse when status transitions from in-progress to a settled state. */
-  collapseWhenStatusSettles?: boolean;
-  /** Optional delay before auto-collapsing after the item settles. */
-  settleCollapseDelayMs?: number;
-  children?: ReactNode;
+export interface ThreadActivityDisclosureState {
+  expanded: boolean;
+  onToggle: () => void;
 }
 
-function statusSuffix(status: ToolRenderStatus): ReactNode {
-  if (!status) return null;
-  if (status === "completed" || status === "inProgress") return null;
+export interface ThreadActivityHeaderProps {
+  accessory?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  disclosure?: ThreadActivityDisclosureState;
+  testId?: string;
+}
 
-  /* Failed → ✕ circle, Interrupted → stop, Declined → circle-slash */
-  const icon =
-    status === "failed" ? (
-      /* x-circle */
-      <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-        <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    ) : status === "interrupted" ? (
-      /* stop-circle */
-      <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-        <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
-        <rect x="5.75" y="5.75" width="4.5" height="4.5" rx="0.75" fill="currentColor" />
-      </svg>
-    ) : status === "declined" ? (
-      /* circle-slash */
-      <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-        <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M3.6 12.4L12.4 3.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    ) : null;
+export function ThreadActivityChevron({ expanded }: { expanded: boolean }) {
+  return (
+    <ChevronRightIcon
+      aria-hidden="true"
+      className={cn(
+        "icon-2xs shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300",
+        "group-hover/activity-header:text-token-foreground group-hover/activity-header:opacity-100",
+        "group-focus-visible/activity-header:text-token-foreground group-focus-visible/activity-header:opacity-100",
+        expanded && "rotate-90 opacity-100",
+      )}
+    />
+  );
+}
 
-  /* For unknown string statuses, fall back to dot + text */
-  if (!icon) {
-    return (
-      <span className="ml-1 shrink-0 text-xs font-medium text-(--foreground-tertiary)">
-        · {status}
+export function ThreadActivityHeader({
+  accessory,
+  children,
+  className,
+  disclosure,
+  testId,
+}: ThreadActivityHeaderProps) {
+  const content = (
+    <>
+      <span className="text-size-chat flex min-w-0 shrink items-center gap-1.5 truncate">
+        {children}
       </span>
+      {accessory}
+      {disclosure ? <ThreadActivityChevron expanded={disclosure.expanded} /> : null}
+    </>
+  );
+  const headerClassName = cn(
+    "group/activity-header inline-flex min-w-0 max-w-full self-start items-center gap-1.5 p-0 text-left",
+    disclosure && "cursor-interaction",
+    className,
+  );
+
+  if (!disclosure) {
+    return (
+      <div className={headerClassName} data-testid={testId}>
+        {content}
+      </div>
     );
   }
 
   return (
-    <span
-      className={cn(
-        "ml-1 inline-flex shrink-0 items-center",
-        (status === "failed" || status === "interrupted") && "text-(--red-text)",
-        status === "declined" && "text-(--foreground-tertiary)",
-      )}
-      title={status === "failed" ? "Failed" : status === "interrupted" ? "Interrupted" : "Declined"}
+    <button
+      type="button"
+      className={headerClassName}
+      data-testid={testId}
+      aria-expanded={disclosure.expanded}
+      onClick={disclosure.onToggle}
     >
-      {icon}
+      {content}
+    </button>
+  );
+}
+
+export interface ThreadActivityShellProps {
+  body?: ReactNode;
+  className?: string;
+  header: ReactNode;
+  testId?: string;
+}
+
+export function ThreadActivityShell({
+  body,
+  className,
+  header,
+  testId,
+}: ThreadActivityShellProps) {
+  return (
+    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
+      <div data-testid={testId} className={cn("flex min-w-0 flex-col", className)}>
+        {header}
+        {body}
+      </div>
+    </div>
+  );
+}
+
+export type ThreadActivitySummaryTransition = "static" | "immediate" | "deferred";
+
+interface ThreadActivitySummaryTransitionState {
+  key: string;
+  node: ReactNode;
+}
+
+interface ThreadActivitySummaryTransitionProps {
+  summary: ReactNode;
+  summaryKey: string;
+  summaryTransition: Exclude<ThreadActivitySummaryTransition, "static">;
+}
+
+function ThreadActivitySummaryTransitionNode({
+  summary,
+  summaryKey,
+  summaryTransition,
+}: ThreadActivitySummaryTransitionProps) {
+  const [renderedSummary, setRenderedSummary] = useState<ThreadActivitySummaryTransitionState>(() => ({
+    key: summaryKey,
+    node: summary,
+  }));
+  const lastCommitAtRef = useRef<number | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const now = Date.now();
+    lastCommitAtRef.current ??= now;
+    if (summaryKey === renderedSummary.key) return;
+
+    const nextSummary = {
+      key: summaryKey,
+      node: summary,
+    };
+    const commit = () => {
+      timeoutRef.current = null;
+      lastCommitAtRef.current = Date.now();
+      setRenderedSummary(nextSummary);
+    };
+
+    if (summaryTransition === "immediate") {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      commit();
+      return;
+    }
+
+    const remainingMs = THREAD_ACTIVITY_SUMMARY_DEFER_MS - (now - lastCommitAtRef.current);
+    if (remainingMs <= 0) {
+      commit();
+      return;
+    }
+
+    timeoutRef.current = window.setTimeout(commit, remainingMs);
+    return () => {
+      if (timeoutRef.current === null) return;
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    };
+  }, [renderedSummary.key, summary, summaryKey, summaryTransition]);
+
+  return (
+    <span className="flex min-h-4 max-w-full min-w-0 items-center truncate">
+      {summaryTransition === "immediate" || renderedSummary.key === summaryKey ? summary : renderedSummary.node}
     </span>
   );
 }
 
-interface SplitInlineToolLabel {
-  leading: string;
-  trailing: string | null;
+export interface ThreadActivitySummaryTextProps {
+  children: ReactNode;
+  className?: string;
+  summaryKey?: string | null;
+  summaryTransition?: ThreadActivitySummaryTransition;
 }
 
-export function shouldShimmerInlineToolLeadingLabel(
-  status: ToolRenderStatus,
-  leadingLabel: string | undefined,
-): boolean {
-  if (status !== "inProgress") return false;
-  if (!leadingLabel) return false;
-  return leadingLabel.trim().length > 0;
-}
-
-const IN_PROGRESS_LEADING_LABEL_MAP: Record<string, string> = {
-  called: "calling",
-  explored: "exploring",
-  ran: "running",
-  "ran command": "running command",
-  edited: "editing",
-  "searched web": "searching the web",
-};
-
-function matchLeadingLabelCase(input: string, replacement: string): string {
-  if (input.length === 0) return replacement;
-  if (input === input.toUpperCase()) return replacement.toUpperCase();
-  if (input === input.toLowerCase()) return replacement;
-  const first = input[0];
-  if (!first) return replacement;
-  if (first === first.toUpperCase()) {
-    return `${replacement[0]?.toUpperCase() ?? ""}${replacement.slice(1)}`;
-  }
-  return replacement;
-}
-
-export function resolveInlineToolLeadingLabel(
-  leadingLabel: string,
-  status: ToolRenderStatus,
-): string {
-  if (status !== "inProgress") return leadingLabel;
-
-  const normalized = leadingLabel.trim();
-  if (normalized.length === 0) return leadingLabel;
-
-  const next = IN_PROGRESS_LEADING_LABEL_MAP[normalized.toLowerCase()];
-  if (!next) return leadingLabel;
-  return matchLeadingLabelCase(leadingLabel, next);
-}
-
-export function shouldCollapseInlineToolOnStatusSettle(
-  previousStatus: ToolRenderStatus,
-  nextStatus: ToolRenderStatus,
-): boolean {
-  if (previousStatus !== "inProgress") return false;
-  return nextStatus !== "inProgress";
-}
-
-export function splitInlineToolLabel(label: string, leadingLabel: string | undefined): SplitInlineToolLabel {
-  if (!leadingLabel) {
-    return { leading: label, trailing: null };
-  }
-
-  const normalizedLeading = leadingLabel.trim();
-  if (normalizedLeading.length === 0) {
-    return { leading: label, trailing: null };
-  }
-
-  if (!label.startsWith(normalizedLeading)) {
-    return { leading: label, trailing: null };
-  }
-
-  const suffix = label.slice(normalizedLeading.length);
-  if (suffix.length === 0) {
-    return { leading: normalizedLeading, trailing: null };
-  }
-
-  const normalizedTrailing = suffix.replace(/^[:\s-]+/, "").trim();
-  if (normalizedTrailing.length === 0) {
-    return { leading: normalizedLeading, trailing: null };
-  }
-
-  return { leading: normalizedLeading, trailing: normalizedTrailing };
-}
-
-export function InlineToolToggle({
-  label,
-  leadingLabel,
-  subtitle,
-  monoLabel,
-  status,
-  defaultExpanded = false,
-  autoExpandDelayMs,
-  collapseWhenStatusSettles = false,
-  settleCollapseDelayMs,
+export function ThreadActivitySummaryText({
   children,
-}: InlineToolToggleProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const previousStatusRef = useRef<ToolRenderStatus>(status);
-  const hasBody = Boolean(children);
-  const splitLabel = useMemo(
-    () => splitInlineToolLabel(label, leadingLabel),
-    [label, leadingLabel],
+  className,
+  summaryKey,
+  summaryTransition = "static",
+}: ThreadActivitySummaryTextProps) {
+  const content = summaryKey == null || summaryTransition === "static" ? children : (
+    <ThreadActivitySummaryTransitionNode
+      summary={children}
+      summaryKey={summaryKey}
+      summaryTransition={summaryTransition}
+    />
   );
-  const hasTrailingLabel = Boolean(splitLabel.trailing);
-  const shouldShimmerLeadingLabel = shouldShimmerInlineToolLeadingLabel(status, leadingLabel);
-  const renderedLeadingLabel = resolveInlineToolLeadingLabel(splitLabel.leading, status);
+
+  return (
+    <span
+      className={cn(
+        "text-token-conversation-summary-trailing flex min-w-0 max-w-full items-center truncate",
+        className,
+      )}
+    >
+      {content}
+    </span>
+  );
+}
+
+export interface ThreadActivityDisclosureProps {
+  bodyClassName?: string;
+  bodyTestId?: string;
+  canExpand?: boolean;
+  children: ReactNode;
+  className?: string;
+  defaultExpanded?: boolean;
+  headerClassName?: string;
+  headerTestId?: string;
+  onExpand?: () => void;
+  shouldAnimateInitialCollapse?: boolean;
+  summary: ReactNode;
+  summaryClassName?: string;
+  summaryKey?: string | null;
+  summaryTransition?: ThreadActivitySummaryTransition;
+  testId?: string;
+  transition?: Transition;
+}
+
+export function ThreadActivityDisclosure({
+  bodyClassName,
+  bodyTestId,
+  canExpand = true,
+  children,
+  className,
+  defaultExpanded = false,
+  headerClassName,
+  headerTestId,
+  onExpand,
+  shouldAnimateInitialCollapse = false,
+  summary,
+  summaryClassName,
+  summaryKey,
+  summaryTransition,
+  testId,
+  transition = CODEX_THREAD_ACCORDION_TRANSITION,
+}: ThreadActivityDisclosureProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [bodyMounted, setBodyMounted] = useState(
+    (shouldAnimateInitialCollapse || defaultExpanded) && canExpand,
+  );
+  const expansionFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!hasBody) return;
-    if (status !== "inProgress") return;
-    if (autoExpandDelayMs === undefined) return;
-
-    const timeoutId = window.setTimeout(() => {
-      setExpanded(true);
-    }, autoExpandDelayMs);
-
     return () => {
-      window.clearTimeout(timeoutId);
+      if (expansionFrameRef.current === null) return;
+      window.cancelAnimationFrame(expansionFrameRef.current);
     };
-  }, [autoExpandDelayMs, hasBody, status]);
+  }, []);
 
-  useEffect(() => {
-    const previousStatus = previousStatusRef.current;
-    previousStatusRef.current = status;
-
-    if (!collapseWhenStatusSettles) return;
-    if (!shouldCollapseInlineToolOnStatusSettle(previousStatus, status)) return;
-
-    if (!settleCollapseDelayMs) {
+  const handleToggle = () => {
+    if (expanded) {
       setExpanded(false);
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setExpanded(false);
-    }, settleCollapseDelayMs);
+    onExpand?.();
 
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [collapseWhenStatusSettles, settleCollapseDelayMs, status]);
+    if (bodyMounted) {
+      setExpanded(true);
+      return;
+    }
+
+    setBodyMounted(true);
+    expansionFrameRef.current = window.requestAnimationFrame(() => {
+      expansionFrameRef.current = null;
+      setExpanded(true);
+    });
+  };
+
+  const header = (
+    <ThreadActivityHeader
+      className={headerClassName}
+      disclosure={canExpand ? { expanded, onToggle: handleToggle } : undefined}
+      testId={headerTestId}
+    >
+      <ThreadActivitySummaryText
+        className={summaryClassName}
+        summaryKey={summaryKey}
+        summaryTransition={summaryTransition}
+      >
+        {summary}
+      </ThreadActivitySummaryText>
+    </ThreadActivityHeader>
+  );
+  const body = canExpand && bodyMounted ? (
+    <motion.div
+      initial={false}
+      animate={expanded ? CODEX_THREAD_DIVIDER_ENTER_ANIMATE : CODEX_THREAD_DIVIDER_EXIT}
+      transition={transition}
+      className={bodyClassName}
+      data-testid={bodyTestId}
+      data-thread-find-skip={expanded ? undefined : true}
+      style={{
+        overflow: "hidden",
+        pointerEvents: expanded ? "auto" : "none",
+      }}
+      onAnimationComplete={() => {
+        if (!expanded) setBodyMounted(false);
+      }}
+    >
+      {children}
+    </motion.div>
+  ) : null;
 
   return (
-    <div>
-      <button
-        type="button"
-        className="group -ml-1 inline-flex max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-left text-sm transition-colors hover:bg-(--background-secondary) focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:outline-none"
-        aria-expanded={expanded}
-        onClick={() => {
-          if (!hasBody) return;
-          setExpanded((prev) => !prev);
-        }}
-      >
-        <span
-          className={cn(
-            "truncate",
-            hasTrailingLabel
-              ? "text-token-description-foreground/90 transition-colors group-hover:text-token-foreground"
-              : "text-(--foreground-secondary) transition-colors group-hover:text-(--foreground)",
-            monoLabel && "font-mono",
-          )}
-        >
-          <CodexShimmerText
-            active={shouldShimmerLeadingLabel}
-            className="codex-tool-leading-label text-token-description-foreground/90 transition-colors group-hover:text-token-foreground"
-          >
-            {renderedLeadingLabel}
-          </CodexShimmerText>
-          {hasTrailingLabel && (
-            <span className="text-token-foreground/40 transition-colors group-hover:text-token-foreground">
-              {" "}
-              {splitLabel.trailing}
-            </span>
-          )}
-        </span>
-        {subtitle && (
-          <span className="shrink-0">{subtitle}</span>
-        )}
-        {statusSuffix(status)}
-        {hasBody && (
-          <span
-            aria-hidden="true"
-            className={cn(
-              "inline-flex size-3 shrink-0 items-center justify-center text-(--foreground-tertiary) transition-all duration-150",
-              expanded
-                ? "rotate-90 opacity-100"
-                : "rotate-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
-            )}
-          >
-            <svg viewBox="0 0 12 12" fill="none" className="size-3">
-              <path
-                d="M4 2.5L8 6L4 9.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </span>
-        )}
-      </button>
+    <ThreadActivityShell
+      body={body}
+      className={className}
+      header={header}
+      testId={testId}
+    />
+  );
+}
 
-      {expanded && hasBody ? (
-        <div className="codex-tool-toggle-body mt-0.5 rounded-md border border-(--border) bg-(--background-secondary) px-2 py-1 text-xs text-(--foreground-secondary)">
-          {children}
-        </div>
-      ) : null}
+export type ThreadActivityListViewState = "preview" | "collapsed" | "expanded";
+
+export interface ThreadActivityListItem {
+  key: string;
+  node: ReactNode;
+}
+
+export type ThreadActivityListMaxHeightByState = Record<
+  ThreadActivityListViewState,
+  CSSProperties["maxHeight"]
+>;
+
+export const THREAD_ACTIVITY_LIST_20_REM_MAX_HEIGHT_BY_STATE = {
+  preview: "20rem",
+  expanded: "20rem",
+  collapsed: "0px",
+} satisfies ThreadActivityListMaxHeightByState;
+
+export const THREAD_ACTIVITY_LIST_7_TO_20_REM_MAX_HEIGHT_BY_STATE = {
+  preview: "7rem",
+  expanded: "20rem",
+  collapsed: "0px",
+} satisfies ThreadActivityListMaxHeightByState;
+
+export interface ThreadActivityListProps {
+  allowHorizontalScroll?: boolean;
+  autoScrollToBottom?: boolean;
+  className?: string;
+  contentClassName?: string;
+  disableMaxHeight?: boolean;
+  items: readonly ThreadActivityListItem[];
+  maxHeightByState: ThreadActivityListMaxHeightByState;
+  testId?: string;
+  viewState?: ThreadActivityListViewState;
+}
+
+export function ThreadActivityList({
+  allowHorizontalScroll = false,
+  autoScrollToBottom = true,
+  className,
+  contentClassName,
+  disableMaxHeight = false,
+  items,
+  maxHeightByState,
+  testId,
+  viewState = "preview",
+}: ThreadActivityListProps) {
+  const maxHeight = maxHeightByState[viewState];
+  const style = disableMaxHeight ? undefined : { maxHeight };
+  const renderedItems = viewState === "collapsed"
+    ? null
+    : items.map((item) => (
+      <div key={item.key}>
+        {item.node}
+      </div>
+    ));
+
+  return (
+    <div
+      className={cn(
+        "vertical-scroll-fade-mask [--edge-fade-distance:1.5rem] overflow-y-auto",
+        autoScrollToBottom && "flex flex-col-reverse",
+        !allowHorizontalScroll && "overflow-x-hidden",
+        className,
+      )}
+      data-testid={testId}
+      style={style}
+    >
+      <div className={cn("flex flex-col gap-1", contentClassName, viewState === "preview" && "pb-1")}>
+        {renderedItems}
+      </div>
     </div>
   );
 }

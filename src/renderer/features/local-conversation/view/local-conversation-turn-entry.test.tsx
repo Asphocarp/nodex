@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { createElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import { render } from "../../../test/dom";
+import { render, settleAsyncRender } from "../../../test/dom";
 import type {
   CodexConversationItem,
   CodexConversationTurn,
@@ -376,7 +376,7 @@ describe("LocalConversationTurnEntry", () => {
           createdAt: 2,
           updatedAt: 2,
           status: "completed",
-          commandActions: [{ type: "read", command: "", name: "read", path: "src/app.ts" }],
+          commandActions: [{ type: "read", command: "", name: "src/app.ts", path: "src/app.ts" }],
           toolCall: {
             subtype: "command",
             toolName: "exec_command",
@@ -730,7 +730,7 @@ describe("LocalConversationTurnEntry", () => {
           createdAt: 3,
           updatedAt: 3,
           status: "completed",
-          commandActions: [{ type: "read", command: "", name: "read", path: "src/app.ts" }],
+          commandActions: [{ type: "read", command: "", name: "src/app.ts", path: "src/app.ts" }],
           toolCall: {
             subtype: "command",
             toolName: "exec_command",
@@ -790,12 +790,12 @@ describe("LocalConversationTurnEntry", () => {
     if (!(assistantAfter instanceof HTMLElement)) {
       throw new Error("expected assistant body after exploration rows");
     }
-    const explorationBody = view.container.querySelector('[data-testid="exploration-accordion-body"]');
-    if (!(explorationBody instanceof HTMLElement)) {
-      throw new Error("expected exploration accordion body");
-    }
+    const activityButton = view.getByRole("button", { name: /Reading src\/app\.ts/i });
+    fireEvent.click(activityButton);
+    await settleAsyncRender();
 
     expect(Boolean(view.container.textContent?.includes("Done"))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Read src/app.ts"))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes("Final message"))).toBeFalse();
   });
 
@@ -853,7 +853,7 @@ describe("LocalConversationTurnEntry", () => {
     );
 
     const assistantBlock = view.container.querySelector('[data-content-search-unit-key="turn_stopped_order:assistant"]');
-    const explorationButton = view.getByRole("button", { name: /Explored 1 file/i });
+    const explorationButton = view.getByRole("button", { name: /Read a file/i });
     const copyButton = view.getByLabelText("Copy");
     const actionAnchor = view.container.querySelector('[data-assistant-actions-anchor="assistant_1"]');
     if (

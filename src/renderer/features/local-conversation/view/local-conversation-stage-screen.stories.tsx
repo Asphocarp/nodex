@@ -135,6 +135,14 @@ export const CompletedExpanded: Story = {
   },
 };
 
+export const ToolCallMixed: Story = {
+  args: {
+    preset: "tool-call-mixed",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
 export const ApprovalLane: Story = {
   args: {
     preset: "approval-lane",

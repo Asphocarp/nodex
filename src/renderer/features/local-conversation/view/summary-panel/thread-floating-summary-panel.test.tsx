@@ -6,6 +6,7 @@ import type {
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
+import { buildCodexFileChangeMap } from "../../../../../shared/codex-file-change";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { TestQueryProvider } from "../../../../test/query";
 
@@ -231,7 +232,12 @@ describe("ThreadFloatingSummaryPanel", () => {
             itemId: "file",
             type: "fileChange",
             fileChange: {
-              paths: ["src/renderer/app.tsx"],
+              changes: buildCodexFileChangeMap([{
+                path: "src/renderer/app.tsx",
+                type: "update",
+                movePath: null,
+                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+              }]),
             },
           },
           {

@@ -107,6 +107,7 @@ import type {
   CodexItemView,
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationRequest,
+  CodexMcpServerElicitationResponse,
   CodexModelOption,
   CodexOwnerAppServerRequestInput,
   CodexPermissionRequest,
@@ -187,7 +188,10 @@ import {
   buildPlanImplementationRequestId,
   selectPrimaryConversationRequest,
 } from "../../shared/codex-conversation-request";
-import { isRenderableMcpServerElicitationRequest } from "../../shared/codex-mcp-elicitation";
+import {
+  isRenderableMcpServerElicitationRequest,
+  normalizeCodexMcpServerElicitationResponse,
+} from "../../shared/codex-mcp-elicitation";
 import {
   AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX,
   buildAutomaticApprovalReviewSummary,
@@ -9774,27 +9778,24 @@ export class CodexService extends EventEmitter {
 
   async respondToMcpServerElicitation(
     requestId: string,
-    action: CodexMcpServerElicitationAction,
+    response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
   ): Promise<boolean> {
     const pending = this.pendingMcpElicitations.get(requestId);
     if (!pending) return false;
+    const normalizedResponse = normalizeCodexMcpServerElicitationResponse(response);
 
     this.logger.info("Resolving Codex MCP elicitation request", {
       requestId,
-      action,
+      action: normalizedResponse.action,
       threadId: pending.request.threadId,
       turnId: pending.request.turnId,
     });
 
-    pending.resolve({
-      action,
-      content: null,
-      _meta: null,
-    });
+    pending.resolve(normalizedResponse);
     this.pendingMcpElicitations.delete(requestId);
     void this.upsertMcpServerElicitationItem(pending.request, {
       completed: true,
-      action,
+      action: normalizedResponse.action,
     });
     if (!this.rendererOwnerClientIdByConversationId.has(pending.request.threadId)) {
       this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {

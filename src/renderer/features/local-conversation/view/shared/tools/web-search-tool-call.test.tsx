@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { act, fireEvent } from "@testing-library/react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { render, textContent } from "../../../../../test/dom";
+import { describeWebSearchAction } from "../../../web-search-display";
 import {
-  describeWebSearchAction,
   getWebSearchSummaryDetail,
   WebSearchToolCall,
+  WebSearchToolCallGroup,
 } from "./web-search-tool-call";
 
 function buildWebSearchEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
@@ -46,6 +48,13 @@ describe("describeWebSearchAction", () => {
       type: "search",
       queries: ["storybook args", "storybook decorators"],
     }, "")).toBe("storybook args ...");
+  });
+
+  test("normalizes site filters in search action detail text", () => {
+    expect(describeWebSearchAction({
+      type: "search",
+      query: "site:github.com/openai/codex renderer OR site:www.example.com docs",
+    }, "")).toBe("renderer docs | github.com \u00b7 example.com");
   });
 
   test("formats find-in-page actions the same way as Codex Electron", () => {
@@ -95,7 +104,7 @@ describe("WebSearchToolCall", () => {
     );
 
     const renderedText = textContent(container);
-    expect(Boolean(renderedText.includes("Searched web"))).toBeTrue();
+    expect(Boolean(renderedText.includes("Searched the web"))).toBeTrue();
     expect(Boolean(renderedText.includes("'decorators' in https://storybook.js.org/docs/writing-stories/decorators"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
   });
@@ -128,7 +137,7 @@ describe("WebSearchToolCall", () => {
       />,
     );
 
-    expect(Boolean(textContent(container).includes("site:github.com/openai/codex renderer"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("renderer | github.com"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
@@ -161,5 +170,133 @@ describe("WebSearchToolCall", () => {
 
     expect(Boolean(textContent(container).includes("no domain here"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBeFalse();
+  });
+});
+
+describe("WebSearchToolCallGroup", () => {
+  test("renders the active header with the newest incomplete detail", async () => {
+    const { container } = render(
+      <WebSearchToolCallGroup
+        isActive
+        items={[
+          buildWebSearchEntry({
+            itemId: "web-old",
+            entryId: "web-old",
+            status: "completed",
+            toolCall: {
+              subtype: "webSearch",
+              toolName: "web_search",
+              args: { query: "old query" },
+              result: { type: "search", query: "old query" },
+            },
+            rawItem: { action: { type: "search", query: "old query" } },
+          }),
+          buildWebSearchEntry({
+            itemId: "web-new",
+            entryId: "web-new",
+            status: "inProgress",
+            toolCall: {
+              subtype: "webSearch",
+              toolName: "web_search",
+              args: { query: "site:github.com/openai/codex renderer OR site:www.example.com docs" },
+              result: {
+                type: "search",
+                query: "site:github.com/openai/codex renderer OR site:www.example.com docs",
+              },
+            },
+            rawItem: {
+              action: {
+                type: "search",
+                query: "site:github.com/openai/codex renderer OR site:www.example.com docs",
+              },
+            },
+          }),
+        ]}
+      />,
+    );
+
+    const renderedText = textContent(container);
+    expect(Boolean(renderedText.includes("Searching the web"))).toBeTrue();
+    expect(Boolean(renderedText.includes("for renderer docs | github.com \u00b7 example.com"))).toBeTrue();
+    expect(Boolean(renderedText.includes("old query"))).toBeFalse();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+
+    const collapsedList = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
+    expect(collapsedList?.style.maxHeight ?? "").toBe("0px");
+    expect(Boolean(textContent(collapsedList ?? container).includes("old query"))).toBeFalse();
+
+    await act(async () => {
+      fireEvent.click(container.querySelector("button") as HTMLButtonElement);
+      await Promise.resolve();
+    });
+
+    const expandedList = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
+    expect(expandedList?.style.maxHeight ?? "").toBe("20rem");
+    expect(Boolean(expandedList?.classList.contains("vertical-scroll-fade-mask"))).toBeTrue();
+    expect(Boolean(expandedList?.classList.contains("flex-col-reverse"))).toBeFalse();
+    expect(Boolean(textContent(expandedList ?? container).includes("old query"))).toBeTrue();
+    expect(Boolean(textContent(expandedList ?? container).includes("renderer docs | github.com \u00b7 example.com"))).toBeTrue();
+  });
+
+  test("renders the completed header without detail text", () => {
+    const { container } = render(
+      <WebSearchToolCallGroup
+        items={[
+          buildWebSearchEntry({
+            itemId: "web-completed",
+            entryId: "web-completed",
+            status: "completed",
+            toolCall: {
+              subtype: "webSearch",
+              toolName: "web_search",
+              args: { query: "completed query" },
+              result: { type: "search", query: "completed query" },
+            },
+            rawItem: { action: { type: "search", query: "completed query" } },
+          }),
+        ]}
+      />,
+    );
+
+    const renderedText = textContent(container);
+    expect(renderedText).toBe("Searched the web");
+    expect(Boolean(renderedText.includes("completed query"))).toBeFalse();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+  });
+
+  test("renders nested body-only groups through the shared bounded list", () => {
+    const { container } = render(
+      <WebSearchToolCallGroup
+        hideHeader
+        items={[
+          buildWebSearchEntry({
+            itemId: "web-body",
+            entryId: "web-body",
+            status: "completed",
+            toolCall: {
+              subtype: "webSearch",
+              toolName: "web_search",
+              args: { query: "site:github.com/openai/codex body detail" },
+              result: { type: "search", query: "site:github.com/openai/codex body detail" },
+            },
+            rawItem: {
+              action: { type: "search", query: "site:github.com/openai/codex body detail" },
+            },
+          }),
+        ]}
+      />,
+    );
+
+    const list = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
+    expect(list?.style.maxHeight ?? "").toBe("20rem");
+    expect(Boolean(list?.classList.contains("vertical-scroll-fade-mask"))).toBeTrue();
+    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBeFalse();
+    expect(Boolean(textContent(list ?? container).includes("body detail | github.com"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBeFalse();
+    expect(Boolean(container.querySelector("button"))).toBeFalse();
   });
 });

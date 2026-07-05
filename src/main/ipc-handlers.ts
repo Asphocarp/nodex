@@ -1699,8 +1699,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.respondToUserInput(requestId, answers)
   );
 
-  registerHandle("codex:mcp-elicitation:respond", (_, requestId: string, action: "accept" | "decline" | "cancel") =>
-    codexService.respondToMcpServerElicitation(requestId, action)
+  registerHandle("codex:mcp-elicitation:respond", (_, requestId: string, response) =>
+    codexService.respondToMcpServerElicitation(requestId, response)
   );
 
   registerHandle("codex:permission-request:respond", (_, requestId: string, response) =>

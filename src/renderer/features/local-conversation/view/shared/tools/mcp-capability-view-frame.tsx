@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
-import type { McpRenderableResource } from "./mcp-tool-call-resource-utils";
+import { resolveMcpAppFrameHeight, type McpRenderableResource } from "./mcp-tool-call-resource-utils";
 
 interface McpCapabilityViewFrameProps {
   resource: McpRenderableResource;
@@ -10,14 +10,12 @@ interface McpCapabilityViewFrameProps {
 }
 
 function buildSrcDoc(resource: McpRenderableResource): string {
-  if (resource.mode === "html") return resource.html;
-  return `<!doctype html><html><head><meta charset="utf-8"></head><body><script type="application/json" id="mcp-dil">${JSON.stringify(resource.html)}</script></body></html>`;
+  return resource.html;
 }
 
 export function McpCapabilityViewFrame({ resource, mode = "inline" }: McpCapabilityViewFrameProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
-  const heightHint = resource.metadata.heightHint ?? 360;
   const isSidePanel = mode === "side-panel";
 
   return (
@@ -32,7 +30,7 @@ export function McpCapabilityViewFrame({ resource, mode = "inline" }: McpCapabil
       data-mcp-app-loading={isLoading ? "true" : "false"}
       data-mcp-app-expanded={isExpanded ? "true" : "false"}
       style={{
-        height: isSidePanel || isExpanded ? undefined : Math.max(180, Math.min(heightHint, 720)),
+        height: isSidePanel || isExpanded ? undefined : resolveMcpAppFrameHeight(resource.metadata),
       }}
     >
       <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1">

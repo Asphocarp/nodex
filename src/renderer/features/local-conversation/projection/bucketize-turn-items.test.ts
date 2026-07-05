@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
+import type {
+  CodexMultiAgentActionName,
+  CodexMultiAgentActionStatus,
+} from "../../../../shared/codex-transcript-special-items";
 import type { ThreadTranscriptBlockModel, ThreadWorkedForBlockModel } from "../thread-stage-types";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
 import { buildTurnViewModel } from "./build-turn-view-model";
@@ -37,6 +41,35 @@ function buildWorkedForItem(overrides: Partial<ThreadWorkedForBlockModel>): Thre
     startedAtMs: 2,
     completedAtMs: 6_000,
     ...overrides,
+  };
+}
+
+function multiAgentRawItem(
+  id: string,
+  tool: CodexMultiAgentActionName,
+  status: CodexMultiAgentActionStatus,
+): Record<string, unknown> {
+  return {
+    type: "collabAgentToolCall",
+    id,
+    tool,
+    status,
+    senderThreadId: "thread-main",
+    receiverThreadIds: [`${id}-agent`],
+    receiverThreads: [
+      {
+        threadId: `${id}-agent`,
+        thread: {
+          nickname: `${id} agent`,
+          model: "gpt-5.4",
+          agentRole: null,
+        },
+      },
+    ],
+    prompt: `${tool} prompt`,
+    model: "gpt-5.4",
+    reasoningEffort: "medium",
+    agentsStates: {},
   };
 }
 
@@ -171,14 +204,12 @@ describe("bucketizeTurnItems", () => {
             semanticKind: "patch",
             status: "completed",
             fileChange: {
-              paths: ["src/app.ts"],
               changes: buildCodexFileChangeMap([{
                 type: "update",
                 path: "src/app.ts",
                 movePath: null,
                 unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
               }]),
-              diffs: [],
             },
             createdAt: 1,
             updatedAt: 1,
@@ -197,9 +228,9 @@ describe("bucketizeTurnItems", () => {
       isStreamingTurn: false,
       isBlocked: false,
     });
-    const group = turn.agentBodyEntries[0];
+    const group = turn.agentBodyUnits[0]?.block;
 
-    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("collapsedToolActivity");
     expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.id).join(",") : "").toBe("exec,file");
   });
 
@@ -220,9 +251,7 @@ describe("bucketizeTurnItems", () => {
             semanticKind: "patch",
             status: "inProgress",
             fileChange: {
-              paths: ["poem.md"],
               changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content: "line\n" }]),
-              diffs: [],
             },
             createdAt: 2,
             updatedAt: 2,
@@ -241,7 +270,7 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
   });
 
@@ -470,9 +499,13 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(buckets.assistantItem).toBe(null);
-    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,explorationGroup");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
+    const activityGroup = turn.agentBodyUnits[1]?.block;
+    expect(activityGroup?.type === "collapsedToolActivity" ? activityGroup.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "explorationGroup",
+    );
     expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("assistantActions");
-    const inlineAssistant = turn.agentBodyEntries[0];
+    const inlineAssistant = turn.agentBodyUnits[0]?.block;
     expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBeTrue();
     const deferredActions = turn.trailingBlocks[0];
     expect(deferredActions?.type === "assistantActions" && deferredActions.actions.copyText).toBe("Done");
@@ -706,9 +739,9 @@ describe("bucketizeTurnItems", () => {
     expect(turn.searchUnits.map((unit) => `${unit.blockType}:${unit.key}`).join(",")).toBe(
       "userMessage:turn_1:user:0,assistantMessage:turn_1:assistant",
     );
-    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,exec");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,exec");
     expect(turn.trailingBlocks.map((block) => block.id).join(",")).toBe("turn_1:thinking");
-    const inlineAssistant = turn.agentBodyEntries[0];
+    const inlineAssistant = turn.agentBodyUnits[0]?.block;
     expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBeTrue();
   });
 
@@ -752,9 +785,9 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(completedTurn.hasRenderableAgentBodyEntries).toBeTrue();
+    expect(completedTurn.hasRenderableAgentBodyUnits).toBeTrue();
     expect(completedTurn.defaultAgentBodyCollapsed).toBeTrue();
-    expect(failedTurn.hasRenderableAgentBodyEntries).toBeFalse();
+    expect(failedTurn.hasRenderableAgentBodyUnits).toBeFalse();
     expect(failedTurn.defaultAgentBodyCollapsed).toBeFalse();
   });
 
@@ -808,14 +841,48 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("explorationGroup");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("collapsedToolActivity");
+    const group = turn.agentBodyUnits[0]?.block;
+    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "explorationGroup",
+    );
   });
 
-  test("groups settled multi-agent actions but leaves in-progress ones alone", () => {
+  test("groups same-action multi-agent actions including in-progress ones", () => {
     const settledBuckets = bucketizeTurnItems({
       items: [
-        buildItem({ id: "agent_1", type: "multiAgentAction", status: "completed" }),
-        buildItem({ id: "agent_2", type: "multiAgentAction", status: "completed" }),
+        buildItem({
+          id: "agent_1",
+          type: "multiAgentAction",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "agent_1",
+            type: "tool_call",
+            kind: "toolCall",
+            semanticKind: "multiAgentAction",
+            createdAt: 1,
+            updatedAt: 1,
+            rawItem: multiAgentRawItem("agent_1", "spawnAgent", "completed"),
+          },
+        }),
+        buildItem({
+          id: "agent_2",
+          type: "multiAgentAction",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "agent_2",
+            type: "tool_call",
+            kind: "toolCall",
+            semanticKind: "multiAgentAction",
+            createdAt: 1,
+            updatedAt: 1,
+            rawItem: multiAgentRawItem("agent_2", "spawnAgent", "completed"),
+          },
+        }),
       ],
     });
     const settledTurn = buildTurnViewModel({
@@ -829,7 +896,22 @@ describe("bucketizeTurnItems", () => {
 
     const liveBuckets = bucketizeTurnItems({
       items: [
-        buildItem({ id: "agent_live", type: "multiAgentAction", status: "inProgress" }),
+        buildItem({
+          id: "agent_live",
+          type: "multiAgentAction",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_2",
+            itemId: "agent_live",
+            type: "tool_call",
+            kind: "toolCall",
+            semanticKind: "multiAgentAction",
+            createdAt: 1,
+            updatedAt: 1,
+            rawItem: multiAgentRawItem("agent_live", "spawnAgent", "inProgress"),
+          },
+        }),
       ],
     });
     const liveTurn = buildTurnViewModel({
@@ -841,8 +923,8 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(settledTurn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("multiAgentGroup");
-    expect(liveTurn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("multiAgentAction");
+    expect(settledTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentGroup");
+    expect(liveTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentGroup");
   });
 
   test("adds a thinking placeholder for an in-progress turn before assistant content starts", () => {
@@ -930,8 +1012,9 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("explorationGroup");
-    const explorationBlock = turn.blocks[0];
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
+    const activityGroup = turn.blocks[0];
+    const explorationBlock = activityGroup?.type === "collapsedToolActivity" ? activityGroup.entries[0] : null;
     expect(explorationBlock?.type).toBe("explorationGroup");
     expect(explorationBlock && explorationBlock.type === "explorationGroup" ? explorationBlock.status : undefined).toBe("inProgress");
   });
@@ -1207,6 +1290,6 @@ describe("bucketizeTurnItems", () => {
 
     expect(buckets.assistantItem).toBe(null);
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,worked_for");
-    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage");
   });
 });

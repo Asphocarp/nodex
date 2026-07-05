@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { act, fireEvent } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../../lib/codex-thread-settings";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { CodexThreadSettingsProvider } from "../../../../../lib/use-codex-thread-settings";
-import { CommandToolCall } from "./command-tool-call";
+import {
+  CommandToolCall,
+  isDateCommand,
+  resolveCommandSummaryLabel,
+} from "./command-tool-call";
 
 const LONG_COMMAND = [
   "bun x tsx scripts/collect-long-command-metrics.ts",
@@ -45,6 +49,42 @@ function buildCommandEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTran
   };
 }
 
+function buildAutomaticApprovalReviewEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
+  return {
+    threadId: "thread-1",
+    turnId: "turn-1",
+    itemId: "review-1",
+    entryId: "review-1",
+    type: "automaticApprovalReview",
+    kind: "systemEvent",
+    semanticKind: "automaticApprovalReview",
+    status: "completed",
+    createdAt: 1,
+    updatedAt: 1,
+    rawItem: {
+      targetItemId: "cmd-1",
+      review: {
+        status: "approved",
+        riskScore: 0.12,
+        riskLevel: "low",
+        rationale: "Only local tests are executed.",
+      },
+      action: {
+        type: "commandExecution",
+        command: "bun test",
+      },
+    },
+    ...overrides,
+  };
+}
+
+async function expandCommandShell(container: HTMLElement) {
+  const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
+  if (!summaryToggle) throw new Error("Expected command summary toggle");
+  fireEvent.click(summaryToggle);
+  await settleAsyncRender();
+}
+
 describe("CommandToolCall render state", () => {
   beforeEach(() => {
     localStorage.removeItem(THREAD_SETTINGS_STORAGE_KEY);
@@ -72,15 +112,159 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Running bun test"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Running command"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Running bun test"))).toBeFalse();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='run-command']"))).toBeTrue();
     const shimmer = container.querySelector<HTMLElement>(".loading-shimmer-pure-text");
-    expect(shimmer?.textContent ?? "").toBe("Running");
+    expect(shimmer?.textContent ?? "").toBe("Running command");
     expect(Boolean(shimmer?.textContent?.includes("bun test"))).toBeFalse();
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
     expect(Boolean(collapsedBody)).toBeTrue();
     expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
-    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+  });
+
+  test("resolves Electron command summary labels for generic, date, background, and skill-script commands", () => {
+    expect(isDateCommand("/bin/date -u +%Y-%m-%d")).toBeTrue();
+    expect(isDateCommand("date --rfc-3339=seconds")).toBeTrue();
+    expect(isDateCommand("date tomorrow")).toBeFalse();
+    expect(isDateCommand("date ''")).toBeFalse();
+
+    expect(resolveCommandSummaryLabel({
+      command: "bun test",
+      effectiveStatus: "inProgress",
+      isExpanded: false,
+      isTurnInProgress: true,
+      processId: null,
+    })).toBe("Running command");
+    expect(resolveCommandSummaryLabel({
+      command: "bun test",
+      effectiveStatus: "completed",
+      isExpanded: false,
+      isTurnInProgress: false,
+      processId: null,
+    })).toBe("Ran bun test");
+    expect(resolveCommandSummaryLabel({
+      command: "bun test",
+      effectiveStatus: "completed",
+      isExpanded: true,
+      isTurnInProgress: false,
+      processId: null,
+    })).toBe("Ran command");
+    expect(resolveCommandSummaryLabel({
+      command: "date -u",
+      effectiveStatus: "interrupted",
+      isExpanded: false,
+      isTurnInProgress: false,
+      processId: null,
+    })).toBe("Stopped checking the current date and time");
+    expect(resolveCommandSummaryLabel({
+      command: "bun run dev",
+      effectiveStatus: "inProgress",
+      isExpanded: false,
+      isTurnInProgress: false,
+      processId: "4172",
+    })).toBe("Started background terminal with bun run dev");
+    expect(resolveCommandSummaryLabel({
+      command: "python .codex/skills/review-helper/scripts/check.py",
+      effectiveStatus: "completed",
+      isExpanded: false,
+      isTurnInProgress: false,
+      processId: null,
+    })).toBe("Ran script check.py from Review Helper skill");
+    expect(resolveCommandSummaryLabel({
+      command: "python .codex/skills/review-helper/check.py",
+      effectiveStatus: "completed",
+      isExpanded: false,
+      isTurnInProgress: false,
+      processId: null,
+    })).toBe("Ran python .codex/skills/review-helper/check.py");
+    expect(resolveCommandSummaryLabel({
+      command: "python .codex/skills/review-helper/scripts/check.py",
+      effectiveStatus: "inProgress",
+      isExpanded: false,
+      isTurnInProgress: false,
+      processId: "4172",
+    })).toBe("Started background terminal running check.py from Review Helper skill");
+  });
+
+  test("switches settled generic command summary from specific collapsed text to generic expanded text", async () => {
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall item={buildCommandEntry()} isStreamingTurn={false} />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Ran bun test"))).toBeTrue();
+
+    await expandCommandShell(container);
+
+    expect(Boolean(textContent(container).includes("Ran command"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Ran bun test"))).toBeFalse();
+  });
+
+  test("renders date and background terminal command summaries", () => {
+    const { container, rerender } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              command: "date -u",
+              markdownText: "Running date",
+              aggregatedOutput: "",
+              exitCode: null,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Checking the current date and time"))).toBeTrue();
+    expect(container.querySelector<HTMLElement>(".loading-shimmer-pure-text")?.textContent ?? "").toBe(
+      "Checking the current date and time",
+    );
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "completed",
+              command: "date -u",
+              markdownText: "Ran date",
+              aggregatedOutput: "",
+              exitCode: 0,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+    expect(Boolean(textContent(container).includes("Checked the current date and time"))).toBeTrue();
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              command: "bun run dev",
+              markdownText: "Running bun run dev",
+              aggregatedOutput: "ready\n",
+              exitCode: null,
+              processId: "4172",
+            })}
+            isStreamingTurn={false}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Started background terminal with bun run dev"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
 
   test("keeps settled commands collapsed on first mount in steps-with-commands mode", () => {
@@ -96,7 +280,7 @@ describe("CommandToolCall render state", () => {
     expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
   });
 
-  test("keeps settled commands expanded on first mount in steps-with-output mode", () => {
+  test("keeps settled commands collapsed on first mount in steps-with-output mode", () => {
     localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
 
     const { container } = render(
@@ -107,9 +291,11 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.querySelector('[data-thread-find-skip="true"]'))).toBeFalse();
+    const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
+    expect(Boolean(collapsedBody)).toBeTrue();
+    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
   });
 
   test("suppresses command cards entirely in steps mode", () => {
@@ -126,7 +312,299 @@ describe("CommandToolCall render state", () => {
     expect(textContent(container)).toBe("");
   });
 
-  test("lets in-progress commands expand but not collapse back while still running", async () => {
+  test("shows in-progress skill definition reads in steps mode", () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              command: "cat .codex/skills/review-helper/SKILL.md",
+              markdownText: "Reading review helper skill",
+              commandActions: [
+                {
+                  type: "read",
+                  command: "cat .codex/skills/review-helper/SKILL.md",
+                  name: ".codex/skills/review-helper/SKILL.md",
+                  path: ".codex/skills/review-helper/SKILL.md",
+                },
+              ],
+              aggregatedOutput: "",
+              exitCode: null,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Reading Review Helper skill"))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+  });
+
+  test("renders a completed single read action as a compact row without shell chrome", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "sed -n '1,80p' src/index.ts",
+              markdownText: "Read src/index.ts",
+              commandActions: [
+                {
+                  type: "read",
+                  command: "sed -n '1,80p' src/index.ts",
+                  name: "src/index.ts",
+                  path: "src/index.ts",
+                },
+              ],
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Read src/index.ts"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Explored"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+    expect(Boolean(container.querySelector("[data-command-tool-summary-toggle]"))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+  });
+
+  test("hides an in-progress single read action", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              command: "sed -n '1,80p' src/index.ts",
+              markdownText: "Reading src/index.ts",
+              commandActions: [
+                {
+                  type: "read",
+                  command: "sed -n '1,80p' src/index.ts",
+                  name: "src/index.ts",
+                  path: "src/index.ts",
+                },
+              ],
+              aggregatedOutput: "",
+              exitCode: null,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(textContent(container)).toBe("");
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+  });
+
+  test("renders completed single search and list actions as compact rows", () => {
+    const { container, rerender } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "rg command src",
+              markdownText: "Searched for command",
+              commandActions: [
+                {
+                  type: "search",
+                  command: "rg command src",
+                  query: "command",
+                  path: "src",
+                },
+              ],
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Searched for command in src"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "find src -maxdepth 1",
+              markdownText: "Listed files",
+              commandActions: [
+                {
+                  type: "listFiles",
+                  command: "find src -maxdepth 1",
+                  path: "src",
+                },
+              ],
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Listed files in src"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+  });
+
+  test("renders completed search and list fallback labels", () => {
+    const { container, rerender } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "rg command",
+              markdownText: "Searched for command",
+              commandActions: [
+                {
+                  type: "search",
+                  command: "rg command",
+                  query: "command",
+                  path: null,
+                },
+              ],
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Searched for command"))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "find . -name '*.ts'",
+              markdownText: "Searched for files",
+              commandActions: [
+                {
+                  type: "search",
+                  command: "find . -name '*.ts'",
+                  query: null,
+                  path: null,
+                },
+              ],
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Searched for files"))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "ls",
+              markdownText: "Listed files",
+              commandActions: [
+                {
+                  type: "listFiles",
+                  command: "ls",
+                  path: null,
+                },
+              ],
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Listed files"))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+  });
+
+  test("hides in-progress single search and list actions", () => {
+    const { container, rerender } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              command: "rg command src",
+              markdownText: "Searching for command",
+              commandActions: [
+                {
+                  type: "search",
+                  command: "rg command src",
+                  query: "command",
+                  path: "src",
+                },
+              ],
+              aggregatedOutput: "",
+              exitCode: null,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(textContent(container)).toBe("");
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              command: "find src -maxdepth 1",
+              markdownText: "Listing files",
+              commandActions: [
+                {
+                  type: "listFiles",
+                  command: "find src -maxdepth 1",
+                  path: "src",
+                },
+              ],
+              aggregatedOutput: "",
+              exitCode: null,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(textContent(container)).toBe("");
+  });
+
+  test("renders completed skill definition reads without treating them as ordinary file reads", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "cat .codex/skills/review-helper/SKILL.md",
+              markdownText: "Read review helper skill",
+              commandActions: [
+                {
+                  type: "read",
+                  command: "cat .codex/skills/review-helper/SKILL.md",
+                  name: ".codex/skills/review-helper/SKILL.md",
+                  path: ".codex/skills/review-helper/SKILL.md",
+                },
+              ],
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Read Review Helper skill"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Read .codex/skills/review-helper/SKILL.md"))).toBeFalse();
+  });
+
+  test("lets in-progress commands expand and collapse manually", async () => {
     const { container } = render(
       <TooltipProvider>
         <CodexThreadSettingsProvider>
@@ -156,15 +634,18 @@ describe("CommandToolCall render state", () => {
 
     const expandedBody = container.querySelector('[data-thread-find-skip]');
     expect(Boolean(expandedBody)).toBeFalse();
-    expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
+    const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
+    expect(Boolean(collapsedBody)).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
   });
 
-  test("collapses back after a running execution-detail command settles", async () => {
+  test("keeps an expanded command shell open when a running command settles", async () => {
     localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
 
     const inProgressEntry = buildCommandEntry({
@@ -203,14 +684,76 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    });
     await settleAsyncRender();
 
-    const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
-    expect(Boolean(collapsedBody)).toBeTrue();
+    expect(Boolean(container.querySelector('[data-thread-find-skip="true"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
+  });
+
+  test("renders attached automatic approval reviews before the command shell body", async () => {
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry()}
+            automaticApprovalReviews={[buildAutomaticApprovalReviewEntry()]}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Shell"))).toBeFalse();
+
+    await expandCommandShell(container);
+
+    const reviewButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((element) => textContent(element).includes("Auto-review approved")) ?? null;
+    const shellLabel = Array.from(container.querySelectorAll<HTMLElement>("span"))
+      .find((element) => textContent(element) === "Shell") ?? null;
+
+    expect(Boolean(reviewButton)).toBeTrue();
+    expect(Boolean(shellLabel)).toBeTrue();
+    expect(Boolean(
+      reviewButton && shellLabel
+        ? reviewButton.compareDocumentPosition(shellLabel) & Node.DOCUMENT_POSITION_FOLLOWING
+        : false,
+    )).toBeTrue();
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeTrue();
+  });
+
+  test("wraps parsed command summaries with attached automatic approval review rows", async () => {
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              command: "rg needle src",
+              commandActions: [{
+                type: "search",
+                query: "needle",
+                path: "src",
+                command: "rg needle src",
+              }],
+            })}
+            automaticApprovalReviews={[buildAutomaticApprovalReviewEntry()]}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Searched for needle in src"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeFalse();
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
+
+    const disclosure = container.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
+    expect(Boolean(disclosure)).toBeTrue();
+
+    fireEvent.click(disclosure as HTMLButtonElement);
+    await settleAsyncRender();
+
+    expect(disclosure?.getAttribute("aria-expanded") ?? "").toBe("true");
+    expect(Boolean(textContent(container).includes("Auto-review approved"))).toBeTrue();
   });
 
   test("expands a long command line when clicked", async () => {
@@ -227,6 +770,8 @@ describe("CommandToolCall render state", () => {
         </CodexThreadSettingsProvider>
       </TooltipProvider>,
     );
+
+    await expandCommandShell(container);
 
     const toggle = container.querySelector<HTMLElement>("[data-command-shell-line-toggle]");
     expect(Boolean(toggle)).toBeTrue();
@@ -251,6 +796,8 @@ describe("CommandToolCall render state", () => {
         </CodexThreadSettingsProvider>
       </TooltipProvider>,
     );
+
+    await expandCommandShell(container);
 
     const toggle = container.querySelector<HTMLElement>("[data-command-shell-line-toggle]");
     expect(Boolean(toggle)).toBeTrue();
@@ -287,7 +834,7 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(textContent(container).includes("No output"))).toBeFalse();
   });
 
-  test("shows a no-output placeholder once a blank command output has settled", () => {
+  test("shows a no-output placeholder once a blank command output has settled", async () => {
     localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
 
     const { container } = render(
@@ -311,6 +858,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
+    await expandCommandShell(container);
     expect(Boolean(textContent(container).includes("No output"))).toBeTrue();
   });
 
@@ -332,7 +880,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    await settleAsyncRender();
+    await expandCommandShell(container);
     expect(Boolean(textContent(container).includes("Exit code 7"))).toBeTrue();
   });
 
@@ -352,7 +900,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    await settleAsyncRender();
+    await expandCommandShell(container);
     expect(Boolean(textContent(container).includes("Stopped"))).toBeTrue();
 
     rerender(

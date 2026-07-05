@@ -22,6 +22,7 @@ import type {
   CodexApprovalDecision,
   CodexConversationSnapshot,
   CodexMcpServerElicitationAction,
+  CodexMcpServerElicitationResponse,
 } from "@/lib/types";
 
 export interface ThreadStageDevStoryPageProps extends ThreadStageStoryControls {
@@ -484,7 +485,11 @@ export function ThreadStageDevStoryPage({
         return setStoryLog(nextRuntime, `Answered user input: ${Object.values(answers).flat().join(", ")}`);
       });
     },
-    onRespondMcpElicitation: async (requestId: string, action: CodexMcpServerElicitationAction) => {
+    onRespondMcpElicitation: async (
+      requestId: string,
+      response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
+    ) => {
+      const action = typeof response === "string" ? response : response.action;
       setRuntime((current) => setStoryLog(removeConversationRequest(current, requestId), `MCP elicitation: ${action}`));
     },
     onResolvePlanImplementationRequest: async (threadId: string, turnId: string) => {

@@ -19,6 +19,7 @@ import type {
   CodexConversationResumeState,
   CodexConversationServerRequest,
   CodexMcpServerElicitationAction,
+  CodexMcpServerElicitationResponse,
   CodexConversationSnapshot,
   CodexConversationTurn,
   CodexConversationTurnPagination,
@@ -186,7 +187,7 @@ export interface ThreadStageActions {
   ) => Promise<void>;
   onRespondMcpElicitation: (
     requestId: string,
-    action: CodexMcpServerElicitationAction,
+    response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
     context?: ThreadRequestResponseContext,
   ) => Promise<void>;
   onRespondPermissionRequest?: (
@@ -251,7 +252,9 @@ export interface ThreadMcpWidgetMetadataModel {
   domain: string | null;
   csp: ThreadMcpWidgetCspModel | null;
   heightHint: number | null;
+  minFrameHeight: number | null;
   prefersBorder: boolean;
+  isCollapsible: boolean;
 }
 
 export interface ThreadMcpAppSidePanelInput {
@@ -263,7 +266,7 @@ export interface ThreadMcpAppSidePanelInput {
   tool: string;
   resource: {
     uri: string;
-    mode: "html" | "dil";
+    mode: "html";
     html: string;
     mimeType: string | null;
     metadata: ThreadMcpWidgetMetadataModel;
@@ -282,6 +285,10 @@ export interface ThreadAssistantMessageActionsModel {
   canFork: boolean;
 }
 
+export interface ThreadRenderKeyedBlockFields {
+  renderKey?: string;
+}
+
 export interface ThreadAssistantActionsBlockModel {
   id: string;
   turnId: string;
@@ -293,7 +300,7 @@ export interface ThreadAssistantActionsBlockModel {
   actions: ThreadAssistantMessageActionsModel;
 }
 
-export interface ThreadThinkingPlaceholderBlockModel {
+export interface ThreadThinkingPlaceholderBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -302,7 +309,7 @@ export interface ThreadThinkingPlaceholderBlockModel {
   type: "thinkingPlaceholder";
 }
 
-export interface ThreadWorkedForBlockModel {
+export interface ThreadWorkedForBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -314,7 +321,7 @@ export interface ThreadWorkedForBlockModel {
   completedAtMs: number | null;
 }
 
-export interface ThreadTranscriptBlockModel {
+export interface ThreadTranscriptBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -359,7 +366,7 @@ export interface ThreadTranscriptBlockModel {
   searchUnitKey?: string;
 }
 
-export interface ThreadUserAttachmentStripBlockModel {
+export interface ThreadUserAttachmentStripBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -369,7 +376,7 @@ export interface ThreadUserAttachmentStripBlockModel {
   attachments: CodexUserAttachment[];
 }
 
-export interface ThreadExplorationGroupBlockModel {
+export interface ThreadExplorationGroupBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -379,9 +386,10 @@ export interface ThreadExplorationGroupBlockModel {
   entries: CodexConversationItem[];
   summary: string;
   status?: CodexConversationItem["status"];
+  automaticApprovalReviews?: CodexConversationItem[];
 }
 
-export interface ThreadMultiAgentGroupBlockModel {
+export interface ThreadMultiAgentGroupBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -393,7 +401,18 @@ export interface ThreadMultiAgentGroupBlockModel {
   status?: CodexConversationItem["status"];
 }
 
-export interface ThreadPendingMcpToolCallsBlockModel {
+export interface ThreadWebSearchGroupBlockModel extends ThreadRenderKeyedBlockFields {
+  id: string;
+  turnId: string;
+  createdAt: number;
+  updatedAt: number;
+  searchableText: string;
+  type: "webSearchGroup";
+  entries: Array<ThreadTranscriptBlockModel & { type: "webSearch" }>;
+  status?: CodexConversationItem["status"];
+}
+
+export interface ThreadPendingMcpToolCallsBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -405,7 +424,7 @@ export interface ThreadPendingMcpToolCallsBlockModel {
   status?: CodexConversationItem["status"];
 }
 
-export interface ThreadDynamicToolCallGroupBlockModel {
+export interface ThreadDynamicToolCallGroupBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -414,13 +433,16 @@ export interface ThreadDynamicToolCallGroupBlockModel {
   type: "dynamicToolCallGroup";
   entries: Array<ThreadTranscriptBlockModel & { type: "dynamicToolCall" }>;
   summary: string;
+  summaryParts?: Array<{ key: string; label: string; count: number }>;
+  canExpand?: boolean;
   repeatCount: number;
   status?: CodexConversationItem["status"];
 }
 
 export type ThreadCollapsedToolActivityEntryModel =
   | ThreadTranscriptBlockModel
-  | ThreadExplorationGroupBlockModel;
+  | ThreadExplorationGroupBlockModel
+  | ThreadWebSearchGroupBlockModel;
 
 export interface ThreadCollapsedToolActivitySummaryStats {
   createdFileCount: number;
@@ -434,24 +456,54 @@ export interface ThreadCollapsedToolActivitySummaryStats {
   runningCreatedLineCount: number;
   exploredFileCount: number;
   runningExploredFileCount: number;
+  loadedToolCount: number;
+  runningLoadedToolCount: number;
   searchCount: number;
   runningSearchCount: number;
   listCount: number;
   runningListCount: number;
   commandCount: number;
   runningCommandCount: number;
+  completedWebSearchCommandCount: number;
+  runningFolderCreationCommandCount: number;
+  runningWebSearchCommandCount: number;
   deniedRequestCount: number;
   timedOutRequestCount: number;
   hookCount: number;
   runningHookCount: number;
   mcpToolCallCount: number;
   runningMcpToolCallCount: number;
-  mcpToolCallSources: Array<{ name: string; count: number }>;
+  mcpToolCallSources: ThreadCollapsedToolActivityMcpSourceStats[];
   webSearchCount: number;
   runningWebSearchCount: number;
 }
 
-export interface ThreadCollapsedToolActivityBlockModel {
+export interface ThreadCollapsedToolActivityMcpSourceStats {
+  key: string;
+  logoUrl: string | null;
+  logoUrlDark: string | null;
+  name: string;
+  nativeAppReference: unknown | null;
+  count: number;
+  runningCount: number;
+}
+
+export type ThreadCollapsedToolActivityActiveSummary =
+  | {
+    kind: "text";
+    key: string;
+    label: string;
+  }
+  | {
+    kind: "fileChange";
+    key: string;
+    label: string;
+    displayPath: string;
+    additions: number;
+    deletions: number;
+  };
+
+export interface ThreadCollapsedToolActivityBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
   createdAt: number;
@@ -462,6 +514,7 @@ export interface ThreadCollapsedToolActivityBlockModel {
   summary: string;
   summaryStats?: ThreadCollapsedToolActivitySummaryStats;
   summaryParts?: string[];
+  activeSummary?: ThreadCollapsedToolActivityActiveSummary | null;
   status?: CodexConversationItem["status"];
 }
 
@@ -488,9 +541,40 @@ export type ThreadAgentEntryModel =
   | ThreadAgentItemModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
+  | ThreadWebSearchGroupBlockModel
   | ThreadPendingMcpToolCallsBlockModel
   | ThreadDynamicToolCallGroupBlockModel
   | ThreadCollapsedToolActivityBlockModel;
+
+export type ThreadAgentRenderEntryBlockModel =
+  | ThreadAgentItemModel
+  | ThreadExplorationGroupBlockModel;
+
+export type ThreadAgentRenderUnit =
+  | {
+      kind: "entry";
+      block: ThreadAgentRenderEntryBlockModel;
+    }
+  | {
+      kind: "webSearchGroup";
+      block: ThreadWebSearchGroupBlockModel;
+    }
+  | {
+      kind: "multiAgentGroup";
+      block: ThreadMultiAgentGroupBlockModel;
+    }
+  | {
+      kind: "collapsedToolActivity";
+      block: ThreadCollapsedToolActivityBlockModel;
+    }
+  | {
+      kind: "dynamicToolCallGroup";
+      block: ThreadDynamicToolCallGroupBlockModel;
+    }
+  | {
+      kind: "pendingMcpToolCalls";
+      block: ThreadPendingMcpToolCallsBlockModel;
+    };
 
 export type ThreadBlockModel =
   | ThreadTranscriptBlockModel
@@ -499,6 +583,7 @@ export type ThreadBlockModel =
   | ThreadWorkedForBlockModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
+  | ThreadWebSearchGroupBlockModel
   | ThreadPendingMcpToolCallsBlockModel
   | ThreadDynamicToolCallGroupBlockModel
   | ThreadCollapsedToolActivityBlockModel
@@ -532,7 +617,7 @@ export interface ThreadTurnModel {
   turn: CodexConversationTurn | null;
   buckets: ThreadTurnRenderBuckets;
   leadingBlocks: ThreadBlockModel[];
-  agentBodyEntries: ThreadAgentEntryModel[];
+  agentBodyUnits: ThreadAgentRenderUnit[];
   trailingBlocks: ThreadBlockModel[];
   blocks: ThreadBlockModel[];
   aboveComposerBlocks?: ThreadBlockModel[];
@@ -544,7 +629,7 @@ export interface ThreadTurnModel {
   isBlocked: boolean;
   searchableText: string;
   searchUnits: ThreadSearchUnitModel[];
-  hasRenderableAgentBodyEntries: boolean;
+  hasRenderableAgentBodyUnits: boolean;
   defaultAgentBodyCollapsed: boolean;
   collapsedMessageCount: number;
 }

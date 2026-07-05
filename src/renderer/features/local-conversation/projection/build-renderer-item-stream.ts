@@ -1,3 +1,4 @@
+import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationItem } from "../../../lib/types";
 import { hasCodexFileChangeEntries } from "../../../../shared/codex-file-change";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
@@ -13,6 +14,32 @@ interface BuildRendererItemStreamInput {
   turnStatus?: "inProgress" | "completed" | "interrupted" | "failed";
   isLatestTurn?: boolean;
 }
+
+type ProtocolThreadItemType = ThreadItem["type"];
+type RendererTranscriptType = ThreadTranscriptBlockModel["type"];
+
+const SEMANTIC_FALLBACK = "semanticFallback";
+
+const PROTOCOL_THREAD_ITEM_RENDERER_TYPES = {
+  userMessage: "userMessage",
+  hookPrompt: null,
+  agentMessage: "assistantMessage",
+  plan: SEMANTIC_FALLBACK,
+  reasoning: "reasoning",
+  commandExecution: "exec",
+  fileChange: "fileChange",
+  mcpToolCall: "mcpToolCall",
+  dynamicToolCall: "dynamicToolCall",
+  collabAgentToolCall: SEMANTIC_FALLBACK,
+  subAgentActivity: null,
+  webSearch: "webSearch",
+  imageView: "assistantMessage",
+  sleep: null,
+  imageGeneration: null,
+  enteredReviewMode: null,
+  exitedReviewMode: null,
+  contextCompaction: "contextCompaction",
+} satisfies Record<ProtocolThreadItemType, RendererTranscriptType | typeof SEMANTIC_FALLBACK | null>;
 
 function stringifyValue(value: unknown): string {
   if (typeof value === "string") return value;
@@ -51,23 +78,49 @@ function hasRenderableFileChangeEntry(entry: CodexConversationItem): boolean {
   return Boolean(entry.toolCall?.error);
 }
 
-function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBlockModel["type"] | null {
-  if (entry.kind === "fileChange") {
-    return hasRenderableFileChangeEntry(entry) ? "fileChange" : null;
-  }
+function getRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null) return null;
+  return value as Record<string, unknown>;
+}
 
-  if (entry.kind === "userInputRequest") {
-    return null;
-  }
+function getStringField(record: Record<string, unknown> | null, key: string): string | null {
+  const value = record?.[key];
+  return typeof value === "string" ? value : null;
+}
 
-  if (entry.kind === "userInputResponse" && entry.semanticKind !== "userInputResponse") {
-    return null;
-  }
+function getWebSearchVisibleQuery(entry: CodexConversationItem): string {
+  const toolArgsQuery = getStringField(getRecord(entry.toolCall?.args), "query")?.trim();
+  if (toolArgsQuery) return toolArgsQuery;
 
-  if (entry.semanticKind === "reasoning" && (entry.markdownText?.trim().length ?? 0) === 0) {
-    return null;
-  }
+  const rawItemQuery = getStringField(getRecord(entry.rawItem), "query")?.trim();
+  if (rawItemQuery) return rawItemQuery;
 
+  return "";
+}
+
+function hasRenderableWebSearchEntry(entry: CodexConversationItem): boolean {
+  return getWebSearchVisibleQuery(entry).length > 0;
+}
+
+function isProtocolThreadItemType(type: string): type is ProtocolThreadItemType {
+  return Object.prototype.hasOwnProperty.call(PROTOCOL_THREAD_ITEM_RENDERER_TYPES, type);
+}
+
+function getProtocolThreadItemType(entry: CodexConversationItem): ProtocolThreadItemType | null {
+  if (typeof entry.rawItem !== "object" || entry.rawItem === null) return null;
+  const rawType = (entry.rawItem as { type?: unknown }).type;
+  if (typeof rawType !== "string") return null;
+  return isProtocolThreadItemType(rawType) ? rawType : null;
+}
+
+function resolveProtocolRendererType(
+  protocolType: ProtocolThreadItemType | null,
+): RendererTranscriptType | typeof SEMANTIC_FALLBACK | null {
+  if (!protocolType) return SEMANTIC_FALLBACK;
+  return PROTOCOL_THREAD_ITEM_RENDERER_TYPES[protocolType];
+}
+
+function resolveSemanticRendererType(entry: CodexConversationItem): RendererTranscriptType | null {
   switch (entry.semanticKind) {
     case "userMessage":
       return "userMessage";
@@ -126,6 +179,41 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
     default:
       return null;
   }
+}
+
+function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBlockModel["type"] | null {
+  const protocolType = getProtocolThreadItemType(entry);
+
+  if (entry.kind === "fileChange" || protocolType === "fileChange") {
+    return hasRenderableFileChangeEntry(entry) ? "fileChange" : null;
+  }
+
+  if (entry.semanticKind === "webSearch" || protocolType === "webSearch") {
+    return hasRenderableWebSearchEntry(entry) ? "webSearch" : null;
+  }
+
+  if (entry.kind === "userInputRequest") {
+    return null;
+  }
+
+  if (entry.kind === "userInputResponse" && entry.semanticKind !== "userInputResponse") {
+    return null;
+  }
+
+  if (
+    (entry.semanticKind === "reasoning" || protocolType === "reasoning")
+    && (entry.markdownText?.trim().length ?? 0) === 0
+  ) {
+    return null;
+  }
+
+  const semanticType = resolveSemanticRendererType(entry);
+  if (semanticType && entry.semanticKind !== "systemEvent") return semanticType;
+
+  const protocolTypeResolution = resolveProtocolRendererType(protocolType);
+  if (protocolTypeResolution !== SEMANTIC_FALLBACK) return protocolTypeResolution;
+
+  return semanticType;
 }
 
 function buildTranscriptBlock(

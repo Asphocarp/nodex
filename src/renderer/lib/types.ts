@@ -193,6 +193,7 @@ export type {
   CodexPlanImplementationRequest,
   CodexMcpServerElicitationRequest,
   CodexMcpServerElicitationAction,
+  CodexMcpServerElicitationResponse,
   CodexPermissionRequest,
   CodexPermissionRequestResponse,
   CodexPendingThreadRequest,

@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronRightIcon, CodeBracketsIcon, CodexPanelRightVisibleIcon } from "@/components/shared/icons";
+import { CodeBracketsIcon, CodexPanelRightVisibleIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,
@@ -21,17 +21,24 @@ import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CopyMessageActionButton } from "../thread-message-actions";
 import { CodexShimmerText } from "../codex-shimmer-text";
-import { ToolErrorDetail } from "./tool-primitives";
+import { AutomaticApprovalReviewRows, AutomaticApprovalReviewShield } from "../automatic-approval-review-surface";
+import { ThreadActivityHeader, ThreadActivityShell, ToolErrorDetail } from "./tool-primitives";
 import {
   asRecord,
-  humanizeIdentifier,
 } from "./tool-call-utils";
 import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
+import { formatMcpServerName, resolveMcpToolDisplayName } from "./mcp-tool-call-labels";
 import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
 import {
+  isMcpAppHtmlTooLarge,
+  resolveMcpAppFrameHeight,
   resolveMcpAppResourceUri,
+  resolveMcpAppResourceScopeUri,
+  resolveMcpExpandedSuccessDisplay,
   resolveMcpRenderableResource,
   shouldHideDuplicateMcpTextContent,
+  shouldShowMcpStructuredContent,
+  stringifyMcpValue,
   type McpRenderableResource,
 } from "./mcp-tool-call-resource-utils";
 
@@ -39,57 +46,11 @@ const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 const EMPTY_MCP_SERVER_STATUSES: readonly ProtocolMcpServerStatus[] = [];
 
 interface McpToolCallProps {
+  automaticApprovalReviews?: CodexTranscriptEntry[];
   item: CodexTranscriptEntry;
   rawDialogOpen?: boolean;
   onRawDialogOpenChange?: (open: boolean) => void;
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
-}
-
-function formatServerName(server: string): string {
-  const humanized = humanizeIdentifier(server);
-  return humanized.length > 0 ? humanized : "MCP";
-}
-
-function normalizeIdentifier(value: string): string {
-  return value.trim().toLowerCase().replace(/[_\s]+/g, "-");
-}
-
-function resolveMcpToolCallLabel(payload: CodexMcpToolCallView): { leading: string; trailing: string } {
-  const server = normalizeIdentifier(payload.invocation.server);
-  const tool = normalizeIdentifier(payload.invocation.tool);
-  const completed = payload.completed;
-  const activeVerb = completed ? "Used" : "Using";
-
-  if (server.includes("browser-use")) return { leading: activeVerb, trailing: "the browser" };
-  if (server.includes("computer-use") || server.includes("computer")) {
-    if (tool.includes("click")) return { leading: completed ? "Clicked" : "Clicking", trailing: "on screen" };
-    if (tool.includes("drag")) return { leading: completed ? "Dragged" : "Dragging", trailing: "on screen" };
-    if (tool.includes("key") || tool.includes("type")) return { leading: completed ? "Typed" : "Typing", trailing: "on screen" };
-    if (tool.includes("scroll")) return { leading: completed ? "Scrolled" : "Scrolling", trailing: "on screen" };
-    return { leading: activeVerb, trailing: "computer" };
-  }
-  if (server.includes("github")) return { leading: activeVerb, trailing: "GitHub" };
-  if (server.includes("gmail")) return { leading: completed ? "Read" : "Reading", trailing: "Gmail" };
-  if (server.includes("calendar")) return { leading: activeVerb, trailing: "Google Calendar" };
-  if (server.includes("drive")) return { leading: activeVerb, trailing: "Google Drive" };
-  if (server.includes("figma")) return { leading: activeVerb, trailing: "Figma" };
-
-  return {
-    leading: payload.completed ? "Called" : "Calling",
-    trailing: `${humanizeIdentifier(payload.invocation.tool)} tool from ${formatServerName(payload.invocation.server)}`,
-  };
-}
-
-function stringifyMcpValue(value: unknown, spacing = 2): string {
-  try {
-    return JSON.stringify(
-      value,
-      (_key, nestedValue) => (typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue),
-      spacing,
-    ) ?? "null";
-  } catch {
-    return "";
-  }
 }
 
 export function buildMcpAppSidePanelInput(input: {
@@ -99,7 +60,7 @@ export function buildMcpAppSidePanelInput(input: {
 }): ThreadMcpAppSidePanelInput {
   const server = input.payload.invocation.server;
   const tool = input.payload.invocation.tool;
-  const title = `${humanizeIdentifier(tool)} - ${formatServerName(server)}`;
+  const title = `${formatMcpServerName(tool)} - ${formatMcpServerName(server)}`;
 
   return {
     mcpAppId: `${server}:${input.resource.uri}`,
@@ -112,26 +73,21 @@ export function buildMcpAppSidePanelInput(input: {
   };
 }
 
-function formatAnnotationValue(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) {
-    const parts = value.map(formatAnnotationValue).filter((part): part is string => Boolean(part));
-    return parts.length > 0 ? parts.join(", ") : null;
-  }
-  return null;
-}
-
 function formatAnnotations(annotations: unknown): string | null {
   const candidate = asRecord(annotations);
   if (!candidate) return null;
 
-  const parts = Object.entries(candidate).reduce<string[]>((acc, [key, value]) => {
-    const formatted = formatAnnotationValue(value);
-    if (!formatted) return acc;
-    acc.push(`${key}=${formatted}`);
-    return acc;
-  }, []);
+  const parts: string[] = [];
+  const audience = candidate.audience;
+  if (Array.isArray(audience) && audience.length > 0) {
+    parts.push(`audience=${audience.join(", ")}`);
+  }
+  if (candidate.priority != null) {
+    parts.push(`priority=${String(candidate.priority)}`);
+  }
+  if (candidate.lastModified != null) {
+    parts.push(`lastModified=${String(candidate.lastModified)}`);
+  }
 
   return parts.length > 0 ? parts.join("; ") : null;
 }
@@ -231,7 +187,7 @@ function McpEmbeddedResourceBlock({
 
 function McpUnknownBlock({ value }: { value: unknown }) {
   return (
-    <pre className="bg-token-input-background text-token-description-foreground/80 max-h-48 overflow-auto whitespace-pre-wrap rounded-md px-3 py-2 text-size-chat">
+    <pre className="[&_*]:text-token-non-assistant-body-descendant bg-token-input-background text-token-description-foreground/80 max-h-48 overflow-auto whitespace-pre-wrap rounded-md px-3 py-2 text-size-chat">
       {stringifyMcpValue(value, 2)}
     </pre>
   );
@@ -243,7 +199,7 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
       <McpCodePanel
         title="plaintext"
         content={appendAnnotations(block.text, block.annotations)}
-        preClassName="[&_*]:text-token-foreground/50 text-token-description-foreground/80 m-0 whitespace-pre-wrap break-words font-sans text-size-chat leading-relaxed extension:leading-normal"
+        preClassName="[&_*]:text-token-non-assistant-body-descendant text-token-description-foreground/80 m-0 whitespace-pre-wrap break-words font-sans text-size-chat leading-relaxed extension:leading-normal"
       />
     );
   }
@@ -274,7 +230,7 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
     return (
       <div className="flex flex-col gap-0.5">
         <img
-          className="max-h-48 w-max max-w-full rounded-md object-contain"
+          className="max-h-48 w-max max-w-full gap-0.5 rounded-md object-contain"
           src={`data:${block.mimeType};base64,${block.data}`}
           alt=""
         />
@@ -292,7 +248,7 @@ function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
 
     return (
       <div className="flex flex-col gap-0.5">
-        <audio className="w-full" controls src={`data:${block.mimeType};base64,${block.data}`} preload="metadata" />
+        <audio className="w-full gap-0.5" controls src={`data:${block.mimeType};base64,${block.data}`} preload="metadata" />
         {annotations ? (
           <p className="text-size-chat whitespace-pre-wrap text-token-description-foreground/80">
             Annotations: {annotations}
@@ -387,11 +343,36 @@ function McpRawOutputDialog({
   );
 }
 
+function McpAppLoadingPlaceholder({ resource }: { resource: McpRenderableResource | null }) {
+  return (
+    <div
+      role="status"
+      aria-label="Loading MCP app"
+      data-mcp-app-loading="true"
+      className="loading-shimmer-pure-text w-full overflow-hidden rounded-lg border border-token-border-light bg-token-input-background"
+      style={{ height: resolveMcpAppFrameHeight(resource?.metadata) }}
+    />
+  );
+}
+
+function McpAppTooLargeError() {
+  return (
+    <ToolErrorDetail
+      error="Failed to load MCP app: HTML exceeds the maximum supported size."
+      showLabel={false}
+      className="w-full"
+    />
+  );
+}
+
 function McpResultBody({
   payload,
   threadId,
   rawOutput,
+  resourceUri,
+  hasResourceScope,
   resource,
+  resourceLoading,
   resourceError,
   rawDialogOpen,
   onRawDialogOpenChange,
@@ -400,77 +381,107 @@ function McpResultBody({
   payload: CodexMcpToolCallView;
   threadId: string;
   rawOutput: string;
+  resourceUri: string | null;
+  hasResourceScope: boolean;
   resource: McpRenderableResource | null;
+  resourceLoading: boolean;
   resourceError: string | null;
   rawDialogOpen: boolean;
   onRawDialogOpenChange: (open: boolean) => void;
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }) {
   const result = payload.result;
-  const successContent = result?.type === "success"
-    ? result.content.filter((block) => !shouldHideDuplicateMcpTextContent(block, resource))
-    : [];
+  const successResult = result?.type === "success" ? result : null;
   const errorText = result?.type === "error" ? result.error : null;
-  const structuredContent = result?.type === "success" && result.structuredContent != null
-    ? stringifyMcpValue(result.structuredContent, 2)
+  const structuredContentJson = successResult?.structuredContent != null
+    ? stringifyMcpValue(successResult.structuredContent, 2)
     : null;
+  const shouldRenderMcpApp = Boolean(resourceUri) && (!payload.completed || successResult !== null);
+  const hasMcpAppBranch = shouldRenderMcpApp && (resourceLoading || Boolean(resourceError) || resource !== null);
+  const isMcpAppLoading = shouldRenderMcpApp && resourceLoading && resource === null && !resourceError;
+  const mcpAppError = shouldRenderMcpApp && resourceError && resource === null
+    ? `Failed to load MCP app: ${resourceError}`
+    : null;
+  const { displayContent, displayStructuredContentJson } = successResult
+    ? resolveMcpExpandedSuccessDisplay({
+        content: successResult.content.filter((block) => !shouldHideDuplicateMcpTextContent(block, resource)),
+        structuredContentJson,
+        isExpanded: true,
+      })
+    : {
+        displayContent: [],
+        displayStructuredContentJson: null,
+      };
+  const shouldShowStructuredContent = shouldShowMcpStructuredContent({
+    structuredContentJson: displayStructuredContentJson,
+    hasMcpAppBranch,
+    hasResourceScope,
+  });
+  const shouldShowRawDialog = !isMcpAppLoading;
+
+  const appBody = isMcpAppLoading ? (
+    <McpAppLoadingPlaceholder resource={resource} />
+  ) : mcpAppError ? (
+    <ToolErrorDetail error={mcpAppError} showLabel={false} />
+  ) : resource && isMcpAppHtmlTooLarge(resource) ? (
+    <McpAppTooLargeError />
+  ) : resource ? (
+    <McpCapabilityViewFrame resource={resource} />
+  ) : null;
 
   return (
     <>
-      {resource ? (
-        <McpCapabilityViewFrame resource={resource} />
-      ) : null}
-      {resourceError ? (
-        <ToolErrorDetail error={resourceError} showLabel={false} />
-      ) : null}
-      {successContent.length > 0 ? (
+      {hasMcpAppBranch ? appBody : null}
+      {!hasMcpAppBranch && displayContent.length > 0 ? (
         <div className="[&_*]:text-token-foreground/50 flex flex-col gap-0.5">
-          {successContent.map((block, index) => (
+          {displayContent.map((block, index) => (
             <McpContentBlock key={index} block={block} />
           ))}
         </div>
-      ) : errorText ? (
+      ) : !hasMcpAppBranch && errorText ? (
         <ToolErrorDetail error={errorText} showLabel={false} />
-      ) : resource ? null : (
+      ) : !hasMcpAppBranch && !displayStructuredContentJson ? (
         <p className="text-token-description-foreground/80">Tool returned no content</p>
-      )}
-      {structuredContent ? (
+      ) : null}
+      {shouldShowStructuredContent && displayStructuredContentJson ? (
         <McpCodePanel
           title="json"
-          content={structuredContent}
+          content={displayStructuredContentJson}
           preClassName="font-vscode-editor text-size-chat text-token-description-foreground/80"
         />
       ) : null}
-      <div className="inline-flex w-fit items-center gap-1">
-        {resource && onOpenMcpAppSidePanel ? (
-          <NodexTooltip
-            tooltipContent="Open app in side panel"
-            side="top"
-            delayDuration={0}
-          >
-            <button
-              type="button"
-              className={cn(
-                "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 justify-center p-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
-                electronToolIconSizeClassName,
-              )}
-              aria-label="Open MCP app in side panel"
-              onClick={() => {
-                void onOpenMcpAppSidePanel(buildMcpAppSidePanelInput({ threadId, payload, resource }));
-              }}
+      {shouldShowRawDialog ? (
+        <div className="inline-flex w-fit items-center gap-1">
+          {resource && onOpenMcpAppSidePanel ? (
+            <NodexTooltip
+              tooltipContent="Open app in side panel"
+              side="top"
+              delayDuration={0}
             >
-              <CodexPanelRightVisibleIcon />
-            </button>
-          </NodexTooltip>
-        ) : null}
-        <McpRawOutputDialog
-          open={rawDialogOpen}
-          onOpenChange={onRawDialogOpenChange}
-          server={payload.invocation.server}
-          tool={payload.invocation.tool}
-          rawOutput={rawOutput}
-        />
-      </div>
+              <button
+                type="button"
+                className={cn(
+                  "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 justify-center p-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+                  electronToolIconSizeClassName,
+                )}
+                aria-label="Open MCP app in side panel"
+                onClick={() => {
+                  void onOpenMcpAppSidePanel(buildMcpAppSidePanelInput({ threadId, payload, resource }));
+                }}
+              >
+                <CodexPanelRightVisibleIcon />
+              </button>
+            </NodexTooltip>
+          ) : null}
+          <McpRawOutputDialog
+            open={rawDialogOpen}
+            onOpenChange={onRawDialogOpenChange}
+            server={payload.invocation.server}
+            tool={payload.invocation.tool}
+            rawOutput={rawOutput}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -500,6 +511,7 @@ function useControllableBoolean(
 }
 
 export function McpToolCall({
+  automaticApprovalReviews = [],
   item,
   rawDialogOpen,
   onRawDialogOpenChange,
@@ -510,13 +522,18 @@ export function McpToolCall({
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
+  const hasSuccessfulResult = payload?.result?.type === "success";
   const { data: statusData } = useMcpServerStatuses(item.threadId, {
-    enabled: Boolean(payload),
+    enabled: Boolean(payload && hasSuccessfulResult),
   });
   const serverStatuses = Array.isArray(statusData) ? statusData : EMPTY_MCP_SERVER_STATUSES;
 
   const resourceUri = useMemo(
     () => payload ? resolveMcpAppResourceUri({ payload, serverStatuses }) : null,
+    [payload, serverStatuses],
+  );
+  const resourceScopeUri = useMemo(
+    () => payload ? resolveMcpAppResourceScopeUri({ payload, serverStatuses }) : null,
     [payload, serverStatuses],
   );
   const resourceParams = useMemo(() => (
@@ -531,6 +548,7 @@ export function McpToolCall({
   const {
     data: resourceResponse = null,
     error: resourceQueryError,
+    isLoading: resourceLoading,
   } = useMcpResource(resourceParams);
   const resourceError = resourceQueryError
     ? resourceQueryError instanceof Error ? resourceQueryError.message : String(resourceQueryError)
@@ -539,86 +557,97 @@ export function McpToolCall({
     () => resourceUri ? resolveMcpRenderableResource(resourceUri, resourceResponse) : null,
     [resourceResponse, resourceUri],
   );
+  const isMcpAppReviewCardMode = Boolean(
+    resourceUri
+    && (!payload?.completed || hasSuccessfulResult)
+    && (resourceLoading || resourceError || renderableResource),
+  );
   const rawOutput = payload
     ? stringifyMcpValue({
         callId: payload.callId,
-        pluginId: payload.pluginId,
-        mcpAppResourceUri: payload.mcpAppResourceUri,
         invocation: payload.invocation,
         durationMs: payload.durationMs,
         result: payload.result,
       }, 2)
     : "";
-  const summary = payload ? resolveMcpToolCallLabel(payload) : { leading: "", trailing: "" };
+  const summary = payload ? resolveMcpToolDisplayName(payload) : "";
+  const hasApprovalReviews = automaticApprovalReviews.length > 0;
 
   if (!payload) return null;
 
-  return (
-    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      <div className="group flex flex-col">
-        <button
-          type="button"
-          className={cn(
-            "group/summary flex w-full items-center gap-1.5 text-left",
-            payload.completed ? "cursor-interaction" : "cursor-default",
-          )}
-          aria-expanded={payload.completed ? isExpanded : false}
-          aria-controls={bodyId}
-          onClick={() => {
-            if (!payload.completed) return;
-            setIsExpanded(!isExpanded);
-          }}
-        >
-          <ToolActivityIcon descriptor={resolveMcpSourceIcon(item)} />
-          <CodexShimmerText
-            active={!payload.completed}
-            className="text-size-chat flex min-w-0 items-center gap-1"
-          >
-            <span className="text-token-description-foreground/90 group-hover:text-token-foreground flex-shrink-0">
-              {summary.leading}
-            </span>
-            <span className="text-token-foreground/40 group-hover:text-token-foreground truncate">
-              {summary.trailing}
-            </span>
-          </CodexShimmerText>
-          {payload.completed ? (
-            <ChevronRightIcon
-              className={cn(
-                "text-token-input-placeholder-foreground flex-shrink-0 transition-all duration-300 opacity-0 group-hover/summary:opacity-100",
-                isExpanded && "opacity-100 rotate-90",
-              )}
-            />
-          ) : null}
-        </button>
-        <motion.div
-          initial={false}
-          animate={{
-            height: isExpanded ? elementHeightPx : 0,
-            opacity: isExpanded ? 1 : 0,
-          }}
-          transition={CODEX_THREAD_ACCORDION_TRANSITION}
-          className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
-          data-thread-find-skip={isExpanded ? undefined : true}
-          style={{
-            pointerEvents: isExpanded ? "auto" : "none",
-          }}
-        >
-          <div ref={elementRef} className="flex flex-col gap-0.5 pt-1">
+  const canExpand = payload.completed || payload.result !== null;
+  const isBodyExpanded = canExpand && isExpanded;
+  const header = (
+    <ThreadActivityHeader
+      accessory={hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
+      disclosure={canExpand
+        ? {
+            expanded: isBodyExpanded,
+            onToggle: () => {
+              setIsExpanded((current) => !current);
+            },
+          }
+        : undefined}
+    >
+      <ToolActivityIcon descriptor={resolveMcpSourceIcon(item)} />
+      <CodexShimmerText
+        active={!payload.completed}
+        className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground text-size-chat min-w-0 shrink truncate"
+      >
+        {summary}
+      </CodexShimmerText>
+    </ThreadActivityHeader>
+  );
+  const body = canExpand ? (
+    <motion.div
+      initial={false}
+      animate={{
+        height: isBodyExpanded ? elementHeightPx : 0,
+        opacity: isBodyExpanded ? 1 : 0,
+      }}
+      transition={CODEX_THREAD_ACCORDION_TRANSITION}
+      className={cn(isBodyExpanded ? "overflow-visible" : "overflow-hidden")}
+      data-thread-find-skip={isBodyExpanded ? undefined : true}
+      style={{
+        pointerEvents: isBodyExpanded ? "auto" : "none",
+      }}
+    >
+      <div ref={isBodyExpanded ? elementRef : null} className="flex flex-col gap-0.5 pt-1">
+        {isBodyExpanded ? (
+          <>
+            {hasApprovalReviews ? (
+              <AutomaticApprovalReviewRows
+                className={isMcpAppReviewCardMode ? "px-4" : undefined}
+                isExpandable={!isMcpAppReviewCardMode}
+                items={automaticApprovalReviews}
+              />
+            ) : null}
             <div id={bodyId}>
               <McpResultBody
                 payload={payload}
                 threadId={item.threadId}
                 rawOutput={rawOutput}
+                resourceUri={resourceUri}
+                hasResourceScope={resourceScopeUri !== null}
                 resource={renderableResource}
+                resourceLoading={resourceLoading}
                 resourceError={resourceError}
                 rawDialogOpen={isRawDialogOpen}
                 onRawDialogOpenChange={setIsRawDialogOpen}
                 onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               />
             </div>
-          </div>
-        </motion.div>
+          </>
+        ) : null}
       </div>
-    </div>
+    </motion.div>
+  ) : null;
+
+  return (
+    <ThreadActivityShell
+      body={body}
+      className="group"
+      header={header}
+    />
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import {
@@ -15,6 +15,7 @@ import { buildCodexFileChangeMap } from "../../../../../shared/codex-file-change
 import {
   ThreadContextCompactionBlock,
   ThreadCollapsedToolActivityBlock,
+  ThreadDynamicToolCallGroupBlock,
   ThreadAssistantBodyBlock,
   ThreadExplorationGroupBlock,
   ThreadPendingMcpToolCallsBlock,
@@ -26,6 +27,7 @@ import {
 } from "./local-conversation-block-leaves";
 import { ThreadBlockRenderer } from "./local-conversation-block-renderer";
 import type {
+  ThreadBlockModel,
   ThreadCollapsedToolActivitySummaryStats,
   ThreadTranscriptBlockModel,
 } from "../../thread-stage-types";
@@ -78,7 +80,6 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
     status: "completed",
     fileChange: {
       label: undefined,
-      paths: ["src/edited.ts"],
       changes: buildCodexFileChangeMap([
         {
           path: "src/edited.ts",
@@ -91,16 +92,6 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
           ].join("\n"),
         },
       ]),
-      diffs: [
-        [
-          "diff --git a/src/edited.ts b/src/edited.ts",
-          "--- a/src/edited.ts",
-          "+++ b/src/edited.ts",
-          "@@ -1,1 +1,1 @@",
-          "-old value",
-          "+new value",
-        ].join("\n"),
-      ],
     },
     toolCall: {
       subtype: "fileChange",
@@ -110,6 +101,98 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
     },
     createdAt: 1,
     updatedAt: 1,
+  };
+}
+
+function buildMultiAgentEntry(itemId: string): CodexConversationItem {
+  return {
+    threadId: "thread-1",
+    turnId: "turn-1",
+    itemId,
+    entryId: itemId,
+    type: "collabAgentToolCall",
+    kind: "toolCall",
+    semanticKind: "multiAgentAction",
+    status: "completed",
+    createdAt: 1,
+    updatedAt: 1,
+    rawItem: {
+      id: itemId,
+      tool: "spawnAgent",
+      status: "completed",
+      senderThreadId: "thread-main",
+      receiverThreadIds: ["thread-agent-1"],
+      receiverThreads: [
+        {
+          threadId: "thread-agent-1",
+          thread: {
+            nickname: "@research",
+            model: "gpt-5.4-mini",
+            agentRole: "worker",
+          },
+        },
+      ],
+      prompt: "Audit the renderer.",
+      model: "gpt-5.4-mini",
+      reasoningEffort: "medium",
+      agentsStates: {},
+    },
+  };
+}
+
+function buildMultiAgentGroupBlock(): Extract<ThreadBlockModel, { type: "multiAgentGroup" }> {
+  const entry = buildMultiAgentEntry("multi-agent-1");
+  return {
+    id: "multi-agent-group-1",
+    turnId: "turn-1",
+    createdAt: 1,
+    updatedAt: 1,
+    searchableText: "multi agent",
+    type: "multiAgentGroup",
+    entries: [entry],
+    summary: "Multi-agent action",
+    status: "completed",
+  };
+}
+
+function buildDynamicToolBlock(
+  itemId: string,
+  tool: string,
+  overrides?: Partial<NonNullable<CodexConversationItem["dynamicToolCall"]>>,
+): ThreadTranscriptBlockModel & { type: "dynamicToolCall" } {
+  const dynamicToolCall = {
+    callId: itemId,
+    namespace: "codex_app",
+    tool,
+    arguments: { threadId: "thread-1" },
+    status: "completed" as const,
+    contentItems: [{ type: "inputText" as const, text: "{\"ok\":true}" }],
+    success: true,
+    durationMs: 1,
+    completed: true,
+    ...overrides,
+  };
+  return {
+    id: itemId,
+    turnId: "turn-1",
+    createdAt: 1,
+    updatedAt: 1,
+    searchableText: tool,
+    type: "dynamicToolCall",
+    status: "completed",
+    entry: {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId,
+      entryId: itemId,
+      type: "dynamicToolCall",
+      kind: "toolCall",
+      semanticKind: "dynamicToolCall",
+      status: "completed",
+      dynamicToolCall,
+      createdAt: 1,
+      updatedAt: 1,
+    },
   };
 }
 
@@ -128,12 +211,17 @@ function buildCollapsedSummaryStats(
     runningCreatedLineCount: 0,
     exploredFileCount: 0,
     runningExploredFileCount: 0,
+    loadedToolCount: 0,
+    runningLoadedToolCount: 0,
     searchCount: 0,
     runningSearchCount: 0,
     listCount: 0,
     runningListCount: 0,
     commandCount: 0,
     runningCommandCount: 0,
+    completedWebSearchCommandCount: 0,
+    runningFolderCreationCommandCount: 0,
+    runningWebSearchCommandCount: 0,
     deniedRequestCount: 0,
     timedOutRequestCount: 0,
     hookCount: 0,
@@ -495,7 +583,7 @@ describe("ThreadExplorationGroupBlock", () => {
 });
 
 describe("ThreadPendingMcpToolCallsBlock", () => {
-  test("expands with the Codex pending MCP body marker", async () => {
+  test("keeps the pending MCP bounded body shell while collapsed and renders items on expand", async () => {
     installWindowApi({
       invoke: async (channel: string) => {
         if (channel === "codex:mcp-server-statuses:list") return [];
@@ -534,7 +622,7 @@ describe("ThreadPendingMcpToolCallsBlock", () => {
       },
     };
 
-    const { getAllByRole, getByTestId } = render(
+    const { container, getAllByRole, getByTestId } = render(
       <TestQueryProvider>
         <TooltipProvider>
           <ThreadPendingMcpToolCallsBlock
@@ -556,13 +644,371 @@ describe("ThreadPendingMcpToolCallsBlock", () => {
       </TestQueryProvider>,
     );
 
-    const button = getAllByRole("button", { name: "Using the browser" })[0];
+    const button = getAllByRole("button", { name: "Click" })[0];
     expect(button.getAttribute("aria-expanded") ?? "").toBe("false");
+    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBeTrue();
+    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBeFalse();
+    const collapsedList = container.querySelector(".vertical-scroll-fade-mask");
+    expect(Boolean(collapsedList?.getAttribute("style")?.includes("max-height: 0px"))).toBeTrue();
+
     fireEvent.click(button);
     await settleAsyncRender();
 
     expect(button.getAttribute("aria-expanded") ?? "").toBe("true");
     expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBeTrue();
+    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBeTrue();
+  });
+
+  test("renders completed Node REPL pending groups with command-count wording", () => {
+    const entry: ThreadTranscriptBlockModel & { type: "mcpToolCall" } = {
+      id: "mcp-1",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "node repl",
+      type: "mcpToolCall",
+      status: "completed",
+      entry: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "mcp-1",
+        entryId: "mcp-1",
+        type: "mcpToolCall",
+        kind: "toolCall",
+        semanticKind: "mcpToolCall",
+        status: "completed",
+        mcpToolCall: {
+          callId: "mcp-1",
+          functionName: "node_repl__js",
+          invocation: { server: "node_repl", tool: "js", arguments: {} },
+          result: { type: "success", content: [], structuredContent: null, raw: { content: [], structuredContent: null } },
+          durationMs: 1,
+          completed: true,
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    };
+    const secondEntry = {
+      ...entry,
+      id: "mcp-2",
+      entry: {
+        ...entry.entry,
+        itemId: "mcp-2",
+        entryId: "mcp-2",
+        mcpToolCall: {
+          callId: "mcp-2",
+          functionName: "node_repl__js",
+          invocation: { server: "node_repl", tool: "js", arguments: {} },
+          result: { type: "success", content: [], structuredContent: null, raw: { content: [], structuredContent: null } },
+          durationMs: 1,
+          completed: true,
+        },
+      },
+    } satisfies ThreadTranscriptBlockModel & { type: "mcpToolCall" };
+
+    const { getByRole } = render(
+      <TestQueryProvider>
+        <TooltipProvider>
+          <ThreadPendingMcpToolCallsBlock
+            block={{
+              id: "pending-mcp",
+              turnId: "turn-1",
+              createdAt: 1,
+              updatedAt: 1,
+              searchableText: "Ran commands",
+              type: "pendingMcpToolCalls",
+              entries: [entry, secondEntry],
+              summary: "Using Node repl",
+              status: "completed",
+            }}
+            isLatestTurn={false}
+            isStreamingTurn={false}
+          />
+        </TooltipProvider>
+      </TestQueryProvider>,
+    );
+
+    expect(Boolean(getByRole("button", { name: "Ran 2 commands" }))).toBeTrue();
+  });
+});
+
+describe("ThreadDynamicToolCallGroupBlock", () => {
+  test("renders folded dynamic summary parts instead of one total repeat label", () => {
+    const { getByRole } = render(
+      <TooltipProvider>
+        <ThreadDynamicToolCallGroupBlock
+          block={{
+            id: "dynamic-group",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "dynamic",
+            type: "dynamicToolCallGroup",
+            entries: [
+              buildDynamicToolBlock("read-1", "read_thread"),
+              buildDynamicToolBlock("read-2", "read_thread"),
+              buildDynamicToolBlock("send-1", "send_message_to_thread"),
+            ],
+            summary: "Read thread 2 times · Sent message to thread",
+            summaryParts: [
+              { key: "read", label: "Read thread", count: 2 },
+              { key: "send", label: "Sent message to thread", count: 1 },
+            ],
+            repeatCount: 3,
+            status: "completed",
+          }}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(getByRole("button", { name: /Read thread 2 times · Sent message to thread/i }))).toBeTrue();
+  });
+
+  test("mounts compact dynamic rows inside the inner grouped body on expand", async () => {
+    const { container, getByRole, getByTestId, queryByTestId } = render(
+      <TooltipProvider>
+        <ThreadDynamicToolCallGroupBlock
+          block={{
+            id: "dynamic-group",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "dynamic",
+            type: "dynamicToolCallGroup",
+            entries: [
+              buildDynamicToolBlock("read-1", "read_thread"),
+              buildDynamicToolBlock("send-1", "send_message_to_thread"),
+            ],
+            summary: "Read thread · Sent message to thread",
+            summaryParts: [
+              { key: "read", label: "Read thread", count: 1 },
+              { key: "send", label: "Sent message to thread", count: 1 },
+            ],
+            repeatCount: 2,
+            status: "completed",
+          }}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(queryByTestId("dynamic-tool-call-group-body"))).toBeFalse();
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: /Read thread · Sent message to thread/i }));
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+    });
+
+    const body = getByTestId("dynamic-tool-call-group-body");
+    expect(body.parentElement?.getAttribute("data-testid") ?? "").toBe("");
+    expect(textContent(body).includes("Read thread")).toBeTrue();
+    expect(textContent(body).includes("Sent message to thread")).toBeTrue();
+    expect(textContent(container).includes("thread-1")).toBeFalse();
+    expect(textContent(container).includes("{\"ok\":true}")).toBeFalse();
+  });
+
+  test("renders the latest incomplete dynamic item as the active group header", () => {
+    const { getByRole } = render(
+      <TooltipProvider>
+        <ThreadDynamicToolCallGroupBlock
+          block={{
+            id: "dynamic-active",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "dynamic",
+            type: "dynamicToolCallGroup",
+            entries: [
+              buildDynamicToolBlock("read-1", "read_thread"),
+              buildDynamicToolBlock("send-1", "send_message_to_thread", {
+                status: "inProgress",
+                contentItems: null,
+                success: null,
+                durationMs: null,
+                completed: false,
+              }),
+            ],
+            summary: "Read thread · Sending message to thread",
+            summaryParts: [
+              { key: "read", label: "Read thread", count: 1 },
+              { key: "send", label: "Sending message to thread", count: 1 },
+            ],
+            repeatCount: 2,
+            status: "inProgress",
+          }}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(getByRole("button", { name: /Sending message to thread/i }))).toBeTrue();
+  });
+
+  test("defers active dynamic summary changes and immediately shows settled aggregate summaries", async () => {
+    const originalDateNow = Date.now;
+    const originalSetTimeout = window.setTimeout;
+    const originalClearTimeout = window.clearTimeout;
+    let now = 0;
+    let nextTimerId = 92_000;
+    let scheduledTimerId: number | null = null;
+    let scheduledDelay = -1;
+    let scheduledCallback: (() => void) | null = null;
+    let clearCount = 0;
+    Date.now = () => now;
+    window.setTimeout = ((callback: TimerHandler, delay?: number) => {
+      const timerId = nextTimerId++;
+      scheduledTimerId = timerId;
+      scheduledDelay = delay ?? 0;
+      scheduledCallback = typeof callback === "function" ? () => callback() : null;
+      return timerId;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = ((timerId?: number) => {
+      if (timerId !== scheduledTimerId) return;
+      clearCount += 1;
+      scheduledTimerId = null;
+      scheduledCallback = null;
+    }) as typeof window.clearTimeout;
+
+    const buildBlock = (
+      entries: ReturnType<typeof buildDynamicToolBlock>[],
+      status: "completed" | "inProgress",
+    ) => ({
+      id: "dynamic-deferred-summary",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "dynamic",
+      type: "dynamicToolCallGroup" as const,
+      entries,
+      summary: "Dynamic tools",
+      summaryParts: [],
+      repeatCount: entries.length,
+      status,
+    });
+
+    try {
+      const view = render(
+        <TooltipProvider>
+          <ThreadDynamicToolCallGroupBlock
+            block={buildBlock([
+              buildDynamicToolBlock("read-1", "read_thread", {
+                status: "inProgress",
+                contentItems: null,
+                success: null,
+                durationMs: null,
+                completed: false,
+              }),
+            ], "inProgress")}
+            isLatestTurn
+            isStreamingTurn
+          />
+        </TooltipProvider>,
+      );
+
+      const getHeaderText = () => textContent(view.container.querySelector("button[aria-expanded]") ?? view.container);
+
+      expect(Boolean(getHeaderText().includes("Reading thread"))).toBeTrue();
+
+      now = 100;
+      await act(async () => {
+        view.rerender(
+          <TooltipProvider>
+            <ThreadDynamicToolCallGroupBlock
+              block={buildBlock([
+                buildDynamicToolBlock("read-1", "read_thread"),
+                buildDynamicToolBlock("send-1", "send_message_to_thread", {
+                  status: "inProgress",
+                  contentItems: null,
+                  success: null,
+                  durationMs: null,
+                  completed: false,
+                }),
+              ], "inProgress")}
+              isLatestTurn
+              isStreamingTurn
+            />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(Boolean(getHeaderText().includes("Reading thread"))).toBeTrue();
+      expect(Boolean(getHeaderText().includes("Sending message to thread"))).toBeFalse();
+      expect(scheduledDelay).toBe(900);
+      expect(Boolean(scheduledCallback)).toBeTrue();
+
+      now = 150;
+      await act(async () => {
+        view.rerender(
+          <TooltipProvider>
+            <ThreadDynamicToolCallGroupBlock
+              block={buildBlock([
+                buildDynamicToolBlock("read-1", "read_thread"),
+                buildDynamicToolBlock("send-1", "send_message_to_thread"),
+              ], "completed")}
+              isLatestTurn
+              isStreamingTurn
+            />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      const content = getHeaderText();
+      expect(Boolean(content.includes("Read thread · Sent message to thread"))).toBeTrue();
+      expect(Boolean(content.includes("Reading thread"))).toBeFalse();
+      expect(clearCount).toBe(1);
+      expect(Boolean(scheduledCallback)).toBeFalse();
+    } finally {
+      Date.now = originalDateNow;
+      window.setTimeout = originalSetTimeout;
+      window.clearTimeout = originalClearTimeout;
+    }
+  });
+
+  test("does not mount an expandable body for summary-only dynamic groups", () => {
+    const { container, queryByRole } = render(
+      <TooltipProvider>
+        <ThreadDynamicToolCallGroupBlock
+          block={{
+            id: "dynamic-summary-only",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "handoff status",
+            type: "dynamicToolCallGroup",
+            entries: [
+              buildDynamicToolBlock("status-1", "get_handoff_status", {
+                arguments: { operationId: "operation-1" },
+              }),
+              buildDynamicToolBlock("status-2", "get_handoff_status", {
+                arguments: { operationId: "operation-1" },
+              }),
+            ],
+            summary: "Checked handoff status 2 times",
+            summaryParts: [
+              { key: "status", label: "Checked handoff status", count: 2 },
+            ],
+            canExpand: false,
+            repeatCount: 2,
+            status: "completed",
+          }}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(textContent(container).includes("Checked handoff status 2 times")).toBeTrue();
+    expect(Boolean(queryByRole("button", { name: /Checked handoff status 2 times/i }))).toBeFalse();
+    expect(Boolean(container.querySelector("[data-testid='dynamic-tool-call-group-body']"))).toBeFalse();
   });
 });
 
@@ -580,7 +1026,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       updatedAt: 2,
       searchableText: "activity",
       type: "collapsedToolActivity" as const,
-      summary: "Explored 1 file",
+      summary: "Read a file",
       status: "completed" as const,
       entries: [
         {
@@ -611,7 +1057,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       </TooltipProvider>,
     );
 
-    const summaryButton = getByRole("button", { name: /Explored 1 file/i });
+    const summaryButton = getByRole("button", { name: /Read a file/i });
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
     expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBeFalse();
 
@@ -640,6 +1086,11 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       summary: "Ran 1 command",
       status: "inProgress" as const,
       summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
+      activeSummary: {
+        kind: "text" as const,
+        key: "item-command-active",
+        label: "Running bun test",
+      },
       entries: [
         {
           id: commandEntry.entryId ?? commandEntry.itemId,
@@ -670,15 +1121,95 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(Boolean(textContent(summaryButton).includes("Ran 1 command"))).toBeFalse();
   });
 
+  test("defers live active summary changes through the shared activity disclosure", async () => {
+    const originalDateNow = Date.now;
+    const originalSetTimeout = window.setTimeout;
+    const originalClearTimeout = window.clearTimeout;
+    let now = 0;
+    let nextTimerId = 1;
+    let scheduledDelay = -1;
+    let scheduledCallback: (() => void) | null = null;
+    Date.now = () => now;
+    window.setTimeout = ((callback: TimerHandler, delay?: number) => {
+      scheduledDelay = delay ?? 0;
+      scheduledCallback = typeof callback === "function" ? () => callback() : null;
+      return nextTimerId++;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = (() => {
+      scheduledCallback = null;
+    }) as typeof window.clearTimeout;
+
+    const buildBlock = (key: string, label: string) => ({
+      id: "activity-deferred-summary",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: label,
+      type: "collapsedToolActivity" as const,
+      summary: "Running a command",
+      status: "inProgress" as const,
+      summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
+      activeSummary: {
+        kind: "text" as const,
+        key,
+        label,
+      },
+      entries: [],
+    });
+
+    try {
+      const view = render(
+        <TooltipProvider>
+          <ThreadCollapsedToolActivityBlock
+            block={buildBlock("first", "Running first command")}
+            isLatestTurn={true}
+            isStreamingTurn={true}
+          />
+        </TooltipProvider>,
+      );
+
+      expect(Boolean(textContent(view.container).includes("Running first command"))).toBeTrue();
+
+      now = 100;
+      await act(async () => {
+        view.rerender(
+          <TooltipProvider>
+            <ThreadCollapsedToolActivityBlock
+              block={buildBlock("second", "Running second command")}
+              isLatestTurn={true}
+              isStreamingTurn={true}
+            />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(textContent(view.container).includes("Running first command")).toBeTrue();
+      expect(textContent(view.container).includes("Running second command")).toBeFalse();
+      expect(scheduledDelay).toBe(900);
+      expect(Boolean(scheduledCallback)).toBeTrue();
+
+      now = 1000;
+      await act(async () => {
+        scheduledCallback?.();
+        await Promise.resolve();
+      });
+
+      expect(textContent(view.container).includes("Running second command")).toBeTrue();
+    } finally {
+      Date.now = originalDateNow;
+      window.setTimeout = originalSetTimeout;
+      window.clearTimeout = originalClearTimeout;
+    }
+  });
+
   test("renders a live file-change active header with animated diff stats", async () => {
     const liveFileChangeEntry = buildFileChangeEntry("item-file-live");
     const content = Array.from({ length: 85 }, (_, index) => `line ${index + 1}`).join("\n");
     liveFileChangeEntry.status = "inProgress";
     liveFileChangeEntry.fileChange = {
       label: undefined,
-      paths: ["poem.md"],
       changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content }]),
-      diffs: [],
     };
 
     const block = {
@@ -696,6 +1227,14 @@ describe("ThreadCollapsedToolActivityBlock", () => {
         changedLineCount: 85,
         runningCreatedLineCount: 85,
       }),
+      activeSummary: {
+        kind: "fileChange" as const,
+        key: "item-file-live",
+        label: "Creating",
+        displayPath: "poem.md",
+        additions: 85,
+        deletions: 0,
+      },
       entries: [
         {
           id: liveFileChangeEntry.entryId ?? liveFileChangeEntry.itemId,
@@ -710,7 +1249,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       ],
     };
 
-    const { container, getByRole } = render(
+    const { container } = render(
       <TooltipProvider>
         <ThreadCollapsedToolActivityBlock
           block={block}
@@ -720,7 +1259,10 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       </TooltipProvider>,
     );
 
-    const summaryButton = getByRole("button", { name: /Creating poem\.md \+ 85 - 0/i });
+    const summaryButton = container.querySelector<HTMLButtonElement>("button[aria-expanded='false']");
+    if (!summaryButton) throw new Error("Expected collapsed activity summary button");
+    expect(Boolean(textContent(summaryButton).includes("Creating"))).toBeTrue();
+    expect(Boolean(textContent(summaryButton).includes("poem.md"))).toBeTrue();
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
     expect(Boolean(shimmer)).toBeTrue();
     expect(shimmer?.textContent ?? "").toBe("Creating");
@@ -745,7 +1287,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       updatedAt: 2,
       searchableText: "activity static",
       type: "collapsedToolActivity" as const,
-      summary: "Explored 1 file, ran 1 command",
+      summary: "Read a file, ran a command",
       status: "completed" as const,
       summaryStats: buildCollapsedSummaryStats({ exploredFileCount: 1, commandCount: 1 }),
       entries: [
@@ -777,7 +1319,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       </TooltipProvider>,
     );
 
-    getByRole("button", { name: /Explored 1 file, ran 1 command/i });
+    getByRole("button", { name: /Read a file, ran a command/i });
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
 
@@ -814,7 +1356,9 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(shimmer?.textContent ?? "").toBe("Creating a file");
     expect(Boolean(textContent(summaryButton).includes("• writing 3 lines"))).toBeTrue();
     expect(Boolean(shimmer?.textContent?.includes("writing 3 lines"))).toBeFalse();
-    expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBeFalse();
+    const initiallyMountedBody = container.querySelector<HTMLElement>("[data-testid='collapsed-tool-activity-body']");
+    expect(Boolean(initiallyMountedBody)).toBeTrue();
+    expect(initiallyMountedBody?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
   });
 
   test("renders a completed single-file change as an aggregate activity header before the row", async () => {
@@ -1253,6 +1797,36 @@ describe("ThreadBlockRenderer proposed-plan block", () => {
     fireEvent.click(overlay as HTMLButtonElement);
 
     expect(openedKey).toBe("turn-1");
+  });
+});
+
+describe("ThreadBlockRenderer multi-agent block", () => {
+  beforeEach(() => {
+    installElementScrollHeight(96);
+    installMeasuredResizeObserver({ blockSize: 96, inlineSize: 320 });
+  });
+
+  test("forwards thread navigation actions into agent rows", async () => {
+    const openedThreadIds: string[] = [];
+    const { getByRole, getByTestId } = render(
+      <TooltipProvider>
+        <ThreadBlockRenderer
+          block={buildMultiAgentGroupBlock()}
+          isLatestTurn
+          isStreamingTurn={false}
+          onOpenThread={(threadId) => {
+            openedThreadIds.push(threadId);
+          }}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(getByTestId("multi-agent-action-header"));
+    await settleAsyncRender();
+
+    fireEvent.click(getByRole("button", { name: "research" }));
+
+    expect(openedThreadIds.join(",")).toBe("thread-agent-1");
   });
 });
 

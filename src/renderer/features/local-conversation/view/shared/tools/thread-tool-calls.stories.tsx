@@ -4,14 +4,15 @@ import type { CodexFileChange, CodexTranscriptEntry } from "@/lib/types";
 import type {
   ThreadCollapsedToolActivityBlockModel,
   ThreadCollapsedToolActivityEntryModel,
+  ThreadDynamicToolCallGroupBlockModel,
   ThreadPendingMcpToolCallsBlockModel,
 } from "../../../thread-stage-types";
 import {
   buildCodexFileChangeMap,
-  buildCodexFileChangeUnifiedDiff,
 } from "../../../../../../shared/codex-file-change";
 import {
   ThreadCollapsedToolActivityBlock,
+  ThreadDynamicToolCallGroupBlock,
   ThreadExplorationGroupBlock,
   ThreadPendingMcpToolCallsBlock,
 } from "../../blocks/local-conversation-block-leaves";
@@ -48,11 +49,7 @@ function buildCommandItem(overrides?: Partial<typeof COMMAND_ITEM>) {
 function buildStoryFileChangePayload(changes: CodexFileChange[]) {
   return {
     label: changes.length === 1 ? `${changes[0]?.type === "add" ? "Created" : changes[0]?.type === "delete" ? "Deleted" : "Edited"} ${changes[0]?.path}` : undefined,
-    paths: changes.map((change) => change.path),
     changes: buildCodexFileChangeMap(changes),
-    diffs: changes
-      .map((change) => buildCodexFileChangeUnifiedDiff(change))
-      .filter((diff): diff is string => typeof diff === "string"),
   };
 }
 
@@ -65,9 +62,139 @@ function buildStoryFileChangeToolCall(changes: CodexFileChange[]) {
     args: {
       label: payload.label,
     },
-    result: {
-      diffs: payload.diffs,
+    result: { changes: payload.changes },
+  };
+}
+
+function buildStoryFileChangeItem({
+  approvalRequestId,
+  changes,
+  id,
+  status = "completed",
+}: {
+  approvalRequestId?: string | null;
+  changes: CodexFileChange[];
+  id: string;
+  status?: CodexTranscriptEntry["status"];
+}): CodexTranscriptEntry {
+  return {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+    itemId: id,
+    entryId: id,
+    status,
+    approvalRequestId,
+    fileChange: buildStoryFileChangePayload(changes),
+    toolCall: buildStoryFileChangeToolCall(changes),
+  };
+}
+
+type CollapsedActivitySummaryStats = NonNullable<ThreadCollapsedToolActivityBlockModel["summaryStats"]>;
+
+function buildCollapsedSummaryStats(
+  overrides: Partial<CollapsedActivitySummaryStats>,
+): CollapsedActivitySummaryStats {
+  return {
+    createdFileCount: 0,
+    runningCreatedFileCount: 0,
+    stoppedCreatedFileCount: 0,
+    editedFileCount: 0,
+    runningEditedFileCount: 0,
+    deletedFileCount: 0,
+    runningDeletedFileCount: 0,
+    changedLineCount: 0,
+    runningCreatedLineCount: 0,
+    exploredFileCount: 0,
+    runningExploredFileCount: 0,
+    loadedToolCount: 0,
+    runningLoadedToolCount: 0,
+    searchCount: 0,
+    runningSearchCount: 0,
+    listCount: 0,
+    runningListCount: 0,
+    deniedRequestCount: 0,
+    timedOutRequestCount: 0,
+    hookCount: 0,
+    runningHookCount: 0,
+    commandCount: 0,
+    runningCommandCount: 0,
+    completedWebSearchCommandCount: 0,
+    runningFolderCreationCommandCount: 0,
+    runningWebSearchCommandCount: 0,
+    mcpToolCallCount: 0,
+    runningMcpToolCallCount: 0,
+    mcpToolCallSources: [],
+    webSearchCount: 0,
+    runningWebSearchCount: 0,
+    ...overrides,
+  };
+}
+
+function buildFileChangeCollapsedActivityBlock({
+  entries,
+  id,
+  searchableText,
+  summary,
+  summaryStats,
+}: {
+  entries: CodexTranscriptEntry[];
+  id: string;
+  searchableText: string;
+  summary: string;
+  summaryStats: CollapsedActivitySummaryStats;
+}): ThreadCollapsedToolActivityBlockModel {
+  return {
+    id,
+    turnId: "turn_tool_story",
+    createdAt: 1,
+    updatedAt: 2,
+    searchableText,
+    type: "collapsedToolActivity",
+    summary,
+    summaryParts: [summary],
+    status: "completed",
+    summaryStats,
+    entries: entries.map((entry) => ({
+      id: entry.entryId ?? entry.itemId,
+      turnId: entry.turnId,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      searchableText,
+      type: "fileChange" as const,
+      entry,
+      status: entry.status,
+    })),
+  };
+}
+
+type StoryAutoReview = {
+  status: "approved" | "denied" | "aborted" | "inProgress" | "timedOut";
+  riskLevel?: "high" | "medium" | "low" | "critical" | null;
+  rationale?: string | null;
+};
+
+function buildAutoReviewStoryItem(id: string, review: StoryAutoReview): CodexTranscriptEntry {
+  return {
+    threadId: "thread_tool_story",
+    turnId: "turn_tool_story",
+    itemId: `automatic-approval-review:${id}`,
+    entryId: `automatic-approval-review:${id}`,
+    type: "automaticApprovalReview",
+    kind: "systemEvent",
+    semanticKind: "automaticApprovalReview",
+    status: review.status === "inProgress" ? "inProgress" : "completed",
+    markdownText: review.rationale ?? "",
+    rawItem: {
+      targetItemId: "tool-call-file-change-auto-review-states",
+      review: {
+        status: review.status,
+        riskLevel: review.riskLevel ?? null,
+        userAuthorization: "unknown",
+        rationale: review.rationale ?? null,
+      },
+      action: null,
     },
+    createdAt: 1,
+    updatedAt: 1,
   };
 }
 
@@ -131,6 +258,7 @@ function ToolCallStory({
   autoOpen = false,
   autoExpandCommandLine = false,
   isTurnCancelled = false,
+  isStreamingTurn = true,
   automaticApprovalReviews = [],
 }: {
   item: CodexTranscriptEntry;
@@ -139,6 +267,7 @@ function ToolCallStory({
   autoOpen?: boolean;
   autoExpandCommandLine?: boolean;
   isTurnCancelled?: boolean;
+  isStreamingTurn?: boolean;
   automaticApprovalReviews?: CodexTranscriptEntry[];
 }) {
   const ToolComponent = getToolComponent(item);
@@ -156,7 +285,7 @@ function ToolCallStory({
 
     const clickSummaryToggle = () => {
       const summaryToggle = root.querySelector<HTMLElement>(
-        'button[aria-expanded="false"], [data-command-tool-summary-toggle]',
+        '[data-file-change-row-header], button[aria-expanded="false"], [data-command-tool-summary-toggle]',
       );
       summaryToggle?.click();
     };
@@ -190,6 +319,7 @@ function ToolCallStory({
             projectWorkspacePath="/workspace/nodex"
             threadCwd="/workspace/nodex"
             isTurnCancelled={isTurnCancelled}
+            isStreamingTurn={isStreamingTurn}
             automaticApprovalReviews={automaticApprovalReviews}
           />
         </div>
@@ -352,6 +482,8 @@ function buildLiveFileChangeCollapsedActivityStoryBlock(lineCount = 85, itemId =
       runningCreatedLineCount: lineCount,
       exploredFileCount: 0,
       runningExploredFileCount: 0,
+      loadedToolCount: 0,
+      runningLoadedToolCount: 0,
       searchCount: 0,
       runningSearchCount: 0,
       listCount: 0,
@@ -362,11 +494,22 @@ function buildLiveFileChangeCollapsedActivityStoryBlock(lineCount = 85, itemId =
       runningHookCount: 0,
       commandCount: 0,
       runningCommandCount: 0,
+      completedWebSearchCommandCount: 0,
+      runningFolderCreationCommandCount: 0,
+      runningWebSearchCommandCount: 0,
       mcpToolCallCount: 0,
       runningMcpToolCallCount: 0,
       mcpToolCallSources: [],
       webSearchCount: 0,
       runningWebSearchCount: 0,
+    },
+    activeSummary: {
+      kind: "fileChange",
+      key: itemId,
+      label: "Creating",
+      displayPath: "poem.md",
+      additions: lineCount,
+      deletions: 0,
     },
     entries: [{
       id: fileChangeItem.entryId ?? fileChangeItem.itemId,
@@ -428,9 +571,11 @@ function FileChangeLivePatchUpdateStory() {
 }
 
 function AutoOpenMcpToolCall({
+  automaticApprovalReviews = [],
   item,
   rawDialogOpen = false,
 }: {
+  automaticApprovalReviews?: CodexTranscriptEntry[];
   item: CodexTranscriptEntry;
   rawDialogOpen?: boolean;
 }) {
@@ -445,7 +590,11 @@ function AutoOpenMcpToolCall({
   return (
     <ConversationStorySurface>
       <div ref={containerRef}>
-        <McpToolCall item={item} rawDialogOpen={rawDialogOpen} />
+        <McpToolCall
+          automaticApprovalReviews={automaticApprovalReviews}
+          item={item}
+          rawDialogOpen={rawDialogOpen}
+        />
       </div>
     </ConversationStorySurface>
   );
@@ -592,6 +741,67 @@ export const CommandExecution: Story = {
       description="Structured command summary, output body, and metadata for a settled command run."
     />
   ),
+};
+
+export const CommandExecutionSummarySpecials: Story = {
+  render: () => {
+    const items = [
+      buildCommandItem({
+        itemId: "tool-call-date-summary",
+        entryId: "tool-call-date-summary",
+        status: "completed",
+        markdownText: "Checked the current date and time",
+        command: "date -u",
+        aggregatedOutput: "Sun Jul  5 10:24:00 UTC 2026\n",
+        exitCode: 0,
+      }),
+      buildCommandItem({
+        itemId: "tool-call-background-summary",
+        entryId: "tool-call-background-summary",
+        status: "inProgress",
+        markdownText: "Started background terminal",
+        command: "bun run dev",
+        aggregatedOutput: "ready in 421ms\n",
+        exitCode: null,
+        processId: "4172",
+      }),
+      buildCommandItem({
+        itemId: "tool-call-skill-script-summary",
+        entryId: "tool-call-skill-script-summary",
+        status: "inProgress",
+        markdownText: "Started background terminal",
+        command: "python .codex/skills/review-helper/scripts/check.py",
+        aggregatedOutput: "review started\n",
+        exitCode: null,
+        processId: "4188",
+      }),
+    ];
+
+    return (
+      <StorySurface
+        title="Command Execution Summary Specials"
+        description="Date checks and background terminal commands use compact semantic summaries while the shell body stays manually expandable."
+      >
+        <ConversationStorySurface>
+          <div className="flex flex-col gap-3">
+            {items.map((item) => {
+              const ToolComponent = getToolComponent(item);
+              if (!ToolComponent) return null;
+              return (
+                <ToolComponent
+                  key={item.itemId}
+                  item={item}
+                  projectWorkspacePath="/workspace/nodex"
+                  threadCwd="/workspace/nodex"
+                  isStreamingTurn={item.processId == null}
+                />
+              );
+            })}
+          </div>
+        </ConversationStorySurface>
+      </StorySurface>
+    );
+  },
 };
 
 export const CommandExecutionLongCommandCollapsed: Story = {
@@ -807,6 +1017,119 @@ export const FileChangeLivePatchUpdate: Story = {
   render: () => <FileChangeLivePatchUpdateStory />,
 };
 
+export const FileChangeSingleCompletedCollapsedActivity: Story = {
+  render: () => {
+    const item = buildStoryFileChangeItem({
+      id: "tool-call-file-change-single-completed-collapsed",
+      changes: [{
+        path: "src/single.ts",
+        type: "update",
+        movePath: null,
+        unifiedDiff: [
+          "@@ -1 +1 @@",
+          "-export const label = 'draft';",
+          "+export const label = 'ready';",
+        ].join("\n"),
+      }],
+    });
+
+    return (
+      <StorySurface
+        title="File Change Single Completed Collapsed Activity"
+        description="Single completed patch rows remain eligible for collapsed activity, matching the Codex thread activity grouping contract."
+      >
+        <ConversationStorySurface>
+          <ThreadCollapsedToolActivityBlock
+            block={buildFileChangeCollapsedActivityBlock({
+              id: "collapsed-file-change-single-completed",
+              entries: [item],
+              searchableText: "Edited src/single.ts",
+              summary: "Edited a file",
+              summaryStats: buildCollapsedSummaryStats({
+                editedFileCount: 1,
+                changedLineCount: 2,
+              }),
+            })}
+            isLatestTurn={false}
+            isStreamingTurn={false}
+            projectWorkspacePath="/workspace/nodex"
+            threadCwd="/workspace/nodex"
+          />
+        </ConversationStorySurface>
+      </StorySurface>
+    );
+  },
+};
+
+export const FileChangeRepeatedSamePathCollapsedActivity: Story = {
+  render: () => {
+    const entries = Array.from({ length: 5 }, (_, index) => buildStoryFileChangeItem({
+      id: `tool-call-file-change-same-path-${index + 1}`,
+      changes: [{
+        path: "src/repeated.ts",
+        type: "update",
+        movePath: null,
+        unifiedDiff: [
+          "@@ -1 +1 @@",
+          `-export const revision = ${index};`,
+          `+export const revision = ${index + 1};`,
+        ].join("\n"),
+      }],
+    }));
+
+    return (
+      <StorySurface
+        title="File Change Repeated Same Path"
+        description="Critical regression fixture: repeated edits to the same display path summarize as Edited a file, not Edited 5 files."
+      >
+        <ConversationStorySurface>
+          <ThreadCollapsedToolActivityBlock
+            block={buildFileChangeCollapsedActivityBlock({
+              id: "collapsed-file-change-repeated-same-path",
+              entries,
+              searchableText: "Edited src/repeated.ts five times",
+              summary: "Edited a file",
+              summaryStats: buildCollapsedSummaryStats({
+                editedFileCount: 1,
+                changedLineCount: 10,
+              }),
+            })}
+            isLatestTurn={false}
+            isStreamingTurn={false}
+            projectWorkspacePath="/workspace/nodex"
+            threadCwd="/workspace/nodex"
+          />
+        </ConversationStorySurface>
+      </StorySurface>
+    );
+  },
+};
+
+export const FileChangePendingApproval: Story = {
+  render: () => (
+    <ToolCallStory
+      item={buildStoryFileChangeItem({
+        id: "tool-call-file-change-pending-approval",
+        status: "inProgress",
+        approvalRequestId: "approval-file-change-story",
+        changes: [{
+          path: "src/pending.ts",
+          type: "update",
+          movePath: null,
+          unifiedDiff: [
+            "@@ -1 +1 @@",
+            "-export const permission = 'old';",
+            "+export const permission = 'pending';",
+          ].join("\n"),
+        }],
+      })}
+      title="File Change Pending Approval"
+      description="Pending file-change approvals omit the action word in the row header and use the short diff frame height."
+      autoOpen
+    />
+  ),
+};
+
 export const FileChangeMultiFile: Story = {
   render: () => (
     <ToolCallStory
@@ -881,6 +1204,51 @@ export const FileChangeSemanticFallback: Story = {
   ),
 };
 
+export const FileChangeStoppedUpdate: Story = {
+  render: () => (
+    <ToolCallStory
+      item={buildStoryFileChangeItem({
+        id: "tool-call-file-change-stopped-update",
+        status: "inProgress",
+        changes: [{
+          path: "src/stopped-update.ts",
+          type: "update",
+          movePath: null,
+          unifiedDiff: [
+            "@@ -1 +1 @@",
+            "-export const stopped = false;",
+            "+export const stopped = true;",
+          ].join("\n"),
+        }],
+      })}
+      title="File Change Stopped Update"
+      description="Interrupted update rows use stopped editing copy while preserving the ordinary expanded diff body."
+      autoOpen
+      isTurnCancelled
+    />
+  ),
+};
+
+export const FileChangeStoppedDelete: Story = {
+  render: () => (
+    <ToolCallStory
+      item={buildStoryFileChangeItem({
+        id: "tool-call-file-change-stopped-delete",
+        status: "inProgress",
+        changes: [{
+          path: "src/stopped-delete.ts",
+          type: "delete",
+          content: "export const removed = true;\n",
+        }],
+      })}
+      title="File Change Stopped Delete"
+      description="Interrupted delete rows use stopped deleting copy and keep the semantic delete fallback body available when expanded."
+      autoOpen
+      isTurnCancelled
+    />
+  ),
+};
+
 export const FileChangeDeclinedRename: Story = {
   render: () => (
     <ToolCallStory
@@ -910,6 +1278,46 @@ export const FileChangeDeclinedRename: Story = {
       title="File Change Declined Rename"
       description="Rejected file edits preserve rename metadata in the renderer and match Codex Electron's plain rejected summary label."
       autoOpen
+    />
+  ),
+};
+
+export const FileChangeAutoReviewStates: Story = {
+  render: () => (
+    <ToolCallStory
+      item={buildStoryFileChangeItem({
+        id: "tool-call-file-change-auto-review-states",
+        changes: [{
+          path: "src/auto-review.ts",
+          type: "update",
+          movePath: null,
+          unifiedDiff: [
+            "@@ -1 +1 @@",
+            "-export const autoReview = 'old';",
+            "+export const autoReview = 'new';",
+          ].join("\n"),
+        }],
+      })}
+      title="File Change Auto Review States"
+      description="Attached auto-review rows use the shared compact Auto-review wording for approved, high-risk denied, and timed-out reviews."
+      autoOpen
+      automaticApprovalReviews={[
+        buildAutoReviewStoryItem("approved", {
+          status: "approved",
+          riskLevel: "low",
+          rationale: "This change stays inside the project workspace.",
+        }),
+        buildAutoReviewStoryItem("denied-high-risk", {
+          status: "denied",
+          riskLevel: "high",
+          rationale: "This request attempted to edit a protected path.",
+        }),
+        buildAutoReviewStoryItem("timed-out", {
+          status: "timedOut",
+          riskLevel: null,
+          rationale: null,
+        }),
+      ]}
     />
   ),
 };
@@ -1232,6 +1640,43 @@ export const McpRawOutputDialog: Story = {
   ),
 };
 
+export const McpToolCallAppWithAutoReview: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP App With Auto-review"
+      description="Attached auto-review rows in the MCP app/card branch render as title-only rows before the app surface."
+    >
+      <AutoOpenMcpToolCall
+        automaticApprovalReviews={[
+          buildAutoReviewStoryItem("mcp-app-approved", {
+            status: "approved",
+            riskLevel: "low",
+            rationale: "Only connector UI data is being displayed.",
+          }),
+        ]}
+        item={{
+          ...THREAD_TOOL_CALL_STORY_ITEMS.mcp,
+          mcpToolCall: THREAD_TOOL_CALL_STORY_ITEMS.mcp.mcpToolCall
+            ? {
+                ...THREAD_TOOL_CALL_STORY_ITEMS.mcp.mcpToolCall,
+                mcpAppResourceUri: "ui://context7/docs",
+                result: {
+                  type: "success",
+                  content: [],
+                  structuredContent: null,
+                  raw: {
+                    content: [],
+                    structuredContent: null,
+                  },
+                },
+              }
+            : THREAD_TOOL_CALL_STORY_ITEMS.mcp.mcpToolCall,
+        }}
+      />
+    </StorySurface>
+  ),
+};
+
 export const McpToolCallInProgress: Story = {
   render: () => (
     <StorySurface
@@ -1239,6 +1684,17 @@ export const McpToolCallInProgress: Story = {
       description="In-progress MCP calls stay collapsed and shimmer only the label text; source logos remain static."
     >
       <McpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgress} />
+    </StorySurface>
+  ),
+};
+
+export const McpToolCallInProgressWithResult: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP Tool Call In Progress With Result"
+      description="In-progress MCP calls become expandable as soon as a result exists, matching the standalone disclosure boundary."
+    >
+      <McpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgressWithResult} />
     </StorySurface>
   ),
 };
@@ -1258,7 +1714,7 @@ export const McpToolCallStructuredOnly: Story = {
   render: () => (
     <StorySurface
       title="MCP Tool Call Structured Only"
-      description="Structured-only success still shows the no-content fallback before appending the JSON panel."
+      description="Structured-only success renders the JSON panel directly without the no-content fallback."
     >
       <AutoOpenMcpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpQueryDocs} />
     </StorySurface>
@@ -1406,6 +1862,77 @@ function buildCodexAppMetaDynamicStoryItem(input: {
   };
 }
 
+function buildGenericDynamicStoryItem(input: {
+  id: string;
+  namespace: string;
+  tool: string;
+  completed: boolean;
+  args?: unknown;
+  contentText?: string;
+}): CodexTranscriptEntry {
+  return {
+    ...buildReadThreadDynamicStoryItem(),
+    itemId: input.id,
+    entryId: input.id,
+    status: input.completed ? "completed" : "inProgress",
+    toolCall: {
+      subtype: "dynamic",
+      toolName: input.tool,
+      server: input.namespace,
+      args: input.args ?? {},
+      result: input.contentText ? [{ type: "inputText", text: input.contentText }] : undefined,
+    },
+    dynamicToolCall: {
+      callId: input.id,
+      namespace: input.namespace,
+      tool: input.tool,
+      arguments: input.args ?? {},
+      status: input.completed ? "completed" : "inProgress",
+      contentItems: input.contentText ? [{ type: "inputText", text: input.contentText }] : null,
+      success: input.completed ? true : null,
+      durationMs: input.completed ? 18 : null,
+      completed: input.completed,
+    },
+  };
+}
+
+function buildDynamicStoryBlock(item: CodexTranscriptEntry) {
+  return {
+    id: item.entryId ?? item.itemId,
+    turnId: item.turnId,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    searchableText: item.dynamicToolCall?.tool ?? item.itemId,
+    type: "dynamicToolCall" as const,
+    status: item.status,
+    entry: item,
+  };
+}
+
+function buildDynamicGroupStoryBlock(input: {
+  id: string;
+  entries: CodexTranscriptEntry[];
+  summary: string;
+  summaryParts: ThreadDynamicToolCallGroupBlockModel["summaryParts"];
+  canExpand?: boolean;
+  status?: ThreadDynamicToolCallGroupBlockModel["status"];
+}): ThreadDynamicToolCallGroupBlockModel {
+  return {
+    id: input.id,
+    turnId: "turn-story",
+    createdAt: 1,
+    updatedAt: 1,
+    searchableText: input.summary,
+    type: "dynamicToolCallGroup",
+    entries: input.entries.map(buildDynamicStoryBlock),
+    summary: input.summary,
+    summaryParts: input.summaryParts,
+    canExpand: input.canExpand,
+    repeatCount: input.entries.length,
+    status: input.status ?? "completed",
+  };
+}
+
 function buildPendingMcpStoryBlock(): ThreadPendingMcpToolCallsBlockModel {
   const entry = THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgress;
   return {
@@ -1441,6 +1968,52 @@ function buildPendingMcpStoryBlock(): ThreadPendingMcpToolCallsBlockModel {
         },
       },
     }],
+  };
+}
+
+function buildCompletedNodeReplPendingMcpStoryBlock(): ThreadPendingMcpToolCallsBlockModel {
+  const baseEntry = THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgress;
+  const entries = ["node-repl-1", "node-repl-2"].map((id, index) => ({
+    id,
+    turnId: baseEntry.turnId,
+    createdAt: baseEntry.createdAt + index,
+    updatedAt: baseEntry.updatedAt + index,
+    searchableText: "Ran Node REPL command",
+    type: "mcpToolCall" as const,
+    status: "completed" as const,
+    entry: {
+      ...baseEntry,
+      itemId: id,
+      entryId: id,
+      status: "completed" as const,
+      mcpToolCall: {
+        ...(baseEntry.mcpToolCall ?? {
+          callId: id,
+          functionName: "node_repl__js",
+          invocation: { server: "node_repl", tool: "js", arguments: {} },
+          result: { type: "success" as const, content: [], structuredContent: null, raw: { content: [], structuredContent: null } },
+          durationMs: 24,
+          completed: true,
+        }),
+        callId: id,
+        functionName: "node_repl__js",
+        invocation: { server: "node_repl", tool: "js", arguments: {} },
+        result: { type: "success" as const, content: [], structuredContent: null, raw: { content: [], structuredContent: null } },
+        completed: true,
+      },
+    },
+  }));
+
+  return {
+    id: "pending-node-repl-story",
+    turnId: baseEntry.turnId,
+    createdAt: baseEntry.createdAt,
+    updatedAt: baseEntry.updatedAt,
+    searchableText: "Ran Node REPL commands",
+    type: "pendingMcpToolCalls",
+    summary: "Using Node repl",
+    status: "completed",
+    entries,
   };
 }
 
@@ -1504,17 +2077,236 @@ export const CodexAppMetaThreadTools: Story = {
             tool: "read_thread",
             completed: true,
             args: { threadId: "thread-story" },
-          })} />
+          })} onOpenThread={() => {}} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "send-thread",
+            tool: "send_message_to_thread",
+            completed: true,
+            args: { threadId: "thread-story" },
+          })} onOpenThread={() => {}} />
           <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
             id: "handoff-status",
             tool: "get_handoff_status",
             completed: true,
             args: { operationId: "handoff-1" },
           })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "pin-thread",
+            tool: "set_thread_pinned",
+            completed: true,
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "archive-thread",
+            tool: "set_thread_archived",
+            completed: false,
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "title-thread",
+            tool: "set_thread_title",
+            completed: true,
+          })} />
         </div>
       </ConversationStorySurface>
     </StorySurface>
   ),
+};
+
+export const DynamicToolRegistryRenderers: Story = {
+  render: () => (
+    <StorySurface
+      title="Dynamic Tool Registry Renderers"
+      description="Non-thread registry renderers use their registered labels and icons instead of generic humanized fallback rows."
+    >
+      <ConversationStorySurface>
+        <div className="flex flex-col gap-1">
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "settings-read-active",
+            namespace: "codex_app",
+            tool: "read_settings",
+            completed: false,
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "settings-write-completed",
+            namespace: "codex_app",
+            tool: "write_settings",
+            completed: true,
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "chrome-tab-context-active",
+            namespace: "chrome_extension",
+            tool: "get_tab_context",
+            completed: false,
+            args: { tabId: 8 },
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "chrome-tab-context-invalid",
+            namespace: "chrome_extension",
+            tool: "get_tab_context",
+            completed: true,
+            args: { tabId: -1 },
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "handoff-running-steps",
+            namespace: "codex_app",
+            tool: "handoff_thread",
+            completed: true,
+            args: { threadId: "thread-story" },
+            contentText: JSON.stringify({
+              destinationHostDisplayName: "Local",
+              operationId: "handoff-running-steps",
+              status: "running",
+              steps: [
+                { id: "resolve-thread", label: "Resolve thread", status: "success", message: null },
+                { id: "handoff", label: "Move thread", status: "running", message: "Preparing thread handoff." },
+              ],
+            }),
+          })} />
+        </div>
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const DynamicToolCallFallbackRows: Story = {
+  render: () => (
+    <StorySurface
+      title="Dynamic Tool Call Fallback Rows"
+      description="Generic dynamic tools render as compact rows without result or argument panels."
+    >
+      <ConversationStorySurface>
+        <div className="flex flex-col gap-1">
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "fallback-load-workspace-dependencies",
+            namespace: "codex_app",
+            tool: "load_workspace_dependencies",
+            completed: true,
+            args: { includeLibraries: true },
+            contentText: "{\"node\":\"/tmp/node\"}",
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "fallback-automation-update",
+            namespace: "codex_app",
+            tool: "automation_update",
+            completed: false,
+            args: { action: "install" },
+          })} />
+          <DynamicToolCall item={buildGenericDynamicStoryItem({
+            id: "fallback-external-tool",
+            namespace: "example_connector",
+            tool: "inspect_project_graph",
+            completed: true,
+            args: { depth: 2 },
+            contentText: "done",
+          })} />
+        </div>
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const DynamicToolCallGroupHeaders: Story = {
+  render: () => {
+    const completedGroup = buildDynamicGroupStoryBlock({
+      id: "dynamic-group-completed",
+      entries: [
+        buildCodexAppMetaDynamicStoryItem({
+          id: "dynamic-group-read-1",
+          tool: "read_thread",
+          completed: true,
+          args: { threadId: "thread-story" },
+        }),
+        buildCodexAppMetaDynamicStoryItem({
+          id: "dynamic-group-read-2",
+          tool: "read_thread",
+          completed: true,
+          args: { threadId: "thread-story" },
+        }),
+        buildCodexAppMetaDynamicStoryItem({
+          id: "dynamic-group-send",
+          tool: "send_message_to_thread",
+          completed: true,
+          args: { threadId: "thread-story" },
+        }),
+      ],
+      summary: "Read thread 2 times · Sent message to thread",
+      summaryParts: [
+        { key: "read", label: "Read thread", count: 2 },
+        { key: "send", label: "Sent message to thread", count: 1 },
+      ],
+    });
+    const activeGroup = buildDynamicGroupStoryBlock({
+      id: "dynamic-group-active",
+      entries: [
+        buildCodexAppMetaDynamicStoryItem({
+          id: "dynamic-group-active-read",
+          tool: "read_thread",
+          completed: true,
+          args: { threadId: "thread-story" },
+        }),
+        buildCodexAppMetaDynamicStoryItem({
+          id: "dynamic-group-active-send",
+          tool: "send_message_to_thread",
+          completed: false,
+          args: { threadId: "thread-story" },
+        }),
+      ],
+      summary: "Read thread · Sending message to thread",
+      summaryParts: [
+        { key: "read", label: "Read thread", count: 1 },
+        { key: "send", label: "Sending message to thread", count: 1 },
+      ],
+      status: "inProgress",
+    });
+    const summaryOnlyGroup = buildDynamicGroupStoryBlock({
+      id: "dynamic-group-summary-only",
+      entries: [
+        buildCodexAppMetaDynamicStoryItem({
+          id: "dynamic-group-handoff-status-1",
+          tool: "get_handoff_status",
+          completed: true,
+          args: { operationId: "handoff-1" },
+        }),
+        buildCodexAppMetaDynamicStoryItem({
+          id: "dynamic-group-handoff-status-2",
+          tool: "get_handoff_status",
+          completed: true,
+          args: { operationId: "handoff-1" },
+        }),
+      ],
+      summary: "Checked handoff status 2 times",
+      summaryParts: [
+        { key: "handoff-status", label: "Checked handoff status", count: 2 },
+      ],
+      canExpand: false,
+    });
+
+    return (
+      <StorySurface
+        title="Dynamic Tool Call Group Headers"
+        description="Dynamic groups switch between folded completed summaries, latest active item summaries, expandable compact-row bodies, and non-expandable summary-only headers."
+      >
+        <ConversationStorySurface>
+          <div className="flex flex-col gap-3">
+            <ThreadDynamicToolCallGroupBlock
+              block={completedGroup}
+              isLatestTurn={false}
+              isStreamingTurn={false}
+            />
+            <ThreadDynamicToolCallGroupBlock
+              block={activeGroup}
+              isLatestTurn
+              isStreamingTurn
+            />
+            <ThreadDynamicToolCallGroupBlock
+              block={summaryOnlyGroup}
+              isLatestTurn={false}
+              isStreamingTurn={false}
+            />
+          </div>
+        </ConversationStorySurface>
+      </StorySurface>
+    );
+  },
 };
 
 export const PendingMcpToolCalls: Story = {
@@ -1524,11 +2316,18 @@ export const PendingMcpToolCalls: Story = {
       description="Pending MCP calls group into the Codex pending body surface with browser-use labeling."
     >
       <ConversationStorySurface>
-        <ThreadPendingMcpToolCallsBlock
-          block={buildPendingMcpStoryBlock()}
-          isLatestTurn
-          isStreamingTurn
-        />
+        <div className="flex flex-col gap-2">
+          <ThreadPendingMcpToolCallsBlock
+            block={buildPendingMcpStoryBlock()}
+            isLatestTurn
+            isStreamingTurn
+          />
+          <ThreadPendingMcpToolCallsBlock
+            block={buildCompletedNodeReplPendingMcpStoryBlock()}
+            isLatestTurn={false}
+            isStreamingTurn={false}
+          />
+        </div>
       </ConversationStorySurface>
     </StorySurface>
   ),

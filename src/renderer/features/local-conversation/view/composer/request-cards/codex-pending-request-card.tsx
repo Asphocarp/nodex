@@ -69,6 +69,9 @@ export function CodexPendingRequestCard({
               { conversationId: entry.conversationId },
             );
           }}
+          onSubmitLocalFollowup={async (prompt) => {
+            await actions.onSendPrompt(prompt);
+          }}
         />
       );
     case "implementPlan":

@@ -87,10 +87,12 @@ export function DiffStats({
   additions,
   deletions,
   className,
+  showZero = false,
 }: DiffSummary & {
   className?: string;
+  showZero?: boolean;
 }) {
-  if (additions === 0 && deletions === 0) return null;
+  if (!showZero && additions === 0 && deletions === 0) return null;
 
   return (
     <span
@@ -189,7 +191,7 @@ export function Chevron({ expanded, className }: { expanded: boolean; className?
   return (
     <span
       className={cn(
-        "inline-chevron ml-1 text-token-input-placeholder-foreground transition-opacity duration-200 opacity-0 group-hover:opacity-100",
+        "inline-chevron ml-1 text-token-input-placeholder-foreground transition-opacity duration-200 opacity-0 group-hover/activity-header:opacity-100",
         expanded && "opacity-100",
         className,
       )}

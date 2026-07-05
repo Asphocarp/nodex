@@ -110,6 +110,216 @@ describe("buildRendererItemStream", () => {
     expect(items.map((item) => item.type).join(",")).toBe("hook,planImplementation,userInputResponse");
   });
 
+  test("maps v2 protocol item types when normalized semantic kind is generic", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "agent_message_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "agent_message_1", type: "agentMessage" },
+          markdownText: "Done.",
+        }),
+        buildEntry({
+          itemId: "reasoning_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "reasoning_1", type: "reasoning" },
+          markdownText: "Thinking through the dispatch.",
+        }),
+        buildEntry({
+          itemId: "exec_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "exec_1", type: "commandExecution" },
+        }),
+        buildEntry({
+          itemId: "patch_1",
+          kind: "toolCall",
+          semanticKind: "systemEvent",
+          rawItem: { id: "patch_1", type: "fileChange" },
+          fileChange: {
+            changes: buildCodexFileChangeMap([{
+              type: "update",
+              path: "src/app.ts",
+              unifiedDiff: "",
+              movePath: null,
+            }]),
+          },
+        }),
+        buildEntry({
+          itemId: "mcp_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "mcp_1", type: "mcpToolCall" },
+        }),
+        buildEntry({
+          itemId: "dynamic_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "dynamic_1", type: "dynamicToolCall" },
+        }),
+        buildEntry({
+          itemId: "web_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "web_1", type: "webSearch", query: "Codex app-server" },
+        }),
+        buildEntry({
+          itemId: "compact_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "compact_1", type: "contextCompaction" },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    expect(items.map((item) => item.type).join(",")).toBe("assistantMessage,reasoning,exec,fileChange,mcpToolCall,dynamicToolCall,webSearch,contextCompaction");
+  });
+
+  test("omits webSearch rows without a visible query", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "web_missing_query",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: {
+            id: "web_missing_query",
+            type: "webSearch",
+            action: {
+              type: "search",
+              queries: ["fallback should not render"],
+            },
+          },
+        }),
+        buildEntry({
+          itemId: "web_blank_query",
+          type: "web_search",
+          kind: "toolCall",
+          semanticKind: "webSearch",
+          toolCall: {
+            subtype: "webSearch",
+            toolName: "web_search",
+            args: { query: "   " },
+            result: {
+              type: "search",
+              queries: ["fallback should not render"],
+            },
+          },
+          rawItem: {
+            id: "web_blank_query",
+            type: "webSearch",
+            query: "   ",
+            action: {
+              type: "search",
+              queries: ["fallback should not render"],
+            },
+          },
+        }),
+        buildEntry({
+          itemId: "web_visible_query",
+          type: "web_search",
+          kind: "toolCall",
+          semanticKind: "webSearch",
+          toolCall: {
+            subtype: "webSearch",
+            toolName: "web_search",
+            args: { query: "thread grouping parity" },
+          },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    expect(items.map((item) => item.id).join(",")).toBe("web_visible_query");
+    expect(items.map((item) => item.type).join(",")).toBe("webSearch");
+  });
+
+  test("defers ambiguous v2 protocol item families to normalized semantic kind", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "todo_plan_1",
+          type: "plan",
+          kind: "plan",
+          semanticKind: "todoList",
+          rawItem: { id: "todo_plan_1", type: "plan" },
+          markdownText: "1. Research\n2. Implement",
+        }),
+        buildEntry({
+          itemId: "proposed_plan_1",
+          type: "plan",
+          kind: "plan",
+          semanticKind: "proposedPlan",
+          rawItem: { id: "proposed_plan_1", type: "plan" },
+          markdownText: "We can refactor the dispatcher.",
+        }),
+        buildEntry({
+          itemId: "multi_agent_1",
+          type: "collabAgentToolCall",
+          kind: "toolCall",
+          semanticKind: "multiAgentAction",
+          rawItem: { id: "multi_agent_1", type: "collabAgentToolCall" },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    expect(items.map((item) => item.type).join(",")).toBe("todoList,proposedPlan,multiAgentAction");
+  });
+
+  test("omits protocol-only items that do not have an inline renderer surface", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "hook_prompt_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "hook_prompt_1", type: "hookPrompt" },
+        }),
+        buildEntry({
+          itemId: "sub_agent_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "sub_agent_1", type: "subAgentActivity" },
+        }),
+        buildEntry({
+          itemId: "sleep_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "sleep_1", type: "sleep" },
+        }),
+        buildEntry({
+          itemId: "image_generation_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "image_generation_1", type: "imageGeneration" },
+        }),
+        buildEntry({
+          itemId: "entered_review_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "entered_review_1", type: "enteredReviewMode" },
+        }),
+        buildEntry({
+          itemId: "exited_review_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "exited_review_1", type: "exitedReviewMode" },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    expect(items.length).toBe(0);
+  });
+
   test("omits unanswered user-input requests from inline renderer items", () => {
     const items = buildRendererItemStream({
       entries: [
@@ -175,14 +385,12 @@ describe("buildRendererItemStream", () => {
             },
           },
           fileChange: {
-            paths: ["src/app.tsx"],
             changes: buildCodexFileChangeMap([{
               type: "update",
               path: "src/app.tsx",
               unifiedDiff: "",
               movePath: null,
             }]),
-            diffs: [],
           },
         }),
         buildEntry({
@@ -227,9 +435,7 @@ describe("buildRendererItemStream", () => {
           semanticKind: "patch",
           status: "completed",
           fileChange: {
-            paths: ["src/app.ts"],
             changes: buildCodexFileChangeMap([]),
-            diffs: [],
           },
         }),
         buildEntry({
@@ -239,11 +445,9 @@ describe("buildRendererItemStream", () => {
           semanticKind: "patch",
           status: "completed",
           fileChange: {
-            paths: ["src/raw.ts"],
             changes: [
               { path: "src/raw.ts", kind: { type: "update" }, diff: "@@ -1 +1 @@" },
             ] as never,
-            diffs: [],
           },
         }),
       ],

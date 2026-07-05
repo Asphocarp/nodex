@@ -21,6 +21,7 @@ import type {
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
@@ -39,6 +40,7 @@ export type ThreadStageStoryPresetId =
   | "long-thread-streaming"
   | "long-thread-search-open"
   | "completed-collapsed"
+  | "tool-call-mixed"
   | "approval-lane"
   | "user-input-lane"
   | "implement-plan"
@@ -232,6 +234,11 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
     id: "completed-collapsed",
     name: "Completed Collapsed",
     description: "Completed turn with prior agent work collapsed ahead of the final answer.",
+  },
+  {
+    id: "tool-call-mixed",
+    name: "Tool Call Mixed",
+    description: "Production-like completed thread with command, file edit, web, MCP, dynamic, turn diff, auto-review, and multi-agent activity.",
   },
   {
     id: "approval-lane",
@@ -855,6 +862,105 @@ function buildBackgroundConversation(): {
   };
 }
 
+function cloneStoryEntryForTurn(
+  entry: CodexTranscriptEntry,
+  turnId: string,
+  index: number,
+): CodexTranscriptEntry {
+  const itemId = `mixed_${entry.itemId}_${index}`;
+  return {
+    ...entry,
+    threadId: STORY_THREAD_ID,
+    turnId,
+    itemId,
+    entryId: itemId,
+    createdAt: 41_000 + index * 100,
+    updatedAt: 41_000 + index * 100,
+  };
+}
+
+function buildMixedDynamicToolCallItem(turnId: string): CodexTranscriptEntry {
+  return buildStoryConversationItem({
+    turnId,
+    itemId: "mixed_dynamic_read_thread",
+    type: "dynamicToolCall",
+    kind: "toolCall",
+    semanticKind: "dynamicToolCall",
+    status: "completed",
+    toolCall: {
+      subtype: "dynamic",
+      toolName: "read_thread",
+      server: "codex_app",
+      args: { threadId: STORY_THREAD_ID, turnLimit: 1 },
+      result: [{ type: "inputText", text: "{\"threadId\":\"thread_storybook\"}" }],
+    },
+    dynamicToolCall: {
+      callId: "mixed_dynamic_read_thread",
+      namespace: "codex_app",
+      tool: "read_thread",
+      arguments: { threadId: STORY_THREAD_ID, turnLimit: 1 },
+      status: "completed",
+      contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread_storybook\"}" }],
+      success: true,
+      durationMs: 18,
+      completed: true,
+    },
+    createdAt: 41_500,
+    updatedAt: 41_500,
+  });
+}
+
+function buildMixedToolCallConversation(): CodexConversationSnapshot {
+  const turnId = "turn_story_mixed_tools";
+  const clonedToolItems = [
+    THREAD_TOOL_CALL_STORY_ITEMS.command,
+    THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+    THREAD_TOOL_CALL_STORY_ITEMS.webSearch,
+    THREAD_TOOL_CALL_STORY_ITEMS.mcp,
+    buildMixedDynamicToolCallItem(turnId),
+    THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.automaticApprovalReviewCompleted,
+    ...THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled,
+    THREAD_TOOL_CALL_STORY_ITEMS.turnDiff,
+  ].map((entry, index) => cloneStoryEntryForTurn(entry, turnId, index + 1));
+
+  return buildStoryConversation({
+    threadPreview: "Production-like thread with mixed tool-call activity.",
+    updatedAt: 52_000,
+    turns: [
+      buildStoryConversationTurn({
+        turnId,
+        status: "completed",
+        items: [
+          buildStoryConversationItem({
+            turnId,
+            itemId: "user_story_mixed_tools",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            markdownText: "Exercise the complete tool-call surface in one production-like thread.",
+            createdAt: 40_000,
+            updatedAt: 40_000,
+          }),
+          ...clonedToolItems,
+          buildStoryConversationItem({
+            turnId,
+            itemId: "assistant_story_mixed_tools",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            assistantPhase: "final_answer",
+            markdownText: "The mixed thread renders command, patch, web, MCP, dynamic, turn-diff, auto-review, and multi-agent activity through the production projection pipeline.",
+            createdAt: 52_000,
+            updatedAt: 52_000,
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
 function buildToolItemBase(overrides: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
   return {
     threadId: STORY_THREAD_ID,
@@ -930,7 +1036,6 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     kind: "fileChange",
     fileChange: {
       label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-      paths: ["src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx"],
       changes: {
         "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx": {
           type: "update",
@@ -946,17 +1051,6 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
           ].join("\n"),
         },
       },
-      diffs: [[
-        "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-        "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-        "@@ -1,5 +1,7 @@",
-        " import { useState } from \"react\";",
-        "+import { StoryShell } from \"./thread-stage-dev-story\";",
-        " ",
-        " export function LocalConversationStageScreen() {",
-        "+  return <StoryShell />;",
-        " }",
-      ].join("\n")],
     },
     toolCall: {
       subtype: "fileChange",
@@ -964,19 +1058,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
       args: {
         label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
       },
-      result: {
-        diffs: [[
-          "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-          "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-          "@@ -1,5 +1,7 @@",
-          " import { useState } from \"react\";",
-          "+import { StoryShell } from \"./thread-stage-dev-story\";",
-          " ",
-          " export function LocalConversationStageScreen() {",
-          "+  return <StoryShell />;",
-          " }",
-        ].join("\n")],
-      },
+      result: null,
     },
   }),
   turnDiff: buildToolItemBase({
@@ -1471,6 +1553,62 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
       result: null,
     }),
   }),
+  mcpInProgressWithResult: buildToolItemBase({
+    itemId: "tool_story_mcp_in_progress_with_result",
+    type: "mcp_tool_call",
+    semanticKind: "mcpToolCall",
+    status: "inProgress",
+    toolCall: {
+      subtype: "mcp",
+      server: "context7",
+      toolName: "query_docs",
+      args: {
+        libraryId: "/storybookjs/storybook",
+      },
+      result: {
+        type: "success",
+        content: [
+          {
+            type: "text",
+            text: "Streaming MCP result content already arrived.",
+          },
+        ],
+        structuredContent: null,
+      },
+    },
+    mcpToolCall: buildMcpToolCallView({
+      callId: "call_mcp_in_progress_with_result",
+      functionName: "context7__query_docs",
+      invocation: {
+        server: "context7",
+        tool: "query_docs",
+        arguments: {
+          libraryId: "/storybookjs/storybook",
+        },
+      },
+      durationMs: null,
+      completed: false,
+      result: {
+        type: "success",
+        content: [
+          {
+            type: "text",
+            text: "Streaming MCP result content already arrived.",
+          },
+        ],
+        structuredContent: null,
+        raw: {
+          content: [
+            {
+              type: "text",
+              text: "Streaming MCP result content already arrived.",
+            },
+          ],
+          structuredContent: null,
+        },
+      },
+    }),
+  }),
   mcpProtocolError: buildToolItemBase({
     itemId: "tool_story_mcp_error",
     type: "mcp_tool_call",
@@ -1643,8 +1781,10 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
         rationale: "Only local Storybook and renderer tests are executed before packaging.",
       },
       action: {
-        type: "commandExecution",
+        type: "command",
+        source: "shell",
         command: "bun run build:storybook",
+        cwd: "/Users/asc/repo/nodex",
       },
     },
   }),
@@ -1664,8 +1804,10 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
         rationale: null,
       },
       action: {
-        type: "commandExecution",
+        type: "command",
+        source: "shell",
         command: "bun run build:storybook",
+        cwd: "/Users/asc/repo/nodex",
       },
     },
   }),
@@ -1794,6 +1936,74 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
       },
     }),
   ],
+  multiAgentFailed: [
+    buildToolItemBase({
+      itemId: "story_multi_agent_failed",
+      entryId: "story_multi_agent_failed",
+      type: "collabAgentToolCall",
+      kind: "toolCall",
+      semanticKind: "multiAgentAction",
+      status: "failed",
+      rawItem: {
+        id: "story_multi_agent_failed",
+        tool: "closeAgent",
+        status: "failed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1"],
+        receiverThreads: [
+          {
+            threadId: "thread-agent-1",
+            thread: {
+              nickname: "@research",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+        ],
+        prompt: null,
+        agentsStates: {
+          "thread-agent-1": {
+            status: "errored",
+            message: "Agent did not respond before close",
+          },
+        },
+      },
+    }),
+  ],
+  multiAgentPromptMetadata: [
+    buildToolItemBase({
+      itemId: "story_multi_agent_prompt_metadata",
+      entryId: "story_multi_agent_prompt_metadata",
+      type: "collabAgentToolCall",
+      kind: "toolCall",
+      semanticKind: "multiAgentAction",
+      status: "completed",
+      rawItem: {
+        id: "story_multi_agent_prompt_metadata",
+        tool: "resumeAgent",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1"],
+        receiverThreads: [
+          {
+            threadId: "thread-agent-1",
+            thread: {
+              nickname: "@research",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+        ],
+        prompt: "Resume the parity audit.\nFocus on the multi-agent row body and prompt metadata.",
+        agentsStates: {
+          "thread-agent-1": {
+            status: "completed",
+            message: "Ready for the next instruction",
+          },
+        },
+      },
+    }),
+  ],
 };
 
 export const THREAD_REQUEST_CARD_STORY_DATA = {
@@ -1822,6 +2032,45 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     proposedExecpolicyAmendment: ["git", "add"],
     createdAt: 1,
   },
+  fileApproval: {
+    type: "approval" as const,
+    requestId: "file_approval_story_card",
+    kind: "file" as const,
+    projectId: STORY_PROJECT_ID,
+    threadId: STORY_THREAD_ID,
+    turnId: "turn_story_request",
+    itemId: "item_story_file_approval",
+    grantRoot: STORY_WORKSPACE_PATH,
+    createdAt: 1,
+  },
+  fileApprovalItem: buildStoryConversationItem({
+    turnId: "turn_story_request",
+    itemId: "item_story_file_approval",
+    entryId: "item_story_file_approval",
+    type: "file_change",
+    kind: "fileChange",
+    semanticKind: "patch",
+    status: "inProgress",
+    approvalRequestId: "file_approval_story_card",
+    fileChange: {
+      changes: buildCodexFileChangeMap([
+        { type: "add", path: "src/generated-preview.ts", content: "export const preview = true;\n" },
+        {
+          type: "update",
+          path: "src/generated-preview.ts",
+          movePath: null,
+          unifiedDiff: [
+            "@@ -1,1 +1,2 @@",
+            "-export const preview = false;",
+            "+export const preview = true;",
+            "+export const ready = true;",
+          ].join("\n"),
+        },
+      ]),
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  }),
   userInput: {
     type: "userInput" as const,
     requestId: "user_input_story_card",
@@ -1878,9 +2127,17 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
         enabled: true,
       },
       fileSystem: {
-        read: [STORY_WORKSPACE_PATH],
+        read: null,
         write: null,
-        entries: [],
+        entries: [
+          {
+            path: {
+              type: "path" as const,
+              path: STORY_WORKSPACE_PATH,
+            },
+            access: "read" as const,
+          },
+        ],
       },
     },
     response: null,
@@ -1899,13 +2156,19 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     serverName: "Context7",
     message: "Allow this MCP server call to continue?",
     requestedSchema: {
-      project: {
-        type: "string",
-        description: "Repository or package name to inspect",
-      },
-      branch: {
-        type: "string",
-        description: "Optional branch override",
+      type: "object",
+      required: ["project"],
+      properties: {
+        project: {
+          type: "string",
+          title: "Project",
+          description: "Repository or package name to inspect",
+        },
+        branch: {
+          type: "string",
+          title: "Branch",
+          description: "Optional branch override",
+        },
       },
     },
     createdAt: 1,
@@ -2117,6 +2380,22 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
 
   if (controls.preset === "approval-lane") {
     const conversation = buildApprovalRequestConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "tool-call-mixed") {
+    const conversation = buildMixedToolCallConversation();
     return {
       preset,
       runtime: {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getCodexFileChangeList } from "../../shared/codex-file-change";
+import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
 import { buildTurnErrorItemView, normalizeThreadItem } from "./codex-item-normalizer";
 
 function normalizeMcpItem(overrides: Record<string, unknown>) {
@@ -91,9 +91,12 @@ describe("codex-item-normalizer", () => {
     expect(item?.toolCall?.toolName).toBe("file_change");
     expect((item?.toolCall?.args as { label?: string }).label).toBe("Edited src/example.ts");
     const updateChange = getCodexFileChangeList(item?.fileChange?.changes)[0];
+    const resultChange = getCodexFileChangeList(
+      (item?.toolCall?.result as { changes?: import("../../shared/types").CodexFileChangeMap } | undefined)?.changes,
+    )[0];
     expect(updateChange?.type ?? null).toBe("update");
     expect(updateChange?.type === "update" ? updateChange.movePath : null).toBe("src/example-old.ts");
-    expect((((item?.toolCall?.result as { diffs?: string[] } | undefined)?.diffs ?? [])[0] ?? "").includes("@@ -1 +1 @@")).toBeTrue();
+    expect(resultChange?.type ?? null).toBe("update");
   });
 
   test("normalizes fileChange add and delete items using v2 diff text as file content", () => {
@@ -132,11 +135,7 @@ describe("codex-item-normalizer", () => {
     expect(changes[1]?.type ?? null).toBe("delete");
     expect(changes[1]?.type === "delete" ? changes[1].content : null).toBe("export const removed = true;\n");
 
-    const diffs = ((item?.toolCall?.result as { diffs?: string[] } | undefined)?.diffs ?? []);
-    expect(diffs[0]?.includes("new file mode 100644") ?? false).toBeTrue();
-    expect(diffs[0]?.includes("+export const created = true;") ?? false).toBeTrue();
-    expect(diffs[1]?.includes("deleted file mode 100644") ?? false).toBeTrue();
-    expect(diffs[1]?.includes("-export const removed = true;") ?? false).toBeTrue();
+    expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("src/new-file.ts,src/old-file.ts");
   });
 
   test("normalizes empty fileChange add diffs so live patch rows can appear before lines stream", () => {
@@ -162,7 +161,7 @@ describe("codex-item-normalizer", () => {
     expect(item).not.toBeNull();
     expect(item?.normalizedKind).toBe("fileChange");
     expect(item?.status).toBe("inProgress");
-    expect(item?.fileChange?.paths.join(",") ?? "").toBe("poem.md");
+    expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("poem.md");
     expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? null).toBe("add");
   });
 
@@ -189,7 +188,7 @@ describe("codex-item-normalizer", () => {
     const change = getCodexFileChangeList(item?.fileChange?.changes)[0];
 
     expect(item?.normalizedKind ?? null).toBe("fileChange");
-    expect(item?.fileChange?.paths.join(",") ?? "").toBe("src/app.ts");
+    expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("src/app.ts");
     expect(change?.type ?? null).toBe("update");
     expect(change?.type === "update" ? change.unifiedDiff : null).toBe("");
   });

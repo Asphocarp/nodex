@@ -1,10 +1,11 @@
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
-import { groupAgentEntries } from "./group-exploration-blocks";
+import { buildAgentRenderUnits, materializeAgentRenderUnits } from "./group-exploration-blocks";
 import type {
   ThreadAssistantActionsBlockModel,
   ThreadAssistantMessageActionsModel,
-  ThreadAgentItemModel,
   ThreadAgentEntryModel,
+  ThreadAgentItemModel,
+  ThreadAgentRenderUnit,
   ThreadBlockModel,
   ThreadExplorationGroupBlockModel,
   ThreadSearchUnitModel,
@@ -45,10 +46,10 @@ function buildThinkingPlaceholderItem(turnId: string): ThreadThinkingPlaceholder
 
 function flattenBlocks(
   leadingBlocks: ThreadBlockModel[],
-  agentBodyEntries: ThreadAgentEntryModel[],
+  agentBodyUnits: ThreadAgentRenderUnit[],
   trailingBlocks: ThreadBlockModel[],
 ): ThreadBlockModel[] {
-  return [...leadingBlocks, ...agentBodyEntries, ...trailingBlocks];
+  return [...leadingBlocks, ...materializeAgentRenderUnits(agentBodyUnits), ...trailingBlocks];
 }
 
 function resolveAboveComposerBlocks(
@@ -338,6 +339,20 @@ function isIncompleteBlock(
   return true;
 }
 
+function isAssistantActivitySliceClosed(buckets: ThreadTurnRenderBuckets): boolean {
+  const assistantItem = buckets.assistantItem;
+  if (!assistantItem || assistantItem.type !== "assistantMessage") return false;
+  if (assistantItem.status === "completed") return true;
+  return (assistantItem.entry.markdownText?.trim().length ?? 0) > 0;
+}
+
+function shouldKeepLatestLiveActivityInGroup(
+  buckets: ThreadTurnRenderBuckets,
+  input: Pick<BuildTurnViewModelInput, "isStreamingTurn">,
+): boolean {
+  return input.isStreamingTurn && !isAssistantActivitySliceClosed(buckets);
+}
+
 function isTrailingReasoningEntryInProgress(entry: ThreadAgentEntryModel | undefined): boolean {
   if (!entry || entry.type === "explorationGroup" || entry.type === "multiAgentGroup" || entry.type === "collapsedToolActivity") return false;
   if (entry.type !== "reasoning") return false;
@@ -364,15 +379,15 @@ function hasIncompleteNonAgentBlock(
 }
 
 function reconcileExplorationState(
-  groupedAgentItems: ThreadAgentEntryModel[],
+  agentBodyBlocks: ThreadAgentEntryModel[],
   buckets: ThreadTurnRenderBuckets,
   input: Pick<BuildTurnViewModelInput, "isStreamingTurn" | "isBlocked">,
 ): {
-  groupedAgentItems: ThreadAgentEntryModel[];
+  agentBodyBlocks: ThreadAgentEntryModel[];
   isExploring: boolean;
   isAnyNonExploringAgentItemInProgress: boolean;
 } {
-  const trailingEntry = groupedAgentItems[groupedAgentItems.length - 1];
+  const trailingEntry = agentBodyBlocks[agentBodyBlocks.length - 1];
   const hasTrailingExplorationGroup = trailingEntry?.type === "explorationGroup";
   const trailingExplorationGroup = hasTrailingExplorationGroup ? trailingEntry as ThreadExplorationGroupBlockModel : null;
   const nonAgentBlockInProgress = hasIncompleteNonAgentBlock(buckets, input.isStreamingTurn);
@@ -383,18 +398,18 @@ function reconcileExplorationState(
     && trailingExplorationGroup !== null
     && (!nonAgentBlockInProgress || explorationEntryInProgress);
 
-  const nextGroupedAgentItems =
+  const nextAgentBodyBlocks =
     isExploring && trailingExplorationGroup
-      ? groupedAgentItems.map((entry, index) => {
-          if (index !== groupedAgentItems.length - 1 || entry.type !== "explorationGroup") return entry;
+      ? agentBodyBlocks.map((entry, index) => {
+          if (index !== agentBodyBlocks.length - 1 || entry.type !== "explorationGroup") return entry;
           return {
             ...entry,
             status: "inProgress",
           } satisfies ThreadExplorationGroupBlockModel;
         })
-      : groupedAgentItems;
+      : agentBodyBlocks;
 
-  const trailingResolvedEntry = nextGroupedAgentItems[nextGroupedAgentItems.length - 1];
+  const trailingResolvedEntry = nextAgentBodyBlocks[nextAgentBodyBlocks.length - 1];
   const isAnyNonExploringAgentItemInProgress =
     trailingResolvedEntry !== undefined
     && trailingResolvedEntry.type !== "explorationGroup"
@@ -403,10 +418,24 @@ function reconcileExplorationState(
     && !isTrailingReasoningEntryInProgress(trailingResolvedEntry);
 
   return {
-    groupedAgentItems: nextGroupedAgentItems,
+    agentBodyBlocks: nextAgentBodyBlocks,
     isExploring,
     isAnyNonExploringAgentItemInProgress,
   };
+}
+
+function reconcileAgentBodyUnitBlocks(
+  units: ThreadAgentRenderUnit[],
+  blocks: ThreadAgentEntryModel[],
+): ThreadAgentRenderUnit[] {
+  return units.map((unit, index) => {
+    const block = blocks[index];
+    if (!block || block === unit.block) return unit;
+    return {
+      ...unit,
+      block: block as ThreadAgentRenderUnit["block"],
+    } as ThreadAgentRenderUnit;
+  });
 }
 
 function resolveThinkingPlaceholderItem(
@@ -459,8 +488,14 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const initialVisibleAgentItems = shouldRenderWorkedForInAgentBody
     ? input.buckets.agentItems
     : input.buckets.agentItems.filter((item) => item.type !== "workedFor");
-  const initialGroupedAgentItems = groupAgentEntries(initialVisibleAgentItems);
-  const initialExplorationState = reconcileExplorationState(initialGroupedAgentItems, input.buckets, input);
+  const initialAgentBodyUnits = buildAgentRenderUnits(initialVisibleAgentItems, {
+    keepLatestLiveActivityInGroup: shouldKeepLatestLiveActivityInGroup(input.buckets, input),
+  });
+  const initialExplorationState = reconcileExplorationState(
+    materializeAgentRenderUnits(initialAgentBodyUnits),
+    input.buckets,
+    input,
+  );
 
   let buckets: ThreadTurnRenderBuckets = {
     ...input.buckets,
@@ -541,8 +576,18 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const visibleAgentItems = shouldRenderWorkedForInAgentBody
     ? buckets.agentItems
     : buckets.agentItems.filter((item) => item.type !== "workedFor");
-  const groupedAgentItems = groupAgentEntries(visibleAgentItems);
-  const explorationState = reconcileExplorationState(groupedAgentItems, buckets, input);
+  const agentBodyUnitsBeforeReconcile = buildAgentRenderUnits(visibleAgentItems, {
+    keepLatestLiveActivityInGroup: shouldKeepLatestLiveActivityInGroup(buckets, input),
+  });
+  const explorationState = reconcileExplorationState(
+    materializeAgentRenderUnits(agentBodyUnitsBeforeReconcile),
+    buckets,
+    input,
+  );
+  const agentBodyUnits = reconcileAgentBodyUnitBlocks(
+    agentBodyUnitsBeforeReconcile,
+    explorationState.agentBodyBlocks,
+  );
 
   const leadingBlocks: ThreadBlockModel[] = [
     ...buckets.modelChangedItems,
@@ -567,9 +612,9 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     ...buckets.personalityChangedItems,
     ...buckets.forkedFromConversationItems,
   ].filter((block) => !portalBlockIds.has(block.id) && !assistantAfterBlockIds.has(block.id));
-  const resolvedBlocks = flattenBlocks(leadingBlocks, explorationState.groupedAgentItems, trailingBlocks);
-  const hasRenderableAgentBodyEntries =
-    explorationState.groupedAgentItems.length > 0
+  const resolvedBlocks = flattenBlocks(leadingBlocks, agentBodyUnits, trailingBlocks);
+  const hasRenderableAgentBodyUnits =
+    agentBodyUnits.length > 0
     && !input.isStreamingTurn
     && !isCancelledTurn
     && isCompletedTurn;
@@ -579,7 +624,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     turn: input.turn,
     buckets,
     leadingBlocks,
-    agentBodyEntries: explorationState.groupedAgentItems,
+    agentBodyUnits,
     trailingBlocks,
     blocks: resolvedBlocks,
     aboveComposerBlocks,
@@ -591,8 +636,8 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     isBlocked: input.isBlocked,
     searchableText: collectSearchableText(resolvedBlocks),
     searchUnits,
-    hasRenderableAgentBodyEntries,
-    defaultAgentBodyCollapsed: hasRenderableAgentBodyEntries && !input.isLatestTurn,
-    collapsedMessageCount: explorationState.groupedAgentItems.length,
+    hasRenderableAgentBodyUnits,
+    defaultAgentBodyCollapsed: hasRenderableAgentBodyUnits && !input.isLatestTurn,
+    collapsedMessageCount: agentBodyUnits.length,
   };
 }

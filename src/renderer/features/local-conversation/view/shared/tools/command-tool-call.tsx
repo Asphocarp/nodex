@@ -1,48 +1,60 @@
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
-import { resolveCommandExecutionRenderStatus } from "../../../../../../shared/codex-command-execution";
+import {
+  getDisplayCommand,
+  resolveCommandExecutionRenderStatus,
+  splitShellWords,
+} from "../../../../../../shared/codex-command-execution";
 import type { CodexCommandAction, CodexTranscriptEntry } from "../../../../../lib/types";
-import { getDisplayCommand } from "../../../../../lib/command-display";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
 import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CodexShimmerText } from "../codex-shimmer-text";
-import { extractCommandActions, isExplorationAction } from "./command-actions";
+import { AutomaticApprovalReviewRows, AutomaticApprovalReviewShield } from "../automatic-approval-review-surface";
+import { extractCommandActions, isExplorationAction, resolveExplorationSkillPathInfo } from "./command-actions";
 import {
   ToolActivityIcon,
   resolveExplorationActionIcon,
   semanticToolIcon,
   type ToolActivityIconDescriptor,
 } from "./tool-call-icons";
-import { ToolErrorDetail } from "./tool-primitives";
+import { ThreadActivityDisclosure, ToolErrorDetail } from "./tool-primitives";
 import { ThreadCommandShellBlock } from "./thread-command-shell-block";
 
 interface CommandToolCallProps {
   item: CodexTranscriptEntry;
   threadCwd?: string;
-  defaultExpandExecShell?: boolean;
+  isStreamingTurn?: boolean;
+  automaticApprovalReviews?: CodexTranscriptEntry[];
   execSummaryTone?: "default" | "muted";
   showExecSummaryIcon?: boolean;
 }
 
-interface CommandToolArgs {
-  summaryLabel?: string;
+type CommandViewState = "collapsed" | "expanded";
+
+const SKILL_SCRIPT_INTERPRETERS = new Set(["python", "python3", "bash", "sh"]);
+
+interface SkillScriptSummary {
+  fileName: string;
+  skillName: string;
 }
 
-type CommandViewState = "preview" | "collapsed" | "expanded";
+interface CommandSummaryLabelInput {
+  command: string;
+  effectiveStatus: string | undefined;
+  isExpanded: boolean;
+  isTurnInProgress: boolean;
+  processId: number | string | null | undefined;
+}
 
 export interface CommandElapsedSnapshot {
   startedAt: number | null;
   settledElapsedMs: number | null;
   lastMeasuredAt: number;
 }
-
-const PREVIEW_TIMEOUT_MS = 200;
-const EXPAND_AFTER_START_MS = 2_000;
-const EXEC_PREVIEW_HEIGHT_REM = 8;
 
 function normalizePath(path: string | undefined): string | null {
   if (!path) return null;
@@ -139,16 +151,130 @@ function useElapsedLabel(status: string | undefined): string | null {
   return formatElapsedDuration(elapsedMs);
 }
 
-function resolveSummaryLabel(
-  command: string,
-  effectiveStatus: string | undefined,
-  summaryLabel?: string,
-  markdownText?: string,
-): string {
-  if (summaryLabel && summaryLabel.trim().length > 0) return summaryLabel.trim();
-  if (markdownText && markdownText.trim().length > 0) return markdownText.trim();
-  if (effectiveStatus === "inProgress") return `Running ${command}`;
-  return `Ran ${command}`;
+function resolveCommandBasename(value: string | undefined): string | null {
+  const basename = value?.replaceAll("\\", "/").split("/").at(-1)?.trim();
+  return basename && basename.length > 0 ? basename : null;
+}
+
+function isAllowedDateArgument(value: string): boolean {
+  return value.startsWith("+")
+    || value === "-u"
+    || value === "--utc"
+    || value === "--universal"
+    || value === "-R"
+    || value === "--rfc-email"
+    || value === "-I"
+    || value.startsWith("-I=")
+    || value.startsWith("--iso-8601")
+    || value.startsWith("--rfc-3339");
+}
+
+export function isDateCommand(command: string): boolean {
+  const words = splitShellWords(command.trim());
+  if (!words || words.length === 0) return false;
+
+  const executable = resolveCommandBasename(words[0]);
+  if (executable !== "date") return false;
+  return words.slice(1).every(isAllowedDateArgument);
+}
+
+function resolveSkillScriptSummary(command: string): SkillScriptSummary | null {
+  const words = splitShellWords(command.trim());
+  if (!words || words.length === 0) return null;
+
+  const executable = resolveCommandBasename(words[0])?.toLowerCase();
+  if (!executable || !SKILL_SCRIPT_INTERPRETERS.has(executable)) return null;
+
+  const scriptPath = words.slice(1).find((word) => word.length > 0 && !word.startsWith("-"));
+  if (!scriptPath) return null;
+
+  const normalizedScriptPath = normalizePath(scriptPath);
+  if (!normalizedScriptPath) return null;
+
+  const segments = normalizedScriptPath.replace(/^\/+/, "").split("/").filter((segment) => segment.length > 0);
+  let remainingSegmentsAfterSkill: string[] | null = null;
+  for (let index = 0; index < segments.length; index += 1) {
+    const current = segments[index]?.toLowerCase();
+    const next = segments[index + 1]?.toLowerCase();
+    if ((current !== ".codex" && current !== ".agents") || next !== "skills") continue;
+
+    const candidate = segments[index + 2] ?? null;
+    const candidateLower = candidate?.toLowerCase();
+    const skillNameIndex = candidateLower === "_import" || candidateLower === ".system" ? index + 3 : index + 2;
+    if (!segments[skillNameIndex]) continue;
+
+    remainingSegmentsAfterSkill = segments.slice(skillNameIndex + 1);
+    break;
+  }
+
+  if (!remainingSegmentsAfterSkill || remainingSegmentsAfterSkill[0]?.toLowerCase() !== "scripts") return null;
+
+  const fileName = segments.at(-1) ?? null;
+  if (!fileName || fileName.toLowerCase() === "scripts") return null;
+
+  const skillPathInfo = resolveExplorationSkillPathInfo(scriptPath);
+  if (!skillPathInfo) return null;
+
+  return {
+    fileName,
+    skillName: skillPathInfo.skillName,
+  };
+}
+
+function formatSkillScriptSummary(summary: SkillScriptSummary): string {
+  return `script ${summary.fileName} from ${summary.skillName} skill`;
+}
+
+export function resolveCommandSummaryLabel({
+  command,
+  effectiveStatus,
+  isExpanded,
+  isTurnInProgress,
+  processId,
+}: CommandSummaryLabelInput): string {
+  const commandText = command.trim();
+  const isInProgress = effectiveStatus === "inProgress";
+  const wasInterrupted = effectiveStatus === "interrupted";
+
+  if (isDateCommand(commandText)) {
+    if (wasInterrupted) return "Stopped checking the current date and time";
+    if (isInProgress) return "Checking the current date and time";
+    return "Checked the current date and time";
+  }
+
+  const isBackgroundTerminalRunning = isInProgress && !isTurnInProgress;
+  const isFinishedBackgroundTerminal = !isInProgress && !isTurnInProgress && processId !== null && processId !== undefined;
+  const shouldUseSkillScriptSummary = isBackgroundTerminalRunning || isFinishedBackgroundTerminal || !isExpanded;
+  const skillScriptSummary = shouldUseSkillScriptSummary ? resolveSkillScriptSummary(commandText) : null;
+  const commandSummary = skillScriptSummary ? formatSkillScriptSummary(skillScriptSummary) : commandText;
+
+  if (isInProgress) {
+    if (isBackgroundTerminalRunning) {
+      if (skillScriptSummary) {
+        return `Started background terminal running ${skillScriptSummary.fileName} from ${skillScriptSummary.skillName} skill`;
+      }
+      if (commandText.length > 0) return `Started background terminal with ${commandText}`;
+      return "Started background terminal";
+    }
+    return "Running command";
+  }
+
+  if (isFinishedBackgroundTerminal) {
+    if ((skillScriptSummary || commandText.length > 0) && wasInterrupted) {
+      return `Background terminal stopped with ${commandSummary}`;
+    }
+    if (skillScriptSummary) {
+      return `Background terminal finished running ${skillScriptSummary.fileName} from ${skillScriptSummary.skillName} skill`;
+    }
+    if (commandText.length > 0) return `Ran ${commandText}`;
+    return wasInterrupted ? "Background terminal stopped" : "Background terminal finished";
+  }
+
+  if (!isExpanded && (skillScriptSummary || commandText.length > 0)) {
+    return wasInterrupted ? `Stopped ${commandSummary}` : `Ran ${commandSummary}`;
+  }
+
+  return wasInterrupted ? "Stopped command" : "Ran command";
 }
 
 function formatExplorationSummary(actions: CodexCommandAction[], effectiveStatus: string | undefined): string {
@@ -165,6 +291,64 @@ function renderExplorationLine(action: CodexCommandAction): string {
     if (action.query) return `Searched for ${action.query}`;
   }
   return action.command;
+}
+
+function resolveSingleExplorationAction(actions: CodexCommandAction[]): CodexCommandAction | null {
+  if (actions.length !== 1) return null;
+  const [action] = actions;
+  if (!action || !isExplorationAction(action)) return null;
+  return action;
+}
+
+function formatReadActionLabel(
+  action: Extract<CodexCommandAction, { type: "read" }>,
+  effectiveStatus: string | undefined,
+  threadDetailLevel: string,
+): string | null {
+  const skillPathInfo = resolveExplorationSkillPathInfo(action.path);
+  if (skillPathInfo?.isSkillDefinitionFile === true) {
+    if (effectiveStatus === "inProgress") {
+      return threadDetailLevel === "STEPS_PROSE" ? `Reading ${skillPathInfo.skillName} skill` : null;
+    }
+    return `Read ${skillPathInfo.skillName} skill`;
+  }
+
+  if (effectiveStatus === "inProgress") return null;
+  return `Read ${action.name || action.path}`;
+}
+
+function formatSearchActionLabel(
+  action: Extract<CodexCommandAction, { type: "search" }>,
+  effectiveStatus: string | undefined,
+): string {
+  const verb = effectiveStatus === "inProgress" ? "Searching" : "Searched";
+  if (action.query && action.path) return `${verb} for ${action.query} in ${action.path}`;
+  if (action.query) return `${verb} for ${action.query}`;
+  return `${verb} for files`;
+}
+
+function formatListFilesActionLabel(
+  action: Extract<CodexCommandAction, { type: "listFiles" }>,
+  effectiveStatus: string | undefined,
+): string {
+  const verb = effectiveStatus === "inProgress" ? "Listing" : "Listed";
+  return action.path ? `${verb} files in ${action.path}` : `${verb} files`;
+}
+
+function formatSingleExplorationActionLabel(
+  action: CodexCommandAction,
+  effectiveStatus: string | undefined,
+  threadDetailLevel: string,
+): string | null {
+  if (action.type === "read") return formatReadActionLabel(action, effectiveStatus, threadDetailLevel);
+  if (action.type === "search") return formatSearchActionLabel(action, effectiveStatus);
+  if (action.type === "listFiles") return formatListFilesActionLabel(action, effectiveStatus);
+  return null;
+}
+
+function isSkillDefinitionReadAction(action: CodexCommandAction | null): boolean {
+  if (action?.type !== "read") return false;
+  return resolveExplorationSkillPathInfo(action.path)?.isSkillDefinitionFile === true;
 }
 
 function resolveCommandHeaderIcon(actions: CodexCommandAction[], isExploration: boolean): ToolActivityIconDescriptor {
@@ -231,7 +415,7 @@ function resolveActiveCommandSummaryLeadingLabel(
   isInProgress: boolean,
 ): { leading: string; trailing: string | null } | null {
   if (!isInProgress) return null;
-  const activePrefixes = ["Running command", "Running", "Exploring"];
+  const activePrefixes = ["Checking the current date and time", "Running command", "Running", "Exploring"];
   for (const prefix of activePrefixes) {
     if (summaryLabel === prefix) return { leading: prefix, trailing: null };
     if (summaryLabel.startsWith(`${prefix} `)) {
@@ -239,6 +423,57 @@ function resolveActiveCommandSummaryLeadingLabel(
     }
   }
   return null;
+}
+
+function SingleExplorationActionRow({
+  action,
+  automaticApprovalReviews,
+  effectiveStatus,
+  threadDetailLevel,
+}: {
+  action: CodexCommandAction;
+  automaticApprovalReviews: CodexTranscriptEntry[];
+  effectiveStatus: string | undefined;
+  threadDetailLevel: string;
+}) {
+  const label = formatSingleExplorationActionLabel(action, effectiveStatus, threadDetailLevel);
+  if (!label) return null;
+
+  if (automaticApprovalReviews.length > 0) {
+    return (
+      <ThreadActivityDisclosure
+        shouldAnimateInitialCollapse={false}
+        summary={(
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground [&_*]:text-token-foreground/30 group-hover/activity-header:[&_*]:text-token-foreground">
+            <CodexShimmerText
+              active={effectiveStatus === "inProgress"}
+              className="min-w-0 truncate"
+            >
+              {label}
+            </CodexShimmerText>
+            <AutomaticApprovalReviewShield />
+          </span>
+        )}
+      >
+        <AutomaticApprovalReviewRows items={automaticApprovalReviews} />
+      </ThreadActivityDisclosure>
+    );
+  }
+
+  return (
+    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
+      <div className="px-0">
+        <div className="flex min-w-0 items-center gap-1 text-token-description-foreground/80">
+          <CodexShimmerText
+            active={effectiveStatus === "inProgress"}
+            className="inline-flex min-w-0 max-w-full truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground"
+          >
+            {label}
+          </CodexShimmerText>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CommandFooter({
@@ -276,102 +511,62 @@ function CommandFooter({
 export function CommandToolCall({
   item,
   threadCwd,
-  defaultExpandExecShell,
+  isStreamingTurn = true,
+  automaticApprovalReviews = [],
   execSummaryTone = "default",
   showExecSummaryIcon = true,
 }: CommandToolCallProps) {
   const { settings } = useCodexThreadSettings();
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
-  if (threadDetailLevel === "STEPS_PROSE") return null;
 
-  const toolArgs = (typeof item.toolCall?.args === "object" && item.toolCall.args !== null)
-    ? item.toolCall.args as CommandToolArgs
-    : {};
   const rawCommand = typeof item.command === "string" && item.command.trim().length > 0
     ? item.command
-    : "command";
-  const command = getDisplayCommand(rawCommand);
+    : "";
+  const displayCommand = getDisplayCommand(rawCommand);
+  const command = displayCommand || "command";
   const output = item.aggregatedOutput ?? "";
   const exitCode = item.exitCode ?? null;
   const effectiveStatus = resolveCommandExecutionRenderStatus({
     itemStatus: item.status,
   });
   const isInProgress = effectiveStatus === "inProgress";
+  const hasApprovalReviews = automaticApprovalReviews.length > 0;
   const elapsedLabel = useElapsedLabel(effectiveStatus);
   const commandActions = extractCommandActions(item);
   const isExploration = commandActions.length > 0 && commandActions.every(isExplorationAction);
-  const prefersExpandedWhenSettled = defaultExpandExecShell ?? threadDetailLevel === "STEPS_EXECUTION";
-  const [viewState, setViewState] = useState<CommandViewState>(() => (
-    prefersExpandedWhenSettled && !isInProgress ? "expanded" : "collapsed"
-  ));
-  const previewTimeoutRef = useRef<number | null>(null);
-  const expandTimeoutRef = useRef<number | null>(null);
-  const previousInProgressRef = useRef(false);
-  const previousThreadDetailLevelRef = useRef(threadDetailLevel);
-  const viewStateRef = useRef<CommandViewState>(viewState);
+  const singleExplorationAction = resolveSingleExplorationAction(commandActions);
+  const isSingleSkillDefinitionRead = isSkillDefinitionReadAction(singleExplorationAction);
+  const shouldHideForProse = threadDetailLevel === "STEPS_PROSE" && !isSingleSkillDefinitionRead;
+  const shouldHideUnfinishedParsedAction = singleExplorationAction !== null
+    && effectiveStatus === "inProgress"
+    && !isSingleSkillDefinitionRead;
+  const [viewState, setViewState] = useState<CommandViewState>("collapsed");
   const { elementHeightPx: bodyHeightPx, elementRef: bodyRef } = useMeasuredElementHeight();
 
-  useEffect(() => {
-    viewStateRef.current = viewState;
-  }, [viewState]);
-
-  useEffect(() => {
-    if (previousThreadDetailLevelRef.current === threadDetailLevel) return;
-    previousThreadDetailLevelRef.current = threadDetailLevel;
-    if (isInProgress) return;
-    setViewState(prefersExpandedWhenSettled ? "expanded" : "collapsed");
-  }, [isInProgress, prefersExpandedWhenSettled, threadDetailLevel]);
-
-  useEffect(() => {
-    if (previewTimeoutRef.current !== null) {
-      window.clearTimeout(previewTimeoutRef.current);
-      previewTimeoutRef.current = null;
-    }
-    if (expandTimeoutRef.current !== null) {
-      window.clearTimeout(expandTimeoutRef.current);
-      expandTimeoutRef.current = null;
-    }
-
-    const wasInProgress = previousInProgressRef.current;
-
-    if (wasInProgress && !isInProgress) {
-      if (viewStateRef.current === "expanded") {
-        setViewState("preview");
-        previewTimeoutRef.current = window.setTimeout(() => {
-          setViewState("collapsed");
-          previewTimeoutRef.current = null;
-        }, PREVIEW_TIMEOUT_MS);
-      }
-    }
-
-    if (!wasInProgress && isInProgress) {
-      expandTimeoutRef.current = window.setTimeout(() => {
-        setViewState("expanded");
-        expandTimeoutRef.current = null;
-      }, EXPAND_AFTER_START_MS);
-    }
-
-    previousInProgressRef.current = isInProgress;
-
-    return () => {
-      if (previewTimeoutRef.current !== null) {
-        window.clearTimeout(previewTimeoutRef.current);
-        previewTimeoutRef.current = null;
-      }
-      if (expandTimeoutRef.current !== null) {
-        window.clearTimeout(expandTimeoutRef.current);
-        expandTimeoutRef.current = null;
-      }
-    };
-  }, [isInProgress]);
-
   const isExpanded = viewState === "expanded";
+  if (shouldHideForProse || shouldHideUnfinishedParsedAction) return null;
+  if (singleExplorationAction) {
+    return (
+      <SingleExplorationActionRow
+        action={singleExplorationAction}
+        automaticApprovalReviews={automaticApprovalReviews}
+        effectiveStatus={effectiveStatus}
+        threadDetailLevel={threadDetailLevel}
+      />
+    );
+  }
+
   const summaryLabel = isExploration
     ? formatExplorationSummary(commandActions, effectiveStatus)
-    : resolveSummaryLabel(command, effectiveStatus, toolArgs.summaryLabel, item.markdownText);
+    : resolveCommandSummaryLabel({
+      command: displayCommand,
+      effectiveStatus,
+      isExpanded,
+      isTurnInProgress: isStreamingTurn,
+      processId: item.processId,
+    });
 
   const handleToggle = () => {
-    if (isInProgress && viewState === "expanded") return;
     setViewState((currentState) => (currentState === "expanded" ? "collapsed" : "expanded"));
   };
 
@@ -393,6 +588,7 @@ export function CommandToolCall({
           isInProgress={isInProgress}
           tone={execSummaryTone}
         />
+        {hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
         {!isInProgress ? (
           <span className={cn("inline-chevron flex-shrink-0 text-token-input-placeholder-foreground transition-opacity duration-200 opacity-0 group-hover:opacity-100", isExpanded && "opacity-100")}>
             <ChevronDownIcon className={cn("icon-2xs text-current transition-transform duration-300", isExpanded ? "rotate-0" : "-rotate-90")} />
@@ -414,10 +610,11 @@ export function CommandToolCall({
       </div>
     </div>
   ) : (
-    <div className="pt-2">
-        <ThreadCommandShellBlock
+    <div className={cn("flex flex-col gap-2", automaticApprovalReviews.length === 0 && "pt-2")}>
+      <AutomaticApprovalReviewRows items={automaticApprovalReviews} />
+      <ThreadCommandShellBlock
         variant="embedded"
-      command={command}
+        command={command}
         output={output}
         cwd={item.cwd ?? undefined}
         isInProgress={isInProgress}
@@ -431,14 +628,7 @@ export function CommandToolCall({
       />
     </div>
   );
-  const previewHeightPx = bodyHeightPx > 0
-    ? Math.min(bodyHeightPx, EXEC_PREVIEW_HEIGHT_REM * 16)
-    : EXEC_PREVIEW_HEIGHT_REM * 16;
-  const measuredHeight = viewState === "expanded"
-    ? bodyHeightPx
-    : viewState === "preview"
-      ? previewHeightPx
-      : 0;
+  const measuredHeight = isExpanded ? bodyHeightPx : 0;
   const isMeasuredOpen = viewState !== "collapsed";
 
   return (
@@ -448,7 +638,7 @@ export function CommandToolCall({
           {header}
           <motion.div
             className={cn(isMeasuredOpen ? "overflow-visible" : "overflow-hidden")}
-            data-testid={isMeasuredOpen ? "exec-shell-body" : undefined}
+            data-testid="exec-shell-body"
             data-thread-find-skip={isMeasuredOpen ? undefined : true}
             initial={false}
             animate={{
@@ -461,9 +651,11 @@ export function CommandToolCall({
               pointerEvents: isMeasuredOpen ? "auto" : "none",
             }}
           >
-            <div ref={bodyRef}>
-              {body}
-            </div>
+            {isMeasuredOpen ? (
+              <div ref={bodyRef}>
+                {body}
+              </div>
+            ) : null}
           </motion.div>
         </div>
       </div>

@@ -16,37 +16,98 @@ const mcpRequest: CodexMcpServerElicitationRequest = {
   mode: "openai/form",
   message: "Context7 wants to collect extra arguments.",
   requestedSchema: {
-    library: { type: "string" },
+    type: "object",
+    required: ["library"],
+    properties: {
+      library: {
+        type: "string",
+        title: "Library",
+      },
+    },
   },
   createdAt: 1,
 };
 
 describe("CodexMcpElicitationRequestCard", () => {
-  test("uses compact request-card chrome and maps cancel/approve actions", async () => {
+  test("renders MCP form requests and submits accepted content", async () => {
     const responses: string[] = [];
-    const { container, getByText } = render(
+    const { container, getByLabelText } = render(
       <CodexMcpElicitationRequestCard
         request={mcpRequest}
-        onRespond={async (_requestId, action) => {
-          responses.push(action);
+        onRespond={async (_requestId, response) => {
+          responses.push(JSON.stringify(response));
         }}
       />,
     );
     await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Context7"))).toBeTrue();
-    expect(container.querySelector(".rounded-2xl.border.backdrop-blur-sm")).not.toBeNull();
+    expect(Boolean(textContent(container).includes("Context7 requests information"))).toBeTrue();
+
+    const form = container.querySelector("form");
+    if (!form) throw new Error("expected MCP form");
 
     await act(async () => {
-      fireEvent.click(getByText("Cancel"));
+      fireEvent.submit(form);
       await settleAsyncRender();
     });
+    expect(Boolean(textContent(container).includes("Complete this field to continue"))).toBeTrue();
+
+    const libraryInput = getByLabelText("Library") as HTMLInputElement;
     await act(async () => {
-      fireEvent.click(getByText("Approve"));
+      fireEvent.input(libraryInput, { target: { value: "react" } });
+      await settleAsyncRender();
+    });
+    expect(libraryInput.value).toBe("react");
+    await act(async () => {
+      fireEvent.submit(form);
       await settleAsyncRender();
     });
 
-    expect(responses[0]).toBe("decline");
-    expect(responses[1]).toBe("accept");
+    expect(responses[0]).toBe(JSON.stringify({
+      action: "accept",
+      content: {
+        library: "react",
+      },
+      _meta: null,
+    }));
+  });
+
+  test("keeps compact URL requests on open/cancel actions", async () => {
+    const responses: string[] = [];
+    const originalOpen = window.open;
+    window.open = (() => null) as typeof window.open;
+    try {
+      const { getByText } = render(
+        <CodexMcpElicitationRequestCard
+          request={{
+            ...mcpRequest,
+            mode: "url",
+            kind: "toolSuggestion",
+            url: "https://example.test/connect",
+            elicitationId: "elicitation-1",
+            requestedSchema: undefined,
+          }}
+          onRespond={async (_requestId, response) => {
+            responses.push(response.action);
+          }}
+        />,
+      );
+      await settleAsyncRender();
+
+      await act(async () => {
+        fireEvent.click(getByText("Cancel"));
+        await settleAsyncRender();
+      });
+      await act(async () => {
+        fireEvent.click(getByText("Open"));
+        await settleAsyncRender();
+      });
+
+      expect(responses[0]).toBe("decline");
+      expect(responses[1]).toBe("accept");
+    } finally {
+      window.open = originalOpen;
+    }
   });
 });

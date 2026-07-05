@@ -67,6 +67,10 @@ function AutoOpenSurface({ children }: { children: ReactNode }) {
   return <div ref={containerRef}>{children}</div>;
 }
 
+function openStoryAgentThread(threadId: string) {
+  void threadId;
+}
+
 const STREAMING_ASSISTANT_SEGMENTS =
   (
     "Investigating the Storybook regression while comparing the streaming transcript against the Codex Electron bundle, verifying tooltip sizing, dropdown chrome, shell command expansion, and per-word prose animation as new text arrives."
@@ -565,7 +569,7 @@ export const AutomaticApprovalReviewCompleted: Story = {
   render: () => (
     <StorySurface
       title="Automatic Approval Review Completed"
-      description="Completed automatic approval review rows stay compact until their rationale is explicitly expanded."
+      description="Standalone automatic approval review items render an action summary activity, with the compact review row nested inside."
     >
       <ConversationStorySurface>
         <AutomaticApprovalReviewSurface
@@ -665,7 +669,7 @@ export const AutomaticApprovalReviewInProgress: Story = {
   render: () => (
     <StorySurface
       title="Automatic Approval Review In Progress"
-      description="The in-progress guardian review row uses the reviewing state and keeps the same compact transcript lane."
+      description="The in-progress standalone review keeps the reviewed action in the activity header and nests the reviewing row in the body."
     >
       <ConversationStorySurface>
         <AutomaticApprovalReviewSurface
@@ -700,7 +704,7 @@ export const MultiAgentActionCompleted: Story = {
       description="Settled multi-agent activity stays in its dedicated transcript surface and can be expanded to inspect the grouped rows."
     >
       <ConversationStorySurface>
-        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} />
+        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} onOpenThread={openStoryAgentThread} />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -714,7 +718,7 @@ export const MultiAgentActionCompletedExpanded: Story = {
     >
       <ConversationStorySurface>
         <AutoOpenSurface>
-          <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} />
+          <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} onOpenThread={openStoryAgentThread} />
         </AutoOpenSurface>
       </ConversationStorySurface>
     </StorySurface>
@@ -728,7 +732,35 @@ export const MultiAgentActionInProgress: Story = {
       description="Live background agent activity remains open and keeps the same measured Codex-style transcript lane while work is still running."
     >
       <ConversationStorySurface>
-        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentInProgress} />
+        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentInProgress} onOpenThread={openStoryAgentThread} />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const MultiAgentActionFailed: Story = {
+  render: () => (
+    <StorySurface
+      title="Multi-Agent Action Failed"
+      description="Failed multi-agent activity uses the same Codex header grammar as completed and in-progress grouped actions."
+    >
+      <ConversationStorySurface>
+        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentFailed} onOpenThread={openStoryAgentThread} />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const MultiAgentActionPromptMetadata: Story = {
+  render: () => (
+    <StorySurface
+      title="Multi-Agent Action Prompt Metadata"
+      description="Non-inline multi-agent prompts render as body metadata while inline spawn/send prompts stay truncated in-row."
+    >
+      <ConversationStorySurface>
+        <AutoOpenSurface>
+          <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentPromptMetadata} onOpenThread={openStoryAgentThread} />
+        </AutoOpenSurface>
       </ConversationStorySurface>
     </StorySurface>
   ),

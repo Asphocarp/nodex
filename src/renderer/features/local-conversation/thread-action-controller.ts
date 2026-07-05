@@ -158,8 +158,8 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onRespondUserInput: async (requestId, answers, context) => {
       await input.codexControl.respondUserInput(requestId, answers, context?.conversationId ?? null);
     },
-    onRespondMcpElicitation: async (requestId, action, context) => {
-      await input.codexControl.respondMcpElicitation(requestId, action, context?.conversationId ?? null);
+    onRespondMcpElicitation: async (requestId, response, context) => {
+      await input.codexControl.respondMcpElicitation(requestId, response, context?.conversationId ?? null);
     },
     onRespondPermissionRequest: async (requestId, response, context) => {
       await input.codexControl.respondPermissionRequest(requestId, response, context?.conversationId ?? null);
