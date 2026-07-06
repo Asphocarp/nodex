@@ -100,17 +100,25 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Prefer impact-oriented wording, not implementation wording.
 
 ## Testing Expectations
+- Use a two-tier validation strategy: run targeted checks while iterating, then run required handoff checks once after the final edit set is stable.
 - Prefer targeted tests while iterating: `bun test <path-to-test>`
+- Match checks to the changed surface while iterating:
+  - Pure helpers/domain logic: run the related unit test file.
+  - Renderer workflow changes: run the related renderer test(s) plus `bun run typecheck` when types or props changed.
+  - Main process/store/protocol/migration changes: run the nearest relevant unit or integration test before the full handoff checks.
+  - Styling or copy-only UI changes: run `bun run lint` and `bun run typecheck` when TypeScript/TSX files changed; rely on Storybook/docs/manual review for visual parity.
+- For docs-only changes, skip code checks unless the docs change generated artifacts or executable examples. Validate the markdown diff directly and state that no code checks were needed.
 - Prefer tests that prove behavior or domain contracts over tests that mirror implementation details. Avoid trivial UI assertions such as long `className`/Tailwind string matching, broad `textContent.includes(...)`, or "X contains Y string" checks unless the string is a real user-visible or accessibility contract.
 - For UI parity work, put numeric/state rules in pure helpers with boundary tests, keep renderer integration tests to a small number of critical user workflows, and use Storybook/docs/manual review for visual details like shadows, radii, z-index tokens, and motion styling.
 - Renderer React tests must be act-clean. Treat any `act(...)` warning as a failing test: fix the test before handoff instead of ignoring console output.
 - For renderer interactions that can schedule React updates, prefer Testing Library async patterns (`findBy*`, `waitFor`, awaited helpers) and make assertions only after the UI has settled.
 - When a renderer test uses low-level `fireEvent`, window/document events, timers, resize/drag gestures, or imperative callbacks instead of a higher-level awaited helper, wrap the interaction in `await act(async () => { ...; await Promise.resolve(); })`, then wait for the observable DOM/API outcome. Use `try/finally` to release drag/resize gestures so failed assertions do not leak body styles or global listeners into later tests.
 - For any new or changed user-visible UI, update or add Storybook coverage in the same change.
-- Run full checks before handoff:
+- Run full checks before handoff for code changes, preferably in parallel because these commands are independent:
   - `bun run typecheck`
   - `bun run lint`
   - `bun test`
+- If one full check fails, fix the issue and rerun the failed check plus any related targeted checks. Rerun all three full checks only when the fix could affect more than the failed surface.
 
 ## Commit and PR Expectations
 - Keep changes scoped and atomic.
