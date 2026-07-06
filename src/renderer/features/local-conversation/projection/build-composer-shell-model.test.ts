@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { CodexConversationSnapshot } from "../../../lib/types";
 import { buildComposerShellModel } from "./build-composer-shell-model";
 
+type AgentStatus = "pendingInit" | "running" | "interrupted" | "shutdown" | "completed" | "errored" | "notFound";
+type AgentTool = "spawnAgent" | "sendInput" | "resumeAgent" | "closeAgent" | "wait";
+
 function buildConversationSnapshot(
   overrides?: Partial<CodexConversationSnapshot>,
 ): CodexConversationSnapshot {
@@ -34,6 +37,108 @@ function buildConversationSnapshot(
     },
     ...overrides,
   };
+}
+
+function buildAgentTurn({
+  turnId,
+  turnStatus = "inProgress",
+  tool = "spawnAgent",
+  itemStatus = "inProgress",
+  agentStatus = "running",
+  nickname = "@Scout",
+  agentRole = "explorer",
+  model = "gpt-5.3-codex",
+  createdAt = 100,
+}: {
+  turnId: string;
+  turnStatus?: "completed" | "inProgress";
+  tool?: AgentTool;
+  itemStatus?: "completed" | "inProgress" | "failed";
+  agentStatus?: AgentStatus | null;
+  nickname?: string | null;
+  agentRole?: string | null;
+  model?: string | null;
+  createdAt?: number;
+}): CodexConversationSnapshot["turns"][number] {
+  return {
+    threadId: "thread_1",
+    turnId,
+    status: turnStatus,
+    turnStartedAtMs: createdAt,
+    itemIds: [`${turnId}_agent`],
+    items: [
+      {
+        entryId: `${turnId}_agent`,
+        itemId: `${turnId}_agent`,
+        threadId: "thread_1",
+        turnId,
+        type: "collabAgentToolCall",
+        kind: "toolCall",
+        semanticKind: "multiAgentAction",
+        status: itemStatus,
+        rawItem: {
+          type: "collabAgentToolCall",
+          tool,
+          status: itemStatus,
+          receiverThreadIds: ["thread_child"],
+          receiverThreads: [
+            {
+              threadId: "thread_child",
+              thread: {
+                nickname,
+                model,
+                agentRole,
+              },
+            },
+          ],
+          agentsStates: agentStatus
+            ? {
+                thread_child: {
+                  status: agentStatus,
+                  message: null,
+                },
+              }
+            : {},
+          model,
+        },
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ],
+  };
+}
+
+function buildModelWithChild({
+  parentTurns,
+  child,
+  membershipOverrides = {},
+}: {
+  parentTurns?: CodexConversationSnapshot["turns"];
+  child?: Partial<CodexConversationSnapshot>;
+  membershipOverrides?: Partial<CodexConversationSnapshot["childMemberships"][number]>;
+}) {
+  return buildComposerShellModel({
+    conversation: buildConversationSnapshot({
+      turns: parentTurns ?? [],
+      childMemberships: [
+        {
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "backgroundChild",
+          actorName: "Fallback worker",
+          ...membershipOverrides,
+        },
+      ],
+    }),
+    knownConversationsById: child
+      ? {
+          thread_child: buildConversationSnapshot({
+            threadId: "thread_child",
+            ...child,
+          }),
+        }
+      : {},
+  });
 }
 
 describe("buildComposerShellModel", () => {
@@ -135,7 +240,7 @@ describe("buildComposerShellModel", () => {
     expect(model.queuedFollowUpRows[0]?.displayText).toBe("Run validation next.");
     expect(model.backgroundTerminalRows.length).toBe(1);
     expect(model.backgroundAgentRows.length).toBe(1);
-    expect(model.backgroundAgentRows[0]?.status).toBe("waiting");
+    expect(model.backgroundAgentRows[0]?.status).toBe("active");
     expect(model.showRequestCards).toBeTrue();
     expect(model.showComposer).toBeFalse();
   });
@@ -211,5 +316,387 @@ describe("buildComposerShellModel", () => {
     });
 
     expect(model.backgroundRequest?.request.requestId).toBe("approval_b");
+  });
+
+  test("builds reference-style background subagent row metadata", () => {
+    const model = buildComposerShellModel({
+      conversation: buildConversationSnapshot({
+        turns: [
+          {
+            threadId: "thread_1",
+            turnId: "turn_parent_active",
+            status: "inProgress",
+            turnStartedAtMs: 100,
+            itemIds: ["spawn_agent"],
+            items: [
+              {
+                entryId: "spawn_agent",
+                itemId: "spawn_agent",
+                threadId: "thread_1",
+                turnId: "turn_parent_active",
+                type: "collabAgentToolCall",
+                kind: "toolCall",
+                semanticKind: "multiAgentAction",
+                status: "inProgress",
+                rawItem: {
+                  type: "collabAgentToolCall",
+                  tool: "spawnAgent",
+                  status: "inProgress",
+                  receiverThreadIds: ["thread_child"],
+                  receiverThreads: [
+                    {
+                      threadId: "thread_child",
+                      thread: {
+                        nickname: "@Scout",
+                        model: "gpt-5.3-codex",
+                        agentRole: "explorer",
+                      },
+                    },
+                  ],
+                  agentsStates: {
+                    thread_child: {
+                      status: "running",
+                      message: "Inspecting",
+                    },
+                  },
+                  model: "gpt-5.3-codex",
+                },
+                createdAt: 100,
+                updatedAt: 100,
+              },
+            ],
+          },
+        ],
+        childMemberships: [
+          {
+            threadId: "thread_child",
+            parentThreadId: "thread_1",
+            role: "backgroundChild",
+            actorName: "Fallback worker",
+          },
+        ],
+      }),
+      knownConversationsById: {
+        thread_child: buildConversationSnapshot({
+          threadId: "thread_child",
+          agentNickname: "@Backup",
+          turns: [
+            {
+              threadId: "thread_child",
+              turnId: "turn_child",
+              status: "inProgress",
+              diff: [
+                "diff --git a/src/a.ts b/src/a.ts",
+                "--- a/src/a.ts",
+                "+++ b/src/a.ts",
+                "@@ -1,1 +1,2 @@",
+                "-old",
+                "+new",
+                "+next",
+              ].join("\n"),
+              itemIds: ["reasoning_child"],
+              items: [
+                {
+                  entryId: "reasoning_child",
+                  itemId: "reasoning_child",
+                  threadId: "thread_child",
+                  turnId: "turn_child",
+                  type: "reasoning",
+                  kind: "reasoning",
+                  semanticKind: "reasoning",
+                  status: "inProgress",
+                  rawItem: {
+                    type: "reasoning",
+                    summary: ["> **I'm Checking files.**"],
+                  },
+                  createdAt: 120,
+                  updatedAt: 120,
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    });
+
+    const row = model.backgroundAgentRows[0];
+    expect(model.backgroundAgentRows.length).toBe(1);
+    expect(row?.conversationId).toBe("thread_child");
+    expect(row?.parentTurnKey).toBe("turn_parent_active");
+    expect(row?.displayName).toBe("Scout");
+    expect(row?.agentRole).toBe("explorer");
+    expect(row?.spawnModel).toBe("gpt-5.3-codex");
+    expect(row?.status).toBe("active");
+    expect(row?.statusSummary).toBe("checking files");
+    expect(`${row?.diffStats?.linesAdded ?? -1}:${row?.diffStats?.linesRemoved ?? -1}`).toBe("2:1");
+    expect(row?.showInlineActivity).toBeFalse();
+  });
+
+  test("normalizes background subagent status matrix edges", () => {
+    const waitingModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_waiting",
+          agentStatus: "pendingInit",
+        }),
+      ],
+    });
+    expect(waitingModel.backgroundAgentRows[0]?.status).toBe("waiting");
+
+    for (const agentStatus of ["interrupted", "errored", "shutdown", "notFound"] as const) {
+      const hiddenModel = buildModelWithChild({
+        parentTurns: [
+          buildAgentTurn({
+            turnId: `turn_${agentStatus}`,
+            agentStatus,
+          }),
+        ],
+      });
+      expect(hiddenModel.backgroundAgentRows.length).toBe(0);
+    }
+
+    const closedModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_close",
+          tool: "closeAgent",
+          agentStatus: "completed",
+        }),
+      ],
+    });
+    expect(closedModel.backgroundAgentRows.length).toBe(0);
+
+    const unknownCurrentModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_unknown_current",
+          agentStatus: null,
+        }),
+      ],
+    });
+    expect(unknownCurrentModel.backgroundAgentRows[0]?.status).toBe("active");
+
+    const unknownStaleModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_unknown_stale",
+          turnStatus: "completed",
+          itemStatus: "completed",
+          agentStatus: null,
+        }),
+      ],
+    });
+    expect(unknownStaleModel.backgroundAgentRows.length).toBe(0);
+
+    const resumeActiveModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_completed_parent",
+          turnStatus: "completed",
+          itemStatus: "completed",
+          agentStatus: "completed",
+        }),
+      ],
+      child: {
+        resumeState: "needs_resume",
+        statusType: "active",
+        threadRuntimeStatus: {
+          type: "active",
+          activeFlags: [],
+        },
+        turns: [],
+      },
+    });
+    expect(resumeActiveModel.backgroundAgentRows[0]?.status).toBe("active");
+
+    const resumeCatalogActiveRuntimeIdleModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_completed_parent",
+          turnStatus: "completed",
+          itemStatus: "completed",
+          agentStatus: "completed",
+        }),
+      ],
+      child: {
+        resumeState: "needs_resume",
+        statusType: "active",
+        threadRuntimeStatus: {
+          type: "idle",
+        },
+        turns: [],
+      },
+    });
+    expect(resumeCatalogActiveRuntimeIdleModel.backgroundAgentRows[0]?.status).toBe("done");
+  });
+
+  test("resolves display names and roles from membership and latest references", () => {
+    const membershipModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_membership_name",
+          nickname: "@Reference",
+        }),
+      ],
+      membershipOverrides: {
+        displayName: "@Planner",
+      },
+    });
+    expect(membershipModel.backgroundAgentRows[0]?.displayName).toBe("Planner");
+
+    const latestReferenceModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_spawn",
+          turnStatus: "completed",
+          itemStatus: "completed",
+          agentStatus: "completed",
+          nickname: "@Scout",
+          model: "gpt-5.3-codex",
+          createdAt: 100,
+        }),
+        buildAgentTurn({
+          turnId: "turn_send",
+          tool: "sendInput",
+          nickname: "@Builder",
+          model: null,
+          agentRole: "builder",
+          createdAt: 200,
+        }),
+      ],
+      membershipOverrides: {
+        actorName: "Fallback worker",
+      },
+    });
+    const latestRow = latestReferenceModel.backgroundAgentRows[0];
+    expect(latestRow?.displayName).toBe("Builder");
+    expect(latestRow?.agentRole).toBe("builder");
+    expect(latestRow?.spawnModel).toBe("gpt-5.3-codex");
+
+    const membershipThreadModel = buildModelWithChild({
+      child: {
+        agentNickname: "@Child",
+        threadName: "Child thread title",
+        threadPreview: "Child thread preview",
+        statusType: "idle",
+      },
+      membershipOverrides: {
+        actorName: "Actor label",
+        thread: {
+          nickname: "@Member",
+          model: null,
+          agentRole: null,
+        },
+      },
+    });
+    expect(membershipThreadModel.backgroundAgentRows[0]?.displayName).toBe("Member");
+
+    const idFallbackModel = buildModelWithChild({
+      child: {
+        agentNickname: null,
+        threadName: "Child thread title",
+        threadPreview: "Child thread preview",
+        statusType: "idle",
+      },
+      membershipOverrides: {
+        actorName: "Actor label",
+        thread: null,
+      },
+    });
+    expect(idFallbackModel.backgroundAgentRows[0]?.displayName).toBe("thread_child");
+
+    const defaultRoleModel = buildModelWithChild({
+      parentTurns: [
+        buildAgentTurn({
+          turnId: "turn_default_role",
+          agentRole: "default",
+        }),
+      ],
+      child: {
+        agentRole: "reviewer",
+      },
+    });
+    expect(defaultRoleModel.backgroundAgentRows[0]?.agentRole).toBe(null);
+
+    const membershipThreadRoleModel = buildModelWithChild({
+      child: {
+        agentRole: "child-reviewer",
+        statusType: "idle",
+      },
+      membershipOverrides: {
+        agentRole: "legacy-role",
+        thread: {
+          nickname: null,
+          model: null,
+          agentRole: "architect",
+        },
+      },
+    });
+    expect(membershipThreadRoleModel.backgroundAgentRows[0]?.agentRole).toBe("architect");
+
+    const childRoleModel = buildModelWithChild({
+      child: {
+        agentRole: "child-reviewer",
+        statusType: "idle",
+      },
+      membershipOverrides: {
+        agentRole: "legacy-role",
+        thread: null,
+      },
+    });
+    expect(childRoleModel.backgroundAgentRows[0]?.agentRole).toBe("child-reviewer");
+  });
+
+  test("hides terminal errored child statuses from background rows", () => {
+    const model = buildComposerShellModel({
+      conversation: buildConversationSnapshot({
+        childMemberships: [
+          {
+            threadId: "thread_child",
+            parentThreadId: "thread_1",
+            role: "backgroundChild",
+            actorName: "Worker",
+          },
+        ],
+      }),
+      knownConversationsById: {
+        thread_child: buildConversationSnapshot({
+          threadId: "thread_child",
+          statusType: "systemError",
+        }),
+      },
+    });
+
+    expect(model.backgroundAgentRows.length).toBe(0);
+  });
+
+  test("uses child nickname and role fallback with one leading at sign stripped", () => {
+    const model = buildComposerShellModel({
+      conversation: buildConversationSnapshot({
+        childMemberships: [
+          {
+            threadId: "thread_child",
+            parentThreadId: "thread_1",
+            role: "backgroundChild",
+          },
+        ],
+      }),
+      knownConversationsById: {
+        thread_child: buildConversationSnapshot({
+          threadId: "thread_child",
+          agentNickname: "@@Agent",
+          agentRole: "reviewer",
+          threadName: null,
+          threadPreview: "",
+          statusType: "idle",
+        }),
+      },
+    });
+
+    const row = model.backgroundAgentRows[0];
+    expect(model.backgroundAgentRows.length).toBe(1);
+    expect(row?.displayName).toBe("@Agent");
+    expect(row?.agentRole).toBe("reviewer");
+    expect(row?.status).toBe("done");
   });
 });

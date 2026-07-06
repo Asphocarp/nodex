@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { act, fireEvent, within } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
-import type { ThreadStageActions } from "../../thread-stage-types";
+import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { installWindowApi } from "@/test/browser-globals";
@@ -219,7 +219,7 @@ describe("LocalConversationComposerShell", () => {
     expect(Boolean(renderedText.includes("Run final validation once the stories are in place."))).toBeTrue();
     expect(Boolean(renderedText.includes("Running 1 terminal"))).toBeTrue();
     expect(Boolean(renderedText.includes("1 active requests"))).toBeFalse();
-    expect(Boolean(renderedText.includes("Worker 1"))).toBeFalse();
+    expect(Boolean(renderedText.includes("Worker 1"))).toBeTrue();
 
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
     expect(lowerStatusRow === null).toBeTrue();
@@ -229,6 +229,135 @@ describe("LocalConversationComposerShell", () => {
     expect(view.queryByLabelText(/Context window/) === null).toBeTrue();
     expect(view.queryByLabelText("Send prompt") === null).toBeTrue();
     expect(view.queryByLabelText("Stop generating") === null).toBeTrue();
+  });
+
+  test("opens composer background agents with subagent context", async () => {
+    installComposerShellWindowApi();
+    const baseModel = buildComposerShellModel();
+    const model: ThreadFooterModel = {
+      ...baseModel,
+      composerShell: {
+        ...baseModel.composerShell,
+        backgroundAgentRows: [
+          {
+            conversationId: "thread_child",
+            parentTurnKey: "turn_parent",
+            displayName: "Scout",
+            actorName: "Scout",
+            agentRole: "explorer",
+            spawnModel: "gpt-5.3-codex",
+            status: "active",
+            statusSummary: "checking files",
+            showInlineActivity: false,
+            diffStats: {
+              linesAdded: 2,
+              linesRemoved: 1,
+            },
+            role: "backgroundChild",
+          },
+          {
+            conversationId: "thread_waiting",
+            parentTurnKey: "turn_parent",
+            displayName: "Planner",
+            actorName: "Planner",
+            agentRole: null,
+            spawnModel: null,
+            status: "waiting",
+            statusSummary: null,
+            showInlineActivity: false,
+            diffStats: {
+              linesAdded: 0,
+              linesRemoved: 0,
+            },
+            role: "backgroundChild",
+          },
+          {
+            conversationId: "thread_done",
+            parentTurnKey: "turn_parent",
+            displayName: "Closer",
+            actorName: "Closer",
+            agentRole: null,
+            spawnModel: null,
+            status: "done",
+            statusSummary: null,
+            showInlineActivity: false,
+            diffStats: null,
+            role: "backgroundChild",
+          },
+        ],
+        showApprovalMode: false,
+        showComposer: true,
+        showRequestCards: false,
+      },
+    };
+    const openCalls: unknown[] = [];
+    const stopCalls: unknown[] = [];
+    const view = renderComposerShell(
+      model,
+      buildActions({
+        onOpenThread: (threadId, context) => {
+          openCalls.push({ threadId, context });
+        },
+        onStopBackgroundAgents: async (threadIds) => {
+          stopCalls.push([...threadIds]);
+        },
+      }),
+    );
+    await settleAsyncRender();
+
+    expect(Boolean(textContent(document.body).includes("3 background agents"))).toBeTrue();
+    expect(Boolean(textContent(document.body).includes("(@ to tag agents)"))).toBeFalse();
+    expect(view.container.querySelector('[data-subagent-avatar-seed="thread_child"]') !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Expand background agent details" }));
+      await Promise.resolve();
+    });
+    const renderedText = textContent(document.body);
+    expect(Boolean(renderedText.includes("(@ to tag agents)"))).toBeTrue();
+    expect(Boolean(renderedText.includes("Scout"))).toBeTrue();
+    expect(Boolean(renderedText.includes("is working"))).toBeTrue();
+    expect(Boolean(renderedText.includes("Planner"))).toBeTrue();
+    expect(Boolean(renderedText.includes("is awaiting instruction"))).toBeTrue();
+    expect(Boolean(renderedText.includes("Closer"))).toBeTrue();
+    expect(Boolean(renderedText.includes("is done"))).toBeTrue();
+    expect(Boolean(renderedText.includes("+2"))).toBeTrue();
+    expect(Boolean(renderedText.includes("-1"))).toBeTrue();
+    expect(Boolean(renderedText.includes("+0"))).toBeFalse();
+    expect(Boolean(renderedText.includes("-0"))).toBeFalse();
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Stop all" }));
+      await Promise.resolve();
+    });
+    expect(JSON.stringify(stopCalls)).toBe(JSON.stringify([["thread_child", "thread_waiting"]]));
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: /Scout/ }));
+      await Promise.resolve();
+    });
+
+    const call = openCalls[0] as {
+      threadId?: string;
+      context?: {
+        subagent?: {
+          conversationId?: string;
+          displayName?: string;
+          agentRole?: string | null;
+          spawnModel?: string | null;
+          statusSummary?: string | null;
+          diffStats?: { linesAdded?: number; linesRemoved?: number } | null;
+        };
+      };
+    } | undefined;
+    expect(openCalls.length).toBe(1);
+    expect(call?.threadId).toBe("thread_child");
+    expect(call?.context?.subagent?.conversationId).toBe("thread_child");
+    expect(call?.context?.subagent?.displayName).toBe("Scout");
+    expect(call?.context?.subagent?.agentRole).toBe("explorer");
+    expect(call?.context?.subagent?.spawnModel).toBe("gpt-5.3-codex");
+    expect(call?.context?.subagent?.statusSummary).toBe("checking files");
+    expect(`${call?.context?.subagent?.diffStats?.linesAdded ?? -1}:${call?.context?.subagent?.diffStats?.linesRemoved ?? -1}`).toBe("2:1");
   });
 
   test("renders paused goal resume confirmation and dismisses it", async () => {

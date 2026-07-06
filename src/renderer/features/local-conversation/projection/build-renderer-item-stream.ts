@@ -3,8 +3,11 @@ import type { CodexConversationItem } from "../../../lib/types";
 import { hasCodexFileChangeEntries } from "../../../../shared/codex-file-change";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import type {
+  ThreadOpenSubagentStatus,
   ThreadPendingTurnRequestModel,
   ThreadRendererItemModel,
+  ThreadSubagentActivityInlineRowModel,
+  ThreadSubagentActivityStatus,
   ThreadTranscriptBlockModel,
 } from "../thread-stage-types";
 
@@ -16,6 +19,7 @@ interface BuildRendererItemStreamInput {
 }
 
 type ProtocolThreadItemType = ThreadItem["type"];
+type ProtocolSubAgentActivityItem = Extract<ThreadItem, { type: "subAgentActivity" }>;
 type RendererTranscriptType = ThreadTranscriptBlockModel["type"];
 
 const SEMANTIC_FALLBACK = "semanticFallback";
@@ -31,7 +35,7 @@ const PROTOCOL_THREAD_ITEM_RENDERER_TYPES = {
   mcpToolCall: "mcpToolCall",
   dynamicToolCall: "dynamicToolCall",
   collabAgentToolCall: SEMANTIC_FALLBACK,
-  subAgentActivity: null,
+  subAgentActivity: "subagentActivityInlineGroup",
   webSearch: "webSearch",
   imageView: "assistantMessage",
   sleep: null,
@@ -100,6 +104,92 @@ function getWebSearchVisibleQuery(entry: CodexConversationItem): string {
 
 function hasRenderableWebSearchEntry(entry: CodexConversationItem): boolean {
   return getWebSearchVisibleQuery(entry).length > 0;
+}
+
+function normalizeOptionalText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function stripLeadingAt(value: string): string {
+  return value.startsWith("@") ? value.slice(1) : value;
+}
+
+function resolveAgentPathDisplayName(agentPath: string): string | null {
+  const normalizedPath = agentPath.trim().replaceAll("\\", "/");
+  const segments = normalizedPath.split("/").map((segment) => segment.trim()).filter(Boolean);
+  const candidate = segments.at(-1) ?? normalizedPath;
+  const displayName = stripLeadingAt(candidate.trim());
+  return displayName.length > 0 ? displayName : null;
+}
+
+function resolveSubagentActivityDisplayName(rawItem: ProtocolSubAgentActivityItem & Record<string, unknown>): string {
+  const directDisplayName = normalizeOptionalText(rawItem.displayName);
+  if (directDisplayName) return stripLeadingAt(directDisplayName);
+
+  const pathDisplayName = resolveAgentPathDisplayName(rawItem.agentPath);
+  return pathDisplayName ?? "Agent";
+}
+
+function getSubagentActivityItem(rawItem: unknown): (ProtocolSubAgentActivityItem & Record<string, unknown>) | null {
+  const record = getRecord(rawItem);
+  if (!record || record.type !== "subAgentActivity") return null;
+  if (typeof record.id !== "string") return null;
+  if (typeof record.agentThreadId !== "string" || record.agentThreadId.trim().length === 0) return null;
+  if (typeof record.agentPath !== "string") return null;
+  if (record.kind !== "started" && record.kind !== "interacted" && record.kind !== "interrupted") return null;
+  return record as ProtocolSubAgentActivityItem & Record<string, unknown>;
+}
+
+function normalizeSubagentActivityKind(rawItem: ProtocolSubAgentActivityItem & Record<string, unknown>): ThreadSubagentActivityStatus {
+  const displayStatus = normalizeOptionalText(rawItem.displayStatus);
+  if (displayStatus === "updated") return "updated";
+  if (displayStatus === "interrupted") return "interrupted";
+  if (displayStatus === "done") return "done";
+
+  if (rawItem.kind === "interacted") return "updated";
+  if (rawItem.kind === "interrupted") return "interrupted";
+  return "started";
+}
+
+function resolveSubagentActivityOpenStatus(activityStatus: ThreadSubagentActivityStatus): ThreadOpenSubagentStatus {
+  if (activityStatus === "interrupted" || activityStatus === "done") return "done";
+  return "active";
+}
+
+function formatSubagentActivityStatusSummary(
+  displayName: string,
+  activityStatus: ThreadSubagentActivityStatus,
+): string {
+  if (activityStatus === "updated") return `${displayName} updated`;
+  if (activityStatus === "interrupted") return `${displayName} interrupted`;
+  if (activityStatus === "done") return `${displayName} finished`;
+  return `${displayName} started working`;
+}
+
+function resolveSubagentActivityStatusLabel(rows: readonly ThreadSubagentActivityInlineRowModel[]): string {
+  if (rows.some((row) => row.activityStatus === "interrupted")) return "interrupted";
+  if (rows.some((row) => row.activityStatus === "updated")) return "updated";
+  if (rows.length > 0 && rows.every((row) => row.activityStatus === "done" || row.status === "done")) return "finished";
+  return "started working";
+}
+
+function buildSubagentActivityRow(
+  rawItem: ProtocolSubAgentActivityItem & Record<string, unknown>,
+): ThreadSubagentActivityInlineRowModel {
+  const activityStatus = normalizeSubagentActivityKind(rawItem);
+  const displayName = resolveSubagentActivityDisplayName(rawItem);
+  return {
+    conversationId: rawItem.agentThreadId.trim(),
+    displayName,
+    agentRole: null,
+    spawnModel: null,
+    status: resolveSubagentActivityOpenStatus(activityStatus),
+    activityStatus,
+    statusSummary: formatSubagentActivityStatusSummary(displayName, activityStatus),
+    diffStats: null,
+  };
 }
 
 function isProtocolThreadItemType(type: string): type is ProtocolThreadItemType {
@@ -223,6 +313,29 @@ function buildTranscriptBlock(
   const type = resolveRendererType(entry);
   if (!type) return null;
   const entryId = entry.entryId ?? entry.itemId;
+
+  if (type === "subagentActivityInlineGroup") {
+    const rawItem = getSubagentActivityItem(entry.rawItem);
+    if (!rawItem) return null;
+    const row = buildSubagentActivityRow(rawItem);
+    return {
+      id: entryId,
+      turnId: entry.turnId,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      searchableText: [
+        row.displayName,
+        row.statusSummary ?? "",
+        resolveSubagentActivityStatusLabel([row]),
+      ].filter((segment) => segment.trim().length > 0).join("\n"),
+      type,
+      entry,
+      status: entry.status,
+      isTurnCancelled: turnStatus === "interrupted",
+      subagentActivityRows: [row],
+      subagentActivityStatusLabel: resolveSubagentActivityStatusLabel([row]),
+    };
+  }
 
   return {
     id: entryId,

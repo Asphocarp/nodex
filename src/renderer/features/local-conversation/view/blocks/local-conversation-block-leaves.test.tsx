@@ -29,6 +29,7 @@ import { ThreadBlockRenderer } from "./local-conversation-block-renderer";
 import type {
   ThreadBlockModel,
   ThreadCollapsedToolActivitySummaryStats,
+  ThreadOpenThreadContext,
   ThreadTranscriptBlockModel,
 } from "../../thread-stage-types";
 
@@ -152,6 +153,81 @@ function buildMultiAgentGroupBlock(): Extract<ThreadBlockModel, { type: "multiAg
     entries: [entry],
     summary: "Multi-agent action",
     status: "completed",
+  };
+}
+
+function buildSubagentActivityInlineGroupBlock(): ThreadTranscriptBlockModel {
+  const entry: CodexConversationItem = {
+    threadId: "thread-1",
+    turnId: "turn-1",
+    itemId: "subagent-activity-1",
+    entryId: "subagent-activity-1",
+    type: "subAgentActivity",
+    kind: "systemEvent",
+    semanticKind: "systemEvent",
+    status: "completed",
+    rawItem: {
+      id: "subagent-activity-1",
+      type: "subAgentActivity",
+      kind: "interacted",
+      agentThreadId: "thread-child-1",
+      agentPath: "@Scout",
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  return {
+    id: "subagent-activity-inline-group-1",
+    turnId: "turn-1",
+    createdAt: 1,
+    updatedAt: 1,
+    searchableText: "Scout\nReviewer\nBuilder\nTester\nupdated",
+    type: "subagentActivityInlineGroup",
+    entry,
+    subagentActivityStatusLabel: "updated",
+    subagentActivityRows: [
+      {
+        conversationId: "thread-child-1",
+        displayName: "Scout",
+        agentRole: null,
+        spawnModel: null,
+        status: "active",
+        activityStatus: "updated",
+        statusSummary: "Scout updated",
+        diffStats: null,
+      },
+      {
+        conversationId: "thread-child-2",
+        displayName: "Reviewer",
+        agentRole: null,
+        spawnModel: null,
+        status: "active",
+        activityStatus: "started",
+        statusSummary: "Reviewer started working",
+        diffStats: null,
+      },
+      {
+        conversationId: "thread-child-3",
+        displayName: "Builder",
+        agentRole: null,
+        spawnModel: null,
+        status: "done",
+        activityStatus: "done",
+        statusSummary: "Builder finished",
+        diffStats: null,
+      },
+      {
+        conversationId: "thread-child-4",
+        displayName: "Tester",
+        agentRole: null,
+        spawnModel: null,
+        status: "done",
+        activityStatus: "interrupted",
+        statusSummary: "Tester interrupted",
+        diffStats: null,
+      },
+    ],
   };
 }
 
@@ -1900,6 +1976,41 @@ describe("ThreadBlockRenderer multi-agent block", () => {
     fireEvent.click(getByRole("button", { name: "research" }));
 
     expect(openedThreadIds.join(",")).toBe("thread-agent-1");
+  });
+});
+
+describe("ThreadBlockRenderer subagent activity block", () => {
+  test("renders capped inline chips and opens subagents with inline activity context", () => {
+    const opened: Array<{ threadId: string; context?: ThreadOpenThreadContext }> = [];
+    const { container, getByRole, getByTestId, getByText, queryByText } = render(
+      <ThreadBlockRenderer
+        block={buildSubagentActivityInlineGroupBlock()}
+        isLatestTurn
+        isStreamingTurn={false}
+        onOpenThread={(threadId, context) => {
+          opened.push({ threadId, context });
+        }}
+      />,
+    );
+
+    const group = getByTestId("subagent-activity-inline-group");
+    const buttons = container.querySelectorAll("button[aria-label$='subagent']");
+
+    expect(Boolean(group)).toBeTrue();
+    expect(buttons.length).toBe(3);
+    expect(Boolean(getByText("and 1 other subagent updated"))).toBeTrue();
+    expect(Boolean(queryByText("Tester"))).toBeFalse();
+    expect(Boolean(container.querySelector("[data-animate-entrance]"))).toBeTrue();
+
+    fireEvent.click(getByRole("button", { name: "Open Scout subagent" }));
+
+    expect(opened.length).toBe(1);
+    expect(opened[0]?.threadId).toBe("thread-child-1");
+    expect(opened[0]?.context?.subagent?.conversationId).toBe("thread-child-1");
+    expect(opened[0]?.context?.subagent?.displayName).toBe("Scout");
+    expect(opened[0]?.context?.subagent?.status).toBe("active");
+    expect(opened[0]?.context?.subagent?.statusSummary).toBe("Scout updated");
+    expect(opened[0]?.context?.subagent?.showInlineActivity ?? false).toBeTrue();
   });
 });
 

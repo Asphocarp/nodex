@@ -125,6 +125,7 @@ import {
 import type {
   AppUpdateSettings,
   AppUpdateStatus,
+  CodexBackgroundSubagentThreadsHydrateInput,
   CodexConversationThreadSettingsPatch,
   CodexPromptInput,
   CodexThreadGoalSetActionInput,
@@ -1514,10 +1515,15 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle("codex:thread:resume:request", (_, threadId: string) =>
-    codexService.requestConversationResume(threadId, {
-      emitSourceNullSnapshots: false,
-      replayBufferedNotifications: false,
-    })
+    codexService.requestRendererConversationResume(threadId)
+  );
+
+  registerHandle("codex:thread:background-subagents:hydrate", (_, input: CodexBackgroundSubagentThreadsHydrateInput) =>
+    codexService.hydrateBackgroundSubagentThreads(input)
+  );
+
+  registerHandle("codex:subagent-thread:opened", (_, threadId: string) =>
+    codexService.markSubagentThreadOpened(threadId)
   );
 
   registerHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>

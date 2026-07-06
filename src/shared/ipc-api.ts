@@ -8,6 +8,7 @@ import type {
   BoardSummary,
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexBackgroundSubagentThreadsHydrateInput,
   CodexConversationSnapshot,
   CodexConnectionState,
   CodexDictationStateSnapshot,
@@ -964,6 +965,14 @@ export interface IpcApi {
   "codex:thread:resume:request": {
     args: [threadId: string];
     result: CodexConversationSnapshot | null;
+  };
+  "codex:thread:background-subagents:hydrate": {
+    args: [input: CodexBackgroundSubagentThreadsHydrateInput];
+    result: CodexThreadSummary[];
+  };
+  "codex:subagent-thread:opened": {
+    args: [threadId: string];
+    result: boolean;
   };
   "codex:thread:view-active:set": {
     args: [input: { threadId: string; active: boolean }];

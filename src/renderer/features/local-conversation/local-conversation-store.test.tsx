@@ -25,7 +25,7 @@ let rendererClientRequestListener: ((message: unknown) => void) | null = null;
 let threadListByProject: Record<string, CodexThreadSummary[]> = {};
 let snapshotByThread: Record<string, CodexConversationSnapshot | null> = {};
 let startThreadForSessionResult: unknown = null;
-let resumeThreadResult: CodexConversationSnapshot | null = null;
+let resumeThreadResult: unknown = null;
 let resumeThreadError: Error | null = null;
 let olderThreadTurnsResult: Promise<CodexConversationSnapshot | null> | CodexConversationSnapshot | null = null;
 let completeThreadTurnsResult: CodexConversationSnapshot | null = null;
@@ -2037,7 +2037,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("renderer resume publishes owner snapshot before releasing buffered events", async () => {
+  test("renderer resume releases buffered events before publishing owner snapshot from bundle 47780-47810", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -2085,10 +2085,43 @@ describe("local-conversation-store", () => {
       expect(result?.threadId ?? "").toBe("thread-resume-owner");
       expect(releaseIndex >= 0).toBeTrue();
       expect(snapshotPublishIndex >= 0).toBeTrue();
-      expect(snapshotPublishIndex < releaseIndex).toBeTrue();
+      expect(releaseIndex < snapshotPublishIndex).toBeTrue();
       expect(snapshotPublish?.change?.revision).toBe(1);
       expect(snapshotPublish?.change?.conversationState?.resumeState).toBe("resumed");
       expect(snapshotPublish?.change?.conversationState?.turns[0]?.items[0]?.markdownText).toBe("hydrated");
+
+      const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/agentMessage/delta",
+        sequence: 1,
+        params: {
+          threadId: "thread-resume-owner",
+          turnId: "turn-1",
+          itemId: "assistant-1",
+          delta: " tail",
+        },
+      });
+      await waitForCondition(() => invokeRecords.some((record) => {
+        if (record.channel !== "codex:thread-owner:stream-state:publish") return false;
+        const input = record.args[0] as {
+          ownerNotificationSequence?: number;
+          change?: { type?: string; baseRevision?: number; revision?: number };
+        };
+        return input.ownerNotificationSequence === 1 && input.change?.type === "patches";
+      }), 160);
+      const patchPublish = invokeRecords.find((record) => {
+        if (record.channel !== "codex:thread-owner:stream-state:publish") return false;
+        const input = record.args[0] as {
+          ownerNotificationSequence?: number;
+          change?: { type?: string };
+        };
+        return input.ownerNotificationSequence === 1 && input.change?.type === "patches";
+      })?.args[0] as {
+        change?: { baseRevision?: number; revision?: number };
+      } | undefined;
+      expect(patchPublish?.change?.baseRevision).toBe(1);
+      expect(patchPublish?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -2835,6 +2868,9 @@ describe("local-conversation-store", () => {
       } | undefined;
       expect(manager.readConversation("thread-1")?.statusType).toBe("active");
       expect(manager.readConversation("thread-1")?.statusActiveFlags[0]).toBe("waitingOnApproval");
+      expect(manager.readConversation("thread-1")?.threadRuntimeStatus?.type).toBe("active");
+      const runtimeStatus = manager.readConversation("thread-1")?.threadRuntimeStatus;
+      expect(runtimeStatus?.type === "active" ? runtimeStatus.activeFlags[0] : null).toBe("waitingOnApproval");
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
       expect(publishInput?.change?.baseRevision).toBe(2);

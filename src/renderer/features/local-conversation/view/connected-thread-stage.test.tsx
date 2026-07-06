@@ -51,6 +51,10 @@ mock.module("../local-conversation-deps", () => ({
       return [];
     }
 
+    if (channel === "codex:subagent-thread:opened") {
+      return true;
+    }
+
     return null;
   },
   subscribeCodexHostMessages: (listener: (message: CodexHostMessage) => void) => {
@@ -146,7 +150,10 @@ function buildThreadSummary(archived: boolean): CodexThreadSummary {
   };
 }
 
-function buildConversation(threadId: string): CodexConversationSnapshot {
+function buildConversation(
+  threadId: string,
+  overrides?: { source?: CodexConversationSnapshot["source"] },
+): CodexConversationSnapshot {
   const userItem: CodexConversationItem = {
     threadId,
     turnId: "turn_ready",
@@ -163,7 +170,7 @@ function buildConversation(threadId: string): CodexConversationSnapshot {
   return {
     threadId,
     projectId: "project_1",
-    source: null,
+    source: overrides?.source ?? null,
     threadName: "Ready thread",
     threadPreview: "Remove redundant transitions.",
     modelProvider: "openai",
@@ -237,7 +244,7 @@ function buildActions(): ThreadStageActions {
   };
 }
 
-async function renderStage(summary: CodexThreadSummary) {
+async function renderStage(summary: CodexThreadSummary, options: { backgroundAgentDetail?: boolean } = {}) {
   const {
     __resetLocalConversationStoreForTests,
     LocalConversationProvider,
@@ -269,6 +276,7 @@ async function renderStage(summary: CodexThreadSummary) {
             isQueueingEnabled={false}
             composerEnterBehavior="enter"
             searchOpenTick={0}
+            backgroundAgentDetail={options.backgroundAgentDetail === true}
             actions={buildActions()}
           />
         </LocalConversationProvider>
@@ -427,6 +435,79 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         call.threadId === "thread_active" &&
         call.active === false),
     ).toBeTrue();
+  });
+
+  test("does not mark ordinary child thread mounts as opened for full-fidelity subagent streaming", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+    const view = await renderStage(buildThreadSummary(false));
+    const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+
+    await act(async () => {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread_active",
+        version: 1,
+        sourceClientId: null,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread_active", {
+            source: { parentThreadId: "thread_parent" },
+          }),
+        },
+      });
+      await settleAsyncRender();
+    });
+
+    await settleAsyncRender();
+    expect(invokeCalls.some((call) =>
+      call.channel === "codex:subagent-thread:opened" &&
+      call.threadId === "thread_active"
+    )).toBeFalse();
+
+    await act(async () => {
+      view.unmount();
+      await settleAsyncRender();
+    });
+  });
+
+  test("marks background-agent detail child threads as opened without requiring local parent source", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+    const view = await renderStage(buildThreadSummary(false), { backgroundAgentDetail: true });
+    const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+
+    await act(async () => {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread_active",
+        version: 1,
+        sourceClientId: null,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread_active"),
+        },
+      });
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (!invokeCalls.some((call) =>
+        call.channel === "codex:subagent-thread:opened" &&
+        call.threadId === "thread_active"
+      )) {
+        throw new Error("Expected background-agent child opened signal.");
+      }
+    });
+
+    await act(async () => {
+      view.unmount();
+      await settleAsyncRender();
+    });
   });
 
   test("does not auto-resume archived active thread summaries", async () => {

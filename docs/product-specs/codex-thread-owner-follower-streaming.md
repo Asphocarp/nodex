@@ -1,7 +1,7 @@
 # Codex Thread Owner/Follower Streaming
 
 Status: Active
-Last Updated: 2026-07-06
+Last Updated: 2026-07-07
 
 ## Intent
 
@@ -184,7 +184,9 @@ Dynamic tool calls that do not create visible request state are owner-gated and 
 
 History-sensitive actions must pass the complete-history barrier before they run from a follower. The owner loads complete history, publishes the target revision, and the follower waits for that revision before edit, fork, or older-turn work continues.
 
-Explicit resume hydrates the latest tail, returns the snapshot to the requesting renderer, and lets that renderer mark itself owner locally. The renderer must publish that owner snapshot before asking main to release buffered same-thread notifications and requests, so the replayed buffer routes through a confirmed owner. Resume failure returns the local conversation to `needs_resume` without registering a stale renderer owner or using a source-null snapshot to overwrite partial owner state.
+Explicit resume hydrates the latest tail and returns the hydrated conversation to the requesting renderer. Main silently updates its recovery/broadcast cache for `resuming` and `resumed` without advancing the renderer stream revision or emitting source-null snapshots. The renderer applies the hydrated conversation, marks itself owner using its current renderer-local stream revision, releases buffered same-thread notifications and requests, then publishes the owner snapshot as the next renderer revision. Resume failure releases the buffer, returns the local conversation to `needs_resume`, and must not use a source-null snapshot to overwrite partial owner state.
+
+Background child-agent summaries are not active child-thread streams. Parent thread surfaces may show child memberships and multi-agent-derived row state, but a child thread becomes full-fidelity only when a background-agent detail tab opens it. Multi-agent visible rows are derived from receiver thread metadata and agent state keys; sparse receiver id lists remain available to membership/reference projection but do not create clickable visible row targets on their own. The background-agent opener hydrates only the selected child thread id and opens the tab; the detail tab content materializes/resumes the child body and then marks the child thread opened for routed deltas without requiring local parent metadata.
 
 When the owner client disappears, followers reject revision waiters, clear the owner role, mark the conversation `needs_resume`, and recover through explicit resume.
 
@@ -192,7 +194,7 @@ When the owner client disappears, followers reject revision waiters, clear the o
 
 Source-null snapshots remain valid for cold load, explicit snapshot/resume, no-owner fallback, inactive-owner cleanup, and durable recovery. They must not be used as hot repair for active owner state.
 
-Rejected owner patch publishes repair with the current owner snapshot. If repair also fails, the local owner conversation enters `needs_resume` while preserving visible partial state.
+Owner patch publication is a follower-broadcast side effect, not the owner-visible state boundary. Main validates the owner client and broadcasts the owner change; renderer followers enforce owner id and `baseRevision` continuity.
 
 ## Implementation Coverage
 
@@ -206,7 +208,7 @@ The current implementation covers these owner/follower contract areas:
 | Request ownership | complete | Approval, permission, user-input, and MCP elicitation request rows are owner-visible state. |
 | Notification ownership | complete | Owner-visible app-server notifications route to the renderer owner while source-null visible fanout is suppressed. |
 | Prose and output queues | complete | Assistant, plan, reasoning, command output, and terminal interaction updates are ordered through owner-local queues. |
-| Resume/start/history lifecycle | complete | Resume buffer release, optimistic start/rebind, and complete-history revision waits are owner-published. |
+| Resume/start/history lifecycle | complete | Resume uses the renderer-local stream revision, releases the resume buffer before the owner snapshot, optimistic start/rebind, and complete-history revision waits are owner-published. |
 | Owner-loss recovery | complete | Owner disposal rejects waiters and marks followers `needs_resume`. |
 | Source-null discipline | complete | Source-null snapshots are restricted to cold load, explicit recovery, no-owner fallback, inactive-owner cleanup, and durable recovery. |
 
@@ -223,10 +225,13 @@ Required regression coverage includes:
 - live partial prose appears before completion in owner and follower windows
 - terminal lifecycle waits for pending prose drain
 - owner patch publish does not gate owner-visible state
-- repair snapshot preserves partial text
+- owner publish failure preserves partial text
 - edit rollback removes the old turn before replacement starts
 - follower actions wait for returned owner revisions
 - request responses route through owner by conversation id
 - stale patches are dropped without source-null resync
 - owner-loss recovery marks followers `needs_resume`
 - failed resume/start requests do not leave stale main-side renderer owner mappings
+- renderer-owned resume seeds the owner cursor from the renderer-local stream revision, releases the resume buffer, and then publishes the hydrated owner snapshot
+- resume failure releases the buffer and rolls local state back to `needs_resume`
+- parent thread mounts do not mark background child agents opened; only background-agent detail tabs do

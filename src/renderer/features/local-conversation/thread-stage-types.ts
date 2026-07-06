@@ -89,6 +89,28 @@ export interface ThreadPlanSidePanelState {
   activeRightPanelTabId: string | null;
 }
 
+export type ThreadOpenSubagentStatus = "active" | "waiting" | "done";
+
+export interface ThreadSubagentDiffStats {
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+export interface ThreadOpenSubagentPayload {
+  conversationId: string;
+  displayName: string;
+  agentRole: string | null;
+  spawnModel: string | null;
+  status: ThreadOpenSubagentStatus;
+  statusSummary: string | null;
+  showInlineActivity?: boolean;
+  diffStats: ThreadSubagentDiffStats | null;
+}
+
+export interface ThreadOpenThreadContext {
+  subagent?: ThreadOpenSubagentPayload;
+}
+
 export interface ThreadStageRouteInput {
   projectId: string;
   projectWorkspacePath?: string | null;
@@ -228,7 +250,8 @@ export interface ThreadStageActions {
   onOpenTurnDiffReview: (target: CodexTurnDiffReviewTarget) => void;
   onOpenTurnDiffFileInSidePanel?: (target: ThreadTurnDiffFileSidePanelTarget) => void | Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
-  onOpenThread: (threadId: string) => void;
+  onOpenThread: (threadId: string, context?: ThreadOpenThreadContext) => void | Promise<void>;
+  onStopBackgroundAgents?: (threadIds: readonly string[]) => Promise<void>;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
 }
 
@@ -325,6 +348,19 @@ export interface ThreadWorkedForBlockModel extends ThreadRenderKeyedBlockFields 
   completedAtMs: number | null;
 }
 
+export type ThreadSubagentActivityStatus = "started" | "updated" | "interrupted" | "done";
+
+export interface ThreadSubagentActivityInlineRowModel {
+  conversationId: string;
+  displayName: string;
+  agentRole: string | null;
+  spawnModel: string | null;
+  status: ThreadOpenSubagentStatus;
+  activityStatus: ThreadSubagentActivityStatus;
+  statusSummary: string | null;
+  diffStats: ThreadSubagentDiffStats | null;
+}
+
 export interface ThreadTranscriptBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
@@ -357,6 +393,7 @@ export interface ThreadTranscriptBlockModel extends ThreadRenderKeyedBlockFields
     | "automaticApprovalReview"
     | "autoReviewInterruptionWarning"
     | "multiAgentAction"
+    | "subagentActivityInlineGroup"
     | "steered"
     | "systemEvent"
     | "userInputResponse";
@@ -368,6 +405,8 @@ export interface ThreadTranscriptBlockModel extends ThreadRenderKeyedBlockFields
   assistantMessageActions?: ThreadAssistantMessageActionsModel;
   assistantAfterBlocks?: ThreadBlockModel[];
   searchUnitKey?: string;
+  subagentActivityRows?: ThreadSubagentActivityInlineRowModel[];
+  subagentActivityStatusLabel?: string;
 }
 
 export interface ThreadUserAttachmentStripBlockModel extends ThreadRenderKeyedBlockFields {
@@ -723,9 +762,15 @@ export interface ThreadComposerShellQueuedFollowUpRowModel {
 
 export interface ThreadComposerShellBackgroundAgentRowModel {
   conversationId: string;
+  parentTurnKey: string | null;
   displayName: string;
   actorName: string;
+  agentRole: string | null;
+  spawnModel: string | null;
   status: "active" | "waiting" | "done";
+  statusSummary: string | null;
+  showInlineActivity: boolean;
+  diffStats: ThreadSubagentDiffStats | null;
   role: "childApproval" | "backgroundChild";
 }
 

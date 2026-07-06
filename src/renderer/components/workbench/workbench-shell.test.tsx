@@ -3,6 +3,7 @@ import { Fragment, createElement, createRef, useEffect, useState, type Component
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type {
+  CodexBackgroundSubagentThreadsHydrateInput,
   CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   Project,
@@ -57,6 +58,8 @@ let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let startThreadForSessionCalls: unknown[] = [];
 let requestThreadStreamSnapshotCalls: string[] = [];
+let requestThreadStreamSnapshotImpl: ((threadId: string) => Promise<unknown>) | null = null;
+let hydrateBackgroundSubagentThreadsCalls: CodexBackgroundSubagentThreadsHydrateInput[] = [];
 let removeQueuedFollowUpCalls: unknown[][] = [];
 let reorderQueuedFollowUpsCalls: unknown[][] = [];
 let sendQueuedFollowUpNowCalls: unknown[][] = [];
@@ -160,7 +163,15 @@ const mockCodexControl = {
   enqueueQueuedFollowUp: async () => undefined,
   requestThreadStreamSnapshot: async (threadId: string) => {
     requestThreadStreamSnapshotCalls.push(threadId);
+    if (requestThreadStreamSnapshotImpl) {
+      await requestThreadStreamSnapshotImpl(threadId);
+    }
     return null;
+  },
+  markSubagentThreadOpened: async () => true,
+  hydrateBackgroundSubagentThreads: async (input: CodexBackgroundSubagentThreadsHydrateInput) => {
+    hydrateBackgroundSubagentThreadsCalls.push(input);
+    return [];
   },
   removeQueuedFollowUp: async (threadId: string, followUpId: string) => {
     removeQueuedFollowUpCalls.push([threadId, followUpId]);
@@ -1971,6 +1982,8 @@ beforeEach(() => {
   invokeCalls = [];
   startThreadForSessionCalls = [];
   requestThreadStreamSnapshotCalls = [];
+  requestThreadStreamSnapshotImpl = null;
+  hydrateBackgroundSubagentThreadsCalls = [];
   removeQueuedFollowUpCalls = [];
   reorderQueuedFollowUpsCalls = [];
   sendQueuedFollowUpNowCalls = [];
@@ -5520,6 +5533,109 @@ describe("workbench session shell", () => {
     expect(setComposerIntentCalls[0]?.[0]).toBe("side-thread-1");
     expect((setComposerIntentCalls[0]?.[1] as { prompt?: string } | undefined)?.prompt).toBe("Use this selected paragraph");
     expect(typeof (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)?.focusNonce).toBe("number");
+  });
+
+  test("opens subagent contexts in background-agent right-panel tabs", async () => {
+    sideChatConversations["thread-child"] = {
+      threadId: "thread-child",
+      projectId: "alpha",
+      source: {
+        parentThreadId: "thread-alpha",
+        agentNickname: "Scout",
+      },
+      threadName: "Scout",
+      threadPreview: "Checking the repo",
+      modelProvider: "openai",
+      cwd: "/Users/asc/repo/nodex",
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: 1,
+      updatedAt: 1,
+      linkedAt: "",
+      resumeState: "resumed",
+      turns: [],
+      requests: [],
+      pendingSteers: [],
+      queuedFollowUps: [],
+      backgroundTerminalRows: [],
+      childMemberships: [],
+      capabilityFlags: {
+        canEditLastUserTurn: false,
+        canForkFromTurn: false,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+      ephemeral: true,
+    };
+
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ rightCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actions = getLastThreadStageActions();
+    const openThread = actions.onOpenThread as ((threadId: string, context?: {
+      subagent?: {
+        conversationId: string;
+        displayName: string;
+        agentRole: string | null;
+        spawnModel: string | null;
+        status: "active" | "waiting" | "done";
+        statusSummary: string | null;
+        showInlineActivity?: boolean;
+        diffStats: { linesAdded: number; linesRemoved: number } | null;
+      };
+    }) => Promise<void>) | undefined;
+    expect(typeof openThread).toBe("function");
+    if (!openThread) return;
+
+    let resolveSnapshot: () => void = () => undefined;
+    requestThreadStreamSnapshotImpl = async () => {
+      await new Promise<void>((resolve) => {
+        resolveSnapshot = resolve;
+      });
+    };
+
+    invokeCalls = [];
+    try {
+      await act(async () => {
+        const openPromise = openThread("thread-child", {
+          subagent: {
+            conversationId: "thread-child",
+            displayName: "Scout",
+            agentRole: "explorer",
+            spawnModel: "gpt-5-codex",
+            status: "active",
+            statusSummary: "checking files",
+            showInlineActivity: true,
+            diffStats: { linesAdded: 2, linesRemoved: 1 },
+          },
+        });
+        const openResult = await Promise.race([
+          openPromise.then(() => "resolved"),
+          new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 0)),
+        ]);
+        expect(openResult).toBe("resolved");
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+      await settleAsyncRender();
+    } finally {
+      resolveSnapshot();
+      requestThreadStreamSnapshotImpl = null;
+    }
+
+    const tab = getPanelTabById(screen.container, "background-agent:thread-child");
+    expect(tab.textContent?.includes("Scout")).toBeTrue();
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(tab.querySelector('[data-subagent-avatar-seed="thread-child"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-background-agent-side-panel-tab="background-agent:thread-child"]') !== null).toBeTrue();
+    expect(textContent(screen.container).includes("Thread:thread-child")).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "codex:thread:ensure-session")).toBeFalse();
+    expect(JSON.stringify(hydrateBackgroundSubagentThreadsCalls)).toBe(JSON.stringify([{ threadIds: ["thread-child"] }]));
+    expect(requestThreadStreamSnapshotCalls.filter((threadId) => threadId === "thread-child").length >= 1).toBeTrue();
   });
 
   test("plus menu keeps DB and Browser available while hiding singleton Review", async () => {

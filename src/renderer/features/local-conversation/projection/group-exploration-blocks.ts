@@ -40,6 +40,7 @@ import type {
   ThreadDynamicToolCallGroupBlockModel,
   ThreadMultiAgentGroupBlockModel,
   ThreadPendingMcpToolCallsBlockModel,
+  ThreadSubagentActivityInlineRowModel,
   ThreadTranscriptBlockModel,
   ThreadExplorationGroupBlockModel,
   ThreadWebSearchGroupBlockModel,
@@ -50,6 +51,7 @@ type MultiAgentBlock = ThreadTranscriptBlockModel & { type: "multiAgentAction" }
 type McpToolCallBlock = ThreadTranscriptBlockModel & { type: "mcpToolCall" };
 type DynamicToolCallBlock = ThreadTranscriptBlockModel & { type: "dynamicToolCall" };
 type WebSearchBlock = ThreadTranscriptBlockModel & { type: "webSearch" };
+type SubagentActivityBlock = ThreadTranscriptBlockModel & { type: "subagentActivityInlineGroup" };
 
 export { buildCollapsedToolActivitySummary } from "./collapsed-tool-activity-summary";
 
@@ -212,6 +214,13 @@ function resolveMultiAgentSummary(entries: CodexConversationItem[]): string {
   return `Multi-agent actions (${entries.length})`;
 }
 
+function resolveSubagentActivityStatusLabel(rows: readonly ThreadSubagentActivityInlineRowModel[]): string {
+  if (rows.some((row) => row.activityStatus === "interrupted")) return "interrupted";
+  if (rows.some((row) => row.activityStatus === "updated")) return "updated";
+  if (rows.length > 0 && rows.every((row) => row.activityStatus === "done" || row.status === "done")) return "finished";
+  return "started working";
+}
+
 function resolveMultiAgentGroupStatus(entries: CodexConversationItem[]): CodexConversationItem["status"] {
   if (entries.some((entry) => entry.status === "inProgress")) return "inProgress";
   if (entries.some((entry) => entry.status === "failed")) return "failed";
@@ -333,6 +342,33 @@ function buildMultiAgentGroup(entries: CodexConversationItem[], seed: ThreadTran
     entries,
     summary: resolveMultiAgentSummary(entries),
     status: resolveMultiAgentGroupStatus(entries),
+  };
+}
+
+function buildSubagentActivityInlineGroup(
+  entries: SubagentActivityBlock[],
+  seed: SubagentActivityBlock,
+): SubagentActivityBlock {
+  const rowsByConversationId = new Map<string, ThreadSubagentActivityInlineRowModel>();
+  for (const entry of entries) {
+    for (const row of entry.subagentActivityRows ?? []) {
+      rowsByConversationId.set(row.conversationId, row);
+    }
+  }
+
+  const rows = Array.from(rowsByConversationId.values());
+  const statusLabel = resolveSubagentActivityStatusLabel(rows);
+  return {
+    ...seed,
+    id: `${seed.id}::subagent-activity-inline-group`,
+    createdAt: entries[0]?.createdAt ?? seed.createdAt,
+    updatedAt: Math.max(...entries.map((entry) => entry.updatedAt)),
+    searchableText: [
+      statusLabel,
+      ...rows.flatMap((row) => [row.displayName, row.statusSummary ?? ""]),
+    ].map((segment) => segment.trim()).filter(Boolean).join("\n"),
+    subagentActivityRows: rows,
+    subagentActivityStatusLabel: statusLabel,
   };
 }
 
@@ -691,6 +727,8 @@ function resolveTranscriptBlockItemType(block: ThreadTranscriptBlockModel): stri
       return "auto-review-interruption-warning";
     case "multiAgentAction":
       return "multi-agent-action";
+    case "subagentActivityInlineGroup":
+      return "subagent-activity-inline-group";
     case "userInputResponse":
       return "user-input-response";
     case "planImplementation":
@@ -717,6 +755,12 @@ function resolveMultiAgentGroupKeyParts(block: ThreadMultiAgentGroupBlockModel):
     action: payload?.action ?? "unknown",
     id: first ? resolveConversationItemKeyId(first) : null,
   };
+}
+
+function isSubagentActivityInlineGroupBlock(
+  block: ThreadAgentItemModel | ThreadAgentEntryModel | undefined,
+): block is SubagentActivityBlock {
+  return Boolean(block && isTranscriptBlock(block) && block.type === "subagentActivityInlineGroup");
 }
 
 function resolveExplorationGroupKey(block: ThreadExplorationGroupBlockModel, index: number): string {
@@ -1695,6 +1739,20 @@ export function buildPreGroupedAgentRenderUnits(agentBlocks: ThreadAgentItemMode
         cursor += 1;
       }
       grouped.push(buildRenderEntryUnit(buildMultiAgentGroup(entries, currentMultiAgent.block)));
+      index = cursor;
+      continue;
+    }
+
+    if (isSubagentActivityInlineGroupBlock(current)) {
+      const entries: SubagentActivityBlock[] = [current];
+      let cursor = index + 1;
+      while (cursor < agentBlocks.length) {
+        const candidate = agentBlocks[cursor];
+        if (!isSubagentActivityInlineGroupBlock(candidate)) break;
+        entries.push(candidate);
+        cursor += 1;
+      }
+      grouped.push(buildRenderEntryUnit(buildSubagentActivityInlineGroup(entries, current)));
       index = cursor;
       continue;
     }

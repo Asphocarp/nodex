@@ -73,6 +73,7 @@ function isRenderableAgentItem(item: ThreadRendererItemModel): item is ThreadAge
     case "dynamicToolCall":
     case "automaticApprovalReview":
     case "multiAgentAction":
+    case "subagentActivityInlineGroup":
     case "streamError":
     case "systemError":
     case "contextCompaction":

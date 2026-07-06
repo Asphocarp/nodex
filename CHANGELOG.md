@@ -89,6 +89,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
+- Fixed reopened Thread pages getting stuck loading by resuming renderer-owned streams from the live renderer cursor, replaying resume buffers consistently, and promoting background subagent threads to full streaming only after their right-panel detail tab opens.
 - Fixed editing the last Thread user message in multi-window live streams so local edits first resume renderer ownership when needed, materialize rollback in the renderer owner, tombstone late old-turn notifications, start the replacement as an owner-local optimistic turn, and no longer let main-generated post-start snapshots reintroduce the removed turn.
 - Fixed forking from a Thread turn in owner/follower streams so no-role local forks first resume renderer ownership and active forks use the owner app-server facade instead of the removed renderer fork fallback IPC.
 - Fixed multi-window active Thread actions so normal turn starts, settings/goals, queued follow-ups, steer pending state, plan-dismissal rows, and owner-routed app-server requests publish through the live owner stream, wait for the owner revision when needed, and no longer rely on stale main-process fallback patches.

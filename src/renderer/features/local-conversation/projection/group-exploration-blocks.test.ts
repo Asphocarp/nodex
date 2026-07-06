@@ -8,6 +8,7 @@ import type {
 import type {
   ThreadAgentEntryModel,
   ThreadAgentItemModel,
+  ThreadSubagentActivityStatus,
   ThreadTranscriptBlockModel,
 } from "../thread-stage-types";
 import {
@@ -179,6 +180,42 @@ function dynamicBlock(id: string, tool = "read_thread"): ThreadTranscriptBlockMo
   });
 }
 
+function subagentActivityBlock(
+  id: string,
+  conversationId: string,
+  displayName: string,
+  activityStatus: ThreadSubagentActivityStatus,
+): ThreadTranscriptBlockModel {
+  const status = activityStatus === "interrupted" || activityStatus === "done" ? "done" : "active";
+  return {
+    ...buildBlock(id, "subagentActivityInlineGroup", {
+      kind: "systemEvent",
+      semanticKind: "systemEvent",
+      rawItem: {
+        id,
+        type: "subAgentActivity",
+        kind: activityStatus === "updated" ? "interacted" : activityStatus === "done" ? "interacted" : activityStatus,
+        agentThreadId: conversationId,
+        agentPath: displayName,
+      },
+    }),
+    searchableText: `${displayName}\n${activityStatus}`,
+    subagentActivityRows: [
+      {
+        conversationId,
+        displayName,
+        agentRole: null,
+        spawnModel: null,
+        status,
+        activityStatus,
+        statusSummary: `${displayName} ${activityStatus}`,
+        diffStats: null,
+      },
+    ],
+    subagentActivityStatusLabel: activityStatus === "started" ? "started working" : activityStatus,
+  };
+}
+
 describe("buildAgentRenderUnits collapsed tool activity", () => {
   test("pre-groups web searches and same-action multi-agent entries into explicit render units", () => {
     const units = buildPreGroupedAgentRenderUnits([
@@ -212,6 +249,26 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
     expect(materializeAgentRenderUnits(units).map((entry) => entry.type).join(",")).toBe(
       "webSearchGroup,multiAgentGroup,exec",
     );
+  });
+
+  test("pre-groups adjacent subagent activity blocks into one inline group", () => {
+    const units = buildPreGroupedAgentRenderUnits([
+      subagentActivityBlock("subagent-1", "thread-child-a", "Scout", "started"),
+      subagentActivityBlock("subagent-2", "thread-child-b", "Reviewer", "updated"),
+      subagentActivityBlock("subagent-3", "thread-child-a", "Scout", "updated"),
+      buildBlock("cmd", "exec", { command: "date", commandActions: [] }),
+    ]);
+    const materialized = materializeAgentRenderUnits(units);
+    const group = materialized[0];
+
+    expect(units.map((unit) => unit.kind).join(",")).toBe("entry,entry");
+    expect(materialized.map((entry) => entry.type).join(",")).toBe("subagentActivityInlineGroup,exec");
+    expect(group?.type).toBe("subagentActivityInlineGroup");
+    expect(group && "subagentActivityRows" in group ? group.subagentActivityRows?.map((row) => row.conversationId).join(",") : "").toBe(
+      "thread-child-a,thread-child-b",
+    );
+    expect(group && "subagentActivityRows" in group ? group.subagentActivityRows?.[0]?.activityStatus : "").toBe("updated");
+    expect(group && "subagentActivityStatusLabel" in group ? group.subagentActivityStatusLabel : "").toBe("updated");
   });
 
   test("returns final grouped activity through the explicit render-unit taxonomy", () => {

@@ -25,15 +25,28 @@ import { useGitBranchState } from "../../../../lib/use-git-branch-state";
 import { cn } from "../../../../lib/utils";
 import type {
   CodexBackgroundTerminalRow,
+  CodexConversationChildMembership,
+  CodexConversationSnapshot,
   CodexConversationTurn,
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
 import { getCodexFileChangePaths } from "../../../../../shared/codex-file-change";
-import type { ThreadStageRouteInput, ThreadSummaryPanelAuxiliaryRow } from "../../thread-stage-types";
+import { buildBackgroundAgentOpenContext } from "../../projection/background-subagent-open-context";
+import { buildBackgroundSubagentRows } from "../../projection/background-subagent-row-model";
+import type {
+  ThreadComposerShellBackgroundAgentRowModel,
+  ThreadStageActions,
+  ThreadStageRouteInput,
+  ThreadSummaryPanelAuxiliaryRow,
+} from "../../thread-stage-types";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
 import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
+import { SubagentAvatar } from "../shared/subagent-avatar";
+
+const EMPTY_CHILD_MEMBERSHIPS: readonly CodexConversationChildMembership[] = [];
+const EMPTY_KNOWN_CONVERSATIONS_BY_ID: Record<string, CodexConversationSnapshot> = {};
 
 export interface ThreadSummaryPanelContentProps {
   activeThreadId: string | null;
@@ -41,10 +54,13 @@ export interface ThreadSummaryPanelContentProps {
   projectWorkspacePath: string | null;
   turns: readonly CodexConversationTurn[];
   backgroundTerminalRows?: readonly CodexBackgroundTerminalRow[];
+  childMemberships?: readonly CodexConversationChildMembership[];
+  knownConversationsById?: Record<string, CodexConversationSnapshot>;
   sideChatRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
   browserRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
   isVisible?: boolean;
   newThreadStartInSelector?: ThreadStageRouteInput["newThreadStartInSelector"];
+  onOpenThread?: ThreadStageActions["onOpenThread"];
   onErrorMessage: (message: string | null) => void;
 }
 
@@ -149,24 +165,140 @@ function collectOutputRows(turns: readonly CodexConversationTurn[]): string[] {
   return Array.from(paths.values()).slice(0, 5);
 }
 
-function collectBackgroundSubagentRows(turns: readonly CodexConversationTurn[]): string[] {
-  const labels: string[] = [];
-  for (const turn of turns) {
-    for (const item of turn.items) {
-      if (item.type !== "collabAgentToolCall") continue;
-      const rawItem = item.rawItem as { receiverThreadIds?: string[]; tool?: string } | undefined;
-      const receiverCount = rawItem?.receiverThreadIds?.length ?? 0;
-      labels.push(receiverCount > 1 ? `${receiverCount} subagents` : rawItem?.tool ?? "Subagent");
-    }
-  }
-  return labels.slice(0, 4);
-}
-
 function SummaryCountBadge({ count }: { count: number }) {
   return (
     <span className="ms-auto text-size-chat text-token-text-tertiary">
       {count}
     </span>
+  );
+}
+
+function isBackgroundSubagentWorking(row: ThreadComposerShellBackgroundAgentRowModel): boolean {
+  return row.status !== "done";
+}
+
+function selectCompactBackgroundSubagentRows(
+  rows: readonly ThreadComposerShellBackgroundAgentRowModel[],
+): ThreadComposerShellBackgroundAgentRowModel[] {
+  const inlineRows = rows.filter((row) => row.showInlineActivity);
+  const workingRows = inlineRows.filter(isBackgroundSubagentWorking);
+  if (workingRows.length > 0) return workingRows.slice(0, 4);
+  return inlineRows.filter((row) => row.status === "done").slice(-4);
+}
+
+function getBackgroundSubagentTitle(row: ThreadComposerShellBackgroundAgentRowModel): string {
+  return [
+    row.displayName,
+    row.agentRole ? `Role: ${row.agentRole}` : null,
+    row.spawnModel ? `Model: ${row.spawnModel}` : null,
+    row.statusSummary ? `Status: ${row.statusSummary}` : null,
+  ].filter(Boolean).join("\n");
+}
+
+function BackgroundSubagentRowLabel({ row }: { row: ThreadComposerShellBackgroundAgentRowModel }) {
+  const active = row.status === "active";
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <SubagentAvatar
+        seed={row.conversationId}
+        active={active}
+        className="icon-sm pointer-events-none"
+      />
+      <span className="min-w-0 truncate font-medium">{row.displayName}</span>
+      {active ? (
+        <span className="loading-shimmer-pure-text shrink-0 whitespace-nowrap text-size-chat text-token-text-tertiary">
+          is working
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function BackgroundSubagentRowTrailing({ row }: { row: ThreadComposerShellBackgroundAgentRowModel }) {
+  if (!row.diffStats) return null;
+
+  return (
+    <DiffStats
+      additions={row.diffStats.linesAdded}
+      deletions={row.diffStats.linesRemoved}
+      className="shrink-0 text-size-chat"
+    />
+  );
+}
+
+function BackgroundSubagentCompactButton({
+  onOpenThread,
+  row,
+}: {
+  onOpenThread: ThreadStageActions["onOpenThread"] | undefined;
+  row: ThreadComposerShellBackgroundAgentRowModel;
+}) {
+  const avatar = (
+    <SubagentAvatar
+      seed={row.conversationId}
+      active={row.status === "active"}
+      className="size-4"
+    />
+  );
+
+  if (!onOpenThread) {
+    return (
+      <span
+        title={getBackgroundSubagentTitle(row)}
+        className="-ms-1 first:ms-0"
+      >
+        {avatar}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${row.displayName}`}
+      title={getBackgroundSubagentTitle(row)}
+      className="-ms-1 first:ms-0 rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-token-text-link-foreground"
+      onClick={() => {
+        void onOpenThread(row.conversationId, buildBackgroundAgentOpenContext(row));
+      }}
+    >
+      {avatar}
+    </button>
+  );
+}
+
+function BackgroundSubagentCompactStrip({
+  rows,
+  onOpenThread,
+}: {
+  rows: readonly ThreadComposerShellBackgroundAgentRowModel[];
+  onOpenThread: ThreadStageActions["onOpenThread"] | undefined;
+}) {
+  if (rows.length === 0) return null;
+
+  const workingCount = rows.filter(isBackgroundSubagentWorking).length;
+  const doneCount = rows.length - workingCount;
+
+  return (
+    <div className="flex h-7 min-w-0 items-center justify-between gap-2">
+      <span className="flex min-w-0 items-center pl-1">
+        {rows.map((row) => (
+          <BackgroundSubagentCompactButton
+            key={row.conversationId}
+            row={row}
+            onOpenThread={onOpenThread}
+          />
+        ))}
+      </span>
+      <span className="ms-auto flex shrink-0 items-center gap-1.5 text-size-chat">
+        {workingCount > 0 ? (
+          <span className="whitespace-nowrap text-token-foreground">{workingCount} working</span>
+        ) : null}
+        {doneCount > 0 ? (
+          <span className="whitespace-nowrap text-token-text-tertiary">{doneCount} done</span>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
@@ -334,10 +466,13 @@ export function ThreadSummaryPanelSurface({
   projectWorkspacePath,
   turns,
   backgroundTerminalRows = [],
+  childMemberships = EMPTY_CHILD_MEMBERSHIPS,
+  knownConversationsById = EMPTY_KNOWN_CONVERSATIONS_BY_ID,
   sideChatRows = [],
   browserRows = [],
   isVisible = true,
   newThreadStartInSelector,
+  onOpenThread,
   onErrorMessage,
 }: Omit<ThreadFloatingSummaryPanelProps, "mounted" | "open">) {
   const branchCwd = useMemo(
@@ -350,7 +485,22 @@ export function ThreadSummaryPanelSurface({
   const webSearchCount = useMemo(() => collectWebSearchCount(turns), [turns]);
   const progressRows = useMemo(() => collectProgressRows(turns), [turns]);
   const outputRows = useMemo(() => collectOutputRows(turns), [turns]);
-  const backgroundSubagentRows = useMemo(() => collectBackgroundSubagentRows(turns), [turns]);
+  const backgroundSubagentRows = useMemo(
+    () => buildBackgroundSubagentRows({
+      childMemberships,
+      knownConversationsById,
+      parentTurns: turns,
+    }),
+    [childMemberships, knownConversationsById, turns],
+  );
+  const compactBackgroundSubagentRows = useMemo(
+    () => selectCompactBackgroundSubagentRows(backgroundSubagentRows),
+    [backgroundSubagentRows],
+  );
+  const listedBackgroundSubagentRows = useMemo(
+    () => backgroundSubagentRows.filter((row) => !row.showInlineActivity),
+    [backgroundSubagentRows],
+  );
   const snapshots = gitSummary.snapshots;
   const unstaged = sumSnapshotFiles(snapshots.unstaged);
   const staged = sumSnapshotFiles(snapshots.staged);
@@ -478,9 +628,25 @@ export function ThreadSummaryPanelSurface({
         ) : null}
 
         {backgroundSubagentRows.length > 0 ? (
-          <ThreadSummaryPanelSection title="Background subagents" actions={<SummaryCountBadge count={backgroundSubagentRows.length} />}>
-            {backgroundSubagentRows.map((row, index) => (
-              <ThreadSummaryPanelRow key={`${row}:${index}`} label={row} />
+          <ThreadSummaryPanelSection title="Subagents" actions={<SummaryCountBadge count={backgroundSubagentRows.length} />}>
+            <BackgroundSubagentCompactStrip
+              rows={compactBackgroundSubagentRows}
+              onOpenThread={onOpenThread}
+            />
+            {listedBackgroundSubagentRows.map((row) => (
+              <ThreadSummaryPanelRow
+                key={row.conversationId}
+                label={<BackgroundSubagentRowLabel row={row} />}
+                title={getBackgroundSubagentTitle(row)}
+                interactive={Boolean(onOpenThread)}
+                onClick={onOpenThread
+                  ? () => {
+                      void onOpenThread(row.conversationId, buildBackgroundAgentOpenContext(row));
+                    }
+                  : undefined}
+                trailing={<BackgroundSubagentRowTrailing row={row} />}
+                trailingVisible={Boolean(row.diffStats)}
+              />
             ))}
           </ThreadSummaryPanelSection>
         ) : null}

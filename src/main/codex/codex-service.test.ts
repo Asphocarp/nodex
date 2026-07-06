@@ -6,6 +6,7 @@ import path from "node:path";
 import type {
   CodexHostMessage,
   CodexConversationSnapshot,
+  CodexBackgroundSubagentThreadsHydrateInput,
   CodexEvent,
   CodexItemView,
   CodexMcpServerElicitationResponse,
@@ -18,6 +19,7 @@ import type {
   CodexThreadDetail,
   CodexThreadGoalSetActionInput,
   CodexThreadOwnerStreamStatePublishInput,
+  CodexThreadSummary,
   CodexTranscriptEntry,
   CodexTurnSummary,
   CommandPaletteThreadContentSearchResult,
@@ -92,6 +94,7 @@ interface TestableCodexService {
     threadId: string,
     options?: { emitSourceNullSnapshots?: boolean; replayBufferedNotifications?: boolean },
   ) => Promise<CodexConversationSnapshot | null>;
+  requestRendererConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
   ackRendererThreadOwnerNotification: (
     sourceClientId: string,
@@ -179,6 +182,10 @@ interface TestableCodexService {
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
+  markSubagentThreadOpened: (threadId: string) => boolean;
+  hydrateBackgroundSubagentThreads: (
+    input: CodexBackgroundSubagentThreadsHydrateInput,
+  ) => Promise<CodexThreadSummary[]>;
   respondToUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<boolean>;
   setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
   getCustomPermissionModeDescription: (projectId: string) => string;
@@ -1742,7 +1749,7 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
-  test("rejects renderer stream patches with a mismatched base revision", async () => {
+  test("broadcasts renderer stream patches with a mismatched local cache revision", async () => {
     const service = createService();
     const hostMessages: CodexHostMessage[] = [];
     service.on("hostMessage", (message) => {
@@ -1772,11 +1779,51 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 4,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBeFalse();
+      })).toBeTrue();
 
       const latest = projectConversationFromHostMessages(hostMessages);
-      expect(String(hostMessages.length)).toBe("1");
-      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("");
+      expect(String(hostMessages.length)).toBe("2");
+      expect(latest?.turns[0]?.items[0]?.markdownText).toBe("stale");
+      expect(hostMessages[1]?.type).toBe("threadStreamStateChanged");
+      expect(hostMessages[1]?.type === "threadStreamStateChanged" ? hostMessages[1].change.type : "").toBe("patches");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("claims renderer ownership for the first owner stream publish", async () => {
+    const service = createService();
+    try {
+      const baseConversation = makeConversationSnapshot({ threadId: "thread-owner-claim" });
+      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner-claim", text: "owner" });
+
+      expect(service.publishRendererThreadStreamStateChange("client-stale", {
+        conversationId: "thread-owner-claim",
+        change: {
+          type: "patches",
+          baseRevision: 7,
+          revision: 8,
+          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
+        },
+      })).toBeTrue();
+
+      expect(service.publishRendererThreadStreamStateChange("client-owner", {
+        conversationId: "thread-owner-claim",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+      })).toBeFalse();
+
+      expect(service.publishRendererThreadStreamStateChange("client-stale", {
+        conversationId: "thread-owner-claim",
+        change: {
+          type: "snapshot",
+          revision: 2,
+          conversationState: nextConversation,
+        },
+      })).toBeTrue();
     } finally {
       await service.shutdown();
     }
@@ -2277,6 +2324,179 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("registers subagent ids from thread-started spawn sources", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+        routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
+        subagentThreadIds: Set<string>;
+      };
+
+      try {
+        serviceInternals.handleNotification = async () => {};
+        serviceInternals.routeAppServerNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              ...makeSidebarListThread({
+                id: "thr_subagent_child",
+                cwd: "/tmp/codex",
+                preview: "Subagent child",
+              }),
+              source: {
+                subAgent: {
+                  thread_spawn: {
+                    parent_thread_id: "thr_parent",
+                  },
+                },
+              },
+            },
+          },
+        });
+        serviceInternals.routeAppServerNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              ...makeSidebarListThread({
+                id: "thr_lowercase_subagent",
+                cwd: "/tmp/codex",
+                preview: "Lowercase source",
+              }),
+              source: {
+                subagent: {
+                  thread_spawn: {
+                    parent_thread_id: "thr_parent",
+                  },
+                },
+              },
+            },
+          },
+        });
+        serviceInternals.routeAppServerNotification({
+          method: "thread/started",
+          params: {
+            thread: makeSidebarListThread({
+              id: "thr_regular_started",
+              cwd: "/tmp/codex",
+              preview: "Regular child",
+            }),
+          },
+        });
+
+        expect(Array.from(serviceInternals.subagentThreadIds).join(",")).toBe("thr_subagent_child");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("marks opened subagent threads as full fidelity", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        fullFidelitySubagentThreadIds: Set<string>;
+      };
+
+      try {
+        expect(service.markSubagentThreadOpened("  thr_opened_child  ")).toBeTrue();
+        expect(service.markSubagentThreadOpened("   ")).toBeFalse();
+        expect(Array.from(serviceInternals.fullFidelitySubagentThreadIds).join(",")).toBe("thr_opened_child");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("drops only Qz deltas for unopened subagent threads", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const handledMethods: string[] = [];
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+        routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
+      };
+      const qzMethods = [
+        "item/agentMessage/delta",
+        "item/plan/delta",
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/textDelta",
+        "item/commandExecution/outputDelta",
+      ];
+
+      try {
+        serviceInternals.handleNotification = async (method) => {
+          handledMethods.push(method);
+        };
+        serviceInternals.routeAppServerNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              ...makeSidebarListThread({
+                id: "thr_unopened_subagent",
+                cwd: "/tmp/codex",
+                preview: "Unopened subagent",
+              }),
+              source: {
+                subAgent: {
+                  thread_spawn: {
+                    parent_thread_id: "thr_parent",
+                  },
+                },
+              },
+            },
+          },
+        });
+        handledMethods.length = 0;
+
+        for (const method of qzMethods) {
+          serviceInternals.routeAppServerNotification({
+            method,
+            params: {
+              threadId: "thr_unopened_subagent",
+              turnId: "turn_1",
+              itemId: "item_1",
+              delta: "streaming",
+            },
+          });
+        }
+        serviceInternals.routeAppServerNotification({
+          method: "item/reasoning/summaryPartAdded",
+          params: {
+            threadId: "thr_unopened_subagent",
+            turnId: "turn_1",
+            itemId: "reasoning_1",
+            summaryIndex: 0,
+          },
+        });
+        expect(handledMethods.join(",")).toBe("item/reasoning/summaryPartAdded");
+
+        service.markSubagentThreadOpened("thr_unopened_subagent");
+        handledMethods.length = 0;
+        for (const method of qzMethods) {
+          serviceInternals.routeAppServerNotification({
+            method,
+            params: {
+              threadId: "thr_unopened_subagent",
+              turnId: "turn_1",
+              itemId: "item_1",
+              delta: "streaming",
+            },
+          });
+        }
+        expect(handledMethods.join(",")).toBe(qzMethods.join(","));
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("routes thread-started notifications through the renderer owner when one is registered", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -2484,6 +2704,78 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("hydrates explicit background subagent thread ids without parent descendant listing", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+      const makeSubagentThread = (threadId: string, parentThreadId: string, updatedAt: number) => ({
+        ...makeSidebarListThread({
+          id: threadId,
+          cwd: "/tmp/codex/packages/app",
+          preview: threadId,
+          updatedAt,
+        }),
+        source: {
+          subAgent: {
+            thread_spawn: {
+              parent_thread_id: parentThreadId,
+            },
+          },
+        },
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        const request = params as Record<string, unknown>;
+        requests.push({ method, params: request });
+        if (method !== "thread/read") {
+          throw new Error(`Unexpected background hydrate request method: ${method}`);
+        }
+        const threadId = typeof request.threadId === "string" ? request.threadId : "";
+        if (threadId === "thr_child_a") {
+          return { thread: makeSubagentThread("thr_child_a", "thr_parent", 30) };
+        }
+        if (threadId === "thr_child_b") {
+          return { thread: makeSubagentThread("thr_child_b", "thr_child_a", 20) };
+        }
+        return {
+          thread: makeSidebarListThread({
+            id: threadId,
+            cwd: "/tmp/codex/packages/app",
+            preview: threadId,
+          }),
+        };
+      };
+
+      try {
+        const summaries = await service.hydrateBackgroundSubagentThreads({
+          threadIds: [" thr_child_a ", "", "thr_child_a", "thr_child_b"],
+        });
+        const firstRequest = requests[0];
+        const firstSummary = getCodexThread("thr_child_a");
+        const secondSummary = getCodexThread("thr_child_b");
+
+        expect(summaries.map((summary) => summary.threadId).join(",")).toBe("thr_child_a,thr_child_b");
+        expect(requests.map((request) => request.method).join(",")).toBe("thread/read,thread/read");
+        expect(requests.map((request) => String(request.params.threadId)).join(",")).toBe("thr_child_a,thr_child_b");
+        expect(requests.map((request) => String(request.params.includeTurns)).join(",")).toBe("false,false");
+        expect(firstRequest?.params.threadId).toBe("thr_child_a");
+        expect(firstSummary?.source?.parentThreadId).toBe("thr_parent");
+        expect(secondSummary?.source?.parentThreadId).toBe("thr_child_a");
+        expect(getCodexThread("thr_parent") === null).toBeTrue();
+        expect(getCodexThread("thr_unrelated") === null).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("coalesces concurrent sidebar force sync calls through one thread-list request", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -2538,6 +2830,50 @@ describe("codex-service readThread fallback", () => {
         expect(secondResult.materializedSessionIds.length).toBe(1);
       } finally {
         releaseRequest();
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("serves repeated stale sidebar syncs from SQLite inside the fresh window", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      let requestCount = 0;
+
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/list") return {};
+        requestCount += 1;
+        return {
+          data: [
+            makeSidebarListThread({
+              id: "thr_stale_gate_sidebar_sync",
+              cwd: "/tmp/codex/packages/app",
+              preview: "Stale gate",
+              updatedAt: 50,
+            }),
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        const forceResult = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
+        const staleResult = await service.syncSidebarThreadsDetailed({ policy: "stale", reason: "focus" });
+        const heartbeatResult = await service.syncSidebarThreadsDetailed({ policy: "stale", reason: "heartbeat" });
+
+        expect(forceResult.source).toBe("app-server");
+        expect(staleResult.source).toBe("sqlite");
+        expect(heartbeatResult.source).toBe("sqlite");
+        expect(requestCount).toBe(1);
+      } finally {
         await service.shutdown();
       }
     });
@@ -4553,10 +4889,7 @@ describe("codex-service session-backed transcript recovery", () => {
 
       try {
         service.setRendererConversationOwner(threadId, ownerClientId);
-        const conversation = await service.requestConversationResume(threadId, {
-          emitSourceNullSnapshots: false,
-          replayBufferedNotifications: false,
-        });
+        const conversation = await service.requestRendererConversationResume(threadId);
 
         expect(conversation?.threadId ?? "").toBe(threadId);
         expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBeFalse();
@@ -5071,6 +5404,7 @@ describe("codex-service session-backed transcript recovery", () => {
       const serviceInternals = service as unknown as {
         turnByThread: Map<string, Map<string, CodexTurnSummary>>;
         transcriptByThread: Map<string, CodexTranscriptEntry[]>;
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         queuedFollowUpsByThread: Map<string, Array<{
           followUpId: string;
           threadId: string;
@@ -5113,6 +5447,13 @@ describe("codex-service session-backed transcript recovery", () => {
           updatedAt: 1,
         },
       ]);
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_child"),
+        projectId: defaultProjectId,
+        threadName: "Child agent",
+        agentNickname: "@ChildNick",
+        agentRole: "reviewer",
+      });
       serviceInternals.queuedFollowUpsByThread.set("thr_child", [
         {
           followUpId: "follow_up_1",
@@ -5129,6 +5470,8 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.childMemberships.length).toBe(1);
         expect(conversation?.childMemberships[0]?.threadId).toBe("thr_child");
         expect(conversation?.childMemberships[0]?.actorName).toBe("Child agent");
+        expect(conversation?.childMemberships[0]?.thread?.nickname).toBe("@ChildNick");
+        expect(conversation?.childMemberships[0]?.thread?.agentRole).toBe("reviewer");
       } finally {
         await service.shutdown();
       }

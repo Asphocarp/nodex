@@ -165,4 +165,87 @@ describe("createThreadStageActions settings routing", () => {
       },
     ]));
   });
+
+  test("passes subagent context to the shell opener without hydrating inline", async () => {
+    const calls: string[] = [];
+    const input = buildInput({
+      activeThreadId: "thread-parent",
+      codexControl: {
+        hydrateBackgroundSubagentThreads: async (input: { threadIds: string[] }) => {
+          calls.push(`hydrate:${input.threadIds.join(",")}`);
+          return [];
+        },
+        requestThreadStreamSnapshot: async (threadId: string) => {
+          calls.push(`snapshot:${threadId}`);
+          return null;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      onOpenThread: (threadId, context) => {
+        calls.push(`open:${threadId}:${context?.subagent?.conversationId ?? "none"}`);
+      },
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onOpenThread("thread-child", {
+      subagent: {
+        agentRole: "reviewer",
+        conversationId: "thread-child",
+        diffStats: null,
+        displayName: "Reviewer",
+        spawnModel: "gpt-5.3-codex",
+        status: "active",
+        statusSummary: "checking changes",
+      },
+    });
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      "open:thread-child:thread-child",
+    ]));
+  });
+
+  test("does not run subagent hydration for ordinary thread opens", async () => {
+    const calls: string[] = [];
+    const input = buildInput({
+      codexControl: {
+        hydrateBackgroundSubagentThreads: async (input: { threadIds: string[] }) => {
+          calls.push(`hydrate:${input.threadIds.join(",")}`);
+          return [];
+        },
+        requestThreadStreamSnapshot: async (threadId: string) => {
+          calls.push(`snapshot:${threadId}`);
+          return null;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      onOpenThread: (threadId, context) => {
+        calls.push(`open:${threadId}:${context?.subagent?.conversationId ?? "none"}`);
+      },
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onOpenThread("thread-ordinary");
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      "open:thread-ordinary:none",
+    ]));
+  });
+
+  test("stops background agents by interrupting unique child threads", async () => {
+    const calls: string[] = [];
+    const input = buildInput({
+      codexControl: {
+        interruptTurn: async (threadId: string) => {
+          calls.push(threadId);
+          return true;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onStopBackgroundAgents?.(["thread-child-a", "thread-child-b", "thread-child-a", " "]);
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      "thread-child-a",
+      "thread-child-b",
+    ]));
+  });
 });

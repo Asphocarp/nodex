@@ -11,7 +11,6 @@ import type {
   CodexThreadStatusType,
 } from "../../../lib/types";
 import type {
-  ThreadComposerShellBackgroundAgentRowModel,
   ThreadComposerShellModel,
   ThreadComposerShellPendingRequestModel,
 } from "../thread-stage-types";
@@ -20,9 +19,9 @@ import {
   buildComposerQueuedFollowUpRows,
 } from "./build-composer-follow-up-lane-model";
 import {
-  isBlockingConversationRequest,
   selectPrimaryConversationRequest,
 } from "../conversation-request-helpers";
+import { buildBackgroundSubagentRows } from "./background-subagent-row-model";
 
 interface ExplicitBuildComposerShellModelInput {
   threadId: string | null;
@@ -103,57 +102,6 @@ function resolveBackgroundRequest(
   return null;
 }
 
-function resolveBackgroundAgentStatus(
-  input: Pick<ExplicitBuildComposerShellModelInput, "requests" | "statusActiveFlags" | "statusType" | "turns">,
-): ThreadComposerShellBackgroundAgentRowModel["status"] {
-  const hasBlockingRequest = input.requests.some((request) =>
-    isBlockingConversationRequest(request),
-  );
-  const isWaiting = input.statusActiveFlags.includes("waitingOnApproval")
-    || input.statusActiveFlags.includes("waitingOnUserInput")
-    || hasBlockingRequest;
-  if (isWaiting) {
-    return "waiting";
-  }
-
-  const hasInProgressTurn = input.turns.some((turn) => turn.status === "inProgress");
-  if (input.statusType === "active" || hasInProgressTurn) {
-    return "active";
-  }
-
-  return "done";
-}
-
-function buildBackgroundAgentRows(
-  input: Pick<ExplicitBuildComposerShellModelInput, "childMemberships">,
-  knownConversationsById: Record<string, CodexConversationSnapshot>,
-): ThreadComposerShellBackgroundAgentRowModel[] {
-  return input.childMemberships.flatMap((membership) => {
-    const childConversation = knownConversationsById[membership.threadId];
-    if (!childConversation || childConversation.archived) {
-      return [];
-    }
-
-    const displayName = membership.actorName?.trim()
-      || childConversation.threadName?.trim()
-      || childConversation.threadPreview?.trim()
-      || membership.threadId;
-
-    return [{
-      conversationId: membership.threadId,
-      displayName,
-      actorName: membership.actorName?.trim() || displayName,
-      status: resolveBackgroundAgentStatus({
-        requests: childConversation.requests,
-        statusActiveFlags: childConversation.statusActiveFlags,
-        statusType: childConversation.statusType,
-        turns: childConversation.turns,
-      }),
-      role: membership.role,
-    }];
-  });
-}
-
 export function buildComposerShellModel(
   input: BuildComposerShellModelInput,
 ): ThreadComposerShellModel {
@@ -222,7 +170,11 @@ export function buildComposerShellModel(
     backgroundRequest,
     pendingSteerRows: buildComposerPendingSteerRows(normalized.pendingSteers),
     queuedFollowUpRows: buildComposerQueuedFollowUpRows(normalized.queuedFollowUps),
-    backgroundAgentRows: buildBackgroundAgentRows(normalized, normalized.knownConversationsById),
+    backgroundAgentRows: buildBackgroundSubagentRows({
+      childMemberships: normalized.childMemberships,
+      knownConversationsById: normalized.knownConversationsById,
+      parentTurns: normalized.turns,
+    }),
     backgroundTerminalRows: normalized.backgroundTerminalRows,
     showRequestCards,
     showComposer: !showRequestCards,

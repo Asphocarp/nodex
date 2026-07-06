@@ -273,6 +273,49 @@ describe("buildRendererItemStream", () => {
     expect(items.map((item) => item.type).join(",")).toBe("todoList,proposedPlan,multiAgentAction");
   });
 
+  test("maps subAgentActivity protocol items into inline subagent activity rows", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "sub_agent_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: {
+            id: "sub_agent_1",
+            type: "subAgentActivity",
+            kind: "started",
+            agentThreadId: "thread-child-1",
+            agentPath: "agents/@Scout",
+          },
+        }),
+        buildEntry({
+          itemId: "sub_agent_2",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: {
+            id: "sub_agent_2",
+            type: "subAgentActivity",
+            kind: "interacted",
+            agentThreadId: "thread-child-2",
+            agentPath: "Reviewer",
+          },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    const first = items[0];
+    const second = items[1];
+
+    expect(items.map((item) => item.type).join(",")).toBe("subagentActivityInlineGroup,subagentActivityInlineGroup");
+    expect(first?.type).toBe("subagentActivityInlineGroup");
+    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.displayName : "").toBe("Scout");
+    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.status : "").toBe("active");
+    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.statusSummary : "").toBe("Scout started working");
+    expect(second && "subagentActivityStatusLabel" in second ? second.subagentActivityStatusLabel : "").toBe("updated");
+  });
+
   test("omits protocol-only items that do not have an inline renderer surface", () => {
     const items = buildRendererItemStream({
       entries: [
@@ -281,12 +324,6 @@ describe("buildRendererItemStream", () => {
           kind: "systemEvent",
           semanticKind: "systemEvent",
           rawItem: { id: "hook_prompt_1", type: "hookPrompt" },
-        }),
-        buildEntry({
-          itemId: "sub_agent_1",
-          kind: "systemEvent",
-          semanticKind: "systemEvent",
-          rawItem: { id: "sub_agent_1", type: "subAgentActivity" },
         }),
         buildEntry({
           itemId: "sleep_1",

@@ -12,6 +12,7 @@ import {
   type CodexMultiAgentActionStatus,
   type CodexMultiAgentAgentState,
 } from "../../../../../shared/codex-transcript-special-items";
+import type { ThreadOpenSubagentPayload, ThreadOpenThreadContext } from "../../thread-stage-types";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
 import { CodexShimmerText } from "./codex-shimmer-text";
@@ -106,6 +107,18 @@ function getAgentRole(receiverThread: CodexMultiAgentReceiverThread | undefined)
   return role;
 }
 
+function getAgentOpenStatus(state: CodexMultiAgentAgentState | undefined): ThreadOpenSubagentPayload["status"] {
+  if (!state) return "done";
+  if (state.status === "pendingInit") return "waiting";
+  if (state.status === "running") return "active";
+  return "done";
+}
+
+function normalizeNullableText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
 function getAgentStateSuffix(state: CodexMultiAgentAgentState | undefined): string {
   if (!state) return "";
   const stateLabel = getAgentStateLabel(state.status);
@@ -145,14 +158,33 @@ interface MultiAgentRenderedRow {
   node: ReactNode;
 }
 
-type OpenMultiAgentThread = (threadId: string) => void | Promise<void>;
+type OpenMultiAgentThread = (threadId: string, context?: ThreadOpenThreadContext) => void | Promise<void>;
+
+function getSpawnModelByThreadId(items: CodexMultiAgentActionPayload[]): Map<string, string> {
+  const models = new Map<string, string>();
+  for (const item of items) {
+    const model = normalizeNullableText(item.model);
+    if (item.action !== "spawnAgent" || !model) continue;
+
+    for (const targetThreadId of listTargetThreadIds(item)) {
+      const threadId = targetThreadId.trim();
+      if (threadId.length === 0) continue;
+      models.set(threadId, model);
+    }
+  }
+  return models;
+}
 
 function AgentLabel({
   onOpenThread,
+  spawnModel,
+  state,
   threadId,
   receiverThread,
 }: {
   onOpenThread?: OpenMultiAgentThread;
+  spawnModel: string | null;
+  state: CodexMultiAgentAgentState | undefined;
   threadId: string;
   receiverThread: CodexMultiAgentReceiverThread | undefined;
 }) {
@@ -164,7 +196,17 @@ function AgentLabel({
       className="cursor-interaction bg-transparent p-0 align-baseline font-medium"
       data-testid="multi-agent-action-agent-button"
       onClick={() => {
-        void onOpenThread(threadId);
+        void onOpenThread(threadId, {
+          subagent: {
+            agentRole: role,
+            conversationId: threadId,
+            diffStats: null,
+            displayName,
+            spawnModel,
+            status: getAgentOpenStatus(state),
+            statusSummary: normalizeNullableText(state?.message),
+          },
+        });
       }}
     >
       {displayName}
@@ -248,6 +290,7 @@ function renderRows(
   onOpenThread: OpenMultiAgentThread | undefined,
 ): MultiAgentRenderedRow[] {
   const rows: MultiAgentRenderedRow[] = [];
+  const spawnModelByThreadId = getSpawnModelByThreadId(items);
 
   for (const [itemIndex, item] of items.entries()) {
     const targetThreadIds = listTargetThreadIds(item);
@@ -270,6 +313,8 @@ function renderRows(
         <AgentLabel
           onOpenThread={onOpenThread}
           receiverThread={receiverThreads.get(threadId)}
+          spawnModel={spawnModelByThreadId.get(threadId) ?? null}
+          state={item.agentsStates[threadId]}
           threadId={threadId}
         />
       );

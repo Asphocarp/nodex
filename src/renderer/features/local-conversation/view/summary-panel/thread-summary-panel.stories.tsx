@@ -3,9 +3,131 @@ import { MotionConfig } from "motion/react";
 import type { CSSProperties } from "react";
 import { BranchStatusIcon, LocalStatusIcon } from "@/components/shared/icons";
 import { CODEX_SUMMARY_PANEL_WIDTH } from "@/lib/codex-panel-motion";
+import type {
+  CodexConversationChildMembership,
+  CodexConversationSnapshot,
+  CodexConversationTurn,
+} from "@/lib/types";
 import { ThreadFloatingSummaryPanel } from "./thread-floating-summary-panel";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
+
+const SUMMARY_PANEL_STORY_CHILD_MEMBERSHIPS: CodexConversationChildMembership[] = [
+  {
+    threadId: "summary-inline-scout",
+    parentThreadId: "thread-story",
+    role: "backgroundChild",
+    actorName: "Scout",
+    displayName: "Scout",
+    agentRole: "explorer",
+    showInlineActivity: true,
+  },
+  {
+    threadId: "summary-inline-planner",
+    parentThreadId: "thread-story",
+    role: "backgroundChild",
+    actorName: "Planner",
+    displayName: "Planner",
+    agentRole: null,
+    showInlineActivity: true,
+  },
+  {
+    threadId: "summary-inline-finisher",
+    parentThreadId: "thread-story",
+    role: "backgroundChild",
+    actorName: "Finisher",
+    displayName: "Finisher",
+    agentRole: null,
+    showInlineActivity: true,
+  },
+  {
+    threadId: "summary-listed-reviewer",
+    parentThreadId: "thread-story",
+    role: "backgroundChild",
+    actorName: "Reviewer",
+    displayName: "Reviewer",
+    agentRole: "reviewer",
+    showInlineActivity: false,
+  },
+  {
+    threadId: "summary-listed-waiting",
+    parentThreadId: "thread-story",
+    role: "backgroundChild",
+    actorName: "Verifier",
+    displayName: "Verifier",
+    agentRole: null,
+    showInlineActivity: false,
+  },
+];
+
+function makeSummaryPanelStorySubagentConversation(input: {
+  threadId: string;
+  name: string;
+  statusType: "active" | "idle" | "notLoaded";
+  turns?: CodexConversationTurn[];
+}): CodexConversationSnapshot {
+  return {
+    threadId: input.threadId,
+    projectId: "project-story",
+    projectName: "Story Project",
+    title: input.name,
+    threadName: input.name,
+    threadPreview: input.name,
+    agentNickname: input.name,
+    agentRole: null,
+    statusType: input.statusType,
+    archived: false,
+    createdAt: 1,
+    updatedAt: 1,
+    resumeState: "resumed",
+    turns: input.turns ?? [],
+    requests: [],
+    queuedFollowUps: [],
+    pendingSteers: [],
+    backgroundTerminalRows: [],
+    childMemberships: [],
+    capabilityFlags: {
+      canCollapseTurns: true,
+      canEditLastUserTurn: true,
+      canForkFromTurn: true,
+      canSearch: true,
+    },
+  } as unknown as CodexConversationSnapshot;
+}
+
+const SUMMARY_PANEL_STORY_KNOWN_CONVERSATIONS: Record<string, CodexConversationSnapshot> = {
+  "summary-inline-scout": makeSummaryPanelStorySubagentConversation({
+    threadId: "summary-inline-scout",
+    name: "Scout",
+    statusType: "active",
+  }),
+  "summary-inline-planner": makeSummaryPanelStorySubagentConversation({
+    threadId: "summary-inline-planner",
+    name: "Planner",
+    statusType: "notLoaded",
+  }),
+  "summary-inline-finisher": makeSummaryPanelStorySubagentConversation({
+    threadId: "summary-inline-finisher",
+    name: "Finisher",
+    statusType: "idle",
+  }),
+  "summary-listed-reviewer": makeSummaryPanelStorySubagentConversation({
+    threadId: "summary-listed-reviewer",
+    name: "Reviewer",
+    statusType: "active",
+    turns: [{
+      turnId: "summary-listed-reviewer-turn",
+      status: "inProgress",
+      diff: "@@ -1 +1,2 @@\n-old\n+new\n+another",
+      items: [],
+    }] as unknown as CodexConversationTurn[],
+  }),
+  "summary-listed-waiting": makeSummaryPanelStorySubagentConversation({
+    threadId: "summary-listed-waiting",
+    name: "Verifier",
+    statusType: "notLoaded",
+  }),
+};
 
 function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
   return (
@@ -38,7 +160,7 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
           <ThreadSummaryPanelSection title="Side chats">
             <ThreadSummaryPanelRow label="Investigate header edge" trailing={<span className="text-size-chat text-token-text-tertiary">Open</span>} trailingVisible />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Background subagents">
+          <ThreadSummaryPanelSection title="Subagents">
             <ThreadSummaryPanelRow label="Layout parity agent" />
           </ThreadSummaryPanelSection>
           <ThreadSummaryPanelSection title="Background tasks">
@@ -100,6 +222,8 @@ function FloatingSummaryPanelStory({
           cwd={null}
           projectWorkspacePath={null}
           turns={[]}
+          childMemberships={SUMMARY_PANEL_STORY_CHILD_MEMBERSHIPS}
+          knownConversationsById={SUMMARY_PANEL_STORY_KNOWN_CONVERSATIONS}
           sideChatRows={[{ id: "side-chat", title: "Investigate layout", status: "Open" }]}
           browserRows={[{ id: "browser", title: "Release notes", status: "Right panel" }]}
           onErrorMessage={() => undefined}

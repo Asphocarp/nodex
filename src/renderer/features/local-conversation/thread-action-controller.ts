@@ -18,7 +18,7 @@ export interface ThreadActionControllerInput {
   projectId: string;
   selectedCollaborationMode: CodexCollaborationModeKind;
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
-  onOpenThread: (threadId: string) => void;
+  onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
@@ -49,6 +49,10 @@ function requireActiveThreadId(activeThreadId: string | null, action: string): s
   }
 
   throw new Error(`${action} requires an active thread`);
+}
+
+function uniqueThreadIds(threadIds: readonly string[]): string[] {
+  return Array.from(new Set(threadIds.map((threadId) => threadId.trim()).filter(Boolean)));
 }
 
 export function createThreadStageActions(input: ThreadActionControllerInput): ThreadStageActions {
@@ -231,7 +235,12 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onOpenTurnDiffReview: input.onOpenTurnDiffReview,
     ...(input.onOpenTurnDiffFileInSidePanel ? { onOpenTurnDiffFileInSidePanel: input.onOpenTurnDiffFileInSidePanel } : {}),
     onConsumeComposerIntent: input.codexControl.consumeComposerIntent,
-    onOpenThread: input.onOpenThread,
+    onOpenThread: async (threadId, context) => {
+      await input.onOpenThread(threadId, context);
+    },
+    onStopBackgroundAgents: async (threadIds) => {
+      await Promise.all(uniqueThreadIds(threadIds).map((threadId) => input.codexControl.interruptTurn(threadId)));
+    },
     onCleanBackgroundTerminals: async (threadId) => {
       await input.codexControl.cleanBackgroundTerminals(threadId);
     },

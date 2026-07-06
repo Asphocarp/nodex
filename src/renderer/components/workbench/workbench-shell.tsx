@@ -18,6 +18,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
 import {
   ArrowLeft,
+  Bot,
   CalendarDays,
   Globe2,
   PenLine,
@@ -89,6 +90,7 @@ import {
   useLocalConversationConnection,
 } from "@/features/local-conversation";
 import { createThreadStageActions } from "@/features/local-conversation/thread-action-controller";
+import { SubagentAvatar } from "@/features/local-conversation/view/shared/subagent-avatar";
 import { McpCapabilityViewFrame } from "@/features/local-conversation/view/shared/tools/mcp-capability-view-frame";
 import { PlanSidePanelTab } from "./plan-side-panel-tab";
 import {
@@ -217,6 +219,7 @@ import type { ThreadActionControllerInput, ThreadStageActions } from "@/features
 import type {
   ThreadOpenSideChatInput,
   ThreadMcpAppSidePanelInput,
+  ThreadOpenSubagentPayload,
   ThreadPlanSidePanelState,
   ThreadPlanSidePanelTarget,
   ThreadSummaryPanelAuxiliaryRow,
@@ -462,11 +465,25 @@ interface PlanPanelTab {
   hideCodeBlocks?: boolean;
 }
 
+interface BackgroundAgentPanelTab {
+  backgroundAgent: true;
+  id: string;
+  sessionId: string;
+  projectId: string;
+  panelId: "right";
+  leafId?: string;
+  threadId: string;
+  title: string;
+  stateKey: number;
+  subagent: ThreadOpenSubagentPayload;
+}
+
 type ProjectSessionRenderableTab =
   | DurableProjectSessionRenderableTab
   | SideChatPanelTab
   | McpAppPanelTab
-  | PlanPanelTab;
+  | PlanPanelTab
+  | BackgroundAgentPanelTab;
 
 interface CardStageHistoryModalContext {
   sessionId: string;
@@ -860,7 +877,12 @@ function resolveProjectTargetTabChromeContext(
   activeSession: ProjectSession,
   projects: readonly Project[],
 ): Pick<AppShellTabItem, "contextLabel" | "titleLabel" | "tooltip"> {
-  if (isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) || isPlanPanelTab(tab)) return {};
+  if (
+    isSideChatPanelTab(tab)
+    || isMcpAppPanelTab(tab)
+    || isPlanPanelTab(tab)
+    || isBackgroundAgentPanelTab(tab)
+  ) return {};
   if (tab.kind !== "db_view" && tab.kind !== "card_stage") return {};
   if (!("projectId" in tab.config)) return {};
 
@@ -1189,6 +1211,27 @@ function makePlanPanelKey(sessionId: string, panelId: PanelId, leafId?: string |
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
+function makeBackgroundAgentPanelKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
+  return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
+}
+
+function makeBackgroundAgentPanelTabId(threadId: string): string {
+  return `background-agent:${threadId}`;
+}
+
+function createBackgroundAgentTabIcon(threadId: string): ComponentType<{ className?: string }> {
+  function BackgroundAgentTabIcon({ className }: { className?: string }) {
+    return (
+      <SubagentAvatar
+        seed={threadId}
+        className={className}
+      />
+    );
+  }
+
+  return BackgroundAgentTabIcon;
+}
+
 function isSideChatPanelTab(tab: ProjectSessionRenderableTab): tab is SideChatPanelTab {
   return "sideChat" in tab && tab.sideChat === true;
 }
@@ -1201,11 +1244,24 @@ function isPlanPanelTab(tab: ProjectSessionRenderableTab): tab is PlanPanelTab {
   return "planPanel" in tab && tab.planPanel === true;
 }
 
+function isBackgroundAgentPanelTab(tab: ProjectSessionRenderableTab): tab is BackgroundAgentPanelTab {
+  return "backgroundAgent" in tab && tab.backgroundAgent === true;
+}
+
+function isTransientPanelTab(
+  tab: ProjectSessionRenderableTab,
+): tab is SideChatPanelTab | McpAppPanelTab | PlanPanelTab | BackgroundAgentPanelTab {
+  return isSideChatPanelTab(tab)
+    || isMcpAppPanelTab(tab)
+    || isPlanPanelTab(tab)
+    || isBackgroundAgentPanelTab(tab);
+}
+
 function isRootThreadRightPanelComposerOverlayEligibleTab(
   tab: ProjectSessionRenderableTab | null,
 ): boolean {
   if (!tab) return false;
-  if (isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) || isPlanPanelTab(tab)) return false;
+  if (isTransientPanelTab(tab)) return false;
 
   return (
     tab.kind === "review"
@@ -1541,6 +1597,9 @@ export function WorkbenchShell({
   const [mcpAppActiveTabByPanel, setMcpAppActiveTabByPanel] = useState<Record<string, string>>({});
   const [planTabsBySession, setPlanTabsBySession] = useState<Record<string, PlanPanelTab[]>>({});
   const [planActiveTabByPanel, setPlanActiveTabByPanel] = useState<Record<string, string>>({});
+  const [backgroundAgentTabsBySession, setBackgroundAgentTabsBySession] =
+    useState<Record<string, BackgroundAgentPanelTab[]>>({});
+  const [backgroundAgentActiveTabByPanel, setBackgroundAgentActiveTabByPanel] = useState<Record<string, string>>({});
   const [activePlanKeyBySession, setActivePlanKeyBySession] = useState<Record<string, string>>({});
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
@@ -1750,9 +1809,18 @@ export function WorkbenchShell({
   const bottomMcpAppTabs = activeSessionMcpAppTabs.filter((tab) => tab.panelId === "bottom");
   const activeSessionPlanTabs = activeSession ? planTabsBySession[activeSession.id] ?? [] : [];
   const rightPlanTabs = activeSessionPlanTabs.filter((tab) => tab.panelId === "right");
+  const activeSessionBackgroundAgentTabs = activeSession ? backgroundAgentTabsBySession[activeSession.id] ?? [] : [];
+  const rightBackgroundAgentTabs = activeSessionBackgroundAgentTabs.filter((tab) => tab.panelId === "right");
   const rightRenderableTabs: ProjectSessionRenderableTab[] = rightPreviewTab
-    ? [...rightPanelTabs, ...rightSideChatTabs, ...rightMcpAppTabs, ...rightPlanTabs, rightPreviewTab]
-    : [...rightPanelTabs, ...rightSideChatTabs, ...rightMcpAppTabs, ...rightPlanTabs];
+    ? [
+        ...rightPanelTabs,
+        ...rightSideChatTabs,
+        ...rightMcpAppTabs,
+        ...rightPlanTabs,
+        ...rightBackgroundAgentTabs,
+        rightPreviewTab,
+      ]
+    : [...rightPanelTabs, ...rightSideChatTabs, ...rightMcpAppTabs, ...rightPlanTabs, ...rightBackgroundAgentTabs];
   const bottomRenderableTabs: ProjectSessionRenderableTab[] = bottomPreviewTab
     ? [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs, bottomPreviewTab]
     : [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs];
@@ -1776,6 +1844,11 @@ export function WorkbenchShell({
       ?? planActiveTabByPanel[makePlanPanelKey(activeSession.id, "right")]
       ?? null
     : null;
+  const rightBackgroundAgentActiveTabId = activeSession
+    ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, "right", rightActiveLeafId)]
+      ?? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, "right")]
+      ?? null
+    : null;
   const bottomMcpAppActiveTabId = activeSession
     ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom", bottomActiveLeafId)]
       ?? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom")]
@@ -1790,6 +1863,9 @@ export function WorkbenchShell({
       : null)
     ?? (rightSideChatActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightSideChatActiveTabId)
       ? rightSideChatActiveTabId
+      : null)
+    ?? (rightBackgroundAgentActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightBackgroundAgentActiveTabId)
+      ? rightBackgroundAgentActiveTabId
       : rightPanel ? getProjectSessionPanelActiveLeaf(rightPanel.layout).activeTabId : null)
     ?? rightRenderableTabs[0]?.id
     ?? null;
@@ -2886,10 +2962,21 @@ export function WorkbenchShell({
       if (tab.id === excludedTabId) return false;
       return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
     }).length;
+    const backgroundAgentCount = (backgroundAgentTabsBySession[activeSession.id] ?? []).filter((tab) => {
+      if (tab.id === excludedTabId) return false;
+      return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
+    }).length;
     const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leafId, previewTabsByPanel);
     const previewCount = previewTab && previewTab.id !== excludedTabId ? 1 : 0;
-    return durableCount + sideChatCount + mcpAppCount + planCount + previewCount;
-  }, [activeSession, mcpAppTabsBySession, planTabsBySession, previewTabsByPanel, sideChatTabsBySession]);
+    return durableCount + sideChatCount + mcpAppCount + planCount + backgroundAgentCount + previewCount;
+  }, [
+    activeSession,
+    backgroundAgentTabsBySession,
+    mcpAppTabsBySession,
+    planTabsBySession,
+    previewTabsByPanel,
+    sideChatTabsBySession,
+  ]);
 
   const getPanelVisibleTabCount = useCallback((
     panelId: PanelId,
@@ -2944,6 +3031,23 @@ export function WorkbenchShell({
     });
   }, [activeSession]);
 
+  const clearBackgroundAgentActiveTab = useCallback((
+    sessionId: string,
+    panelId: PanelId,
+    leafId?: string | null,
+  ) => {
+    setBackgroundAgentActiveTabByPanel((current) => {
+      const keys = [
+        makeBackgroundAgentPanelKey(sessionId, panelId, leafId),
+        makeBackgroundAgentPanelKey(sessionId, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+  }, []);
+
   const activatePanelTabAfterClose = useCallback(async (
     panelId: PanelId,
     tabId: string | null,
@@ -2955,6 +3059,7 @@ export function WorkbenchShell({
 
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
       setMcpAppActiveTabByPanel((current) => {
         const keys = [
           makeMcpAppPanelKey(activeSession.id, panelId, leafId),
@@ -2974,6 +3079,7 @@ export function WorkbenchShell({
 
     if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, leafId),
@@ -2994,6 +3100,7 @@ export function WorkbenchShell({
     const planTab = (planTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
     if (planTab) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, leafId),
@@ -3025,8 +3132,48 @@ export function WorkbenchShell({
       return;
     }
 
+    if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      setPlanActiveTabByPanel((current) => {
+        const keys = [
+          makePlanPanelKey(activeSession.id, panelId, leafId),
+          makePlanPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, leafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setBackgroundAgentActiveTabByPanel((current) => ({
+        ...current,
+        [makeBackgroundAgentPanelKey(activeSession.id, panelId, leafId)]: tabId,
+      }));
+      return;
+    }
+
     if (!activeSession.tabs.some((tab) => tab.id === tabId && tab.panelId === panelId)) return;
 
+    clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
     setPlanActiveTabByPanel((current) => {
       const keys = [
         makePlanPanelKey(activeSession.id, panelId, leafId),
@@ -3060,7 +3207,9 @@ export function WorkbenchShell({
     await setActivePanelTab(panelId, tabId, { leafId });
   }, [
     activeSession,
+    backgroundAgentTabsBySession,
     clearPanelPreviewTab,
+    clearBackgroundAgentActiveTab,
     mcpAppTabsBySession,
     planTabsBySession,
     previewTabsByPanel,
@@ -3290,6 +3439,50 @@ export function WorkbenchShell({
     updateActivePanel,
   ]);
 
+  const closeBackgroundAgentPanelTab = useCallback(async (
+    panelId: PanelId,
+    tabId: string,
+    replacementTabId: string | null = null,
+  ) => {
+    if (!activeSession) return;
+    const backgroundAgentTab = (backgroundAgentTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
+    if (!backgroundAgentTab) return;
+    const targetLeafId = backgroundAgentTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+
+    setBackgroundAgentTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      return {
+        ...current,
+        [activeSession.id]: tabs.filter((tab) => tab.id !== tabId),
+      };
+    });
+    setBackgroundAgentActiveTabByPanel((current) => {
+      const keys = [
+        makeBackgroundAgentPanelKey(activeSession.id, panelId, backgroundAgentTab.leafId),
+        makeBackgroundAgentPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => current[key] === tabId)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+
+    await activatePanelTabAfterClose(panelId, replacementTabId, targetLeafId);
+    if (getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: tabId }) === 0) {
+      await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: tabId });
+    }
+    if (getPanelVisibleTabCount(panelId, { excludingTabId: tabId }) > 0) return;
+    await updateActivePanel(panelId, { collapsed: true });
+  }, [
+    activeSession,
+    activatePanelTabAfterClose,
+    backgroundAgentTabsBySession,
+    getPanelVisibleLeafTabCount,
+    getPanelVisibleTabCount,
+    removeEmptyVisiblePanelLeaf,
+    updateActivePanel,
+  ]);
+
   const closePanelTab = useCallback(async (
     panelId: PanelId,
     tabId: string,
@@ -3315,6 +3508,10 @@ export function WorkbenchShell({
       await closePlanPanelTab(panelId, tabId, replacementTabId);
       return;
     }
+    if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      await closeBackgroundAgentPanelTab(panelId, tabId, replacementTabId);
+      return;
+    }
 
     const preserveEmptyLeafIds = getPreserveEmptyLeafIdsAfterDurableRemoval(panelId, targetLeafId, tabId);
     const durableReplacementTabId = replacementTabId && activeSession.tabs.some((tab) =>
@@ -3336,6 +3533,8 @@ export function WorkbenchShell({
   }, [
     activeSession,
     activatePanelTabAfterClose,
+    backgroundAgentTabsBySession,
+    closeBackgroundAgentPanelTab,
     closePreviewTab,
     closeMcpAppPanelTab,
     closePlanPanelTab,
@@ -3357,6 +3556,7 @@ export function WorkbenchShell({
     if (previewTab?.id === tabId) return;
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3385,6 +3585,7 @@ export function WorkbenchShell({
     }
     if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3415,6 +3616,7 @@ export function WorkbenchShell({
     const planTab = (planTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
     if (planTab) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3446,6 +3648,46 @@ export function WorkbenchShell({
       return;
     }
 
+    if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      setPlanActiveTabByPanel((current) => {
+        const keys = [
+          makePlanPanelKey(activeSession.id, panelId, targetLeafId),
+          makePlanPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, targetLeafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setBackgroundAgentActiveTabByPanel((current) => ({
+        ...current,
+        [makeBackgroundAgentPanelKey(activeSession.id, panelId, targetLeafId)]: tabId,
+      }));
+      return;
+    }
+
+    clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
     setPlanActiveTabByPanel((current) => {
       const keys = [
         makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3479,7 +3721,9 @@ export function WorkbenchShell({
     await setActivePanelTab(panelId, tabId, { leafId: targetLeafId });
   }, [
     activeSession,
+    backgroundAgentTabsBySession,
     clearPanelPreviewTab,
+    clearBackgroundAgentActiveTab,
     mcpAppTabsBySession,
     planTabsBySession,
     previewTabsByPanel,
@@ -4382,7 +4626,113 @@ export function WorkbenchShell({
     await refreshProjectSessions(sessionProjectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
-  const openAttachedThreadSession = useCallback(async (threadId: string) => {
+  const openBackgroundAgentPanelTab = useCallback(async (
+    subagent: ThreadOpenSubagentPayload,
+  ): Promise<boolean> => {
+    if (!activeSession || activeSession.projectId === null) return false;
+
+    const threadId = subagent.conversationId.trim();
+    if (!threadId) return false;
+
+    try {
+      await workbenchCodexControl.hydrateBackgroundSubagentThreads({ threadIds: [threadId] });
+    } catch {
+      toast.danger("Failed to open background agent");
+      return false;
+    }
+
+    const panelId = "right" as const;
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const tabId = makeBackgroundAgentPanelTabId(threadId);
+    const title = subagent.displayName.trim() || "Agent";
+    const tab: BackgroundAgentPanelTab = {
+      backgroundAgent: true,
+      id: tabId,
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      leafId,
+      threadId,
+      title,
+      stateKey: Date.now(),
+      subagent: {
+        ...subagent,
+        conversationId: threadId,
+        displayName: title,
+      },
+    };
+
+    setBackgroundAgentTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      const existingIndex = tabs.findIndex((candidate) => candidate.id === tabId);
+      if (existingIndex < 0) {
+        return {
+          ...current,
+          [activeSession.id]: [...tabs, tab],
+        };
+      }
+      return {
+        ...current,
+        [activeSession.id]: tabs.map((candidate) =>
+          candidate.id === tabId
+            ? { ...candidate, ...tab, stateKey: candidate.stateKey + 1 }
+            : candidate
+        ),
+      };
+    });
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
+    setPlanActiveTabByPanel((current) => {
+      const keys = [
+        makePlanPanelKey(activeSession.id, panelId, leafId),
+        makePlanPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setMcpAppActiveTabByPanel((current) => {
+      const keys = [
+        makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+        makeMcpAppPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setSideChatActiveTabByPanel((current) => {
+      const keys = [
+        makeSideChatPanelKey(activeSession.id, panelId, leafId),
+        makeSideChatPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setBackgroundAgentActiveTabByPanel((current) => ({
+      ...current,
+      [makeBackgroundAgentPanelKey(activeSession.id, panelId, leafId)]: tabId,
+    }));
+    setPanelCollapsedOverrides((current) => ({
+      ...current,
+      [makePanelPreviewKey(activeSession.id, panelId)]: false,
+    }));
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    return true;
+  }, [
+    activeSession,
+    clearPanelPreviewTab,
+    ensureActivePanelOpenWithoutRefresh,
+    workbenchCodexControl,
+  ]);
+
+  const openAttachedThreadSession = useCallback<ThreadStageActions["onOpenThread"]>(async (threadId, context) => {
+    if (context?.subagent && await openBackgroundAgentPanelTab(context.subagent)) {
+      return;
+    }
+
     const session = knownSessions.find((candidate) => candidate.thread?.threadId === threadId) ?? null;
     if (session) {
       selectSession(session);
@@ -4403,7 +4753,17 @@ export function WorkbenchShell({
     } catch {
       toast.danger("Failed to open chat");
     }
-  }, [knownSessions, mergeSessionInState, refreshProjectSessions, selectSession]);
+  }, [
+    knownSessions,
+    mergeSessionInState,
+    openBackgroundAgentPanelTab,
+    refreshProjectSessions,
+    selectSession,
+  ]);
+
+  const openAttachedThreadSessionById = useCallback(async (threadId: string) => {
+    await openAttachedThreadSession(threadId);
+  }, [openAttachedThreadSession]);
 
   const openTurnDiffReview = useCallback((target: CodexTurnDiffReviewTarget) => {
     setSelectedTurnDiffReviewTarget(target);
@@ -5130,11 +5490,15 @@ export function WorkbenchShell({
         const planTabs = (planTabsBySession[activeSession.id] ?? []).filter((tab) =>
           tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
         );
+        const backgroundAgentTabs = (backgroundAgentTabsBySession[activeSession.id] ?? []).filter((tab) =>
+          tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
+        );
         const renderableTabs: ProjectSessionRenderableTab[] = [
           ...durableTabs,
           ...sideChatTabs,
           ...mcpAppTabs,
           ...planTabs,
+          ...backgroundAgentTabs,
           ...(previewTab ? [previewTab] : []),
         ];
         const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
@@ -5146,6 +5510,12 @@ export function WorkbenchShell({
         const planActiveTabId = planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId, leaf.id)]
           ?? (leaf.id === panelActiveLeafId ? planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId)] : null)
           ?? null;
+        const backgroundAgentActiveTabId =
+          backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === panelActiveLeafId
+            ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId)]
+            : null)
+          ?? null;
         const activeTabId = previewTab?.id
           ?? (planActiveTabId && renderableTabs.some((tab) => tab.id === planActiveTabId)
             ? planActiveTabId
@@ -5155,11 +5525,14 @@ export function WorkbenchShell({
             : null)
           ?? (sideChatActiveTabId && renderableTabs.some((tab) => tab.id === sideChatActiveTabId)
             ? sideChatActiveTabId
+            : null)
+          ?? (backgroundAgentActiveTabId && renderableTabs.some((tab) => tab.id === backgroundAgentActiveTabId)
+            ? backgroundAgentActiveTabId
             : leaf.activeTabId)
           ?? renderableTabs[0]?.id
           ?? null;
         const activeTab = activeTabId ? renderableTabs.find((tab) => tab.id === activeTabId) : null;
-        if (!activeTab || isSideChatPanelTab(activeTab) || isMcpAppPanelTab(activeTab) || isPlanPanelTab(activeTab)) continue;
+        if (!activeTab || isTransientPanelTab(activeTab)) continue;
 
         const cardRef = readCardStagePanelTabCardRef(activeTab);
         if (!cardRef) continue;
@@ -5175,6 +5548,8 @@ export function WorkbenchShell({
     return byProject;
   }, [
     activeSession,
+    backgroundAgentActiveTabByPanel,
+    backgroundAgentTabsBySession,
     bottomPanelOpen,
     mcpAppActiveTabByPanel,
     mcpAppTabsBySession,
@@ -5194,13 +5569,9 @@ export function WorkbenchShell({
     if (!activeSession) return empty;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
       const chromeContext = resolveProjectTargetTabChromeContext(tab, activeSession, projects);
-      const keepMounted = !isSideChatPanelTab(tab)
-        && !isMcpAppPanelTab(tab)
-        && !isPlanPanelTab(tab)
-        && tab.kind === "card_stage";
-      const title = !isSideChatPanelTab(tab)
-        && !isMcpAppPanelTab(tab)
-        && !isPlanPanelTab(tab)
+      const transientPanelTab = isTransientPanelTab(tab);
+      const keepMounted = !transientPanelTab && tab.kind === "card_stage";
+      const title = !transientPanelTab
         && tab.kind === "terminal"
         && "terminalSessionId" in tab.config
         ? terminalSessionStore.resolveTitle(
@@ -5212,9 +5583,9 @@ export function WorkbenchShell({
 
       return {
         id: tab.id,
-        domTabId: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && !isPlanPanelTab(tab) && tab.kind === "review"
+        domTabId: !transientPanelTab && tab.kind === "review"
           ? "diff"
-          : !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && !isPlanPanelTab(tab) && tab.kind === "files" && "path" in tab.config
+          : !transientPanelTab && tab.kind === "files" && "path" in tab.config
             ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
             : undefined,
         title,
@@ -5223,21 +5594,25 @@ export function WorkbenchShell({
           ? CodexSidePanelSideChatIcon
           : isMcpAppPanelTab(tab)
             ? ComposerPluginsIcon
-            : isPlanPanelTab(tab)
-              ? ComposerPlanModeIcon
-              : getBrowserTabIcon(tab),
+              : isPlanPanelTab(tab)
+                ? ComposerPlanModeIcon
+                : isBackgroundAgentPanelTab(tab)
+                ? createBackgroundAgentTabIcon(tab.threadId)
+                : getBrowserTabIcon(tab),
         closable: isSideChatPanelTab(tab)
           ? tab.status !== "loading"
           : isMcpAppPanelTab(tab)
             ? true
             : isPlanPanelTab(tab)
               ? true
+              : isBackgroundAgentPanelTab(tab)
+                ? true
               : tab.preview === true || activeSession.tabs.length > 1,
-        preview: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) || isPlanPanelTab(tab) ? undefined : tab.preview,
+        preview: transientPanelTab ? undefined : tab.preview,
         keepMounted,
-        reorderable: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) || isPlanPanelTab(tab) ? false : tab.preview === true ? false : true,
-        splittable: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && !isPlanPanelTab(tab) && tab.preview !== true,
-        contextMenuItems: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && !isPlanPanelTab(tab) && tab.kind === "browser"
+        reorderable: transientPanelTab ? false : tab.preview === true ? false : true,
+        splittable: !transientPanelTab && tab.preview !== true,
+        contextMenuItems: !transientPanelTab && tab.kind === "browser"
           ? [
               {
                 id: "browser-new-tab-right",
@@ -5283,6 +5658,25 @@ export function WorkbenchShell({
           if (isPlanPanelTab(tab)) {
             return <PlanSidePanelTab key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} content={tab.content} />;
           }
+          if (isBackgroundAgentPanelTab(tab)) {
+            return (
+              <BackgroundAgentSessionTab
+                key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
+                tab={tab}
+                activeSession={activeSession}
+                projects={projects}
+                onRefreshSessions={refreshProjectSessions}
+                onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                composerEnterBehavior={composerEnterBehavior}
+                onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+                onOpenThread={openAttachedThreadSession}
+                onOpenTurnDiffReview={openTurnDiffReview}
+                onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                turnDiffHoverPreviewDisabled={sidePanelOpen}
+              />
+            );
+          }
           return (
             <ProjectSessionTabPanel
               key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
@@ -5310,7 +5704,7 @@ export function WorkbenchShell({
               onRefreshSessions={refreshProjectSessions}
               onCloseTab={closeTab}
               onCreateTerminalTab={(panelId, leafId) => createManualTab("terminal", panelId, leafId)}
-              onOpenThread={openAttachedThreadSession}
+              onOpenThread={openAttachedThreadSessionById}
               cardStageHistoryModal={cardStageHistoryModal}
               onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
               selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
@@ -5345,10 +5739,13 @@ export function WorkbenchShell({
         const planTabs = (planTabsBySession[activeSession.id] ?? []).filter((tab) =>
           tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
         );
+        const backgroundAgentTabs = (backgroundAgentTabsBySession[activeSession.id] ?? []).filter((tab) =>
+          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+        );
         const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leaf.id, previewTabsByPanel);
         const renderableTabs: ProjectSessionRenderableTab[] = previewTab
-          ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, previewTab]
-          : [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs];
+          ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, previewTab]
+          : [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs];
         const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
           ?? (leaf.id === activeLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId)] : null)
           ?? null;
@@ -5357,6 +5754,12 @@ export function WorkbenchShell({
           ?? null;
         const planActiveTabId = planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId, leaf.id)]
           ?? (leaf.id === activeLeafId ? planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId)] : null)
+          ?? null;
+        const backgroundAgentActiveTabId =
+          backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === activeLeafId
+            ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId)]
+            : null)
           ?? null;
         const activeTabId = previewTab?.id
           ?? (planActiveTabId && renderableTabs.some((tab) => tab.id === planActiveTabId)
@@ -5367,6 +5770,9 @@ export function WorkbenchShell({
             : null)
           ?? (sideChatActiveTabId && renderableTabs.some((tab) => tab.id === sideChatActiveTabId)
             ? sideChatActiveTabId
+            : null)
+          ?? (backgroundAgentActiveTabId && renderableTabs.some((tab) => tab.id === backgroundAgentActiveTabId)
+            ? backgroundAgentActiveTabId
             : leaf.activeTabId)
           ?? renderableTabs[0]?.id
           ?? null;
@@ -5388,6 +5794,8 @@ export function WorkbenchShell({
     activeSearchQuery,
     activeSession,
     activeView,
+    backgroundAgentActiveTabByPanel,
+    backgroundAgentTabsBySession,
     bottomPanelMotion.animatedSize,
     cardStageCloseRef,
     cardStageHistoryModal,
@@ -5408,6 +5816,7 @@ export function WorkbenchShell({
     openWorkspaceFileTab,
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
+    openAttachedThreadSessionById,
     openTurnDiffReview,
     openTurnDiffFileInSidePanel,
     pendingReminderOpen,
@@ -8204,6 +8613,142 @@ function McpAppSessionTab({ tab }: { tab: McpAppPanelTab }) {
       data-mcp-capability-id={tab.app.capabilityId}
     >
       <McpCapabilityViewFrame resource={tab.app.resource} mode="side-panel" />
+    </div>
+  );
+}
+
+function BackgroundAgentSessionTab({
+  tab,
+  activeSession,
+  projects,
+  onRefreshSessions,
+  onOpenMcpAppSidePanel,
+  threadQueueFollowUpsEnabled,
+  composerEnterBehavior,
+  onQueueingEnabledChange,
+  onOpenThread,
+  onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
+  turnDiffHoverPreviewDisabled,
+}: {
+  tab: BackgroundAgentPanelTab;
+  activeSession: ProjectSession;
+  projects: Project[];
+  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
+  threadQueueFollowUpsEnabled: boolean;
+  composerEnterBehavior: ComposerEnterBehavior;
+  onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
+  onOpenThread: ThreadStageActions["onOpenThread"];
+  onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+  onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
+  turnDiffHoverPreviewDisabled: boolean;
+}) {
+  const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
+  const conversation = useConversation(tab.threadId);
+  const accountActions = useCodexAccountActions();
+  const codexControl = useCodexAppServerControl(tab.projectId);
+  const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
+  const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
+
+  useEffect(() => {
+    void codexControl.loadModels().catch(() => undefined);
+    void codexControl.listCollaborationModes()
+      .then(setCollaborationModes)
+      .catch(() => setCollaborationModes([]));
+  }, [codexControl.loadModels, codexControl.listCollaborationModes]);
+
+  useEffect(() => {
+    void codexControl.requestThreadStreamSnapshot(tab.threadId).catch(() => undefined);
+  }, [
+    codexControl.requestThreadStreamSnapshot,
+    tab.threadId,
+  ]);
+
+  const actions = useMemo(() => createThreadStageActions({
+    activeThreadId: tab.threadId,
+    accountActions,
+    codexControl,
+    onEnsureBlankSessionForProject: async () => activeSession,
+    onRefreshProjectSessions: onRefreshSessions,
+    onQueueingEnabledChange,
+    onOpenThread,
+    onOpenTurnDiffReview,
+    onOpenTurnDiffFileInSidePanel,
+    currentSessionProjectId: activeSession.projectId ?? tab.projectId,
+    projectId: tab.projectId,
+    onNewThreadProjectChange: () => undefined,
+    onRequestNewChatProjectCreate: () => undefined,
+    onNewThreadStartInTargetChange: () => undefined,
+    onNewThreadStartInEnvironmentChange: () => undefined,
+    onRefreshNewThreadStartInEnvironments: async () => undefined,
+    onOpenNewThreadLocalEnvironmentsSettings: () => undefined,
+    onOpenMcpAppSidePanel,
+    selectedCollaborationMode,
+    setSelectedCollaborationMode,
+  }), [
+    accountActions,
+    activeSession,
+    codexControl,
+    onOpenMcpAppSidePanel,
+    onOpenThread,
+    onOpenTurnDiffReview,
+    onOpenTurnDiffFileInSidePanel,
+    onQueueingEnabledChange,
+    onRefreshSessions,
+    selectedCollaborationMode,
+    tab.projectId,
+    tab.threadId,
+  ]);
+
+  if (!conversation) {
+    return <BackgroundAgentLoadingPanel title={tab.title} />;
+  }
+
+  return (
+    <div className="h-full min-h-0 bg-token-main-surface-primary" data-background-agent-side-panel-tab={tab.id}>
+      <ConnectedThreadStage
+        projectId={tab.projectId}
+        projectWorkspacePath={projectWorkspaceRootOrNull(project)}
+        isNewThreadTab={false}
+        newThreadTarget={null}
+        newThreadProjectSelector={null}
+        newThreadStartInSelector={null}
+        threadStartProgress={null}
+        activeThreadId={tab.threadId}
+        activeThreadSummary={conversation}
+        backgroundAgentDetail={true}
+        availableModels={codexControl.availableModels}
+        collaborationModes={collaborationModes}
+        selectedCollaborationMode={selectedCollaborationMode}
+        selectedModel={codexControl.threadSettings.model ?? ""}
+        selectedReasoningEffort={codexControl.threadSettings.reasoningEffort ?? "medium"}
+        reasoningEffortOptions={codexControl.reasoningEffortOptions}
+        permissionMode={codexControl.permissionMode}
+        isQueueingEnabled={threadQueueFollowUpsEnabled}
+        composerEnterBehavior={composerEnterBehavior}
+        searchOpenTick={0}
+        summaryPanelMounted={false}
+        summaryPanelOpen={false}
+        summaryPanelHideImmediately={false}
+        summaryPanelContentShift={0}
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+        actions={actions}
+      />
+    </div>
+  );
+}
+
+function BackgroundAgentLoadingPanel({ title }: { title: string }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">
+      <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
+        <div className="relative mb-3 flex size-10 items-center justify-center rounded-xl bg-token-bg-secondary text-token-text-secondary">
+          <Bot className="icon-md opacity-40" />
+          <SpinnerIcon className="icon-xs absolute animate-spin text-token-text-secondary" />
+        </div>
+        <div className="text-base font-semibold text-token-text-primary">{title}</div>
+      </div>
     </div>
   );
 }

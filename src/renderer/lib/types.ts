@@ -136,6 +136,7 @@ export type {
   CodexConversationSource,
   CodexConversationResumeState,
   CodexConversationSnapshot,
+  CodexBackgroundSubagentThreadsHydrateInput,
   CodexRendererClientRequestMessage,
   CodexRendererClientResponseMessage,
   CodexRendererThreadRole,

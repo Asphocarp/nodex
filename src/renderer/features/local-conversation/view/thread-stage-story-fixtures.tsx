@@ -752,6 +752,8 @@ function buildBackgroundConversation(): {
   knownConversationsById: Record<string, CodexConversationSnapshot>;
 } {
   const backgroundThreadId = "thread_story_background_worker";
+  const waitingBackgroundThreadId = "thread_story_background_planner";
+  const doneBackgroundThreadId = "thread_story_background_finisher";
   const conversation = buildStoryConversation({
     statusType: "active",
     statusActiveFlags: [],
@@ -777,6 +779,33 @@ function buildBackgroundConversation(): {
         parentThreadId: STORY_THREAD_ID,
         role: "backgroundChild",
         actorName: "Worker 1",
+        thread: {
+          nickname: "Worker 1",
+          model: null,
+          agentRole: null,
+        },
+      },
+      {
+        threadId: waitingBackgroundThreadId,
+        parentThreadId: STORY_THREAD_ID,
+        role: "backgroundChild",
+        actorName: "Planner",
+        thread: {
+          nickname: "Planner",
+          model: null,
+          agentRole: null,
+        },
+      },
+      {
+        threadId: doneBackgroundThreadId,
+        parentThreadId: STORY_THREAD_ID,
+        role: "backgroundChild",
+        actorName: "Finisher",
+        thread: {
+          nickname: "Finisher",
+          model: null,
+          agentRole: null,
+        },
       },
     ],
     pendingSteers: [
@@ -852,12 +881,52 @@ function buildBackgroundConversation(): {
       },
     ],
   });
+  const waitingBackgroundConversation = buildStoryConversation({
+    threadId: waitingBackgroundThreadId,
+    threadName: "Planner",
+    threadPreview: "Waiting for the next instruction",
+    statusType: "notLoaded",
+    statusActiveFlags: [],
+    turns: [],
+    requests: [],
+  });
+  const doneBackgroundConversation = buildStoryConversation({
+    threadId: doneBackgroundThreadId,
+    threadName: "Finisher",
+    threadPreview: "Finished collecting notes",
+    statusType: "idle",
+    statusActiveFlags: [],
+    turns: [
+      buildStoryConversationTurn({
+        threadId: doneBackgroundThreadId,
+        turnId: "turn_story_background_done",
+        status: "completed",
+        items: [
+          buildStoryConversationItem({
+            threadId: doneBackgroundThreadId,
+            turnId: "turn_story_background_done",
+            itemId: "assistant_story_background_done",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            markdownText: "Finished collecting notes.",
+            createdAt: 25_000,
+            updatedAt: 25_000,
+          }),
+        ],
+      }),
+    ],
+    requests: [],
+  });
 
   return {
     conversation,
     knownConversationsById: {
       [STORY_THREAD_ID]: conversation,
       [backgroundThreadId]: backgroundConversation,
+      [waitingBackgroundThreadId]: waitingBackgroundConversation,
+      [doneBackgroundThreadId]: doneBackgroundConversation,
     },
   };
 }

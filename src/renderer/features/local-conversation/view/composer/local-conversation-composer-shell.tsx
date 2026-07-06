@@ -54,7 +54,10 @@ import {
   LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID,
 } from "../local-conversation-above-composer-portal";
 import { usePortalHost } from "../use-portal-host";
+import { DiffStats } from "../shared/tools/diff-file-shared";
 import { ThreadGoalStatusRow } from "./local-conversation-thread-goal-status-row";
+import { buildBackgroundAgentOpenContext } from "../../projection/background-subagent-open-context";
+import { SubagentAvatar } from "../shared/subagent-avatar";
 
 interface LocalConversationComposerShellProps {
   model: ThreadFooterModel;
@@ -627,6 +630,109 @@ function resolveBackgroundRowStatusText(status: ThreadComposerShellBackgroundAge
   return "is done";
 }
 
+function BackgroundAgentRowTooltipContent({ row }: { row: ThreadComposerShellBackgroundAgentRowModel }) {
+  if (!row.agentRole && !row.spawnModel) return null;
+
+  return (
+    <span className="flex flex-col gap-0.5">
+      {row.agentRole ? <span>{row.agentRole}</span> : null}
+      {row.spawnModel ? <span>Uses {row.spawnModel}</span> : null}
+    </span>
+  );
+}
+
+function BackgroundAgentRow({
+  row,
+  actions,
+}: {
+  row: ThreadComposerShellBackgroundAgentRowModel;
+  actions: ThreadStageActions;
+}) {
+  const active = row.status === "active";
+  const metadataTooltip = <BackgroundAgentRowTooltipContent row={row} />;
+  const statusText = resolveBackgroundRowStatusText(row.status);
+
+  return (
+    <div className="px-0 py-1">
+      <div className="text-size-chat block min-w-0 truncate leading-4 text-token-description-foreground">
+        <div className="group flex items-center justify-between gap-2">
+          <NodexTooltip
+            disabled={!row.agentRole && !row.spawnModel}
+            side="top"
+            tooltipContent={metadataTooltip}
+            tooltipBodyClassName="items-start"
+          >
+            <button
+              type="button"
+              className="flex max-w-full min-w-0 cursor-interaction items-center gap-1 bg-transparent p-0"
+              onClick={() => {
+                void actions.onOpenThread(row.conversationId, buildBackgroundAgentOpenContext(row));
+              }}
+            >
+              <span className="flex min-w-0 items-center gap-1.5 text-token-foreground">
+                <SubagentAvatar
+                  seed={row.conversationId}
+                  active={active}
+                  className="icon-2xs pointer-events-none"
+                />
+                <span className="min-w-0 truncate font-medium">{row.displayName}</span>
+              </span>
+              <span className={cn(
+                "shrink-0 whitespace-nowrap text-token-description-foreground",
+                active && "loading-shimmer-pure-text",
+              )}>
+                {statusText}
+              </span>
+            </button>
+          </NodexTooltip>
+          {row.diffStats ? (
+            <DiffStats
+              additions={row.diffStats.linesAdded}
+              deletions={row.diffStats.linesRemoved}
+              className="mr-0.5 shrink-0 text-size-chat"
+            />
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function summarizeBackgroundAgentDiffStats(rows: ThreadFooterModel["composerShell"]["backgroundAgentRows"]) {
+  return rows.reduce(
+    (summary, row) => ({
+      additions: summary.additions + (row.diffStats?.linesAdded ?? 0),
+      deletions: summary.deletions + (row.diffStats?.linesRemoved ?? 0),
+    }),
+    { additions: 0, deletions: 0 },
+  );
+}
+
+function formatBackgroundAgentSummaryCount(count: number): string {
+  return count === 1 ? "1 background agent" : `${count} background agents`;
+}
+
+function BackgroundAgentSummaryText({
+  expanded,
+  rows,
+}: {
+  expanded: boolean;
+  rows: ThreadFooterModel["composerShell"]["backgroundAgentRows"];
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0 whitespace-nowrap text-token-foreground">
+        {formatBackgroundAgentSummaryCount(rows.length)}
+      </span>
+      {expanded ? (
+        <span className="shrink-0 whitespace-nowrap text-token-text-tertiary">
+          (@ to tag agents)
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function BackgroundAgentPanel({
   rows,
   actions,
@@ -637,9 +743,11 @@ function BackgroundAgentPanel({
   showRoundedTop: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const summary = expanded
-    ? `${rows.length} background ${rows.length === 1 ? "agent" : "agents"} (@ to tag agents)`
-    : `${rows.length} background ${rows.length === 1 ? "agent" : "agents"}`;
+  const stoppableThreadIds = rows
+    .filter((row) => row.status !== "done")
+    .map((row) => row.conversationId);
+  const canStopAll = stoppableThreadIds.length > 0 && Boolean(actions.onStopBackgroundAgents);
+  const diffStats = summarizeBackgroundAgentDiffStats(rows);
   if (rows.length === 0) {
     return null;
   }
@@ -657,17 +765,36 @@ function BackgroundAgentPanel({
         >
           <AgentIcon />
           <span className="text-size-chat min-w-0 truncate leading-4 text-token-description-foreground">
-            {summary}
+            <BackgroundAgentSummaryText expanded={expanded} rows={rows} />
           </span>
         </button>
-        <QueueActionButton
-          ariaLabel={expanded ? "Collapse background agent details" : "Expand background agent details"}
-          onClick={() => {
-            setExpanded((current) => !current);
-          }}
-        >
-          <ChevronRightIcon className={cn("text-current transition-transform duration-300", expanded ? "rotate-90" : "-rotate-90")} />
-        </QueueActionButton>
+        <div className="flex shrink-0 items-center gap-1">
+          <DiffStats
+            additions={diffStats.additions}
+            deletions={diffStats.deletions}
+            className="text-size-chat text-token-description-foreground"
+          />
+          {canStopAll ? (
+            <NodexTooltip tooltipContent="Stop all subagents in this chat">
+              <ComposerGhostIconButton
+                ariaLabel="Stop all"
+                onClick={() => {
+                  void actions.onStopBackgroundAgents?.(stoppableThreadIds);
+                }}
+              >
+                <StopIcon className="icon-2xs" />
+              </ComposerGhostIconButton>
+            </NodexTooltip>
+          ) : null}
+          <QueueActionButton
+            ariaLabel={expanded ? "Collapse background agent details" : "Expand background agent details"}
+            onClick={() => {
+              setExpanded((current) => !current);
+            }}
+          >
+            <ChevronRightIcon className={cn("text-current transition-transform duration-300", expanded ? "rotate-90" : "-rotate-90")} />
+          </QueueActionButton>
+        </div>
       </div>
       <motion.div
         initial={false}
@@ -683,37 +810,11 @@ function BackgroundAgentPanel({
       >
         <div className="vertical-scroll-fade-mask flex max-h-24 flex-col gap-0.5 overflow-y-auto px-3 pb-2 [--edge-fade-distance:1rem]">
           {rows.map((row) => (
-            <div key={row.conversationId} className="px-0 py-1">
-              <div className="text-size-chat block min-w-0 truncate leading-4 text-token-description-foreground">
-                <div className="group flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate">
-                    <button
-                      type="button"
-                      className="mr-1 inline cursor-pointer bg-transparent p-0 font-medium text-token-foreground"
-                      onClick={() => {
-                        actions.onOpenThread(row.conversationId);
-                      }}
-                    >
-                      {row.displayName}
-                    </button>
-                    <span className={cn("text-token-description-foreground", row.status === "active" && "loading-shimmer-pure-text")}>
-                      {resolveBackgroundRowStatusText(row.status)}
-                    </span>
-                  </span>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      className="text-size-chat inline-flex cursor-pointer items-center text-token-description-foreground opacity-70 hover:text-token-foreground hover:opacity-100"
-                      onClick={() => {
-                        actions.onOpenThread(row.conversationId);
-                      }}
-                    >
-                      Open
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <BackgroundAgentRow
+              key={row.conversationId}
+              row={row}
+              actions={actions}
+            />
           ))}
         </div>
       </motion.div>
@@ -868,7 +969,7 @@ export function LocalConversationComposerShell({
   const backgroundTerminalThreadId = model.threadId;
   const showBackgroundTerminals =
     backgroundTerminalThreadId !== null && model.composerShell.backgroundTerminalRows.length > 0;
-  const showBackgroundAgents = model.composerShell.backgroundAgentRows.length > 0 && !model.composerShell.showApprovalMode;
+  const showBackgroundAgents = model.composerShell.backgroundAgentRows.length > 0;
   const showAuxiliaryLaneStack = showQueuePanel || showThreadGoalStatusRow || showBackgroundTerminals || showBackgroundAgents;
   let sectionIndex = hasFixedPortalContent ? 1 : 0;
 

@@ -22,6 +22,7 @@ import type {
 } from "../thread-stage-types";
 import {
   requestLocalConversationResume,
+  markLocalSubagentThreadOpened,
   setLocalConversationThreadViewActive,
   useComposerIntent,
   useConversationBackgroundTerminalRows,
@@ -120,6 +121,7 @@ export function resolveEffectiveThreadStageSettings({
 interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   actions: ThreadStageActions;
   initialUiState?: ThreadBodyUiStateOverrides;
+  backgroundAgentDetail?: boolean;
   rightPanelComposerOverlayEnabled?: boolean;
   rightPanelComposerOverlayTarget?: HTMLElement | null;
   turnDiffHoverPreviewDisabled?: boolean;
@@ -348,10 +350,7 @@ function ConnectedThreadStageFooter({
   const liveThreadSettings = useConversationThreadSettings(activeThreadId);
   const account = useLocalConversationAccount();
   const dictation = useCodexDictationState();
-  const childThreadIds = useMemo(
-    () => childMemberships.map((membership) => membership.threadId),
-    [childMemberships],
-  );
+  const childThreadIds = useMemo(() => [] as string[], []);
   const knownConversationsById = useConversationSubset(childThreadIds);
 
   const composerShell = useMemo(
@@ -592,6 +591,7 @@ function NewThreadHomeHero({
 export function ConnectedThreadStage({
   actions,
   initialUiState,
+  backgroundAgentDetail = false,
   rightPanelComposerOverlayEnabled = false,
   rightPanelComposerOverlayTarget = null,
   turnDiffHoverPreviewDisabled = false,
@@ -615,6 +615,9 @@ export function ConnectedThreadStage({
   const turns = useConversationTurns(activeThreadId);
   const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
+  const childMemberships = useConversationChildMemberships(activeThreadId);
+  const childThreadIds = useMemo(() => [] as string[], []);
+  const knownConversationsById = useConversationSubset(childThreadIds);
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
   const summaryPanelContentProps = useMemo(
     () => ({
@@ -623,19 +626,25 @@ export function ConnectedThreadStage({
       projectWorkspacePath: input.projectWorkspacePath ?? null,
       turns,
       backgroundTerminalRows,
+      childMemberships,
+      knownConversationsById,
       sideChatRows: input.summarySideChatRows ?? [],
       browserRows: input.summaryBrowserRows ?? [],
       newThreadStartInSelector: input.newThreadStartInSelector,
+      onOpenThread: actions.onOpenThread,
       onErrorMessage: setErrorMessage,
     }),
     [
       activeThreadId,
       backgroundTerminalRows,
+      childMemberships,
       input.summaryBrowserRows,
       input.summarySideChatRows,
+      knownConversationsById,
       cwd,
       input.newThreadStartInSelector,
       input.projectWorkspacePath,
+      actions.onOpenThread,
       turns,
     ],
   );
@@ -647,6 +656,12 @@ export function ConnectedThreadStage({
       void setLocalConversationThreadViewActive(activeThreadId, false).catch(() => {});
     };
   }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!backgroundAgentDetail || !activeThreadId) return;
+
+    void markLocalSubagentThreadOpened(activeThreadId).catch(() => {});
+  }, [activeThreadId, backgroundAgentDetail]);
 
   useEffect(() => {
     if (!input.activeThreadId || input.isNewThreadTab || isSideChat) {

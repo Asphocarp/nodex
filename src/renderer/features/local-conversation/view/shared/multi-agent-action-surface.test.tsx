@@ -6,7 +6,9 @@ import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import type {
   CodexMultiAgentActionName,
   CodexMultiAgentActionStatus,
+  CodexMultiAgentAgentStatus,
 } from "../../../../../shared/codex-transcript-special-items";
+import type { ThreadOpenThreadContext } from "../../thread-stage-types";
 import { MultiAgentActionSurface } from "./multi-agent-action-surface";
 
 function buildMultiAgentItem(overrides?: Partial<CodexConversationItem>): CodexConversationItem {
@@ -289,8 +291,120 @@ describe("MultiAgentActionSurface", () => {
     expect(openedThreadIds.join(",")).toBe("thread-agent-1");
   });
 
-  test("renders generic rows without known target ids", async () => {
-    const { getByTestId } = render(
+  test("passes Codex-style subagent context from inline agent buttons", async () => {
+    const calls: Array<{ threadId: string; context: ThreadOpenThreadContext | undefined }> = [];
+    const spawnItem = buildMultiAgentItem({
+      itemId: "item-spawn-agent",
+      entryId: "item-spawn-agent",
+      rawItem: {
+        id: "item-spawn-agent",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1"],
+        receiverThreads: [
+          {
+            threadId: "thread-agent-1",
+            thread: {
+              nickname: "@research",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+        ],
+        prompt: "Gather the failing tests.",
+        model: "gpt-5.4-mini",
+        reasoningEffort: "medium",
+        agentsStates: {},
+      },
+    });
+    const sendInputItem = buildMultiAgentItem();
+    const { getAllByRole, getByTestId } = render(
+      <MultiAgentActionSurface
+        items={[spawnItem, sendInputItem]}
+        onOpenThread={(threadId, context) => {
+          calls.push({ threadId, context });
+        }}
+      />,
+    );
+
+    fireEvent.click(getByTestId("multi-agent-action-header"));
+    await settleAsyncRender();
+
+    const agentButtons = getAllByRole("button", { name: "research" });
+    const sendInputAgentButton = agentButtons[1];
+    if (!sendInputAgentButton) throw new Error("Expected a send-input agent button");
+    fireEvent.click(sendInputAgentButton);
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      {
+        threadId: "thread-agent-1",
+        context: {
+          subagent: {
+            agentRole: "worker",
+            conversationId: "thread-agent-1",
+            diffStats: null,
+            displayName: "research",
+            spawnModel: "gpt-5.4-mini",
+            status: "active",
+            statusSummary: "Inspecting the renderer tests",
+          },
+        },
+      },
+    ]));
+  });
+
+  test("maps terminal inline agent open statuses to done", async () => {
+    for (const agentStatus of ["interrupted", "errored", "shutdown", "notFound"] as CodexMultiAgentAgentStatus[]) {
+      const calls: Array<{ context: ThreadOpenThreadContext | undefined }> = [];
+      const view = render(
+        <MultiAgentActionSurface
+          items={[buildMultiAgentItem({
+            rawItem: {
+              id: `item-${agentStatus}`,
+              tool: "sendInput",
+              status: "completed",
+              senderThreadId: "thread-main",
+              receiverThreadIds: ["thread-agent-1"],
+              receiverThreads: [
+                {
+                  threadId: "thread-agent-1",
+                  thread: {
+                    nickname: "@research",
+                    model: "gpt-5.4-mini",
+                    agentRole: "worker",
+                  },
+                },
+              ],
+              prompt: "Gather the failing tests.",
+              model: "gpt-5.4-mini",
+              reasoningEffort: "medium",
+              agentsStates: {
+                "thread-agent-1": {
+                  status: agentStatus,
+                  message: null,
+                },
+              },
+            },
+          })]}
+          onOpenThread={(_threadId, context) => {
+            calls.push({ context });
+          }}
+        />,
+      );
+
+      fireEvent.click(view.getByTestId("multi-agent-action-header"));
+      await settleAsyncRender();
+      fireEvent.click(view.getByRole("button", { name: "research" }));
+
+      expect(calls[0]?.context?.subagent?.status).toBe("done");
+      view.unmount();
+    }
+  });
+
+  test("renders sparse receiverThreadIds as a generic row without opening a child thread", async () => {
+    const openedThreadIds: string[] = [];
+    const { getByTestId, queryByRole } = render(
       <MultiAgentActionSurface
         items={[
           buildMultiAgentItem({
@@ -308,12 +422,20 @@ describe("MultiAgentActionSurface", () => {
             },
           }),
         ]}
+        onOpenThread={(threadId) => {
+          openedThreadIds.push(threadId);
+        }}
       />,
     );
+
+    expect(textContent(getByTestId("multi-agent-action-header"))).toBe("Failed to close an agent");
 
     fireEvent.click(getByTestId("multi-agent-action-header"));
     await settleAsyncRender();
 
     expect(textContent(getByTestId("multi-agent-action-rows"))).toBe("Failed closing");
+
+    expect(queryByRole("button", { name: "thread-agent-1" }) === null).toBeTrue();
+    expect(openedThreadIds.join(",")).toBe("");
   });
 });

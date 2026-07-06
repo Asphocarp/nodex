@@ -16,6 +16,7 @@ import {
   ThreadReasoningBlock,
   ThreadStreamErrorBlock,
   ThreadSteeredDividerBlock,
+  ThreadSubagentActivityInlineGroupBlock,
   ThreadSystemErrorBlock,
   ThreadThinkingPlaceholderBlock,
   ThreadSystemBannerBlock,
@@ -205,6 +206,17 @@ export function ThreadBlockRenderer({
   if (block.type === "multiAgentAction") {
     return (
       <ThreadMultiAgentActionBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        onOpenThread={onOpenThread}
+      />
+    );
+  }
+
+  if (block.type === "subagentActivityInlineGroup") {
+    return (
+      <ThreadSubagentActivityInlineGroupBlock
         block={block}
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}

@@ -25,6 +25,7 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalRequest,
   CodexApprovalDecision,
+  CodexBackgroundSubagentThreadsHydrateInput,
   CodexBackgroundTerminalRow,
   CardRunInTarget,
   CodexConversationSource,
@@ -84,7 +85,7 @@ import type {
   CodexTurnStartOptions,
 } from "../../lib/types";
 import { normalizeCodexMcpServerElicitationResponse } from "../../../shared/codex-mcp-elicitation";
-import type { CodexThreadActiveFlag, CodexTurnStatus } from "../../../shared/types";
+import type { CodexThreadActiveFlag, CodexThreadRuntimeStatus, CodexTurnStatus } from "../../../shared/types";
 import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
@@ -1037,12 +1038,15 @@ function areThreadSummariesStructurallyEqual(
     && left.source?.sideConversationParentNavigationPath === right.source?.sideConversationParentNavigationPath
     && left.ephemeral === right.ephemeral
     && left.threadSource === right.threadSource
+    && left.agentNickname === right.agentNickname
+    && left.agentRole === right.agentRole
     && left.threadName === right.threadName
     && left.threadPreview === right.threadPreview
     && left.modelProvider === right.modelProvider
     && left.cwd === right.cwd
     && left.statusType === right.statusType
     && left.statusActiveFlags.join("|") === right.statusActiveFlags.join("|")
+    && areThreadRuntimeStatusesEqual(left.threadRuntimeStatus, right.threadRuntimeStatus)
     && left.archived === right.archived
     && left.createdAt === right.createdAt
     && left.updatedAt === right.updatedAt
@@ -1155,6 +1159,16 @@ function areStringArraysEqual(left: readonly string[], right: readonly string[])
     }
   }
   return true;
+}
+
+function areThreadRuntimeStatusesEqual(
+  left: CodexThreadRuntimeStatus | null | undefined,
+  right: CodexThreadRuntimeStatus | null | undefined,
+): boolean {
+  if (left === right) return true;
+  if (left?.type !== right?.type) return false;
+  if (left?.type !== "active" || right?.type !== "active") return true;
+  return areStringArraysEqual(left.activeFlags, right.activeFlags);
 }
 
 interface ConversationAnyProjection {
@@ -2937,12 +2951,15 @@ function parseOwnerThreadStartedPayload(params: unknown): {
   threadId: string;
   parentThreadId: string | null;
   threadSource: ThreadSource | null;
+  agentNickname: string | null;
+  agentRole: string | null;
   threadName: string | null;
   threadPreview: string | null;
   modelProvider: string | null;
   cwd: string | null;
   statusType: CodexConversationSnapshot["statusType"] | null;
   statusActiveFlags: CodexThreadActiveFlag[];
+  threadRuntimeStatus: CodexThreadRuntimeStatus | null;
   ephemeral: boolean | null;
   createdAt: number | null;
   updatedAt: number | null;
@@ -2969,12 +2986,15 @@ function parseOwnerThreadStartedPayload(params: unknown): {
     threadId,
     parentThreadId,
     threadSource: parseOwnerThreadSourceValue(thread.threadSource),
+    agentNickname: getString(thread, "agentNickname")?.trim() || null,
+    agentRole: getString(thread, "agentRole")?.trim() || null,
     threadName,
     threadPreview: getString(thread, "preview"),
     modelProvider: getString(thread, "modelProvider"),
     cwd: getString(thread, "cwd"),
     statusType: parsedStatus?.statusType ?? null,
     statusActiveFlags: parsedStatus?.statusActiveFlags ?? [],
+    threadRuntimeStatus: parsedStatus?.threadRuntimeStatus ?? null,
     ephemeral: typeof thread.ephemeral === "boolean" ? thread.ephemeral : null,
     createdAt: typeof thread.createdAt === "number" ? thread.createdAt : null,
     updatedAt: typeof thread.updatedAt === "number" ? thread.updatedAt : null,
@@ -2994,6 +3014,8 @@ function applyOwnerThreadStartedToConversation(
     source,
     ephemeral: payload.ephemeral ?? conversation.ephemeral,
     threadSource: payload.threadSource ?? conversation.threadSource ?? null,
+    agentNickname: payload.agentNickname ?? conversation.agentNickname ?? null,
+    agentRole: payload.agentRole ?? conversation.agentRole ?? null,
     threadName: payload.threadName ?? conversation.threadName,
     threadPreview: payload.threadPreview ?? conversation.threadPreview,
     modelProvider: payload.modelProvider ?? conversation.modelProvider,
@@ -3004,6 +3026,7 @@ function applyOwnerThreadStartedToConversation(
       : payload.statusType
         ? []
         : conversation.statusActiveFlags,
+    threadRuntimeStatus: payload.threadRuntimeStatus ?? conversation.threadRuntimeStatus ?? null,
     createdAt: payload.createdAt === null
       ? conversation.createdAt
       : normalizeOwnerThreadTimestamp(payload.createdAt, conversation.createdAt),
@@ -3031,10 +3054,25 @@ function parseOwnerThreadStatusFlags(value: unknown): CodexThreadActiveFlag[] {
     : [];
 }
 
+function buildOwnerThreadRuntimeStatus(
+  statusType: CodexConversationSnapshot["statusType"],
+  statusActiveFlags: CodexThreadActiveFlag[],
+): CodexThreadRuntimeStatus {
+  if (statusType === "active") {
+    return {
+      type: "active",
+      activeFlags: [...statusActiveFlags],
+    };
+  }
+
+  return { type: statusType };
+}
+
 function parseOwnerThreadStatusPayload(params: unknown): {
   threadId: string;
   statusType: CodexConversationSnapshot["statusType"];
   statusActiveFlags: CodexThreadActiveFlag[];
+  threadRuntimeStatus: CodexThreadRuntimeStatus;
 } | null {
   const payload = asRecord(params);
   if (!payload) return null;
@@ -3048,12 +3086,15 @@ function parseOwnerThreadStatusPayload(params: unknown): {
     : normalizeOwnerThreadStatusType(payload.status);
   if (!statusType) return null;
 
+  const statusActiveFlags = statusType === "active"
+      ? parseOwnerThreadStatusFlags(status?.activeFlags ?? status?.active_flags)
+      : [];
+
   return {
     threadId,
     statusType,
-    statusActiveFlags: statusType === "active"
-      ? parseOwnerThreadStatusFlags(status?.activeFlags ?? status?.active_flags)
-      : [],
+    statusActiveFlags,
+    threadRuntimeStatus: buildOwnerThreadRuntimeStatus(statusType, statusActiveFlags),
   };
 }
 
@@ -3063,7 +3104,8 @@ function applyOwnerThreadStatusToConversation(
 ): CodexConversationSnapshot | null {
   if (
     conversation.statusType === payload.statusType &&
-    areStringArraysEqual(conversation.statusActiveFlags, payload.statusActiveFlags)
+    areStringArraysEqual(conversation.statusActiveFlags, payload.statusActiveFlags) &&
+    areThreadRuntimeStatusesEqual(conversation.threadRuntimeStatus, payload.threadRuntimeStatus)
   ) {
     return conversation;
   }
@@ -3072,6 +3114,7 @@ function applyOwnerThreadStatusToConversation(
     ...conversation,
     statusType: payload.statusType,
     statusActiveFlags: payload.statusActiveFlags,
+    threadRuntimeStatus: payload.threadRuntimeStatus,
     updatedAt: Math.max(conversation.updatedAt, Date.now()),
   };
 }
@@ -4917,22 +4960,24 @@ export class CodexAppServerManager {
   }
 
   async requestThreadStreamResume(threadId: string): Promise<CodexConversationSnapshot | null> {
-    const baseRevision = this.streamState.getRevision(threadId) ?? 0;
     this.markConversationResumeState(threadId, "resuming");
 
     try {
       const conversation = (await invoke("codex:thread:resume:request", threadId)) as CodexConversationSnapshot | null;
       if (conversation) {
+        await this.waitForOwnerStreamPublishIdle(threadId);
         this.applyConversationSnapshot(threadId, conversation);
-        this.streamState.markOwner(threadId, baseRevision);
-        await this.publishOwnerSnapshotTransaction(
-          threadId,
-          conversation,
-          "owner resume",
-        );
+        const streamRevision = this.streamState.getRevision(threadId) ?? 0;
+        this.streamState.markOwner(threadId, streamRevision);
+        this.seedOwnerStreamPublishCursor(threadId, streamRevision, conversation);
         await invoke("codex:thread:resume-buffer:release", threadId);
         const latestConversation = this.conversationsById.get(threadId) ?? conversation;
-        return latestConversation;
+        await this.publishOwnerSnapshotTransaction(
+          threadId,
+          latestConversation,
+          "owner resume",
+        );
+        return this.conversationsById.get(threadId) ?? latestConversation;
       }
       this.markConversationResumeState(threadId, "needs_resume");
       return conversation;
@@ -4970,6 +5015,23 @@ export class CodexAppServerManager {
       threadId,
       active,
     })) as boolean;
+  }
+
+  async markSubagentThreadOpened(threadId: string): Promise<boolean> {
+    return (await invoke("codex:subagent-thread:opened", threadId)) as boolean;
+  }
+
+  async hydrateBackgroundSubagentThreads(
+    input: CodexBackgroundSubagentThreadsHydrateInput,
+  ): Promise<CodexThreadSummary[]> {
+    const summaries = (await invoke(
+      "codex:thread:background-subagents:hydrate",
+      input,
+    )) as CodexThreadSummary[];
+    for (const summary of summaries) {
+      this.applyThreadSummary(summary);
+    }
+    return summaries;
   }
 
   requestThreadOlderTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
@@ -7542,6 +7604,27 @@ export class CodexAppServerManager {
     return cursor;
   }
 
+  private seedOwnerStreamPublishCursor(
+    conversationId: string,
+    acceptedRevision: number,
+    acceptedConversation: CodexConversationSnapshot,
+  ): void {
+    const existing = this.ownerStreamPublishCursorsByConversationId.get(conversationId);
+    if (existing && !existing.inFlight && !existing.dirty) {
+      existing.acceptedRevision = acceptedRevision;
+      existing.acceptedConversation = acceptedConversation;
+      return;
+    }
+
+    if (!existing) {
+      this.ensureOwnerStreamPublishCursor(
+        conversationId,
+        acceptedRevision,
+        acceptedConversation,
+      );
+    }
+  }
+
   private adoptOwnerStreamLocalBase(conversationId: string, conversation: CodexConversationSnapshot): void {
     const cursor = this.ownerStreamPublishCursorsByConversationId.get(conversationId);
     if (!cursor || cursor.inFlight || cursor.dirty) {
@@ -9099,6 +9182,16 @@ export function requestLocalConversationResume(threadId: string): Promise<CodexC
   return getDefaultLocalConversationManager().requestThreadStreamResume(threadId);
 }
 
+export function markLocalSubagentThreadOpened(threadId: string): Promise<boolean> {
+  return getDefaultLocalConversationManager().markSubagentThreadOpened(threadId);
+}
+
+export function hydrateLocalBackgroundSubagentThreads(
+  input: CodexBackgroundSubagentThreadsHydrateInput,
+): Promise<CodexThreadSummary[]> {
+  return getDefaultLocalConversationManager().hydrateBackgroundSubagentThreads(input);
+}
+
 export function setLocalConversationThreadViewActive(threadId: string, active: boolean): Promise<boolean> {
   return getDefaultLocalConversationManager().setThreadViewActive(threadId, active);
 }
@@ -9502,6 +9595,14 @@ export function useCodexAppServerControl(activeProjectId: string) {
     async (threadId: string) => manager.requestThreadStreamSnapshot(threadId),
     [manager],
   );
+  const markSubagentThreadOpened = useCallback(
+    async (threadId: string) => manager.markSubagentThreadOpened(threadId),
+    [manager],
+  );
+  const hydrateBackgroundSubagentThreads = useCallback(
+    async (input: CodexBackgroundSubagentThreadsHydrateInput) => manager.hydrateBackgroundSubagentThreads(input),
+    [manager],
+  );
 
   const startThreadForSession = useCallback(async (
     input: CodexThreadStartForSessionInput & {
@@ -9740,6 +9841,8 @@ export function useCodexAppServerControl(activeProjectId: string) {
     loadModels,
     listCollaborationModes,
     requestThreadStreamSnapshot,
+    markSubagentThreadOpened,
+    hydrateBackgroundSubagentThreads,
     startThreadForSession,
     startSideChat,
     discardSideChat,

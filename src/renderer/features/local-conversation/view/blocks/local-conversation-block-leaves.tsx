@@ -89,6 +89,7 @@ import type {
   ThreadCollapsedToolActivityActiveSummary,
   ThreadPlanSidePanelState,
   ThreadStageActions,
+  ThreadSubagentActivityInlineRowModel,
   ThreadTranscriptBlockModel,
   ThreadWorkedForBlockModel,
 } from "../../thread-stage-types";
@@ -1216,6 +1217,131 @@ export function ThreadAutomaticApprovalReviewBlock({ block }: ThreadLeafBlockPro
 export function ThreadMultiAgentActionBlock({ block, onOpenThread }: ThreadLeafBlockProps) {
   if (block.type !== "multiAgentAction") return null;
   return <MultiAgentActionSurface items={[block.entry]} onOpenThread={onOpenThread} />;
+}
+
+const SUBAGENT_ACTIVITY_VISIBLE_CHIP_COUNT = 3;
+
+function resolveSubagentActivityStatusLabel(rows: readonly ThreadSubagentActivityInlineRowModel[]): string {
+  if (rows.some((row) => row.activityStatus === "interrupted")) return "interrupted";
+  if (rows.some((row) => row.activityStatus === "updated")) return "updated";
+  if (rows.length > 0 && rows.every((row) => row.activityStatus === "done" || row.status === "done")) return "finished";
+  return "started working";
+}
+
+function SubagentActivityChipAvatar({ displayName }: { displayName: string }) {
+  const initial = displayName.trim().charAt(0).toUpperCase() || "A";
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-token-foreground/8 text-[0.625rem] leading-none text-token-description-foreground"
+    >
+      {initial}
+    </span>
+  );
+}
+
+function SubagentActivityInlineChip({
+  animateEntrance,
+  onAnimationEnd,
+  onClick,
+  row,
+}: {
+  animateEntrance: boolean;
+  onAnimationEnd: () => void;
+  onClick?: () => void;
+  row: ThreadSubagentActivityInlineRowModel;
+}) {
+  const content = (
+    <>
+      <SubagentActivityChipAvatar displayName={row.displayName} />
+      <span className="min-w-0 truncate text-base">{row.displayName}</span>
+    </>
+  );
+  const className = cn(
+    "subagent-activity-chip inline-flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full border border-token-border-light bg-token-main-surface-secondary pr-2 pl-1.5 text-token-conversation-summary-leading",
+    onClick && "cursor-interaction hover:border-token-border-default hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:outline-2 focus-visible:outline-offset-2 active:bg-token-bg-secondary",
+  );
+
+  if (!onClick) {
+    return (
+      <span
+        className={className}
+        data-animate-entrance={animateEntrance ? "" : undefined}
+        onAnimationEnd={animateEntrance ? onAnimationEnd : undefined}
+      >
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${row.displayName} subagent`}
+      className={className}
+      data-animate-entrance={animateEntrance ? "" : undefined}
+      onAnimationEnd={animateEntrance ? onAnimationEnd : undefined}
+      onClick={onClick}
+    >
+      {content}
+    </button>
+  );
+}
+
+export function ThreadSubagentActivityInlineGroupBlock({ block, onOpenThread }: ThreadLeafBlockProps) {
+  const rows = block.type === "subagentActivityInlineGroup" ? block.subagentActivityRows ?? [] : [];
+  const [animatedConversationIds, setAnimatedConversationIds] = useState<ReadonlySet<string>>(
+    () => new Set(rows.map((row) => row.conversationId)),
+  );
+  const clearAnimation = useCallback((conversationId: string) => {
+    setAnimatedConversationIds((current) => {
+      if (!current.has(conversationId)) return current;
+      const next = new Set(current);
+      next.delete(conversationId);
+      return next;
+    });
+  }, []);
+
+  if (block.type !== "subagentActivityInlineGroup" || rows.length === 0) return null;
+
+  const visibleRows = rows.slice(0, SUBAGENT_ACTIVITY_VISIBLE_CHIP_COUNT);
+  const hiddenCount = rows.length - visibleRows.length;
+  const statusLabel = block.subagentActivityStatusLabel ?? resolveSubagentActivityStatusLabel(rows);
+
+  return (
+    <div className="-ml-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-sm leading-5" data-testid="subagent-activity-inline-group">
+      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {visibleRows.map((row) => (
+          <SubagentActivityInlineChip
+            key={row.conversationId}
+            row={row}
+            animateEntrance={animatedConversationIds.has(row.conversationId)}
+            onAnimationEnd={() => clearAnimation(row.conversationId)}
+            onClick={onOpenThread
+              ? () => {
+                  void onOpenThread(row.conversationId, {
+                    subagent: {
+                      agentRole: row.agentRole,
+                      conversationId: row.conversationId,
+                      diffStats: row.diffStats,
+                      displayName: row.displayName,
+                      showInlineActivity: true,
+                      spawnModel: row.spawnModel,
+                      status: row.status,
+                      statusSummary: row.statusSummary,
+                    },
+                  });
+                }
+              : undefined}
+          />
+        ))}
+      </span>
+      <span className="text-base text-token-conversation-summary-leading">
+        {hiddenCount > 0 ? `and ${hiddenCount} other ${hiddenCount === 1 ? "subagent" : "subagents"} ` : null}
+        {statusLabel}
+      </span>
+    </div>
+  );
 }
 
 export function ThreadUserAttachmentStripBlock({ block }: ThreadSpecialBlockProps) {

@@ -85,8 +85,31 @@
     animation: right-panel-composer-overlay-enter .12s var(--cubic-enter) both;
   }
 
+  @keyframes subagent-activity-chip-enter {
+    0% {
+      opacity: 0;
+      transform: translate(-8px, 4px) scale(0.92);
+    }
+
+    70% {
+      opacity: 1;
+      transform: translate(1px, -1px) scale(1.02);
+    }
+
+    to {
+      opacity: 1;
+      transform: translate(0, 0) scale(1);
+    }
+  }
+
+  .subagent-activity-chip[data-animate-entrance] {
+    transform-origin: 0;
+    animation: subagent-activity-chip-enter .28s cubic-bezier(.23, 1, .32, 1) both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .right-panel-composer-overlay-enter {
+    .right-panel-composer-overlay-enter,
+    .subagent-activity-chip[data-animate-entrance] {
       animation: none;
     }
   }

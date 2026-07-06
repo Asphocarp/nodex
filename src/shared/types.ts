@@ -28,6 +28,7 @@ import type {
   ReviewTarget as CodexAppServerReviewTarget,
   ThreadGoal as CodexAppServerThreadGoal,
   ThreadGoalSetParams as CodexAppServerThreadGoalSetParams,
+  ThreadStatus as CodexAppServerThreadStatus,
   ThreadSettings as CodexAppServerThreadSettings,
   ThreadSource as CodexAppServerThreadSource,
   ThreadItem as CodexAppServerThreadItem,
@@ -1248,6 +1249,7 @@ export interface CanvasData {
 
 export type CodexThreadStatusType = "notLoaded" | "idle" | "systemError" | "active";
 export type CodexThreadActiveFlag = "waitingOnApproval" | "waitingOnUserInput";
+export type CodexThreadRuntimeStatus = CodexAppServerThreadStatus;
 
 export interface CodexConnectionState {
   status: "starting" | "connected" | "disconnected" | "missingBinary" | "error";
@@ -1304,6 +1306,8 @@ export interface CodexThreadSummary {
   source: CodexConversationSource | null;
   ephemeral?: boolean;
   threadSource?: CodexAppServerThreadSource | null;
+  agentNickname?: string | null;
+  agentRole?: string | null;
   threadName: string | null;
   threadPreview: string;
   modelProvider: string;
@@ -1314,6 +1318,7 @@ export interface CodexThreadSummary {
   latestTokenUsageInfo?: CodexThreadTokenUsage | null;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
+  threadRuntimeStatus?: CodexThreadRuntimeStatus | null;
   archived: boolean;
   pinned?: boolean;
   createdAt: number;
@@ -2609,11 +2614,21 @@ export interface GhPrMutationResult {
   message: string | null;
 }
 
+export interface CodexConversationChildThreadMetadata {
+  nickname?: string | null;
+  model?: string | null;
+  agentRole?: string | null;
+}
+
 export interface CodexConversationChildMembership {
   threadId: string;
   parentThreadId: string;
   role: "childApproval" | "backgroundChild";
   actorName?: string;
+  displayName?: string | null;
+  thread?: CodexConversationChildThreadMetadata | null;
+  agentRole?: string | null;
+  showInlineActivity?: boolean;
 }
 
 export interface CodexConversationCapabilityFlags {
@@ -2648,6 +2663,11 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
   childMemberships: CodexConversationChildMembership[];
   capabilityFlags: CodexConversationCapabilityFlags;
+}
+
+export interface CodexBackgroundSubagentThreadsHydrateInput {
+  threadIds: string[];
+  includeTurns?: boolean;
 }
 
 export type CodexConversationPatchPathSegment = string | number;
