@@ -1574,7 +1574,7 @@ export interface CodexPermissionState {
   approvalsReviewer: CodexApprovalsReviewer;
   sandboxMode: CodexSandboxMode | null;
   sandbox: CodexSandboxPolicy | null;
-  guardianApprovalEnabled: boolean;
+  autoReviewAvailable: boolean;
   configTarget: CodexPermissionConfigTarget;
   customDescription: string | null;
 }

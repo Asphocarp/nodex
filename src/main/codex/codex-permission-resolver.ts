@@ -14,14 +14,20 @@ import type {
 } from "../../shared/types";
 
 const GUARDIAN_APPROVAL_FEATURE_KEY = "guardian_approval";
+const FLAT_GUARDIAN_APPROVAL_FEATURE_KEY = `features.${GUARDIAN_APPROVAL_FEATURE_KEY}`;
 const APPROVALS_REVIEWER_KEY = "approvals_reviewer";
 const DEFAULT_APPROVALS_REVIEWER: CodexApprovalsReviewer = "user";
 const AUTO_REVIEW_APPROVALS_REVIEWER: CodexApprovalsReviewer = "auto_review";
+const LEGACY_AUTO_REVIEW_APPROVALS_REVIEWER: CodexApprovalsReviewer = "guardian_subagent";
+const READ_ONLY_PERMISSION_PROFILE_ID = ":read-only";
+const WORKSPACE_PERMISSION_PROFILE_ID = ":workspace";
+const FULL_ACCESS_PERMISSION_PROFILE_ID = ":danger-full-access";
 const DEFAULT_CUSTOM_DESCRIPTION =
   "No project or user Codex config was found. Codex will fall back to its built-in permission defaults.";
 
 interface ResolvedPreset {
   preset: CodexPermissionPreset;
+  permissionProfileId: string;
   sandboxMode: CodexSandboxMode;
   approvalPolicy: CodexApprovalPolicy;
   approvalsReviewer: CodexApprovalsReviewer;
@@ -34,6 +40,7 @@ interface PermissionConfigTarget {
 
 const READ_ONLY_PRESET: ResolvedPreset = {
   preset: "read-only",
+  permissionProfileId: READ_ONLY_PERMISSION_PROFILE_ID,
   sandboxMode: "read-only",
   approvalPolicy: "on-request",
   approvalsReviewer: DEFAULT_APPROVALS_REVIEWER,
@@ -41,6 +48,7 @@ const READ_ONLY_PRESET: ResolvedPreset = {
 
 const AUTO_PRESET: ResolvedPreset = {
   preset: "auto",
+  permissionProfileId: WORKSPACE_PERMISSION_PROFILE_ID,
   sandboxMode: "workspace-write",
   approvalPolicy: "on-request",
   approvalsReviewer: DEFAULT_APPROVALS_REVIEWER,
@@ -48,6 +56,7 @@ const AUTO_PRESET: ResolvedPreset = {
 
 const GUARDIAN_PRESET: ResolvedPreset = {
   preset: "guardian-approvals",
+  permissionProfileId: WORKSPACE_PERMISSION_PROFILE_ID,
   sandboxMode: "workspace-write",
   approvalPolicy: "on-request",
   approvalsReviewer: AUTO_REVIEW_APPROVALS_REVIEWER,
@@ -55,6 +64,7 @@ const GUARDIAN_PRESET: ResolvedPreset = {
 
 const FULL_ACCESS_PRESET: ResolvedPreset = {
   preset: "full-access",
+  permissionProfileId: FULL_ACCESS_PERMISSION_PROFILE_ID,
   sandboxMode: "danger-full-access",
   approvalPolicy: "never",
   approvalsReviewer: DEFAULT_APPROVALS_REVIEWER,
@@ -78,26 +88,91 @@ function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
 
-function resolveAutoReviewGate(config: ConfigReadResponse["config"]): boolean {
-  const featuresValue = config.features;
-  if (!featuresValue || typeof featuresValue !== "object" || Array.isArray(featuresValue)) {
-    return false;
-  }
+function isAutomaticApprovalsReviewer(value: unknown): value is CodexApprovalsReviewer {
+  return value === AUTO_REVIEW_APPROVALS_REVIEWER || value === LEGACY_AUTO_REVIEW_APPROVALS_REVIEWER;
+}
 
-  const record = featuresValue as Record<string, unknown>;
-  const direct = record[GUARDIAN_APPROVAL_FEATURE_KEY];
-  if (isBoolean(direct)) return direct;
-  return false;
+function readNestedBooleanFeature(value: unknown, key: string): boolean | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const direct = (value as Record<string, unknown>)[key];
+  return isBoolean(direct) ? direct : null;
+}
+
+function readAutoReviewFeatureGate(
+  config: ConfigReadResponse["config"],
+  requirements: ConfigRequirements | null,
+): boolean | null {
+  const candidates = [
+    config[FLAT_GUARDIAN_APPROVAL_FEATURE_KEY],
+    readNestedBooleanFeature(config.features, GUARDIAN_APPROVAL_FEATURE_KEY),
+    readNestedBooleanFeature(requirements?.featureRequirements, GUARDIAN_APPROVAL_FEATURE_KEY),
+  ];
+
+  if (candidates.some((candidate) => candidate === false)) return false;
+  if (candidates.some((candidate) => candidate === true)) return true;
+  return null;
+}
+
+function isReviewerAllowed(
+  reviewer: CodexApprovalsReviewer,
+  allowedReviewers: readonly CodexApprovalsReviewer[] | null | undefined,
+): boolean {
+  if (!allowedReviewers) return true;
+  if (isAutomaticApprovalsReviewer(reviewer)) {
+    return allowedReviewers.some(isAutomaticApprovalsReviewer);
+  }
+  return allowedReviewers.includes(reviewer);
+}
+
+function resolveAutoReviewAvailability(
+  config: ConfigReadResponse["config"],
+  requirements: ConfigRequirements | null,
+): boolean {
+  if (readAutoReviewFeatureGate(config, requirements) === false) return false;
+  return isPresetAllowed(GUARDIAN_PRESET, requirements);
 }
 
 function normalizeApprovalsReviewer(
   reviewer: unknown,
-  guardianApprovalEnabled: boolean,
+  autoReviewAvailable: boolean,
 ): CodexApprovalsReviewer {
-  if (reviewer !== AUTO_REVIEW_APPROVALS_REVIEWER) {
+  if (!isAutomaticApprovalsReviewer(reviewer)) {
     return DEFAULT_APPROVALS_REVIEWER;
   }
-  return guardianApprovalEnabled ? AUTO_REVIEW_APPROVALS_REVIEWER : DEFAULT_APPROVALS_REVIEWER;
+  return autoReviewAvailable ? AUTO_REVIEW_APPROVALS_REVIEWER : DEFAULT_APPROVALS_REVIEWER;
+}
+
+function isPermissionProfileAllowed(
+  permissionProfileId: string,
+  requirements: ConfigRequirements | null,
+): boolean {
+  const allowedPermissionProfiles = requirements?.allowedPermissionProfiles ?? null;
+  return allowedPermissionProfiles == null || allowedPermissionProfiles[permissionProfileId] === true;
+}
+
+function isPresetAllowed(
+  preset: ResolvedPreset,
+  requirements: ConfigRequirements | null,
+): boolean {
+  if (!isPermissionProfileAllowed(preset.permissionProfileId, requirements)) {
+    return false;
+  }
+
+  const allowedApprovalPolicies = requirements?.allowedApprovalPolicies ?? null;
+  if (allowedApprovalPolicies && !allowedApprovalPolicies.includes(preset.approvalPolicy)) {
+    return false;
+  }
+
+  const allowedSandboxModes = requirements?.allowedSandboxModes ?? null;
+  if (allowedSandboxModes && !allowedSandboxModes.includes(preset.sandboxMode)) {
+    return false;
+  }
+
+  return isReviewerAllowed(preset.approvalsReviewer, requirements?.allowedApprovalsReviewers);
+}
+
+function listAvailablePresets(requirements: ConfigRequirements | null): ResolvedPreset[] {
+  return INTERNAL_PRESETS.filter((preset) => isPresetAllowed(preset, requirements));
 }
 
 function normalizeWorkspaceRoots(workspaceRoots: readonly string[]): string[] {
@@ -151,42 +226,16 @@ function buildSandboxPolicy(
   return null;
 }
 
-function isPresetAllowed(
-  preset: ResolvedPreset,
-  requirements: ConfigRequirements | null,
-): boolean {
-  const allowedApprovalPolicies = requirements?.allowedApprovalPolicies ?? null;
-  if (allowedApprovalPolicies && !allowedApprovalPolicies.includes(preset.approvalPolicy)) {
-    return false;
-  }
-
-  const allowedSandboxModes = requirements?.allowedSandboxModes ?? null;
-  if (allowedSandboxModes && !allowedSandboxModes.includes(preset.sandboxMode)) {
-    return false;
-  }
-
-  const allowedApprovalsReviewers = requirements?.allowedApprovalsReviewers ?? null;
-  if (allowedApprovalsReviewers && !allowedApprovalsReviewers.includes(preset.approvalsReviewer)) {
-    return false;
-  }
-
-  return true;
-}
-
-function listAvailablePresets(requirements: ConfigRequirements | null): ResolvedPreset[] {
-  return INTERNAL_PRESETS.filter((preset) => isPresetAllowed(preset, requirements));
-}
-
 function listVisibleModes(
   requirements: ConfigRequirements | null,
-  guardianApprovalEnabled: boolean,
+  autoReviewAvailable: boolean,
 ): CodexPermissionMode[] {
   const availablePresets = listAvailablePresets(requirements);
   const modes = new Set<CodexPermissionMode>();
 
   for (const preset of availablePresets) {
     if (preset.preset === "read-only") continue;
-    if (preset.preset === "guardian-approvals" && !guardianApprovalEnabled) continue;
+    if (preset.preset === "guardian-approvals" && !autoReviewAvailable) continue;
     modes.add(preset.preset);
   }
 
@@ -211,12 +260,11 @@ function isRepresentableCustomState(
     return false;
   }
 
-  const allowedApprovalsReviewers = requirements?.allowedApprovalsReviewers ?? null;
-  if (allowedApprovalsReviewers && !allowedApprovalsReviewers.includes(approvalsReviewer)) {
+  if (requirements?.allowedPermissionProfiles != null) {
     return false;
   }
 
-  return true;
+  return isReviewerAllowed(approvalsReviewer, requirements?.allowedApprovalsReviewers);
 }
 
 function resolvePresetFromEffectiveState(input: {
@@ -233,7 +281,7 @@ function resolvePresetFromEffectiveState(input: {
   }
 
   if (input.sandboxMode === "workspace-write" && input.approvalPolicy === "on-request") {
-    return input.approvalsReviewer === AUTO_REVIEW_APPROVALS_REVIEWER ? "guardian-approvals" : "auto";
+    return isAutomaticApprovalsReviewer(input.approvalsReviewer) ? "guardian-approvals" : "auto";
   }
 
   return null;
@@ -241,10 +289,10 @@ function resolvePresetFromEffectiveState(input: {
 
 function resolveFallbackPreset(
   requirements: ConfigRequirements | null,
-  guardianApprovalEnabled: boolean,
+  autoReviewAvailable: boolean,
 ): ResolvedPreset {
   const availablePresets = listAvailablePresets(requirements);
-  const preferredOrder: CodexPermissionPreset[] = guardianApprovalEnabled
+  const preferredOrder: CodexPermissionPreset[] = autoReviewAvailable
     ? ["auto", "guardian-approvals", "full-access", "read-only"]
     : ["auto", "full-access", "read-only"];
 
@@ -330,14 +378,14 @@ export function resolveCodexPermissionState(input: {
   defaultUserConfigPath: string;
   workspaceRoots: string[];
 }): CodexPermissionState {
-  const guardianApprovalEnabled = resolveAutoReviewGate(input.config);
+  const autoReviewAvailable = resolveAutoReviewAvailability(input.config, input.requirements);
   const sandboxMode = input.config.sandbox_mode ?? null;
   const approvalPolicy = input.config.approval_policy ?? null;
   const approvalsReviewer = normalizeApprovalsReviewer(
     input.config.approvals_reviewer,
-    guardianApprovalEnabled,
+    autoReviewAvailable,
   );
-  const availableModes = listVisibleModes(input.requirements, guardianApprovalEnabled);
+  const availableModes = listVisibleModes(input.requirements, autoReviewAvailable);
   const matchedPreset = resolvePresetFromEffectiveState({
     sandboxMode,
     approvalPolicy,
@@ -347,20 +395,25 @@ export function resolveCodexPermissionState(input: {
     origins: input.origins,
     defaultUserConfigPath: input.defaultUserConfigPath,
   });
-  const explicitKeys = input.origins.approval_policy || input.origins.sandbox_mode;
-  const isCustom = Boolean(explicitKeys) && isRepresentableCustomState(
-    sandboxMode,
-    approvalPolicy,
-    approvalsReviewer,
-    input.requirements,
-  );
-  const fallbackPreset = resolveFallbackPreset(input.requirements, guardianApprovalEnabled);
+  const fallbackPreset = resolveFallbackPreset(input.requirements, autoReviewAvailable);
   const matchedResolvedPreset = matchedPreset
     ? INTERNAL_PRESETS.find((preset) => preset.preset === matchedPreset) ?? null
     : null;
+  const matchedPresetAllowed = matchedResolvedPreset !== null
+    && isPresetAllowed(matchedResolvedPreset, input.requirements)
+    && (matchedPreset !== "guardian-approvals" || autoReviewAvailable);
+  const explicitKeys = input.origins.approval_policy || input.origins.sandbox_mode;
+  const hasRepresentableExplicitConfig = Boolean(explicitKeys)
+    && isRepresentableCustomState(
+      sandboxMode,
+      approvalPolicy,
+      approvalsReviewer,
+      input.requirements,
+    );
+  const isCustom = hasRepresentableExplicitConfig && !matchedPresetAllowed;
   const effectivePreset = isCustom
     ? "custom"
-    : (matchedResolvedPreset && isPresetAllowed(matchedResolvedPreset, input.requirements)
+    : (matchedResolvedPreset && matchedPresetAllowed
       ? matchedResolvedPreset.preset
       : fallbackPreset.preset);
   const effectiveResolvedPreset = effectivePreset === "custom"
@@ -372,7 +425,7 @@ export function resolveCodexPermissionState(input: {
     : effectivePreset === "read-only"
       ? "custom"
       : effectivePreset;
-  const nextAvailableModes: CodexPermissionMode[] = isCustom && !availableModes.includes("custom")
+  const nextAvailableModes: CodexPermissionMode[] = hasRepresentableExplicitConfig && !availableModes.includes("custom")
     ? [...availableModes, "custom"]
     : availableModes;
 
@@ -388,7 +441,7 @@ export function resolveCodexPermissionState(input: {
       input.workspaceRoots,
       input.config.sandbox_workspace_write,
     ),
-    guardianApprovalEnabled,
+    autoReviewAvailable,
     configTarget,
     customDescription: buildCustomDescription({
       target: configTarget,

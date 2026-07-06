@@ -9640,7 +9640,7 @@ describe("codex-service approval fallback", () => {
         approvalsReviewer: "user",
         sandboxMode: "workspace-write",
         sandbox: null,
-        guardianApprovalEnabled: true,
+        autoReviewAvailable: true,
         configTarget: {
           source: "user",
           filePath: "/Users/test/.codex/config.toml",

@@ -9,7 +9,7 @@ Other product specs should link here instead of restating Auto-review behavior i
 ## Scope
 This spec covers:
 - preset resolution from Codex app-server config and config requirements
-- Auto-review gate behavior and reviewer fallback
+- Auto-review availability behavior and reviewer fallback
 - visible Thread-stage and Settings UI for permission modes
 - raw config editing rules for permission-related keys
 - approval request attachment, forwarding, and resolution
@@ -71,6 +71,7 @@ These exact literals must exist in the implementation:
 - `guardian_approval`
 - `approvals_reviewer`
 - `auto_review`
+- `guardian_subagent`
 - `item/commandExecution/requestApproval`
 - `item/fileChange/requestApproval`
 - `thread-follower-command-approval-decision`
@@ -78,24 +79,30 @@ These exact literals must exist in the implementation:
 - `automatic-approval-review`
 
 ## Auto-review Gate
-- `features.guardian_approval` is a hard gate.
-- If `guardian_approval` is disabled, `auto_review` must collapse back to `user`.
-- When the gate is disabled:
+- `features.guardian_approval` may arrive as either `features.guardian_approval`, `features["guardian_approval"]`, or `configRequirements/read.featureRequirements.guardian_approval`.
+- Only an explicit `guardian_approval=false` disables Auto-review. A missing value means the app should fall back to requirement-based availability, not treat Auto-review as unavailable.
+- If `guardian_approval` is explicitly disabled, automatic reviewers collapse back to `user`.
+- When Auto-review is unavailable:
   - Auto-review is not offered as an available preset.
-  - Any raw config that still says `approvals_reviewer=auto_review` is normalized to `user` in the effective permission state.
+  - Any raw config that still says `approvals_reviewer=auto_review` or the legacy alias `approvals_reviewer=guardian_subagent` is normalized to `user` in the effective permission state.
   - Fallback preset selection prefers the nearest allowed non-Auto-review preset.
 
-`configRequirements/read` reviewer allow-lists are also authoritative. If `allowedApprovalsReviewers` omits `auto_review`, Auto-review must not be offered even when `guardian_approval` is enabled.
+`configRequirements/read` reviewer allow-lists are also authoritative. `auto_review` and the legacy alias `guardian_subagent` both mean the automatic reviewer for allow-list purposes. If `allowedApprovalsReviewers` omits both automatic-review literals, Auto-review must not be offered even when `guardian_approval` is enabled or absent.
 
 This fallback is behavioral, not cosmetic.
 The resolver must not surface an effective Auto-review reviewer when the gate is off.
 
 ## Requirements Filtering
 - Available presets are filtered by `configRequirements/read`.
+- Permission profile allow-lists constrain fixed presets:
+  - `auto` and `guardian-approvals` require `:workspace`
+  - `full-access` requires `:danger-full-access`
+  - `read-only` requires `:read-only`
 - Allowed approval policies constrain which presets are valid.
 - Allowed sandbox modes constrain which presets are valid.
-- If the active raw config does not round-trip to one of the representable fixed presets, the UI must surface `custom`.
-- If the current raw config is representable and allowed, the resolver prefers the matching preset over a fallback.
+- Allowed approval reviewers constrain which presets are valid, with `auto_review` and `guardian_subagent` treated as the same automatic-review capability.
+- If the active raw config has explicit permission keys (`approval_policy` or `sandbox_mode`) and that raw config is representable and allowed, the UI must surface `custom` as an available visible mode even when the same values fold to a fixed preset.
+- If the current raw config is representable and allowed, the resolver prefers the matching preset over a fallback for the current effective mode; `custom` availability is independent of that preset folding.
 - If no explicit config matches, the resolver chooses the nearest allowed fallback preset.
 
 Preferred fallback order is:
@@ -104,8 +111,8 @@ Preferred fallback order is:
 
 ## Custom Escape Hatch
 - `custom` is a visible mode, not an internal preset.
-- It exists for raw config states that are explicit and representable enough to describe, but do not round-trip to one of the fixed visible presets.
-- `custom` must remain visible when the current raw config is outside the fixed preset set.
+- It exists for raw config states that are explicit and representable enough to describe.
+- `custom` must remain visible when the current raw config is outside the fixed preset set, and must also remain available when an explicit config.toml permission state happens to be equivalent to a fixed preset.
 - Switching away from `custom` writes a fixed preset back through the config APIs.
 - Staying on `custom` does not invent a synthetic preset behind the scenes.
 
@@ -118,6 +125,8 @@ Permission resolution depends on these raw config keys:
 - `approvals_reviewer`
 - `sandbox_workspace_write.network_access`
 - `features.guardian_approval`
+- `features.guardian_approval` as a flat key
+- `configRequirements/read.featureRequirements.guardian_approval`
 
 ## Write Behavior
 - Reads use app-server config APIs, not manual TOML parsing as the source of truth.
@@ -135,7 +144,7 @@ The resolved permission state should carry:
 - effective `approvalsReviewer`
 - effective `sandboxMode`
 - effective `sandbox`
-- whether Auto-review is enabled
+- whether Auto-review is available
 - the writable config target
 - the `custom` description when relevant
 
@@ -149,23 +158,24 @@ Auto-review is split across multiple surfaces.
 
 ### Thread Footer Picker
 The Thread-stage permission dropdown must use these exact visible labels:
-- `Default permissions`
-- `Auto-review`
+- `Ask for approval`
+- `Approve for me`
 - `Full access`
 - `Custom (config.toml)`
 
-Tooltip copy:
-- Default permissions:
-  - `Codex automatically runs commands in a sandbox and asks before elevated requests.`
-- Auto-review:
-  - `Codex automatically runs commands in a sandbox and uses Auto-review for elevated requests`
-- Auto-review disabled:
-  - `Auto-review requires default sandboxed permissions to be available in this workspace.`
-- Full access:
-  - `Codex has full access over your computer and bypasses approval prompts (elevated risk).`
+Dropdown copy:
+- Title row: `How should Codex actions be approved?`
+- Learn-more affordance: `Learn more`
+- `Ask for approval`: `Always ask to edit external files and use the internet`
+- `Approve for me`: `Only ask for actions detected as potentially unsafe`
+- `Approve for me` disabled: `Requires default sandboxed permissions in this workspace`
+- `Full access`: `Unrestricted access to the internet and any file on your computer`
+- `Full access` disabled: `Disabled by requirements.toml`
+- `Custom (config.toml)`: `Uses permissions defined in config.toml`
 
-`Full access` requires a confirmation step before writing that preset:
-- `Enable full access?`
+The selector trigger accents the selected mode consistently on every surface: `Full access` uses the warning foreground token and `Approve for me` uses the link foreground token. Other modes inherit the standard ghost-button color.
+
+Selecting `Full access` writes the preset immediately when it is available. The permission selector does not show an extra confirmation dialog.
 
 ### Settings -> Agent
 The settings shell exposes a dedicated `Agent` section.
@@ -249,4 +259,5 @@ Payloads should include the conversation/thread identity, request identity, and 
 ## Non-Goals
 - Nodex does not implement a local automatic-review adjudicator.
 - Nodex forwards `approvalsReviewer=auto_review` as the current app-server contract.
+- Nodex accepts `guardian_subagent` only as a legacy/internal alias when reading config or requirements; it does not write that literal back to config.
 - Backend automatic-review internals beyond that forwarding behavior remain inferred and should not be over-claimed.

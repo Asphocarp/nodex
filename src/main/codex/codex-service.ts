@@ -4219,7 +4219,7 @@ export class CodexService extends EventEmitter {
         approvalsReviewer: "user",
         sandboxMode: null,
         sandbox: null,
-        guardianApprovalEnabled: false,
+        autoReviewAvailable: false,
         configTarget: {
           source: "none",
           filePath: null,
@@ -4292,14 +4292,14 @@ export class CodexService extends EventEmitter {
         approvalsReviewer: previous?.approvalsReviewer ?? "user",
         sandboxMode: previous?.sandboxMode ?? null,
         sandbox: previous?.sandbox ?? null,
-        guardianApprovalEnabled: previous?.guardianApprovalEnabled ?? false,
+        autoReviewAvailable: previous?.autoReviewAvailable ?? false,
         configTarget,
         customDescription: previous?.customDescription ?? "Codex will use its built-in permission defaults.",
       };
     }
 
-    const guardianApprovalEnabled = previous?.guardianApprovalEnabled ?? true;
-    const approvalsReviewer = mode === "guardian-approvals" && guardianApprovalEnabled
+    const autoReviewAvailable = previous?.autoReviewAvailable ?? true;
+    const approvalsReviewer = mode === "guardian-approvals" && autoReviewAvailable
       ? "auto_review"
       : "user";
     const sandbox = mode === "full-access"
@@ -4322,13 +4322,13 @@ export class CodexService extends EventEmitter {
 
     return {
       mode,
-      effectivePreset: mode === "guardian-approvals" && !guardianApprovalEnabled ? "auto" : mode,
+      effectivePreset: mode === "guardian-approvals" && !autoReviewAvailable ? "auto" : mode,
       availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
       approvalPolicy: mode === "full-access" ? "never" : "on-request",
       approvalsReviewer,
       sandboxMode: mode === "full-access" ? "danger-full-access" : "workspace-write",
       sandbox,
-      guardianApprovalEnabled,
+      autoReviewAvailable,
       configTarget,
       customDescription: previous?.customDescription ?? "Codex will use its built-in permission defaults.",
     };

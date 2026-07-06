@@ -306,7 +306,7 @@ async function renderNewThreadHome(overrides?: {
           approvalsReviewer: "user",
           sandboxMode: "danger-full-access",
           sandbox: { type: "dangerFullAccess" },
-          guardianApprovalEnabled: false,
+          autoReviewAvailable: false,
           configTarget: null,
           customDescription: null,
         };

@@ -133,7 +133,7 @@ mock.module("./local-conversation-deps", () => ({
         approvalsReviewer: "user",
         sandboxMode: null,
         sandbox: null,
-        guardianApprovalEnabled: false,
+        autoReviewAvailable: false,
         configTarget: { source: "none" },
       };
     }

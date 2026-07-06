@@ -194,6 +194,8 @@ const SETTINGS_SEARCH_PANELS = {
             "Default permissions mode",
             "Choose the preset used for new local Codex threads.",
             [
+              "Ask for approval",
+              "Approve for me",
               "Default permissions",
               "Auto-review",
               "Full access",

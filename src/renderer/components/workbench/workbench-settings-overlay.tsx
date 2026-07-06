@@ -2196,7 +2196,7 @@ function AgentSettingsPage({
             selectedMode={permissionState?.mode ?? "custom"}
             customDescription={permissionState?.customDescription ?? null}
             availableModes={permissionState?.availableModes}
-            guardianApprovalEnabled={permissionState?.guardianApprovalEnabled ?? false}
+            autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
             onSelect={(mode) => {
               void handlePermissionModeChange(mode);
             }}

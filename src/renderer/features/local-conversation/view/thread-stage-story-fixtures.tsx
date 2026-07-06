@@ -2711,7 +2711,7 @@ function createStorybookElectronBridge(input: {
                   excludeTmpdirEnvVar: false,
                   excludeSlashTmp: false,
                 },
-            guardianApprovalEnabled: true,
+            autoReviewAvailable: true,
             configTarget: {
               source: "user",
               filePath: "/tmp/project/.codex/config.toml",

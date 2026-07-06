@@ -1553,7 +1553,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           excludeTmpdirEnvVar: false,
           excludeSlashTmp: false,
         },
-        guardianApprovalEnabled: true,
+        autoReviewAvailable: true,
         configTarget: {
           source: "user",
           filePath: "/tmp/storybook/config.toml",

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirements } from "@nodex/codex-app-server-protocol/v2/ConfigRequirements";
 import {
+  buildThreadPermissionOverrides,
   buildPermissionModeConfigEdits,
   resolveCodexPermissionState,
 } from "./codex-permission-resolver";
@@ -34,9 +35,7 @@ function buildConfig(
     service_tier: null,
     analytics: null,
     apps: null,
-    features: {
-      guardian_approval: true,
-    },
+    features: {},
     ...overrides,
   } as ConfigReadResponse["config"];
 }
@@ -77,12 +76,106 @@ function resolveState(input: {
   });
 }
 
+function buildPermissionOrigins(): ConfigReadResponse["origins"] {
+  return {
+    approval_policy: {
+      name: {
+        type: "user",
+        file: "/Users/test/.codex/config.toml",
+        profile: null,
+      },
+      version: "test",
+    },
+    sandbox_mode: {
+      name: {
+        type: "user",
+        file: "/Users/test/.codex/config.toml",
+        profile: null,
+      },
+      version: "test",
+    },
+  } as ConfigReadResponse["origins"];
+}
+
 describe("codex-permission-resolver", () => {
   test("writes the canonical auto_review reviewer for Auto-review", () => {
     const edits = buildPermissionModeConfigEdits("guardian-approvals");
     const reviewerEdit = edits.find((edit) => edit.keyPath === "approvals_reviewer");
 
     expect(reviewerEdit?.value).toBe("auto_review");
+  });
+
+  test("keeps Auto-review available when the feature key is absent", () => {
+    const state = resolveState({
+      config: {
+        approvals_reviewer: "auto_review",
+      },
+      requirements: null,
+    });
+
+    expect(state.autoReviewAvailable).toBeTrue();
+    expect(state.availableModes.includes("guardian-approvals")).toBeTrue();
+    expect(state.mode).toBe("guardian-approvals");
+    expect(state.effectivePreset).toBe("guardian-approvals");
+    expect(state.approvalsReviewer).toBe("auto_review");
+  });
+
+  test("honors flat, nested, and requirement explicit feature disables", () => {
+    const flatState = resolveState({
+      config: {
+        approvals_reviewer: "auto_review",
+        "features.guardian_approval": false,
+      } as Partial<ConfigReadResponse["config"]>,
+      requirements: null,
+    });
+    const nestedState = resolveState({
+      config: {
+        approvals_reviewer: "auto_review",
+        features: {
+          guardian_approval: false,
+        },
+      },
+      requirements: null,
+    });
+    const requirementsState = resolveState({
+      config: {
+        approvals_reviewer: "auto_review",
+      },
+      requirements: buildRequirements({
+        featureRequirements: {
+          guardian_approval: false,
+        },
+      }),
+    });
+
+    expect(flatState.autoReviewAvailable).toBeFalse();
+    expect(flatState.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(flatState.mode).toBe("auto");
+    expect(flatState.approvalsReviewer).toBe("user");
+    expect(nestedState.autoReviewAvailable).toBeFalse();
+    expect(nestedState.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(nestedState.mode).toBe("auto");
+    expect(nestedState.approvalsReviewer).toBe("user");
+    expect(requirementsState.autoReviewAvailable).toBeFalse();
+    expect(requirementsState.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(requirementsState.mode).toBe("auto");
+    expect(requirementsState.approvalsReviewer).toBe("user");
+  });
+
+  test("treats guardian_subagent as the legacy automatic reviewer alias", () => {
+    const state = resolveState({
+      config: {
+        approvals_reviewer: "guardian_subagent",
+      },
+      requirements: null,
+    });
+    const overrides = buildThreadPermissionOverrides({ permissionState: state });
+
+    expect(state.autoReviewAvailable).toBeTrue();
+    expect(state.mode).toBe("guardian-approvals");
+    expect(state.effectivePreset).toBe("guardian-approvals");
+    expect(state.approvalsReviewer).toBe("auto_review");
+    expect(overrides.approvalsReviewer).toBe("auto_review");
   });
 
   test("filters Auto-review when requirements disallow its reviewer", () => {
@@ -96,6 +189,7 @@ describe("codex-permission-resolver", () => {
     });
 
     expect(state.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(state.autoReviewAvailable).toBeFalse();
     expect(state.mode).toBe("auto");
     expect(state.effectivePreset).toBe("auto");
     expect(state.approvalsReviewer).toBe("user");
@@ -116,5 +210,95 @@ describe("codex-permission-resolver", () => {
     expect(state.mode).toBe("guardian-approvals");
     expect(state.effectivePreset).toBe("guardian-approvals");
     expect(state.approvalsReviewer).toBe("auto_review");
+  });
+
+  test("allows Auto-review when requirements allow the legacy reviewer alias", () => {
+    const state = resolveState({
+      config: {
+        approvals_reviewer: "guardian_subagent",
+      },
+      requirements: buildRequirements({
+        allowedApprovalsReviewers: ["guardian_subagent"],
+      }),
+    });
+
+    expect(state.autoReviewAvailable).toBeTrue();
+    expect(state.availableModes.includes("guardian-approvals")).toBeTrue();
+    expect(state.availableModes.includes("auto")).toBeFalse();
+    expect(state.mode).toBe("guardian-approvals");
+    expect(state.effectivePreset).toBe("guardian-approvals");
+    expect(state.approvalsReviewer).toBe("auto_review");
+  });
+
+  test("filters workspace presets when the workspace permission profile is disallowed", () => {
+    const state = resolveState({
+      config: {
+        approvals_reviewer: "auto_review",
+      },
+      requirements: buildRequirements({
+        allowedPermissionProfiles: {
+          ":workspace": false,
+          ":danger-full-access": true,
+        },
+      }),
+    });
+
+    expect(state.autoReviewAvailable).toBeFalse();
+    expect(state.availableModes.includes("auto")).toBeFalse();
+    expect(state.availableModes.includes("guardian-approvals")).toBeFalse();
+    expect(state.availableModes.includes("full-access")).toBeTrue();
+    expect(state.mode).toBe("full-access");
+    expect(state.effectivePreset).toBe("full-access");
+    expect(state.approvalsReviewer).toBe("user");
+  });
+
+  test("exposes Custom for explicit config even when it folds to a fixed preset", () => {
+    const state = resolveCodexPermissionState({
+      config: buildConfig(),
+      origins: buildPermissionOrigins(),
+      requirements: null,
+      defaultUserConfigPath: "/Users/test/.codex/config.toml",
+      workspaceRoots: ["/Users/test/project"],
+    });
+
+    expect(state.mode).toBe("auto");
+    expect(state.effectivePreset).toBe("auto");
+    expect(state.availableModes.includes("custom")).toBeTrue();
+  });
+
+  test("does not expose Custom when permission profiles constrain the mode space", () => {
+    const state = resolveCodexPermissionState({
+      config: buildConfig(),
+      origins: buildPermissionOrigins(),
+      requirements: buildRequirements({
+        allowedPermissionProfiles: {
+          ":workspace": true,
+          ":danger-full-access": true,
+        },
+      }),
+      defaultUserConfigPath: "/Users/test/.codex/config.toml",
+      workspaceRoots: ["/Users/test/project"],
+    });
+
+    expect(state.mode).toBe("auto");
+    expect(state.availableModes.includes("custom")).toBeFalse();
+  });
+
+  test("does not expose Custom when explicit config is denied by requirements", () => {
+    const state = resolveCodexPermissionState({
+      config: buildConfig({
+        approval_policy: "never",
+        sandbox_mode: "workspace-write",
+      }),
+      origins: buildPermissionOrigins(),
+      requirements: buildRequirements({
+        allowedApprovalPolicies: ["on-request"],
+      }),
+      defaultUserConfigPath: "/Users/test/.codex/config.toml",
+      workspaceRoots: ["/Users/test/project"],
+    });
+
+    expect(state.mode).toBe("auto");
+    expect(state.availableModes.includes("custom")).toBeFalse();
   });
 });

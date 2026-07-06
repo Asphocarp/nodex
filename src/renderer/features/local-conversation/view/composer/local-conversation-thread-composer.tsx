@@ -1874,9 +1874,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                   <PermissionModeDropdown
                     selectedMode={model.permissionMode}
                     availableModes={permissionState?.availableModes}
-                    guardianApprovalEnabled={permissionState?.guardianApprovalEnabled ?? false}
+                    autoReviewAvailable={permissionState?.autoReviewAvailable ?? false}
                     customDescription={permissionState?.customDescription ?? null}
-                    accentCurrentMode
                     onSelect={actions.onPermissionModeChange}
                   />
 

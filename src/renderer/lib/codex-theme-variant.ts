@@ -214,6 +214,7 @@ export function getCodexThemeVariantStyle(
     "--color-text-foreground": derived.textForeground,
     "--color-text-foreground-secondary": derived.textForegroundSecondary,
     "--color-text-foreground-tertiary": derived.textForegroundTertiary,
+    "--color-text-warning": prepared.theme.accentColors.orange,
   };
 }
 

@@ -466,6 +466,8 @@ export function GeneralDevStoryPage({
                   <PermissionModeDropdown
                     selectedMode={permissionMode}
                     customDescription="Reads the effective permission mode from config.toml when selected."
+                    availableModes={["auto", "guardian-approvals", "full-access", "custom"]}
+                    autoReviewAvailable
                     onSelect={setPermissionMode}
                   />
                 </div>

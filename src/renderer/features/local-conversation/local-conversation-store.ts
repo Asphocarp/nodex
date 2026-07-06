@@ -187,7 +187,7 @@ const DEFAULT_PERMISSION_STATE: CodexPermissionState = {
   approvalsReviewer: "user",
   sandboxMode: null,
   sandbox: null,
-  guardianApprovalEnabled: false,
+  autoReviewAvailable: false,
   configTarget: {
     source: "none",
     filePath: null,
