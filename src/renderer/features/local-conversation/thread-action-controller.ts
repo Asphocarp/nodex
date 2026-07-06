@@ -101,6 +101,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       sessionId,
       prompt,
       promptInput,
+      threadGoalDraft,
       runInTarget,
       runInEnvironmentPath,
       worktreeStartMode,
@@ -114,6 +115,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
         sessionId: targetSession?.id ?? sessionId,
         prompt,
         promptInput,
+        threadGoalDraft,
         runInTarget,
         runInEnvironmentPath,
         worktreeStartMode,
@@ -219,6 +221,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onGetThreadGoal: input.codexControl.getThreadGoal,
     onSetThreadGoal: input.codexControl.setThreadGoal,
     onClearThreadGoal: input.codexControl.clearThreadGoal,
+    onDismissThreadGoalResumeConfirmation: input.codexControl.dismissThreadGoalResumeConfirmation,
     onSetThreadMemoryMode: input.codexControl.setThreadMemoryMode,
     onUploadFeedback: input.codexControl.uploadFeedback,
     onUnarchiveThread: async (threadId, projectId) => {

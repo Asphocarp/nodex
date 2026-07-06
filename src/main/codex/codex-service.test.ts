@@ -16,6 +16,7 @@ import type {
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
+  CodexThreadGoalSetActionInput,
   CodexThreadOwnerStreamStatePublishInput,
   CodexTranscriptEntry,
   CodexTurnSummary,
@@ -24,6 +25,7 @@ import type {
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
 } from "../../shared/types";
+import type { ThreadGoal, ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
 import {
   applyCodexConversationStateUpdates,
@@ -164,6 +166,7 @@ interface TestableCodexService {
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
     collaborationMode?: "default" | "plan";
     promptInput?: CodexPromptInput;
+    threadGoalDraft?: { objective: string; attachmentDirectory?: string | null };
     skipAutoTitleGeneration?: boolean;
     runInTarget?: "localProject" | "newWorktree" | "cloud";
     runInEnvironmentPath?: string | null;
@@ -189,6 +192,7 @@ interface TestableCodexService {
     threadId: string,
     patch: import("../../shared/types").CodexConversationThreadSettingsPatch,
   ) => Promise<import("../../shared/types").CodexConversationThreadSettings>;
+  setThreadGoal: (input: CodexThreadGoalSetActionInput) => Promise<ThreadGoal | null>;
   removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
   setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
   setRendererConversationViewActive: (
@@ -875,6 +879,268 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const snapshot = await service.requestConversationSnapshot("thread-owner-goal");
       expect(snapshot?.threadGoal ?? null).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("clears newly completed thread goals in no-owner fallback once per update", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (threadId: string) => {
+        threadGoal: ThreadGoal | null;
+        completedThreadGoal: ThreadGoal | null;
+      };
+      getThreadLinkSafely: (threadId: string) => unknown;
+      scheduleSidebarThreadListRepair: (notificationMethod: string, threadId: string) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const threadId = "thread-no-owner-goal-complete";
+    const activeGoal: ThreadGoal = {
+      threadId,
+      objective: "Finish runtime parity",
+      status: "active",
+      tokenBudget: 40000,
+      tokensUsed: 12,
+      timeUsedSeconds: 4,
+      createdAt: 100,
+      updatedAt: 101,
+    };
+    const completedGoal: ThreadGoal = {
+      ...activeGoal,
+      status: "complete",
+      tokensUsed: 40000,
+      timeUsedSeconds: 300,
+      updatedAt: 102,
+    };
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      turns: [],
+      transcript: [],
+    });
+    const record = serviceInternals.getConversationRecord(threadId);
+    record.threadGoal = activeGoal;
+    serviceInternals.getThreadLinkSafely = () => null;
+    serviceInternals.scheduleSidebarThreadListRepair = () => {};
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      return {};
+    };
+
+    try {
+      await serviceInternals.handleNotification("thread/goal/updated", {
+        threadId,
+        turnId: null,
+        goal: completedGoal,
+      });
+      await waitForCondition(() =>
+        requests.filter((request) => request.method === "thread/goal/clear").length === 1,
+      1_000);
+
+      expect(record.threadGoal?.status).toBe("complete");
+      expect(record.completedThreadGoal?.updatedAt).toBe(102);
+      expect((requests[0]?.params as { threadId?: string })?.threadId).toBe(threadId);
+
+      await serviceInternals.handleNotification("thread/goal/updated", {
+        threadId,
+        turnId: null,
+        goal: completedGoal,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(requests.filter((request) => request.method === "thread/goal/clear").length).toBe(1);
+
+      await serviceInternals.handleNotification("thread/goal/updated", {
+        threadId,
+        turnId: null,
+        goal: {
+          ...completedGoal,
+          updatedAt: 103,
+        },
+      });
+      await waitForCondition(() =>
+        requests.filter((request) => request.method === "thread/goal/clear").length === 2,
+      1_000);
+      expect(record.completedThreadGoal?.updatedAt).toBe(103);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("sends status-only thread goal updates without fabricating an objective", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/goal/set") {
+        return {
+          goal: {
+            threadId: "thread-goal-status",
+            objective: "Ship parity",
+            status: "paused",
+            tokenBudget: null,
+            tokensUsed: 10,
+            timeUsedSeconds: 2,
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const goal = await service.setThreadGoal({ threadId: "thread-goal-status", status: "paused" });
+      const params = requests[0]?.params as { threadId?: string; objective?: unknown; status?: unknown } | undefined;
+
+      expect(goal?.status).toBe("paused");
+      expect(requests[0]?.method).toBe("thread/goal/set");
+      expect(params?.threadId).toBe("thread-goal-status");
+      expect(params?.status).toBe("paused");
+      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBeFalse();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("defaults objective thread goal sets to active like Codex Electron", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/goal/set") {
+        return {
+          goal: {
+            threadId: "thread-goal-objective",
+            objective: "Ship parity",
+            status: "active",
+            tokenBudget: null,
+            tokensUsed: 0,
+            timeUsedSeconds: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thread-goal-objective"),
+        turns: [],
+        transcript: [],
+      });
+      await service.setThreadGoal({ threadId: "thread-goal-objective", objective: "Ship parity" });
+      const params = requests[0]?.params as { objective?: unknown; status?: unknown; tokenBudget?: unknown } | undefined;
+      const snapshot = await service.requestConversationSnapshot("thread-goal-objective");
+      const turn = snapshot?.turns[0];
+      const item = turn?.items[0];
+
+      expect(params?.objective).toBe("Ship parity");
+      expect(params?.status).toBe("active");
+      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "tokenBudget")).toBeFalse();
+      expect(snapshot?.turns.length ?? 0).toBe(1);
+      expect((turn as { turnId?: string | null } | undefined)?.turnId ?? null).toBe(null);
+      expect(turn?.status ?? "").toBe("completed");
+      expect(turn?.turnStartedAtMs ?? 0).toBe(1_000);
+      expect(item?.kind ?? "").toBe("userMessage");
+      expect(item?.markdownText ?? "").toBe("/goal Ship parity");
+      expect(item?.goal ?? false).toBeTrue();
+      expect(((item?.rawItem as { goal?: boolean } | undefined)?.goal ?? false)).toBeTrue();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("applies thread settings before setting a goal and strips local action metadata", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/settings/update") return {};
+      if (method === "thread/goal/set") {
+        return {
+          goal: {
+            threadId: "thread-goal-settings",
+            objective: "Ship parity",
+            status: "active",
+            tokenBudget: null,
+            tokensUsed: 0,
+            timeUsedSeconds: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thread-goal-settings"),
+        turns: [],
+        transcript: [],
+      });
+      await service.setThreadGoal({
+        threadId: "thread-goal-settings",
+        objective: "Ship parity",
+        appendTranscriptItem: false,
+        threadSettings: {
+          model: "gpt-5.9-codex",
+          reasoningEffort: "high",
+          collaborationMode: "plan",
+        },
+      });
+      const settingsParams = requests[0]?.params as { threadId?: string; model?: string; effort?: string } | undefined;
+      const goalParams = requests[1]?.params as {
+        threadId?: string;
+        objective?: string;
+        status?: string;
+        appendTranscriptItem?: unknown;
+        threadSettings?: unknown;
+      } | undefined;
+
+      expect(requests[0]?.method).toBe("thread/settings/update");
+      expect(settingsParams?.threadId).toBe("thread-goal-settings");
+      expect(settingsParams?.model).toBe("gpt-5.9-codex");
+      expect(settingsParams?.effort).toBe("high");
+      expect(requests[1]?.method).toBe("thread/goal/set");
+      expect(goalParams?.threadId).toBe("thread-goal-settings");
+      expect(goalParams?.objective).toBe("Ship parity");
+      expect(goalParams?.status).toBe("active");
+      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBeFalse();
+      const snapshot = await service.requestConversationSnapshot("thread-goal-settings");
+      expect(snapshot?.turns.length ?? 0).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -3955,6 +4221,145 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("resume hydrates thread goal state after thread resume", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          return {
+            thread: {
+              id: "thr_resume_goal",
+              preview: "ship goal hydration",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1_711_278_000,
+              updatedAt: 1_711_278_002,
+              status: { type: "idle" },
+              path: "/tmp/resume-goal/rollout.jsonl",
+              cwd: "/tmp/resume-goal",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Goal hydration",
+              turns: [],
+            },
+          };
+        }
+        if (method === "thread/goal/get") {
+          return {
+            goal: {
+              threadId: "thr_resume_goal",
+              objective: "Ship goal hydration",
+              status: "paused",
+              tokenBudget: 40000,
+              tokensUsed: 120,
+              timeUsedSeconds: 45,
+              createdAt: 10,
+              updatedAt: 20,
+            },
+          };
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run during goal hydration resume");
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        const conversation = await service.requestConversationResume("thr_resume_goal");
+        const projected = projectConversationFromHostMessages(hostMessages);
+        const methods = requests.map((request) => request.method).join(",");
+
+        expect(methods).toBe("thread/resume,thread/goal/get");
+        expect((requests[1]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_resume_goal");
+        expect(conversation?.threadGoal?.status ?? "").toBe("paused");
+        expect(conversation?.threadGoal?.objective ?? "").toBe("Ship goal hydration");
+        expect(conversation?.threadGoalResumeConfirmation?.status ?? "").toBe("paused");
+        expect(projected?.threadGoal?.status ?? "").toBe("paused");
+        expect(projected?.threadGoalResumeConfirmation?.objective ?? "").toBe("Ship goal hydration");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("resume continues when thread goal hydration fails", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          return {
+            thread: {
+              id: "thr_resume_goal_failure",
+              preview: "resume despite goal failure",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1_711_278_000,
+              updatedAt: 1_711_278_002,
+              status: { type: "idle" },
+              path: "/tmp/resume-goal-failure/rollout.jsonl",
+              cwd: "/tmp/resume-goal-failure",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Goal failure",
+              turns: [],
+            },
+          };
+        }
+        if (method === "thread/goal/get") {
+          throw new Error("goal hydration unavailable");
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run during goal hydration failure resume");
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        const conversation = await service.requestConversationResume("thr_resume_goal_failure");
+        const methods = requests.map((request) => request.method).join(",");
+
+        expect(methods).toBe("thread/resume,thread/goal/get");
+        expect(conversation?.threadId ?? "").toBe("thr_resume_goal_failure");
+        expect(conversation?.resumeState).toBe("resumed");
+        expect(conversation?.threadGoal ?? null).toBe(null);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("buffers resume-time notifications and trims hydrated text/output before replay", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -5495,6 +5900,81 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("renderer owner app-server facade preserves status-only thread goal sets", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+        handleRendererOwnerAppServerRequest: (
+          sourceClientId: string | null,
+          input: {
+            conversationId: string;
+            request: {
+              method: "thread/goal/set";
+              params: {
+                threadId: string;
+                status: "paused";
+              };
+            };
+          },
+        ) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/goal/set") {
+          return {
+            goal: {
+              threadId: "thr_owner_goal_status",
+              objective: "Ship parity",
+              status: "paused",
+              tokenBudget: null,
+              tokensUsed: 20,
+              timeUsedSeconds: 3,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      serviceInternals.setRendererConversationOwner("thr_owner_goal_status", "owner-a");
+
+      try {
+        const result = await serviceInternals.handleRendererOwnerAppServerRequest(
+          "owner-a",
+          {
+            conversationId: "thr_owner_goal_status",
+            request: {
+              method: "thread/goal/set",
+              params: {
+                threadId: "thr_owner_goal_status",
+                status: "paused",
+              },
+            },
+          },
+        ) as { status?: string };
+        const params = requests[0]?.params as { threadId?: string; objective?: unknown; status?: unknown } | undefined;
+
+        expect(result.status).toBe("paused");
+        expect(requests[0]?.method).toBe("thread/goal/set");
+        expect(params?.threadId).toBe("thr_owner_goal_status");
+        expect(params?.status).toBe("paused");
+        expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBeFalse();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("renderer owner app-server facade steers without source-null stream patches", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -6159,6 +6639,356 @@ describe("codex-service interrupt target resolution", () => {
       expect((interruptRequest?.params as { threadId?: string })?.threadId).toBe("thr_interrupt");
       expect((interruptRequest?.params as { turnId?: string })?.turnId).toBe("turn_in_progress");
     } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("pauses an active thread goal before interrupting the no-owner fallback turn", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      getConversationRecord: (threadId: string) => {
+        threadGoal: ThreadGoal | null;
+        completedThreadGoal: ThreadGoal | null;
+        threadGoalResumeConfirmation: ThreadGoal | null;
+      };
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/goal/set") {
+        const goalParams = params as ThreadGoalSetParams;
+        return {
+          goal: {
+            threadId: goalParams.threadId,
+            objective: "finish the migration",
+            status: goalParams.status ?? "active",
+            tokenBudget: goalParams.tokenBudget ?? null,
+            tokensUsed: 12,
+            timeUsedSeconds: 34,
+            createdAt: 1,
+            updatedAt: 2,
+          } satisfies ThreadGoal,
+        };
+      }
+      return {};
+    };
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    serviceInternals.mergeTurn("thr_goal_interrupt", {
+      threadId: "thr_goal_interrupt",
+      turnId: "turn_in_progress",
+      status: "inProgress",
+      itemIds: [],
+    });
+    const record = serviceInternals.getConversationRecord("thr_goal_interrupt");
+    record.threadGoal = {
+      threadId: "thr_goal_interrupt",
+      objective: "finish the migration",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 12,
+      timeUsedSeconds: 34,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    record.threadGoalResumeConfirmation = {
+      threadId: "thr_goal_interrupt",
+      objective: "stale prompt",
+      status: "paused",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    try {
+      const result = await service.interruptTurn("thr_goal_interrupt");
+      const snapshot = service.serializeConversationSnapshot("thr_goal_interrupt");
+
+      expect(result).toBeTrue();
+      expect(requests[0]?.method).toBe("thread/goal/set");
+      expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_goal_interrupt");
+      expect((requests[0]?.params as { status?: string })?.status).toBe("paused");
+      expect(requests[1]?.method).toBe("turn/interrupt");
+      expect((requests[1]?.params as { turnId?: string })?.turnId).toBe("turn_in_progress");
+      expect(snapshot?.threadGoal?.status).toBe("paused");
+      expect(snapshot?.threadGoalResumeConfirmation ?? null).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("continues active thread goal after idle status in no-owner fallback", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (threadId: string) => {
+        resumeState: string;
+        streamRole: string | null;
+        isStreaming: boolean;
+        threadGoal: ThreadGoal | null;
+        detail: CodexThreadDetail | null;
+      };
+      applyThreadStatusLocal: (
+        threadId: string,
+        statusType: CodexThreadDetail["statusType"],
+        statusActiveFlags: CodexThreadDetail["statusActiveFlags"],
+      ) => void;
+      maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const detail: CodexThreadDetail = {
+      ...makeThreadDetail("thr_goal_continue"),
+      cwd: "/tmp/goal-continue",
+      statusType: "active",
+      turns: [{
+        threadId: "thr_goal_continue",
+        turnId: "turn_done",
+        status: "completed",
+        itemIds: [],
+      }],
+    };
+
+    serviceInternals.setConversationRecordDetail(detail);
+    const record = serviceInternals.getConversationRecord("thr_goal_continue");
+    record.resumeState = "resumed";
+    record.streamRole = "owner";
+    record.isStreaming = true;
+    record.threadGoal = {
+      threadId: "thr_goal_continue",
+      objective: "finish the migration",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 12,
+      timeUsedSeconds: 34,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/goal/set") {
+        return {
+          goal: {
+            ...record.threadGoal,
+            status: (params as ThreadGoalSetParams).status ?? "active",
+            updatedAt: 2,
+          },
+        };
+      }
+      return {};
+    };
+
+    try {
+      serviceInternals.applyThreadStatusLocal("thr_goal_continue", "idle", []);
+      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
+      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
+
+      await waitForCondition(() =>
+        requests.some((request) => request.method === "thread/goal/set"),
+      1_000);
+
+      const goalSetRequests = requests.filter((request) => request.method === "thread/goal/set");
+      expect(goalSetRequests.length).toBe(1);
+      expect((goalSetRequests[0]?.params as { threadId?: string })?.threadId).toBe("thr_goal_continue");
+      expect((goalSetRequests[0]?.params as { status?: string })?.status).toBe("active");
+      expect(record.detail?.statusType).toBe("idle");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("falls back to an empty turn when active goal continuation cannot use settings update", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (threadId: string) => {
+        resumeState: string;
+        streamRole: string | null;
+        isStreaming: boolean;
+        threadGoal: ThreadGoal | null;
+        detail: CodexThreadDetail | null;
+      };
+      applyThreadStatusLocal: (
+        threadId: string,
+        statusType: CodexThreadDetail["statusType"],
+        statusActiveFlags: CodexThreadDetail["statusActiveFlags"],
+      ) => void;
+      maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const detail: CodexThreadDetail = {
+      ...makeThreadDetail("thr_goal_continue_fallback"),
+      cwd: "/tmp/goal-continue-fallback",
+      statusType: "active",
+      turns: [{
+        threadId: "thr_goal_continue_fallback",
+        turnId: "turn_done",
+        status: "completed",
+        itemIds: [],
+      }],
+    };
+
+    Reflect.set(service as object, "threadSettingsUpdateSupport", "unsupported");
+    serviceInternals.setConversationRecordDetail(detail);
+    const record = serviceInternals.getConversationRecord("thr_goal_continue_fallback");
+    record.resumeState = "resumed";
+    record.streamRole = "owner";
+    record.isStreaming = true;
+    record.threadGoal = {
+      threadId: "thr_goal_continue_fallback",
+      objective: "finish the migration",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 12,
+      timeUsedSeconds: 34,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      return {};
+    };
+
+    try {
+      serviceInternals.applyThreadStatusLocal("thr_goal_continue_fallback", "idle", []);
+      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_fallback");
+
+      await waitForCondition(() =>
+        requests.some((request) => request.method === "turn/start"),
+      1_000);
+
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      expect(requests.some((request) => request.method === "thread/goal/set")).toBeFalse();
+      expect((turnStartRequest?.params as { threadId?: string })?.threadId).toBe("thr_goal_continue_fallback");
+      expect((turnStartRequest?.params as { cwd?: string })?.cwd).toBe("/tmp/goal-continue-fallback");
+      expect(((turnStartRequest?.params as { input?: unknown[] })?.input ?? []).length).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("waits for pending thread settings before active goal continuation", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (threadId: string) => {
+        resumeState: string;
+        streamRole: string | null;
+        isStreaming: boolean;
+        threadGoal: ThreadGoal | null;
+        detail: CodexThreadDetail | null;
+      };
+      applyThreadStatusLocal: (
+        threadId: string,
+        statusType: CodexThreadDetail["statusType"],
+        statusActiveFlags: CodexThreadDetail["statusActiveFlags"],
+      ) => void;
+      maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const pendingThreadSettingsUpdates = Reflect.get(
+      service as object,
+      "pendingThreadSettingsUpdates",
+    ) as Map<string, Promise<unknown>>;
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const detail: CodexThreadDetail = {
+      ...makeThreadDetail("thr_goal_continue_settings"),
+      cwd: "/tmp/goal-continue-settings",
+      statusType: "active",
+      turns: [{
+        threadId: "thr_goal_continue_settings",
+        turnId: "turn_done",
+        status: "completed",
+        itemIds: [],
+      }],
+    };
+    let resolveSettings: (value: unknown) => void = () => {};
+
+    pendingThreadSettingsUpdates.set("thr_goal_continue_settings", new Promise((resolve) => {
+      resolveSettings = resolve;
+    }));
+    serviceInternals.setConversationRecordDetail(detail);
+    const record = serviceInternals.getConversationRecord("thr_goal_continue_settings");
+    record.resumeState = "resumed";
+    record.streamRole = "owner";
+    record.isStreaming = true;
+    record.threadGoal = {
+      threadId: "thr_goal_continue_settings",
+      objective: "finish the migration",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 12,
+      timeUsedSeconds: 34,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      return {
+        goal: {
+          ...record.threadGoal,
+          status: (params as ThreadGoalSetParams).status ?? "active",
+          updatedAt: 2,
+        },
+      };
+    };
+
+    try {
+      serviceInternals.applyThreadStatusLocal("thr_goal_continue_settings", "idle", []);
+      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_settings");
+
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(requests.some((request) => request.method === "thread/goal/set")).toBeFalse();
+
+      resolveSettings({
+        model: "gpt-5.3-codex",
+        reasoningEffort: "high",
+        collaborationMode: {
+          mode: "default",
+          settings: {
+            model: "gpt-5.3-codex",
+            reasoning_effort: "high",
+            developer_instructions: null,
+          },
+        },
+      });
+
+      await waitForCondition(() =>
+        requests.some((request) => request.method === "thread/goal/set"),
+      1_000);
+
+      const goalSetRequest = requests.find((request) => request.method === "thread/goal/set");
+      expect((goalSetRequest?.params as { status?: string })?.status).toBe("active");
+    } finally {
+      pendingThreadSettingsUpdates.delete("thr_goal_continue_settings");
       await service.shutdown();
     }
   });
@@ -8298,6 +9128,93 @@ describe("codex-service startThreadForSession", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("sets a text thread goal draft after starting the first session turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session composer" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_session_goal",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 1_780_800_000_000,
+              updatedAt: 1_780_800_000_000,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_goal",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        if (method === "thread/goal/set") {
+          return {
+            goal: {
+              threadId: "thr_session_goal",
+              objective: (params as { objective?: string }).objective ?? "",
+              status: "active",
+              tokenBudget: null,
+              tokensUsed: 0,
+              timeUsedSeconds: 0,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        const detail = await service.startThreadForSession({
+          projectId: defaultProjectId,
+          sessionId: session.id,
+          prompt: "Keep refining the migration until tests pass",
+          threadGoalDraft: {
+            objective: "Keep refining the migration until tests pass",
+          },
+          permissionMode: "auto",
+          skipAutoTitleGeneration: true,
+        });
+
+        const turnStartIndex = requests.findIndex((request) => request.method === "turn/start");
+        const goalSetIndex = requests.findIndex((request) => request.method === "thread/goal/set");
+        const goalSetParams = requests[goalSetIndex]?.params as {
+          threadId?: string;
+          objective?: string;
+          status?: string;
+        } | undefined;
+
+        expect(detail.threadId).toBe("thr_session_goal");
+        expect(turnStartIndex >= 0).toBeTrue();
+        expect(goalSetIndex > turnStartIndex).toBeTrue();
+        expect(goalSetParams?.threadId).toBe("thr_session_goal");
+        expect(goalSetParams?.objective).toBe("Keep refining the migration until tests pass");
+        expect(goalSetParams?.status).toBe("active");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("auto-generates a session thread title from main after thread start and before first turn", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session composer" });
@@ -8793,6 +9710,20 @@ describe("codex-service startThreadForSession", () => {
             },
           };
         }
+        if (method === "thread/goal/set") {
+          return {
+            goal: {
+              threadId: "thr_session_worktree",
+              objective: (params as { objective?: string }).objective ?? "",
+              status: "active",
+              tokenBudget: null,
+              tokensUsed: 0,
+              timeUsedSeconds: 0,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          };
+        }
         return {};
       };
 
@@ -8822,6 +9753,9 @@ describe("codex-service startThreadForSession", () => {
           projectId: project.id,
           sessionId: session.id,
           prompt: "Start in worktree",
+          threadGoalDraft: {
+            objective: "Keep refining the worktree setup until tests pass",
+          },
           runInTarget: "newWorktree",
           worktreeStartMode: "detachedHead",
           worktreeBranchPrefix: "nodex/",
@@ -8830,12 +9764,23 @@ describe("codex-service startThreadForSession", () => {
 
         const threadStartCwd = (requests.find((request) => request.method === "thread/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
         const turnStartCwd = (requests.find((request) => request.method === "turn/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
+        const turnStartIndex = requests.findIndex((request) => request.method === "turn/start");
+        const goalSetIndex = requests.findIndex((request) => request.method === "thread/goal/set");
+        const goalSetParams = requests[goalSetIndex]?.params as {
+          threadId?: string;
+          objective?: string;
+          status?: string;
+        } | undefined;
         const linked = getProjectSession(session.id)?.thread;
         expect(threadStartCwd.length > 0).toBeTrue();
         expect(threadStartCwd === repoPath).toBeFalse();
         expect(fs.existsSync(threadStartCwd)).toBeTrue();
         expect(turnStartCwd).toBe(threadStartCwd);
         expect(linked?.cwd).toBe(threadStartCwd);
+        expect(goalSetIndex > turnStartIndex).toBeTrue();
+        expect(goalSetParams?.threadId).toBe("thr_session_worktree");
+        expect(goalSetParams?.objective).toBe("Keep refining the worktree setup until tests pass");
+        expect(goalSetParams?.status).toBe("active");
 
         const progressEvents = events.filter(
           (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",

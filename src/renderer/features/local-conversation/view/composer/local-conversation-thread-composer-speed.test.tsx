@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { act, fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import {
   __getNodexToastSnapshotForTests,
@@ -11,6 +11,7 @@ import {
   installWindowApi,
 } from "@/test/browser-globals";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
+import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ThreadComposer, __composerAddContextTestUtils } from "./local-conversation-thread-composer";
 
@@ -102,6 +103,17 @@ function installComposerWindowApi(testInvoke?: TestInvoke): void {
         case "git:branch:watch:start":
         case "git:branch:watch:stop":
           return true;
+        case "codex:thread:goal:materialize-draft": {
+          const draft = args[0] as { objective?: string };
+          return {
+            objective: draft.objective?.trim() ?? "",
+            attachmentDirectory: null,
+          };
+        }
+        case "codex:thread:goal:materialized-cleanup":
+          return undefined;
+        case "codex:thread:goal:editable-objective:read":
+          return args[0];
         default:
           return null;
       }
@@ -318,7 +330,7 @@ async function renderComposer(
 }
 
 async function submitCurrentComposerDraft(view: ReturnType<typeof render>): Promise<void> {
-  const sendButton = view.getByLabelText("Send prompt");
+  const sendButton = within(view.container).getByLabelText("Send prompt");
   await waitFor(() => {
     expect((sendButton as HTMLButtonElement).disabled).toBeFalse();
   });
@@ -335,6 +347,20 @@ function buildActiveTurn(): NonNullable<ThreadFooterModel["activeTurn"]> {
     status: "inProgress",
     itemIds: [],
     items: [],
+  };
+}
+
+function buildThreadGoal(overrides?: Partial<ThreadGoal>): ThreadGoal {
+  return {
+    threadId: "thread_1",
+    objective: "Keep the existing goal",
+    status: "active",
+    tokenBudget: null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
   };
 }
 
@@ -874,13 +900,14 @@ describe("ThreadComposer speed menu", () => {
       attachments: {
         fileAttachments: [{ id: "file_1", label: "notes.md", path: "/tmp/notes.md" }],
         imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
+        pastedTextAttachments: [{ id: "pasted_text_1", text: "Pasted requirements" }],
         skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
         commentAttachments: [],
       },
     });
 
     expect(JSON.stringify(promptInput)).toBe(
-      "{\"text\":\"Use these\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"mentions\":[{\"name\":\"notes.md\",\"path\":\"/tmp/notes.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
+      "{\"text\":\"Use these\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"text\":\"Pasted requirements\"}],\"mentions\":[{\"name\":\"notes.md\",\"path\":\"/tmp/notes.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
     );
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBeTrue();
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBeFalse();
@@ -1006,6 +1033,310 @@ describe("ThreadComposer speed menu", () => {
     expect(selectedModes[1]).toBe("default");
   });
 
+  test("slash Goal command activates goal mode chip and placeholder", async () => {
+    resetStorage();
+    const view = await renderComposer({
+      composerIntent: {
+        prompt: "/goal",
+        focusNonce: 1,
+      },
+    });
+
+    await waitFor(() => {
+      const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
+      if (!goalRow) throw new Error("Expected Goal slash command row.");
+      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBeTrue();
+    });
+
+    await keyDownComposer(view, { key: "Enter" });
+
+    await waitFor(() => {
+      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Describe your goal, define measurable outcomes for best results"]');
+      if (!placeholder) {
+        throw new Error("Expected Goal mode placeholder.");
+      }
+      expect(placeholder.classList.contains("placeholder")).toBeTrue();
+    });
+
+    const goalButton = view.getByLabelText("Clear goal");
+    expect(Boolean(goalButton.textContent?.includes("Goal"))).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(goalButton);
+      await Promise.resolve();
+    });
+
+    expect(view.queryByLabelText("Clear goal") === null).toBeTrue();
+  });
+
+  test("saved thread goal renders a footer chip that clears the persisted goal", async () => {
+    resetStorage();
+    const baseConversation = buildModel().conversation;
+    if (!baseConversation) {
+      throw new Error("Expected the base conversation fixture.");
+    }
+
+    const clearCalls: string[] = [];
+    const view = await renderComposer(
+      {
+        conversation: {
+          ...baseConversation,
+          threadGoal: buildThreadGoal({
+            objective: "Keep working until the thread is idle-clean.",
+            status: "paused",
+          }),
+        },
+      },
+      {
+        onClearThreadGoal: async (threadId) => {
+          clearCalls.push(threadId);
+        },
+      },
+    );
+
+    await waitFor(() => {
+      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Ask for follow-up changes"]');
+      if (!placeholder) {
+        throw new Error("Expected the normal follow-up placeholder for a saved goal.");
+      }
+      expect(Boolean(view.getByLabelText("Clear goal").textContent?.includes("Goal"))).toBeTrue();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Clear goal"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(clearCalls.length).toBe(1);
+    });
+    expect(clearCalls[0]).toBe("thread_1");
+  });
+
+  test("slash Goal prompt submits an active thread goal instead of a normal prompt", async () => {
+    resetStorage();
+    const sentPrompts: string[] = [];
+    const setGoalCalls: string[] = [];
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "/goal Keep refining the migration until tests pass",
+          focusNonce: 1,
+        },
+      },
+      {
+        onSendPrompt: async (prompt) => {
+          sentPrompts.push(prompt);
+        },
+        onSetThreadGoal: async (input) => {
+          setGoalCalls.push(JSON.stringify(input));
+          return null;
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    await waitFor(() => {
+      expect(setGoalCalls.length).toBe(1);
+    });
+    expect(setGoalCalls[0]).toBe(
+      "{\"threadId\":\"thread_1\",\"objective\":\"Keep refining the migration until tests pass\",\"status\":\"active\"}",
+    );
+    expect(sentPrompts.length).toBe(0);
+  });
+
+  test("slash Goal prompt starts a new thread with a thread goal draft", async () => {
+    resetStorage();
+    const sentPrompts: string[] = [];
+    const setGoalCalls: string[] = [];
+    const startThreadCalls: string[] = [];
+    const view = await renderComposer(
+      {
+        threadId: null,
+        conversation: null,
+        isNewThreadTab: true,
+        newThreadTarget: {
+          projectId: "project_1",
+          projectName: "Nodex",
+          sessionId: "session_1",
+          threadTitle: "New thread",
+          runInTarget: "localProject",
+        },
+        composerIntent: {
+          prompt: "/goal Keep refining the migration until tests pass",
+          focusNonce: 1,
+        },
+      },
+      {
+        onSendPrompt: async (prompt) => {
+          sentPrompts.push(prompt);
+        },
+        onSetThreadGoal: async (input) => {
+          setGoalCalls.push(JSON.stringify(input));
+          return null;
+        },
+        onStartThreadForSession: async (input) => {
+          startThreadCalls.push(JSON.stringify(input));
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    await waitFor(() => {
+      expect(startThreadCalls.length).toBe(1);
+    });
+    expect(startThreadCalls[0]).toBe(
+      "{\"projectId\":\"project_1\",\"sessionId\":\"session_1\",\"prompt\":\"Keep refining the migration until tests pass\",\"threadGoalDraft\":{\"objective\":\"Keep refining the migration until tests pass\",\"attachmentDirectory\":null},\"runInTarget\":\"localProject\"}",
+    );
+    expect(setGoalCalls.length).toBe(0);
+    expect(sentPrompts.length).toBe(0);
+  });
+
+  test("empty goal mode submit clears goal mode without sending a prompt", async () => {
+    resetStorage();
+    const sentPrompts: string[] = [];
+    const setGoalCalls: string[] = [];
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "/goal",
+          focusNonce: 1,
+        },
+      },
+      {
+        onSendPrompt: async (prompt) => {
+          sentPrompts.push(prompt);
+        },
+        onSetThreadGoal: async (input) => {
+          setGoalCalls.push(JSON.stringify(input));
+          return null;
+        },
+      },
+    );
+
+    await waitFor(() => {
+      const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
+      if (!goalRow) throw new Error("Expected Goal slash command row.");
+      expect(Boolean(goalRow.textContent?.includes("Set a goal that Codex will keep working towards"))).toBeTrue();
+    });
+
+    await keyDownComposer(view, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(view.queryByLabelText("Clear goal") !== null).toBeTrue();
+    });
+
+    await keyDownComposer(view, { key: "Enter" }, { waitForContent: false });
+
+    await waitFor(() => {
+      expect(view.queryByLabelText("Clear goal") === null).toBeTrue();
+    });
+    expect(setGoalCalls.length).toBe(0);
+    expect(sentPrompts.length).toBe(0);
+  });
+
+  test("different saved goal opens replacement confirmation before setting", async () => {
+    resetStorage();
+    const baseConversation = buildModel().conversation;
+    if (!baseConversation) {
+      throw new Error("Expected the base conversation fixture.");
+    }
+
+    const setGoalCalls: string[] = [];
+    const view = await renderComposer(
+      {
+        conversation: {
+          ...baseConversation,
+          threadGoal: buildThreadGoal({ objective: "Keep the old goal" }),
+        },
+        composerIntent: {
+          prompt: "/goal Replace with the current composer objective",
+          focusNonce: 1,
+        },
+      },
+      {
+        onSetThreadGoal: async (input) => {
+          setGoalCalls.push(JSON.stringify(input));
+          return null;
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    await waitFor(() => {
+      expect(Boolean(view.getByText("Replace current goal?"))).toBeTrue();
+    });
+    expect(Boolean(view.getByText("Replace with the current composer objective"))).toBeTrue();
+    expect(setGoalCalls.length).toBe(0);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(view.queryByText("Replace current goal?") === null).toBeTrue();
+    });
+    expect(setGoalCalls.length).toBe(0);
+  });
+
+  test("replacement confirmation submit replaces the saved goal", async () => {
+    resetStorage();
+    const baseConversation = buildModel().conversation;
+    if (!baseConversation) {
+      throw new Error("Expected the base conversation fixture.");
+    }
+
+    const sentPrompts: string[] = [];
+    const setGoalCalls: string[] = [];
+    const view = await renderComposer(
+      {
+        conversation: {
+          ...baseConversation,
+          threadGoal: buildThreadGoal({ objective: "Keep the old goal" }),
+        },
+        composerIntent: {
+          prompt: "/goal Replace with the current composer objective",
+          focusNonce: 1,
+        },
+      },
+      {
+        onSendPrompt: async (prompt) => {
+          sentPrompts.push(prompt);
+        },
+        onSetThreadGoal: async (input) => {
+          setGoalCalls.push(JSON.stringify(input));
+          return null;
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    await waitFor(() => {
+      expect(Boolean(view.getByText("Replace current goal?"))).toBeTrue();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Replace goal" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(setGoalCalls.length).toBe(1);
+    });
+    expect(setGoalCalls[0]).toBe(
+      "{\"threadId\":\"thread_1\",\"objective\":\"Replace with the current composer objective\",\"status\":\"active\"}",
+    );
+    expect(sentPrompts.length).toBe(0);
+    await waitFor(() => {
+      expect(view.queryByText("Replace current goal?") === null).toBeTrue();
+    });
+  });
+
   test("keeps slash menu scroll position stable across hover and item recompute", async () => {
     resetStorage();
     const elementPrototype = HTMLElement.prototype as unknown as {
@@ -1016,7 +1347,7 @@ describe("ThreadComposer speed menu", () => {
 
     elementPrototype.scrollIntoView = function scrollIntoViewMock(this: HTMLElement) {
       scrollIntoViewCalls += 1;
-      const list = this.closest('[role="listbox"]');
+      const list = this.parentElement?.parentElement;
       if (list instanceof HTMLElement) {
         list.scrollTop = 0;
       }
@@ -1036,7 +1367,7 @@ describe("ThreadComposer speed menu", () => {
         return row;
       });
       const compactRow = view.container.querySelector('[data-slash-command-row="compact"]');
-      const list = view.container.querySelector('[role="listbox"]');
+      const list = modelRow.parentElement?.parentElement;
       if (!(compactRow instanceof HTMLElement) || !(list instanceof HTMLElement)) {
         throw new Error("Expected slash command list rows.");
       }

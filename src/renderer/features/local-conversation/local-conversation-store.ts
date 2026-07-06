@@ -14,6 +14,7 @@ import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type {
   FeedbackUploadParams,
   ThreadGoal,
+  ThreadGoalSetParams,
   ThreadRollbackResponse,
   ThreadSource,
   Turn,
@@ -68,6 +69,7 @@ import type {
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
+  CodexThreadGoalSetActionInput,
   CodexThreadOwnerLoadCompleteHistoryResult,
   CodexThreadOwnerActionRequest,
   CodexThreadTokenUsage,
@@ -179,6 +181,7 @@ const EMPTY_QUEUED_FOLLOW_UPS: CodexQueuedFollowUp[] = [];
 const EMPTY_BACKGROUND_TERMINAL_ROWS: CodexBackgroundTerminalRow[] = [];
 const EMPTY_CHILD_MEMBERSHIPS: CodexConversationChildMembership[] = [];
 const EMPTY_STATUS_ACTIVE_FLAGS: CodexConversationSnapshot["statusActiveFlags"] = [];
+const ACTIVE_THREAD_GOAL_CONTINUATION_DELAY_MS = 250;
 const DEFAULT_PERMISSION_STATE: CodexPermissionState = {
   mode: "custom",
   effectivePreset: "custom",
@@ -223,6 +226,87 @@ const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
 
 function hasOwnValue(record: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function normalizeThreadGoalSetParams(input: ThreadGoalSetParams): ThreadGoalSetParams {
+  const params: ThreadGoalSetParams = { threadId: input.threadId };
+  if (input.objective !== undefined) params.objective = input.objective;
+  if (input.status !== undefined) params.status = input.status;
+  if (input.tokenBudget !== undefined) params.tokenBudget = input.tokenBudget;
+
+  if (typeof params.objective === "string" && params.status === undefined) {
+    params.status = "active";
+  }
+
+  return params;
+}
+
+function normalizeThreadGoalSetActionInput(input: CodexThreadGoalSetActionInput): CodexThreadGoalSetActionInput {
+  const params = normalizeThreadGoalSetParams(input);
+  return {
+    ...params,
+    ...(input.appendTranscriptItem !== undefined ? { appendTranscriptItem: input.appendTranscriptItem } : {}),
+    ...(input.threadSettings ? { threadSettings: input.threadSettings } : {}),
+  };
+}
+
+interface SetThreadGoalAsOwnerOptions {
+  clearResumeConfirmation?: boolean;
+}
+
+function resolveOwnerThreadGoalResumeConfirmationAfterSet(
+  goal: ThreadGoal | null,
+  previous: ThreadGoal | null,
+  options: SetThreadGoalAsOwnerOptions,
+): ThreadGoal | null {
+  if (options.clearResumeConfirmation) return null;
+  if (!goal || !shouldShowOwnerThreadGoalResumeConfirmation(goal.status)) return null;
+  return previous;
+}
+
+function hasPendingSteeringUserMessage(conversation: CodexConversationSnapshot): boolean {
+  if (conversation.pendingSteers.length > 0) return true;
+  return conversation.turns.some((turn) =>
+    turn.items.some((item) => {
+      if (item.steeringStatus === "pending") return true;
+      const rawItem = asRecord(item.rawItem);
+      return rawItem?.type === "steeringUserMessage" && rawItem.status === "pending";
+    })
+  );
+}
+
+function hasRunningAgentState(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  if (record.status === "running") return true;
+
+  const agentStates = asRecord(record.agentsStates);
+  if (agentStates && Object.values(agentStates).some(hasRunningAgentState)) {
+    return true;
+  }
+
+  return hasRunningAgentState(record.action);
+}
+
+function hasRunningCollabAgentWork(conversation: CodexConversationSnapshot): boolean {
+  return conversation.turns.some((turn) =>
+    turn.items.some((item) => {
+      const toolArgs = asRecord(item.toolCall?.args);
+      if (hasRunningAgentState(toolArgs)) return true;
+      const rawItem = asRecord(item.rawItem);
+      if (rawItem?.type !== "collabAgentToolCall" && rawItem?.type !== "collab_agent_tool_call") {
+        return false;
+      }
+      return hasRunningAgentState(rawItem);
+    })
+  );
+}
+
+function hasInProgressGoalContinuationWork(conversation: CodexConversationSnapshot): boolean {
+  if (conversation.statusType === "active") return true;
+  if (conversation.statusActiveFlags.length > 0) return true;
+  if (conversation.turns.some((turn) => turn.status === "inProgress")) return true;
+  return hasRunningCollabAgentWork(conversation);
 }
 
 function normalizeThreadSettingsModel(value: unknown): string | null {
@@ -517,7 +601,7 @@ interface RendererOwnerAppServerRequestClient {
   ): Promise<CodexConversationThreadSettings>;
   setThreadGoal(
     conversationId: string,
-    params: { threadId: string; objective: string; tokenBudget?: number | null },
+    params: ThreadGoalSetParams,
   ): Promise<ThreadGoal | null>;
   clearThreadGoal(conversationId: string, params: { threadId: string }): Promise<void>;
   setThreadMemoryMode(conversationId: string, params: { threadId: string; mode: ThreadMemoryMode }): Promise<void>;
@@ -600,7 +684,7 @@ class IpcRendererOwnerAppServerRequestClient implements RendererOwnerAppServerRe
 
   async setThreadGoal(
     conversationId: string,
-    params: { threadId: string; objective: string; tokenBudget?: number | null },
+    params: ThreadGoalSetParams,
   ): Promise<ThreadGoal | null> {
     return await this.sendRequest(conversationId, {
       method: "thread/goal/set",
@@ -1487,6 +1571,77 @@ function appendOwnerTurn(
     ...conversation,
     turns: [...conversation.turns, turn],
   };
+}
+
+function buildThreadGoalPromptText(objective: string): string {
+  return `/goal ${objective}`;
+}
+
+function resolveThreadGoalTimestampMs(goal: ThreadGoal): number {
+  return Number.isFinite(goal.updatedAt) ? goal.updatedAt * 1_000 : Date.now();
+}
+
+function isMatchingThreadGoalTranscriptTurn(turn: CodexConversationTurn, goal: ThreadGoal): boolean {
+  const timestampMs = resolveThreadGoalTimestampMs(goal);
+  const promptText = buildThreadGoalPromptText(goal.objective);
+  if (getOwnerTurnId(turn) !== null) return false;
+  if (turn.status !== "completed") return false;
+  if (turn.turnStartedAtMs !== timestampMs) return false;
+  if (turn.items.length !== 1) return false;
+  const item = turn.items[0];
+  return item?.semanticKind === "userMessage" && item.markdownText === promptText;
+}
+
+function appendThreadGoalTranscriptTurn(
+  conversation: CodexConversationSnapshot,
+  goal: ThreadGoal,
+): CodexConversationSnapshot {
+  const latestTurn = conversation.turns.at(-1) ?? null;
+  if (latestTurn && isMatchingThreadGoalTranscriptTurn(latestTurn, goal)) {
+    return conversation;
+  }
+
+  const timestampMs = resolveThreadGoalTimestampMs(goal);
+  const itemId = `thread-goal:${goal.threadId}:${goal.updatedAt}:user`;
+  const nullTurnId = null as unknown as string;
+  const item: CodexConversationItem = {
+    threadId: goal.threadId,
+    turnId: nullTurnId,
+    entryId: itemId,
+    itemId,
+    type: "userMessage",
+    kind: "userMessage",
+    semanticKind: "userMessage",
+    role: "user",
+    source: "live",
+    status: "completed",
+    sequence: 0,
+    markdownText: buildThreadGoalPromptText(goal.objective),
+    goal: true,
+    rawItem: {
+      id: itemId,
+      type: "userMessage",
+      goal: true,
+      content: [{ type: "text", text: buildThreadGoalPromptText(goal.objective) }],
+    },
+    createdAt: timestampMs,
+    updatedAt: timestampMs,
+  };
+  const turn: CodexConversationTurn = {
+    threadId: goal.threadId,
+    turnId: nullTurnId,
+    status: "completed",
+    itemIds: [itemId],
+    turnStartedAtMs: timestampMs,
+    firstTurnWorkItemStartedAtMs: null,
+    finalAssistantStartedAtMs: null,
+    startedAt: timestampMs,
+    completedAt: timestampMs,
+    durationMs: null,
+    items: [item],
+  };
+
+  return appendOwnerTurn(conversation, turn);
 }
 
 function isOwnerCompletedEmptyPlaceholderTurn(turn: CodexConversationTurn): boolean {
@@ -3021,6 +3176,18 @@ function applyOwnerThreadGoalClearedToConversation(
   };
 }
 
+function applyOwnerThreadGoalResumeConfirmationDismissedToConversation(
+  conversation: CodexConversationSnapshot,
+): CodexConversationSnapshot | null {
+  if (!conversation.threadGoalResumeConfirmation) return null;
+
+  return {
+    ...conversation,
+    threadGoalResumeConfirmation: null,
+    updatedAt: Math.max(conversation.updatedAt, Date.now()),
+  };
+}
+
 function parseOwnerThreadNamePayload(params: unknown): {
   threadId: string;
   threadName: string;
@@ -4413,6 +4580,8 @@ export class CodexAppServerManager {
   private readonly threadTitlesById = new Map<string, string>();
   private readonly interruptedTurnIdsByThread = new Map<string, Set<string>>();
   private readonly recentConversationIds: string[] = [];
+  private readonly activeGoalContinuationPromises = new Map<string, Promise<void>>();
+  private readonly activeGoalContinuationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly ownerTextDeltaQueue = new OwnerTextDeltaQueue((updates, options) => {
     this.applyOwnerTextDeltas(updates, options);
   });
@@ -4507,6 +4676,11 @@ export class CodexAppServerManager {
     this.outputDeltaQueue.cancel();
     this.ownerRollbackTombstonesByConversationId.clear();
     this.cancelOwnerStreamPublishQueues();
+    for (const timer of this.activeGoalContinuationTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.activeGoalContinuationTimers.clear();
+    this.activeGoalContinuationPromises.clear();
     this.terminalInputBuffers.clear();
     while (this.busUnsubscribers.length > 0) {
       this.busUnsubscribers.pop()?.();
@@ -5231,14 +5405,13 @@ export class CodexAppServerManager {
         return null;
       case "setThreadGoal":
         this.assertOwnerForConversation(action.threadId);
-        return await this.setThreadGoalAsOwner({
-          threadId: action.threadId,
-          objective: action.objective,
-          tokenBudget: action.tokenBudget,
-        });
+        return await this.setThreadGoalAsOwner(normalizeThreadGoalSetActionInput(action));
       case "clearThreadGoal":
         this.assertOwnerForConversation(action.threadId);
         return await this.clearThreadGoalAsOwner(action.threadId);
+      case "dismissThreadGoalResumeConfirmation":
+        this.assertOwnerForConversation(action.threadId);
+        return await this.dismissThreadGoalResumeConfirmationAsOwner(action.threadId);
       case "setThreadMemoryMode":
         this.assertOwnerForConversation(action.threadId);
         await this.setThreadMemoryModeAsOwner({
@@ -5842,56 +6015,57 @@ export class CodexAppServerManager {
     return (await invoke("codex:thread:goal:get", threadId)) as ThreadGoal | null;
   }
 
-  async setThreadGoal(input: {
-    threadId: string;
-    objective: string;
-    tokenBudget?: number | null;
-  }): Promise<ThreadGoal | null> {
+  async setThreadGoal(input: CodexThreadGoalSetActionInput): Promise<ThreadGoal | null> {
+    const action = normalizeThreadGoalSetActionInput(input);
     if (this.isFollowerForConversation(input.threadId)) {
       const result = await this.runFollowerActionThroughOwner<ThreadGoal | null>(input.threadId, {
         type: "setThreadGoal",
-        threadId: input.threadId,
-        objective: input.objective,
-        tokenBudget: input.tokenBudget,
+        ...action,
       }, {
-        fallback: () => this.setThreadGoalAsOwner(input),
+        fallback: () => this.setThreadGoalAsOwner(action),
       });
       await this.waitForFollowerActionStreamRevision(input.threadId, result);
       return result;
     }
 
-    return await this.setThreadGoalAsOwner(input);
+    return await this.setThreadGoalAsOwner(action);
   }
 
-  private async setThreadGoalAsOwner(input: {
-    threadId: string;
-    objective: string;
-    tokenBudget?: number | null;
-  }): Promise<ThreadGoal | null> {
+  private async setThreadGoalAsOwner(
+    input: CodexThreadGoalSetActionInput,
+    options: SetThreadGoalAsOwnerOptions = {},
+  ): Promise<ThreadGoal | null> {
+    const action = normalizeThreadGoalSetActionInput(input);
+    const params = normalizeThreadGoalSetParams(action);
     if (this.streamState.getRole(input.threadId)?.role !== "owner") {
       return (await invoke(
         "codex:thread:goal:set",
-        input.threadId,
-        input.objective,
-        input.tokenBudget,
+        action,
       )) as ThreadGoal | null;
     }
-    const goal = await this.ownerAppServerRequestClient.setThreadGoal(input.threadId, {
-      threadId: input.threadId,
-      objective: input.objective,
-      tokenBudget: input.tokenBudget ?? null,
-    });
+    if (action.threadSettings) {
+      await this.setThreadSettingsForConversationAsOwner(input.threadId, action.threadSettings);
+    }
+    const goal = await this.ownerAppServerRequestClient.setThreadGoal(input.threadId, params);
     const streamRevision = await this.publishOwnerActionSnapshotMutation(
       input.threadId,
       "thread goal set",
-      (conversation) => ({
-        ...conversation,
-        threadGoal: goal,
-        completedThreadGoal: goal?.status === "complete" ? goal : null,
-        threadGoalResumeConfirmation: goal && shouldShowOwnerThreadGoalResumeConfirmation(goal.status)
-          ? conversation.threadGoalResumeConfirmation ?? null
-          : null,
-      }),
+      (conversation) => {
+        const withGoal = {
+          ...conversation,
+          threadGoal: goal,
+          completedThreadGoal: goal?.status === "complete" ? goal : null,
+          threadGoalResumeConfirmation: resolveOwnerThreadGoalResumeConfirmationAfterSet(
+            goal,
+            conversation.threadGoalResumeConfirmation ?? null,
+            options,
+          ),
+        };
+        if (!goal || action.appendTranscriptItem === false || typeof action.objective !== "string") {
+          return withGoal;
+        }
+        return appendThreadGoalTranscriptTurn(withGoal, goal);
+      },
     );
     return goal ? this.withOwnerStreamRevision(goal, streamRevision) : goal;
   }
@@ -5925,6 +6099,43 @@ export class CodexAppServerManager {
         threadGoal: null,
         threadGoalResumeConfirmation: null,
       }),
+    );
+    return this.buildOwnerStreamRevisionResult(streamRevision);
+  }
+
+  async dismissThreadGoalResumeConfirmation(threadId: string): Promise<void> {
+    if (this.isFollowerForConversation(threadId)) {
+      const result = await this.runFollowerActionThroughOwner<unknown>(threadId, {
+        type: "dismissThreadGoalResumeConfirmation",
+        threadId,
+      }, {
+        fallback: () => this.dismissThreadGoalResumeConfirmationAsOwner(threadId),
+      });
+      await this.waitForFollowerActionStreamRevision(threadId, result);
+      return;
+    }
+
+    await this.dismissThreadGoalResumeConfirmationAsOwner(threadId);
+  }
+
+  private async dismissThreadGoalResumeConfirmationAsOwner(
+    threadId: string,
+  ): Promise<OwnerStreamRevisionResult | void> {
+    if (this.streamState.getRole(threadId)?.role !== "owner") {
+      const conversation = this.conversationsById.get(threadId);
+      if (!conversation) return;
+
+      const nextConversation = applyOwnerThreadGoalResumeConfirmationDismissedToConversation(conversation);
+      if (nextConversation) {
+        this.applyConversationSnapshot(threadId, nextConversation);
+      }
+      return;
+    }
+
+    const streamRevision = await this.publishOwnerActionSnapshotMutation(
+      threadId,
+      "thread goal resume confirmation dismissed",
+      applyOwnerThreadGoalResumeConfirmationDismissedToConversation,
     );
     return this.buildOwnerStreamRevisionResult(streamRevision);
   }
@@ -6069,6 +6280,7 @@ export class CodexAppServerManager {
 
   private async interruptTurnAsOwner(threadId: string, turnId?: string): Promise<boolean> {
     const interruptedTurnId = this.resolveInterruptTurnId(threadId, turnId);
+    await this.pauseActiveThreadGoalBeforeInterruptAsOwner(threadId);
     if (interruptedTurnId) {
       this.markTurnInterrupted(threadId, interruptedTurnId);
     }
@@ -6087,6 +6299,75 @@ export class CodexAppServerManager {
       }
       throw error;
     }
+  }
+
+  private async pauseActiveThreadGoalBeforeInterruptAsOwner(threadId: string): Promise<void> {
+    if (this.streamState.getRole(threadId)?.role !== "owner") return;
+
+    const conversation = this.conversationsById.get(threadId);
+    if (conversation?.threadGoal?.status !== "active") return;
+
+    await this.setThreadGoalAsOwner(
+      { threadId, status: "paused" },
+      { clearResumeConfirmation: true },
+    );
+  }
+
+  private canContinueActiveThreadGoalAsOwner(threadId: string): boolean {
+    const conversation = this.conversationsById.get(threadId);
+    if (!conversation) return false;
+    if (conversation.resumeState !== "resumed") return false;
+    if (conversation.threadGoal?.status !== "active") return false;
+    if (conversation.requests.length > 0) return false;
+    if (hasPendingSteeringUserMessage(conversation)) return false;
+    if (this.streamState.getRole(threadId)?.role !== "owner") return false;
+    if (hasInProgressGoalContinuationWork(conversation)) return false;
+    return true;
+  }
+
+  private clearActiveGoalContinuationTimer(threadId: string): void {
+    const timer = this.activeGoalContinuationTimers.get(threadId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.activeGoalContinuationTimers.delete(threadId);
+  }
+
+  private waitForActiveGoalContinuationDelay(threadId: string): Promise<void> {
+    this.clearActiveGoalContinuationTimer(threadId);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.activeGoalContinuationTimers.delete(threadId);
+        resolve();
+      }, ACTIVE_THREAD_GOAL_CONTINUATION_DELAY_MS);
+      this.activeGoalContinuationTimers.set(threadId, timer);
+    });
+  }
+
+  private async maybeContinueActiveThreadGoalAsOwner(threadId: string): Promise<void> {
+    if (this.activeGoalContinuationPromises.has(threadId)) return;
+    if (!this.canContinueActiveThreadGoalAsOwner(threadId)) return;
+
+    const continuation = this.waitForActiveGoalContinuationDelay(threadId)
+      .then(async () => {
+        if (!this.canContinueActiveThreadGoalAsOwner(threadId)) return;
+        await this.ownerAppServerRequestClient.setThreadGoal(threadId, {
+          threadId,
+          status: "active",
+        });
+      })
+      .catch((error) => {
+        console.error("[codex-thread-goal] Failed to continue active thread goal", {
+          threadId,
+          error,
+        });
+      })
+      .finally(() => {
+        this.clearActiveGoalContinuationTimer(threadId);
+        this.activeGoalContinuationPromises.delete(threadId);
+      });
+
+    this.activeGoalContinuationPromises.set(threadId, continuation);
+    await continuation;
   }
 
   async respondApproval(
@@ -6835,6 +7116,9 @@ export class CodexAppServerManager {
       event.sequence,
       (conversation) => applyOwnerThreadStatusToConversation(conversation, payload),
     );
+    if (payload.statusType === "idle") {
+      void this.maybeContinueActiveThreadGoalAsOwner(payload.threadId);
+    }
   }
 
   private handleOwnerTurnMutationNotification(event: CodexThreadOwnerNotificationEvent): void {
@@ -7988,6 +8272,8 @@ export class CodexAppServerManager {
     this.streamState.removeConversation(normalizedThreadId);
     this.cancelOwnerStreamPublishQueues(normalizedThreadId);
     this.ownerRollbackTombstonesByConversationId.delete(normalizedThreadId);
+    this.clearActiveGoalContinuationTimer(normalizedThreadId);
+    this.activeGoalContinuationPromises.delete(normalizedThreadId);
     this.composerIntentsByThread.delete(normalizedThreadId);
     this.interruptedTurnIdsByThread.delete(normalizedThreadId);
     this.resyncInFlight.delete(normalizedThreadId);
@@ -9341,11 +9627,15 @@ export function useCodexAppServerControl(activeProjectId: string) {
     [manager],
   );
   const setThreadGoal = useCallback(
-    async (input: { threadId: string; objective: string; tokenBudget?: number | null }) => manager.setThreadGoal(input),
+    async (input: CodexThreadGoalSetActionInput) => manager.setThreadGoal(input),
     [manager],
   );
   const clearThreadGoal = useCallback(
     async (threadId: string) => manager.clearThreadGoal(threadId),
+    [manager],
+  );
+  const dismissThreadGoalResumeConfirmation = useCallback(
+    async (threadId: string) => manager.dismissThreadGoalResumeConfirmation(threadId),
     [manager],
   );
   const setThreadMemoryMode = useCallback(
@@ -9467,6 +9757,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
     getThreadGoal,
     setThreadGoal,
     clearThreadGoal,
+    dismissThreadGoalResumeConfirmation,
     setThreadMemoryMode,
     uploadFeedback,
     cleanBackgroundTerminals,

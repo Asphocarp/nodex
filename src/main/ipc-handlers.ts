@@ -52,6 +52,12 @@ import {
 } from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
 import {
+  getThreadGoalAttachmentsRoot,
+  materializeThreadGoalDraft,
+  readThreadGoalEditableObjective,
+  removeOwnedThreadGoalAttachmentDirectory,
+} from "./thread-goal-attachments";
+import {
   listWorkspaceDirectoryEntries,
   readWorkspaceFile,
   readWorkspaceFileBinary,
@@ -121,6 +127,7 @@ import type {
   AppUpdateStatus,
   CodexConversationThreadSettingsPatch,
   CodexPromptInput,
+  CodexThreadGoalSetActionInput,
 } from "../shared/types";
 import type {
   BrowserBrowsingDataKind,
@@ -1435,6 +1442,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         sessionId: string;
         prompt: string;
         promptInput?: CodexPromptInput;
+        threadGoalDraft?: { objective: string; attachmentDirectory?: string | null };
         threadName?: string;
         skipAutoTitleGeneration?: boolean;
         model?: string;
@@ -1646,12 +1654,33 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.getThreadGoal(threadId)
   );
 
-  registerHandle("codex:thread:goal:set", (_, threadId: string, objective: string, tokenBudget?: number | null) =>
-    codexService.setThreadGoal({ threadId, objective, tokenBudget })
+  registerHandle("codex:thread:goal:set", (_, params: CodexThreadGoalSetActionInput) =>
+    codexService.setThreadGoal(params)
   );
 
   registerHandle("codex:thread:goal:clear", (_, threadId: string) =>
     codexService.clearThreadGoal(threadId)
+  );
+
+  registerHandle("codex:thread:goal:materialize-draft", (_, draft) =>
+    materializeThreadGoalDraft({
+      attachmentsRoot: getThreadGoalAttachmentsRoot(app.getPath("userData")),
+      draft,
+    })
+  );
+
+  registerHandle("codex:thread:goal:materialized-cleanup", (_, attachmentDirectory) =>
+    removeOwnedThreadGoalAttachmentDirectory(
+      attachmentDirectory,
+      getThreadGoalAttachmentsRoot(app.getPath("userData")),
+    )
+  );
+
+  registerHandle("codex:thread:goal:editable-objective:read", (_, objective) =>
+    readThreadGoalEditableObjective({
+      attachmentsRoot: getThreadGoalAttachmentsRoot(app.getPath("userData")),
+      objective,
+    })
   );
 
   registerHandle("codex:thread:memory-mode:set", (_, threadId: string, mode: "enabled" | "disabled") =>

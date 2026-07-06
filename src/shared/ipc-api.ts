@@ -75,6 +75,9 @@ import type {
   CodexSideChatStartInput,
   CodexSideChatStartResult,
   CodexThreadStartForSessionInput,
+  CodexThreadGoalDraftInput,
+  CodexThreadGoalSetActionInput,
+  CodexThreadGoalMaterializedDraft,
   CodexThreadDetail,
   CodexThreadSummary,
   ProtocolAppInfo,
@@ -1033,12 +1036,24 @@ export interface IpcApi {
     result: ThreadGoal | null;
   };
   "codex:thread:goal:set": {
-    args: [threadId: string, objective: string, tokenBudget?: number | null];
+    args: [params: CodexThreadGoalSetActionInput];
     result: ThreadGoal | null;
   };
   "codex:thread:goal:clear": {
     args: [threadId: string];
     result: void;
+  };
+  "codex:thread:goal:materialize-draft": {
+    args: [draft: CodexThreadGoalDraftInput];
+    result: CodexThreadGoalMaterializedDraft;
+  };
+  "codex:thread:goal:materialized-cleanup": {
+    args: [attachmentDirectory: string | null];
+    result: void;
+  };
+  "codex:thread:goal:editable-objective:read": {
+    args: [objective: string];
+    result: string;
   };
   "codex:thread:memory-mode:set": {
     args: [threadId: string, mode: ThreadMemoryMode];

@@ -19,10 +19,20 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "motion/react";
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRightIcon, StopIcon } from "@/components/shared/icons";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogDescription,
+  NodexDialogFooter,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type {
   ThreadComposerShellBackgroundAgentRowModel,
@@ -31,6 +41,7 @@ import type {
   ThreadFooterModel,
   ThreadStageActions,
 } from "../../thread-stage-types";
+import { getThreadGoalMessage } from "../../thread-goal-copy";
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import {
   shouldShowThreadComposerStatusStrip,
@@ -43,6 +54,7 @@ import {
   LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID,
 } from "../local-conversation-above-composer-portal";
 import { usePortalHost } from "../use-portal-host";
+import { ThreadGoalStatusRow } from "./local-conversation-thread-goal-status-row";
 
 interface LocalConversationComposerShellProps {
   model: ThreadFooterModel;
@@ -737,6 +749,111 @@ function RequestCardStack({
   );
 }
 
+function ThreadGoalResumeConfirmationDialog({
+  model,
+  actions,
+}: {
+  model: ThreadFooterModel;
+  actions: ThreadStageActions;
+}) {
+  const goal = model.conversation?.threadGoalResumeConfirmation ?? null;
+  const threadId = model.threadId;
+  const [pendingAction, setPendingAction] = useState<"dismiss" | "resume" | null>(null);
+
+  if (!threadId || !goal) {
+    return null;
+  }
+
+  const isPaused = goal.status === "paused";
+  const title = isPaused
+    ? getThreadGoalMessage("composer.threadGoal.resumeConfirmation.title")
+    : getThreadGoalMessage("composer.threadGoal.resumeConfirmation.resumableTitle");
+  const dismissLabel = isPaused
+    ? getThreadGoalMessage("composer.threadGoal.resumeConfirmation.keepPaused")
+    : getThreadGoalMessage("composer.threadGoal.resumeConfirmation.notNow");
+  const isBusy = pendingAction !== null;
+
+  const handleDismiss = async () => {
+    if (!actions.onDismissThreadGoalResumeConfirmation) {
+      return;
+    }
+
+    setPendingAction("dismiss");
+    try {
+      await actions.onDismissThreadGoalResumeConfirmation(threadId);
+    } catch {
+      toast.danger(getThreadGoalMessage("composer.threadGoal.resumeConfirmation.dismissError"));
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const handleResume = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!actions.onSetThreadGoal) {
+      return;
+    }
+
+    setPendingAction("resume");
+    try {
+      await actions.onSetThreadGoal({
+        threadId,
+        status: "active",
+      });
+    } catch {
+      toast.danger(getThreadGoalMessage("composer.threadGoal.statusUpdateError"));
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  return (
+    <NodexDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          void handleDismiss();
+        }
+      }}
+    >
+      <NodexDialogContent
+        className="max-w-[30rem] gap-4 rounded-2xl p-5"
+        showCloseButton={false}
+      >
+        <form className="flex flex-col gap-4" onSubmit={handleResume}>
+          <NodexDialogHeader className="gap-1 text-left">
+            <NodexDialogTitle className="text-base">{title}</NodexDialogTitle>
+            <NodexDialogDescription>
+              {getThreadGoalMessage("composer.threadGoal.resumeConfirmation.subtitle")}
+            </NodexDialogDescription>
+          </NodexDialogHeader>
+          <div className="line-clamp-4 rounded-lg bg-token-bg-secondary px-3 py-2 text-sm text-token-foreground">
+            {goal.objective}
+          </div>
+          <NodexDialogFooter className="gap-2 sm:justify-end">
+            <NodexButton
+              type="button"
+              variant="secondary"
+              disabled={isBusy || !actions.onDismissThreadGoalResumeConfirmation}
+              onClick={() => {
+                void handleDismiss();
+              }}
+            >
+              {dismissLabel}
+            </NodexButton>
+            <NodexButton
+              type="submit"
+              disabled={isBusy || !actions.onSetThreadGoal}
+            >
+              {getThreadGoalMessage("composer.threadGoal.resumeConfirmation.resume")}
+            </NodexButton>
+          </NodexDialogFooter>
+        </form>
+      </NodexDialogContent>
+    </NodexDialog>
+  );
+}
+
 export function LocalConversationComposerShell({
   model,
   actions,
@@ -746,11 +863,13 @@ export function LocalConversationComposerShell({
   const hasFixedPortalContent = model.body.hasAboveComposerBlocks;
   const queuePortalHost = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID);
   const showQueuePanel = model.composerShell.pendingSteerRows.length > 0 || model.composerShell.queuedFollowUpRows.length > 0;
+  const threadGoal = model.conversation?.threadGoal ?? null;
+  const showThreadGoalStatusRow = threadGoal !== null && threadGoal.status !== "complete";
   const backgroundTerminalThreadId = model.threadId;
   const showBackgroundTerminals =
     backgroundTerminalThreadId !== null && model.composerShell.backgroundTerminalRows.length > 0;
   const showBackgroundAgents = model.composerShell.backgroundAgentRows.length > 0 && !model.composerShell.showApprovalMode;
-  const showAuxiliaryLaneStack = showQueuePanel || showBackgroundTerminals || showBackgroundAgents;
+  const showAuxiliaryLaneStack = showQueuePanel || showThreadGoalStatusRow || showBackgroundTerminals || showBackgroundAgents;
   let sectionIndex = hasFixedPortalContent ? 1 : 0;
 
   const resolveRoundedTop = () => {
@@ -764,6 +883,13 @@ export function LocalConversationComposerShell({
       {showQueuePanel ? (
         <QueuePanel
           model={model}
+          actions={actions}
+          showRoundedTop={resolveRoundedTop()}
+        />
+      ) : null}
+      {showThreadGoalStatusRow ? (
+        <ThreadGoalStatusRow
+          goal={threadGoal}
           actions={actions}
           showRoundedTop={resolveRoundedTop()}
         />
@@ -792,6 +918,7 @@ export function LocalConversationComposerShell({
       data-local-conversation-composer-shell="true"
       className="relative flex w-full flex-col gap-2 pb-0"
     >
+      <ThreadGoalResumeConfirmationDialog model={model} actions={actions} />
       {queuePortalHost && auxiliaryLaneStack ? createPortal(auxiliaryLaneStack, queuePortalHost) : null}
       {model.composerShell.showRequestCards ? (
         <>

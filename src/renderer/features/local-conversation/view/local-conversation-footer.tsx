@@ -55,7 +55,7 @@ function LocalConversationFooterChrome({
   return (
     <div className="flex flex-col" data-thread-find-composer="true">
       {catchUpControl}
-      <div className="flex flex-col gap-2" data-thread-footer-stack="true">
+      <div className="flex flex-col" data-thread-footer-stack="true">
         <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
         <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
         {latestTurnPreview}

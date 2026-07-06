@@ -10,7 +10,7 @@ import type {
   CodexThreadStreamStateChange,
   CodexThreadSummary,
 } from "../../lib/types";
-import type { ThreadRollbackResponse, TurnStartResponse } from "@nodex/codex-app-server-protocol/v2";
+import type { ThreadGoal, ThreadRollbackResponse, TurnStartResponse } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexAppServerManager as CodexAppServerManagerInstance } from "./local-conversation-store";
 import {
   buildCodexConversationStateUpdates,
@@ -205,11 +205,21 @@ mock.module("./local-conversation-deps", () => ({
         };
       }
       if (input.request?.method === "thread/goal/set") {
+        const goalParams = input.request.params as {
+          threadId?: string;
+          objective?: string | null;
+          status?: "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete" | null;
+          tokenBudget?: number | null;
+        } | undefined;
         return {
-          id: "goal-1",
-          objective: "Ship it",
-          status: "in_progress",
-          tokenBudget: null,
+          threadId: goalParams?.threadId ?? "thread-1",
+          objective: goalParams?.objective ?? "Ship it",
+          status: goalParams?.status ?? "active",
+          tokenBudget: goalParams?.tokenBudget ?? null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 1,
+          updatedAt: 1,
         };
       }
       if (input.request?.method === "thread/fork") {
@@ -520,6 +530,14 @@ function dispatchThreadSnapshot(message: CodexHostMessage): void {
 async function flushAsyncWork(ticks = 2): Promise<void> {
   for (let index = 0; index < ticks; index += 1) {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+async function waitForCondition(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
 }
 
@@ -7903,6 +7921,150 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("owner interrupt pauses active thread goal before turn interrupt", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      threadGoal: {
+        threadId: "thread-1",
+        objective: "finish the migration",
+        status: "active",
+        tokenBudget: null,
+        tokensUsed: 12,
+        timeUsedSeconds: 34,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      threadGoalResumeConfirmation: {
+        threadId: "thread-1",
+        objective: "stale prompt",
+        status: "paused",
+        tokenBudget: null,
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-1",
+        status: "inProgress",
+        itemIds: ["assistant-1"],
+        items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "working")],
+      }],
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      const result = await manager.handleThreadOwnerActionRequest({
+        type: "interruptTurn",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+
+      const ownerRequests = invokeRecords
+        .filter((record) => record.channel === "codex:thread-owner:app-server-request")
+        .map((record) => (record.args[0] as {
+          request?: {
+            method?: string;
+            params?: { threadId?: string; status?: string; turnId?: string };
+          };
+        }).request);
+
+      expect(result).toBeTrue();
+      expect(ownerRequests[0]?.method).toBe("thread/goal/set");
+      expect(ownerRequests[0]?.params?.threadId).toBe("thread-1");
+      expect(ownerRequests[0]?.params?.status).toBe("paused");
+      expect(ownerRequests[1]?.method).toBe("turn/interrupt");
+      expect(ownerRequests[1]?.params?.turnId).toBe("turn-1");
+      expect(manager.readConversation("thread-1")?.threadGoal?.status).toBe("paused");
+      expect(manager.readConversation("thread-1")?.threadGoalResumeConfirmation ?? null).toBe(null);
+      expect(invokeRecords.some((record) => record.channel === "codex:turn:interrupt")).toBeFalse();
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner idle status continues active thread goal after guard delay", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      statusType: "active",
+      threadGoal: {
+        threadId: "thread-1",
+        objective: "finish the migration",
+        status: "active",
+        tokenBudget: null,
+        tokensUsed: 12,
+        timeUsedSeconds: 34,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-1",
+        status: "completed",
+        itemIds: ["assistant-1"],
+        items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "done")],
+      }],
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "thread/status/changed",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          status: { type: "idle" },
+        },
+      });
+
+      await waitForCondition(() => invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string; params?: { status?: string } } }).request?.method === "thread/goal/set" &&
+        (record.args[0] as { request?: { params?: { status?: string } } }).request?.params?.status === "active"
+      ), 1_000);
+
+      const goalSetRequests = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string } }).request?.method === "thread/goal/set"
+      );
+      expect(goalSetRequests.length).toBe(1);
+      expect(manager.readConversation("thread-1")?.statusType).toBe("idle");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
   test("renderer client request bridge answers thread-role from current stream state", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -8517,13 +8679,449 @@ describe("local-conversation-store", () => {
       const followerRecord = invokeRecords.find((record) => record.channel === "codex:thread-follower:action");
       const followerInput = followerRecord?.args[0] as {
         conversationId?: string;
-        action?: { type?: string; threadId?: string; objective?: string };
+        action?: { type?: string; threadId?: string; objective?: string; status?: string };
       } | undefined;
 
       expect(goal?.status ?? "").toBe("active");
       expect(followerInput?.conversationId).toBe("thread-1");
       expect(followerInput?.action?.type).toBe("setThreadGoal");
       expect(followerInput?.action?.objective).toBe("ship parity");
+      expect(followerInput?.action?.status).toBe("active");
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:goal:set")).toBeFalse();
+    } finally {
+      followerActionResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("direct thread goal status updates use protocol-shaped IPC params", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.setThreadGoal({
+        threadId: "thread-standalone",
+        status: "paused",
+      });
+      const goalRecord = invokeRecords.find((record) => record.channel === "codex:thread:goal:set");
+      const params = goalRecord?.args[0] as { threadId?: string; objective?: unknown; status?: unknown } | undefined;
+
+      expect(goalRecord?.args.length).toBe(1);
+      expect(params?.threadId).toBe("thread-standalone");
+      expect(params?.status).toBe("paused");
+      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBeFalse();
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("owner thread goal status updates preserve status-only app-server request params", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = null;
+    resumeThreadResult = buildConversation("thread-1", "project-1");
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      const goal = await manager.setThreadGoal({
+        threadId: "thread-1",
+        status: "paused",
+      });
+      const ownerRecord = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string } }).request?.method === "thread/goal/set"
+      );
+      const ownerInput = ownerRecord?.args[0] as {
+        request?: { params?: { threadId?: string; objective?: unknown; status?: unknown } };
+      } | undefined;
+      const params = ownerInput?.request?.params;
+
+      expect(goal?.status ?? "").toBe("paused");
+      expect(manager.readConversation("thread-1")?.threadGoal?.status ?? "").toBe("paused");
+      expect(params?.threadId).toBe("thread-1");
+      expect(params?.status).toBe("paused");
+      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBeFalse();
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:goal:set")).toBeFalse();
+      expect(invokeRecords.some((record) => record.channel === "codex:thread-follower:action")).toBeFalse();
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner thread goal objective sets append a visible goal transcript turn by default", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = null;
+    resumeThreadResult = buildConversation("thread-1", "project-1");
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      await manager.setThreadGoal({
+        threadId: "thread-1",
+        objective: "ship parity",
+      });
+      await manager.setThreadGoal({
+        threadId: "thread-1",
+        objective: "ship parity",
+      });
+
+      const conversation = manager.readConversation("thread-1");
+      const turn = conversation?.turns[0];
+      const item = turn?.items[0];
+
+      expect(conversation?.turns.length ?? 0).toBe(1);
+      expect((turn as { turnId?: string | null } | undefined)?.turnId ?? null).toBe(null);
+      expect(turn?.status ?? "").toBe("completed");
+      expect(turn?.turnStartedAtMs ?? 0).toBe(1_000);
+      expect(item?.kind ?? "").toBe("userMessage");
+      expect(item?.markdownText ?? "").toBe("/goal ship parity");
+      expect(item?.goal ?? false).toBeTrue();
+      expect(((item?.rawItem as { goal?: boolean } | undefined)?.goal ?? false)).toBeTrue();
+      expect(manager.readConversation("thread-1")?.threadGoal?.status ?? "").toBe("active");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner thread goal set applies settings before goal and strips local action metadata", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = null;
+    resumeThreadResult = buildConversation("thread-1", "project-1");
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      const goal = await manager.setThreadGoal({
+        threadId: "thread-1",
+        objective: "ship parity",
+        appendTranscriptItem: false,
+        threadSettings: {
+          model: "gpt-5.9-codex",
+          reasoningEffort: "high",
+          collaborationMode: "plan",
+        },
+      });
+      const ownerRequests = invokeRecords
+        .filter((record) => record.channel === "codex:thread-owner:app-server-request")
+        .map((record) => record.args[0] as {
+          request?: {
+            method?: string;
+            params?: {
+              threadId?: string;
+              patch?: { model?: string; reasoningEffort?: string; collaborationMode?: string };
+              objective?: string;
+              status?: string;
+              appendTranscriptItem?: unknown;
+              threadSettings?: unknown;
+            };
+          };
+        });
+      const settingsRequest = ownerRequests[0]?.request;
+      const goalRequest = ownerRequests[1]?.request;
+      const goalParams = goalRequest?.params;
+
+      expect(goal?.status ?? "").toBe("active");
+      expect(settingsRequest?.method).toBe("thread/settings/update");
+      expect(settingsRequest?.params?.threadId).toBe("thread-1");
+      expect(settingsRequest?.params?.patch?.model).toBe("gpt-5.9-codex");
+      expect(settingsRequest?.params?.patch?.reasoningEffort).toBe("high");
+      expect(settingsRequest?.params?.patch?.collaborationMode).toBe("plan");
+      expect(goalRequest?.method).toBe("thread/goal/set");
+      expect(goalParams?.threadId).toBe("thread-1");
+      expect(goalParams?.objective).toBe("ship parity");
+      expect(goalParams?.status).toBe("active");
+      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBeFalse();
+      expect(manager.readConversation("thread-1")?.turns.length ?? 0).toBe(0);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("follower thread goal status updates preserve status-only owner action params", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = {
+      threadId: "thread-1",
+      objective: "ship parity",
+      status: "paused",
+      tokenBudget: null,
+      tokensUsed: 50,
+      timeUsedSeconds: 5,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread-1", "project-1"),
+        },
+        sourceClientId: "owner-a",
+      });
+
+      const goal = await manager.setThreadGoal({
+        threadId: "thread-1",
+        status: "paused",
+      });
+      const followerRecord = invokeRecords.find((record) => record.channel === "codex:thread-follower:action");
+      const followerInput = followerRecord?.args[0] as {
+        conversationId?: string;
+        action?: { type?: string; threadId?: string; objective?: unknown; status?: string };
+      } | undefined;
+
+      expect(goal?.status ?? "").toBe("paused");
+      expect(followerInput?.conversationId).toBe("thread-1");
+      expect(followerInput?.action?.type).toBe("setThreadGoal");
+      expect(followerInput?.action?.status).toBe("paused");
+      expect(Object.prototype.hasOwnProperty.call(followerInput?.action ?? {}, "objective")).toBeFalse();
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:goal:set")).toBeFalse();
+    } finally {
+      followerActionResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("follower thread goal set preserves local action metadata for the owner", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = {
+      threadId: "thread-1",
+      objective: "ship parity",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 50,
+      timeUsedSeconds: 5,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread-1", "project-1"),
+        },
+        sourceClientId: "owner-a",
+      });
+
+      await manager.setThreadGoal({
+        threadId: "thread-1",
+        objective: "ship parity",
+        appendTranscriptItem: false,
+        threadSettings: {
+          model: "gpt-5.9-codex",
+          reasoningEffort: "high",
+          collaborationMode: "plan",
+        },
+      });
+      const followerRecord = invokeRecords.find((record) => record.channel === "codex:thread-follower:action");
+      const followerInput = followerRecord?.args[0] as {
+        action?: {
+          appendTranscriptItem?: boolean;
+          threadSettings?: { model?: string; reasoningEffort?: string; collaborationMode?: string };
+        };
+      } | undefined;
+
+      expect(followerInput?.action?.appendTranscriptItem).toBeFalse();
+      expect(followerInput?.action?.threadSettings?.model).toBe("gpt-5.9-codex");
+      expect(followerInput?.action?.threadSettings?.reasoningEffort).toBe("high");
+      expect(followerInput?.action?.threadSettings?.collaborationMode).toBe("plan");
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:goal:set")).toBeFalse();
+    } finally {
+      followerActionResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner thread goal resume confirmation dismiss clears prompt without clearing goal", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = null;
+    const goal: ThreadGoal = {
+      threadId: "thread-1",
+      objective: "ship parity",
+      status: "paused",
+      tokenBudget: null,
+      tokensUsed: 50,
+      timeUsedSeconds: 5,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      threadGoal: goal,
+      threadGoalResumeConfirmation: goal,
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      await manager.dismissThreadGoalResumeConfirmation("thread-1");
+
+      expect(manager.readConversation("thread-1")?.threadGoal?.status ?? "").toBe("paused");
+      expect(manager.readConversation("thread-1")?.threadGoalResumeConfirmation ?? null).toBe(null);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )).toBeTrue();
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string } }).request?.method === "thread/goal/clear"
+      )).toBeFalse();
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string } }).request?.method === "thread/goal/set"
+      )).toBeFalse();
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("follower thread goal resume confirmation dismiss routes through owner action", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = null;
+    const goal: ThreadGoal = {
+      threadId: "thread-1",
+      objective: "ship parity",
+      status: "blocked",
+      tokenBudget: null,
+      tokensUsed: 50,
+      timeUsedSeconds: 5,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: {
+            ...buildConversation("thread-1", "project-1"),
+            threadGoal: goal,
+            threadGoalResumeConfirmation: goal,
+          },
+        },
+        sourceClientId: "owner-a",
+      });
+
+      await manager.dismissThreadGoalResumeConfirmation("thread-1");
+      const followerRecord = invokeRecords.find((record) => record.channel === "codex:thread-follower:action");
+      const followerInput = followerRecord?.args[0] as {
+        conversationId?: string;
+        action?: { type?: string; threadId?: string };
+      } | undefined;
+
+      expect(followerInput?.conversationId).toBe("thread-1");
+      expect(followerInput?.action?.type).toBe("dismissThreadGoalResumeConfirmation");
+      expect(followerInput?.action?.threadId).toBe("thread-1");
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:goal:clear")).toBeFalse();
       expect(invokeRecords.some((record) => record.channel === "codex:thread:goal:set")).toBeFalse();
     } finally {
       followerActionResult = null;

@@ -1465,6 +1465,20 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "composer:pick-files": {
       return [];
     }
+    case "codex:thread:goal:materialize-draft": {
+      const [draft] = args as [{ objective?: string }];
+      return {
+        objective: draft.objective?.trim() ?? "",
+        attachmentDirectory: null,
+      };
+    }
+    case "codex:thread:goal:materialized-cleanup": {
+      return undefined;
+    }
+    case "codex:thread:goal:editable-objective:read": {
+      const [objective] = args as [string];
+      return objective;
+    }
     case "window:show-emoji-panel": {
       return false;
     }

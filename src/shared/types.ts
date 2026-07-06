@@ -27,6 +27,7 @@ import type {
   ReviewStartResponse as CodexAppServerReviewStartResponse,
   ReviewTarget as CodexAppServerReviewTarget,
   ThreadGoal as CodexAppServerThreadGoal,
+  ThreadGoalSetParams as CodexAppServerThreadGoalSetParams,
   ThreadSettings as CodexAppServerThreadSettings,
   ThreadSource as CodexAppServerThreadSource,
   ThreadItem as CodexAppServerThreadItem,
@@ -1366,6 +1367,11 @@ export interface CodexConversationThreadSettingsPatch {
   collaborationMode?: CodexCollaborationModeKind | null;
 }
 
+export interface CodexThreadGoalSetActionInput extends CodexAppServerThreadGoalSetParams {
+  appendTranscriptItem?: boolean;
+  threadSettings?: CodexConversationThreadSettingsPatch;
+}
+
 export interface CodexReasoningEffortOption {
   reasoningEffort: CodexReasoningEffort;
   description: string;
@@ -1388,11 +1394,34 @@ export interface CodexThreadSettings {
   detailLevel?: CodexThreadDetailLevel;
 }
 
+export interface CodexThreadGoalDraftInput {
+  objective: string;
+  pastedTextAttachments?: CodexThreadGoalPastedTextAttachmentInput[];
+  imageAttachments?: CodexThreadGoalImageAttachmentInput[];
+  attachmentDirectory?: string | null;
+}
+
+export interface CodexThreadGoalPastedTextAttachmentInput {
+  text: string;
+}
+
+export interface CodexThreadGoalImageAttachmentInput {
+  source: string;
+  localPath?: string | null;
+  filename?: string | null;
+}
+
+export interface CodexThreadGoalMaterializedDraft {
+  objective: string;
+  attachmentDirectory: string | null;
+}
+
 export interface CodexThreadStartForSessionInput {
   projectId: string;
   sessionId: string;
   prompt: string;
   promptInput?: CodexPromptInput;
+  threadGoalDraft?: CodexThreadGoalDraftInput;
   threadName?: string;
   skipAutoTitleGeneration?: boolean;
   model?: string;
@@ -1916,6 +1945,7 @@ export interface CodexItemView extends CodexCommandExecutionAttachmentFields {
   dynamicToolCall?: CodexDynamicToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
+  goal?: boolean;
   userAttachments?: CodexUserAttachment[];
   steeringStatus?: CodexSteeringStatus;
   steeringInput?: CodexSteeringUserInput[];
@@ -1952,6 +1982,7 @@ export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFie
   dynamicToolCall?: CodexDynamicToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
+  goal?: boolean;
   userAttachments?: CodexUserAttachment[];
   steeringStatus?: CodexSteeringStatus;
   steeringInput?: CodexSteeringUserInput[];
@@ -2774,14 +2805,15 @@ export type CodexThreadOwnerActionRequest =
       type: "compactThread";
       threadId: string;
     }
-  | {
+  | ({
       type: "setThreadGoal";
-      threadId: string;
-      objective: string;
-      tokenBudget?: number | null;
-    }
+    } & CodexThreadGoalSetActionInput)
   | {
       type: "clearThreadGoal";
+      threadId: string;
+    }
+  | {
+      type: "dismissThreadGoalResumeConfirmation";
       threadId: string;
     }
   | {

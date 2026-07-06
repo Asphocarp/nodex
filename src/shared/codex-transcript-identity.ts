@@ -78,6 +78,7 @@ export function mergeCodexTranscriptEntry(
     toolCall: incoming.toolCall ?? existing.toolCall,
     mcpToolCall: incoming.mcpToolCall ?? existing.mcpToolCall,
     markdownText: incoming.markdownText ?? existing.markdownText,
+    goal: incoming.goal ?? existing.goal,
     userAttachments: incoming.userAttachments ?? existing.userAttachments,
     command: incoming.command !== undefined ? incoming.command : existing.command,
     cwd: incoming.cwd !== undefined ? incoming.cwd : existing.cwd,

@@ -753,6 +753,9 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     result.semanticKind = "userMessage";
     result.role = "user";
     result.markdownText = text;
+    if (candidate.goal === true) {
+      result.goal = true;
+    }
     if (userAttachments.length > 0) {
       result.userAttachments = userAttachments;
     }
@@ -1037,6 +1040,7 @@ export function projectCodexItemViewToTranscriptEntry(
     grantRoot: item.grantRoot,
     fileChange: item.fileChange,
     markdownText: item.markdownText,
+    goal: item.goal,
     userAttachments: item.userAttachments,
     additionalDetails: item.additionalDetails,
     willRetry: item.willRetry,

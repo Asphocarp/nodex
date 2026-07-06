@@ -15,6 +15,9 @@ export const COMPOSER_FOOTER_LABEL_CLASS_NAME = "_footerLabel_1u8sk_2 truncate";
 export const COMPOSER_FOOTER_LABEL_NARROW_CLASS_NAME =
   `${COMPOSER_FOOTER_LABEL_CLASS_NAME} max-w-16`;
 
+export const COMPOSER_FOOTER_LABEL_WIDE_CLASS_NAME =
+  `${COMPOSER_FOOTER_LABEL_CLASS_NAME} max-w-24`;
+
 export function ComposerFooterAccessoryDivider() {
   return (
     <div

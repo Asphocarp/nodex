@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { FeedbackUploadParams, McpServerStatus, ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
+import { useState } from "react";
+import type { FeedbackUploadParams, McpServerStatus } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import {
   BotIcon,
@@ -29,6 +29,7 @@ import { toast } from "@/components/ui/toast";
 import { useMcpServerStatuses } from "@/lib/use-mcp-queries";
 import type { CodexReasoningEffort } from "@/lib/types";
 import type { ThreadFooterModel, ThreadStageActions } from "../../../thread-stage-types";
+import { getThreadGoalMessage } from "../../../thread-goal-copy";
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandContentProps,
@@ -44,6 +45,7 @@ interface BuildSlashCommandsInput {
   insertPluginMention: (plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => void;
   openExpandedDialog: () => void;
   onPetToggle: () => void;
+  activateGoalMode: () => void;
 }
 
 const iconClassName = "icon-xs";
@@ -122,22 +124,23 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
     },
     {
       id: "goal",
-      title: "Goal",
-      description: "Set or update this thread's goal",
+      title: getThreadGoalMessage("composer.goalSlashCommand.title"),
+      description: getThreadGoalMessage("composer.goalSlashCommand.setDescription"),
       group: "Commands",
       icon: <FlagIcon className={iconClassName} />,
-      requiresEmptyComposer: true,
+      triggers: ["/", "@"],
+      requiresEmptyComposer: false,
       isVisible: canUseExistingThread
         && Boolean(input.actions.onGetThreadGoal)
         && Boolean(input.actions.onSetThreadGoal)
         && Boolean(input.actions.onClearThreadGoal),
-      Content: (props) => (
-        <GoalCommandContent
-          threadId={threadId}
-          actions={input.actions}
-          {...props}
-        />
-      ),
+      onSelect: () => {
+        input.activateGoalMode();
+      },
+      onSelectFromInlineSlash: (selection) => {
+        selection.clearTrigger();
+        input.activateGoalMode();
+      },
     },
     {
       id: "mcp",
@@ -457,90 +460,6 @@ function ForkCommandContent({
         }}
       />
     </CommandPanel>
-  );
-}
-
-function GoalCommandContent({
-  threadId,
-  actions,
-  close,
-}: ComposerSlashCommandContentProps & {
-  threadId: string | null | undefined;
-  actions: ThreadStageActions;
-}) {
-  const [goal, setGoal] = useState<ThreadGoal | null>(null);
-  const [objective, setObjective] = useState("");
-  const [loading, setLoading] = useState(Boolean(threadId));
-
-  useEffect(() => {
-    if (!threadId || !actions.onGetThreadGoal) return;
-    let cancelled = false;
-    setLoading(true);
-    void actions.onGetThreadGoal(threadId)
-      .then((nextGoal) => {
-        if (cancelled) return;
-        setGoal(nextGoal);
-        setObjective(nextGoal?.objective ?? "");
-      })
-      .catch(() => {
-        if (!cancelled) setGoal(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [actions, threadId]);
-
-  if (!threadId) return <CommandMessage>No active thread</CommandMessage>;
-  if (!actions.onSetThreadGoal || !actions.onClearThreadGoal) {
-    return <CommandMessage>Goals are not available in this context</CommandMessage>;
-  }
-
-  return (
-    <div className="space-y-2 p-2">
-      <textarea
-        value={objective}
-        onChange={(event) => setObjective(event.target.value)}
-        placeholder="Goal"
-        className="min-h-24 w-full resize-none rounded-lg bg-token-input-background px-3 py-2 text-sm text-token-foreground outline-none ring-[0.5px] ring-token-border/50 placeholder:text-token-description-foreground"
-      />
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-xs text-token-description-foreground">
-          {loading ? "Loading goal" : goal ? goal.status : "No goal set"}
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            className="rounded-md px-2 py-1 text-sm text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground"
-            onClick={async () => {
-              await runCommand("Failed to clear goal", async () => {
-                await actions.onClearThreadGoal?.(threadId);
-                close();
-              });
-            }}
-          >
-            Clear
-          </button>
-          <button
-            type="button"
-            className="rounded-md bg-token-foreground px-2 py-1 text-sm text-token-dropdown-background disabled:opacity-50"
-            disabled={objective.trim().length === 0}
-            onClick={async () => {
-              const nextObjective = objective.trim();
-              if (!nextObjective) return;
-              await runCommand("Failed to save goal", async () => {
-                await actions.onSetThreadGoal?.({ threadId, objective: nextObjective });
-                close();
-              });
-            }}
-          >
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

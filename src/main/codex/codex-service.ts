@@ -54,6 +54,7 @@ import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSou
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { ThreadGoalGetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalGetResponse";
+import type { ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetParams";
 import type { ThreadGoalSetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetResponse";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
@@ -137,6 +138,7 @@ import type {
   CodexThreadActiveFlag,
   CodexThreadActionResult,
   CodexThreadDetail,
+  CodexThreadGoalSetActionInput,
   CodexThreadStatusType,
   CodexThreadSummary,
   CodexTurnDiffPatchBatch,
@@ -179,6 +181,7 @@ import {
   ProjectSessionForkInputSchema,
 } from "../../shared/schemas/project-sessions";
 import * as projectSessionService from "../local-store/project-sessions";
+import { removeOwnedThreadGoalAttachmentDirectory } from "../thread-goal-attachments";
 import {
   buildPermissionModeConfigEdits,
   buildThreadPermissionOverrides,
@@ -724,6 +727,7 @@ const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
 const INACTIVE_RENDERER_OWNER_RETENTION_MS = 60 * 60 * 1000;
 const INACTIVE_RENDERER_OWNER_MAX_RETAINED = 4;
 const INACTIVE_RENDERER_OWNER_RETRY_MS = 15_000;
+const ACTIVE_THREAD_GOAL_CONTINUATION_DELAY_MS = 250;
 const THREAD_TURNS_PAGE_SIZE = 5;
 const THREAD_TURNS_PAGE_ITEMS_VIEW = "full" as const;
 const COMPLETE_TURN_PAGINATION: CodexConversationTurnPagination = {
@@ -1104,6 +1108,39 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function hasPendingSteeringTranscriptEntry(entries: readonly CodexTranscriptEntry[]): boolean {
+  return entries.some((entry) => {
+    if (entry.steeringStatus === "pending") return true;
+    const rawItem = asRecord(entry.rawItem);
+    return rawItem?.type === "steeringUserMessage" && rawItem.status === "pending";
+  });
+}
+
+function hasRunningAgentState(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  if (record.status === "running") return true;
+
+  const agentStates = asRecord(record.agentsStates);
+  if (agentStates && Object.values(agentStates).some(hasRunningAgentState)) {
+    return true;
+  }
+
+  return hasRunningAgentState(record.action);
+}
+
+function hasRunningCollabAgentTranscriptEntry(entries: readonly CodexTranscriptEntry[]): boolean {
+  return entries.some((entry) => {
+    const toolArgs = asRecord(entry.toolCall?.args);
+    if (hasRunningAgentState(toolArgs)) return true;
+    const rawItem = asRecord(entry.rawItem);
+    if (rawItem?.type !== "collabAgentToolCall" && rawItem?.type !== "collab_agent_tool_call") {
+      return false;
+    }
+    return hasRunningAgentState(rawItem);
+  });
+}
+
 function readStringField(record: Record<string, unknown> | null, key: string): string | null {
   const value = record?.[key];
   return typeof value === "string" ? value : null;
@@ -1269,20 +1306,152 @@ function shouldShowThreadGoalResumeConfirmation(status: ThreadGoal["status"]): b
   return status === "paused" || status === "blocked" || status === "usageLimited";
 }
 
+function isThreadGoalStatus(value: unknown): value is ThreadGoal["status"] {
+  return value === "active" ||
+    value === "paused" ||
+    value === "blocked" ||
+    value === "usageLimited" ||
+    value === "budgetLimited" ||
+    value === "complete";
+}
+
+function normalizeThreadGoalSetParams(input: ThreadGoalSetParams): ThreadGoalSetParams {
+  const params: ThreadGoalSetParams = { threadId: input.threadId };
+  if (input.objective !== undefined) params.objective = input.objective;
+  if (input.status !== undefined) params.status = input.status;
+  if (input.tokenBudget !== undefined) params.tokenBudget = input.tokenBudget;
+
+  if (typeof params.objective === "string" && params.status === undefined) {
+    params.status = "active";
+  }
+
+  return params;
+}
+
+function normalizeThreadGoalSetActionInput(input: CodexThreadGoalSetActionInput): CodexThreadGoalSetActionInput {
+  const params = normalizeThreadGoalSetParams(input);
+  return {
+    ...params,
+    ...(input.appendTranscriptItem !== undefined ? { appendTranscriptItem: input.appendTranscriptItem } : {}),
+    ...(input.threadSettings ? { threadSettings: input.threadSettings } : {}),
+  };
+}
+
+function buildThreadGoalPromptText(objective: string): string {
+  return `/goal ${objective}`;
+}
+
+function resolveThreadGoalTimestampMs(goal: ThreadGoal): number {
+  return Number.isFinite(goal.updatedAt) ? goal.updatedAt * 1_000 : Date.now();
+}
+
+function getNullableTurnId(turn: Pick<CodexTurnSummary, "turnId">): string | null {
+  return typeof turn.turnId === "string" && turn.turnId.length > 0 ? turn.turnId : null;
+}
+
+function isMatchingThreadGoalTranscriptTurn(
+  detail: CodexThreadDetail,
+  turn: CodexTurnSummary,
+  goal: ThreadGoal,
+): boolean {
+  const timestampMs = resolveThreadGoalTimestampMs(goal);
+  const promptText = buildThreadGoalPromptText(goal.objective);
+  if (getNullableTurnId(turn) !== null) return false;
+  if (turn.status !== "completed") return false;
+  if (turn.turnStartedAtMs !== timestampMs) return false;
+
+  const turnEntries = detail.transcript.filter((entry) => entry.turnId === turn.turnId);
+  if (turnEntries.length !== 1) return false;
+  const entry = turnEntries[0];
+  return entry?.semanticKind === "userMessage" && entry.markdownText === promptText;
+}
+
+function appendThreadGoalTranscriptTurnToDetail(
+  detail: CodexThreadDetail,
+  goal: ThreadGoal,
+): CodexThreadDetail {
+  const latestTurn = detail.turns.at(-1) ?? null;
+  if (latestTurn && isMatchingThreadGoalTranscriptTurn(detail, latestTurn, goal)) {
+    return detail;
+  }
+
+  const timestampMs = resolveThreadGoalTimestampMs(goal);
+  const nullTurnId = null as unknown as string;
+  const itemId = `thread-goal:${goal.threadId}:${goal.updatedAt}:user`;
+  const promptText = buildThreadGoalPromptText(goal.objective);
+  const turn: CodexTurnSummary = {
+    threadId: goal.threadId,
+    turnId: nullTurnId,
+    status: "completed",
+    itemIds: [itemId],
+    turnStartedAtMs: timestampMs,
+    firstTurnWorkItemStartedAtMs: null,
+    finalAssistantStartedAtMs: null,
+    startedAt: timestampMs,
+    completedAt: timestampMs,
+    durationMs: null,
+  };
+  const entry: CodexTranscriptEntry = {
+    threadId: goal.threadId,
+    turnId: nullTurnId,
+    entryId: itemId,
+    itemId,
+    type: "userMessage",
+    kind: "userMessage",
+    semanticKind: "userMessage",
+    role: "user",
+    source: "live",
+    status: "completed",
+    sequence: 0,
+    markdownText: promptText,
+    goal: true,
+    rawItem: {
+      id: itemId,
+      type: "userMessage",
+      goal: true,
+      content: [{ type: "text", text: promptText }],
+    },
+    createdAt: timestampMs,
+    updatedAt: timestampMs,
+  };
+
+  return {
+    ...detail,
+    updatedAt: Math.max(detail.updatedAt, timestampMs),
+    turns: [...detail.turns, turn],
+    transcript: [...detail.transcript, entry],
+  };
+}
+
+function readThreadGoalSetParams(threadId: string, params: Record<string, unknown>): ThreadGoalSetParams {
+  const input: ThreadGoalSetParams = { threadId };
+  if (hasOwnValue(params, "objective")) {
+    if (typeof params.objective !== "string" && params.objective !== null) {
+      throw new Error("Invalid thread goal objective");
+    }
+    input.objective = params.objective;
+  }
+  if (hasOwnValue(params, "status")) {
+    const status = params.status;
+    if (status !== null && !isThreadGoalStatus(status)) {
+      throw new Error("Invalid thread goal status");
+    }
+    input.status = status;
+  }
+  if (hasOwnValue(params, "tokenBudget")) {
+    input.tokenBudget = getFiniteNumber(params.tokenBudget);
+  }
+
+  return normalizeThreadGoalSetParams(input);
+}
+
 function parseThreadGoalPayload(value: unknown): ThreadGoal | null {
   if (typeof value !== "object" || value === null) return null;
   const candidate = value as Partial<ThreadGoal>;
   if (
     typeof candidate.threadId !== "string" ||
     typeof candidate.objective !== "string" ||
-    (
-      candidate.status !== "active" &&
-      candidate.status !== "paused" &&
-      candidate.status !== "blocked" &&
-      candidate.status !== "usageLimited" &&
-      candidate.status !== "budgetLimited" &&
-      candidate.status !== "complete"
-    ) ||
+    !isThreadGoalStatus(candidate.status) ||
     typeof candidate.tokensUsed !== "number" ||
     typeof candidate.timeUsedSeconds !== "number" ||
     typeof candidate.createdAt !== "number" ||
@@ -2168,6 +2337,8 @@ export class CodexService extends EventEmitter {
   private readonly ownerNotificationDrainCallbacksByConversationId = new Map<string, Array<() => void>>();
   private readonly ownerNotificationDrainTimersByConversationId = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pendingThreadSettingsUpdates = new Map<string, Promise<CodexConversationThreadSettings>>();
+  private readonly activeGoalContinuationPromises = new Map<string, Promise<void>>();
+  private readonly activeGoalContinuationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly olderTurnsLoadInFlight = new Map<string, Promise<CodexConversationSnapshot | null>>();
   private readonly remainingTurnsLoadInFlight = new Map<string, Promise<void>>();
@@ -3905,6 +4076,8 @@ export class CodexService extends EventEmitter {
     this.ownerNotificationSequenceByConversationId.delete(threadId);
     this.ownerNotificationAckSequenceByConversationId.delete(threadId);
     this.clearOwnerNotificationDrain(threadId);
+    this.clearActiveGoalContinuationTimer(threadId);
+    this.activeGoalContinuationPromises.delete(threadId);
     for (const key of [...this.terminalInputBuffers.keys()]) {
       if (key.startsWith(`${threadId}:`)) this.terminalInputBuffers.delete(key);
     }
@@ -4510,6 +4683,11 @@ export class CodexService extends EventEmitter {
       clearTimeout(timer);
     }
     this.inactiveRendererOwnerCleanupTimersByConversationId.clear();
+    for (const timer of this.activeGoalContinuationTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.activeGoalContinuationTimers.clear();
+    this.activeGoalContinuationPromises.clear();
     this.inactiveRendererOwnerCandidateSinceByConversationId.clear();
     this.inactiveRendererOwnerCleanupInFlight.clear();
     this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));
@@ -6245,10 +6423,73 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  private appendThreadGoalTranscriptTurn(threadId: string, goal: ThreadGoal): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record?.detail) return;
+    record.detail = appendThreadGoalTranscriptTurnToDetail(record.detail, goal);
+  }
+
+  private shouldClearNewCompletedThreadGoal(threadId: string, goal: ThreadGoal): boolean {
+    if (goal.status !== "complete") return false;
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record) return false;
+    return record.completedThreadGoal?.updatedAt !== goal.updatedAt;
+  }
+
+  private scheduleCompletedThreadGoalClear(threadId: string): void {
+    void this.clearThreadGoal(threadId).catch((error) => {
+      this.logger.error("Failed to clear completed thread goal", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   private applyThreadGoalCleared(threadId: string): void {
     const record = this.ensureConversationRecord(threadId);
     record.threadGoal = null;
     record.threadGoalResumeConfirmation = null;
+  }
+
+  private applyThreadGoalHydratedAfterResume(threadId: string, goal: ThreadGoal | null): void {
+    const record = this.ensureConversationRecord(threadId);
+    record.threadGoal = goal;
+    record.completedThreadGoal = goal?.status === "complete" ? goal : null;
+    record.threadGoalResumeConfirmation = goal && shouldShowThreadGoalResumeConfirmation(goal.status)
+      ? goal
+      : null;
+  }
+
+  private async hydrateThreadGoalAfterResume(threadId: string): Promise<void> {
+    let response: ThreadGoalGetResponse;
+    try {
+      response = await this.client.request<"thread/goal/get", ThreadGoalGetResponse>("thread/goal/get", {
+        threadId,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to hydrate thread goal after resume", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    const payload = asRecord(response);
+    const rawGoal = payload && hasOwnValue(payload, "goal") ? payload.goal : null;
+    if (rawGoal === null) {
+      this.applyThreadGoalHydratedAfterResume(threadId, null);
+      return;
+    }
+
+    const goal = parseThreadGoalPayload(rawGoal);
+    if (!goal || goal.threadId !== threadId) {
+      this.logger.warn("Ignored malformed thread goal after resume", {
+        threadId,
+      });
+      return;
+    }
+
+    this.applyThreadGoalHydratedAfterResume(threadId, goal);
   }
 
   private listKnownTurns(threadId: string): CodexTurnSummary[] {
@@ -8213,6 +8454,18 @@ export class CodexService extends EventEmitter {
         prompt,
         optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
       );
+      const threadGoalDraftObjective = input.threadGoalDraft?.objective.trim() ?? "";
+      if (threadGoalDraftObjective.length > 0) {
+        const goal = await this.setThreadGoal({
+          threadId: link.threadId,
+          objective: threadGoalDraftObjective,
+          status: "active",
+          appendTranscriptItem: false,
+        });
+        if (goal) {
+          this.applyThreadGoalUpdated(link.threadId, goal);
+        }
+      }
       this.logger.info("Started first Codex turn for project session", {
         threadId: link.threadId,
         turnId: observedTurn.turnId,
@@ -8252,6 +8505,9 @@ export class CodexService extends EventEmitter {
         error,
       });
       const detail = error instanceof Error ? error.message : String(error);
+      if (progressThreadId === null && input.threadGoalDraft?.attachmentDirectory) {
+        await removeOwnedThreadGoalAttachmentDirectory(input.threadGoalDraft.attachmentDirectory).catch(() => undefined);
+      }
       this.emitThreadStartProgress({
         projectId: input.projectId,
         sessionId: input.sessionId,
@@ -8512,6 +8768,7 @@ export class CodexService extends EventEmitter {
         : this.buildCompleteTurnPagination(detail.turns.length),
     });
     this.persistThreadDetailSummary(detail);
+    await this.hydrateThreadGoalAfterResume(threadId);
 
     record.isStreaming = true;
     record.streamRole = "owner";
@@ -8947,13 +9204,7 @@ export class CodexService extends EventEmitter {
           { emitSourceNullUpdates: false },
         );
       case "thread/goal/set": {
-        const objective = readStringField(params, "objective") ?? "";
-        const tokenBudget = getFiniteNumber(params.tokenBudget);
-        return await this.setThreadGoal({
-          threadId: conversationId,
-          objective,
-          tokenBudget,
-        });
+        return await this.setThreadGoal(readThreadGoalSetParams(conversationId, params));
       }
       case "thread/goal/clear":
         await this.clearThreadGoal(conversationId);
@@ -9342,19 +9593,152 @@ export class CodexService extends EventEmitter {
     return response.goal ?? null;
   }
 
-  async setThreadGoal(input: { threadId: string; objective: string; tokenBudget?: number | null }): Promise<ThreadGoal | null> {
+  async setThreadGoal(input: CodexThreadGoalSetActionInput): Promise<ThreadGoal | null> {
     await this.ensureClientReady();
-    const response = await this.client.request<"thread/goal/set", ThreadGoalSetResponse>("thread/goal/set", {
-      threadId: input.threadId,
-      objective: input.objective,
-      tokenBudget: input.tokenBudget ?? null,
-    });
-    return response.goal ?? null;
+    const action = normalizeThreadGoalSetActionInput(input);
+    if (action.threadSettings) {
+      await this.updateThreadSettingsForNextTurn(action.threadId, action.threadSettings);
+    }
+    const response = await this.client.request<"thread/goal/set", ThreadGoalSetResponse>(
+      "thread/goal/set",
+      normalizeThreadGoalSetParams(action),
+    );
+    const goal = response.goal ?? null;
+    if (goal) {
+      this.applyThreadGoalUpdated(action.threadId, goal);
+      if (action.appendTranscriptItem !== false && typeof action.objective === "string") {
+        this.appendThreadGoalTranscriptTurn(action.threadId, goal);
+      }
+      this.emitThreadStreamSnapshotFromRecord(action.threadId, "no-owner-fallback");
+    }
+    return goal;
   }
 
   async clearThreadGoal(threadId: string): Promise<void> {
     await this.ensureClientReady();
     await this.client.request("thread/goal/clear", { threadId });
+  }
+
+  private applyThreadStatusLocal(
+    threadId: string,
+    statusType: CodexThreadStatusType,
+    statusActiveFlags: CodexThreadActiveFlag[],
+  ): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record?.detail) return;
+
+    record.detail = {
+      ...record.detail,
+      statusType,
+      statusActiveFlags: statusType === "active" ? [...statusActiveFlags] : [],
+      updatedAt: Math.max(record.detail.updatedAt, Date.now()),
+    };
+  }
+
+  private hasPendingThreadGoalSteering(threadId: string, record: CodexConversationRecord): boolean {
+    if (this.listPendingSteers(threadId).length > 0) return true;
+    return hasPendingSteeringTranscriptEntry(record.detail?.transcript ?? []);
+  }
+
+  private hasInProgressThreadGoalWork(threadId: string, record: CodexConversationRecord): boolean {
+    if (record.detail?.statusType === "active") return true;
+    if ((record.detail?.statusActiveFlags.length ?? 0) > 0) return true;
+    if (this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress")) return true;
+    return hasRunningCollabAgentTranscriptEntry(record.detail?.transcript ?? []);
+  }
+
+  private canContinueActiveThreadGoal(threadId: string): boolean {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record) return false;
+    if (record.resumeState !== "resumed") return false;
+    if (record.threadGoal?.status !== "active") return false;
+    if (this.listPendingConversationRequests(threadId).length > 0) return false;
+    if (this.hasPendingThreadGoalSteering(threadId, record)) return false;
+    if (record.streamRole !== "owner") return false;
+    if (!record.isStreaming) return false;
+    if (this.hasInProgressThreadGoalWork(threadId, record)) return false;
+    return true;
+  }
+
+  private clearActiveGoalContinuationTimer(threadId: string): void {
+    const timer = this.activeGoalContinuationTimers.get(threadId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.activeGoalContinuationTimers.delete(threadId);
+  }
+
+  private waitForActiveGoalContinuationDelay(threadId: string): Promise<void> {
+    this.clearActiveGoalContinuationTimer(threadId);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.activeGoalContinuationTimers.delete(threadId);
+        resolve();
+      }, ACTIVE_THREAD_GOAL_CONTINUATION_DELAY_MS);
+      this.activeGoalContinuationTimers.set(threadId, timer);
+    });
+  }
+
+  private async continueActiveThreadGoalWithEmptyTurn(threadId: string): Promise<void> {
+    const detail = this.getMaybeConversationRecord(threadId)?.detail ?? this.serializeThreadDetail(threadId);
+    const params: TurnStartParams = {
+      threadId,
+      input: [],
+      ...(detail?.cwd ? { cwd: detail.cwd } : {}),
+    };
+    await this.client.request<"turn/start", TurnStartResponse>("turn/start", params);
+  }
+
+  private async maybeContinueActiveThreadGoal(threadId: string): Promise<void> {
+    if (this.activeGoalContinuationPromises.has(threadId)) return;
+    if (!this.canContinueActiveThreadGoal(threadId)) return;
+
+    const continuation = this.waitForActiveGoalContinuationDelay(threadId)
+      .then(async () => {
+        if (!this.canContinueActiveThreadGoal(threadId)) return;
+
+        const pendingThreadSettingsUpdate = this.pendingThreadSettingsUpdates.get(threadId);
+        if (pendingThreadSettingsUpdate) {
+          await pendingThreadSettingsUpdate;
+          if (!this.canContinueActiveThreadGoal(threadId)) return;
+        }
+
+        if (this.threadSettingsUpdateSupport === "unsupported") {
+          await this.continueActiveThreadGoalWithEmptyTurn(threadId);
+          return;
+        }
+
+        await this.setThreadGoal({ threadId, status: "active" });
+      })
+      .catch((error) => {
+        this.logger.error("Failed to continue active thread goal", {
+          threadId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        this.clearActiveGoalContinuationTimer(threadId);
+        this.activeGoalContinuationPromises.delete(threadId);
+      });
+
+    this.activeGoalContinuationPromises.set(threadId, continuation);
+    await continuation;
+  }
+
+  private async pauseActiveThreadGoalBeforeInterrupt(
+    threadId: string,
+    options: SourceNullBroadcastOptions = {},
+  ): Promise<void> {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (record?.threadGoal?.status !== "active") return;
+
+    const goal = await this.setThreadGoal({ threadId, status: "paused" });
+    record.threadGoal = goal;
+    record.completedThreadGoal = goal?.status === "complete" ? goal : null;
+    record.threadGoalResumeConfirmation = null;
+
+    if (options.emitSourceNullUpdates ?? true) {
+      this.emitThreadStreamSnapshotFromRecord(threadId, "no-owner-fallback");
+    }
   }
 
   async setThreadMemoryMode(input: { threadId: string; mode: ThreadMemoryMode }): Promise<void> {
@@ -9673,6 +10057,8 @@ export class CodexService extends EventEmitter {
       requestedTurnId: turnId ?? null,
       resolvedTurnId,
     });
+
+    await this.pauseActiveThreadGoalBeforeInterrupt(threadId, { emitSourceNullUpdates });
 
     await this.client.request("turn/interrupt", {
       threadId,
@@ -11928,6 +12314,7 @@ export class CodexService extends EventEmitter {
         statusType: parsed.statusType,
         statusActiveFlags: parsed.statusActiveFlags,
       });
+      this.applyThreadStatusLocal(payload.threadId, parsed.statusType, parsed.statusActiveFlags);
       const updated = updateCodexThreadStatus(payload.threadId, parsed.statusType, parsed.statusActiveFlags);
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
@@ -11945,6 +12332,9 @@ export class CodexService extends EventEmitter {
         statusType: parsed.statusType,
         statusActiveFlags: parsed.statusActiveFlags,
       });
+      if (!ownerRouted && parsed.statusType === "idle") {
+        void this.maybeContinueActiveThreadGoal(payload.threadId);
+      }
       return;
     }
 
@@ -12103,11 +12493,17 @@ export class CodexService extends EventEmitter {
       const ownerRouted = method === "thread/goal/updated" || method === "thread/goal/cleared"
         ? this.forwardNotificationToRendererOwner(method, payload)
         : false;
+      const shouldClearCompletedGoal = !ownerRouted && goal
+        ? this.shouldClearNewCompletedThreadGoal(payload.threadId, goal)
+        : false;
 
       if (method === "thread/goal/updated" && goal) {
         this.applyThreadGoalUpdated(payload.threadId, goal);
       } else {
         this.applyThreadGoalCleared(payload.threadId);
+      }
+      if (shouldClearCompletedGoal) {
+        this.scheduleCompletedThreadGoalClear(payload.threadId);
       }
 
       const known = this.getThreadLinkSafely(payload.threadId);

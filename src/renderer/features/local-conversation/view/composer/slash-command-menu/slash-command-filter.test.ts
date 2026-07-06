@@ -20,13 +20,25 @@ describe("composer slash command filtering", () => {
     const trigger = detectComposerSlashTrigger({ text: "prefix /mo", cursor: "prefix /mo".length });
 
     expect(trigger.active).toBeTrue();
+    expect(trigger.trigger).toBe("/");
     expect(trigger.query).toBe("mo");
     expect(trigger.from).toBe(7);
     expect(trigger.to).toBe(10);
   });
 
-  test("rejects slash tokens after another slash or after cursor drift", () => {
+  test("detects an at-command token at the cursor", () => {
+    const trigger = detectComposerSlashTrigger({ text: "ask @go", cursor: "ask @go".length });
+
+    expect(trigger.active).toBeTrue();
+    expect(trigger.trigger).toBe("@");
+    expect(trigger.query).toBe("go");
+    expect(trigger.from).toBe(4);
+    expect(trigger.to).toBe(7);
+  });
+
+  test("rejects command tokens after another slash, email text, or cursor drift", () => {
     expect(detectComposerSlashTrigger({ text: "http://x", cursor: "http://x".length }).active).toBeFalse();
+    expect(detectComposerSlashTrigger({ text: "email@example.com", cursor: "email@example.com".length }).active).toBeFalse();
     expect(detectComposerSlashTrigger({ text: "/model later", cursor: "/model later".length }).active).toBeFalse();
   });
 
@@ -57,6 +69,22 @@ describe("composer slash command filtering", () => {
 
     expect(matches.length).toBe(1);
     expect(matches[0]?.command.id).toBe("skill:browser");
+  });
+
+  test("uses trigger eligibility and keeps goal visible in non-empty composer text", () => {
+    const matches = filterComposerSlashCommands({
+      query: "go",
+      trigger: "@",
+      composerText: "ask @go",
+      commands: [
+        command({ id: "compact", title: "Compact", requiresEmptyComposer: true }),
+        command({ id: "model", title: "Model" }),
+        command({ id: "goal", title: "Goal", requiresEmptyComposer: false, triggers: ["/", "@"] }),
+      ],
+    });
+
+    expect(matches.length).toBe(1);
+    expect(matches[0]?.command.id).toBe("goal");
   });
 
   test("wraps keyboard highlight through visible matches", () => {

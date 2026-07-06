@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect } from "react";
+import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import { writeAtom } from "@/lib/persisted-atom-store";
@@ -32,6 +33,7 @@ interface ComposerSendButtonStoryProps {
   threadState: "existingThread" | "newChat";
   surfaceWidth: "normal" | "narrow";
   addContextState: "default" | "ideConnected" | "plugins";
+  savedGoalState: "none" | "active";
   seedPromptHistory: boolean;
 }
 
@@ -39,6 +41,17 @@ const LONG_PROMPT_STORY_DRAFT = Array.from(
   { length: 32 },
   (_, index) => `Refine the composer scroll behavior pass ${index + 1}: keep the native textarea as the only vertical scroll surface while preserving the footer controls.`,
 ).join("\n");
+
+const STORY_ACTIVE_THREAD_GOAL: ThreadGoal = {
+  threadId: "thread_storybook",
+  objective: "Keep migrating the composer goal workflow until it matches the reference behavior.",
+  status: "active",
+  tokenBudget: null,
+  tokensUsed: 0,
+  timeUsedSeconds: 45,
+  createdAt: 1,
+  updatedAt: 1,
+};
 
 function resolveStoryReasoningOptions(args: ComposerSendButtonStoryProps, fallback: CodexReasoningEffortOption[]) {
   if (args.selectedModelReasoningSupport === "highOnly") {
@@ -142,6 +155,12 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
       },
   };
   const footerModel = buildThreadStageStorySurfaceModels(scenario, controls, runtime).footerModel;
+  const conversation = args.savedGoalState === "active" && footerModel.conversation
+    ? {
+        ...footerModel.conversation,
+        threadGoal: STORY_ACTIVE_THREAD_GOAL,
+      }
+    : footerModel.conversation;
   const selectedModelReasoningOptions = resolveStoryReasoningOptions(args, footerModel.reasoningEffortOptions);
   const selectedModelOption = {
     id: args.selectedModel,
@@ -156,6 +175,7 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
 
   return {
     ...footerModel,
+    conversation,
     availableModels: resolveStoryAvailableModels({ args, footerModel, selectedModelOption }),
     selectedModel: args.selectedModel,
     selectedReasoningEffort: selectedModelReasoningOptions.some((option) => option.reasoningEffort === footerModel.selectedReasoningEffort)
@@ -256,10 +276,14 @@ function buildActions(): ThreadStageActions {
     onCleanBackgroundTerminals: async () => { },
     onNewThreadProjectChange: () => { },
     onRequestNewChatProjectCreate: () => { },
+    onStartThreadForSession: async () => { },
     onNewThreadStartInTargetChange: () => { },
     onNewThreadStartInEnvironmentChange: () => { },
     onRefreshNewThreadStartInEnvironments: async () => { },
     onOpenNewThreadLocalEnvironmentsSettings: () => { },
+    onGetThreadGoal: async () => null,
+    onSetThreadGoal: async () => null,
+    onClearThreadGoal: async () => { },
   };
 }
 
@@ -327,6 +351,7 @@ const meta = {
     threadState: "existingThread",
     surfaceWidth: "normal",
     addContextState: "default",
+    savedGoalState: "none",
     seedPromptHistory: false,
   },
   argTypes: {
@@ -377,6 +402,10 @@ const meta = {
     addContextState: {
       control: "radio",
       options: ["default", "ideConnected", "plugins"],
+    },
+    savedGoalState: {
+      control: "radio",
+      options: ["none", "active"],
     },
     seedPromptHistory: {
       control: "boolean",
@@ -613,6 +642,52 @@ export const InlineSlashCommandMenuFiltered: Story = {
   args: {
     draftPrompt: "/mo",
     modelCatalog: "expanded",
+  },
+};
+
+export const InlineGoalCommandEntry: Story = {
+  args: {
+    draftPrompt: "/goal",
+    modelCatalog: "expanded",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Goal command entry point. Select the Goal row to inspect the active goal-mode footer chip and goal placeholder.",
+      },
+    },
+  },
+};
+
+export const GoalReplacementConfirmationEntry: Story = {
+  args: {
+    draftPrompt: "/goal Replace the saved goal with the current composer objective.",
+    savedGoalState: "active",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Existing saved goal plus a replacement draft. Press the submit button to inspect the compact replacement confirmation dialog.",
+      },
+    },
+  },
+};
+
+export const NewThreadGoalDraft: Story = {
+  args: {
+    threadState: "newChat",
+    draftPrompt: "/goal Keep refining the migration until tests pass.",
+    modelCatalog: "expanded",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "New-thread Goal draft. Submitting starts the thread with the objective as the first prompt and carries `threadGoalDraft` for the post-create goal set.",
+      },
+    },
   },
 };
 

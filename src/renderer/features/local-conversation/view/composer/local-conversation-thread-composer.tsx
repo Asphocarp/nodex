@@ -11,6 +11,8 @@ import type {
   CodexPromptInput,
   CodexReasoningEffort,
   CodexReviewDiffCommentAttachment,
+  CodexThreadGoalDraftInput,
+  CodexThreadGoalMaterializedDraft,
 } from "@/lib/types";
 import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
@@ -30,6 +32,8 @@ import { cn } from "../../../../lib/utils";
 import {
   CodexCloseIcon,
   CodexFastModeIcon,
+  CodexGoalClearIcon,
+  CodexGoalTargetIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ComposerAddFilesIcon,
@@ -46,6 +50,15 @@ import {
 } from "@/components/shared/icons";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { toast } from "@/components/ui/toast";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogDescription,
+  NodexDialogFooter,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ComposerActionTooltipContent } from "./composer-submit-tooltip";
 import {
@@ -109,9 +122,19 @@ import {
   shouldShowComposerPlanKeywordSuggestion,
 } from "./composer-plan-mode";
 import {
+  buildComposerThreadGoalDraft,
+  type ComposerThreadGoalDraft,
+} from "./composer-thread-goal-draft";
+import { getThreadGoalMessage } from "../../thread-goal-copy";
+import {
+  cleanupMaterializedThreadGoalDraft,
+  materializeThreadGoalDraft,
+} from "../../thread-goal-materialization";
+import {
   COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME,
   COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME,
   COMPOSER_FOOTER_LABEL_NARROW_CLASS_NAME,
+  COMPOSER_FOOTER_LABEL_WIDE_CLASS_NAME,
   COMPOSER_FOOTER_PLAN_ACCESSORY_BUTTON_CLASS_NAME,
   ComposerFooterAccessoryDivider,
 } from "../shared/composer-footer-controls";
@@ -212,6 +235,11 @@ interface ComposerImageAttachment {
   dataUrl: string;
 }
 
+interface ComposerPastedTextAttachment {
+  id: string;
+  text: string;
+}
+
 interface ComposerSkillMentionAttachment {
   id: string;
   name: string;
@@ -221,8 +249,20 @@ interface ComposerSkillMentionAttachment {
 interface ComposerAttachmentState {
   fileAttachments: ComposerFileAttachment[];
   imageAttachments: ComposerImageAttachment[];
+  pastedTextAttachments: ComposerPastedTextAttachment[];
   skillMentions: ComposerSkillMentionAttachment[];
   commentAttachments: CodexReviewDiffCommentAttachment[];
+}
+
+interface ThreadGoalSubmissionDraft extends ComposerThreadGoalDraft {
+  imageAttachments: NonNullable<CodexThreadGoalDraftInput["imageAttachments"]>;
+  pastedTextAttachments: NonNullable<CodexThreadGoalDraftInput["pastedTextAttachments"]>;
+  hasUnsupportedAttachments: boolean;
+}
+
+interface ThreadGoalReplacementConfirmationState {
+  draft: ThreadGoalSubmissionDraft;
+  reset?: () => void;
 }
 
 function createComposerAttachmentId(prefix: string): string {
@@ -248,6 +288,9 @@ function buildComposerPromptInput(input: {
     source: attachment.dataUrl,
     caption: attachment.filename,
   }));
+  const textAttachments = input.attachments.pastedTextAttachments.map((attachment) => ({
+    text: attachment.text,
+  }));
   const mentions = input.attachments.fileAttachments.map((attachment) => ({
     name: attachment.label,
     path: attachment.path,
@@ -258,13 +301,20 @@ function buildComposerPromptInput(input: {
   }));
   const commentAttachments = input.attachments.commentAttachments;
 
-  if (images.length === 0 && mentions.length === 0 && skills.length === 0 && commentAttachments.length === 0) {
+  if (
+    images.length === 0
+    && textAttachments.length === 0
+    && mentions.length === 0
+    && skills.length === 0
+    && commentAttachments.length === 0
+  ) {
     return undefined;
   }
 
   return {
     text,
     ...(images.length > 0 ? { images } : {}),
+    ...(textAttachments.length > 0 ? { textAttachments } : {}),
     ...(mentions.length > 0 ? { mentions } : {}),
     ...(skills.length > 0 ? { skills } : {}),
     ...(commentAttachments.length > 0 ? { commentAttachments } : {}),
@@ -282,6 +332,10 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
       filename: image.caption?.trim() || getComposerAttachmentNameFromPath(image.source, "Image"),
       path: image.source,
       dataUrl: image.source,
+    })),
+    pastedTextAttachments: (promptInput?.textAttachments ?? []).map((attachment) => ({
+      id: createComposerAttachmentId("pasted_text"),
+      text: attachment.text,
     })),
     fileAttachments: (promptInput?.mentions ?? []).map((mention) => ({
       id: createComposerAttachmentId("file"),
@@ -309,8 +363,29 @@ function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
 function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState): boolean {
   return attachments.fileAttachments.length > 0
     || attachments.imageAttachments.length > 0
+    || attachments.pastedTextAttachments.length > 0
     || attachments.skillMentions.length > 0
     || attachments.commentAttachments.length > 0;
+}
+
+function buildThreadGoalSubmissionDraft(
+  draft: ComposerThreadGoalDraft,
+  attachments: ComposerAttachmentState,
+): ThreadGoalSubmissionDraft {
+  return {
+    ...draft,
+    imageAttachments: attachments.imageAttachments.map((attachment) => ({
+      source: attachment.dataUrl,
+      localPath: attachment.path,
+      filename: attachment.filename,
+    })),
+    pastedTextAttachments: attachments.pastedTextAttachments.map((attachment) => ({
+      text: attachment.text,
+    })),
+    hasUnsupportedAttachments: attachments.fileAttachments.length > 0
+      || attachments.skillMentions.length > 0
+      || attachments.commentAttachments.length > 0,
+  };
 }
 
 function parseSideChatCommand(prompt: string): string | null {
@@ -503,6 +578,107 @@ function ActiveComposerModeChip({
         <span className={COMPOSER_FOOTER_LABEL_NARROW_CLASS_NAME}>Plan</span>
       </button>
     </NodexTooltip>
+  );
+}
+
+function ActiveGoalModeChip({
+  active,
+  onClear,
+}: {
+  active: boolean;
+  onClear: () => void;
+}) {
+  if (!active) {
+    return null;
+  }
+
+  return (
+    <NodexTooltip
+      tooltipContent={<span className="text-token-foreground">{getThreadGoalMessage("composer.goalModeIndicator.tooltip")}</span>}
+      side="top"
+      align="center"
+      sideOffset={4}
+    >
+      <button
+        type="button"
+        aria-label={getThreadGoalMessage("composer.goalModeIndicator.clear")}
+        className={COMPOSER_FOOTER_PLAN_ACCESSORY_BUTTON_CLASS_NAME}
+        onClick={() => {
+          onClear();
+        }}
+      >
+        <CodexGoalTargetIcon className="icon-xs shrink-0 group-hover:hidden" />
+        <CodexGoalClearIcon className="icon-xs hidden shrink-0 group-hover:block" />
+        <span className={COMPOSER_FOOTER_LABEL_WIDE_CLASS_NAME}>
+          {getThreadGoalMessage("composer.goalModeIndicator")}
+        </span>
+      </button>
+    </NodexTooltip>
+  );
+}
+
+function ThreadGoalReplacementConfirmationDialog({
+  confirmation,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  confirmation: ThreadGoalReplacementConfirmationState | null;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!confirmation) {
+    return null;
+  }
+
+  return (
+    <NodexDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          onCancel();
+        }
+      }}
+    >
+      <NodexDialogContent
+        className="max-w-[28rem] gap-4 rounded-2xl p-5"
+        showCloseButton={false}
+      >
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onConfirm();
+          }}
+        >
+          <NodexDialogHeader className="gap-1 text-left">
+            <NodexDialogTitle className="text-base">
+              {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.title")}
+            </NodexDialogTitle>
+            <NodexDialogDescription>
+              {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.subtitle")}
+            </NodexDialogDescription>
+          </NodexDialogHeader>
+          <div className="line-clamp-4 rounded-lg bg-token-bg-secondary px-3 py-2 text-sm text-token-foreground">
+            {confirmation.draft.objective}
+          </div>
+          <NodexDialogFooter>
+            <NodexButton
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={onCancel}
+            >
+              {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.cancel")}
+            </NodexButton>
+            <NodexButton type="submit" disabled={pending}>
+              {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.confirm")}
+            </NodexButton>
+          </NodexDialogFooter>
+        </form>
+      </NodexDialogContent>
+    </NodexDialog>
   );
 }
 
@@ -834,6 +1010,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [dictationToastMessage, setDictationToastMessage] = useState<string | null>(null);
   const [fileAttachments, setFileAttachments] = useState<ComposerFileAttachment[]>([]);
   const [imageAttachments, setImageAttachments] = useState<ComposerImageAttachment[]>([]);
+  const [pastedTextAttachments, setPastedTextAttachments] = useState<ComposerPastedTextAttachment[]>([]);
   const [skillMentions, setSkillMentions] = useState<ComposerSkillMentionAttachment[]>([]);
   const [slashTrigger, setSlashTrigger] = useState<ComposerSlashTriggerState>(() => inactiveSlashTrigger());
   const [slashHighlight, setSlashHighlight] = useState<SlashHighlightState>({
@@ -844,6 +1021,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [slashDialogOpen, setSlashDialogOpen] = useState(false);
   const [desktopPetVisible, setDesktopPetVisible] = useState(false);
   const [planKeywordSuggestionDismissed, setPlanKeywordSuggestionDismissed] = useState(false);
+  const [goalModeActive, setGoalModeActive] = useState(false);
+  const [goalReplacementConfirmation, setGoalReplacementConfirmation] = useState<ThreadGoalReplacementConfirmationState | null>(null);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
   const resetPromptHistorySelectionRef = useRef<() => void>(() => {});
@@ -855,9 +1034,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const attachmentState = useMemo<ComposerAttachmentState>(() => ({
     fileAttachments,
     imageAttachments,
+    pastedTextAttachments,
     skillMentions,
     commentAttachments,
-  }), [commentAttachments, fileAttachments, imageAttachments, skillMentions]);
+  }), [commentAttachments, fileAttachments, imageAttachments, pastedTextAttachments, skillMentions]);
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
   const incrementAttachmentGeneration = useCallback(() => {
     attachmentGenerationRef.current += 1;
@@ -866,12 +1046,130 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     incrementAttachmentGeneration();
     setFileAttachments([]);
     setImageAttachments([]);
+    setPastedTextAttachments([]);
     setSkillMentions([]);
   }, [incrementAttachmentGeneration]);
   const recordSuccessfulPromptSubmit = useCallback((text: string) => {
     appendPromptToHistoryRef.current(text);
     resetPromptHistorySelectionRef.current();
   }, []);
+
+  const submitThreadGoalDraft = useCallback(async (
+    draft: ThreadGoalSubmissionDraft,
+    reset?: () => void,
+  ): Promise<boolean> => {
+    if (draft.hasUnsupportedAttachments) {
+      toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
+        id: "thread-goal-materialize-failed",
+      });
+      return false;
+    }
+
+    if (!model.conversation) {
+      const target = model.newThreadTarget;
+      if (!target?.sessionId || !actions.onStartThreadForSession) {
+        onErrorMessage("Session thread creation is not available.");
+        return false;
+      }
+
+      setBusyAction("send");
+      onErrorMessage(null);
+      let materialized: CodexThreadGoalMaterializedDraft;
+      try {
+        materialized = await materializeThreadGoalDraft({
+          objective: draft.objective,
+          imageAttachments: draft.imageAttachments,
+          pastedTextAttachments: draft.pastedTextAttachments,
+        });
+      } catch {
+        toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
+          id: "thread-goal-materialize-failed",
+        });
+        setBusyAction(null);
+        return false;
+      }
+
+      try {
+        await actions.onStartThreadForSession({
+          projectId: target.projectId,
+          sessionId: target.sessionId,
+          prompt: materialized.objective,
+          threadGoalDraft: {
+            objective: materialized.objective,
+            attachmentDirectory: materialized.attachmentDirectory,
+          },
+          runInTarget: target.runInTarget,
+          runInEnvironmentPath: target.runInEnvironmentPath,
+          worktreeStartMode: target.worktreeStartMode,
+          worktreeBranchPrefix: target.worktreeBranchPrefix,
+        });
+        recordSuccessfulPromptSubmit(draft.objective);
+        setGoalModeActive(false);
+        reset?.();
+        resetComposerAttachments();
+        clearReviewDiffCommentAttachments(composerThreadId);
+        return true;
+      } catch (error) {
+        onErrorMessage(error instanceof Error ? error.message : "Could not start thread goal");
+        return false;
+      } finally {
+        setBusyAction(null);
+      }
+    }
+
+    if (!actions.onSetThreadGoal) {
+      onErrorMessage(getThreadGoalMessage("composer.threadGoal.setError"));
+      return false;
+    }
+
+    setBusyAction("send");
+    onErrorMessage(null);
+    let materialized: CodexThreadGoalMaterializedDraft | null = null;
+    try {
+      materialized = await materializeThreadGoalDraft({
+        objective: draft.objective,
+        imageAttachments: draft.imageAttachments,
+        pastedTextAttachments: draft.pastedTextAttachments,
+      });
+    } catch {
+      toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
+        id: "thread-goal-materialize-failed",
+      });
+      setBusyAction(null);
+      return false;
+    }
+
+    try {
+      await actions.onSetThreadGoal({
+        threadId: model.conversation.threadId,
+        objective: materialized.objective,
+        status: "active",
+      });
+      materialized = null;
+      recordSuccessfulPromptSubmit(draft.objective);
+      setGoalModeActive(false);
+      reset?.();
+      resetComposerAttachments();
+      clearReviewDiffCommentAttachments(composerThreadId);
+      return true;
+    } catch {
+      await cleanupMaterializedThreadGoalDraft(materialized);
+      toast.danger(getThreadGoalMessage("composer.threadGoal.setError"), {
+        id: "thread-goal-set-failed",
+      });
+      return false;
+    } finally {
+      setBusyAction(null);
+    }
+  }, [
+    actions,
+    composerThreadId,
+    model.conversation,
+    onErrorMessage,
+    recordSuccessfulPromptSubmit,
+    resetComposerAttachments,
+    model.newThreadTarget,
+  ]);
 
   const submitPrompt = useCallback(async (
     input: {
@@ -887,6 +1185,42 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     });
     const hasPromptAttachments = promptInput !== undefined;
     const target = model.newThreadTarget;
+    const goalActionAvailable = model.conversation !== null
+      ? Boolean(actions.onSetThreadGoal)
+      : Boolean(actions.onStartThreadForSession) && canStartNewThreadTarget(model);
+    const goalDraftResult = buildComposerThreadGoalDraft({
+      promptRaw: input.prompt,
+      goalActionAvailable,
+      goalModeActive,
+      hasAttachments,
+    });
+
+    if (goalDraftResult.status === "empty") {
+      setGoalModeActive(false);
+      input.reset?.();
+      return;
+    }
+
+    if (goalDraftResult.status === "ready") {
+      const currentGoal = model.conversation?.threadGoal ?? null;
+      const submissionDraft = buildThreadGoalSubmissionDraft(goalDraftResult.draft, attachmentState);
+      if (
+        currentGoal
+        && (
+          currentGoal.objective !== submissionDraft.objective
+          || submissionDraft.hasAttachments
+        )
+      ) {
+        setGoalReplacementConfirmation({
+          draft: submissionDraft,
+          reset: input.reset,
+        });
+        return;
+      }
+
+      await submitThreadGoalDraft(submissionDraft, input.reset);
+      return;
+    }
 
     if (!nextPrompt && !hasPromptAttachments) {
       return;
@@ -998,6 +1332,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     actions,
     attachmentState,
     composerThreadId,
+    goalModeActive,
+    hasAttachments,
     model.activeTurn,
     model.conversation,
     model.isThreadRunning,
@@ -1006,6 +1342,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     onErrorMessage,
     recordSuccessfulPromptSubmit,
     resetComposerAttachments,
+    submitThreadGoalDraft,
   ]);
 
   const promptForm = useForm({
@@ -1015,7 +1352,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
         isThreadRunning: model.isThreadRunning,
         busyAction,
-        hasDraftContent: value.prompt.trim().length > 0 || hasAttachments,
+        hasDraftContent: value.prompt.trim().length > 0 || hasAttachments || goalModeActive,
         isQueueingEnabled: model.isQueueingEnabled,
       });
       await submitPrompt({
@@ -1083,6 +1420,41 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const handleToggleDesktopPet = useCallback(() => {
     setDesktopPetVisible((current) => !current);
   }, []);
+
+  const activateGoalMode = useCallback(() => {
+    setGoalModeActive(true);
+    setPlanKeywordSuggestionDismissed(true);
+    if (model.selectedCollaborationMode !== "plan") {
+      return;
+    }
+
+    const nextMode = resolveNextComposerPlanMode({
+      currentMode: model.selectedCollaborationMode,
+      modes: model.collaborationModes,
+    });
+    if (nextMode) {
+      void actions.onCollaborationModeChange(nextMode);
+    }
+  }, [actions, model.collaborationModes, model.selectedCollaborationMode]);
+
+  const clearFooterGoal = useCallback(() => {
+    const savedGoal = model.conversation?.threadGoal ?? null;
+    const clearThreadGoal = actions.onClearThreadGoal;
+    setGoalModeActive(false);
+
+    if (!savedGoal || !clearThreadGoal) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await clearThreadGoal(savedGoal.threadId);
+        promptEditorRef.current?.focusAtEnd();
+      } catch {
+        toast.danger(getThreadGoalMessage("composer.threadGoal.clearError"));
+      }
+    })();
+  }, [actions.onClearThreadGoal, model.conversation?.threadGoal]);
 
   const handlePickComposerFiles = useCallback(async () => {
     const imagesOnly = model.isCloudNewThreadTarget;
@@ -1159,7 +1531,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
           isThreadRunning: model.isThreadRunning,
           busyAction,
-          hasDraftContent: nextPrompt.trim().length > 0 || hasAttachments,
+          hasDraftContent: nextPrompt.trim().length > 0 || hasAttachments || goalModeActive,
           isQueueingEnabled: model.isQueueingEnabled,
         });
         void submitPrompt({
@@ -1259,6 +1631,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   ]);
 
   useEffect(() => {
+    resetComposerAttachments();
+  }, [model.conversation?.threadId, model.isNewThreadTab, resetComposerAttachments]);
+
+  useEffect(() => {
     const composerIntent = model.composerIntent;
     const threadId = model.conversation?.threadId ?? model.body.threadId;
     if (!composerIntent || !threadId) return;
@@ -1267,6 +1643,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     incrementAttachmentGeneration();
     setFileAttachments(restoredAttachments.fileAttachments);
     setImageAttachments(restoredAttachments.imageAttachments);
+    setPastedTextAttachments(restoredAttachments.pastedTextAttachments);
     setSkillMentions(restoredAttachments.skillMentions);
     clearReviewDiffCommentAttachments(threadId);
     for (const attachment of restoredAttachments.commentAttachments) {
@@ -1285,10 +1662,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     model.conversation?.threadId,
     promptForm,
   ]);
-
-  useEffect(() => {
-    resetComposerAttachments();
-  }, [model.conversation?.threadId, model.isNewThreadTab, resetComposerAttachments]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1331,6 +1704,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     setImageAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }, [incrementAttachmentGeneration]);
 
+  const handleRemovePastedTextAttachment = useCallback((attachmentId: string) => {
+    incrementAttachmentGeneration();
+    setPastedTextAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+  }, [incrementAttachmentGeneration]);
+
   const handleRemoveSkillMention = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
     setSkillMentions((current) => current.filter((attachment) => attachment.id !== attachmentId));
@@ -1348,7 +1726,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     insertPluginMention: handleInsertPluginMention,
     openExpandedDialog: () => setSlashDialogOpen(true),
     onPetToggle: handleToggleDesktopPet,
+    activateGoalMode,
   }), [
+    activateGoalMode,
     actions,
     handleInsertPluginMention,
     handleToggleDesktopPet,
@@ -1360,7 +1740,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     commands: slashCommands,
     query: slashTrigger.active ? slashTrigger.query : "",
     composerText: prompt,
-  }), [prompt, slashCommands, slashTrigger.active, slashTrigger.query]);
+    trigger: slashTrigger.trigger,
+  }), [prompt, slashCommands, slashTrigger.active, slashTrigger.query, slashTrigger.trigger]);
   const slashGroups = useMemo(() => groupComposerSlashCommandMatches(slashMatches), [slashMatches]);
   const slashMenuOpen = slashTrigger.active || nestedSlashCommand !== null;
   const planModeAvailable = hasPlanMode(model.collaborationModes);
@@ -1371,6 +1752,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     });
     if (!nextMode) return false;
     void actions.onCollaborationModeChange(nextMode);
+    if (nextMode === "plan") {
+      setGoalModeActive(false);
+    }
     setPlanKeywordSuggestionDismissed(false);
     return true;
   }, [actions, model.collaborationModes, model.selectedCollaborationMode]);
@@ -1378,7 +1762,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     prompt,
     currentMode: model.selectedCollaborationMode,
     modes: model.collaborationModes,
-    dismissed: planKeywordSuggestionDismissed,
+    dismissed: planKeywordSuggestionDismissed || goalModeActive,
   });
   const highlightedSlashCommandId = slashHighlight.commandId;
   const highlightedSlashCommandSource = slashHighlight.source;
@@ -1478,12 +1862,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
     if (source === "inline") {
       const trigger = slashTrigger;
-      if (command.Content) {
-        clearInlineSlashTrigger(trigger);
-        setNestedSlashCommand(command);
-        return;
-      }
-
       if (command.onSelectFromInlineSlash) {
         void command.onSelectFromInlineSlash({
           source: "inline",
@@ -1495,6 +1873,12 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           },
         });
         closeSlashMenu();
+        return;
+      }
+
+      if (command.Content) {
+        clearInlineSlashTrigger(trigger);
+        setNestedSlashCommand(command);
         return;
       }
 
@@ -1577,7 +1961,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
       isThreadRunning: model.isThreadRunning,
       busyAction,
-      hasDraftContent: prompt.trim().length > 0 || hasAttachments,
+      hasDraftContent: prompt.trim().length > 0 || hasAttachments || goalModeActive,
       isQueueingEnabled: model.isQueueingEnabled,
     });
 
@@ -1611,6 +1995,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }, [
     busyAction,
     closeSlashMenu,
+    goalModeActive,
     hasAttachments,
     highlightedSlashCommandId,
     model.composerEnterBehavior,
@@ -1632,7 +2017,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     togglePlanMode,
   ]);
 
-  const hasDraftContent = prompt.trim().length > 0 || hasAttachments;
+  const hasDraftContent = prompt.trim().length > 0 || hasAttachments || goalModeActive;
+  const hasFooterGoalChip = goalModeActive || Boolean(model.conversation?.threadGoal && actions.onClearThreadGoal);
   const hasMultilinePrompt = prompt.includes("\n");
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
@@ -1648,7 +2034,24 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     hasDraftContent &&
     (model.conversation !== null || canStartNewThreadTarget(model)),
   );
-  const promptPlaceholder = model.selectedCollaborationMode === "plan"
+  const handleCancelGoalReplacement = useCallback(() => {
+    if (busyAction !== null) return;
+    setGoalReplacementConfirmation(null);
+  }, [busyAction]);
+  const handleConfirmGoalReplacement = useCallback(() => {
+    const confirmation = goalReplacementConfirmation;
+    if (!confirmation || busyAction !== null) return;
+
+    void (async () => {
+      const succeeded = await submitThreadGoalDraft(confirmation.draft, confirmation.reset);
+      if (succeeded) {
+        setGoalReplacementConfirmation(null);
+      }
+    })();
+  }, [busyAction, goalReplacementConfirmation, submitThreadGoalDraft]);
+  const promptPlaceholder = goalModeActive
+    ? getThreadGoalMessage("composer.placeholder.goal")
+    : model.selectedCollaborationMode === "plan"
     ? "Describe your task to generate a plan..."
     : model.conversation
     ? "Ask for follow-up changes"
@@ -1736,6 +2139,19 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     >
                       <span className="size-3 rounded-sm bg-token-text-link-foreground/20" />
                       <span className="min-w-0 truncate">{attachment.filename}</span>
+                      <span className="text-token-description-foreground">x</span>
+                    </button>
+                  ))}
+                  {pastedTextAttachments.map((attachment, index) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                      onClick={() => handleRemovePastedTextAttachment(attachment.id)}
+                      title={`Remove pasted text ${index + 1}`}
+                    >
+                      <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                      <span className="min-w-0 truncate">Pasted text {index + 1}</span>
                       <span className="text-token-description-foreground">x</span>
                     </button>
                   ))}
@@ -1879,13 +2295,17 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     onSelect={actions.onPermissionModeChange}
                   />
 
-                  {model.selectedCollaborationMode === "plan" ? (
+                  {model.selectedCollaborationMode === "plan" || goalModeActive ? (
                     <ComposerFooterAccessoryDivider />
                   ) : null}
 
                   <ActiveComposerModeChip
                     model={model}
                     onToggle={togglePlanMode}
+                  />
+                  <ActiveGoalModeChip
+                    active={hasFooterGoalChip}
+                    onClear={clearFooterGoal}
                   />
                 </div>
 
@@ -1993,6 +2413,12 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         onHighlight={(commandId, source) => setSlashHighlight({ commandId, source })}
         onSelect={(command) => selectSlashCommand(command, "dialog")}
         onClose={() => setSlashDialogOpen(false)}
+      />
+      <ThreadGoalReplacementConfirmationDialog
+        confirmation={goalReplacementConfirmation}
+        pending={busyAction !== null}
+        onCancel={handleCancelGoalReplacement}
+        onConfirm={handleConfirmGoalReplacement}
       />
       {desktopPetVisible ? (
         <button

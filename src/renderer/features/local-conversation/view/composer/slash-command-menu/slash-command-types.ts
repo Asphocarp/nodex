@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 
+export type ComposerSlashCommandTrigger = "/" | "@";
+
 export interface ComposerSlashTriggerState {
   active: boolean;
-  trigger: "/";
+  trigger: ComposerSlashCommandTrigger;
   query: string;
   from: number;
   to: number;
@@ -34,6 +36,7 @@ export interface ComposerSlashCommand {
   description?: string;
   group: string;
   icon: ReactNode;
+  triggers?: readonly ComposerSlashCommandTrigger[];
   requiresEmptyComposer?: boolean;
   isEnabled?: boolean;
   isVisible?: boolean;

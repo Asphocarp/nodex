@@ -1,6 +1,7 @@
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandGroup,
+  ComposerSlashCommandTrigger,
   ComposerSlashCommandMatch,
   ComposerSlashTriggerState,
 } from "./slash-command-types";
@@ -13,19 +14,20 @@ export interface ComposerSlashTriggerInput {
 export function detectComposerSlashTrigger(input: ComposerSlashTriggerInput): ComposerSlashTriggerState {
   const cursor = Math.max(0, Math.min(input.cursor, input.text.length));
   const beforeCursor = input.text.slice(0, cursor);
-  const tokenMatch = /(?:^|\s)\/([^\s/]*)$/u.exec(beforeCursor);
+  const tokenMatch = /(?:^|\s)([/@])([^\s/@]*)$/u.exec(beforeCursor);
 
   if (!tokenMatch || tokenMatch.index < 0) {
     return inactiveSlashTrigger(cursor);
   }
 
-  const slashOffsetWithinMatch = tokenMatch[0].lastIndexOf("/");
-  const from = tokenMatch.index + slashOffsetWithinMatch;
-  const query = tokenMatch[1] ?? "";
+  const trigger = tokenMatch[1] as ComposerSlashCommandTrigger;
+  const triggerOffsetWithinMatch = tokenMatch[0].lastIndexOf(trigger);
+  const from = tokenMatch.index + triggerOffsetWithinMatch;
+  const query = tokenMatch[2] ?? "";
 
   return {
     active: true,
-    trigger: "/",
+    trigger,
     query,
     from,
     to: cursor,
@@ -46,13 +48,20 @@ export function filterComposerSlashCommands(input: {
   commands: readonly ComposerSlashCommand[];
   query: string;
   composerText: string;
+  trigger?: ComposerSlashCommandTrigger;
 }): ComposerSlashCommandMatch[] {
-  const isComposerEmpty = input.composerText.trim().length === 0 || input.composerText.trim().startsWith("/");
+  const trigger = input.trigger ?? "/";
+  const trimmedComposerText = input.composerText.trim();
+  const isComposerEmpty =
+    trimmedComposerText.length === 0 ||
+    trimmedComposerText.startsWith("/") ||
+    trimmedComposerText.startsWith("@");
   const normalizedQuery = normalizeSlashSearchText(input.query);
   const matches: ComposerSlashCommandMatch[] = [];
 
   for (const command of input.commands) {
     if (command.isVisible === false) continue;
+    if (!supportsSlashCommandTrigger(command, trigger)) continue;
     if (command.requiresEmptyComposer === true && !isComposerEmpty) continue;
 
     const match = matchSlashCommand(command, normalizedQuery);
@@ -64,6 +73,13 @@ export function filterComposerSlashCommands(input: {
     if (a.score !== b.score) return b.score - a.score;
     return a.command.title.localeCompare(b.command.title);
   });
+}
+
+function supportsSlashCommandTrigger(
+  command: ComposerSlashCommand,
+  trigger: ComposerSlashCommandTrigger,
+): boolean {
+  return (command.triggers ?? ["/"]).includes(trigger);
 }
 
 export function groupComposerSlashCommandMatches(

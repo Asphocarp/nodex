@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
-import { buildTurnErrorItemView, normalizeThreadItem } from "./codex-item-normalizer";
+import {
+  buildTurnErrorItemView,
+  normalizeThreadItem,
+  projectCodexItemViewToTranscriptEntry,
+} from "./codex-item-normalizer";
 
 function normalizeMcpItem(overrides: Record<string, unknown>) {
   return normalizeThreadItem(
@@ -582,6 +586,25 @@ describe("codex-item-normalizer", () => {
       expect((item?.markdownText ?? "").length).toBe(0);
       expect(item?.markdownText === variant.unexpectedFallback).toBeFalse();
     }
+  });
+
+  test("preserves Codex goal marker on user messages", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-user-goal",
+        type: "userMessage",
+        goal: true,
+        content: [{ type: "text", text: "/goal Ship parity" }],
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    expect(item?.goal ?? false).toBeTrue();
+
+    const transcriptEntry = item ? projectCodexItemViewToTranscriptEntry(item, "live", 0) : null;
+    expect(transcriptEntry?.goal ?? false).toBeTrue();
   });
 
   test("normalizes user-message images and context attachments separately from markdown text", () => {

@@ -28,6 +28,8 @@ import type {
   CodexPermissionRequestResponse,
   CodexPromptInput,
   CodexSteerTurnInput,
+  CodexThreadGoalDraftInput,
+  CodexThreadGoalSetActionInput,
   CodexThreadStatusType,
   CodexThreadSummary,
   CodexReasoningEffort,
@@ -156,6 +158,7 @@ export interface ThreadStageActions {
     sessionId: string;
     prompt: string;
     promptInput?: CodexPromptInput;
+    threadGoalDraft?: CodexThreadGoalDraftInput;
     runInTarget?: CardRunInTarget;
     runInEnvironmentPath?: string | null;
     worktreeStartMode?: WorktreeStartMode;
@@ -214,8 +217,9 @@ export interface ThreadStageActions {
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onCompactThread?: (threadId: string) => Promise<void>;
   onGetThreadGoal?: (threadId: string) => Promise<ThreadGoal | null>;
-  onSetThreadGoal?: (input: { threadId: string; objective: string; tokenBudget?: number | null }) => Promise<ThreadGoal | null>;
+  onSetThreadGoal?: (input: CodexThreadGoalSetActionInput) => Promise<ThreadGoal | null>;
   onClearThreadGoal?: (threadId: string) => Promise<void>;
+  onDismissThreadGoalResumeConfirmation?: (threadId: string) => Promise<void>;
   onSetThreadMemoryMode?: (input: { threadId: string; mode: ThreadMemoryMode }) => Promise<void>;
   onUploadFeedback?: (params: FeedbackUploadParams) => Promise<void>;
   onOpenStatusPanel?: (threadId: string) => void;

@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
+import { useEffect } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { selectConversationTurnRequestsByTurnId } from "../conversation-request-helpers";
@@ -26,6 +28,16 @@ const STORY_CONTROLS: ThreadStageStoryControls = {
   isQueueingEnabled: false,
   collapseAgentBody: false,
 };
+
+type GoalStoryInteraction = "expand-objective" | "open-edit-dialog";
+
+interface GoalStatusRowStoryOptions {
+  status?: ThreadGoal["status"];
+  objective?: string;
+  tokenBudget?: number | null;
+  tokensUsed?: number;
+  timeUsedSeconds?: number;
+}
 
 function buildActions(): ThreadStageActions {
   return {
@@ -60,6 +72,9 @@ function buildActions(): ThreadStageActions {
     onConsumeComposerIntent: () => { },
     onOpenThread: () => { },
     onCleanBackgroundTerminals: async () => { },
+    onSetThreadGoal: async () => null,
+    onClearThreadGoal: async () => { },
+    onDismissThreadGoalResumeConfirmation: async () => { },
   };
 }
 
@@ -89,6 +104,91 @@ function buildShellModel(customize?: (model: ReturnType<typeof buildThreadStageS
   const scenario = buildThreadStageStoryScenario(STORY_CONTROLS);
   const model = buildThreadStageStorySurfaceModels(scenario, STORY_CONTROLS, scenario.runtime);
   return customize ? customize(model) : model;
+}
+
+function buildGoalResumeConfirmationModel() {
+  return buildShellModel((current) => {
+    const threadId = current.footerModel.threadId;
+    const conversation = current.footerModel.conversation;
+    if (!threadId || !conversation) return current;
+
+    const goal: ThreadGoal = {
+      threadId,
+      objective: "Finish goal parity with the Codex Electron resume prompt and keep the thread moving while idle.",
+      status: "paused",
+      tokenBudget: null,
+      tokensUsed: 42,
+      timeUsedSeconds: 120,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+
+    return {
+      ...current,
+      footerModel: {
+        ...current.footerModel,
+        conversation: {
+          ...conversation,
+          threadGoal: goal,
+          threadGoalResumeConfirmation: goal,
+        },
+      },
+    };
+  });
+}
+
+function buildGoalStatusRowModel(input: ThreadGoal["status"] | GoalStatusRowStoryOptions = "active") {
+  const options: GoalStatusRowStoryOptions = typeof input === "string" ? { status: input } : input;
+  return buildShellModel((current) => {
+    const threadId = current.footerModel.threadId;
+    const conversation = current.footerModel.conversation;
+    if (!threadId || !conversation) return current;
+    const status = options.status ?? "active";
+
+    const goal: ThreadGoal = {
+      threadId,
+      objective: options.objective ?? [
+        "Drive the second research pass into a full implementation-ready parity package.",
+        "Keep API contracts, continuation state, UI layout, and fixture gaps synchronized until another agent can reproduce the feature from the docs.",
+      ].join(" "),
+      status,
+      tokenBudget: options.tokenBudget ?? 400000,
+      tokensUsed: options.tokensUsed ?? 124000,
+      timeUsedSeconds: options.timeUsedSeconds ?? 3665,
+      createdAt: 1,
+      updatedAt: Math.floor(Date.now() / 1000),
+    };
+
+    return {
+      ...current,
+      footerModel: {
+        ...current.footerModel,
+        conversation: {
+          ...conversation,
+          threadGoal: goal,
+          threadGoalResumeConfirmation: null,
+        },
+      },
+    };
+  });
+}
+
+function buildGoalLongObjectiveModel() {
+  return buildGoalStatusRowModel({
+    status: "active",
+    tokenBudget: null,
+    timeUsedSeconds: 3665,
+    objective: [
+      "Drive `/goal` parity until the implementation is reproducible from local docs alone.",
+      "",
+      "Acceptance:",
+      "1. Preserve the request and notification contract for get, set, clear, updated, and cleared.",
+      "2. Keep the composer footer chip, above-composer row, replacement confirmation, edit dialog, and resume confirmation aligned with the reference hierarchy.",
+      "3. Continue active goals only after idle status and only when no pending stream, request, steer, or runtime work is in progress.",
+      "4. Materialize long objectives, pasted text, and image references before storing the goal.",
+      "5. Update the parity ledger whenever a source-only inference becomes a verified implementation detail.",
+    ].join("\n"),
+  });
 }
 
 function buildPortalContentModel({
@@ -348,11 +448,43 @@ function AboveComposerStoryFrame({
   model = buildShellModel(),
   title,
   description,
+  goalInteraction = null,
 }: {
   model?: ReturnType<typeof buildThreadStageStorySurfaceModels>;
   title: string;
   description: string;
+  goalInteraction?: GoalStoryInteraction | null;
 }) {
+  useEffect(() => {
+    if (!goalInteraction) return undefined;
+
+    let cancelled = false;
+    const targetLabel = goalInteraction === "open-edit-dialog" ? "Edit goal" : "Show full goal";
+    const attemptInteraction = (remainingAttempts: number) => {
+      if (cancelled) return;
+
+      const target = document.querySelector<HTMLButtonElement>(`button[aria-label="${targetLabel}"]`);
+      if (target) {
+        target.click();
+        return;
+      }
+
+      if (remainingAttempts <= 0) return;
+      window.setTimeout(() => {
+        attemptInteraction(remainingAttempts - 1);
+      }, 50);
+    };
+
+    const timer = window.setTimeout(() => {
+      attemptInteraction(10);
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [goalInteraction, model.footerModel.threadId]);
+
   return (
     <div className="relative flex min-h-[320px] flex-col rounded-[24px] border border-(--border) bg-(--background) p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
       <div className="mb-4 max-w-2xl">
@@ -364,7 +496,7 @@ function AboveComposerStoryFrame({
         <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
           <div className="flex flex-col" data-thread-find-composer="true">
             <div className="relative h-0" data-thread-catch-up-control="true" />
-            <div className="flex flex-col gap-2" data-thread-footer-stack="true">
+            <div className="flex flex-col" data-thread-footer-stack="true">
               <LocalConversationAboveComposerPortalHost conversationId={model.footerModel.threadId} />
               <LocalConversationAboveComposerQueuePortalHost conversationId={model.footerModel.threadId} />
               <LocalConversationAboveComposerPortal
@@ -552,6 +684,137 @@ export const RequestCardsNarrow: Story = {
       "Narrow-width parity story verifying existing-thread request cards replace composer controls without rendering the new-chat-only lower status strip.",
   },
   render: () => <NarrowRequestCardsStory />,
+};
+
+export const GoalResumeConfirmation: Story = {
+  args: {
+    model: buildGoalResumeConfirmationModel(),
+    title: "Goal Resume Confirmation",
+    description:
+      "Focused story for the Codex-compatible paused-goal resume confirmation dialog mounted from the production composer shell.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalStatusRow: Story = {
+  args: {
+    model: buildGoalStatusRowModel(),
+    title: "Goal Status Row",
+    description:
+      "Focused story for the saved-goal row mounted in the above-composer queue portal: status label, objective, token progress, and edit/pause/clear controls use the production composer shell.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalStatusPaused: Story = {
+  args: {
+    model: buildGoalStatusRowModel({
+      status: "paused",
+      tokenBudget: null,
+      timeUsedSeconds: 120,
+    }),
+    title: "Goal Status Paused",
+    description:
+      "Paused saved-goal row with elapsed time and resume/clear/edit controls, matching the non-active status surface.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalStatusBlocked: Story = {
+  args: {
+    model: buildGoalStatusRowModel({
+      status: "blocked",
+      tokenBudget: null,
+      timeUsedSeconds: 3665,
+      objective: "Unblock goal parity by resolving the runtime contract question before continuing implementation.",
+    }),
+    title: "Goal Status Blocked",
+    description:
+      "Blocked saved-goal row with the Goal blocked label and resume action exposed from the production row.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalStatusUsageLimited: Story = {
+  args: {
+    model: buildGoalStatusRowModel({
+      status: "usageLimited",
+      tokenBudget: null,
+      timeUsedSeconds: 90_061,
+      objective: "Wait for usage availability, then continue the same saved objective without losing runtime state.",
+    }),
+    title: "Goal Status Usage Limited",
+    description:
+      "Usage-limited saved-goal row with elapsed duration formatting across day/hour/minute/second units.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalStatusBudgetLimited: Story = {
+  args: {
+    model: buildGoalStatusRowModel({
+      status: "budgetLimited",
+      tokenBudget: 400000,
+      tokensUsed: 400000,
+      objective: "Stop once the configured token budget is exhausted and keep the goal visible for review.",
+    }),
+    title: "Goal Status Budget Limited",
+    description:
+      "Budget-limited saved-goal row with compact token progress and no pause/resume toggle.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalStatusCompleteHidden: Story = {
+  args: {
+    model: buildGoalStatusRowModel({
+      status: "complete",
+      tokenBudget: null,
+      timeUsedSeconds: 125,
+      objective: "A transient complete goal is cached by runtime handling and cleared rather than kept above the composer.",
+    }),
+    title: "Goal Status Complete Hidden",
+    description:
+      "Transient complete-goal state: the production shell intentionally renders no above-composer goal row while complete-clear handling owns the cached result.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalLongObjectiveCollapsed: Story = {
+  args: {
+    model: buildGoalLongObjectiveModel(),
+    title: "Goal Long Objective Collapsed",
+    description:
+      "Long saved-goal objective in the collapsed row, including the expand affordance when the objective truncates.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalLongObjectiveExpanded: Story = {
+  args: {
+    model: buildGoalLongObjectiveModel(),
+    title: "Goal Long Objective Expanded",
+    description:
+      "Long saved-goal objective after expanding the production row into the pre-wrap scrollable objective area.",
+    goalInteraction: "expand-objective",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const GoalEditDialog: Story = {
+  args: {
+    model: buildGoalStatusRowModel({
+      status: "active",
+      tokenBudget: null,
+      timeUsedSeconds: 125,
+      objective: "Edit this saved objective and restart it as the active goal without appending a transcript item.",
+    }),
+    title: "Goal Edit Dialog",
+    description:
+      "Saved-goal edit dialog opened through the real row action, showing the textarea, Cancel, and Save controls.",
+    goalInteraction: "open-edit-dialog",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
 };
 
 export const RightPanelOverlayNarrow: Story = {

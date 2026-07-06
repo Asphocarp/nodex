@@ -15,6 +15,7 @@ function buildUserEntry(
   turnId: string,
   itemId: string,
   markdownText: string,
+  overrides: Partial<CodexConversationItem> = {},
 ): CodexConversationItem {
   return {
     threadId: "thread_1",
@@ -27,6 +28,7 @@ function buildUserEntry(
     markdownText,
     createdAt: 1,
     updatedAt: 1,
+    ...overrides,
   };
 }
 
@@ -155,6 +157,66 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.queryByLabelText("Ask in side chat") === null).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(staleStartedTime))).toBeFalse();
+  });
+
+  test("renders Codex goal status below goal user messages", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turn = buildTurn("turn_goal_user_status", "Keep working toward parity", "Done", {
+      items: [
+        buildUserEntry("turn_goal_user_status", "turn_goal_user_status_user", "Keep working toward parity", {
+          goal: true,
+        }),
+        buildAssistantEntry("turn_goal_user_status", "turn_goal_user_status_assistant", "Done"),
+      ],
+    });
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: true,
+          canForkTurn: false,
+        }),
+      ),
+    );
+
+    expect(Boolean(view.getByText("Sent as goal"))).toBeTrue();
+
+    const emptyGoalTurn = buildTurn("turn_empty_goal_user_status", "", "Done", {
+      items: [
+        buildUserEntry("turn_empty_goal_user_status", "turn_empty_goal_user_status_user", "", {
+          goal: true,
+        }),
+        buildAssistantEntry("turn_empty_goal_user_status", "turn_empty_goal_user_status_assistant", "Done"),
+      ],
+    });
+
+    view.rerender(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: emptyGoalTurn.turnId,
+          turn: emptyGoalTurn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: true,
+          canForkTurn: false,
+        }),
+      ),
+    );
+
+    expect(Boolean(view.getByText("Sent as goal"))).toBeTrue();
+    expect(view.queryByLabelText("Copy message") === null).toBeTrue();
   });
 
   test("renders pending and accepted steering surfaces separately", async () => {

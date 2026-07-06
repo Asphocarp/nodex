@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { motion } from "motion/react";
-import { ChevronRightIcon } from "@/components/shared/icons";
+import { ChevronRightIcon, CodexGoalTargetIcon } from "@/components/shared/icons";
 import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
 import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-review-surface";
 import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
@@ -156,6 +156,15 @@ function resolveSteeringStatusLabel(status: CodexConversationItem["steeringStatu
   if (status === "pending") return "Steering conversation";
   if (status === "accepted") return "Steered conversation";
   return null;
+}
+
+function UserMessageGoalStatus() {
+  return (
+    <div className="ms-1 mr-1 flex items-center gap-2">
+      <CodexGoalTargetIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+      <span className="text-token-description-foreground text-xs">Sent as goal</span>
+    </div>
+  );
 }
 
 interface ExplorationAccordionModel {
@@ -1224,6 +1233,9 @@ export function UserMessageBubble({
   const userActions = block.userMessageActions;
   const canEdit = userActions?.canEdit ?? false;
   const steeringStatusLabel = resolveSteeringStatusLabel(block.entry.steeringStatus);
+  const isGoalMessage = block.entry.goal === true;
+  const hasMessageContent = content.trim().length > 0;
+  const shouldRenderFooter = hasMessageContent || isGoalMessage;
   const [isEditing, setIsEditing] = useState(false);
   const [draftMessage, setDraftMessage] = useState(content);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
@@ -1332,9 +1344,10 @@ export function UserMessageBubble({
             <UserMessageText text={content} />
           </div>
         )}
-        {content.length > 0 ? (
+        {shouldRenderFooter ? (
           <div className="flex flex-row-reverse items-center gap-1">
-            {isEditing ? null : (
+            {isGoalMessage ? <UserMessageGoalStatus /> : null}
+            {isEditing || !hasMessageContent ? null : (
               <ThreadMessageActionRow align="end">
                 <MessageTimestamp sentAtMs={userActions?.sentAtMs ?? null} />
                 <div className="flex items-center gap-1">

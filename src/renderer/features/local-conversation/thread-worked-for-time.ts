@@ -10,23 +10,24 @@ export function formatWorkedForTimeLabel(durationMs: number): string | null {
   if (!Number.isFinite(durationMs)) return null;
 
   const totalSeconds = Math.floor(Math.max(durationMs, 0) / 1000);
-  if (totalSeconds < 1) return null;
+  if (totalSeconds < 1) return "0s";
   if (totalSeconds < 60) return `${totalSeconds}s`;
 
   const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor(totalSeconds / 3600);
-  const hoursPart = hours % 24;
+  const hoursPart = Math.floor(totalSeconds / 3600) % 24;
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (days > 0 || hours > 0) {
+  if (days > 0 || hoursPart > 0) {
     const parts: string[] = [];
     if (days > 0) parts.push(`${days}d`);
-    parts.push(`${hoursPart}h`, `${minutes}m`, `${seconds}s`);
+    if (hoursPart > 0) parts.push(`${hoursPart}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (seconds > 0) parts.push(`${seconds}s`);
     return parts.join(" ");
   }
 
-  return `${minutes}m ${seconds}s`;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
 export function resolveWorkedForElapsedMs(
