@@ -26,7 +26,7 @@ export function SlashCommandList({
 }: SlashCommandListProps) {
   if (matches.length === 0) {
     return (
-      <div className="px-3 py-2 text-sm text-token-description-foreground">
+      <div className="px-2 py-row-y text-sm text-token-description-foreground">
         No commands
       </div>
     );
@@ -37,11 +37,9 @@ export function SlashCommandList({
   return (
     <div
       className={cn(
-        "vertical-scroll-fade-mask flex min-h-0 flex-1 flex-col overflow-y-auto py-1",
+        "vertical-scroll-fade-mask flex w-full flex-1 flex-col overflow-y-auto",
         showGroupLabels && "scroll-pt-7",
       )}
-      role="listbox"
-      aria-label="Slash commands"
     >
       {groups.map((group) => (
         <SlashCommandGroup
@@ -74,9 +72,9 @@ function SlashCommandGroup({
   onSelect: (command: ComposerSlashCommand) => void;
 }) {
   return (
-    <div className="relative flex flex-col" role="group" aria-label={group.label}>
+    <div className="flex flex-col">
       {showLabel ? (
-        <div className="sticky top-0 z-10 bg-token-dropdown-background/95 px-3 py-1 text-sm text-token-description-foreground backdrop-blur-sm">
+        <div className="block px-2 pt-2 text-sm text-token-description-foreground">
           {group.label}
         </div>
       ) : null}
@@ -109,6 +107,11 @@ function SlashCommandRow({
 }) {
   const rowRef = useRef<HTMLButtonElement | null>(null);
   const disabled = command.isEnabled === false;
+  const rowClassName = [
+    "text-token-foreground outline-hidden opacity-75 focus:bg-token-list-hover-background cursor-interaction w-full shrink-0 overflow-hidden rounded-lg px-row-x py-row-y text-left text-sm",
+    "disabled:cursor-not-allowed disabled:opacity-45",
+    selected ? "bg-token-list-hover-background opacity-100" : "hover:bg-token-list-hover-background hover:opacity-100",
+  ].join(" ");
 
   useEffect(() => {
     if (!selected) return;
@@ -120,37 +123,34 @@ function SlashCommandRow({
     <button
       ref={rowRef}
       type="button"
-      role="option"
       aria-selected={selected}
       disabled={disabled}
+      data-list-navigation-item="true"
       data-slash-command-row={command.id}
-      className={cn(
-        "mx-1 flex min-h-9 w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-token-foreground outline-none transition-colors",
-        "disabled:cursor-not-allowed disabled:opacity-45",
-        selected ? "bg-token-list-hover-background" : "hover:bg-token-list-hover-background",
-      )}
+      className={rowClassName}
       onMouseEnter={() => onHighlight(command.id, "pointer")}
       onClick={() => {
         if (disabled) return;
         onSelect(command);
       }}
     >
-      <span className="icon-xs shrink-0 text-token-description-foreground">
+      <div className="flex w-full items-center gap-2">
         {command.icon}
-      </span>
-      <span
-        className={cn(
-          "truncate",
-          command.description ? "max-w-[60%] flex-none" : "min-w-0 flex-1",
-        )}
-      >
-        {command.title}
-      </span>
-      {command.description ? (
-        <span className="min-w-0 flex-1 truncate text-sm text-token-description-foreground">
-          {command.description}
-        </span>
-      ) : null}
+        <div
+          className={cn(
+            command.description
+              ? "max-w-[60%] flex-none truncate"
+              : "min-w-0 flex-1 truncate",
+          )}
+        >
+          {command.title}
+        </div>
+        {command.description ? (
+          <span className="min-w-0 flex-1 truncate text-sm text-token-description-foreground">
+            {command.description}
+          </span>
+        ) : null}
+      </div>
     </button>
   );
 }

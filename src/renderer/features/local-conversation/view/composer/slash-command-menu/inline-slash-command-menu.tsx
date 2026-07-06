@@ -52,39 +52,42 @@ export function InlineSlashCommandMenu({
 
   return (
     <div
-      data-slash-command-menu="true"
-      className={cn(
-        "absolute inset-x-0 bottom-[calc(100%+0.375rem)] z-50 flex max-h-[320px] min-h-0 flex-col overflow-hidden rounded-xl bg-token-dropdown-background/90 text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border/50 backdrop-blur-sm",
-      )}
-      role="dialog"
-      aria-label="Slash command menu"
+      data-composer-overlay-floating-ui="true"
+      className="absolute left-0 right-0 bottom-full z-50 mb-2"
     >
-      {nestedCommand?.Content ? (
-        <div className="flex min-h-0 flex-col">
-          <div className="flex min-h-9 items-center gap-2 border-b border-token-border/50 px-3 py-1.5 text-sm">
-            <button
-              type="button"
-              className="rounded-md px-2 py-1 text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground"
-              onClick={onBack}
-            >
-              Back
-            </button>
-            <span className="min-w-0 truncate font-medium">{nestedCommand.title}</span>
+      <div
+        data-slash-command-menu="true"
+        className={cn(
+          "border-token-border bg-token-dropdown-background/90 relative flex w-full flex-col overflow-hidden rounded-2xl border p-1 text-sm font-[445] text-token-foreground backdrop-blur-sm max-h-[320px]",
+        )}
+      >
+        {nestedCommand?.Content ? (
+          <div className="flex min-h-0 flex-col">
+            <div className="flex h-[30px] shrink-0 items-center gap-2 rounded-lg px-row-x py-row-y text-sm">
+              <button
+                type="button"
+                className="text-token-foreground outline-hidden opacity-75 focus:bg-token-list-hover-background cursor-interaction shrink-0 overflow-hidden rounded-lg px-row-x py-row-y text-left text-sm hover:bg-token-list-hover-background hover:opacity-100"
+                onClick={onBack}
+              >
+                Back
+              </button>
+              <span className="min-w-0 truncate">{nestedCommand.title}</span>
+            </div>
+            <div className="vertical-scroll-fade-mask flex w-full flex-1 flex-col overflow-y-auto">
+              {nestedCommand.Content({ close: onClose, back: onBack })}
+            </div>
           </div>
-          <div className="vertical-scroll-fade-mask min-h-0 overflow-y-auto p-1">
-            {nestedCommand.Content({ close: onClose, back: onBack })}
-          </div>
-        </div>
-      ) : (
-        <SlashCommandList
-          groups={groups}
-          matches={matches}
-          highlightedCommandId={highlightedCommandId}
-          highlightedSource={highlightedSource}
-          onHighlight={onHighlight}
-          onSelect={onSelect}
-        />
-      )}
+        ) : (
+          <SlashCommandList
+            groups={groups}
+            matches={matches}
+            highlightedCommandId={highlightedCommandId}
+            highlightedSource={highlightedSource}
+            onHighlight={onHighlight}
+            onSelect={onSelect}
+          />
+        )}
+      </div>
     </div>
   );
 }

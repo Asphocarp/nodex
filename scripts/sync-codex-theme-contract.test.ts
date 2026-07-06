@@ -74,7 +74,7 @@ describe("sync-codex-theme-contract", () => {
 
     const normalized = applyCodexRuntimeVscodeOverrides(declarations);
 
-    expect(normalized.get("--vscode-font-weight")).toBe("430");
+    expect(normalized.get("--vscode-font-weight")).toBe("445");
     expect(normalized.get("--vscode-font-family")).toBe("inherit");
     expect(normalized.get("--vscode-editor-font-weight")).toBe("normal");
   });

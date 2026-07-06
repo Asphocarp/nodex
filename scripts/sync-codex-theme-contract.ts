@@ -8,7 +8,7 @@ type CssBlock = {
 };
 
 const codexRuntimeVscodeOverrides: DeclarationMap = new Map([
-  ["--vscode-font-weight", "430"],
+  ["--vscode-font-weight", "445"],
 ]);
 
 const referencePath = resolve(
