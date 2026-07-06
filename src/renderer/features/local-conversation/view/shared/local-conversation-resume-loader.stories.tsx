@@ -31,8 +31,8 @@ const resumeLoaderArgs = buildResumeLoaderArgs();
 function ResumeLoaderStory(props: typeof resumeLoaderArgs) {
   return (
     <div className="flex min-h-screen bg-token-main-surface-primary">
-      <div className="mx-auto flex h-screen w-full max-w-(--thread-content-max-width) px-2.5 md:px-panel">
-        <LocalConversationResumeLoader {...props} />
+      <div className="relative mx-auto h-screen w-full max-w-(--thread-content-max-width) px-2.5 md:px-panel">
+        <LocalConversationResumeLoader {...props} fillParent />
       </div>
     </div>
   );

@@ -905,6 +905,7 @@ export function LocalConversationThreadBodyOwner({
           <LocalConversationResumeLoader
             title={body.emptyState.title}
             description={body.emptyState.description}
+            fillParent
           />
         ) : (
           <div

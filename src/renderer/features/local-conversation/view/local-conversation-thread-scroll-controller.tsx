@@ -732,7 +732,7 @@ export const LocalConversationThreadScrollLayout = forwardRef<
             data-mcp-app-portal-target="true"
             className={cn(
               THREAD_SCROLL_CONTENT_WRAPPER_CLASS_NAME,
-              "relative flex shrink-0 flex-col pb-8",
+              "relative flex flex-1 shrink-0 flex-col pb-8",
               contentWrapperClassName,
             )}
           >
