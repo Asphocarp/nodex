@@ -21,7 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 48;
+export const CURRENT_SCHEMA_VERSION = 49;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -68,25 +69,12 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 35) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 36) return [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 37) return [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 38) return [39, 40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 39) return [40, 41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 40) return [41, 42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 41) return [42, 43, 44, 45, 46, 47, 48];
-  if (currentVersion === 42) return [43, 44, 45, 46, 47, 48];
-  if (currentVersion === 43) return [44, 45, 46, 47, 48];
-  if (currentVersion === 44) return [45, 46, 47, 48];
-  if (currentVersion === 45) return [46, 47, 48];
-  if (currentVersion === 46) return [47, 48];
-  if (currentVersion === 47) return [48];
+
+  if (currentVersion === 26 || currentVersion === 30) return [...MIGRATION_TARGETS];
+  if (currentVersion === 36) return MIGRATION_TARGETS.slice(MIGRATION_TARGETS.indexOf(37));
+
+  const index = MIGRATION_TARGETS.indexOf(currentVersion as (typeof MIGRATION_TARGETS)[number]);
+  if (index >= 0) return MIGRATION_TARGETS.slice(index + 1);
   return null;
 }
 
@@ -253,6 +241,7 @@ function createLatestSchema(db: Database.Database): void {
       project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
       parent_thread_id TEXT,
       thread_name TEXT,
+      thread_source TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
       cwd TEXT,
@@ -789,6 +778,7 @@ function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
       project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
       parent_thread_id TEXT,
       thread_name TEXT,
+      thread_source TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
       cwd TEXT,
@@ -801,12 +791,12 @@ function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
     ) WITHOUT ROWID;
 
     INSERT INTO codex_threads_next (
-      thread_id, project_id, parent_thread_id, thread_name, thread_preview,
+      thread_id, project_id, parent_thread_id, thread_name, thread_source, thread_preview,
       model_provider, cwd, status_type, status_active_flags_json, archived,
       created_at, updated_at, linked_at
     )
     SELECT
-      thread_id, project_id, parent_thread_id, thread_name, thread_preview,
+      thread_id, project_id, parent_thread_id, thread_name, NULL, thread_preview,
       model_provider, cwd, status_type, status_active_flags_json, archived,
       created_at, updated_at, linked_at
     FROM codex_threads;
@@ -2057,6 +2047,14 @@ function migrateSchema47To48(db: Database.Database): void {
   setUserVersion(db, 48);
 }
 
+function migrateSchema48To49(db: Database.Database): void {
+  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "thread_source")) {
+    db.exec("ALTER TABLE codex_threads ADD COLUMN thread_source TEXT");
+  }
+
+  setUserVersion(db, 49);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -2205,6 +2203,14 @@ function runMigrations(
       }
       migrateSchema47To48(db);
       fromVersion = 48;
+      continue;
+    }
+    if (target === 49) {
+      if (fromVersion !== 48) {
+        throw new Error(`Unsupported Nodex database migration target 49 from ${fromVersion}`);
+      }
+      migrateSchema48To49(db);
+      fromVersion = 49;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

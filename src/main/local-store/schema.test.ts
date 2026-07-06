@@ -31,25 +31,26 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44,45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe("[45,46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(45))).toBe("[46,47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(46))).toBe("[47,48]");
-    expect(JSON.stringify(getSchemaMigrationTargets(47))).toBe("[48]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44,45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe("[45,46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(45))).toBe("[46,47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(46))).toBe("[47,48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(47))).toBe("[48,49]");
+    expect(JSON.stringify(getSchemaMigrationTargets(48))).toBe("[49]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -112,6 +113,7 @@ describe("schema initialization", () => {
       expect(codexThreadColumnNames.includes("id")).toBeFalse();
       expect(codexThreadColumns.find((column) => column.name === "thread_id")?.pk).toBe(1);
       expect(codexThreadColumns.find((column) => column.name === "project_id")?.notnull).toBe(0);
+      expect(codexThreadColumnNames.includes("thread_source")).toBeTrue();
       expect(codexThreadColumnNames.includes("card_id")).toBeFalse();
 
       const codexTableSql = db.prepare(`
@@ -155,6 +157,7 @@ describe("schema initialization", () => {
       expect(tableNames.includes("codex_thread_card_links")).toBeFalse();
       expect(tableNames.includes("card_history_snapshots")).toBeTrue();
       expect(tableColumnNames(db, "codex_threads").includes("card_id")).toBeFalse();
+      expect(tableColumnNames(db, "codex_threads").includes("thread_source")).toBeTrue();
 
       const threadSearchColumns = tableColumnNames(db, "thread_search_units");
       expect(threadSearchColumns.includes("project_id")).toBeTrue();
@@ -2680,6 +2683,77 @@ describe("schema initialization", () => {
 
         const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
         expect(JSON.stringify(foreignKeyProblems)).toBe("[]");
+      } finally {
+        migrated.close();
+      }
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.NODEX_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates schema 48 codex threads with nullable thread source", async () => {
+    closeDatabase();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-thread-source-"));
+    process.env.NODEX_DIR = tempDir;
+    let initializationRan = true;
+
+    try {
+      const dbPath = getDatabasePath();
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      const db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE codex_threads (
+          thread_id TEXT PRIMARY KEY,
+          project_id TEXT,
+          parent_thread_id TEXT,
+          thread_name TEXT,
+          thread_preview TEXT NOT NULL DEFAULT '',
+          model_provider TEXT NOT NULL DEFAULT '',
+          cwd TEXT,
+          status_type TEXT NOT NULL DEFAULT 'notLoaded',
+          status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+          archived INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          linked_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+        INSERT INTO codex_threads (
+          thread_id, project_id, parent_thread_id, thread_name, thread_preview,
+          model_provider, cwd, status_type, status_active_flags_json, archived,
+          created_at, updated_at, linked_at
+        ) VALUES (
+          'thread-1', NULL, NULL, 'Existing thread', '', 'openai', NULL,
+          'idle', '[]', 0, 1, 2, '1970-01-01T00:00:00.000Z'
+        );
+        PRAGMA user_version = 48;
+      `);
+      db.close();
+
+      await initializeDatabase();
+
+      const migrated = new Database(dbPath, { readonly: true });
+      try {
+        const version = migrated.prepare("PRAGMA user_version").get() as
+          | { user_version: number }
+          | undefined;
+        expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+        expect(tableColumnNames(migrated, "codex_threads").includes("thread_source")).toBeTrue();
+        const row = migrated.prepare("SELECT thread_name, thread_source FROM codex_threads WHERE thread_id = 'thread-1'")
+          .get() as { thread_name: string; thread_source: string | null } | undefined;
+        expect(row?.thread_name).toBe("Existing thread");
+        expect(row?.thread_source).toBe(null);
       } finally {
         migrated.close();
       }

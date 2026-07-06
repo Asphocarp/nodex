@@ -42,7 +42,10 @@ interface NotificationTestManager {
   addTurnCompletedListener: (listener: (payload: {
     conversationId: string;
     turnId: string;
+    status: "completed" | "failed";
     lastAgentMessage: string | null;
+    heartbeatAssistantMessage: unknown;
+    hasPendingContinuation: boolean;
   }) => void) => () => void;
   addApprovalRequestListener: (listener: (payload: {
     conversationId: string;
@@ -9727,17 +9730,29 @@ describe("local-conversation-store", () => {
     expect(managerRef === null).toBeFalse();
     const manager = requireNotificationTestManager(managerRef);
 
-    const completedTurns: Array<{ turnId: string; lastAgentMessage: string | null }> = [];
+    const completedTurns: Array<{
+      turnId: string;
+      status: "completed" | "failed";
+      lastAgentMessage: string | null;
+      heartbeatAssistantMessage: unknown;
+      hasPendingContinuation: boolean;
+    }> = [];
     const approvals: string[] = [];
     const questions: string[] = [];
     const stopTurnCompleted = manager.addTurnCompletedListener((payload: {
       conversationId: string;
       turnId: string;
+      status: "completed" | "failed";
       lastAgentMessage: string | null;
+      heartbeatAssistantMessage: unknown;
+      hasPendingContinuation: boolean;
     }) => {
       completedTurns.push({
         turnId: payload.turnId,
+        status: payload.status,
         lastAgentMessage: payload.lastAgentMessage,
+        heartbeatAssistantMessage: payload.heartbeatAssistantMessage,
+        hasPendingContinuation: payload.hasPendingContinuation,
       });
     });
     const stopApprovals = manager.addApprovalRequestListener((payload: {
@@ -9926,7 +9941,10 @@ describe("local-conversation-store", () => {
 
     expect(String(completedTurns.length)).toBe("1");
     expect(completedTurns[0]?.turnId).toBe("turn-2");
+    expect(completedTurns[0]?.status).toBe("completed");
     expect(completedTurns[0]?.lastAgentMessage).toBe("::code-comment{title=\"One\" body=\"Issue\" file=\"/tmp/a.ts\"}");
+    expect(completedTurns[0]?.heartbeatAssistantMessage === null).toBeTrue();
+    expect(completedTurns[0]?.hasPendingContinuation).toBeFalse();
     expect(String(approvals.length)).toBe("1");
     expect(approvals[0]).toBe("approval-live");
     expect(String(questions.length)).toBe("1");
@@ -10015,6 +10033,84 @@ describe("local-conversation-store", () => {
     await settleAsyncRender();
 
     expect(String(completedTurns.length)).toBe("1");
+
+    const systemInitialConversation: CodexConversationSnapshot = {
+      ...buildConversation("thread-system-helper", "project-1"),
+      threadSource: "system",
+      turns: [
+        {
+          threadId: "thread-system-helper",
+          turnId: "turn-system",
+          status: "inProgress",
+          itemIds: ["item-system"],
+          items: [
+            buildAssistantMessage("thread-system-helper", "turn-system", "item-system", "Working"),
+          ],
+        },
+      ],
+      requests: [],
+    };
+    const systemCompletedConversation: CodexConversationSnapshot = {
+      ...systemInitialConversation,
+      turns: [
+        {
+          ...systemInitialConversation.turns[0]!,
+          status: "completed",
+          items: [
+            buildAssistantMessage("thread-system-helper", "turn-system", "item-system", "Internal done"),
+          ],
+        },
+      ],
+      requests: [
+        {
+          type: "approval",
+          requestId: "approval-system",
+          kind: "command",
+          projectId: "project-1",
+          threadId: "thread-system-helper",
+          turnId: "turn-system",
+          itemId: "item-system-approval",
+          createdAt: 3,
+        },
+      ],
+    };
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-system-helper",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: systemInitialConversation,
+        },
+        version: 7,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-system-helper",
+        change: {
+          type: "patches",
+          baseRevision: 1,
+          revision: 2,
+          patches: buildCodexConversationStateUpdates(systemInitialConversation, systemCompletedConversation),
+        },
+        version: 8,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    expect(String(completedTurns.length)).toBe("1");
+    expect(String(approvals.length)).toBe("1");
+    expect(String(questions.length)).toBe("1");
 
     stopTurnCompleted();
     stopApprovals();

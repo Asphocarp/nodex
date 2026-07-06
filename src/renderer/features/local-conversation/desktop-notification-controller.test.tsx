@@ -25,7 +25,18 @@ let threadNotificationSettings: {
   questionsEnabled: true,
 };
 let turnCompletedListener:
-  | ((payload: { conversationId: string; turnId: string; lastAgentMessage: string | null }) => void)
+  | ((payload: {
+      conversationId: string;
+      turnId: string;
+      status: "completed" | "failed";
+      lastAgentMessage: string | null;
+      heartbeatAssistantMessage: null | {
+        decision: "NOTIFY" | "DONT_NOTIFY";
+        visibleText: string | null;
+        notificationMessage: string | null;
+      };
+      hasPendingContinuation: boolean;
+    }) => void)
   | null = null;
 let approvalRequestListener:
   | ((payload: {
@@ -73,9 +84,18 @@ const mockManager = {
     };
   },
   readConversation(threadId: string) {
+    if (threadId === "thread-system") {
+      return {
+        threadName: "Internal helper",
+        threadSource: "system",
+        source: null,
+      };
+    }
     if (threadId === "thread-1") {
       return {
         threadName: "Ship notifications",
+        threadSource: null,
+        source: null,
       };
     }
     return null;
@@ -85,6 +105,8 @@ const mockManager = {
       threadId,
       projectId: "project-1",
       threadName: "Summary title",
+      threadSource: null,
+      source: null,
     };
   },
   async startTurn(threadId: string, prompt: string) {
@@ -165,7 +187,10 @@ describe("DesktopNotificationController", () => {
     turnCompletedListener?.({
       conversationId: "thread-1",
       turnId: "turn-1",
+      status: "completed",
       lastAgentMessage: "::code-comment{title=\"One\" body=\"Issue\" file=\"/tmp/a.ts\"}",
+      heartbeatAssistantMessage: null,
+      hasPendingContinuation: false,
     });
     await settleAsyncRender();
 
@@ -223,7 +248,10 @@ describe("DesktopNotificationController", () => {
     turnCompletedListener?.({
       conversationId: "thread-1",
       turnId: "turn-2",
+      status: "completed",
       lastAgentMessage: "All done",
+      heartbeatAssistantMessage: null,
+      hasPendingContinuation: false,
     });
     await settleAsyncRender();
 
@@ -232,6 +260,92 @@ describe("DesktopNotificationController", () => {
     const payload = showCalls[0]?.[1] as { kind?: string; body?: string } | undefined;
     expect(payload?.kind).toBe("turn-complete");
     expect(payload?.body).toBe("All done");
+  });
+
+  test("uses heartbeat decisions and pending continuation to resolve turn-complete notifications", async () => {
+    resetTestState();
+    currentFocusState = false;
+    const { DesktopNotificationController } = await import("./desktop-notification-controller");
+
+    render(createElement(DesktopNotificationController, {
+      activeThreadId: "thread-2",
+      focusedStage: "cards",
+      threadsProjectId: "project-default",
+      onOpenThread: () => undefined,
+    }));
+    await settleAsyncRender();
+
+    turnCompletedListener?.({
+      conversationId: "thread-1",
+      turnId: "turn-pending",
+      status: "completed",
+      lastAgentMessage: "Queued follow-up will continue.",
+      heartbeatAssistantMessage: null,
+      hasPendingContinuation: true,
+    });
+    turnCompletedListener?.({
+      conversationId: "thread-1",
+      turnId: "turn-muted",
+      status: "completed",
+      lastAgentMessage: "No alert.<heartbeat><decision>DONT_NOTIFY</decision></heartbeat>",
+      heartbeatAssistantMessage: {
+        decision: "DONT_NOTIFY",
+        visibleText: "No alert.",
+        notificationMessage: null,
+      },
+      hasPendingContinuation: false,
+    });
+    turnCompletedListener?.({
+      conversationId: "thread-1",
+      turnId: "turn-heartbeat",
+      status: "completed",
+      lastAgentMessage: "Visible body",
+      heartbeatAssistantMessage: {
+        decision: "NOTIFY",
+        visibleText: "Visible body",
+        notificationMessage: "Explicit heartbeat body",
+      },
+      hasPendingContinuation: false,
+    });
+    await settleAsyncRender();
+
+    const showCalls = invokeCalls.filter((call) => call[0] === "desktop-notification:show");
+    expect(String(showCalls.length)).toBe("1");
+    const payload = showCalls[0]?.[1] as { id?: string; body?: string } | undefined;
+    expect(payload?.id).toBe("turn-turn-heartbeat");
+    expect(payload?.body).toBe("Explicit heartbeat body");
+  });
+
+  test("suppresses approval and question notifications for system conversations", async () => {
+    resetTestState();
+    currentFocusState = false;
+    const { DesktopNotificationController } = await import("./desktop-notification-controller");
+
+    render(createElement(DesktopNotificationController, {
+      activeThreadId: "thread-2",
+      focusedStage: "cards",
+      threadsProjectId: "project-default",
+      onOpenThread: () => undefined,
+    }));
+    await settleAsyncRender();
+
+    approvalRequestListener?.({
+      conversationId: "thread-system",
+      requestId: "approval-system",
+      kind: "command",
+      reason: "Internal approval",
+    });
+    userInputRequestListener?.({
+      conversationId: "thread-system",
+      requestId: "question-system",
+      turnId: "turn-system",
+      questionCount: 1,
+      firstQuestion: "Internal question?",
+    });
+    await settleAsyncRender();
+
+    const showCalls = invokeCalls.filter((call) => call[0] === "desktop-notification:show");
+    expect(String(showCalls.length)).toBe("0");
   });
 
   test("routes reply and approval actions back through thread navigation and manager methods", async () => {

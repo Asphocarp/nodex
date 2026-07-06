@@ -50,6 +50,7 @@ import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/Thr
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
 import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
+import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { ThreadGoalGetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalGetResponse";
@@ -472,6 +473,7 @@ function hasSidebarThreadSummaryChanged(
 ): boolean {
   if (!previous) return true;
   return previous.projectId !== next.projectId
+    || previous.threadSource !== next.threadSource
     || previous.threadName !== next.threadName
     || previous.threadPreview !== next.threadPreview
     || previous.modelProvider !== next.modelProvider
@@ -639,6 +641,15 @@ interface GenerateThreadTitleAdapterInput {
       handler: (notification: { method: string; params: unknown }) => void,
     ) => () => void;
   };
+}
+
+type InternalNotificationHandler = (notification: { method: string; params: unknown }) => void;
+
+interface InternalThreadMetadata {
+  kind: "thread-title";
+  threadSource: ThreadSource | null;
+  ephemeral: boolean;
+  createdAt: number;
 }
 
 type CodexServiceOptions = {
@@ -1317,6 +1328,10 @@ function parseThreadSourceParentThreadId(source: unknown): string | null {
   return typeof parentThreadId === "string" && parentThreadId.trim().length > 0
     ? parentThreadId
     : null;
+}
+
+function parseThreadSourceValue(value: unknown): ThreadSource | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 function isRolloutMaterializationError(error: unknown): boolean {
@@ -2135,6 +2150,8 @@ export class CodexService extends EventEmitter {
   private readonly codexAppHandoffWaiters = new Map<string, Set<() => void>>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly resumeNotificationBuffersByThreadId = new Map<string, BufferedResumeEvent[]>();
+  private readonly internalNotificationHandlers = new Set<InternalNotificationHandler>();
+  private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
   private readonly deferredThreadStartThreadIds = new Set<string>();
   private readonly readyDeferredThreadStartThreadIds = new Set<string>();
   private threadStartNotificationDeferralDepth = 0;
@@ -2238,8 +2255,8 @@ export class CodexService extends EventEmitter {
       }
     });
 
-    this.client.on("notification", ({ method, params }: CodexServerNotification) => {
-      void this.handleNotification(method, params);
+    this.client.on("notification", (notification: CodexServerNotification) => {
+      void this.routeAppServerNotification(notification);
     });
 
     this.client.on("stderr", (line: string) => {
@@ -2257,6 +2274,84 @@ export class CodexService extends EventEmitter {
   private emitEvent(event: CodexEvent): void {
     this.emit("event", event);
     this.emitHostMessagesForEvent(event);
+  }
+
+  private registerInternalNotificationHandler(handler: InternalNotificationHandler): () => void {
+    this.internalNotificationHandlers.add(handler);
+    return () => {
+      this.internalNotificationHandlers.delete(handler);
+    };
+  }
+
+  private markInternalThread(threadId: string, metadata: Omit<InternalThreadMetadata, "createdAt">): void {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return;
+    this.internalThreadIds.set(normalizedThreadId, {
+      ...metadata,
+      createdAt: Date.now(),
+    });
+  }
+
+  private clearInternalThread(threadId: string): void {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return;
+    this.internalThreadIds.delete(normalizedThreadId);
+  }
+
+  private registerInternalThreadFromStartedNotification(method: string, params: unknown): void {
+    if (method !== "thread/started") return;
+    const payload = asRecord(params);
+    const thread = asRecord(payload?.thread);
+    if (!thread || thread.ephemeral !== true) return;
+
+    const threadSource = parseThreadSourceValue(thread.threadSource);
+    if (threadSource !== "system") return;
+    const threadId = typeof thread.id === "string" ? thread.id : null;
+    if (!threadId) return;
+
+    this.markInternalThread(threadId, {
+      kind: "thread-title",
+      threadSource,
+      ephemeral: true,
+    });
+  }
+
+  private resolveNotificationThreadId(params: unknown): string | null {
+    const eventParams = asRecord(params);
+    const eventThreadId = parseEventThreadId(eventParams);
+    if (eventThreadId) return eventThreadId;
+
+    const turn = asRecord(eventParams?.turn);
+    if (typeof turn?.threadId === "string") return turn.threadId;
+    const item = asRecord(eventParams?.item);
+    if (typeof item?.threadId === "string") return item.threadId;
+    return null;
+  }
+
+  private routeAppServerNotification(notification: CodexServerNotification): void {
+    for (const handler of [...this.internalNotificationHandlers]) {
+      try {
+        handler(notification);
+      } catch (error) {
+        this.logger.warn("Internal Codex notification handler failed", {
+          method: notification.method,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    this.registerInternalThreadFromStartedNotification(notification.method, notification.params);
+    const threadId = this.resolveNotificationThreadId(notification.params);
+    if (threadId && this.internalThreadIds.has(threadId)) {
+      this.logger.debug("Suppressed internal Codex thread notification from visible pipeline", {
+        threadId,
+        method: notification.method,
+        kind: this.internalThreadIds.get(threadId)?.kind ?? null,
+      });
+      return;
+    }
+
+    void this.handleNotification(notification.method, notification.params);
   }
 
   private emitHostMessage(message: CodexHostMessage): void {
@@ -6949,6 +7044,7 @@ export class CodexService extends EventEmitter {
       projectId: detail.projectId,
       threadId: detail.threadId,
       source: detail.source,
+      threadSource: detail.threadSource ?? null,
       threadName: detail.threadName,
       threadPreview: detail.threadPreview,
       modelProvider: detail.modelProvider,
@@ -6988,6 +7084,7 @@ export class CodexService extends EventEmitter {
       projectId: link.projectId,
       threadId,
       source: link.source,
+      threadSource: reconciledDetail.threadSource ?? link.threadSource ?? null,
       threadName: reconciledDetail.threadName ?? link.threadName,
       threadPreview: reconciledDetail.threadPreview || link.threadPreview,
       cwd: reconciledDetail.cwd ?? link.cwd,
@@ -7389,6 +7486,7 @@ export class CodexService extends EventEmitter {
         sideConversationParentNavigationPath: input.parentNavigationPath,
       },
       ephemeral: true,
+      threadSource: parseThreadSourceValue(thread.threadSource) ?? "user",
       threadName: typeof thread.name === "string" ? thread.name : null,
       threadPreview: typeof thread.preview === "string" ? thread.preview : "",
       modelProvider: typeof thread.modelProvider === "string" ? thread.modelProvider : input.forkResponse.modelProvider,
@@ -7438,6 +7536,7 @@ export class CodexService extends EventEmitter {
       projectId: ref ? ref.projectId : existing?.projectId ?? null,
       threadId: candidate.id,
       source: parentThreadId ? { parentThreadId } : null,
+      threadSource: parseThreadSourceValue(candidate.threadSource),
       threadName: typeof candidate.name === "string" ? candidate.name : null,
       threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
       modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
@@ -7842,19 +7941,34 @@ export class CodexService extends EventEmitter {
       prompt: firstPrompt,
       cwd,
       appServerConnection: {
-        startThread: (params) => this.client.request("thread/start", params as ThreadStartParams),
+        startThread: async (params) => {
+          const result = await this.client.request("thread/start", params as ThreadStartParams);
+          const threadId = parseThreadIdFromStartResult(result);
+          if (
+            threadId
+            && params.ephemeral === true
+            && parseThreadSourceValue(params.threadSource) === "system"
+          ) {
+            this.markInternalThread(threadId, {
+              kind: "thread-title",
+              threadSource: "system",
+              ephemeral: true,
+            });
+          }
+          return result;
+        },
         startTurn: (params) => this.client.request("turn/start", params as TurnStartParams),
         interruptTurn: (params) => this.client.request("turn/interrupt", params),
-        unsubscribeThread: (threadId) =>
-          this.client.request<"thread/unsubscribe", ThreadUnsubscribeResponse>("thread/unsubscribe", {
-            threadId,
-          }),
-        registerInternalNotificationHandler: (handler) => {
-          this.client.on("notification", handler);
-          return () => {
-            this.client.off("notification", handler);
-          };
+        unsubscribeThread: async (threadId) => {
+          try {
+            return await this.client.request<"thread/unsubscribe", ThreadUnsubscribeResponse>("thread/unsubscribe", {
+              threadId,
+            });
+          } finally {
+            this.clearInternalThread(threadId);
+          }
         },
+        registerInternalNotificationHandler: (handler) => this.registerInternalNotificationHandler(handler),
       },
     });
   }
@@ -10075,6 +10189,7 @@ export class CodexService extends EventEmitter {
         projectId: detail.projectId,
         source: detail.source,
         ephemeral: detail.ephemeral,
+        threadSource: detail.threadSource ?? null,
         threadName: detail.threadName,
         threadPreview: detail.threadPreview,
         modelProvider: detail.modelProvider,

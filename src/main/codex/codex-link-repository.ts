@@ -4,6 +4,7 @@ import type {
   CodexThreadStatusType,
   CodexThreadSummary,
 } from "../../shared/types";
+import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
 import {
   CodexThreadActiveFlagSchema,
   CodexThreadStatusTypeSchema,
@@ -17,6 +18,7 @@ interface DbCodexThread {
   thread_id: string;
   parent_thread_id: string | null;
   thread_name: string | null;
+  thread_source: string | null;
   thread_preview: string;
   model_provider: string;
   cwd: string | null;
@@ -39,6 +41,7 @@ const CODEX_THREAD_SUMMARY_COLUMNS = `
   t.thread_id,
   t.parent_thread_id,
   t.thread_name,
+  t.thread_source,
   t.thread_preview,
   t.model_provider,
   t.cwd,
@@ -55,6 +58,7 @@ export interface UpsertCodexThreadInput {
   projectId?: string | null;
   threadId: string;
   source?: CodexConversationSource | null;
+  threadSource?: ThreadSource | null;
   threadName?: string | null;
   threadPreview?: string;
   modelProvider?: string;
@@ -84,6 +88,7 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
       ? { parentThreadId: row.parent_thread_id }
       : null,
     threadName: row.thread_name,
+    threadSource: row.thread_source,
     threadPreview: row.thread_preview,
     modelProvider: row.model_provider,
     cwd: row.cwd,
@@ -100,6 +105,7 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
 export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSummary {
   const database = getDb();
   const hasProjectIdInput = Object.prototype.hasOwnProperty.call(input, "projectId");
+  const hasThreadSourceInput = Object.prototype.hasOwnProperty.call(input, "threadSource");
   const projectId = hasProjectIdInput && input.projectId ? requireProjectId(input.projectId) : null;
   const nowMs = Date.now();
   const createdAt = Number.isFinite(input.createdAt) ? Number(input.createdAt) : nowMs;
@@ -111,6 +117,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       project_id,
       thread_id,
       thread_name,
+      thread_source,
       parent_thread_id,
       thread_preview,
       model_provider,
@@ -122,10 +129,11 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       updated_at,
       linked_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
       project_id = CASE WHEN ? = 1 THEN excluded.project_id ELSE codex_threads.project_id END,
       thread_name = COALESCE(excluded.thread_name, codex_threads.thread_name),
+      thread_source = CASE WHEN ? = 1 THEN excluded.thread_source ELSE codex_threads.thread_source END,
       parent_thread_id = COALESCE(excluded.parent_thread_id, codex_threads.parent_thread_id),
       thread_preview = excluded.thread_preview,
       model_provider = excluded.model_provider,
@@ -139,6 +147,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     projectId,
     input.threadId,
     input.threadName ?? null,
+    input.threadSource ?? null,
     input.source?.parentThreadId ?? null,
     input.threadPreview ?? "",
     input.modelProvider ?? "",
@@ -150,6 +159,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     updatedAt,
     linkedAt,
     hasProjectIdInput ? 1 : 0,
+    hasThreadSourceInput ? 1 : 0,
   );
   if (Object.prototype.hasOwnProperty.call(input, "pinned")) {
     setCodexThreadPinned(input.threadId, input.pinned === true);

@@ -28,6 +28,7 @@ import type {
   ReviewTarget as CodexAppServerReviewTarget,
   ThreadGoal as CodexAppServerThreadGoal,
   ThreadSettings as CodexAppServerThreadSettings,
+  ThreadSource as CodexAppServerThreadSource,
   ThreadItem as CodexAppServerThreadItem,
   ToolRequestUserInputParams as CodexAppServerToolRequestUserInputParams,
   TurnItemsView as CodexAppServerTurnItemsView,
@@ -1301,6 +1302,7 @@ export interface CodexThreadSummary {
   projectId: string | null;
   source: CodexConversationSource | null;
   ephemeral?: boolean;
+  threadSource?: CodexAppServerThreadSource | null;
   threadName: string | null;
   threadPreview: string;
   modelProvider: string;

@@ -16,6 +16,11 @@ import type {
   ThreadNotificationTurnMode,
 } from "../../lib/types";
 import { NEW_THREAD_STAGE_TAB_ID, type StageId } from "../../lib/use-workbench-state";
+import {
+  isCodexConversationDesktopNotificationEligible,
+  normalizeDesktopNotificationText,
+  type CodexTurnCompleteNotificationEnvelope,
+} from "../../../shared/codex-turn-notification";
 
 const APPROVAL_NOTIFICATION_ACTIONS = [
   {
@@ -35,15 +40,6 @@ const APPROVAL_NOTIFICATION_ACTIONS = [
   },
 ] as const;
 
-function normalizeNotificationText(value: string | null | undefined): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 0 ? normalized : null;
-}
-
 function summarizeCodeReviewFindings(message: string): string | null {
   const findings = message.match(/::code-comment\{/g)?.length ?? 0;
   if (findings <= 0) {
@@ -56,12 +52,30 @@ function summarizeCodeReviewFindings(message: string): string | null {
 }
 
 function buildTurnCompleteBody(lastAgentMessage: string | null): string {
-  const normalized = normalizeNotificationText(lastAgentMessage);
+  const normalized = normalizeDesktopNotificationText(lastAgentMessage);
   if (!normalized) {
     return "Codex finished a turn.";
   }
 
   return summarizeCodeReviewFindings(normalized) ?? normalized;
+}
+
+function resolveTurnCompleteBody(payload: CodexTurnCompleteNotificationEnvelope): string | null {
+  if (payload.hasPendingContinuation) {
+    return null;
+  }
+
+  const heartbeat = payload.heartbeatAssistantMessage;
+  if (heartbeat?.decision === "DONT_NOTIFY") {
+    return null;
+  }
+  if (heartbeat?.decision === "NOTIFY") {
+    return buildTurnCompleteBody(
+      heartbeat.notificationMessage ?? heartbeat.visibleText ?? payload.lastAgentMessage,
+    );
+  }
+
+  return buildTurnCompleteBody(payload.lastAgentMessage);
 }
 
 function buildQuestionBody(questionCount: number): string {
@@ -158,20 +172,41 @@ export function DesktopNotificationController({
 
       const conversation = manager.readConversation(payload.conversationId);
       const summary = manager.readThreadSummary(payload.conversationId);
+      if (!isCodexConversationDesktopNotificationEligible(conversation ?? summary ?? {
+        ephemeral: false,
+        threadSource: null,
+        source: null,
+      })) {
+        return;
+      }
+      const body = resolveTurnCompleteBody(payload);
+      if (!body) {
+        return;
+      }
       showNotification({
         id: `turn-${payload.turnId}`,
         kind: "turn-complete",
         title:
-          normalizeNotificationText(conversation?.threadName ?? summary?.threadName)
+          normalizeDesktopNotificationText(conversation?.threadName ?? summary?.threadName)
           ?? "Turn complete",
-        body: buildTurnCompleteBody(payload.lastAgentMessage),
+        body,
         conversationId: payload.conversationId,
         replyPlaceholder: "Reply to Codex",
       });
     });
 
     const stopApprovalRequests = manager.addApprovalRequestListener((payload) => {
-      if (!settings.permissionsEnabled || isSameFocusedConversation(payload.conversationId)) {
+      const conversation = manager.readConversation(payload.conversationId);
+      const summary = manager.readThreadSummary(payload.conversationId);
+      if (
+        !settings.permissionsEnabled
+        || isSameFocusedConversation(payload.conversationId)
+        || !isCodexConversationDesktopNotificationEligible(conversation ?? summary ?? {
+          ephemeral: false,
+          threadSource: null,
+          source: null,
+        })
+      ) {
         return;
       }
 
@@ -179,7 +214,7 @@ export function DesktopNotificationController({
         id: `approval-${payload.requestId}`,
         kind: "permission",
         title: payload.kind === "command" ? "Command approval" : "File edit approval",
-        body: normalizeNotificationText(payload.reason) ?? "Approval required",
+        body: normalizeDesktopNotificationText(payload.reason) ?? "Approval required",
         conversationId: payload.conversationId,
         requestId: payload.requestId,
         actions: [...APPROVAL_NOTIFICATION_ACTIONS],
@@ -187,17 +222,25 @@ export function DesktopNotificationController({
     });
 
     const stopUserInputRequests = manager.addUserInputRequestListener((payload) => {
-      if (!settings.questionsEnabled || isSameFocusedConversation(payload.conversationId)) {
+      const conversation = manager.readConversation(payload.conversationId);
+      const summary = manager.readThreadSummary(payload.conversationId);
+      if (
+        !settings.questionsEnabled
+        || isSameFocusedConversation(payload.conversationId)
+        || !isCodexConversationDesktopNotificationEligible(conversation ?? summary ?? {
+          ephemeral: false,
+          threadSource: null,
+          source: null,
+        })
+      ) {
         return;
       }
 
-      const conversation = manager.readConversation(payload.conversationId);
-      const summary = manager.readThreadSummary(payload.conversationId);
       showNotification({
         id: `question-${payload.requestId}`,
         kind: "question",
         title:
-          normalizeNotificationText(conversation?.threadName ?? summary?.threadName)
+          normalizeDesktopNotificationText(conversation?.threadName ?? summary?.threadName)
           ?? "Need your input",
         body: buildQuestionBody(payload.questionCount),
         conversationId: payload.conversationId,
@@ -242,7 +285,7 @@ export function DesktopNotificationController({
     }
 
     if (payload.actionType === "reply") {
-      const reply = normalizeNotificationText(payload.reply);
+      const reply = normalizeDesktopNotificationText(payload.reply);
       if (!conversationId || !reply) {
         return;
       }

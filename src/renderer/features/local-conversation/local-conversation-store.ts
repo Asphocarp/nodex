@@ -15,6 +15,7 @@ import type {
   FeedbackUploadParams,
   ThreadGoal,
   ThreadRollbackResponse,
+  ThreadSource,
   Turn,
   TurnStartResponse,
   UserInput,
@@ -88,6 +89,13 @@ import {
 } from "../../../shared/codex-conversation-patches";
 import { DEFAULT_CODEX_HOST_ID } from "../../../shared/codex-host";
 import { normalizeCodexManualThreadTitle } from "../../../shared/codex-thread-title";
+import {
+  hasCodexPendingContinuation,
+  isCodexConversationDesktopNotificationEligible,
+  normalizeDesktopNotificationText,
+  parseCodexHeartbeatAssistantMessage,
+  type CodexTurnCompleteNotificationEnvelope,
+} from "../../../shared/codex-turn-notification";
 import {
   buildCodexUserAttachmentsFromContent,
   buildTurnErrorItemView,
@@ -318,11 +326,7 @@ type StoreListener = () => void;
 type ConversationListener = (conversation: CodexConversationSnapshot) => void;
 type AnyConversationListener = (conversations: CodexConversationSnapshot[]) => void;
 type ControlListener = () => void;
-type TurnCompletedListener = (payload: {
-  conversationId: string;
-  turnId: string;
-  lastAgentMessage: string | null;
-}) => void;
+type TurnCompletedListener = (payload: CodexTurnCompleteNotificationEnvelope) => void;
 type ApprovalRequestListener = (payload: {
   conversationId: string;
   requestId: string;
@@ -948,6 +952,7 @@ function areThreadSummariesStructurallyEqual(
     && left.source?.sideConversation === right.source?.sideConversation
     && left.source?.sideConversationParentNavigationPath === right.source?.sideConversationParentNavigationPath
     && left.ephemeral === right.ephemeral
+    && left.threadSource === right.threadSource
     && left.threadName === right.threadName
     && left.threadPreview === right.threadPreview
     && left.modelProvider === right.modelProvider
@@ -1372,15 +1377,6 @@ function applyOwnerBackgroundTerminalCleanupToConversation(
     turns: nextTurns,
     backgroundTerminalRows: hadBackgroundRows ? [] : conversation.backgroundTerminalRows,
   };
-}
-
-function normalizeDesktopNotificationText(value: string | null | undefined): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 0 ? normalized : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -2522,6 +2518,7 @@ function materializeOwnerRollbackConversation(
       parentThreadId: thread.parentThreadId ?? currentConversation.source?.parentThreadId ?? null,
     },
     ephemeral: thread.ephemeral,
+    threadSource: parseOwnerThreadSourceValue(thread.threadSource) ?? currentConversation.threadSource ?? null,
     threadPreview: typeof thread.preview === "string" ? thread.preview : currentConversation.threadPreview,
     modelProvider: typeof thread.modelProvider === "string" ? thread.modelProvider : currentConversation.modelProvider,
     cwd: typeof thread.cwd === "string" ? thread.cwd : currentConversation.cwd,
@@ -2777,9 +2774,14 @@ function parseOwnerThreadSourceParentThreadId(source: unknown): string | null {
     : null;
 }
 
+function parseOwnerThreadSourceValue(value: unknown): ThreadSource | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
 function parseOwnerThreadStartedPayload(params: unknown): {
   threadId: string;
   parentThreadId: string | null;
+  threadSource: ThreadSource | null;
   threadName: string | null;
   threadPreview: string | null;
   modelProvider: string | null;
@@ -2811,6 +2813,7 @@ function parseOwnerThreadStartedPayload(params: unknown): {
   return {
     threadId,
     parentThreadId,
+    threadSource: parseOwnerThreadSourceValue(thread.threadSource),
     threadName,
     threadPreview: getString(thread, "preview"),
     modelProvider: getString(thread, "modelProvider"),
@@ -2835,6 +2838,7 @@ function applyOwnerThreadStartedToConversation(
     ...conversation,
     source,
     ephemeral: payload.ephemeral ?? conversation.ephemeral,
+    threadSource: payload.threadSource ?? conversation.threadSource ?? null,
     threadName: payload.threadName ?? conversation.threadName,
     threadPreview: payload.threadPreview ?? conversation.threadPreview,
     modelProvider: payload.modelProvider ?? conversation.modelProvider,
@@ -7935,7 +7939,11 @@ export class CodexAppServerManager {
     }
 
     this.threadSummariesById.set(nextThread.threadId, nextThread);
-    if (nextThread.ephemeral || nextThread.source?.sideConversation === true) {
+    if (!isCodexConversationDesktopNotificationEligible({
+      ephemeral: nextThread.ephemeral,
+      threadSource: nextThread.threadSource,
+      source: nextThread.source,
+    })) {
       this.notifyAnyConversationCallbacks({ forceMeta: true });
       return;
     }
@@ -8020,6 +8028,10 @@ export class CodexAppServerManager {
     currentConversation: CodexConversationSnapshot,
     nextConversation: CodexConversationSnapshot,
   ): void {
+    if (!isCodexConversationDesktopNotificationEligible(nextConversation)) {
+      return;
+    }
+
     this.emitTurnCompletedEvents(currentConversation, nextConversation);
     this.emitRequestNotificationEvents(currentConversation, nextConversation);
   }
@@ -8053,7 +8065,10 @@ export class CodexAppServerManager {
         listener({
           conversationId: nextConversation.threadId,
           turnId: nextTurn.turnId,
+          status: nextTurn.status,
           lastAgentMessage,
+          heartbeatAssistantMessage: parseCodexHeartbeatAssistantMessage(lastAgentMessage),
+          hasPendingContinuation: hasCodexPendingContinuation(nextConversation),
         });
       }
     }
@@ -8069,9 +8084,9 @@ export class CodexAppServerManager {
         continue;
       }
 
-      const message = normalizeDesktopNotificationText(item.markdownText);
-      if (message) {
-        return message;
+      const markdownText = typeof item.markdownText === "string" ? item.markdownText : null;
+      if (normalizeDesktopNotificationText(markdownText)) {
+        return markdownText;
       }
     }
 
@@ -8260,7 +8275,7 @@ export class CodexAppServerManager {
         ? previousPrimaryRequest
         : nextPrimaryRequest,
     );
-    if (!nextConversation.ephemeral && nextConversation.source?.sideConversation !== true) {
+    if (isCodexConversationDesktopNotificationEligible(nextConversation)) {
       this.ensureRecentConversationId(threadId);
     }
     if (isConversationStreaming(nextConversation)) {

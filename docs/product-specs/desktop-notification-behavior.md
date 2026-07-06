@@ -138,14 +138,22 @@ The producer emits a `turn-complete` event only when all of the following are tr
 - the turn existed before the update
 - the previous turn status was `inProgress`
 - the new turn status is `completed` or `failed`
+- the conversation is notification-eligible
 
 The event payload includes:
 
 - `conversationId`
 - `turnId`
+- `status`
 - `lastAgentMessage`
+- `heartbeatAssistantMessage`
+- `hasPendingContinuation`
 
-`lastAgentMessage` is taken from the final assistant message in that turn after whitespace normalization. If no assistant message exists, it is `null`.
+`lastAgentMessage` is taken from the final assistant message in that turn when it has non-empty text. If no assistant message exists, it is `null`. The renderer controller normalizes whitespace when shaping the final OS notification body.
+
+`heartbeatAssistantMessage` is derived from the final `<heartbeat>` block in that assistant text. `DONT_NOTIFY` suppresses the turn-complete notification. `NOTIFY` uses the heartbeat `<message>` when present, otherwise the assistant text with the heartbeat block removed.
+
+`hasPendingContinuation` is true when the conversation still has an unpaused queued follow-up, a pending steer, or an active thread goal. Turn-complete notifications are suppressed while this is true because the thread is expected to keep working.
 
 ### Interrupted-turn exclusion
 
@@ -165,6 +173,7 @@ The producer emits an approval notification event when:
 - a request id is present in the new `conversation.requests`
 - that request id was not present in the previous `conversation.requests`
 - the request type is `approval`
+- the conversation is notification-eligible
 
 The event payload includes:
 
@@ -182,6 +191,7 @@ The producer emits a question notification event when:
 - a request id is present in the new `conversation.requests`
 - that request id was not present in the previous `conversation.requests`
 - the request type is `userInput`
+- the conversation is notification-eligible
 
 The event payload includes:
 
@@ -201,6 +211,16 @@ The producer must not emit notifications from:
 
 Notifications come from live deltas, not from first-seen current state.
 
+### Notification eligibility
+
+A conversation is not eligible for thread desktop notifications when any of the following are true:
+
+- `ephemeral === true`
+- `threadSource === "system"`
+- `source.sideConversation === true`
+
+Auto-title helper threads and other internal system threads must stay out of turn-complete, approval, and question notification production.
+
 ## Focus and Suppression Rules
 
 ### Same-conversation focused
@@ -214,10 +234,12 @@ For desktop notification suppression, "same conversation focused" means:
 
 ### Turn-complete suppression
 
-Turn-complete notifications are governed only by:
+Turn-complete notifications are governed by:
 
 - `turnMode`
 - current window focus state
+- heartbeat suppression
+- pending continuation suppression
 
 Turn-complete notifications are not suppressed merely because the same conversation is already open.
 

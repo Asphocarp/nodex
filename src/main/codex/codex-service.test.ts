@@ -64,6 +64,7 @@ import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-s
 
 interface TestableCodexService {
   on: {
+    (event: "event", listener: (event: CodexEvent) => void): unknown;
     (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void): unknown;
     (event: "rendererOwnerHostMessage", listener: (message: { targetClientId: string; message: unknown }) => void): unknown;
   };
@@ -8307,6 +8308,10 @@ describe("codex-service startThreadForSession", () => {
         emit: (eventName: string, payload: unknown) => boolean;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
+      const emittedEvents: CodexEvent[] = [];
+      service.on("event", (event: CodexEvent) => {
+        emittedEvents.push(event);
+      });
 
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
@@ -8316,9 +8321,26 @@ describe("codex-service startThreadForSession", () => {
         }
         if (method === "thread/start") {
           const isHelperThread = requests.filter((request) => request.method === "thread/start").length > 1;
+          if (isHelperThread) {
+            client.emit("notification", {
+              method: "thread/started",
+              params: {
+                thread: {
+                  id: "thr_title_helper",
+                  ephemeral: true,
+                  threadSource: "system",
+                  modelProvider: "openai",
+                  createdAt: 1_780_800_000_000,
+                  updatedAt: 1_780_800_000_000,
+                },
+              },
+            });
+          }
           return {
             thread: {
               id: isHelperThread ? "thr_title_helper" : "thr_session_auto_title",
+              ephemeral: isHelperThread,
+              threadSource: isHelperThread ? "system" : "appServer",
               modelProvider: "openai",
               cwd: "/tmp/codex",
               createdAt: 1_780_800_000_000,
@@ -8400,6 +8422,13 @@ describe("codex-service startThreadForSession", () => {
         expect(helperPrompt.includes("/tmp/codex/skill")).toBeFalse();
         expect((setName?.params as { threadId?: string; name?: string } | undefined)?.threadId).toBe("thr_session_auto_title");
         expect((setName?.params as { name?: string } | undefined)?.name).toBe("Fix session auto-title");
+        expect(getCodexThread("thr_title_helper")).toBe(null);
+        expect(emittedEvents.some((event) =>
+          event.type === "turn" && event.turn.threadId === "thr_title_helper"
+        )).toBeFalse();
+        expect(emittedEvents.some((event) =>
+          event.type === "threadSummary" && event.thread.threadId === "thr_title_helper"
+        )).toBeFalse();
       } finally {
         await service.shutdown();
       }

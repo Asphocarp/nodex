@@ -58,6 +58,7 @@ describe("codex-link-repository", () => {
         projectId: projectId,
         threadId: "thr_test_1",
         source: { parentThreadId: "thr_parent" },
+        threadSource: "appServer",
         threadName: "Thread One",
         threadPreview: "Initial preview",
         modelProvider: "openai",
@@ -69,6 +70,7 @@ describe("codex-link-repository", () => {
       expect(first.threadName).toBe("Thread One");
       expect(first.archived).toBe(false);
       expect(first.source?.parentThreadId).toBe("thr_parent");
+      expect(first.threadSource).toBe("appServer");
 
       const second = upsertCodexThread({
         projectId: projectId,
@@ -85,6 +87,14 @@ describe("codex-link-repository", () => {
       expect(second.statusType).toBe("active");
       expect(second.statusActiveFlags.length).toBe(1);
       expect(second.source?.parentThreadId).toBe("thr_parent");
+      expect(second.threadSource).toBe("appServer");
+
+      const clearedSource = upsertCodexThread({
+        projectId: projectId,
+        threadId: "thr_test_1",
+        threadSource: null,
+      });
+      expect(clearedSource.threadSource).toBe(null);
 
       const byProject = listCodexProjectThreads(projectId);
       expect(byProject.length).toBe(1);
