@@ -191,6 +191,7 @@ export function GridSuggestionMenuController<
     >
       {triggerCharacter && (
         <GridSuggestionMenuWrapper
+          triggerCharacter={triggerCharacter}
           query={state.query}
           closeMenu={suggestionMenu.closeMenu}
           clearQuery={suggestionMenu.clearQuery}

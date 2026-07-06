@@ -184,6 +184,7 @@ export function SuggestionMenuController<
     >
       {triggerCharacter && (
         <SuggestionMenuWrapper
+          triggerCharacter={triggerCharacter}
           query={state.query}
           closeMenu={suggestionMenu.closeMenu}
           clearQuery={suggestionMenu.clearQuery}

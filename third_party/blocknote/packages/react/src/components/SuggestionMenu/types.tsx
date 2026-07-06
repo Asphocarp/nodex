@@ -18,6 +18,7 @@ export type DefaultReactSuggestionItem = Omit<DefaultSuggestionItem, "key"> & {
 export type SuggestionMenuProps<T> = {
   items: T[];
   loadingState: "loading-initial" | "loading" | "loaded";
+  itemsStale?: boolean;
   selectedIndex: number | undefined;
   onItemClick?: (item: T) => void;
 };

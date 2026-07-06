@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { startTransition, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core/extensions";
 import {
   SuggestionMenuController,
@@ -201,6 +201,7 @@ function resolveSuggestionTooltipContent(item: DefaultReactSuggestionItem) {
 export function NfmSuggestionMenuSurface({
   items,
   loadingState,
+  itemsStale = false,
   selectedIndex,
   onItemClick,
 }: SuggestionMenuProps<DefaultReactSuggestionItem>) {
@@ -297,6 +298,7 @@ export function NfmSuggestionMenuSurface({
     <NodexDropdownSurface
       id="bn-suggestion-menu"
       role="listbox"
+      aria-busy={loading || itemsStale}
       className="w-[min(17.5rem,calc(100vw-16px))] overflow-hidden"
     >
       <NodexDropdownScrollList
@@ -308,6 +310,10 @@ export function NfmSuggestionMenuSurface({
         {items.length === 0 ? (
           <NodexDropdownMessage compact centered>
             {loading ? "Loading..." : "No matching commands"}
+          </NodexDropdownMessage>
+        ) : itemsStale ? (
+          <NodexDropdownMessage compact centered>
+            Updating...
           </NodexDropdownMessage>
         ) : null}
       </NodexDropdownScrollList>
@@ -757,6 +763,36 @@ const DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS: NfmMentionGetItemsLoaders = {
   createThreadSearchIndex: createCommandPaletteThreadSearchIndex,
 };
 
+type NfmCardDescriptionSearchResults = Awaited<
+  ReturnType<NfmMentionGetItemsLoaders["searchCardDescriptions"]>
+>;
+
+type NfmThreadContentSearchResults = Awaited<
+  ReturnType<NfmMentionGetItemsLoaders["searchThreadContent"]>
+>;
+
+interface NfmMentionAsyncSearchResults {
+  key: string;
+  cardDescriptionSearchResults?: NfmCardDescriptionSearchResults;
+  threadContentSearchResults?: NfmThreadContentSearchResults;
+}
+
+function buildNfmMentionAsyncSearchKey({
+  activeProjectId,
+  projectIdsForCardSearch,
+  query,
+}: {
+  activeProjectId: string;
+  projectIdsForCardSearch: readonly string[];
+  query: string;
+}) {
+  return JSON.stringify([
+    activeProjectId,
+    projectIdsForCardSearch,
+    query,
+  ]);
+}
+
 export function useNfmMentionGetItems({
   editor,
   projectId,
@@ -765,6 +801,7 @@ export function useNfmMentionGetItems({
   projectIdsForCardSearch,
   loaders = DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS,
 }: NfmMentionGetItemsInput): (query: string) => Promise<DefaultReactSuggestionItem[]> {
+  const [asyncRefreshKey, setAsyncRefreshKey] = useState(0);
   const threadItemsRef = useRef<{ activeProjectId: string; items: CommandPaletteThread[] } | null>(null);
   const threadLoadPromiseRef = useRef<{ activeProjectId: string; promise: Promise<CommandPaletteThread[]> } | null>(null);
   const threadSearchIndexRef = useRef<{
@@ -772,6 +809,11 @@ export function useNfmMentionGetItems({
     items: CommandPaletteThread[];
     index: ReturnType<typeof createCommandPaletteThreadSearchIndex>;
   } | null>(null);
+  const asyncSearchResultsRef = useRef<NfmMentionAsyncSearchResults | null>(null);
+  const latestAsyncSearchKeyRef = useRef<string | null>(null);
+  const cardDescriptionSearchRequestRef = useRef<{ key: string; id: number } | null>(null);
+  const threadContentSearchRequestRef = useRef<{ key: string; id: number } | null>(null);
+  const asyncRequestIdRef = useRef(0);
   const projectIdRef = useRef(projectId);
   const loadersRef = useRef(loaders);
   const searchStateRef = useRef<NfmMentionSearchState>({
@@ -790,6 +832,12 @@ export function useNfmMentionGetItems({
     projectIdsForCardSearch,
   };
 
+  const bumpAsyncRefresh = useCallback(() => {
+    startTransition(() => {
+      setAsyncRefreshKey((current) => current + 1);
+    });
+  }, []);
+
   const loadThreadItems = useCallback(() => {
     const activeProjectId = projectIdRef.current;
     const cachedThreads = threadItemsRef.current;
@@ -803,8 +851,14 @@ export function useNfmMentionGetItems({
     }
 
     const promise = loadersRef.current.listThreadItems({ activeProjectId })
+      .catch(() => [])
       .then((items) => {
+        if (projectIdRef.current !== activeProjectId) {
+          return items;
+        }
+
         threadItemsRef.current = { activeProjectId, items };
+        bumpAsyncRefresh();
         return items;
       })
       .finally(() => {
@@ -814,7 +868,7 @@ export function useNfmMentionGetItems({
       });
     threadLoadPromiseRef.current = { activeProjectId, promise };
     return promise;
-  }, []);
+  }, [bumpAsyncRefresh]);
 
   const getThreadSearchIndex = useCallback((threadItems: CommandPaletteThread[]) => {
     const activeProjectId = projectIdRef.current;
@@ -832,8 +886,129 @@ export function useNfmMentionGetItems({
     return index;
   }, []);
 
+  const ensureAsyncSearches = useCallback(({
+    projectIdsForCardSearch: currentProjectIdsForCardSearch,
+    query,
+    requestKey,
+  }: {
+    projectIdsForCardSearch: readonly string[];
+    query: string;
+    requestKey: string;
+  }) => {
+    const queryText = query.trimStart().trim();
+    if (queryText.length === 0) {
+      return;
+    }
+
+    if (asyncSearchResultsRef.current?.key !== requestKey) {
+      asyncSearchResultsRef.current = { key: requestKey };
+    }
+
+    const currentResults = asyncSearchResultsRef.current;
+    if (!currentResults) {
+      return;
+    }
+
+    const currentLoaders = loadersRef.current;
+
+    if (
+      currentResults.cardDescriptionSearchResults === undefined &&
+      cardDescriptionSearchRequestRef.current?.key !== requestKey
+    ) {
+      const requestId = asyncRequestIdRef.current + 1;
+      asyncRequestIdRef.current = requestId;
+      cardDescriptionSearchRequestRef.current = { key: requestKey, id: requestId };
+
+      void currentLoaders.searchCardDescriptions({
+        projectIds: currentProjectIdsForCardSearch,
+        query,
+      })
+        .then((results) => {
+          if (
+            latestAsyncSearchKeyRef.current !== requestKey ||
+            cardDescriptionSearchRequestRef.current?.id !== requestId
+          ) {
+            return;
+          }
+
+          asyncSearchResultsRef.current = {
+            ...(asyncSearchResultsRef.current?.key === requestKey
+              ? asyncSearchResultsRef.current
+              : { key: requestKey }),
+            key: requestKey,
+            cardDescriptionSearchResults: results,
+          };
+          bumpAsyncRefresh();
+        })
+        .catch(() => {
+          if (
+            latestAsyncSearchKeyRef.current !== requestKey ||
+            cardDescriptionSearchRequestRef.current?.id !== requestId
+          ) {
+            return;
+          }
+
+          asyncSearchResultsRef.current = {
+            ...(asyncSearchResultsRef.current?.key === requestKey
+              ? asyncSearchResultsRef.current
+              : { key: requestKey }),
+            key: requestKey,
+            cardDescriptionSearchResults: [],
+          };
+          bumpAsyncRefresh();
+        });
+    }
+
+    if (
+      currentResults.threadContentSearchResults === undefined &&
+      threadContentSearchRequestRef.current?.key !== requestKey
+    ) {
+      const requestId = asyncRequestIdRef.current + 1;
+      asyncRequestIdRef.current = requestId;
+      threadContentSearchRequestRef.current = { key: requestKey, id: requestId };
+
+      void currentLoaders.searchThreadContent({ query })
+        .then((results) => {
+          if (
+            latestAsyncSearchKeyRef.current !== requestKey ||
+            threadContentSearchRequestRef.current?.id !== requestId
+          ) {
+            return;
+          }
+
+          asyncSearchResultsRef.current = {
+            ...(asyncSearchResultsRef.current?.key === requestKey
+              ? asyncSearchResultsRef.current
+              : { key: requestKey }),
+            key: requestKey,
+            threadContentSearchResults: results,
+          };
+          bumpAsyncRefresh();
+        })
+        .catch(() => {
+          if (
+            latestAsyncSearchKeyRef.current !== requestKey ||
+            threadContentSearchRequestRef.current?.id !== requestId
+          ) {
+            return;
+          }
+
+          asyncSearchResultsRef.current = {
+            ...(asyncSearchResultsRef.current?.key === requestKey
+              ? asyncSearchResultsRef.current
+              : { key: requestKey }),
+            key: requestKey,
+            threadContentSearchResults: [],
+          };
+          bumpAsyncRefresh();
+        });
+    }
+  }, [bumpAsyncRefresh]);
+
   return useCallback(
     async (query: string) => {
+      void asyncRefreshKey;
+
       const {
         editor: currentEditor,
         cardItems: currentCardItems,
@@ -841,32 +1016,41 @@ export function useNfmMentionGetItems({
         projectIdsForCardSearch: currentProjectIdsForCardSearch,
       } = searchStateRef.current;
       const currentLoaders = loadersRef.current;
-      const [
-        cardDescriptionSearchResults,
-        threadItems,
-        threadContentSearchResults,
-      ] = await Promise.all([
-        currentLoaders.searchCardDescriptions({
-          projectIds: currentProjectIdsForCardSearch,
-          query,
-        }),
-        loadThreadItems(),
-        currentLoaders.searchThreadContent({ query }),
-      ]);
+      const activeProjectId = projectIdRef.current;
+      const requestKey = buildNfmMentionAsyncSearchKey({
+        activeProjectId,
+        projectIdsForCardSearch: currentProjectIdsForCardSearch,
+        query,
+      });
+      latestAsyncSearchKeyRef.current = requestKey;
+
+      void loadThreadItems();
+      ensureAsyncSearches({
+        projectIdsForCardSearch: currentProjectIdsForCardSearch,
+        query,
+        requestKey,
+      });
+
+      const asyncResults = asyncSearchResultsRef.current?.key === requestKey
+        ? asyncSearchResultsRef.current
+        : undefined;
+      const cachedThreads = threadItemsRef.current?.activeProjectId === activeProjectId
+        ? threadItemsRef.current.items
+        : [];
       const cardResults = currentLoaders.selectCardResults({
         query,
         cards: currentCardItems,
         cardSearchIndex: currentCardSearchIndex,
-        cardDescriptionSearchResults,
+        cardDescriptionSearchResults: asyncResults?.cardDescriptionSearchResults ?? [],
         metadataCardLimit: 24,
         mergedCardLimit: 24,
         preferActiveProject: true,
       });
       const threadResults = currentLoaders.selectChatResults({
         query,
-        threads: threadItems,
-        threadSearchIndex: getThreadSearchIndex(threadItems),
-        threadContentSearchResults,
+        threads: cachedThreads,
+        threadSearchIndex: getThreadSearchIndex(cachedThreads),
+        threadContentSearchResults: asyncResults?.threadContentSearchResults ?? [],
         threadLimit: 24,
         preferActiveProject: true,
       });
@@ -878,7 +1062,7 @@ export function useNfmMentionGetItems({
         threadResults,
       });
     },
-    [getThreadSearchIndex, loadThreadItems],
+    [asyncRefreshKey, ensureAsyncSearches, getThreadSearchIndex, loadThreadItems],
   );
 }
 

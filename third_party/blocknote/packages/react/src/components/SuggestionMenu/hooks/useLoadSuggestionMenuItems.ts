@@ -16,20 +16,37 @@ export function useLoadSuggestionMenuItems<T>(
 
   const currentQuery = useRef<string | undefined>(undefined);
   const usedQuery = useRef<string | undefined>(undefined);
+  const latestRequestId = useRef(0);
 
   useEffect(() => {
     const thisQuery = query;
+    const requestId = latestRequestId.current + 1;
+    latestRequestId.current = requestId;
     currentQuery.current = query;
 
     setLoading(true);
 
-    getItems(query).then((items) => {
-      if (currentQuery.current !== thisQuery) {
+    void getItems(query).then((items) => {
+      if (
+        latestRequestId.current !== requestId ||
+        currentQuery.current !== thisQuery
+      ) {
         // outdated query returned, ignore the result
         return;
       }
 
       setItems(items);
+      setLoading(false);
+      usedQuery.current = thisQuery;
+    }).catch(() => {
+      if (
+        latestRequestId.current !== requestId ||
+        currentQuery.current !== thisQuery
+      ) {
+        return;
+      }
+
+      setItems([]);
       setLoading(false);
       usedQuery.current = thisQuery;
     });

@@ -10,7 +10,13 @@ export function SuggestionMenu<T extends DefaultReactSuggestionItem>(
   const Components = useComponentsContext()!;
   const dict = useDictionary();
 
-  const { items, loadingState, selectedIndex, onItemClick } = props;
+  const {
+    items,
+    loadingState,
+    itemsStale = false,
+    selectedIndex,
+    onItemClick,
+  } = props;
 
   const loader =
     loadingState === "loading-initial" || loadingState === "loading" ? (
@@ -59,6 +65,7 @@ export function SuggestionMenu<T extends DefaultReactSuggestionItem>(
     <Components.SuggestionMenu.Root
       id="bn-suggestion-menu"
       className="bn-suggestion-menu"
+      aria-busy={loadingState !== "loaded" || itemsStale}
     >
       {renderedItems}
       {renderedItems.length === 0 &&

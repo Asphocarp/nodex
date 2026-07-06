@@ -97,6 +97,7 @@ All notable changes to this project will be documented in this file.
 - Fixed active Thread recovery paths so owner helper failures and reconnect refreshes no longer overwrite live partial transcript text with stale fallback snapshots.
 - Fixed Card Stage long-description saves so description autosaves use staged chunk transport, durable writes run in the card worker, and board/search views read persisted summary indexes instead of reparsing full descriptions while `Saving...` is shown.
 - Fixed new Codex session rows so generated and manually renamed thread titles replace the initial `New thread` label in the sidebar.
+- Fixed fast NFM `@now` mention entry so pressing Enter before async picker results finish no longer inserts a stale `@no` item.
 - Fixed the NFM text-selection toolbar so collapsing a rich-text selection to a cursor no longer reopens the legacy formatting toolbar.
 - Fixed the NFM side-menu `Card in` flyout so hovering the row opens the DB picker reliably.
 - Fixed card history retention so retained card versions stay previewable/restorable after pruning by preserving internal reconstruction checkpoints.

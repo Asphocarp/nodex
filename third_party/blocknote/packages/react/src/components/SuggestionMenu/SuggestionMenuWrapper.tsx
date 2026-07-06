@@ -5,10 +5,12 @@ import { useBlockNoteContext } from "../../editor/BlockNoteContext.js";
 import { useBlockNoteEditor } from "../../hooks/useBlockNoteEditor.js";
 import { useCloseSuggestionMenuNoItems } from "./hooks/useCloseSuggestionMenuNoItems.js";
 import { useLoadSuggestionMenuItems } from "./hooks/useLoadSuggestionMenuItems.js";
+import { useSuggestionMenuFreshness } from "./hooks/useSuggestionMenuFreshness.js";
 import { useSuggestionMenuKeyboardNavigation } from "./hooks/useSuggestionMenuKeyboardNavigation.js";
 import { SuggestionMenuProps } from "./types.js";
 
 export function SuggestionMenuWrapper<Item>(props: {
+  triggerCharacter: string;
   query: string;
   closeMenu: () => void;
   clearQuery: () => void;
@@ -27,33 +29,44 @@ export function SuggestionMenuWrapper<Item>(props: {
   const {
     getItems,
     suggestionMenuComponent,
+    triggerCharacter,
     query,
     clearQuery,
     closeMenu,
     onItemClick,
   } = props;
 
-  const onItemClickCloseMenu = useCallback(
-    (item: Item) => {
-      closeMenu();
-      clearQuery();
-      onItemClick?.(item);
-    },
-    [onItemClick, closeMenu, clearQuery],
-  );
-
   const { items, usedQuery, loadingState } = useLoadSuggestionMenuItems(
     query,
     getItems,
   );
+  const { getLiveQuery, itemsFresh } = useSuggestionMenuFreshness({
+    triggerCharacter,
+    usedQuery,
+  });
 
-  useCloseSuggestionMenuNoItems(items, usedQuery, closeMenu);
+  const onItemClickCloseMenu = useCallback(
+    (item: Item) => {
+      if (!itemsFresh()) {
+        return;
+      }
+
+      closeMenu();
+      clearQuery();
+      onItemClick?.(item);
+    },
+    [onItemClick, closeMenu, clearQuery, itemsFresh],
+  );
+
+  useCloseSuggestionMenuNoItems(items, usedQuery, closeMenu, 3, itemsFresh);
 
   const { selectedIndex } = useSuggestionMenuKeyboardNavigation(
     editor,
     query,
     items,
+    usedQuery,
     onItemClickCloseMenu,
+    getLiveQuery,
   );
 
   // set basic aria attributes when the menu is open
@@ -95,6 +108,7 @@ export function SuggestionMenuWrapper<Item>(props: {
       items={items}
       onItemClick={onItemClickCloseMenu}
       loadingState={loadingState}
+      itemsStale={!itemsFresh()}
       selectedIndex={selectedIndex}
     />
   );

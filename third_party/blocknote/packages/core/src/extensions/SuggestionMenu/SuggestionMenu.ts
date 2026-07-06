@@ -17,6 +17,12 @@ export type SuggestionMenuState = UiElementPosition & {
   ignoreQueryLength?: boolean;
 };
 
+export type SuggestionMenuRuntimeState = {
+  triggerCharacter: string;
+  query: string;
+  show: boolean;
+};
+
 class SuggestionMenuView {
   public state?: SuggestionMenuState;
   public emitUpdate: (triggerCharacter: string) => void;
@@ -191,6 +197,17 @@ export const SuggestionMenu = createExtension(({ editor }) => {
     },
     clearQuery: () => {
       view?.clearQuery();
+    },
+    getMenuState: (): SuggestionMenuRuntimeState | undefined => {
+      if (!view?.state || !view.pluginState?.triggerCharacter) {
+        return undefined;
+      }
+
+      return {
+        triggerCharacter: view.pluginState.triggerCharacter,
+        query: view.pluginState.query,
+        show: Boolean(view.state.show),
+      };
     },
     shown: () => {
       return view?.state?.show || false;

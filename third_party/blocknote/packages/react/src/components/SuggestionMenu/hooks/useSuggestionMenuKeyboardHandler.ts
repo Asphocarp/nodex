@@ -5,6 +5,10 @@ import React, { useState } from "react";
 export function useSuggestionMenuKeyboardHandler<Item>(
   items: Item[],
   onItemClick?: (item: Item) => void,
+  options: {
+    itemsFresh?: () => boolean;
+    onStaleAccept?: () => void;
+  } = {},
 ) {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
@@ -12,10 +16,11 @@ export function useSuggestionMenuKeyboardHandler<Item>(
     selectedIndex,
     setSelectedIndex,
     handler: (event: KeyboardEvent | React.KeyboardEvent) => {
+      const itemsFresh = options.itemsFresh?.() ?? true;
       if (event.key === "ArrowUp") {
         event.preventDefault();
 
-        if (items.length) {
+        if (itemsFresh && items.length) {
           setSelectedIndex((selectedIndex - 1 + items!.length) % items!.length);
         }
 
@@ -25,7 +30,7 @@ export function useSuggestionMenuKeyboardHandler<Item>(
       if (event.key === "ArrowDown") {
         event.preventDefault();
 
-        if (items.length) {
+        if (itemsFresh && items.length) {
           setSelectedIndex((selectedIndex + 1) % items!.length);
         }
 
@@ -35,7 +40,7 @@ export function useSuggestionMenuKeyboardHandler<Item>(
       if (event.key === "PageUp") {
         event.preventDefault();
 
-        if (items.length) {
+        if (itemsFresh && items.length) {
           setSelectedIndex(0);
         }
 
@@ -45,7 +50,7 @@ export function useSuggestionMenuKeyboardHandler<Item>(
       if (event.key === "PageDown") {
         event.preventDefault();
 
-        if (items.length) {
+        if (itemsFresh && items.length) {
           setSelectedIndex(items.length - 1);
         }
 
@@ -58,6 +63,11 @@ export function useSuggestionMenuKeyboardHandler<Item>(
       if (event.key === "Enter" && !isComposing) {
         event.preventDefault();
         event.stopPropagation();
+
+        if (!itemsFresh) {
+          options.onStaleAccept?.();
+          return true;
+        }
 
         if (items.length) {
           onItemClick?.(items[selectedIndex]);

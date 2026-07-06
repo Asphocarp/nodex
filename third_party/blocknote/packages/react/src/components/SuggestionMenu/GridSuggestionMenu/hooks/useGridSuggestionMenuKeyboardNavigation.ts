@@ -1,5 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditorDOMElement } from "../../../../hooks/useEditorDomElement.js";
 
 // Hook which handles keyboard navigation of a grid suggestion menu. Arrow keys
@@ -9,25 +9,41 @@ export function useGridSuggestionMenuKeyboardNavigation<Item>(
   query: string,
   items: Item[],
   columns: number,
+  usedQuery: string | undefined,
   onItemClick?: (item: Item) => void,
+  getLiveQuery?: () => string | undefined,
 ) {
   const editorDOMElement = useEditorDOMElement(editor);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
-
-  const isGrid = columns !== undefined && columns > 1;
+  const pendingAcceptQuery = useRef<string | undefined>(undefined);
+  const getResolvedLiveQuery = useCallback(
+    () => getLiveQuery?.() ?? query,
+    [getLiveQuery, query],
+  );
+  const itemsFresh = useCallback(
+    () => usedQuery !== undefined && usedQuery === getResolvedLiveQuery(),
+    [getResolvedLiveQuery, usedQuery],
+  );
+  const markStaleAccept = useCallback(() => {
+    pendingAcceptQuery.current = getResolvedLiveQuery();
+  }, [getResolvedLiveQuery]);
 
   useEffect(() => {
     const handleMenuNavigationKeys = (event: KeyboardEvent) => {
+      const canUseItems = itemsFresh();
+
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        if (items.length) {
+
+        if (canUseItems && items.length) {
           setSelectedIndex((selectedIndex - 1 + items!.length) % items!.length);
         }
       }
 
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        if (items.length) {
+
+        if (canUseItems && items.length) {
           setSelectedIndex((selectedIndex + 1 + items!.length) % items!.length);
         }
       }
@@ -35,7 +51,7 @@ export function useGridSuggestionMenuKeyboardNavigation<Item>(
       if (event.key === "ArrowUp") {
         event.preventDefault();
 
-        if (items.length) {
+        if (canUseItems && items.length) {
           setSelectedIndex(
             (selectedIndex - columns + items!.length) % items!.length,
           );
@@ -47,7 +63,7 @@ export function useGridSuggestionMenuKeyboardNavigation<Item>(
       if (event.key === "ArrowDown") {
         event.preventDefault();
 
-        if (items.length) {
+        if (canUseItems && items.length) {
           setSelectedIndex((selectedIndex + columns) % items!.length);
         }
 
@@ -57,6 +73,11 @@ export function useGridSuggestionMenuKeyboardNavigation<Item>(
       if (event.key === "Enter" && !event.isComposing) {
         event.stopPropagation();
         event.preventDefault();
+
+        if (!canUseItems) {
+          markStaleAccept();
+          return true;
+        }
 
         if (items.length) {
           onItemClick?.(items[selectedIndex]);
@@ -81,7 +102,37 @@ export function useGridSuggestionMenuKeyboardNavigation<Item>(
         true,
       );
     };
-  }, [editorDOMElement, items, selectedIndex, onItemClick, columns, isGrid]);
+  }, [
+    columns,
+    editorDOMElement,
+    items,
+    itemsFresh,
+    markStaleAccept,
+    onItemClick,
+    selectedIndex,
+  ]);
+
+  useEffect(() => {
+    const pendingQuery = pendingAcceptQuery.current;
+    if (pendingQuery === undefined) {
+      return;
+    }
+
+    const liveQuery = getResolvedLiveQuery();
+    if (liveQuery !== pendingQuery) {
+      pendingAcceptQuery.current = undefined;
+      return;
+    }
+
+    if (usedQuery !== pendingQuery) {
+      return;
+    }
+
+    pendingAcceptQuery.current = undefined;
+    if (items.length) {
+      onItemClick?.(items[0]!);
+    }
+  }, [getResolvedLiveQuery, items, onItemClick, usedQuery]);
 
   // Resets index when items change
   useEffect(() => {

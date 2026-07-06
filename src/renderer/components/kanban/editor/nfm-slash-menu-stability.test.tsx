@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
@@ -7,6 +8,10 @@ import type { NfmMentionGetItemsLoaders } from "./nfm-slash-menu";
 import { useNfmMentionGetItems } from "./nfm-slash-menu";
 
 type GetItems = (query: string) => Promise<DefaultReactSuggestionItem[]>;
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+};
 
 let cardDescriptionSearchCalls = 0;
 let threadListCalls = 0;
@@ -76,19 +81,35 @@ function createSearchIndex(): CommandPaletteCardSearchIndex {
   };
 }
 
-function makeLoaders(): NfmMentionGetItemsLoaders {
+function createDeferred<T>(): Deferred<T> {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
+function makeLoaders(
+  options: {
+    listThreadItems?: NfmMentionGetItemsLoaders["listThreadItems"];
+    searchCardDescriptions?: NfmMentionGetItemsLoaders["searchCardDescriptions"];
+    searchThreadContent?: NfmMentionGetItemsLoaders["searchThreadContent"];
+    selectCardResults?: NfmMentionGetItemsLoaders["selectCardResults"];
+    selectChatResults?: NfmMentionGetItemsLoaders["selectChatResults"];
+  } = {},
+): NfmMentionGetItemsLoaders {
   return {
-    searchCardDescriptions: async () => {
+    searchCardDescriptions: options.searchCardDescriptions ?? (async () => {
       cardDescriptionSearchCalls += 1;
       return [];
-    },
-    listThreadItems: async () => {
+    }),
+    listThreadItems: options.listThreadItems ?? (async () => {
       threadListCalls += 1;
       return [makeThread()];
-    },
-    searchThreadContent: async () => [],
-    selectCardResults: ({ cards }) => cards,
-    selectChatResults: ({ threads }) => threads,
+    }),
+    searchThreadContent: options.searchThreadContent ?? (async () => []),
+    selectCardResults: options.selectCardResults ?? (({ cards }) => cards),
+    selectChatResults: options.selectChatResults ?? (({ threads }) => threads),
     createThreadSearchIndex: () => ({ search: () => [] }),
   };
 }
@@ -123,9 +144,15 @@ beforeEach(() => {
 });
 
 describe("useNfmMentionGetItems", () => {
-  test("keeps getItems stable across volatile card arrays and indexes", async () => {
+  test("keeps getItems stable across volatile card arrays until an async refresh lands", async () => {
     const getItemsSnapshots: GetItems[] = [];
-    const loaders = makeLoaders();
+    const threadList = createDeferred<CommandPaletteThread[]>();
+    const loaders = makeLoaders({
+      listThreadItems: async () => {
+        threadListCalls += 1;
+        return threadList.promise;
+      },
+    });
     const view = render(
       <MentionGetItemsHarness
         cards={[makePaletteCard()]}
@@ -156,13 +183,136 @@ describe("useNfmMentionGetItems", () => {
     const firstItems = await secondGetItems("");
     const secondItems = await secondGetItems("");
 
-    expect(firstItems.length).toBe(4);
-    expect(secondItems.length).toBe(4);
+    expect(firstItems.length).toBe(3);
+    expect(secondItems.length).toBe(3);
     expect(firstItems[0]?.group).toBe("Current project");
-    expect(firstItems[1]?.group).toBe("Current project");
-    expect(firstItems[2]?.title).toBe("Today");
-    expect(firstItems[3]?.title).toBe("Now");
-    expect(cardDescriptionSearchCalls).toBe(2);
+    expect(firstItems[1]?.title).toBe("Today");
+    expect(firstItems[2]?.title).toBe("Now");
+    expect(cardDescriptionSearchCalls).toBe(0);
     expect(threadListCalls).toBe(1);
+
+    await act(async () => {
+      threadList.resolve([makeThread()]);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const refreshedGetItems = getItemsSnapshots.at(-1);
+    expect(typeof refreshedGetItems).toBe("function");
+    if (!refreshedGetItems) return;
+    const refreshedItems = await refreshedGetItems("");
+    expect(refreshedItems.length).toBe(4);
+    expect(refreshedItems[0]?.title).toBe("Mention thread");
+    expect(refreshedItems[1]?.title).toBe("Mention card");
+    expect(refreshedItems[2]?.title).toBe("Today");
+    expect(refreshedItems[3]?.title).toBe("Now");
+  });
+
+  test("@now returns the date mention before slow full-text searches resolve", async () => {
+    const getItemsSnapshots: GetItems[] = [];
+    const threadList = createDeferred<CommandPaletteThread[]>();
+    const cardDescriptionSearch = createDeferred<[]>();
+    const threadContentSearch = createDeferred<[]>();
+    const loaders = makeLoaders({
+      listThreadItems: async () => threadList.promise,
+      searchCardDescriptions: async () => cardDescriptionSearch.promise,
+      searchThreadContent: async () => threadContentSearch.promise,
+    });
+
+    render(
+      <MentionGetItemsHarness
+        cards={[makePaletteCard()]}
+        cardSearchIndex={createSearchIndex()}
+        getItemsSnapshots={getItemsSnapshots}
+        loaders={loaders}
+      />,
+    );
+
+    const getItems = getItemsSnapshots.at(-1);
+    expect(typeof getItems).toBe("function");
+    if (!getItems) return;
+
+    const items = await getItems("now");
+
+    expect(items.length > 0).toBeTrue();
+    expect(items[0]?.title).toBe("Now");
+    expect(items[0]?.group).toBe("Dates");
+  });
+
+  test("slow search results only supplement the latest query", async () => {
+    const getItemsSnapshots: GetItems[] = [];
+    const oldCardSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchCardDescriptions"]>>>();
+    const nowCardSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchCardDescriptions"]>>>();
+    const loaders = makeLoaders({
+      listThreadItems: async () => new Promise<CommandPaletteThread[]>(() => undefined),
+      searchCardDescriptions: async ({ query }) => (
+        query === "old" ? oldCardSearch.promise : nowCardSearch.promise
+      ),
+      searchThreadContent: async () => new Promise<[]>(() => undefined),
+      selectCardResults: ({ cardDescriptionSearchResults }) => (
+        (cardDescriptionSearchResults ?? []).length > 0
+          ? [{
+            ...makePaletteCard(),
+            card: {
+              ...makePaletteCard().card,
+              title: "Async search card",
+            },
+          }]
+          : []
+      ),
+    });
+
+    render(
+      <MentionGetItemsHarness
+        cards={[]}
+        cardSearchIndex={createSearchIndex()}
+        getItemsSnapshots={getItemsSnapshots}
+        loaders={loaders}
+      />,
+    );
+
+    const getItems = getItemsSnapshots.at(-1);
+    expect(typeof getItems).toBe("function");
+    if (!getItems) return;
+
+    await getItems("old");
+    const nowItemsBeforeSearch = await getItems("now");
+    expect(nowItemsBeforeSearch[0]?.title).toBe("Now");
+    expect(nowItemsBeforeSearch.length).toBe(1);
+
+    await act(async () => {
+      oldCardSearch.resolve([{
+        projectId: "project-1",
+        cardId: "card-1",
+        status: "in_progress",
+        score: 1,
+        excerpt: "old async result",
+      }]);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const afterOldSearch = await getItems("now");
+    expect(afterOldSearch[0]?.title).toBe("Now");
+    expect(afterOldSearch.length).toBe(1);
+
+    await act(async () => {
+      nowCardSearch.resolve([{
+        projectId: "project-1",
+        cardId: "card-1",
+        status: "in_progress",
+        score: 1,
+        excerpt: "now async result",
+      }]);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const refreshedGetItems = getItemsSnapshots.at(-1);
+    expect(typeof refreshedGetItems).toBe("function");
+    if (!refreshedGetItems) return;
+    const afterNowSearch = await refreshedGetItems("now");
+    expect(afterNowSearch[0]?.title).toBe("Now");
+    expect(afterNowSearch[1]?.title).toBe("Async search card");
   });
 });

@@ -13,7 +13,14 @@ export function GridSuggestionMenu<T extends DefaultReactGridSuggestionItem>(
   const Components = useComponentsContext()!;
   const dict = useDictionary();
 
-  const { items, loadingState, selectedIndex, onItemClick, columns } = props;
+  const {
+    items,
+    loadingState,
+    itemsStale = false,
+    selectedIndex,
+    onItemClick,
+    columns,
+  } = props;
 
   const loader =
     loadingState === "loading-initial" || loadingState === "loading" ? (
@@ -60,6 +67,7 @@ export function GridSuggestionMenu<T extends DefaultReactGridSuggestionItem>(
       id="bn-grid-suggestion-menu"
       columns={columns}
       className="bn-grid-suggestion-menu"
+      aria-busy={loadingState !== "loaded" || itemsStale}
     >
       {loader}
       {renderedItems}

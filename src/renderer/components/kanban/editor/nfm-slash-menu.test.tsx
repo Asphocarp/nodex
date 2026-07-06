@@ -567,6 +567,21 @@ describe("NfmSlashMenu", () => {
     expect(loadingView.getByText("Loading...").textContent).toBe("Loading...");
   });
 
+  test("marks populated stale suggestion results as updating", () => {
+    const view = renderSuggestionMenu(
+      {
+        items: makeItems(),
+        loadingState: "loaded",
+        itemsStale: true,
+        selectedIndex: 0,
+        onItemClick: () => undefined,
+      },
+    );
+
+    expect(view.getByRole("listbox").getAttribute("aria-busy")).toBe("true");
+    expect(view.getByText("Updating...").textContent).toBe("Updating...");
+  });
+
   test("long labels render without exposing subtext in the menu row", () => {
     const longTitle = "Very long command label that should stay inside the compact suggestion menu row";
     const longSubtext = "Very long description that should not force the menu to become chunky or overflow the viewport";

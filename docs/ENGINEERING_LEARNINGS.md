@@ -732,6 +732,11 @@ Keep selected-row scrolling local to the menu list. Do not call native `scrollIn
 
 Keep NFM suggestion-menu item tooltips one local layer above the suggestion-menu popover. Both the BlockNote `SuggestionMenuController` popover and Radix tooltip content are portaled to `document.body`, so the generic app tooltip layer (`z-50`) can sit below BlockNote's suggestion popover layer (`z-index: 80`). Use the shared NFM floating constants instead of raising the global tooltip layer or changing editor-wide portal defaults.
 
+### BlockNote suggestion accepts must use the live query, not the last rendered items
+BlockNote suggestion menus can render one query behind the editor because `getItems(query)` is async and React may not have rerendered the controller for the newest ProseMirror plugin state yet. If Enter or a pointer click directly commits `items[selectedIndex]`, fast input such as `@now` + Enter can pick the stale result for `@no`. Treat visible items as presentation only unless their `usedQuery` equals the live suggestion extension query read at event time. Stale arrow/page keys should consume the event without moving the stale selection, stale clicks should not close or clear the menu, and stale Enter should record a pending accept for the live query so the first fresh item is picked after that query's items load.
+
+NFM `@` mentions add a second latency trap: date/reminder matches, local card-summary MiniSearch, cold chat metadata loading, card-description FTS, and chat-content FTS must not share one `Promise.all` barrier. Keep date-like queries on the synchronous fast path and let the slower IPC searches update a request-keyed cache that bumps a refresh token only when the completed result still belongs to the current project/query.
+
 ### Reuse toggle keyboard handlers across custom toggle-like block types
 When adding custom toggle row blocks (like `cardToggle`), shared Enter/Backspace handlers should treat them as toggle parents too; otherwise key behaviors diverge between editors. Keep toggle-type checks centralized (`toggleListItem`, toggleable `heading`, `cardToggle`) so child-creation and empty-child deletion behavior stays consistent.
 
