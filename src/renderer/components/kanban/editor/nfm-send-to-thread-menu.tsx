@@ -13,15 +13,22 @@ import {
 import { CodexThreadIcon, SpinnerIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
+  selectCommandPaletteChatResults,
+  type CommandPaletteThreadContentSearchBatch,
   useCommandPaletteThreadContentSearch,
   useCommandPaletteThreadItems,
-  useSelectedCommandPaletteChatResults,
 } from "@/lib/command-palette-chat-search";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { CommandPaletteHighlightSegment } from "@/lib/command-palette-highlight";
+import { normalizeCommandPaletteSearchText } from "@/lib/command-palette-card-search";
+import {
+  areQueryFresh,
+  resolvePendingQueryFreshAccept,
+  resolveQueryFreshAccept,
+  shouldConsumeStalePickerNavigation,
+} from "@/lib/query-fresh-picker";
 import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
 import { cn } from "@/lib/utils";
-import type { CommandPaletteThreadContentSearchResult } from "@/lib/types";
 import {
   readNfmSendToThreadMode,
   writeNfmSendToThreadMode,
@@ -49,7 +56,7 @@ export interface NfmSendToThreadMenuSurfaceProps extends NfmSendToThreadMenuProp
   threadItems: readonly CommandPaletteThread[];
   initialQuery?: string;
   threadItemsLoading?: boolean;
-  threadContentSearchResults?: CommandPaletteThreadContentSearchResult[];
+  threadContentSearchBatch?: CommandPaletteThreadContentSearchBatch;
   enableThreadContentSearch?: boolean;
 }
 
@@ -264,7 +271,7 @@ export function NfmSendToThreadMenuSurface({
   onAccept,
   onClose,
   showModeSelector = true,
-  threadContentSearchResults: injectedThreadContentSearchResults,
+  threadContentSearchBatch: injectedThreadContentSearchBatch,
   enableThreadContentSearch = true,
 }: NfmSendToThreadMenuSurfaceProps) {
   const listboxId = useId();
@@ -275,27 +282,29 @@ export function NfmSendToThreadMenuSurface({
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [pendingAcceptQuery, setPendingAcceptQuery] = useState<string | null>(null);
   const normalizedThreadItems = useMemo(
     () => [...threadItems],
     [threadItems],
   );
   const threadSearchIndex = useCommandPaletteThreadSearchIndex(normalizedThreadItems);
-  const fetchedThreadContentSearchResults = useCommandPaletteThreadContentSearch({
+  const fetchedThreadContentSearchBatch = useCommandPaletteThreadContentSearch({
     enabled: enableThreadContentSearch && Boolean(projectId),
     query: deferredQuery,
   });
-  const threadContentSearchResults = injectedThreadContentSearchResults ?? fetchedThreadContentSearchResults;
-  const visibleThreads = useSelectedCommandPaletteChatResults({
+  const threadContentSearchBatch = injectedThreadContentSearchBatch ?? fetchedThreadContentSearchBatch;
+  const visibleThreads = useMemo(() => selectCommandPaletteChatResults({
     query: deferredQuery,
     threads: normalizedThreadItems,
     threadSearchIndex,
-    threadContentSearchResults,
+    threadContentSearchBatch,
     threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
-  });
+  }), [deferredQuery, normalizedThreadItems, threadContentSearchBatch, threadSearchIndex]);
 
   useEffect(() => {
     setQuery(initialQuery);
     setFocusedRowId(null);
+    setPendingAcceptQuery(null);
   }, [initialQuery]);
 
   const rows = useMemo(
@@ -310,6 +319,46 @@ export function NfmSendToThreadMenuSurface({
     },
     [deferredQuery, preferredTarget, projectId, projectNameById, visibleThreads],
   );
+  const buildRowsForQuery = useCallback((nextQuery: string): readonly NfmSendToThreadRow[] => {
+    if (!projectId) return [];
+    const threads = selectCommandPaletteChatResults({
+      query: nextQuery,
+      threads: normalizedThreadItems,
+      threadSearchIndex,
+      threadContentSearchBatch,
+      threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
+    });
+    return buildNfmSendToThreadRows({
+      threads,
+      query: nextQuery,
+      preferredTarget,
+      projectNameById,
+    });
+  }, [
+    normalizedThreadItems,
+    preferredTarget,
+    projectId,
+    projectNameById,
+    threadContentSearchBatch,
+    threadSearchIndex,
+  ]);
+  const rowsStale = shouldConsumeStalePickerNavigation({
+    liveQuery: query,
+    rowsQuery: deferredQuery,
+    normalizeQuery: normalizeCommandPaletteSearchText,
+  });
+  const normalizedLiveQuery = normalizeCommandPaletteSearchText(query);
+  const shouldWaitForThreadContent = enableThreadContentSearch
+    && normalizedLiveQuery.length >= 2
+    && (
+      threadContentSearchBatch.loading
+      || normalizeCommandPaletteSearchText(threadContentSearchBatch.query) !== normalizedLiveQuery
+    );
+  const resolveAcceptableRows = useCallback((candidateRows: readonly NfmSendToThreadRow[]) => (
+    shouldWaitForThreadContent
+      ? candidateRows.filter((row) => row.kind === "thread")
+      : candidateRows
+  ), [shouldWaitForThreadContent]);
   const resolvedFocusedRowId = resolveNfmSendToThreadFocusedRowId(
     focusedRowId,
     deferredQuery,
@@ -348,12 +397,47 @@ export function NfmSendToThreadMenuSurface({
 
   const activateRow = useCallback((row: NfmSendToThreadRow | undefined) => {
     if (!row || disabled) return;
+    setPendingAcceptQuery(null);
     void acceptRow(row);
   }, [acceptRow, disabled]);
+
+  useEffect(() => {
+    if (!pendingAcceptQuery) return;
+    const result = resolvePendingQueryFreshAccept({
+      pendingQuery: pendingAcceptQuery,
+      liveQuery: query,
+      rowsQuery: deferredQuery,
+      rows: resolveAcceptableRows(rows),
+      getRowId: (row) => row.id,
+      normalizeQuery: normalizeCommandPaletteSearchText,
+    });
+    if (result.status === "accepted") {
+      activateRow(result.row);
+      return;
+    }
+
+    if (!areQueryFresh({ liveQuery: query, rowsQuery: deferredQuery, normalizeQuery: normalizeCommandPaletteSearchText })) {
+      return;
+    }
+
+    if (!threadItemsLoading && !shouldWaitForThreadContent) {
+      setPendingAcceptQuery(null);
+    }
+  }, [
+    activateRow,
+    deferredQuery,
+    pendingAcceptQuery,
+    query,
+    resolveAcceptableRows,
+    rows,
+    shouldWaitForThreadContent,
+    threadItemsLoading,
+  ]);
 
   const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         moveNfmSendToThreadFocusedRowId(
           resolveNfmSendToThreadFocusedRowId(currentRowId, deferredQuery, rows),
@@ -365,6 +449,7 @@ export function NfmSendToThreadMenuSurface({
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         moveNfmSendToThreadFocusedRowId(
           resolveNfmSendToThreadFocusedRowId(currentRowId, deferredQuery, rows),
@@ -376,7 +461,23 @@ export function NfmSendToThreadMenuSurface({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      activateRow(rows[focusedIndex]);
+      const result = resolveQueryFreshAccept({
+        liveQuery: query,
+        rowsQuery: deferredQuery,
+        rows,
+        focusedIndex,
+        buildFreshRows: (nextQuery) => resolveAcceptableRows(buildRowsForQuery(nextQuery)),
+        canWaitForFreshRows: true,
+        getRowId: (row) => row.id,
+        normalizeQuery: normalizeCommandPaletteSearchText,
+      });
+      if (result.status === "accepted") {
+        activateRow(result.row);
+        return;
+      }
+      if (result.status === "pending") {
+        setPendingAcceptQuery(result.query);
+      }
       return;
     }
     if (event.key === "Escape") {
@@ -407,6 +508,7 @@ export function NfmSendToThreadMenuSurface({
           onChange={(event) => {
             setAcceptError(null);
             setFocusedRowId(null);
+            setPendingAcceptQuery(null);
             setQuery(event.target.value);
           }}
           onKeyDown={handleInputKeyDown}
@@ -419,7 +521,13 @@ export function NfmSendToThreadMenuSurface({
           onModeChange={handleModeChange}
         />
       ) : null}
-      <div id={listboxId} role="listbox" aria-labelledby={comboboxId} className="flex h-[340px] min-h-0 flex-col">
+      <div
+        id={listboxId}
+        role="listbox"
+        aria-labelledby={comboboxId}
+        aria-busy={rowsStale || threadItemsLoading || shouldWaitForThreadContent || pendingAcceptQuery !== null}
+        className="flex h-[340px] min-h-0 flex-col"
+      >
         <div className="notion-scroller vertical min-h-0 flex-1 overflow-y-auto pb-1">
           <div className="pb-1">
             <div className="flex h-7 items-end px-[14px] pb-1 pt-3 text-[12px] leading-4 font-medium text-token-description-foreground">
@@ -434,11 +542,15 @@ export function NfmSendToThreadMenuSurface({
                   listboxId={listboxId}
                   focused={focusedIndex === index}
                   disabled={disabled}
-                  accepting={acceptingRowId === row.id}
+	                  accepting={acceptingRowId === row.id}
                   onAccept={(acceptedRow) => {
-                    void acceptRow(acceptedRow);
+                    if (rowsStale) return;
+                    activateRow(acceptedRow);
                   }}
-                  onFocusRowChange={setFocusedRowId}
+                  onFocusRowChange={(rowId) => {
+                    if (rowsStale) return;
+                    setFocusedRowId(rowId);
+                  }}
                 />
               ))}
             </div>
@@ -467,9 +579,13 @@ export function NfmSendToThreadMenuSurface({
               disabled={disabled}
               accepting={acceptingRowId === footerRowEntry.row.id}
               onAccept={(acceptedRow) => {
-                void acceptRow(acceptedRow);
+                if (rowsStale) return;
+                activateRow(acceptedRow);
               }}
-              onFocusRowChange={setFocusedRowId}
+              onFocusRowChange={(rowId) => {
+                if (rowsStale) return;
+                setFocusedRowId(rowId);
+              }}
             />
           </div>
         ) : null}

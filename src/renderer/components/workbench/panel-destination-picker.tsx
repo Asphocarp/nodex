@@ -18,6 +18,11 @@ import {
 } from "@/components/shared/icons";
 import { createNfmMoveToSearchIndex } from "@/components/kanban/editor/nfm-move-to-menu-search";
 import { normalizeProjectIcon } from "@/lib/project-icon";
+import {
+  resolveQueryFreshAccept,
+  shouldConsumeStalePickerNavigation,
+} from "@/lib/query-fresh-picker";
+import { normalizeSearchText } from "@/lib/search-text";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useBoardsForProjects } from "@/lib/use-all-boards";
 import { cn } from "@/lib/utils";
@@ -316,6 +321,29 @@ export function PanelDestinationPickerSurface({
     [boardMap, currentProjectId, deferredQuery, projects, scope, searchResult],
   );
   const rows = useMemo(() => flattenPanelDestinationRows(sections), [sections]);
+  const buildRowsForQuery = useCallback((nextQuery: string): readonly PanelDestinationRow[] => {
+    const nextSearchResult = searchIndex.search(nextQuery);
+    const nextSections = buildPanelDestinationSections({
+      projects,
+      boardMap,
+      query: nextQuery,
+      searchResult: nextSearchResult,
+      scope,
+      currentProjectId,
+    });
+    return flattenPanelDestinationRows(nextSections);
+  }, [
+    boardMap,
+    currentProjectId,
+    projects,
+    scope,
+    searchIndex,
+  ]);
+  const rowsStale = shouldConsumeStalePickerNavigation({
+    liveQuery: query,
+    rowsQuery: deferredQuery,
+    normalizeQuery: normalizeSearchText,
+  });
   const resolvedFocusedRowId = resolvePanelDestinationFocusedRowId(
     focusedRowId,
     deferredQuery,
@@ -351,6 +379,7 @@ export function PanelDestinationPickerSurface({
   const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         movePanelDestinationFocusedRowId(
           resolvePanelDestinationFocusedRowId(currentRowId, deferredQuery, rows),
@@ -362,6 +391,7 @@ export function PanelDestinationPickerSurface({
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         movePanelDestinationFocusedRowId(
           resolvePanelDestinationFocusedRowId(currentRowId, deferredQuery, rows),
@@ -373,7 +403,18 @@ export function PanelDestinationPickerSurface({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      activateRow(rows[focusedIndex]);
+      const result = resolveQueryFreshAccept({
+        liveQuery: query,
+        rowsQuery: deferredQuery,
+        rows,
+        focusedIndex,
+        buildFreshRows: buildRowsForQuery,
+        getRowId: (row) => row.id,
+        normalizeQuery: normalizeSearchText,
+      });
+      if (result.status === "accepted") {
+        activateRow(result.row);
+      }
       return;
     }
     if (event.key === "Escape") {
@@ -414,7 +455,7 @@ export function PanelDestinationPickerSurface({
         />
       </div>
       <div className="notion-scroller vertical h-[374px] min-h-0 overflow-y-auto pb-3">
-        <div id={listboxId} role="listbox" aria-labelledby={comboboxId}>
+        <div id={listboxId} role="listbox" aria-labelledby={comboboxId} aria-busy={rowsStale || loading}>
           {sections.map((section) => {
             const startIndex = rowIndex;
             rowIndex += section.rows.length;
@@ -428,9 +469,13 @@ export function PanelDestinationPickerSurface({
                 disabled={disabled}
                 acceptingRowId={acceptingRowId}
                 onAccept={(row) => {
+                  if (rowsStale) return;
                   void acceptRow(row);
                 }}
-                onFocusRowChange={setFocusedRowId}
+                onFocusRowChange={(rowId) => {
+                  if (rowsStale) return;
+                  setFocusedRowId(rowId);
+                }}
               />
             );
           })}

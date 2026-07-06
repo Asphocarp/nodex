@@ -16,6 +16,14 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
 describe("ContentSearchProvider", () => {
   test("aborts the previous local ensureVisible before activating the next match", async () => {
     const ensureSignals: AbortSignal[] = [];
@@ -91,5 +99,65 @@ describe("ContentSearchProvider", () => {
     expect(ensureSignals[0]?.aborted ?? false).toBeTrue();
     expect(ensureSignals.length).toBe(2);
     expect(activatedIds[0] ?? "").toBe("match-2");
+  });
+
+  test("does not activate stale local results after the query changes", async () => {
+    const oldSearch = createDeferred<Awaited<ReturnType<ContentSearchLocalSource["search"]>>>();
+    const activatedQueries: string[] = [];
+    let controller: ContentSearchController | null = null;
+
+    function Probe() {
+      controller = useContentSearch();
+      const source = useMemo<ContentSearchLocalSource>(() => ({
+        domain: "conversation",
+        contextId: "conversation:thread",
+        search: (query) => query === "old"
+          ? oldSearch.promise
+          : {
+            query,
+            totalMatches: 0,
+            capped: false,
+            matches: [],
+          },
+        activate: (_match, query) => {
+          activatedQueries.push(query);
+        },
+        clear: () => {},
+      }), []);
+      useRegisterContentSearchSource(source);
+      return createElement("div");
+    }
+
+    render(createElement(ContentSearchProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+
+    if (!controller) throw new Error("Expected content search controller");
+    await act(async () => {
+      controller?.requestOpen({ preferredDomain: "conversation" });
+      controller?.setQuery("old");
+    });
+    await act(async () => {
+      await sleep(220);
+      await settleAsyncRender();
+    });
+    await act(async () => {
+      controller?.setQuery("new");
+      oldSearch.resolve({
+        query: "old",
+        totalMatches: 1,
+        capped: false,
+        matches: [{
+          id: "old-match",
+          domain: "conversation",
+          contextId: "conversation:thread",
+          ordinal: 0,
+          label: "old",
+          meta: {},
+        }],
+      });
+      await settleAsyncRender();
+    });
+
+    expect(activatedQueries.length).toBe(0);
   });
 });

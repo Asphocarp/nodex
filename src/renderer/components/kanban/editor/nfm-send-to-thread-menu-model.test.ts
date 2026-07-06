@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandPaletteThread } from "@/lib/command-palette";
-import { selectCommandPaletteChatResults } from "@/lib/command-palette-chat-search";
+import {
+  type CommandPaletteThreadContentSearchBatch,
+  selectCommandPaletteChatResults,
+} from "@/lib/command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import type { CodexThreadSummary } from "@/lib/types";
 import {
@@ -56,12 +59,23 @@ function makePreferredThread(
   };
 }
 
+function makeThreadContentBatch(
+  query: string,
+  results: CommandPaletteThreadContentSearchBatch["results"],
+): CommandPaletteThreadContentSearchBatch {
+  return {
+    query,
+    results,
+    loading: false,
+  };
+}
+
 function searchThreads(query: string, threads: CommandPaletteThread[]): CommandPaletteThread[] {
   return selectCommandPaletteChatResults({
     query,
     threads,
     threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-    threadContentSearchResults: [],
+    threadContentSearchBatch: makeThreadContentBatch(query, []),
     threadLimit: 24,
   });
 }
@@ -114,7 +128,7 @@ describe("nfm send-to-thread menu model", () => {
       query: "needle",
       threads,
       threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadContentSearchResults: [{
+      threadContentSearchBatch: makeThreadContentBatch("needle", [{
         threadId: "content-hit",
         snippet: "backend needle snippet",
         score: 10,
@@ -124,7 +138,7 @@ describe("nfm send-to-thread menu model", () => {
           { text: "needle", highlight: true },
           { text: " snippet", highlight: false },
         ],
-      }],
+      }]),
       threadLimit: 24,
     });
     const rows = buildNfmSendToThreadRows({

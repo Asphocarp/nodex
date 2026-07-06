@@ -737,6 +737,9 @@ BlockNote suggestion menus can render one query behind the editor because `getIt
 
 NFM `@` mentions add a second latency trap: date/reminder matches, local card-summary MiniSearch, cold chat metadata loading, card-description FTS, and chat-content FTS must not share one `Promise.all` barrier. Keep date-like queries on the synchronous fast path and let the slower IPC searches update a request-keyed cache that bumps a refresh token only when the completed result still belongs to the current project/query.
 
+### Search-backed pickers must bind rows to the query that produced them
+React deferred rendering and async IPC searches make it legitimate for a picker to display rows from an older query while the live input already changed. The regression class appears when Enter, click, or activation reads the last rendered `rows[selectedIndex]` and treats it as the live intent. Keep a single query-fresh seam: visible rows carry `rowsQuery`, slow batches carry their producing query/scope, and semantic actions compare those values with the live input before committing. If rows are stale, navigation should only consume the event, clicks should be ignored, and Enter should synchronously rebuild rows from fast local data or queue a pending accept until the matching fresh batch arrives. Content search follows the same boundary even without rows: a changed live query must immediately make old `resultByDomain` entries ineligible for activation and abort any in-flight reveal.
+
 ### Reuse toggle keyboard handlers across custom toggle-like block types
 When adding custom toggle row blocks (like `cardToggle`), shared Enter/Backspace handlers should treat them as toggle parents too; otherwise key behaviors diverge between editors. Keep toggle-type checks centralized (`toggleListItem`, toggleable `heading`, `cardToggle`) so child-creation and empty-child deletion behavior stays consistent.
 

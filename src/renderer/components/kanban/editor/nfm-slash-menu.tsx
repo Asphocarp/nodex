@@ -22,14 +22,17 @@ import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
 import {
+  buildCommandPaletteCardDescriptionSearchScopeKey,
   buildCommandPaletteCardItemsFromBoardSummaries,
   searchCommandPaletteCardDescriptions,
   selectCommandPaletteCardResults,
+  type CommandPaletteCardDescriptionSearchBatch,
 } from "@/lib/command-palette-card-results";
 import {
   listCommandPaletteThreadItems,
   searchCommandPaletteThreadContent,
   selectCommandPaletteChatResults,
+  type CommandPaletteThreadContentSearchBatch,
 } from "@/lib/command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import { useCommandPaletteCardSearchIndex } from "@/lib/use-command-palette-card-search-index";
@@ -1037,11 +1040,30 @@ export function useNfmMentionGetItems({
       const cachedThreads = threadItemsRef.current?.activeProjectId === activeProjectId
         ? threadItemsRef.current.items
         : [];
+      const cardDescriptionSearchScopeKey = buildCommandPaletteCardDescriptionSearchScopeKey(currentProjectIdsForCardSearch);
+      const cardDescriptionSearchBatch: CommandPaletteCardDescriptionSearchBatch | undefined =
+        asyncResults?.cardDescriptionSearchResults
+          ? {
+            query,
+            scopeKey: cardDescriptionSearchScopeKey,
+            results: asyncResults.cardDescriptionSearchResults,
+            loading: false,
+          }
+          : undefined;
+      const threadContentSearchBatch: CommandPaletteThreadContentSearchBatch | undefined =
+        asyncResults?.threadContentSearchResults
+          ? {
+            query,
+            results: asyncResults.threadContentSearchResults,
+            loading: false,
+          }
+          : undefined;
       const cardResults = currentLoaders.selectCardResults({
         query,
         cards: currentCardItems,
         cardSearchIndex: currentCardSearchIndex,
-        cardDescriptionSearchResults: asyncResults?.cardDescriptionSearchResults ?? [],
+        cardDescriptionSearchBatch,
+        cardDescriptionSearchScopeKey,
         metadataCardLimit: 24,
         mergedCardLimit: 24,
         preferActiveProject: true,
@@ -1050,7 +1072,7 @@ export function useNfmMentionGetItems({
         query,
         threads: cachedThreads,
         threadSearchIndex: getThreadSearchIndex(cachedThreads),
-        threadContentSearchResults: asyncResults?.threadContentSearchResults ?? [],
+        threadContentSearchBatch,
         threadLimit: 24,
         preferActiveProject: true,
       });

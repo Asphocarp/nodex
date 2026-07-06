@@ -79,6 +79,26 @@ describe("useCommandPaletteCardSearchIndex", () => {
     resetCommandPaletteCardSearchCacheForTests();
   });
 
+  test("returns a synchronous metadata index before async hydration settles", () => {
+    const snapshots: Array<CommandPaletteCardSearchIndex | null> = [];
+    render(
+      <CardSearchIndexHarness
+        cards={[makePaletteCard({
+          card: makeCard({
+            id: "fast-card",
+            title: "Unrelated title",
+            tags: ["handoff"],
+          }),
+        })]}
+        snapshots={snapshots}
+      />,
+    );
+
+    const firstSnapshot = snapshots[0];
+    expect(firstSnapshot === null).toBeFalse();
+    expect(firstSnapshot?.search("handoff")[0]?.item.card.id).toBe("fast-card");
+  });
+
   test("keeps the existing index for semantically identical card arrays", async () => {
     const snapshots: Array<CommandPaletteCardSearchIndex | null> = [];
     const view = render(

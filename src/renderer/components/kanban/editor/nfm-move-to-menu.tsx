@@ -19,6 +19,11 @@ import {
   SpinnerIcon,
 } from "@/components/shared/icons";
 import { normalizeProjectIcon } from "@/lib/project-icon";
+import {
+  resolveQueryFreshAccept,
+  shouldConsumeStalePickerNavigation,
+} from "@/lib/query-fresh-picker";
+import { normalizeSearchText } from "@/lib/search-text";
 import { StatusIcon } from "@/lib/status-chip";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useAllBoards } from "@/lib/use-all-boards";
@@ -418,6 +423,33 @@ export function NfmMoveToMenuSurface({
     ],
   );
   const rows = useMemo(() => flattenNfmMoveToRows(sections), [sections]);
+  const buildRowsForQuery = useCallback((nextQuery: string): readonly NfmMoveToRow[] => {
+    const nextSearchResult = searchIndex.search(nextQuery);
+    const nextSections = buildNfmMoveToSections({
+      projects,
+      boardMap,
+      sourceProjectId,
+      sourceCardId,
+      expandedProjectIds,
+      query: nextQuery,
+      searchResult: nextSearchResult,
+      resultScope,
+    });
+    return flattenNfmMoveToRows(nextSections);
+  }, [
+    boardMap,
+    expandedProjectIds,
+    projects,
+    resultScope,
+    searchIndex,
+    sourceCardId,
+    sourceProjectId,
+  ]);
+  const rowsStale = shouldConsumeStalePickerNavigation({
+    liveQuery: query,
+    rowsQuery: deferredQuery,
+    normalizeQuery: normalizeSearchText,
+  });
   const resolvedFocusedRowId = resolveNfmMoveToFocusedRowId(
     focusedRowId,
     deferredQuery,
@@ -470,6 +502,7 @@ export function NfmMoveToMenuSurface({
   const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         moveNfmMoveToFocusedRowId(
           resolveNfmMoveToFocusedRowId(currentRowId, deferredQuery, rows),
@@ -481,6 +514,7 @@ export function NfmMoveToMenuSurface({
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      if (rowsStale) return;
       setFocusedRowId((currentRowId) =>
         moveNfmMoveToFocusedRowId(
           resolveNfmMoveToFocusedRowId(currentRowId, deferredQuery, rows),
@@ -492,7 +526,18 @@ export function NfmMoveToMenuSurface({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      activateRow(rows[focusedIndex]);
+      const result = resolveQueryFreshAccept({
+        liveQuery: query,
+        rowsQuery: deferredQuery,
+        rows,
+        focusedIndex,
+        buildFreshRows: buildRowsForQuery,
+        getRowId: (row) => row.id,
+        normalizeQuery: normalizeSearchText,
+      });
+      if (result.status === "accepted") {
+        activateRow(result.row);
+      }
       return;
     }
     if (event.key === "Escape") {
@@ -533,7 +578,7 @@ export function NfmMoveToMenuSurface({
         />
       </div>
       <div className="notion-scroller vertical h-[374px] min-h-0 overflow-y-auto pb-3">
-        <div id={listboxId} role="listbox" aria-labelledby={comboboxId}>
+        <div id={listboxId} role="listbox" aria-labelledby={comboboxId} aria-busy={rowsStale || loading}>
           {sections.map((section) => {
             const startIndex = rowIndex;
             rowIndex += section.rows.length;
@@ -546,11 +591,18 @@ export function NfmMoveToMenuSurface({
                 focusedIndex={focusedIndex}
                 disabled={disabled}
                 acceptingRowId={acceptingRowId}
-                onToggleProject={toggleProject}
+                onToggleProject={(projectId) => {
+                  if (rowsStale) return;
+                  toggleProject(projectId);
+                }}
                 onAccept={(row) => {
+                  if (rowsStale) return;
                   void acceptRow(row);
                 }}
-                onFocusRowChange={setFocusedRowId}
+                onFocusRowChange={(rowId) => {
+                  if (rowsStale) return;
+                  setFocusedRowId(rowId);
+                }}
               />
             );
           })}

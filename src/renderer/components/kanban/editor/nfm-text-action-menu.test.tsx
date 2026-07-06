@@ -482,19 +482,23 @@ describe("nfm text action menu surface", () => {
           threadItems={SEND_TO_THREAD_THREADS}
           enableThreadContentSearch={false}
           initialQuery="handoff"
-          threadContentSearchResults={[
-            {
-              threadId: existingThread.threadId,
-              snippet: "Review handoff notes before sending.",
-              score: 1,
-              matchKind: "fts",
-              snippetSegments: [
-                { text: "Review ", highlight: false },
-                { text: "handoff", highlight: true },
-                { text: " notes before sending.", highlight: false },
-              ],
-            },
-          ]}
+          threadContentSearchBatch={{
+            query: "handoff",
+            loading: false,
+            results: [
+              {
+                threadId: existingThread.threadId,
+                snippet: "Review handoff notes before sending.",
+                score: 1,
+                matchKind: "fts",
+                snippetSegments: [
+                  { text: "Review ", highlight: false },
+                  { text: "handoff", highlight: true },
+                  { text: " notes before sending.", highlight: false },
+                ],
+              },
+            ],
+          }}
           onAccept={() => undefined}
           onClose={() => undefined}
         />

@@ -197,22 +197,49 @@ export function ContentSearchProvider({
   }, []);
 
   const setQuery = useCallback((query: string) => {
-    setState((current) => ({
-      ...current,
-      queryByDomain: {
-        ...current.queryByDomain,
-        [current.domain]: query,
-      },
-      ...(isLocalDomain(current.domain)
-        ? {
-          activeIndexByDomain: {
-            ...current.activeIndexByDomain,
-            [current.domain]: 0,
+    const domain = state.domain;
+    if (isLocalDomain(domain)) {
+      activeEnsureAbortRef.current?.abort();
+      sourcesRef.current.get(domain)?.clear();
+    }
+
+    setState((current) => {
+      if (!isLocalDomain(current.domain)) {
+        return {
+          ...current,
+          queryByDomain: {
+            ...current.queryByDomain,
+            [current.domain]: query,
           },
-        }
-        : {}),
-    }));
-  }, []);
+        };
+      }
+
+      const normalizedQuery = normalizeContentSearchQuery(query);
+      return {
+        ...current,
+        queryByDomain: {
+          ...current.queryByDomain,
+          [current.domain]: query,
+        },
+        loadingDomain: normalizedQuery ? current.domain : null,
+        activeIndexByDomain: {
+          ...current.activeIndexByDomain,
+          [current.domain]: 0,
+        },
+        resultByDomain: {
+          ...current.resultByDomain,
+          [current.domain]: normalizedQuery
+            ? {
+              query: normalizedQuery,
+              matches: [],
+              totalMatches: 0,
+              capped: false,
+            }
+            : null,
+        },
+      };
+    });
+  }, [state.domain]);
 
   const stepLocal = useCallback((domain: ContentSearchLocalDomain, delta: -1 | 1) => {
     setState((current) => {
@@ -375,9 +402,16 @@ export function ContentSearchProvider({
     const domain = state.domain;
     const source = sourcesRef.current.get(domain);
     const result = state.resultByDomain[domain];
+    const liveQuery = normalizeContentSearchQuery(state.queryByDomain[domain]);
     const activeIndex = state.activeIndexByDomain[domain] ?? 0;
     const match = result?.matches[activeIndex] ?? null;
-    if (!source || !result || !match) {
+    if (
+      !source
+      || !result
+      || result.query !== liveQuery
+      || state.loadingDomain === domain
+      || !match
+    ) {
       source?.clear();
       return;
     }
@@ -402,7 +436,7 @@ export function ContentSearchProvider({
         activeEnsureAbortRef.current = null;
       }
     };
-  }, [state.activeIndexByDomain, state.domain, state.open, state.resultByDomain, sourceVersion]);
+  }, [state.activeIndexByDomain, state.domain, state.loadingDomain, state.open, state.queryByDomain, state.resultByDomain, sourceVersion]);
 
   const labelInput: ContentSearchLabelInput = {
     domain: state.domain,

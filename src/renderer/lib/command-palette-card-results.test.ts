@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CommandPaletteCard } from "./command-palette";
 import {
   buildCommandPaletteCardItemsFromBoardSummaries,
+  type CommandPaletteCardDescriptionSearchBatch,
   selectCommandPaletteCardResults,
 } from "./command-palette-card-results";
 import { createCommandPaletteCardSearchIndex } from "./command-palette-card-search";
@@ -81,6 +82,18 @@ function makeDescriptionResult(overrides: Partial<CardSearchResult> = {}): CardS
   };
 }
 
+function makeDescriptionBatch(
+  query: string,
+  results: readonly CardSearchResult[],
+): CommandPaletteCardDescriptionSearchBatch {
+  return {
+    query,
+    scopeKey: "",
+    results,
+    loading: false,
+  };
+}
+
 describe("command palette card result selection", () => {
   test("returns metadata fuzzy and prefix matches through the shared card selector", () => {
     const target = makePaletteCard({
@@ -120,12 +133,12 @@ describe("command palette card result selection", () => {
       query: "vector clocks",
       cards: [card],
       cardSearchIndex: createCommandPaletteCardSearchIndex([card]),
-      cardDescriptionSearchResults: [
+      cardDescriptionSearchBatch: makeDescriptionBatch("vector clocks", [
         makeDescriptionResult({
           cardId: "content-only",
           excerpt: "Document vector clocks and replicated queue recovery.",
         }),
-      ],
+      ]),
     });
 
     expect(results.length).toBe(1);
@@ -153,19 +166,19 @@ describe("command palette card result selection", () => {
     });
     const cards = [otherProjectCard, activeProjectCard];
     const cardSearchIndex = createCommandPaletteCardSearchIndex(cards);
-    const cardDescriptionSearchResults = [
+    const cardDescriptionSearchBatch = makeDescriptionBatch("approval heuristic", [
       makeDescriptionResult({
         projectId: activeProjectCard.projectId,
         cardId: activeProjectCard.card.id,
         excerpt: "Approval heuristic appears only in the active card body.",
       }),
-    ];
+    ]);
 
     const defaultResults = selectCommandPaletteCardResults({
       query: "approval heuristic",
       cards,
       cardSearchIndex,
-      cardDescriptionSearchResults,
+      cardDescriptionSearchBatch,
       metadataCardLimit: 1,
       mergedCardLimit: 1,
     });
@@ -173,7 +186,7 @@ describe("command palette card result selection", () => {
       query: "approval heuristic",
       cards,
       cardSearchIndex,
-      cardDescriptionSearchResults,
+      cardDescriptionSearchBatch,
       metadataCardLimit: 1,
       mergedCardLimit: 1,
       preferActiveProject: true,
@@ -243,16 +256,40 @@ describe("command palette card result selection", () => {
       query: "ocr pipeline",
       cards: [card],
       cardSearchIndex: createCommandPaletteCardSearchIndex([card]),
-      cardDescriptionSearchResults: [
+      cardDescriptionSearchBatch: makeDescriptionBatch("ocr pipeline", [
         makeDescriptionResult({
           cardId: "preview-card",
           excerpt: "Server OCR pipeline body excerpt.",
         }),
-      ],
+      ]),
     });
 
     expect(results.length).toBe(1);
     expect(results[0]?.searchPreview?.excerpt.includes("Local OCR pipeline")).toBeTrue();
     expect(results[0]?.searchPreview?.excerpt.includes("Server OCR")).toBeFalse();
+  });
+
+  test("does not merge stale description batches from another query", () => {
+    const card = makePaletteCard({
+      card: makeCard({
+        id: "content-only",
+        title: "Assorted implementation note",
+        descriptionPreview: "No local preview match.",
+      }),
+    });
+
+    const results = selectCommandPaletteCardResults({
+      query: "vector clocks",
+      cards: [card],
+      cardSearchIndex: createCommandPaletteCardSearchIndex([card]),
+      cardDescriptionSearchBatch: makeDescriptionBatch("approval heuristic", [
+        makeDescriptionResult({
+          cardId: "content-only",
+          excerpt: "Document vector clocks and replicated queue recovery.",
+        }),
+      ]),
+    });
+
+    expect(results.length).toBe(0);
   });
 });

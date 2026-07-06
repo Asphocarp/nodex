@@ -2627,6 +2627,12 @@ export function ReviewDiffPanel({
   const jumpToFileMatches = useMemo(() => {
     return selectReviewJumpToFileMatches(snapshot.files, deferredJumpToFileQuery);
   }, [deferredJumpToFileQuery, snapshot.files]);
+  const handleJumpToFileSelect = useCallback((file: ReviewFileEntry) => {
+    const freshMatches = selectReviewJumpToFileMatches(snapshot.files, jumpToFileQuery);
+    if (!freshMatches.some((candidate) => candidate.displayPath === file.displayPath)) return;
+    setSelectedPath(file.displayPath);
+    setJumpToFileQuery("");
+  }, [jumpToFileQuery, snapshot.files]);
 
   useEffect(() => {
     if (!selectedPath) return;
@@ -3217,13 +3223,10 @@ export function ReviewDiffPanel({
                 <NodexDropdownMessage compact>No matching files</NodexDropdownMessage>
               ) : (
                 jumpToFileMatches.map((file) => (
-                  <NodexDropdownItem
-                    key={file.key}
+	                  <NodexDropdownItem
+	                    key={file.key}
                     allowWrap
-                    onSelect={() => {
-                      setSelectedPath(file.displayPath);
-                      setJumpToFileQuery("");
-                    }}
+                    onSelect={() => handleJumpToFileSelect(file)}
                     rightSlot={selectedPath === file.displayPath ? <CheckmarkIcon className="size-4" /> : null}
                   >
                     <ReviewJumpFilePathLabel displayPath={file.displayPath} />

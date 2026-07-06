@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   ListFilter,
 } from "lucide-react";
@@ -18,19 +18,31 @@ import {
   type CommandPaletteThread,
   writeCommandPaletteCardFilters,
 } from "../../lib/command-palette";
-import type { CommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
+import {
+  normalizeCommandPaletteSearchText,
+  type CommandPaletteCardSearchIndex,
+} from "../../lib/command-palette-card-search";
 import {
   type CommandPaletteHighlightSegment,
 } from "../../lib/command-palette-highlight";
 import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import {
+  selectCommandPaletteChatResults,
+  type CommandPaletteThreadContentSearchBatch,
   useCommandPaletteThreadContentSearch,
-  useSelectedCommandPaletteChatResults,
 } from "../../lib/command-palette-chat-search";
 import {
+  buildCommandPaletteCardDescriptionSearchScopeKey,
+  selectCommandPaletteCardResults,
+  type CommandPaletteCardDescriptionSearchBatch,
   useCommandPaletteCardDescriptionSearch,
-  useSelectedCommandPaletteCardResults,
 } from "../../lib/command-palette-card-results";
+import {
+  areQueryFresh,
+  resolvePendingQueryFreshAccept,
+  resolveQueryFreshAccept,
+  shouldConsumeStalePickerNavigation,
+} from "../../lib/query-fresh-picker";
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
 import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
@@ -125,6 +137,92 @@ function resolveSelectableIndex(
   }
 
   return -1;
+}
+
+interface CommandPaletteSectionsInput {
+  query: string;
+  mode: CommandMenuMode;
+  commands: CommandPaletteCommand[];
+  cards: CommandPaletteCard[];
+  threads: CommandPaletteThread[];
+  cardFilters: CommandPaletteCardFilters;
+  cardSearchIndex?: CommandPaletteCardSearchIndex | null;
+  threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
+  cardDescriptionSearchBatch?: CommandPaletteCardDescriptionSearchBatch | null;
+  cardDescriptionSearchScopeKey?: string | null;
+  threadContentSearchBatch?: CommandPaletteThreadContentSearchBatch | null;
+}
+
+interface CommandPaletteSectionsModel {
+  query: string;
+  sections: PaletteSectionModel[];
+  flatItems: PaletteItem[];
+}
+
+function buildCommandPaletteSectionsModel({
+  query,
+  mode,
+  commands,
+  cards,
+  threads,
+  cardFilters,
+  cardSearchIndex,
+  threadSearchIndex,
+  cardDescriptionSearchBatch,
+  cardDescriptionSearchScopeKey,
+  threadContentSearchBatch,
+}: CommandPaletteSectionsInput): CommandPaletteSectionsModel {
+  const results = filterCommandPaletteItems({
+    query,
+    mode,
+    commands,
+    cards,
+    threads,
+    cardFilters,
+    cardSearchIndex,
+    threadSearchIndex,
+  });
+
+  const visibleCards = selectCommandPaletteCardResults({
+    query,
+    cards,
+    cardFilters,
+    cardSearchIndex,
+    cardDescriptionSearchBatch,
+    cardDescriptionSearchScopeKey,
+  });
+  const visibleThreads = selectCommandPaletteChatResults({
+    query,
+    threads,
+    threadSearchIndex,
+    threadContentSearchBatch,
+  });
+  const sections: PaletteSectionModel[] = (() => {
+    if (mode === "root") {
+      return COMMAND_GROUP_ORDER
+        .map((title) => ({
+          title,
+          items: results.commands.filter((item) => item.group === title),
+        }))
+        .filter((section) => section.items.length > 0);
+    }
+
+    if (mode === "chats") {
+      return [{ title: "Chats", items: visibleThreads }];
+    }
+
+    if (mode === "cards") {
+      return [{ title: "Cards", items: visibleCards }];
+    }
+
+    return [];
+  })();
+
+  return {
+    query: results.query,
+    sections,
+    flatItems: sections.flatMap((section) => section.items),
+  };
 }
 
 function getCommandGlyph(id: string) {
@@ -466,7 +564,7 @@ export function CommandPaletteSurface({
   const [cardFilters, setCardFilters] = useState<CommandPaletteCardFilters>(() => readCommandPaletteCardFilters());
   const [filterOpen, setFilterOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
-  const threadContentSearchResults = useCommandPaletteThreadContentSearch({
+  const threadContentSearchBatch = useCommandPaletteThreadContentSearch({
     enabled: mode === "chats" && open,
     query: deferredQuery,
   });
@@ -509,13 +607,17 @@ export function CommandPaletteSurface({
     const selectedProjectIds = new Set(normalizedCardFilters.projectIds);
     return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
   }, [availableProjects, normalizedCardFilters.projectIds]);
-  const descriptionSearchResults = useCommandPaletteCardDescriptionSearch({
+  const cardDescriptionSearchScopeKey = useMemo(
+    () => buildCommandPaletteCardDescriptionSearchScopeKey(projectIdsForSearch),
+    [projectIdsForSearch],
+  );
+  const descriptionSearchBatch = useCommandPaletteCardDescriptionSearch({
     enabled: mode === "cards" && open,
     query: deferredQuery,
     projectIds: projectIdsForSearch,
   });
-  const results = useMemo(
-    () => filterCommandPaletteItems({
+  const visibleModel = useMemo(
+    () => buildCommandPaletteSectionsModel({
       query: deferredQuery,
       mode,
       commands,
@@ -524,55 +626,37 @@ export function CommandPaletteSurface({
       cardFilters: normalizedCardFilters,
       cardSearchIndex,
       threadSearchIndex,
+      cardDescriptionSearchBatch: descriptionSearchBatch,
+      cardDescriptionSearchScopeKey,
+      threadContentSearchBatch,
     }),
-    [cardSearchIndex, cards, commands, deferredQuery, mode, normalizedCardFilters, threadSearchIndex, threads],
+    [
+      cardDescriptionSearchScopeKey,
+      cardSearchIndex,
+      cards,
+      commands,
+      deferredQuery,
+      descriptionSearchBatch,
+      mode,
+      normalizedCardFilters,
+      threadContentSearchBatch,
+      threadSearchIndex,
+      threads,
+    ],
   );
-  const visibleCards = useSelectedCommandPaletteCardResults({
-    query: deferredQuery,
-    cards,
-    cardFilters: normalizedCardFilters,
-    cardSearchIndex,
-    cardDescriptionSearchResults: descriptionSearchResults,
-  });
-  const visibleThreads = useSelectedCommandPaletteChatResults({
-    query: deferredQuery,
-    threads,
-    threadSearchIndex,
-    threadContentSearchResults,
-  });
-  const sections = useMemo<PaletteSectionModel[]>(() => {
-    if (mode === "root") {
-      return COMMAND_GROUP_ORDER
-        .map((title) => ({
-          title,
-          items: results.commands.filter((item) => item.group === title),
-        }))
-        .filter((section) => section.items.length > 0);
-    }
-
-    if (mode === "chats") {
-      return [{ title: "Chats", items: visibleThreads }];
-    }
-
-    if (mode === "cards") {
-      return [{ title: "Cards", items: visibleCards }];
-    }
-
-    return [];
-  }, [mode, results.commands, visibleCards, visibleThreads]);
-  const flatItems = useMemo(
-    () => sections.flatMap((section) => section.items),
-    [sections],
-  );
+  const sections = visibleModel.sections;
+  const flatItems = visibleModel.flatItems;
   const filterActive = hasActiveCommandPaletteCardFilters(normalizedCardFilters);
-  const showSubtitle = results.query.length > 0 || mode !== "root";
+  const showSubtitle = visibleModel.query.length > 0 || mode !== "root";
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [pendingAcceptQuery, setPendingAcceptQuery] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
 
     const nextQuery = initialQuery ?? "";
     setQuery(nextQuery);
+    setPendingAcceptQuery(null);
     setFilterOpen(false);
 
     const rafId = window.requestAnimationFrame(() => {
@@ -605,6 +689,7 @@ export function CommandPaletteSurface({
     previousModeRef.current = mode;
     setQuery(initialQuery ?? "");
     setSelectedIndex(0);
+    setPendingAcceptQuery(null);
     setFilterOpen(false);
   }, [initialQuery, mode, open]);
 
@@ -612,12 +697,13 @@ export function CommandPaletteSurface({
     if (open) return;
     setQuery("");
     setSelectedIndex(0);
+    setPendingAcceptQuery(null);
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
     setSelectedIndex(0);
-  }, [mode, open, results.query]);
+  }, [mode, open, visibleModel.query]);
 
   useEffect(() => {
     if (mode === "cards") return;
@@ -640,7 +726,46 @@ export function CommandPaletteSurface({
     );
   }, [cardFilters, normalizedCardFilters]);
 
+  const buildFlatItemsForQuery = useCallback((nextQuery: string): readonly PaletteItem[] => (
+    buildCommandPaletteSectionsModel({
+      query: nextQuery,
+      mode,
+      commands,
+      cards,
+      threads,
+      cardFilters: normalizedCardFilters,
+      cardSearchIndex,
+      threadSearchIndex,
+      cardDescriptionSearchBatch: descriptionSearchBatch,
+      cardDescriptionSearchScopeKey,
+      threadContentSearchBatch,
+    }).flatItems
+  ), [
+    cardDescriptionSearchScopeKey,
+    cardSearchIndex,
+    cards,
+    commands,
+    descriptionSearchBatch,
+    mode,
+    normalizedCardFilters,
+    threadContentSearchBatch,
+    threadSearchIndex,
+    threads,
+  ]);
+  const rowsStale = shouldConsumeStalePickerNavigation({
+    liveQuery: query,
+    rowsQuery: deferredQuery,
+    normalizeQuery: normalizeCommandPaletteSearchText,
+  });
+  const modeCanWaitForFreshRows = mode === "cards" || mode === "chats";
+  const visibleRowsLoading = mode === "cards"
+    ? cardsLoading || descriptionSearchBatch.loading
+    : mode === "chats"
+      ? chatsLoading || threadContentSearchBatch.loading
+      : loading;
+
   useEffect(() => {
+    if (rowsStale) return;
     if (flatItems.length === 0) {
       if (selectedIndex === -1) return;
       setSelectedIndex(-1);
@@ -651,7 +776,7 @@ export function CommandPaletteSurface({
     const nextIndex = resolveSelectableIndex(flatItems, preferredIndex, 1);
     if (selectedIndex === nextIndex) return;
     setSelectedIndex(nextIndex);
-  }, [flatItems, selectedIndex]);
+  }, [flatItems, rowsStale, selectedIndex]);
 
   useEffect(() => {
     if (selectedIndex < 0) return;
@@ -674,8 +799,9 @@ export function CommandPaletteSurface({
     return () => observer.disconnect();
   }, [sections]);
 
-  const handleExecute = (item: PaletteItem) => {
+  const handleExecute = useCallback((item: PaletteItem) => {
     if (isPaletteItemDisabled(item)) return;
+    setPendingAcceptQuery(null);
     if (item.kind === "command" && item.id === "searchChats") {
       onChangeMode("chats");
       return;
@@ -693,7 +819,39 @@ export function CommandPaletteSurface({
 
     onRequestClose();
     onExecute(item);
-  };
+  }, [onChangeMode, onExecute, onRequestClose]);
+
+  useEffect(() => {
+    if (!pendingAcceptQuery) return;
+    const result = resolvePendingQueryFreshAccept({
+      pendingQuery: pendingAcceptQuery,
+      liveQuery: query,
+      rowsQuery: deferredQuery,
+      rows: flatItems,
+      getRowId: (item) => item.id,
+      isRowAcceptable: (item) => !isPaletteItemDisabled(item),
+      normalizeQuery: normalizeCommandPaletteSearchText,
+    });
+    if (result.status === "accepted") {
+      handleExecute(result.row);
+      return;
+    }
+
+    if (!areQueryFresh({ liveQuery: query, rowsQuery: deferredQuery, normalizeQuery: normalizeCommandPaletteSearchText })) {
+      return;
+    }
+
+    if (!visibleRowsLoading) {
+      setPendingAcceptQuery(null);
+    }
+  }, [
+    deferredQuery,
+    flatItems,
+    handleExecute,
+    pendingAcceptQuery,
+    query,
+    visibleRowsLoading,
+  ]);
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     const moveSelection = (direction: -1 | 1) => {
@@ -708,18 +866,21 @@ export function CommandPaletteSurface({
 
     if (event.key === "ArrowDown" || (event.ctrlKey && (event.key === "j" || event.key === "n"))) {
       event.preventDefault();
+      if (rowsStale) return;
       moveSelection(1);
       return;
     }
 
     if (event.key === "ArrowUp" || (event.ctrlKey && (event.key === "k" || event.key === "p"))) {
       event.preventDefault();
+      if (rowsStale) return;
       moveSelection(-1);
       return;
     }
 
     if (event.key === "Home") {
       event.preventDefault();
+      if (rowsStale) return;
       if (flatItems.length === 0) return;
       setSelectedIndex(resolveSelectableIndex(flatItems, 0, 1));
       return;
@@ -727,16 +888,32 @@ export function CommandPaletteSurface({
 
     if (event.key === "End") {
       event.preventDefault();
+      if (rowsStale) return;
       if (flatItems.length === 0) return;
       setSelectedIndex(resolveSelectableIndex(flatItems, flatItems.length - 1, -1));
       return;
     }
 
     if (event.key === "Enter") {
-      if (selectedIndex < 0 || selectedIndex >= flatItems.length) return;
-      if (isPaletteItemDisabled(flatItems[selectedIndex])) return;
       event.preventDefault();
-      handleExecute(flatItems[selectedIndex] as PaletteItem);
+      const result = resolveQueryFreshAccept({
+        liveQuery: query,
+        rowsQuery: deferredQuery,
+        rows: flatItems,
+        focusedIndex: selectedIndex,
+        buildFreshRows: buildFlatItemsForQuery,
+        canWaitForFreshRows: modeCanWaitForFreshRows,
+        getRowId: (item) => item.id,
+        isRowAcceptable: (item) => !isPaletteItemDisabled(item),
+        normalizeQuery: normalizeCommandPaletteSearchText,
+      });
+      if (result.status === "accepted") {
+        handleExecute(result.row);
+        return;
+      }
+      if (result.status === "pending") {
+        setPendingAcceptQuery(result.query);
+      }
       return;
     }
 
@@ -788,7 +965,10 @@ export function CommandPaletteSurface({
           aria-labelledby={labelId}
           id={inputId}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setPendingAcceptQuery(null);
+            setQuery(event.target.value);
+          }}
           onKeyDown={handleKeyDown}
           placeholder={getModePlaceholder(mode)}
           aria-label="Command palette search"
@@ -834,6 +1014,7 @@ export function CommandPaletteSurface({
         tabIndex={-1}
         aria-label="Suggestions"
         id={listId}
+        aria-busy={rowsStale || visibleRowsLoading || pendingAcceptQuery !== null}
         className="scrollbar-token flex max-h-[min(440px,var(--cmdk-list-height,440px),75vh)] flex-col gap-[var(--spacing)] overflow-y-auto overscroll-contain transition-[max-height] duration-100"
       >
         {sections.map((section) => {
@@ -848,15 +1029,21 @@ export function CommandPaletteSurface({
               listId={listId}
               selectedIndex={selectedIndex}
               startIndex={startIndex}
-              onSelectIndex={setSelectedIndex}
-              onExecute={handleExecute}
+              onSelectIndex={(nextIndex) => {
+                if (rowsStale) return;
+                setSelectedIndex(nextIndex);
+              }}
+              onExecute={(item) => {
+                if (rowsStale) return;
+                handleExecute(item);
+              }}
               showSubtitle={showSubtitle}
             />
           );
         })}
         {flatItems.length === 0 ? (
           <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">
-            {getEmptyMessage(mode, results.query, mode === "chats" ? chatsLoading : mode === "cards" ? cardsLoading : loading)}
+            {rowsStale ? "Updating..." : getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "cards" ? cardsLoading : loading)}
           </div>
         ) : null}
       </div>

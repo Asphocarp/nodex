@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { CommandPaletteCard } from "./command-palette";
 import {
+  createCommandPaletteCardFastSearchIndex,
   createCommandPaletteCardSearchIndex,
   getCachedCommandPaletteCardSearchIndex,
   hydrateCommandPaletteCardSearchIndex,
@@ -40,15 +41,17 @@ export function useCommandPaletteCardSearchIndex(
   cards: CommandPaletteCard[],
 ): CommandPaletteCardSearchIndex | null {
   const cardsKey = useMemo(() => buildCardsKey(cards), [cards]);
+  const fastIndex = useMemo(() => createCommandPaletteCardFastSearchIndex(cards), [cards, cardsKey]);
   const latestCardsRef = useRef(cards);
   latestCardsRef.current = cards;
   const [state, setState] = useState<CommandPaletteCardSearchIndexState>(() => ({
     cardsKey,
-    index: getCachedCommandPaletteCardSearchIndex(cards),
+    index: getCachedCommandPaletteCardSearchIndex(cards) ?? fastIndex,
   }));
 
   useEffect(() => {
     const nextCards = latestCardsRef.current;
+    const fallbackIndex = createCommandPaletteCardFastSearchIndex(nextCards);
     const cachedIndex = getCachedCommandPaletteCardSearchIndex(nextCards);
     if (cachedIndex) {
       setState((current) => (
@@ -65,7 +68,7 @@ export function useCommandPaletteCardSearchIndex(
           ? current
           : {
             cardsKey,
-            index: createCommandPaletteCardSearchIndex([]),
+            index: fallbackIndex,
           }
       ));
       return;
@@ -85,9 +88,9 @@ export function useCommandPaletteCardSearchIndex(
 
     let cancelled = false;
     setState((current) => (
-      current.cardsKey === cardsKey && current.index === null
+      current.cardsKey === cardsKey && current.index !== null
         ? current
-        : { cardsKey, index: null }
+        : { cardsKey, index: fallbackIndex }
     ));
 
     void hydrateCommandPaletteCardSearchIndex(nextCards)
@@ -96,20 +99,20 @@ export function useCommandPaletteCardSearchIndex(
           return;
         }
 
-        setState((current) => (
-          current.cardsKey === cardsKey && current.index !== null
-            ? current
-            : { cardsKey, index }
-        ));
+        startTransition(() => {
+          setState({ cardsKey, index });
+        });
       })
       .catch(() => {
         if (cancelled) {
           return;
         }
 
-        setState({
-          cardsKey,
-          index: createCommandPaletteCardSearchIndex(latestCardsRef.current),
+        startTransition(() => {
+          setState({
+            cardsKey,
+            index: createCommandPaletteCardSearchIndex(latestCardsRef.current),
+          });
         });
       });
 
@@ -119,7 +122,7 @@ export function useCommandPaletteCardSearchIndex(
   }, [cardsKey]);
 
   if (state.cardsKey !== cardsKey) {
-    return null;
+    return fastIndex;
   }
 
   return state.index;

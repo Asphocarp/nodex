@@ -249,8 +249,8 @@ describe("useNfmMentionGetItems", () => {
         query === "old" ? oldCardSearch.promise : nowCardSearch.promise
       ),
       searchThreadContent: async () => new Promise<[]>(() => undefined),
-      selectCardResults: ({ cardDescriptionSearchResults }) => (
-        (cardDescriptionSearchResults ?? []).length > 0
+      selectCardResults: ({ cardDescriptionSearchBatch }) => (
+        (cardDescriptionSearchBatch?.results.length ?? 0) > 0
           ? [{
             ...makePaletteCard(),
             card: {

@@ -8,6 +8,7 @@ import {
 import {
   buildCommandPaletteQueryHighlightPreview,
 } from "./command-palette-highlight";
+import { normalizeCommandPaletteSearchText } from "./command-palette-card-search";
 import type {
   CommandPaletteThreadContentSearchResult,
   CommandPaletteThreadSummary,
@@ -18,8 +19,16 @@ const DEFAULT_THREAD_LIMIT = 8;
 const CONTENT_SEARCH_LIMIT = 60;
 const INDEX_UPDATE_REFRESH_DELAY_MS = 250;
 
+const commandPaletteThreadItemsCache = new Map<string, CommandPaletteThread[]>();
+
 export interface CommandPaletteThreadItemsState {
   threads: CommandPaletteThread[];
+  loading: boolean;
+}
+
+export interface CommandPaletteThreadContentSearchBatch {
+  query: string;
+  results: readonly CommandPaletteThreadContentSearchResult[];
   loading: boolean;
 }
 
@@ -71,10 +80,10 @@ export function useCommandPaletteThreadItems({
   activeProjectId: string;
   refreshKey: number;
 }): CommandPaletteThreadItemsState {
-  const [state, setState] = useState<CommandPaletteThreadItemsState>({
-    threads: [],
+  const [state, setState] = useState<CommandPaletteThreadItemsState>(() => ({
+    threads: commandPaletteThreadItemsCache.get(activeProjectId) ?? [],
     loading: false,
-  });
+  }));
 
   useEffect(() => {
     if (!enabled) {
@@ -85,11 +94,16 @@ export function useCommandPaletteThreadItems({
     }
 
     let cancelled = false;
-    setState((current) => ({ threads: current.threads, loading: true }));
+    const cachedThreads = commandPaletteThreadItemsCache.get(activeProjectId);
+    setState((current) => ({
+      threads: cachedThreads ?? current.threads,
+      loading: true,
+    }));
 
     void listCommandPaletteThreadItems({ activeProjectId })
       .then((threads) => {
         if (cancelled) return;
+        commandPaletteThreadItemsCache.set(activeProjectId, threads);
         setState({
           threads,
           loading: false,
@@ -97,7 +111,7 @@ export function useCommandPaletteThreadItems({
       })
       .catch(() => {
         if (cancelled) return;
-        setState({ threads: [], loading: false });
+        setState((current) => ({ threads: current.threads, loading: false }));
       });
 
     return () => {
@@ -155,8 +169,12 @@ export function useCommandPaletteThreadContentSearch({
 }: {
   enabled: boolean;
   query: string;
-}): CommandPaletteThreadContentSearchResult[] {
-  const [results, setResults] = useState<CommandPaletteThreadContentSearchResult[]>([]);
+}): CommandPaletteThreadContentSearchBatch {
+  const [batch, setBatch] = useState<CommandPaletteThreadContentSearchBatch>({
+    query: "",
+    results: [],
+    loading: false,
+  });
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
@@ -182,22 +200,36 @@ export function useCommandPaletteThreadContentSearch({
 
   useEffect(() => {
     const queryText = query.trimStart().trim();
-    if (!enabled || queryText.length < 2) {
-      setResults((current) => current.length === 0 ? current : []);
+    const normalizedQuery = normalizeCommandPaletteSearchText(queryText);
+    if (!enabled || normalizedQuery.length < 2) {
+      setBatch((current) => (
+        current.query === "" && current.results.length === 0 && !current.loading
+          ? current
+          : { query: "", results: [], loading: false }
+      ));
       return;
     }
 
     let cancelled = false;
+    setBatch((current) => current.loading && current.query === normalizedQuery
+      ? current
+      : { ...current, loading: true });
     void searchCommandPaletteThreadContent({ query: queryText, limit: CONTENT_SEARCH_LIMIT })
       .then((nextResults) => {
         if (cancelled) return;
-        setResults((current) => (
-          current.length === 0 && nextResults.length === 0 ? current : nextResults
-        ));
+        setBatch({
+          query: normalizedQuery,
+          results: nextResults,
+          loading: false,
+        });
       })
       .catch(() => {
         if (cancelled) return;
-        setResults((current) => current.length === 0 ? current : []);
+        setBatch({
+          query: normalizedQuery,
+          results: [],
+          loading: false,
+        });
       });
 
     return () => {
@@ -205,21 +237,21 @@ export function useCommandPaletteThreadContentSearch({
     };
   }, [enabled, query, refreshTick]);
 
-  return results;
+  return batch;
 }
 
 export function selectCommandPaletteChatResults({
   query,
   threads,
   threadSearchIndex,
-  threadContentSearchResults,
+  threadContentSearchBatch,
   threadLimit = DEFAULT_THREAD_LIMIT,
   preferActiveProject = false,
 }: {
   query: string;
   threads: CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
-  threadContentSearchResults?: CommandPaletteThreadContentSearchResult[];
+  threadContentSearchBatch?: CommandPaletteThreadContentSearchBatch | null;
   threadLimit?: number;
   preferActiveProject?: boolean;
 }): CommandPaletteThread[] {
@@ -234,12 +266,17 @@ export function selectCommandPaletteChatResults({
     preferActiveProject,
   });
 
-  if (results.query.length === 0 || !threadContentSearchResults || threadContentSearchResults.length === 0) {
+  const contentResults = threadContentSearchBatch
+    && normalizeCommandPaletteSearchText(threadContentSearchBatch.query) === results.query
+    ? threadContentSearchBatch.results
+    : [];
+
+  if (results.query.length === 0 || contentResults.length === 0) {
     return results.threads;
   }
 
   const threadById = new Map(threads.map((item) => [item.threadId, item] as const));
-  const contentSearchThreads = threadContentSearchResults.flatMap((result) => {
+  const contentSearchThreads = contentResults.flatMap((result) => {
     const item = threadById.get(result.threadId);
     if (!item) return [];
     const searchPreview = buildThreadContentSearchPreview(result.snippet, results.query, result.snippetSegments);
@@ -280,14 +317,14 @@ export function useSelectedCommandPaletteChatResults({
   query,
   threads,
   threadSearchIndex,
-  threadContentSearchResults,
+  threadContentSearchBatch,
   threadLimit,
   preferActiveProject,
 }: {
   query: string;
   threads: CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
-  threadContentSearchResults?: CommandPaletteThreadContentSearchResult[];
+  threadContentSearchBatch?: CommandPaletteThreadContentSearchBatch | null;
   threadLimit?: number;
   preferActiveProject?: boolean;
 }): CommandPaletteThread[] {
@@ -296,10 +333,10 @@ export function useSelectedCommandPaletteChatResults({
       query,
       threads,
       threadSearchIndex,
-      threadContentSearchResults,
+      threadContentSearchBatch,
       threadLimit,
       preferActiveProject,
     }),
-    [preferActiveProject, query, threadContentSearchResults, threadLimit, threadSearchIndex, threads],
+    [preferActiveProject, query, threadContentSearchBatch, threadLimit, threadSearchIndex, threads],
   );
 }

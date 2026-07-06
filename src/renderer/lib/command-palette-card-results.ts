@@ -8,7 +8,10 @@ import {
   type CommandPaletteCard,
   type CommandPaletteCardFilters,
 } from "./command-palette";
-import type { CommandPaletteCardSearchIndex } from "./command-palette-card-search";
+import {
+  normalizeCommandPaletteSearchText,
+  type CommandPaletteCardSearchIndex,
+} from "./command-palette-card-search";
 import {
   buildCommandPaletteQueryHighlightPreview,
 } from "./command-palette-highlight";
@@ -22,6 +25,19 @@ import type {
 const DEFAULT_METADATA_CARD_LIMIT = 12;
 const DEFAULT_MERGED_CARD_LIMIT = 24;
 const DEFAULT_DESCRIPTION_SEARCH_LIMIT = 60;
+
+export interface CommandPaletteCardDescriptionSearchBatch {
+  query: string;
+  scopeKey: string;
+  results: readonly CardSearchResult[];
+  loading: boolean;
+}
+
+export function buildCommandPaletteCardDescriptionSearchScopeKey(
+  projectIds: readonly string[],
+): string {
+  return Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right)).join("\n");
+}
 
 export function buildCommandPaletteCardItemsFromBoardSummaries({
   projects,
@@ -95,7 +111,8 @@ export function selectCommandPaletteCardResults({
   cards,
   cardFilters,
   cardSearchIndex,
-  cardDescriptionSearchResults,
+  cardDescriptionSearchBatch,
+  cardDescriptionSearchScopeKey,
   metadataCardLimit = DEFAULT_METADATA_CARD_LIMIT,
   mergedCardLimit = DEFAULT_MERGED_CARD_LIMIT,
   preferActiveProject = false,
@@ -104,7 +121,8 @@ export function selectCommandPaletteCardResults({
   cards: CommandPaletteCard[];
   cardFilters?: CommandPaletteCardFilters | null;
   cardSearchIndex?: CommandPaletteCardSearchIndex | null;
-  cardDescriptionSearchResults?: readonly CardSearchResult[];
+  cardDescriptionSearchBatch?: CommandPaletteCardDescriptionSearchBatch | null;
+  cardDescriptionSearchScopeKey?: string | null;
   metadataCardLimit?: number;
   mergedCardLimit?: number;
   preferActiveProject?: boolean;
@@ -121,12 +139,22 @@ export function selectCommandPaletteCardResults({
     preferActiveProject,
   });
 
-  if (results.query.length === 0 || !cardDescriptionSearchResults || cardDescriptionSearchResults.length === 0) {
+  const descriptionResults = cardDescriptionSearchBatch
+    && normalizeCommandPaletteSearchText(cardDescriptionSearchBatch.query) === results.query
+    && (
+      cardDescriptionSearchScopeKey === undefined
+      || cardDescriptionSearchScopeKey === null
+      || cardDescriptionSearchBatch.scopeKey === cardDescriptionSearchScopeKey
+    )
+    ? cardDescriptionSearchBatch.results
+    : [];
+
+  if (results.query.length === 0 || descriptionResults.length === 0) {
     return results.cards;
   }
 
   const cardByProjectAndId = new Map(cards.map((item) => [`${item.projectId}:${item.card.id}`, item] as const));
-  const descriptionSearchCards = cardDescriptionSearchResults.flatMap((result) => {
+  const descriptionSearchCards = descriptionResults.flatMap((result) => {
     const item = cardByProjectAndId.get(`${result.projectId}:${result.cardId}`);
     if (!item || !matchesCommandPaletteCardFilters(item, filters)) {
       return [];
@@ -173,19 +201,35 @@ export function useCommandPaletteCardDescriptionSearch({
   enabled: boolean;
   query: string;
   projectIds: readonly string[];
-}): CardSearchResult[] {
-  const [results, setResults] = useState<CardSearchResult[]>([]);
-  const projectIdsKey = useMemo(() => projectIds.join("\n"), [projectIds]);
+}): CommandPaletteCardDescriptionSearchBatch {
+  const [batch, setBatch] = useState<CommandPaletteCardDescriptionSearchBatch>({
+    query: "",
+    scopeKey: "",
+    results: [],
+    loading: false,
+  });
+  const projectIdsKey = useMemo(
+    () => buildCommandPaletteCardDescriptionSearchScopeKey(projectIds),
+    [projectIds],
+  );
 
   useEffect(() => {
     const queryText = query.trimStart();
+    const normalizedQuery = normalizeCommandPaletteSearchText(queryText);
     const scopedProjectIds = projectIdsKey ? projectIdsKey.split("\n") : [];
-    if (!enabled || queryText.trim().length === 0 || scopedProjectIds.length === 0) {
-      setResults((current) => current.length === 0 ? current : []);
+    if (!enabled || normalizedQuery.length === 0 || scopedProjectIds.length === 0) {
+      setBatch((current) => (
+        current.query === "" && current.scopeKey === "" && current.results.length === 0 && !current.loading
+          ? current
+          : { query: "", scopeKey: "", results: [], loading: false }
+      ));
       return;
     }
 
     let cancelled = false;
+    setBatch((current) => current.loading && current.query === normalizedQuery && current.scopeKey === projectIdsKey
+      ? current
+      : { ...current, loading: true });
     void searchCommandPaletteCardDescriptions({
       projectIds: scopedProjectIds,
       query: queryText,
@@ -193,13 +237,21 @@ export function useCommandPaletteCardDescriptionSearch({
     })
       .then((nextResults) => {
         if (cancelled) return;
-        setResults((current) => (
-          current.length === 0 && nextResults.length === 0 ? current : nextResults
-        ));
+        setBatch({
+          query: normalizedQuery,
+          scopeKey: projectIdsKey,
+          results: nextResults,
+          loading: false,
+        });
       })
       .catch(() => {
         if (cancelled) return;
-        setResults((current) => current.length === 0 ? current : []);
+        setBatch({
+          query: normalizedQuery,
+          scopeKey: projectIdsKey,
+          results: [],
+          loading: false,
+        });
       });
 
     return () => {
@@ -207,7 +259,7 @@ export function useCommandPaletteCardDescriptionSearch({
     };
   }, [enabled, projectIdsKey, query]);
 
-  return results;
+  return batch;
 }
 
 export function useSelectedCommandPaletteCardResults({
@@ -215,7 +267,8 @@ export function useSelectedCommandPaletteCardResults({
   cards,
   cardFilters,
   cardSearchIndex,
-  cardDescriptionSearchResults,
+  cardDescriptionSearchBatch,
+  cardDescriptionSearchScopeKey,
   metadataCardLimit,
   mergedCardLimit,
   preferActiveProject,
@@ -224,7 +277,8 @@ export function useSelectedCommandPaletteCardResults({
   cards: CommandPaletteCard[];
   cardFilters?: CommandPaletteCardFilters | null;
   cardSearchIndex?: CommandPaletteCardSearchIndex | null;
-  cardDescriptionSearchResults?: readonly CardSearchResult[];
+  cardDescriptionSearchBatch?: CommandPaletteCardDescriptionSearchBatch | null;
+  cardDescriptionSearchScopeKey?: string | null;
   metadataCardLimit?: number;
   mergedCardLimit?: number;
   preferActiveProject?: boolean;
@@ -235,13 +289,15 @@ export function useSelectedCommandPaletteCardResults({
       cards,
       cardFilters,
       cardSearchIndex,
-      cardDescriptionSearchResults,
+      cardDescriptionSearchBatch,
+      cardDescriptionSearchScopeKey,
       metadataCardLimit,
       mergedCardLimit,
       preferActiveProject,
     }),
     [
-      cardDescriptionSearchResults,
+      cardDescriptionSearchBatch,
+      cardDescriptionSearchScopeKey,
       cardFilters,
       cardSearchIndex,
       cards,

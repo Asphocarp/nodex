@@ -1,4 +1,5 @@
 import MiniSearch, { type AsPlainObject, type Options, type SearchResult } from "minisearch";
+import { CARD_STATUS_LABELS } from "../../shared/card-status";
 import {
   normalizeSearchText,
   resolveFuzzyThreshold,
@@ -75,6 +76,17 @@ const FIELD_BOOSTS: Partial<Record<keyof CommandPaletteCardSearchDocument, numbe
   description: 1,
   cardId: 1,
 };
+const FAST_FIELD_BOOSTS = {
+  title: 8,
+  tags: 5,
+  assignee: 4,
+  status: 4,
+  agentStatus: 3,
+  columnName: 2,
+  projectName: 2,
+  description: 1,
+  cardId: 1,
+} as const;
 
 const EXCERPT_BEFORE = 96;
 const EXCERPT_AFTER = 220;
@@ -98,6 +110,12 @@ interface PersistedCommandPaletteCardSearchCacheRecord extends CommandPaletteCar
 interface CommandPaletteCardSearchRuntimeCache {
   documentRefs: CommandPaletteCardSearchDocumentRef[];
   miniSearch: MiniSearch<CommandPaletteCardSearchDocument>;
+}
+
+interface CommandPaletteCardFastSearchRecord {
+  item: CommandPaletteCard;
+  document: CommandPaletteCardSearchDocument;
+  status: string;
 }
 
 let commandPaletteCardSearchDbPromise: Promise<IDBDatabase> | null = null;
@@ -307,6 +325,110 @@ function buildDescriptionPreview(
   return {
     excerpt,
     segments: buildCommandPaletteHighlightSegments(excerpt, buildCommandPaletteHighlightRegex(previewTerms)),
+  };
+}
+
+function buildDescriptionPreviewFromTerms(
+  item: CommandPaletteCard,
+  terms: string[],
+): CommandPaletteCardSearchPreview | null {
+  const description = normalizeCommandPalettePreviewText(item.card.descriptionPreview);
+  if (!description) return null;
+
+  const regex = buildCommandPaletteHighlightRegex(terms);
+  if (!regex) return null;
+
+  regex.lastIndex = 0;
+  const firstMatch = regex.exec(description);
+  if (!firstMatch) return null;
+
+  const from = Math.max(0, firstMatch.index - EXCERPT_BEFORE);
+  const to = Math.min(description.length, firstMatch.index + firstMatch[0].length + EXCERPT_AFTER);
+  const excerpt = `${from > 0 ? "…" : ""}${description.slice(from, to).trim()}${to < description.length ? "…" : ""}`;
+
+  return {
+    excerpt,
+    segments: buildCommandPaletteHighlightSegments(excerpt, buildCommandPaletteHighlightRegex(terms)),
+  };
+}
+
+function collectFastMatchedTerms(value: string, terms: readonly string[]): string[] {
+  return terms.filter((term) => value.includes(term));
+}
+
+function scoreFastSearchField(
+  value: string,
+  normalizedQuery: string,
+  terms: readonly string[],
+  boost: number,
+): number {
+  if (!value) return 0;
+
+  let score = 0;
+  if (value === normalizedQuery) {
+    score += 500 * boost;
+  } else if (value.startsWith(normalizedQuery)) {
+    score += 350 * boost;
+  } else if (value.includes(normalizedQuery)) {
+    score += 200 * boost;
+  }
+
+  terms.forEach((term) => {
+    if (value === term) {
+      score += 80 * boost;
+      return;
+    }
+    if (value.startsWith(term)) {
+      score += 50 * boost;
+      return;
+    }
+    if (value.includes(term)) {
+      score += 20 * boost;
+    }
+  });
+
+  return score;
+}
+
+function buildFastSearchDecorations(
+  record: CommandPaletteCardFastSearchRecord,
+  terms: readonly string[],
+): CommandPaletteCardSearchDecorations | null {
+  const item = record.item;
+  const titleSegments = buildHighlightedSegments(item.card.title || "Untitled", collectFastMatchedTerms(record.document.title, terms));
+  const projectNameSegments = buildHighlightedSegments(item.projectName, collectFastMatchedTerms(record.document.projectName, terms));
+  const columnNameSegments = buildHighlightedSegments(item.columnName, collectFastMatchedTerms(record.document.columnName, terms));
+  const badges: CommandPaletteCardSearchBadge[] = [];
+
+  const tagTerms = collectFastMatchedTerms(record.document.tags, terms);
+  if (tagTerms.length > 0) {
+    item.card.tags.forEach((tag) => {
+      const badge = buildBadge(`tag:${tag}`, "tag", tag, tagTerms);
+      if (badge) badges.push(badge);
+    });
+  }
+
+  const assigneeBadge = buildBadge("assignee", "assignee", item.card.assignee ?? "", collectFastMatchedTerms(record.document.assignee, terms));
+  if (assigneeBadge) badges.push(assigneeBadge);
+
+  const agentStatusBadge = buildBadge("agent-status", "status", item.card.agentStatus ?? "", collectFastMatchedTerms(record.document.agentStatus, terms));
+  if (agentStatusBadge) badges.push(agentStatusBadge);
+
+  const statusBadge = buildBadge("card-status", "status", CARD_STATUS_LABELS[item.card.status] ?? item.card.status, collectFastMatchedTerms(record.status, terms));
+  if (statusBadge) badges.push(statusBadge);
+
+  const cardIdBadge = buildBadge("id", "id", item.card.id, collectFastMatchedTerms(record.document.cardId, terms), "monospace");
+  if (cardIdBadge) badges.push(cardIdBadge);
+
+  if (!titleSegments && !projectNameSegments && !columnNameSegments && badges.length === 0) {
+    return null;
+  }
+
+  return {
+    titleSegments,
+    projectNameSegments,
+    columnNameSegments,
+    badges,
   };
 }
 
@@ -592,6 +714,58 @@ export function createCommandPaletteCardSearchIndex(
 
   cacheRuntimeSearchIndex(source.documentRefs, miniSearch);
   return createCommandPaletteCardSearchIndexFromSource(source, miniSearch);
+}
+
+export function createCommandPaletteCardFastSearchIndex(
+  cards: CommandPaletteCard[],
+): CommandPaletteCardSearchIndex {
+  const records = cards.map((item): CommandPaletteCardFastSearchRecord => ({
+    item,
+    document: buildSearchDocument(item),
+    status: normalizeCommandPaletteSearchText(CARD_STATUS_LABELS[item.card.status] ?? item.card.status),
+  }));
+
+  return {
+    search(query) {
+      const normalizedQuery = normalizeCommandPaletteSearchText(query);
+      if (!normalizedQuery) return [];
+
+      const terms = normalizedQuery.split(/\s+/).filter((term) => term.length > 0);
+      if (terms.length === 0) return [];
+
+      return records
+        .map((record): CommandPaletteCardSearchHit | null => {
+          const fields = [
+            { value: record.document.title, boost: FAST_FIELD_BOOSTS.title },
+            { value: record.document.description, boost: FAST_FIELD_BOOSTS.description },
+            { value: record.document.tags, boost: FAST_FIELD_BOOSTS.tags },
+            { value: record.document.assignee, boost: FAST_FIELD_BOOSTS.assignee },
+            { value: record.document.agentStatus, boost: FAST_FIELD_BOOSTS.agentStatus },
+            { value: record.status, boost: FAST_FIELD_BOOSTS.status },
+            { value: record.document.columnName, boost: FAST_FIELD_BOOSTS.columnName },
+            { value: record.document.projectName, boost: FAST_FIELD_BOOSTS.projectName },
+            { value: record.document.cardId, boost: FAST_FIELD_BOOSTS.cardId },
+          ];
+          if (!terms.every((term) => fields.some((field) => field.value.includes(term)))) {
+            return null;
+          }
+
+          const score = fields.reduce(
+            (sum, field) => sum + scoreFastSearchField(field.value, normalizedQuery, terms, field.boost),
+            0,
+          );
+          return {
+            item: {
+              ...record.item,
+              searchPreview: buildDescriptionPreviewFromTerms(record.item, terms),
+              searchDecorations: buildFastSearchDecorations(record, terms),
+            },
+            score,
+          };
+        })
+        .filter((result): result is CommandPaletteCardSearchHit => result !== null);
+    },
+  };
 }
 
 export function resetCommandPaletteCardSearchCacheForTests(): void {

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandPaletteThread } from "./command-palette";
-import { selectCommandPaletteChatResults } from "./command-palette-chat-search";
+import {
+  type CommandPaletteThreadContentSearchBatch,
+  selectCommandPaletteChatResults,
+} from "./command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
 import type { CommandPaletteThreadContentSearchResult } from "./types";
 
@@ -36,6 +39,17 @@ function makeContentResult(
     score: overrides.score ?? -1,
     matchKind: "fts",
     snippetSegments: overrides.snippetSegments,
+  };
+}
+
+function makeContentBatch(
+  query: string,
+  results: readonly CommandPaletteThreadContentSearchResult[],
+): CommandPaletteThreadContentSearchBatch {
+  return {
+    query,
+    results,
+    loading: false,
   };
 }
 
@@ -76,12 +90,12 @@ describe("command palette chat result selection", () => {
       query: "approval heuristic",
       threads,
       threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadContentSearchResults: [
+      threadContentSearchBatch: makeContentBatch("approval heuristic", [
         makeContentResult({
           threadId: "thr-content",
           snippet: "Tune the approval heuristic before merging.",
         }),
-      ],
+      ]),
     });
 
     expect(results.length).toBe(1);
@@ -110,25 +124,25 @@ describe("command palette chat result selection", () => {
     });
     const threads = [otherProjectThread, activeProjectThread];
     const threadSearchIndex = createCommandPaletteThreadSearchIndex(threads);
-    const threadContentSearchResults = [
+    const threadContentSearchBatch = makeContentBatch("approval heuristic", [
       makeContentResult({
         threadId: "thr-active-content",
         snippet: "Approval heuristic appears only in the active transcript.",
       }),
-    ];
+    ]);
 
     const defaultResults = selectCommandPaletteChatResults({
       query: "approval heuristic",
       threads,
       threadSearchIndex,
-      threadContentSearchResults,
+      threadContentSearchBatch,
       threadLimit: 1,
     });
     const prioritizedResults = selectCommandPaletteChatResults({
       query: "approval heuristic",
       threads,
       threadSearchIndex,
-      threadContentSearchResults,
+      threadContentSearchBatch,
       threadLimit: 1,
       preferActiveProject: true,
     });
@@ -151,17 +165,41 @@ describe("command palette chat result selection", () => {
       query: "retry budget",
       threads,
       threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadContentSearchResults: [
+      threadContentSearchBatch: makeContentBatch("retry budget", [
         makeContentResult({
           threadId: "thr-preview",
           snippet: "Server retry budget transcript snippet.",
         }),
-      ],
+      ]),
     });
 
     expect(results.length).toBe(1);
     expect(results[0]?.threadId).toBe("thr-preview");
     expect(results[0]?.searchPreview?.source).toBe("metadata");
     expect(results[0]?.searchPreview?.excerpt.includes("Discuss retry budget")).toBeTrue();
+  });
+
+  test("does not merge stale transcript batches from another query", () => {
+    const thread = makeThread({
+      threadId: "thr-content",
+      id: "thread:thr-content",
+      title: "General chat",
+      preview: "No matching metadata here.",
+    });
+    const threads = [thread];
+
+    const results = selectCommandPaletteChatResults({
+      query: "approval heuristic",
+      threads,
+      threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
+      threadContentSearchBatch: makeContentBatch("queue recovery", [
+        makeContentResult({
+          threadId: "thr-content",
+          snippet: "Tune the approval heuristic before merging.",
+        }),
+      ]),
+    });
+
+    expect(results.length).toBe(0);
   });
 });
