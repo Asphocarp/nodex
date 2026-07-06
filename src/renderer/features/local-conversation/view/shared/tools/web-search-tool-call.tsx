@@ -132,7 +132,8 @@ export function WebSearchToolCallGroup({
     return <WebSearchGroupLines lines={lines} />;
   }
 
-  const activeDetail = getActiveWebSearchDetail(lines);
+  const isSearching = isActive && lines.some((line) => !line.completed);
+  const activeDetail = isSearching ? getActiveWebSearchDetail(lines) : null;
   const icon = semanticToolIcon("web-search");
 
   return (
@@ -149,7 +150,7 @@ export function WebSearchToolCallGroup({
         >
           <ToolActivityIcon descriptor={icon} showFallbackWhileLoading={false} />
           <span className="min-w-0 truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground">
-            {isActive ? (
+            {isSearching ? (
               <>
                 <CodexShimmerText className="shrink-0 whitespace-nowrap text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground">
                   Searching the web

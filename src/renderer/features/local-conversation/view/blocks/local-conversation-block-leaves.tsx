@@ -542,7 +542,7 @@ export function ThreadWebSearchGroupBlock({
   return (
     <WebSearchToolCallGroup
       items={block.entries.map((entry) => entry.entry)}
-      isActive={isLatestTurn && isStreamingTurn && block.status === "inProgress"}
+      isActive={isLatestTurn && isStreamingTurn && block.entries.some((entry) => entry.status === "inProgress")}
     />
   );
 }
@@ -1047,10 +1047,10 @@ export function ThreadCollapsedToolActivityBlock({
   const showFileChangeLineCount = isEverydayWorkMode(threadDetailLevel);
   const showRunningCommandSummary = isEverydayWorkMode(threadDetailLevel);
   const icon = resolveCollapsedToolActivityIcon(block.entries);
-  const activeSummary = isLatestTurn
+  const runningSummary = isLatestTurn
     && isStreamingTurn
-    && shouldDisplayCollapsedToolActivityActiveSummary(block.activeSummary, threadDetailLevel)
-    ? block.activeSummary
+    && shouldDisplayCollapsedToolActivityActiveSummary(block.runningSummary, threadDetailLevel)
+    ? block.runningSummary
     : null;
   const aggregateSummary = block.summaryStats
     ? buildCollapsedToolActivitySummary(block.summaryStats, {
@@ -1058,13 +1058,13 @@ export function ThreadCollapsedToolActivityBlock({
       showRunningCommandSummary,
     })?.summary ?? block.summary
     : block.summary;
-  const shouldShimmerAggregate = !activeSummary
+  const shouldShimmerAggregate = !runningSummary
     && isLatestTurn
     && isStreamingTurn
     && shouldShimmerCollapsedActivitySummary(block.summaryStats);
   const shouldAnimateSummaryChanges = isLatestTurn && isStreamingTurn;
-  const summaryKey = activeSummary?.key ?? buildCollapsedActivityAggregateSummaryKey(block.summaryStats, aggregateSummary);
-  const summaryTransition: ThreadActivitySummaryTransition = activeSummary
+  const summaryKey = runningSummary?.key ?? buildCollapsedActivityAggregateSummaryKey(block.summaryStats, aggregateSummary);
+  const summaryTransition: ThreadActivitySummaryTransition = runningSummary
     ? shouldAnimateSummaryChanges ? "deferred" : "static"
     : shouldAnimateSummaryChanges ? shouldShimmerAggregate ? "deferred" : "immediate" : "static";
   const canExpand = block.entries.length > 0 || (isLatestTurn && isStreamingTurn);
@@ -1072,8 +1072,8 @@ export function ThreadCollapsedToolActivityBlock({
     <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
       {icon ? <ToolActivityIcon descriptor={icon} /> : null}
       <span className="min-w-0 flex-1 truncate">
-        {activeSummary ? (
-          <CollapsedActivityActiveSummaryText summary={activeSummary} />
+        {runningSummary ? (
+          <CollapsedActivityActiveSummaryText summary={runningSummary} />
         ) : (
           <CollapsedActivitySummaryText summary={aggregateSummary} shimmer={shouldShimmerAggregate} />
         )}

@@ -32,6 +32,7 @@ import type {
   ThreadCollapsedToolActivityActiveSummary,
   ThreadCollapsedToolActivityEntryModel,
   ThreadCollapsedToolActivityMcpSourceStats,
+  ThreadCollapsedToolActivitySummaryCues,
   ThreadCollapsedToolActivitySummaryStats,
   ThreadAgentEntryModel,
   ThreadAgentItemModel,
@@ -617,8 +618,17 @@ function resolveCollapsedActivityActiveSummaryPass(
 export function resolveCollapsedToolActivityActiveSummary(
   entries: readonly ThreadCollapsedToolActivityEntryModel[],
 ): ThreadCollapsedToolActivityActiveSummary | null {
-  return resolveCollapsedActivityActiveSummaryPass(entries, true)
-    ?? resolveCollapsedActivityActiveSummaryPass(entries, false);
+  return resolveCollapsedActivityActiveSummaryPass(entries, true);
+}
+
+export function resolveCollapsedToolActivitySummaryCues(
+  entries: readonly ThreadCollapsedToolActivityEntryModel[],
+): ThreadCollapsedToolActivitySummaryCues {
+  const runningSummary = resolveCollapsedActivityActiveSummaryPass(entries, true);
+  return {
+    runningSummary,
+    continuitySummary: runningSummary ?? resolveCollapsedActivityActiveSummaryPass(entries, false),
+  };
 }
 
 export function shouldDisplayCollapsedToolActivityActiveSummary(
@@ -808,26 +818,6 @@ function mergeActivityStatus(entries: ThreadCollapsedToolActivityEntryModel[]): 
   if (statuses.includes("interrupted")) return "interrupted";
   if (statuses.includes("declined")) return "declined";
   return "completed";
-}
-
-function isCurrentToolActivityWebSearchGroupSummary(
-  entries: readonly ThreadCollapsedToolActivityEntryModel[],
-  options: { isCurrentToolActivity?: boolean },
-): boolean {
-  if (options.isCurrentToolActivity !== true) return false;
-  return entries.at(-1)?.type === "webSearchGroup";
-}
-
-function applyCurrentToolActivitySummaryOverrides(
-  stats: ThreadCollapsedToolActivitySummaryStats,
-  entries: readonly ThreadCollapsedToolActivityEntryModel[],
-  options: { isCurrentToolActivity?: boolean } = {},
-): ThreadCollapsedToolActivitySummaryStats {
-  if (!isCurrentToolActivityWebSearchGroupSummary(entries, options)) return stats;
-  return {
-    ...stats,
-    runningWebSearchCount: stats.webSearchCount,
-  };
 }
 
 function emptyCollapsedToolActivitySummaryStats(): ThreadCollapsedToolActivitySummaryStats {
@@ -1528,15 +1518,11 @@ export function collectCollapsedToolActivitySummaryStats(
 function buildCollapsedActivityGroup(
   entries: ThreadCollapsedToolActivityEntryModel[],
   seed: ThreadCollapsedToolActivityEntryModel,
-  options: { isCurrentToolActivity?: boolean } = {},
 ): ThreadCollapsedToolActivityBlockModel | null {
-  const summaryStats = applyCurrentToolActivitySummaryOverrides(
-    collectCollapsedToolActivitySummaryStats(entries),
-    entries,
-    options,
-  );
+  const summaryStats = collectCollapsedToolActivitySummaryStats(entries);
   const summaryResult = buildCollapsedToolActivitySummary(summaryStats);
   if (!summaryResult) return null;
+  const summaryCues = resolveCollapsedToolActivitySummaryCues(entries);
 
   return {
     id: `${seed.id}::collapsed-tool-activity`,
@@ -1549,7 +1535,8 @@ function buildCollapsedActivityGroup(
     summary: summaryResult.summary,
     summaryStats,
     summaryParts: summaryResult.parts,
-    activeSummary: resolveCollapsedToolActivityActiveSummary(entries),
+    runningSummary: summaryCues.runningSummary,
+    continuitySummary: summaryCues.continuitySummary,
     status: mergeActivityStatus(entries),
   };
 }
@@ -1845,9 +1832,7 @@ export function buildAgentRenderUnits(
     if (entries.length === 1 && !shouldCollapseSingleActivityEntry(current)) {
       collapsed.push(current);
     } else {
-      const collapsedGroup = buildCollapsedActivityGroup(entries, current, {
-        isCurrentToolActivity: options.keepLatestLiveActivityInGroup === true && cursor === groupedWithReviewAttachments.length,
-      });
+      const collapsedGroup = buildCollapsedActivityGroup(entries, current);
       if (collapsedGroup) {
         collapsed.push(collapsedGroup);
       } else {

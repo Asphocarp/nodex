@@ -503,6 +503,11 @@ export type ThreadCollapsedToolActivityActiveSummary =
     deletions: number;
   };
 
+export interface ThreadCollapsedToolActivitySummaryCues {
+  runningSummary: ThreadCollapsedToolActivityActiveSummary | null;
+  continuitySummary: ThreadCollapsedToolActivityActiveSummary | null;
+}
+
 export interface ThreadCollapsedToolActivityBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
   turnId: string;
@@ -514,7 +519,8 @@ export interface ThreadCollapsedToolActivityBlockModel extends ThreadRenderKeyed
   summary: string;
   summaryStats?: ThreadCollapsedToolActivitySummaryStats;
   summaryParts?: string[];
-  activeSummary?: ThreadCollapsedToolActivityActiveSummary | null;
+  runningSummary?: ThreadCollapsedToolActivityActiveSummary | null;
+  continuitySummary?: ThreadCollapsedToolActivityActiveSummary | null;
   status?: CodexConversationItem["status"];
 }
 

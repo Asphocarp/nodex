@@ -359,28 +359,8 @@ function isTrailingReasoningEntryInProgress(entry: ThreadAgentEntryModel | undef
   return entry.status === "inProgress";
 }
 
-function hasIncompleteNonAgentBlock(
-  buckets: ThreadTurnRenderBuckets,
-  isStreamingTurn: boolean,
-): boolean {
-  const candidateBlocks = [
-    buckets.assistantItem,
-    buckets.latestAssistantMessage && buckets.latestAssistantMessage !== buckets.assistantItem
-      ? buckets.latestAssistantMessage
-      : null,
-    buckets.proposedPlanItem,
-    buckets.todoListItem,
-    buckets.unifiedDiffItem,
-    ...buckets.postAssistantItems,
-    ...buckets.mcpServerElicitationItems,
-  ];
-
-  return candidateBlocks.some((block) => isIncompleteBlock(block, isStreamingTurn));
-}
-
 function reconcileExplorationState(
   agentBodyBlocks: ThreadAgentEntryModel[],
-  buckets: ThreadTurnRenderBuckets,
   input: Pick<BuildTurnViewModelInput, "isStreamingTurn" | "isBlocked">,
 ): {
   agentBodyBlocks: ThreadAgentEntryModel[];
@@ -390,24 +370,14 @@ function reconcileExplorationState(
   const trailingEntry = agentBodyBlocks[agentBodyBlocks.length - 1];
   const hasTrailingExplorationGroup = trailingEntry?.type === "explorationGroup";
   const trailingExplorationGroup = hasTrailingExplorationGroup ? trailingEntry as ThreadExplorationGroupBlockModel : null;
-  const nonAgentBlockInProgress = hasIncompleteNonAgentBlock(buckets, input.isStreamingTurn);
   const explorationEntryInProgress = trailingExplorationGroup?.entries.some((entry) => entry.status === "inProgress") ?? false;
   const isExploring =
     !input.isBlocked
     && input.isStreamingTurn
     && trailingExplorationGroup !== null
-    && (!nonAgentBlockInProgress || explorationEntryInProgress);
+    && explorationEntryInProgress;
 
-  const nextAgentBodyBlocks =
-    isExploring && trailingExplorationGroup
-      ? agentBodyBlocks.map((entry, index) => {
-          if (index !== agentBodyBlocks.length - 1 || entry.type !== "explorationGroup") return entry;
-          return {
-            ...entry,
-            status: "inProgress",
-          } satisfies ThreadExplorationGroupBlockModel;
-        })
-      : agentBodyBlocks;
+  const nextAgentBodyBlocks = agentBodyBlocks;
 
   const trailingResolvedEntry = nextAgentBodyBlocks[nextAgentBodyBlocks.length - 1];
   const isAnyNonExploringAgentItemInProgress =
@@ -493,7 +463,6 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   });
   const initialExplorationState = reconcileExplorationState(
     materializeAgentRenderUnits(initialAgentBodyUnits),
-    input.buckets,
     input,
   );
 
@@ -581,7 +550,6 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   });
   const explorationState = reconcileExplorationState(
     materializeAgentRenderUnits(agentBodyUnitsBeforeReconcile),
-    buckets,
     input,
   );
   const agentBodyUnits = reconcileAgentBodyUnitBlocks(

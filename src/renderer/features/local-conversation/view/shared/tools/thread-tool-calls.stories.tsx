@@ -503,7 +503,7 @@ function buildLiveFileChangeCollapsedActivityStoryBlock(lineCount = 85, itemId =
       webSearchCount: 0,
       runningWebSearchCount: 0,
     },
-    activeSummary: {
+    runningSummary: {
       kind: "fileChange",
       key: itemId,
       label: "Creating",
@@ -520,6 +520,52 @@ function buildLiveFileChangeCollapsedActivityStoryBlock(lineCount = 85, itemId =
       type: "fileChange",
       entry: fileChangeItem,
       status: fileChangeItem.status,
+    }],
+  };
+}
+
+function buildCompletedCurrentWebSearchCollapsedActivityStoryBlock(): ThreadCollapsedToolActivityBlockModel {
+  const webSearchItem = THREAD_TOOL_CALL_STORY_ITEMS.webSearch;
+  const webSearchBlock = {
+    id: webSearchItem.entryId ?? webSearchItem.itemId,
+    turnId: webSearchItem.turnId,
+    createdAt: webSearchItem.createdAt,
+    updatedAt: webSearchItem.updatedAt,
+    searchableText: webSearchItem.markdownText ?? "web search",
+    type: "webSearch" as const,
+    entry: webSearchItem,
+    status: "completed" as const,
+  };
+
+  return {
+    id: "collapsed-activity-completed-current-web-search",
+    turnId: "turn_tool_story",
+    createdAt: 1,
+    updatedAt: 2,
+    searchableText: "completed current web search",
+    type: "collapsedToolActivity",
+    summary: "Searched the web",
+    summaryParts: ["Searched the web"],
+    status: "completed",
+    summaryStats: buildCollapsedSummaryStats({
+      webSearchCount: 1,
+      runningWebSearchCount: 0,
+    }),
+    runningSummary: null,
+    continuitySummary: {
+      kind: "text",
+      key: "web-search:0",
+      label: "Searching the web",
+    },
+    entries: [{
+      id: "web-search-group-completed-current",
+      turnId: "turn_tool_story",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "completed current web search",
+      type: "webSearchGroup",
+      entries: [webSearchBlock],
+      status: "completed",
     }],
   };
 }
@@ -1593,6 +1639,23 @@ export const WebSearchInProgress: Story = {
       title="Web Search In Progress"
       description="Running web searches shimmer only the top-level active phrase while the detail text remains static."
     />
+  ),
+};
+
+export const WebSearchCompletedCurrentCollapsedActivity: Story = {
+  render: () => (
+    <StorySurface
+      title="Web Search Completed Current Collapsed Activity"
+      description="Latest streaming collapsed activity with a completed web search settles immediately instead of shimmering until the turn ends."
+    >
+      <ConversationStorySurface>
+        <ThreadCollapsedToolActivityBlock
+          block={buildCompletedCurrentWebSearchCollapsedActivityStoryBlock()}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </ConversationStorySurface>
+    </StorySurface>
   ),
 };
 

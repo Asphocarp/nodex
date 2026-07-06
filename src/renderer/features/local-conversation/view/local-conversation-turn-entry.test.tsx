@@ -790,7 +790,7 @@ describe("LocalConversationTurnEntry", () => {
     if (!(assistantAfter instanceof HTMLElement)) {
       throw new Error("expected assistant body after exploration rows");
     }
-    const activityButton = view.getByRole("button", { name: /Reading src\/app\.ts/i });
+    const activityButton = view.getByRole("button", { name: /Read a file/i });
     fireEvent.click(activityButton);
     await settleAsyncRender();
 

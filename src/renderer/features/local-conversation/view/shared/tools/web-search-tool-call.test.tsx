@@ -267,6 +267,33 @@ describe("WebSearchToolCallGroup", () => {
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
 
+  test("settles the header when isActive is true but every line completed", () => {
+    const { container } = render(
+      <WebSearchToolCallGroup
+        isActive
+        items={[
+          buildWebSearchEntry({
+            itemId: "web-completed-active-prop",
+            entryId: "web-completed-active-prop",
+            status: "completed",
+            toolCall: {
+              subtype: "webSearch",
+              toolName: "web_search",
+              args: { query: "completed query" },
+              result: { type: "search", query: "completed query" },
+            },
+            rawItem: { action: { type: "search", query: "completed query" } },
+          }),
+        ]}
+      />,
+    );
+
+    const renderedText = textContent(container);
+    expect(renderedText).toBe("Searched the web");
+    expect(Boolean(renderedText.includes("completed query"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+  });
+
   test("renders nested body-only groups through the shared bounded list", () => {
     const { container } = render(
       <WebSearchToolCallGroup

@@ -1086,7 +1086,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       summary: "Ran 1 command",
       status: "inProgress" as const,
       summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
-      activeSummary: {
+      runningSummary: {
         kind: "text" as const,
         key: "item-command-active",
         label: "Running bun test",
@@ -1121,6 +1121,79 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(Boolean(textContent(summaryButton).includes("Ran 1 command"))).toBeFalse();
   });
 
+  test("does not shimmer a latest streaming completed fallback summary", () => {
+    const webEntry: CodexConversationItem = {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "web-completed",
+      entryId: "web-completed",
+      type: "web_search",
+      kind: "toolCall",
+      semanticKind: "webSearch",
+      status: "completed",
+      toolCall: {
+        subtype: "webSearch",
+        toolName: "web_search",
+        args: { query: "completed query" },
+        result: { type: "search", query: "completed query" },
+      },
+      rawItem: { action: { type: "search", query: "completed query" } },
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const webBlock = {
+      id: "web-completed",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "completed query",
+      type: "webSearch" as const,
+      entry: webEntry,
+      status: "completed" as const,
+    };
+    const block = {
+      id: "activity-web-completed",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "completed query",
+      type: "collapsedToolActivity" as const,
+      summary: "Searched the web",
+      status: "completed" as const,
+      summaryStats: buildCollapsedSummaryStats({ webSearchCount: 1, runningWebSearchCount: 0 }),
+      runningSummary: null,
+      continuitySummary: {
+        kind: "text" as const,
+        key: "web-completed",
+        label: "Searching the web for completed query",
+      },
+      entries: [{
+        id: "web-group",
+        turnId: "turn-1",
+        createdAt: 1,
+        updatedAt: 2,
+        searchableText: "completed query",
+        type: "webSearchGroup" as const,
+        entries: [webBlock],
+        status: "completed" as const,
+      }],
+    };
+
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={true}
+          isStreamingTurn={true}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryButton = getByRole("button", { name: /Searched the web/i });
+    expect(Boolean(textContent(summaryButton).includes("Searching the web"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+  });
+
   test("defers live active summary changes through the shared activity disclosure", async () => {
     const originalDateNow = Date.now;
     const originalSetTimeout = window.setTimeout;
@@ -1149,7 +1222,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       summary: "Running a command",
       status: "inProgress" as const,
       summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
-      activeSummary: {
+      runningSummary: {
         kind: "text" as const,
         key,
         label,
@@ -1227,7 +1300,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
         changedLineCount: 85,
         runningCreatedLineCount: 85,
       }),
-      activeSummary: {
+      runningSummary: {
         kind: "fileChange" as const,
         key: "item-file-live",
         label: "Creating",

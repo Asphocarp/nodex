@@ -1019,6 +1019,59 @@ describe("bucketizeTurnItems", () => {
     expect(explorationBlock && explorationBlock.type === "explorationGroup" ? explorationBlock.status : undefined).toBe("inProgress");
   });
 
+  test("keeps a completed trailing exploration cluster settled while the turn is still active", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "exec_1",
+          type: "exec",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "exec_1",
+            type: "command_execution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "completed",
+            createdAt: 1,
+            updatedAt: 1,
+            commandActions: [{ type: "search", command: "", query: "shimmer", path: "src" }],
+            toolCall: {
+              subtype: "command",
+              toolName: "run_command",
+              args: {},
+            },
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "inProgress",
+        itemIds: ["exec_1"],
+        items: [],
+      },
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity,thinkingPlaceholder");
+    const activityGroup = turn.blocks[0];
+    const explorationBlock = activityGroup?.type === "collapsedToolActivity" ? activityGroup.entries[0] : null;
+    expect(explorationBlock?.type).toBe("explorationGroup");
+    expect(explorationBlock && explorationBlock.type === "explorationGroup" ? explorationBlock.status : undefined).toBe("completed");
+    expect(activityGroup?.type === "collapsedToolActivity" ? activityGroup.summary : "").toBe("Searched code");
+    expect(activityGroup?.type === "collapsedToolActivity" ? activityGroup.runningSummary ?? null : null).toBe(null);
+  });
+
   test("does not let a trailing in-progress reasoning row suppress the Thinking placeholder", () => {
     const buckets = bucketizeTurnItems({
       items: [

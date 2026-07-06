@@ -19,6 +19,7 @@ import {
   materializeAgentRenderUnits,
   resolveAgentRenderUnitKey,
   resolveCollapsedToolActivityActiveSummary,
+  resolveCollapsedToolActivitySummaryCues,
   shouldDisplayCollapsedToolActivityActiveSummary,
 } from "./group-exploration-blocks";
 
@@ -1028,7 +1029,7 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
     expect(summary?.kind === "fileChange" ? `${summary.additions}:${summary.deletions}` : "").toBe("2:1");
   });
 
-  test("resolves collapsed activity active summaries with Electron two-pass ordering", () => {
+  test("resolves collapsed activity running summaries with completed continuity fallback", () => {
     const runningCommand = buildBlock("run", "exec", {
       status: "inProgress",
       command: "bun test",
@@ -1052,10 +1053,12 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
       },
     });
     const activePreferred = resolveCollapsedToolActivityActiveSummary([runningCommand, completedPatch]);
-    const completedFallback = resolveCollapsedToolActivityActiveSummary([completedPatch]);
+    const completedActive = resolveCollapsedToolActivityActiveSummary([completedPatch]);
+    const completedFallback = resolveCollapsedToolActivitySummaryCues([completedPatch]).continuitySummary;
 
     expect(activePreferred?.kind ?? "").toBe("text");
     expect(activePreferred?.label ?? "").toBe("Running bun test");
+    expect(completedActive).toBe(null);
     expect(completedFallback?.kind ?? "").toBe("fileChange");
     expect(completedFallback?.kind === "fileChange" ? completedFallback.label : "").toBe("Editing");
     expect(shouldDisplayCollapsedToolActivityActiveSummary(completedFallback, "STEPS_COMMANDS")).toBeTrue();
@@ -1110,14 +1113,14 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
         }) as ThreadTranscriptBlockModel & { type: "webSearch" },
       ],
     }]);
-    const approvalSummary = resolveCollapsedToolActivityActiveSummary([
+    const approvalSummary = resolveCollapsedToolActivitySummaryCues([
       buildBlock("approval", "automaticApprovalReview", {
         kind: "systemEvent",
         semanticKind: "automaticApprovalReview",
         status: "completed",
         rawItem: { status: "approved" },
       }),
-    ]);
+    ]).continuitySummary;
 
     expect(explorationSummary?.label ?? "").toBe("Reading Browser skill");
     expect(webSummary?.label ?? "").toBe("Searching the web for latest docs | github.com \u00b7 example.com");
@@ -1529,7 +1532,7 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
     expect(buildCollapsedToolActivitySummary(runningStats)?.summary ?? "").toBe("Searching the web");
   });
 
-  test("treats current collapsed web-search groups as fully running in display stats", () => {
+  test("keeps current collapsed web-search running stats factual", () => {
     const settled = groupAgentBlocks([
       buildBlock("web-1", "webSearch", {
         status: "completed",
@@ -1550,13 +1553,26 @@ describe("buildAgentRenderUnits collapsed tool activity", () => {
         toolCall: { toolName: "web", subtype: "webSearch", result: { type: "search", query: "Codex Electron" } },
       }),
     ], { keepLatestLiveActivityInGroup: true });
+    const currentWithRunningChild = groupAgentBlocks([
+      buildBlock("web-1", "webSearch", {
+        status: "completed",
+        toolCall: { toolName: "web", subtype: "webSearch", result: { type: "search", query: "Codex app-server" } },
+      }),
+      buildBlock("web-2", "webSearch", {
+        status: "inProgress",
+        toolCall: { toolName: "web", subtype: "webSearch", result: { type: "search", query: "Codex Electron" } },
+      }),
+    ], { keepLatestLiveActivityInGroup: true });
     const settledGroup = settled[0];
     const currentGroup = current[0];
+    const runningGroup = currentWithRunningChild[0];
 
     expect(settledGroup?.type === "collapsedToolActivity" ? `${settledGroup.summaryStats?.webSearchCount ?? 0}:${settledGroup.summaryStats?.runningWebSearchCount ?? 0}` : "").toBe("2:0");
     expect(settledGroup?.type === "collapsedToolActivity" ? settledGroup.summary : "").toBe("Searched the web");
-    expect(currentGroup?.type === "collapsedToolActivity" ? `${currentGroup.summaryStats?.webSearchCount ?? 0}:${currentGroup.summaryStats?.runningWebSearchCount ?? 0}` : "").toBe("2:2");
-    expect(currentGroup?.type === "collapsedToolActivity" ? currentGroup.summary : "").toBe("Searching the web");
+    expect(currentGroup?.type === "collapsedToolActivity" ? `${currentGroup.summaryStats?.webSearchCount ?? 0}:${currentGroup.summaryStats?.runningWebSearchCount ?? 0}` : "").toBe("2:0");
+    expect(currentGroup?.type === "collapsedToolActivity" ? currentGroup.summary : "").toBe("Searched the web");
+    expect(runningGroup?.type === "collapsedToolActivity" ? `${runningGroup.summaryStats?.webSearchCount ?? 0}:${runningGroup.summaryStats?.runningWebSearchCount ?? 0}` : "").toBe("2:1");
+    expect(runningGroup?.type === "collapsedToolActivity" ? runningGroup.summary : "").toBe("Searching the web");
   });
 
   test("formats skill definition reads as loaded tools", () => {
