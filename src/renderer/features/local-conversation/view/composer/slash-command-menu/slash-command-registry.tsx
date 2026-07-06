@@ -55,10 +55,31 @@ interface BuildSlashCommandsInput {
 
 const iconClassName = "icon-xs shrink-0";
 
+function canStartNewThreadGoalDraft(model: ThreadFooterModel, actions: ThreadStageActions): boolean {
+  if (!model.isNewThreadTab) return false;
+  if (!model.newThreadTarget) return false;
+  if (model.isCloudNewThreadTarget) return false;
+
+  return Boolean(model.newThreadTarget.sessionId && actions.onStartThreadForSession);
+}
+
+function canUseGoalCommand(model: ThreadFooterModel, actions: ThreadStageActions): boolean {
+  if (model.conversation === null) {
+    return canStartNewThreadGoalDraft(model, actions);
+  }
+
+  return Boolean(
+    actions.onGetThreadGoal &&
+    actions.onSetThreadGoal &&
+    actions.onClearThreadGoal,
+  );
+}
+
 export function buildComposerSlashCommands(input: BuildSlashCommandsInput): ComposerSlashCommand[] {
   const threadId = input.model.conversation?.threadId ?? input.model.threadId;
   const canUseThread = Boolean(threadId);
   const canUseExistingThread = Boolean(input.model.conversation);
+  const canUseGoal = canUseGoalCommand(input.model, input.actions);
   const isSideConversation = input.model.conversation?.source?.sideConversation === true;
   const latestTurnId = input.model.body.latestTurnId;
   const commands: ComposerSlashCommand[] = [
@@ -135,10 +156,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       icon: <CodexGoalTargetIcon className={iconClassName} />,
       triggers: ["/", "@"],
       requiresEmptyComposer: false,
-      isVisible: canUseExistingThread
-        && Boolean(input.actions.onGetThreadGoal)
-        && Boolean(input.actions.onSetThreadGoal)
-        && Boolean(input.actions.onClearThreadGoal),
+      isVisible: canUseGoal,
       onSelect: () => {
         input.activateGoalMode();
       },
