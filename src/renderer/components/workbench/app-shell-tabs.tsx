@@ -864,7 +864,7 @@ function AppShellTab({
             type="button"
             data-app-shell-tab-no-drag="true"
             aria-label={`Close ${accessibleLabel} tab`}
-            className="no-drag invisible absolute inset-y-0 end-2 z-30 flex cursor-interaction items-center text-token-text-tertiary group-focus-within/tab:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-0 before:w-10 before:bg-linear-to-r before:from-transparent before:to-40% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
+            className="no-drag invisible absolute inset-y-0 end-1 z-30 flex cursor-interaction items-center pe-1 text-token-text-tertiary group-focus-within/tab:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-1 before:w-[26px] before:bg-linear-to-r before:from-transparent before:to-30% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
             onMouseDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -883,7 +883,7 @@ function AppShellTab({
             aria-hidden="true"
             data-app-shell-tab-title-fade={tab.id}
             className={cn(
-              "pointer-events-none absolute inset-y-0 end-0 z-20 w-4 bg-linear-to-r from-transparent to-60%",
+              "pointer-events-none absolute inset-y-0 end-0 z-20 w-2 bg-linear-to-r from-transparent to-100%",
               isActive
                 ? "to-[var(--app-shell-tab-background)]"
                 : "to-token-main-surface-primary group-hover/tab:to-[var(--app-shell-tab-background)]",
