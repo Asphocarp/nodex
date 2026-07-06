@@ -4736,7 +4736,7 @@ export class CodexAppServerManager {
 
   async requestThreadStreamSnapshot(threadId: string): Promise<CodexConversationSnapshot | null> {
     const conversation = (await invoke("codex:thread:snapshot:request", threadId)) as CodexConversationSnapshot | null;
-    if (conversation) {
+    if (conversation && !this.isFollowerForConversation(threadId)) {
       this.applyConversationSnapshot(threadId, conversation);
     }
     return conversation;
@@ -5006,8 +5006,7 @@ export class CodexAppServerManager {
   }
 
   private isFollowerForConversation(conversationId: string): boolean {
-    const role = this.streamState.getRole(conversationId);
-    return role?.role === "follower" && typeof role.ownerClientId === "string" && role.ownerClientId.length > 0;
+    return this.streamState.getRole(conversationId)?.role === "follower";
   }
 
   private assertOwnerForConversation(conversationId: string): void {
@@ -6506,7 +6505,8 @@ export class CodexAppServerManager {
 
     void this.loadDictationState().catch(() => {});
     for (const threadId of this.streamState.getStreamingConversationIds()) {
-      if (this.streamState.getRole(threadId)?.role === "owner") {
+      const role = this.streamState.getRole(threadId);
+      if (role?.role === "owner" || role?.role === "follower") {
         continue;
       }
       void this.requestThreadStreamSnapshot(threadId).catch(() => {});
@@ -7781,6 +7781,9 @@ export class CodexAppServerManager {
     const sourceClientId = event.sourceClientId ?? null;
     const existingRole = this.streamState.getRole(event.conversationId);
     if (existingRole?.role === "owner") {
+      return;
+    }
+    if (existingRole?.role === "follower" && sourceClientId === null) {
       return;
     }
 

@@ -1,7 +1,7 @@
 # Codex Thread Owner/Follower Streaming
 
 Status: Active
-Last Updated: 2026-07-05
+Last Updated: 2026-07-06
 
 ## Intent
 
@@ -14,6 +14,7 @@ This contract keeps live streaming text, request cards, queued state, edit/rollb
 - **Streaming thread**: a Codex app-server thread that is started, resumed, or attached to a live transport and may emit thread, turn, item, or server-request events.
 - **Owner window**: the renderer window allowed to reduce live app-server events into visible conversation state for one thread.
 - **Follower window**: a renderer window that displays the same thread from owner snapshots and patches.
+- **Source-null baseline**: a main-owned cold/recovery/no-owner stream baseline whose stream messages carry no renderer `sourceClientId`. It is not a follower role and cannot route actions to another window.
 - **Stream revision**: a per-thread monotonically increasing revision attached to owner snapshots and patches.
 - **Owner client id**: the stable renderer-client identity carried with stream updates so followers can reject stale owners.
 - **Complete-history barrier**: a follower asks the owner to load complete history, waits for the owner-published revision, then continues with history-sensitive work.
@@ -58,6 +59,13 @@ Followers must:
 - route state-changing actions to the owner
 - mark the conversation `needs_resume` when the owner disappears
 
+Source-null baselines must:
+
+- accept only source-null snapshots and contiguous source-null patches
+- never be treated as routable followers
+- resume into current-window renderer ownership before owner-local actions such as edit, fork, or active visible mutations
+- ignore source-null refreshes once the renderer is a real follower of a non-empty owner client id
+
 Main process must:
 
 - provide stable renderer client ids
@@ -78,9 +86,15 @@ A follower applies a patch only when:
 - patch `sourceClientId` matches the recorded owner
 - local revision equals patch `baseRevision`
 
+A source-null baseline applies a patch only when:
+
+- local role is the source-null baseline
+- patch `sourceClientId` is null
+- local revision equals patch `baseRevision`
+
 On mismatch, the follower drops the patch and waits for a future owner snapshot, explicit resume, or owner-loss recovery. It does not request a source-null snapshot just because a stale patch was observed.
 
-A renderer that is already owner ignores incoming non-snapshot stream-state messages, including main fallback patches and publish echoes.
+A renderer that is already owner ignores incoming stream-state messages, including main fallback changes and publish echoes. A real follower ignores source-null snapshots and patches so explicit resyncs cannot downgrade it into a non-routable state.
 
 ## Prose Streaming
 

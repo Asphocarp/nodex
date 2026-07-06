@@ -72,7 +72,7 @@ describe("LocalConversationStreamState", () => {
     }).type).toBe("drop");
   });
 
-  test("tracks streaming conversation ids separately from stream role", () => {
+  test("tracks streaming conversation ids separately from source-null baseline role", () => {
     const streamState = new LocalConversationStreamState();
 
     streamState.acceptSnapshot({
@@ -85,8 +85,64 @@ describe("LocalConversationStreamState", () => {
     streamState.setStreaming("thread-1", false);
 
     expect(streamState.getStreamingConversationIds().join(",")).toBe("thread-2");
-    expect(streamState.getRole("thread-1")?.role).toBe("follower");
+    expect(streamState.getRole("thread-1")?.role).toBe("sourceNull");
     expect(streamState.getRevision("thread-1")).toBe(1);
+  });
+
+  test("applies source-null patches only after a source-null baseline snapshot", () => {
+    const streamState = new LocalConversationStreamState();
+
+    streamState.acceptSnapshot({
+      conversationId: "thread-1",
+      revision: 1,
+      sourceClientId: null,
+    });
+
+    expect(streamState.evaluatePatch({
+      conversationId: "thread-1",
+      baseRevision: 1,
+      sourceClientId: null,
+    }).type).toBe("apply");
+    expect(streamState.evaluatePatch({
+      conversationId: "thread-1",
+      baseRevision: 1,
+      sourceClientId: "owner-a",
+    }).type).toBe("drop");
+    expect(streamState.evaluatePatch({
+      conversationId: "thread-1",
+      baseRevision: 0,
+      sourceClientId: null,
+    }).type).toBe("drop");
+
+    streamState.acceptPatch({
+      conversationId: "thread-1",
+      revision: 2,
+      sourceClientId: null,
+    });
+
+    expect(streamState.getRole("thread-1")?.role).toBe("sourceNull");
+    expect(streamState.getRevision("thread-1")).toBe(2);
+  });
+
+  test("source-null updates do not mark a real owner unavailable", () => {
+    const streamState = new LocalConversationStreamState();
+
+    streamState.acceptSnapshot({
+      conversationId: "thread-source-null",
+      revision: 1,
+      sourceClientId: null,
+    });
+    streamState.acceptSnapshot({
+      conversationId: "thread-follower",
+      revision: 1,
+      sourceClientId: "owner-a",
+    });
+
+    const affectedConversationIds = streamState.markOwnerUnavailable("owner-a");
+
+    expect(affectedConversationIds.join(",")).toBe("thread-follower");
+    expect(streamState.getRole("thread-source-null")?.role).toBe("sourceNull");
+    expect(streamState.getRole("thread-follower")).toBe(null);
   });
 
   test("resolves revision waiters when matching owner reaches the target revision", async () => {

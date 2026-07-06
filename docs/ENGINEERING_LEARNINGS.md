@@ -191,6 +191,9 @@ Nodex keeps the active owner reducer as the visible transcript authority. Do not
 ### Main source-null snapshots need named reasons
 Do not add a bare `emitThreadStreamSnapshot*` call. Main source-null snapshots must be classified at the call site as explicit resync, no-owner fallback, inactive-owner cleanup, or durable recovery. The no-owner fallback reason is not allowed to broadcast while a renderer owner exists; it should update the broadcast cache silently instead. This keeps ordinary main fallback paths from becoming a second visible reducer while preserving explicit snapshot/resume/history resync and recovery boundaries.
 
+### Source-null stream state is not a follower
+Do not encode a source-null snapshot as `follower(ownerClientId: null)`. A follower is routable only when it has a non-empty renderer owner client id. Source-null snapshots and patches represent a main/no-owner baseline that can keep cold or fallback views current, but local state-changing actions from that baseline must first resume the thread and become the current renderer owner. A real follower must also ignore source-null explicit-resync snapshots and patches; otherwise a refresh can silently downgrade the follower into a non-routable state and make edit/fork/owner actions throw before they reach the owner-local transaction.
+
 ### Thread-started is a sidebar event and an owner snapshot event
 `thread/started` has two jobs in Nodex: main materializes SQLite sidebar/session state, and the renderer owner publishes visible conversation metadata. When a renderer owner is already registered for that thread, the visible stream-state update should be an owner-routed `thread/started` snapshot, not a competing source-null main snapshot.
 

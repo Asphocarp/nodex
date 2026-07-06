@@ -4830,6 +4830,79 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("connected status refresh and source-null snapshots do not downgrade real followers", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    snapshotByThread = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const ownerConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["assistant-1"],
+          items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "owner text")],
+        }],
+      };
+      const sourceNullConversation: CodexConversationSnapshot = {
+        ...ownerConversation,
+        turns: [],
+      };
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: ownerConversation,
+        },
+        sourceClientId: "owner-a",
+      });
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("client-status-changed", {
+        hostId: "default",
+        status: "connected",
+      });
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 2,
+        change: {
+          type: "snapshot",
+          revision: 2,
+          conversationState: sourceNullConversation,
+        },
+        sourceClientId: null,
+      });
+      await flushAsyncWork(2);
+
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread:snapshot:request" &&
+        record.args[0] === "thread-1"
+      )).toBeFalse();
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("owner text");
+    } finally {
+      snapshotByThread = {};
+      manager.destroy();
+    }
+  });
+
   test("owner item completion waits for visible rAF drain before applying completed item", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -8797,6 +8870,97 @@ describe("local-conversation-store", () => {
       expect(publishInputs[3]?.change?.revision).toBe(4);
       expect(result.streamRevision).toBe(4);
       expect(invokeRecords.some((record) => record.channel === "codex:thread:edit-last-user-turn")).toBeFalse();
+      expect(manager.readConversation("thread-1")?.turns.at(-1)?.items[0]?.markdownText).toBe("Rewrite latest prompt");
+    } finally {
+      resumeThreadResult = null;
+      ownerEditRollbackResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("source-null edit resumes owner before rollback instead of routing as follower", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerEditRollbackResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const olderUser = buildUserMessage("thread-1", "turn-older", "user-older", "Older prompt");
+      const latestUser = buildUserMessage("thread-1", "turn-latest", "user-latest", "Latest prompt");
+      const currentConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-older",
+            status: "completed",
+            itemIds: ["user-older"],
+            items: [olderUser],
+          },
+          {
+            threadId: "thread-1",
+            turnId: "turn-latest",
+            status: "completed",
+            itemIds: ["user-latest"],
+            items: [latestUser],
+          },
+        ],
+      };
+      const rollbackConversation: CodexConversationSnapshot = {
+        ...currentConversation,
+        turns: [currentConversation.turns[0]!],
+      };
+      resumeThreadResult = currentConversation;
+      ownerEditRollbackResult = buildRollbackResponseFromConversation(rollbackConversation);
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: currentConversation,
+        },
+        sourceClientId: null,
+      });
+      invokeRecords = [];
+
+      const result = await manager.editLastUserTurn("thread-1", "turn-latest", "Rewrite latest prompt");
+
+      const resumeIndex = invokeRecords.findIndex((record) => record.channel === "codex:thread:resume:request");
+      const rollbackIndex = invokeRecords.findIndex((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string } }).request?.method === "thread/rollback"
+      );
+      const startIndex = invokeRecords.findIndex((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string } }).request?.method === "turn/start"
+      );
+      const publishInputs = invokeRecords
+        .filter((record) => record.channel === "codex:thread-owner:stream-state:publish")
+        .map((record) => record.args[0] as { change?: { revision?: number } });
+
+      expect(invokeRecords.some((record) => record.channel === "codex:thread-follower:action")).toBeFalse();
+      expect(resumeIndex >= 0).toBeTrue();
+      expect(rollbackIndex > resumeIndex).toBeTrue();
+      expect(startIndex > rollbackIndex).toBeTrue();
+      expect(publishInputs[0]?.change?.revision).toBe(2);
+      expect(publishInputs.at(-1)?.change?.revision).toBe(5);
+      expect(result.streamRevision).toBe(5);
+      expect(manager.getThreadRoleForRendererClientRequest("thread-1")).toBe("owner");
       expect(manager.readConversation("thread-1")?.turns.at(-1)?.items[0]?.markdownText).toBe("Rewrite latest prompt");
     } finally {
       resumeThreadResult = null;
