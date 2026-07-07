@@ -2128,6 +2128,124 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("renderer resume reuses one in-flight IPC request per thread", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-resume-single-flight", "project-1"),
+        turns: [{
+          threadId: "thread-resume-single-flight",
+          turnId: "turn-1",
+          status: "completed",
+          itemIds: ["assistant-1"],
+          items: [buildAssistantMessage("thread-resume-single-flight", "turn-1", "assistant-1", "done")],
+        }],
+      };
+      let resolveResume: (conversation: CodexConversationSnapshot) => void = () => {
+        throw new Error("resume gate was not initialized");
+      };
+      resumeThreadResult = new Promise<CodexConversationSnapshot>((resolve) => {
+        resolveResume = resolve;
+      });
+
+      const first = manager.requestThreadStreamResume("thread-resume-single-flight");
+      const second = manager.requestThreadStreamResume("thread-resume-single-flight");
+      await flushAsyncWork();
+
+      const resumeRequestCount = invokeRecords.filter((record) =>
+        record.channel === "codex:thread:resume:request" &&
+        record.args[0] === "thread-resume-single-flight"
+      ).length;
+      expect(resumeRequestCount).toBe(1);
+
+      resolveResume(baseConversation);
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      const releaseCount = invokeRecords.filter((record) =>
+        record.channel === "codex:thread:resume-buffer:release" &&
+        record.args[0] === "thread-resume-single-flight"
+      ).length;
+      const ownerSnapshotPublishCount = invokeRecords.filter((record) => {
+        if (record.channel !== "codex:thread-owner:stream-state:publish") return false;
+        const input = record.args[0] as {
+          change?: { type?: string };
+        };
+        return input.change?.type === "snapshot";
+      }).length;
+
+      expect(firstResult?.threadId ?? "").toBe("thread-resume-single-flight");
+      expect(secondResult?.threadId ?? "").toBe("thread-resume-single-flight");
+      expect(releaseCount).toBe(1);
+      expect(ownerSnapshotPublishCount).toBe(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("parent snapshots keep child memberships lightweight without requesting child snapshots", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    snapshotByThread = {
+      "thread-child": buildConversation("thread-child", "project-1"),
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const parentConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-parent", "project-1"),
+        childMemberships: [{
+          threadId: "thread-child",
+          parentThreadId: "thread-parent",
+          role: "backgroundChild",
+          actorName: "Agent",
+        }],
+      };
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-parent",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: parentConversation,
+        },
+        sourceClientId: null,
+      });
+      await flushAsyncWork();
+
+      expect(manager.readConversation("thread-parent")?.childMemberships.length ?? 0).toBe(1);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread:snapshot:request" &&
+        record.args[0] === "thread-child"
+      )).toBeFalse();
+    } finally {
+      snapshotByThread = {};
+      manager.destroy();
+    }
+  });
+
   test("renderer resume failure releases buffer and rolls back to needs_resume from bundle 47815-47835", async () => {
     invokeCalls = [];
     invokeRecords = [];

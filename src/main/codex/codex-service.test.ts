@@ -4637,6 +4637,78 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("deduplicates concurrent resume and goal hydration per thread", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      let resolveResume = (): void => {
+        throw new Error("resume gate was not initialized");
+      };
+      const resumeGate = new Promise<void>((resolve) => {
+        resolveResume = resolve;
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          await resumeGate;
+          return {
+            thread: {
+              id: "thr_resume_single_flight",
+              preview: "resume once",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1_711_278_000,
+              updatedAt: 1_711_278_002,
+              status: { type: "idle" },
+              path: "/tmp/resume-single-flight/rollout.jsonl",
+              cwd: "/tmp/resume-single-flight",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Resume single flight",
+              turns: [],
+            },
+          };
+        }
+        if (method === "thread/goal/get") {
+          return { goal: null };
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run during resume single-flight");
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        const first = service.requestConversationResume("thr_resume_single_flight");
+        const second = service.requestConversationResume("thr_resume_single_flight");
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(requests.filter((request) => request.method === "thread/resume").length).toBe(1);
+
+        resolveResume();
+        const [firstConversation, secondConversation] = await Promise.all([first, second]);
+        expect(firstConversation?.threadId ?? "").toBe("thr_resume_single_flight");
+        expect(secondConversation?.threadId ?? "").toBe("thr_resume_single_flight");
+        expect(requests.filter((request) => request.method === "thread/resume").length).toBe(1);
+        expect(requests.filter((request) => request.method === "thread/goal/get").length).toBe(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("resume continues when thread goal hydration fails", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();

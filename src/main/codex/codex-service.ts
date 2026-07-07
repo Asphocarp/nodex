@@ -2384,6 +2384,8 @@ export class CodexService extends EventEmitter {
   private readonly codexAppHandoffOperations = new Map<string, CodexAppHandoffOperation>();
   private readonly codexAppHandoffWaiters = new Map<string, Set<() => void>>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
+  private readonly conversationResumeInFlightByThreadId = new Map<string, Promise<CodexConversationSnapshot | null>>();
+  private readonly threadGoalHydrationInFlightByThreadId = new Map<string, Promise<void>>();
   private readonly resumeNotificationBuffersByThreadId = new Map<string, BufferedResumeEvent[]>();
   private readonly internalNotificationHandlers = new Set<InternalNotificationHandler>();
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
@@ -2444,6 +2446,15 @@ export class CodexService extends EventEmitter {
   private sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
   private sidebarThreadListRepairTimer: ReturnType<typeof setTimeout> | null = null;
   private sidebarUseStateDbOnlyThreadList = true;
+  private sidebarSnapshotRevision = 0;
+  private readonly sidebarSnapshotCacheByIncludeArchived = new Map<boolean, {
+    revision: number;
+    snapshot: CodexSidebarSnapshot;
+  }>();
+  private readonly invalidateSidebarSnapshotCacheListener = (): void => {
+    this.invalidateSidebarSnapshotCache();
+  };
+  private sidebarSnapshotCacheNotifierSubscribed = false;
 
   constructor(options?: CodexServiceOptions) {
     super();
@@ -2466,6 +2477,13 @@ export class CodexService extends EventEmitter {
       client: options?.commandPaletteThreadSearchClient,
       onIndexUpdated: (event) => this.emit("threadSearchIndexUpdated", event),
     });
+    const notifier = dbNotifier as {
+      on?: (event: "project-sessions-changed", listener: () => void) => unknown;
+    };
+    if (typeof notifier.on === "function") {
+      notifier.on("project-sessions-changed", this.invalidateSidebarSnapshotCacheListener);
+      this.sidebarSnapshotCacheNotifierSubscribed = true;
+    }
 
     this.client = new CodexAppServerClient({
       binaryPath: runtime.binaryPath,
@@ -3613,7 +3631,7 @@ export class CodexService extends EventEmitter {
         draft.backgroundTerminalRows = this.deriveConversationBackgroundTerminalRows(draft);
       }
       if (options.syncChildMemberships) {
-        draft.childMemberships = this.deriveConversationChildMemberships(draft, new Set([threadId]));
+        draft.childMemberships = this.deriveConversationChildMemberships(draft);
       }
     });
   }
@@ -4777,6 +4795,18 @@ export class CodexService extends EventEmitter {
     });
     this.frameTextDeltaQueue.cancel();
     this.outputDeltaQueue.cancel();
+    if (this.sidebarSnapshotCacheNotifierSubscribed) {
+      const notifier = dbNotifier as {
+        off?: (event: "project-sessions-changed", listener: () => void) => unknown;
+        removeListener?: (event: "project-sessions-changed", listener: () => void) => unknown;
+      };
+      if (typeof notifier.off === "function") {
+        notifier.off("project-sessions-changed", this.invalidateSidebarSnapshotCacheListener);
+      } else if (typeof notifier.removeListener === "function") {
+        notifier.removeListener("project-sessions-changed", this.invalidateSidebarSnapshotCacheListener);
+      }
+      this.sidebarSnapshotCacheNotifierSubscribed = false;
+    }
     this.terminalInputBuffers.clear();
     for (const timer of this.ownerNotificationDrainTimersByConversationId.values()) {
       clearTimeout(timer);
@@ -4794,6 +4824,8 @@ export class CodexService extends EventEmitter {
     this.activeGoalContinuationPromises.clear();
     this.inactiveRendererOwnerCandidateSinceByConversationId.clear();
     this.inactiveRendererOwnerCleanupInFlight.clear();
+    this.conversationResumeInFlightByThreadId.clear();
+    this.threadGoalHydrationInFlightByThreadId.clear();
     this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));
     this.deferredThreadStartThreadIds.clear();
     this.readyDeferredThreadStartThreadIds.clear();
@@ -4804,6 +4836,9 @@ export class CodexService extends EventEmitter {
       clearTimeout(this.sidebarThreadListRepairTimer);
       this.sidebarThreadListRepairTimer = null;
     }
+    this.sidebarSyncInFlight = null;
+    this.sidebarSyncInFlightIncludeArchived = null;
+    this.sidebarSnapshotCacheByIncludeArchived.clear();
     for (const pending of this.pendingApprovals.values()) {
       pending.reject(new Error("Codex service shutting down"));
     }
@@ -5084,6 +5119,7 @@ export class CodexService extends EventEmitter {
     metadata: SidebarThreadSyncMetadata,
     reason: CodexSidebarRefreshReason,
   ): void {
+    this.invalidateSidebarSnapshotCache();
     const result = this.buildSidebarSyncResult({
       includeArchived: false,
       source: "sqlite",
@@ -5101,6 +5137,11 @@ export class CodexService extends EventEmitter {
     const metadata = createSidebarThreadSyncMetadata();
     markSidebarSyncScopeChanged(metadata, summary.projectId);
     this.emitSidebarSyncUpdatedFromMetadata(metadata, reason);
+  }
+
+  private invalidateSidebarSnapshotCache(): void {
+    this.sidebarSnapshotRevision += 1;
+    this.sidebarSnapshotCacheByIncludeArchived.clear();
   }
 
   private buildSidebarSyncResult(input: {
@@ -5136,6 +5177,7 @@ export class CodexService extends EventEmitter {
     const summary = getCodexThread(normalizedThreadId) ?? await this.resolveThreadSummary(normalizedThreadId);
     if (summary) {
       setCodexThreadPinned(normalizedThreadId, pinned);
+      this.invalidateSidebarSnapshotCache();
       const owners = projectSessionService.listProjectSessionThreadOwners(normalizedThreadId);
       for (const owner of owners) {
         const session = projectSessionService.getProjectSession(owner.sessionId);
@@ -5472,6 +5514,11 @@ export class CodexService extends EventEmitter {
   }
 
   private buildSidebarSnapshot(input: { includeArchived: boolean }): CodexSidebarSnapshot {
+    const cached = this.sidebarSnapshotCacheByIncludeArchived.get(input.includeArchived);
+    if (cached && cached.revision === this.sidebarSnapshotRevision) {
+      return cached.snapshot;
+    }
+
     const pinnedThreadIds = listPinnedCodexThreadIds();
     const pinnedOrderByThreadId = new Map(pinnedThreadIds.map((threadId, index) => [threadId, index]));
     const projectAssignments: Record<string, string> = {};
@@ -5523,13 +5570,18 @@ export class CodexService extends EventEmitter {
       return left.threadId.localeCompare(right.threadId);
     });
 
-    return {
+    const snapshot = {
       items,
       pinnedThreadIds,
       projectAssignments,
       projectlessThreadIds,
       generatedAt: Date.now(),
     };
+    this.sidebarSnapshotCacheByIncludeArchived.set(input.includeArchived, {
+      revision: this.sidebarSnapshotRevision,
+      snapshot,
+    });
+    return snapshot;
   }
 
   private listCommandPaletteSidebarChats(): CommandPaletteThreadSummary[] {
@@ -6586,6 +6638,24 @@ export class CodexService extends EventEmitter {
   }
 
   private async hydrateThreadGoalAfterResume(threadId: string): Promise<void> {
+    const existing = this.threadGoalHydrationInFlightByThreadId.get(threadId);
+    if (existing) {
+      this.logger.debug("Joining in-flight Codex thread goal hydration", { threadId });
+      return await existing;
+    }
+
+    const hydrationPromise = this.runThreadGoalHydrationAfterResume(threadId);
+    this.threadGoalHydrationInFlightByThreadId.set(threadId, hydrationPromise);
+    try {
+      return await hydrationPromise;
+    } finally {
+      if (this.threadGoalHydrationInFlightByThreadId.get(threadId) === hydrationPromise) {
+        this.threadGoalHydrationInFlightByThreadId.delete(threadId);
+      }
+    }
+  }
+
+  private async runThreadGoalHydrationAfterResume(threadId: string): Promise<void> {
     let response: ThreadGoalGetResponse;
     try {
       response = await this.client.request<"thread/goal/get", ThreadGoalGetResponse>("thread/goal/get", {
@@ -7918,10 +7988,14 @@ export class CodexService extends EventEmitter {
       linkedAt: existing?.linkedAt,
     });
 
-    return applyThreadAgentMetadata({
+    const summaryWithAgentMetadata = applyThreadAgentMetadata({
       ...summary,
       threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
     }, candidate);
+    if (hasSidebarThreadSummaryChanged(existing, summaryWithAgentMetadata)) {
+      this.invalidateSidebarSnapshotCache();
+    }
+    return summaryWithAgentMetadata;
   }
 
   private upsertSessionLinkFromThread(
@@ -8915,6 +8989,27 @@ export class CodexService extends EventEmitter {
   async requestConversationResume(
     threadId: string,
     options: RequestConversationResumeOptions = {},
+  ): Promise<CodexConversationSnapshot | null> {
+    const existing = this.conversationResumeInFlightByThreadId.get(threadId);
+    if (existing) {
+      this.logger.debug("Joining in-flight Codex thread resume", { threadId });
+      return await existing;
+    }
+
+    const resumePromise = this.runConversationResumeRequest(threadId, options);
+    this.conversationResumeInFlightByThreadId.set(threadId, resumePromise);
+    try {
+      return await resumePromise;
+    } finally {
+      if (this.conversationResumeInFlightByThreadId.get(threadId) === resumePromise) {
+        this.conversationResumeInFlightByThreadId.delete(threadId);
+      }
+    }
+  }
+
+  private async runConversationResumeRequest(
+    threadId: string,
+    options: RequestConversationResumeOptions,
   ): Promise<CodexConversationSnapshot | null> {
     const emitSourceNullSnapshots = options.emitSourceNullSnapshots !== false;
     const replayBufferedNotifications = options.replayBufferedNotifications !== false;
@@ -13477,12 +13572,9 @@ export class CodexService extends EventEmitter {
 
   private deriveConversationChildMemberships(
     conversation: CodexConversationSnapshot,
-    visitedThreadIds: Set<string>,
   ): CodexConversationChildMembership[] {
     return this.extractConversationChildThreadIds(conversation).map((childThreadId) => {
-      const childConversation = visitedThreadIds.has(childThreadId)
-        ? this.buildConversationBaseSnapshot(childThreadId)
-        : this.serializeConversationSnapshot(childThreadId, visitedThreadIds);
+      const childConversation = this.buildConversationBaseSnapshot(childThreadId);
       const primaryRequest = selectPrimaryConversationRequest(childConversation);
       const thread = this.buildConversationChildThreadMetadata(childConversation);
       return {
@@ -13595,9 +13687,7 @@ export class CodexService extends EventEmitter {
     if (!baseConversation) return null;
     if (visitedThreadIds.has(threadId)) return baseConversation;
 
-    const nextVisitedThreadIds = new Set(visitedThreadIds);
-    nextVisitedThreadIds.add(threadId);
-    const childMemberships = this.deriveConversationChildMemberships(baseConversation, nextVisitedThreadIds);
+    const childMemberships = this.deriveConversationChildMemberships(baseConversation);
 
     return {
       ...baseConversation,

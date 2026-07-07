@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type {
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexHostMessage,
   CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   Project,
@@ -71,6 +72,7 @@ let startSideChatCalls: unknown[] = [];
 let discardSideChatCalls: string[] = [];
 let sideChatConversations: Record<string, Record<string, unknown>> = {};
 let mockThreadStartProgress: unknown = null;
+let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
 const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
 const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
@@ -236,7 +238,14 @@ mock.module("@/lib/api", () => ({
   subscribeGitBranchChanges: () => () => undefined,
   subscribeProjectChanges: () => () => undefined,
   subscribeProjectSessionChanges: () => () => undefined,
-  subscribeCodexHostMessages: () => () => undefined,
+  subscribeCodexHostMessages: (listener: (message: CodexHostMessage) => void) => {
+    codexHostMessageListener = listener;
+    return () => {
+      if (codexHostMessageListener === listener) {
+        codexHostMessageListener = null;
+      }
+    };
+  },
   subscribeDesktopNotificationActions: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
@@ -1995,6 +2004,7 @@ beforeEach(() => {
   discardSideChatCalls = [];
   sideChatConversations = {};
   mockThreadStartProgress = null;
+  codexHostMessageListener = null;
   mockInvokeImpl = null;
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
@@ -3098,6 +3108,22 @@ describe("workbench session shell", () => {
   });
 
   test("sidebar sync refreshes inactive project session cache", async () => {
+    const sidebarSyncResult: CodexSidebarSyncResult = {
+      snapshot: {
+        items: [],
+        pinnedThreadIds: [],
+        projectAssignments: {},
+        projectlessThreadIds: [],
+        generatedAt: 2,
+      },
+      source: "app-server",
+      refreshed: true,
+      refreshedAt: 2,
+      changedProjectIds: ["beta"],
+      projectlessChanged: false,
+      materializedSessionIds: [],
+      failedThreadIds: [],
+    };
     renderWorkbench({
       projects: [makeProject(), makeProject("beta", "Beta")],
       sessionsByProject: {
@@ -3110,7 +3136,27 @@ describe("workbench session shell", () => {
           }),
         ],
       },
-      sidebarSyncChangedProjectIds: ["beta"],
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "codex:sidebar:sync"
+      && JSON.stringify(call[1]) === JSON.stringify({ policy: "force", reason: "mount" })
+    )).toBeFalse();
+
+    await waitFor(() => {
+      if (codexHostMessageListener === null) {
+        throw new Error("missing host message listener");
+      }
+    });
+    await act(async () => {
+      codexHostMessageListener?.({
+        type: "sidebarSyncUpdated",
+        hostId: "local",
+        result: sidebarSyncResult,
+        reason: "host-message",
+      });
+      await Promise.resolve();
     });
     await settleAsyncRender();
 
@@ -3120,10 +3166,6 @@ describe("workbench session shell", () => {
       ).length;
       expect(betaRefreshCount >= 2).toBeTrue();
     });
-    expect(invokeCalls.some((call) =>
-      call[0] === "codex:sidebar:sync"
-      && JSON.stringify(call[1]) === JSON.stringify({ policy: "force", reason: "mount" })
-    )).toBeTrue();
   });
 
   test("project action menu opens without selecting the project row", async () => {

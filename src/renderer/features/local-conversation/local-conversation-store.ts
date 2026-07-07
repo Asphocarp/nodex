@@ -4612,6 +4612,7 @@ export class CodexAppServerManager {
   private readonly loadedThreadSummariesByProject = new Set<string>();
   private readonly threadSummaryLoadsInFlightByProject = new Map<string, Promise<CodexThreadSummary[]>>();
   private readonly conversationsById = new Map<string, CodexConversationSnapshot>();
+  private readonly resumeInFlightByThreadId = new Map<string, Promise<CodexConversationSnapshot | null>>();
   private readonly olderTurnLoadsInFlightByThread = new Map<string, Promise<CodexConversationSnapshot | null>>();
   private readonly primaryConversationRequestByThread = new Map<string, CodexConversationLiveRequest | null>();
   private readonly conversationVersionById = new Map<string, number>();
@@ -4717,6 +4718,7 @@ export class CodexAppServerManager {
   destroy(): void {
     this.ownerTextDeltaQueue.cancel();
     this.outputDeltaQueue.cancel();
+    this.resumeInFlightByThreadId.clear();
     this.ownerRollbackTombstonesByConversationId.clear();
     this.cancelOwnerStreamPublishQueues();
     for (const timer of this.activeGoalContinuationTimers.values()) {
@@ -4960,6 +4962,21 @@ export class CodexAppServerManager {
   }
 
   async requestThreadStreamResume(threadId: string): Promise<CodexConversationSnapshot | null> {
+    const existing = this.resumeInFlightByThreadId.get(threadId);
+    if (existing) return await existing;
+
+    const resumePromise = this.runThreadStreamResume(threadId);
+    this.resumeInFlightByThreadId.set(threadId, resumePromise);
+    try {
+      return await resumePromise;
+    } finally {
+      if (this.resumeInFlightByThreadId.get(threadId) === resumePromise) {
+        this.resumeInFlightByThreadId.delete(threadId);
+      }
+    }
+  }
+
+  private async runThreadStreamResume(threadId: string): Promise<CodexConversationSnapshot | null> {
     this.markConversationResumeState(threadId, "resuming");
 
     try {
@@ -6664,6 +6681,7 @@ export class CodexAppServerManager {
     this.threadSummariesById.clear();
     this.loadedThreadSummariesByProject.clear();
     this.threadSummaryLoadsInFlightByProject.clear();
+    this.resumeInFlightByThreadId.clear();
     this.conversationsById.clear();
     this.conversationVersionById.clear();
     this.streamState.reset();
@@ -8616,6 +8634,10 @@ export class CodexAppServerManager {
     version?: number,
     notifyMode: ConversationNotifyMode = "default",
   ): void {
+    if (typeof version === "number" && this.conversationVersionById.get(threadId) === version) {
+      return;
+    }
+
     const nextConversation = this.withCachedConversationTitle(
       normalizeConversationSnapshot(conversation),
     );
@@ -8667,28 +8689,6 @@ export class CodexAppServerManager {
     this.applyThreadSummary(mergedSummary);
 
     this.notifyConversationCallbacks(threadId, notifyMode);
-    this.ensureChildConversationSnapshots(nextConversation);
-  }
-
-  private ensureChildConversationSnapshots(conversation: CodexConversationSnapshot): void {
-    for (const membership of conversation.childMemberships) {
-      const childThreadId = membership.threadId;
-      const childConversation = this.conversationsById.get(childThreadId);
-      if (childConversation && childConversation.turns.length > 0) {
-        continue;
-      }
-
-      if (this.resyncInFlight.has(childThreadId)) {
-        continue;
-      }
-
-      this.resyncInFlight.add(childThreadId);
-      void this.requestThreadStreamSnapshot(childThreadId)
-        .catch(() => {})
-        .finally(() => {
-          this.resyncInFlight.delete(childThreadId);
-        });
-    }
   }
 
   private notifyConversationCallbacks(

@@ -30,8 +30,9 @@ const EMPTY_SIDEBAR_SNAPSHOT: CodexSidebarSnapshot = {
   generatedAt: 0,
 };
 
-const SIDEBAR_THREAD_SYNC_HEARTBEAT_MS = 15_000;
+const SIDEBAR_THREAD_SYNC_HEARTBEAT_MS = 60_000;
 const SIDEBAR_THREAD_SYNC_DEBOUNCE_MS = 300;
+const SIDEBAR_THREAD_SYNC_MOUNT_IDLE_MS = 1_500;
 
 function resolveSidebarSyncReasonForHostMessage(
   message: CodexHostMessage,
@@ -86,7 +87,7 @@ export function useSidebarThreadSyncModel(input: {
   const query = useQuery({
     queryKey: queryKeys.codexSidebar.snapshot(),
     queryFn: () => invoke("codex:sidebar:snapshot", { refresh: false }),
-    staleTime: 5_000,
+    staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 
@@ -129,17 +130,12 @@ export function useSidebarThreadSyncModel(input: {
   }, []);
 
   useEffect(() => {
-    let canceled = false;
-    void requestSidebarSync("force", "mount")
-      .then((result) => {
-        if (canceled) return;
-        applySidebarSyncResult(result);
-      })
-      .catch(() => undefined);
-    return () => {
-      canceled = true;
-    };
-  }, [applySidebarSyncResult, projects, requestSidebarSync]);
+    if (typeof window === "undefined") return undefined;
+    const handle = window.setTimeout(() => {
+      void syncSidebarThreads("stale", "mount").catch(() => undefined);
+    }, SIDEBAR_THREAD_SYNC_MOUNT_IDLE_MS);
+    return () => window.clearTimeout(handle);
+  }, [syncSidebarThreads]);
 
   useEffect(() => subscribeCodexHostMessages((message) => {
     if (message.type === "sidebarSyncUpdated") {

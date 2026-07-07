@@ -133,10 +133,12 @@ describe("useSidebarThreadSyncModel", () => {
     );
     await waitFor(() => {
       if (hostMessageListener === null) throw new Error("missing host listener");
-      if (!invokeCalls.some((call) => call[0] === "codex:sidebar:sync")) {
-        throw new Error("missing mount sync");
-      }
     });
+    expect(invokeCalls.some((call) =>
+      call[0] === "codex:sidebar:sync" &&
+      (call[1] as { policy?: string } | undefined)?.policy === "force" &&
+      (call[1] as { reason?: string } | undefined)?.reason === "mount"
+    )).toBeFalse();
     affectedResults.length = 0;
     snapshots.length = 0;
     const callsBeforeMessage = invokeCalls.length;
@@ -185,9 +187,6 @@ describe("useSidebarThreadSyncModel", () => {
     await waitFor(() => {
       if (projectSessionListeners.length < 3) {
         throw new Error("missing project session listeners");
-      }
-      if (!invokeCalls.some((call) => call[0] === "codex:sidebar:sync")) {
-        throw new Error("missing mount sync");
       }
     });
     affectedResults.length = 0;
