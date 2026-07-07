@@ -1,7 +1,6 @@
 import { ComponentProps } from "@blocknote/react";
 import { forwardRef } from "react";
 
-import { assertEmpty } from "@blocknote/core";
 import { cn } from "../lib/utils.js";
 
 export const SuggestionMenu = forwardRef<
@@ -10,10 +9,9 @@ export const SuggestionMenu = forwardRef<
 >((props, ref) => {
   const { className, children, id, ...rest } = props;
 
-  assertEmpty(rest);
-
   return (
     <div
+      {...rest}
       id={id}
       role="listbox"
       // Styles from ShadCN DropdownMenuContent component

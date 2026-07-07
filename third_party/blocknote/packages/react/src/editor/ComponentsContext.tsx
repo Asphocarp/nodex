@@ -4,6 +4,7 @@ import {
   createContext,
   CSSProperties,
   ForwardedRef,
+  HTMLAttributes,
   HTMLInputAutoCompleteAttribute,
   KeyboardEvent,
   MouseEvent,
@@ -61,6 +62,15 @@ type MenuButtonType = {
   | { children: ReactNode; label?: string }
   | { children?: undefined; label: string }
 );
+
+type SuggestionMenuRootType = Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "children" | "className" | "id"
+> & {
+  id: string;
+  className?: string;
+  children?: ReactNode;
+};
 
 export type ComponentProps = {
   FormattingToolbar: {
@@ -129,11 +139,7 @@ export type ComponentProps = {
     );
   };
   SuggestionMenu: {
-    Root: {
-      id: string;
-      className?: string;
-      children?: ReactNode;
-    };
+    Root: SuggestionMenuRootType;
     EmptyItem: {
       className?: string;
       children?: ReactNode;
@@ -154,11 +160,8 @@ export type ComponentProps = {
     };
   };
   GridSuggestionMenu: {
-    Root: {
-      id: string;
+    Root: SuggestionMenuRootType & {
       columns: number;
-      className?: string;
-      children?: ReactNode;
     };
     EmptyItem: {
       columns: number;
