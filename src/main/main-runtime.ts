@@ -79,6 +79,7 @@ import {
   captureMainMessage,
   shutdownMainSentry,
 } from "./observability/sentry-main";
+import { recordDevRuntimeMetricCounter } from "./dev-runtime-metrics";
 import {
   getPrimaryCommandAccelerator,
   toElectronAccelerator,
@@ -934,6 +935,16 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     broadcastToWindows("board-changed", event);
   });
   dbNotifier.on("project-sessions-changed", (event) => {
+    recordDevRuntimeMetricCounter(
+      "db.project_sessions_changed.broadcast",
+      {
+        projectId: event.projectId,
+        changeType: event.changeType,
+        sessionId: event.sessionId ?? null,
+        windowCount: openWindows.size,
+      },
+      { groupBy: ["projectId", "changeType", "windowCount"] },
+    );
     broadcastToWindows("project-sessions-changed", event);
   });
   dbNotifier.on("projects-changed", (event) => {

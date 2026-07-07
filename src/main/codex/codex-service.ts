@@ -326,6 +326,12 @@ import {
   CommandPaletteThreadSearchCoordinator,
   type CommandPaletteThreadSearchClient,
 } from "./command-palette-thread-search-coordinator";
+import {
+  approximateJsonPayloadBytes,
+  getDevRuntimeMetricDurationMs,
+  getDevRuntimeMetricStart,
+  logDevRuntimeMetric,
+} from "../dev-runtime-metrics";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const SIDEBAR_THREAD_SYNC_STALE_MS = 60_000;
@@ -5005,50 +5011,78 @@ export class CodexService extends EventEmitter {
     policy?: CodexSidebarRefreshPolicy;
     reason?: CodexSidebarRefreshReason;
   } = {}): Promise<CodexSidebarSyncResult> {
+    const startedAt = getDevRuntimeMetricStart();
     const includeArchived = input.includeArchived === true;
     const policy = input.policy ?? "stale";
     const reason = input.reason ?? "manual";
+    const logResult = (
+      decision: string,
+      result: CodexSidebarSyncResult,
+      extra: Record<string, unknown> = {},
+    ): CodexSidebarSyncResult => {
+      logDevRuntimeMetric("codex.sidebar.sync", {
+        decision,
+        policy,
+        reason,
+        includeArchived,
+        source: result.source,
+        refreshed: result.refreshed,
+        itemCount: result.snapshot.items.length,
+        changedProjectCount: result.changedProjectIds.length,
+        projectlessChanged: result.projectlessChanged,
+        materializedSessionCount: result.materializedSessionIds.length,
+        failedThreadCount: result.failedThreadIds.length,
+        approxPayloadBytes: approximateJsonPayloadBytes(result),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+        ...extra,
+      });
+      return result;
+    };
 
     if (policy === "read") {
-      return this.buildSidebarSyncResult({
+      return logResult("read", this.buildSidebarSyncResult({
         includeArchived,
         source: "sqlite",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
-      });
+      }));
     }
 
     const now = Date.now();
     const isFresh = this.sidebarLastSuccessfulRefreshAt > 0
       && now - this.sidebarLastSuccessfulRefreshAt < SIDEBAR_THREAD_SYNC_STALE_MS;
     if (policy === "stale" && isFresh) {
-      return this.buildSidebarSyncResult({
+      return logResult("stale-cache-hit", this.buildSidebarSyncResult({
         includeArchived,
         source: "sqlite",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+      }), {
+        cacheAgeMs: now - this.sidebarLastSuccessfulRefreshAt,
       });
     }
 
     const backoffActive = policy === "stale" && this.sidebarFailureBackoffUntil > now;
     if (backoffActive) {
-      return this.buildSidebarSyncResult({
+      return logResult("backoff", this.buildSidebarSyncResult({
         includeArchived,
         source: "sqlite",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+      }), {
+        backoffRemainingMs: this.sidebarFailureBackoffUntil - now,
       });
     }
 
     if (this.sidebarSyncInFlight && this.sidebarSyncInFlightIncludeArchived === includeArchived) {
-      return await this.sidebarSyncInFlight;
+      return logResult("join-in-flight", await this.sidebarSyncInFlight);
     }
 
     this.sidebarSyncInFlightIncludeArchived = includeArchived;
     this.sidebarSyncInFlight = this.runSidebarSyncFromAppServer({ includeArchived, reason });
 
     try {
-      return await this.sidebarSyncInFlight;
+      return logResult("refresh", await this.sidebarSyncInFlight);
     } finally {
       this.sidebarSyncInFlight = null;
       this.sidebarSyncInFlightIncludeArchived = null;
@@ -5059,6 +5093,7 @@ export class CodexService extends EventEmitter {
     includeArchived: boolean;
     reason: CodexSidebarRefreshReason;
   }): Promise<CodexSidebarSyncResult> {
+    const startedAt = getDevRuntimeMetricStart();
     try {
       const metadata = await this.refreshSidebarThreadsFromAppServer(input);
       const refreshedAt = Date.now();
@@ -5073,6 +5108,18 @@ export class CodexService extends EventEmitter {
         metadata,
       });
       this.emitSidebarSyncUpdated(result, input.reason);
+      logDevRuntimeMetric("codex.sidebar.refresh", {
+        outcome: "success",
+        reason: input.reason,
+        includeArchived: input.includeArchived,
+        itemCount: result.snapshot.items.length,
+        changedProjectCount: result.changedProjectIds.length,
+        projectlessChanged: result.projectlessChanged,
+        materializedSessionCount: result.materializedSessionIds.length,
+        failedThreadCount: result.failedThreadIds.length,
+        approxPayloadBytes: approximateJsonPayloadBytes(result),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
       return result;
     } catch (error) {
       this.sidebarFailureBackoffUntil = Date.now() + this.sidebarFailureBackoffMs;
@@ -5084,12 +5131,23 @@ export class CodexService extends EventEmitter {
         reason: input.reason,
         error: error instanceof Error ? error.message : String(error),
       });
-      return this.buildSidebarSyncResult({
+      const result = this.buildSidebarSyncResult({
         includeArchived: input.includeArchived,
         source: "sqlite",
         refreshed: false,
         refreshedAt: this.sidebarLastSuccessfulRefreshAt,
       });
+      logDevRuntimeMetric("codex.sidebar.refresh", {
+        outcome: "error",
+        reason: input.reason,
+        includeArchived: input.includeArchived,
+        error: error instanceof Error ? error.message : String(error),
+        nextBackoffMs: this.sidebarFailureBackoffMs,
+        itemCount: result.snapshot.items.length,
+        approxPayloadBytes: approximateJsonPayloadBytes(result),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return result;
     }
   }
 
@@ -5097,13 +5155,27 @@ export class CodexService extends EventEmitter {
     result: CodexSidebarSyncResult,
     reason: CodexSidebarRefreshReason,
   ): void {
-    if (
+    const shouldEmit = !(
       !result.refreshed
       && result.changedProjectIds.length === 0
       && !result.projectlessChanged
       && result.materializedSessionIds.length === 0
       && result.failedThreadIds.length === 0
-    ) {
+    );
+    logDevRuntimeMetric("codex.sidebar.sync_updated_emit", {
+      emitted: shouldEmit,
+      reason,
+      source: result.source,
+      refreshed: result.refreshed,
+      itemCount: result.snapshot.items.length,
+      changedProjectCount: result.changedProjectIds.length,
+      projectlessChanged: result.projectlessChanged,
+      materializedSessionCount: result.materializedSessionIds.length,
+      failedThreadCount: result.failedThreadIds.length,
+      approxPayloadBytes: shouldEmit ? approximateJsonPayloadBytes(result) : null,
+    });
+
+    if (!shouldEmit) {
       return;
     }
 
@@ -5211,37 +5283,72 @@ export class CodexService extends EventEmitter {
     includeArchived: boolean;
     reason: CodexSidebarRefreshReason;
   }): Promise<SidebarThreadSyncMetadata> {
+    const startedAt = getDevRuntimeMetricStart();
     await this.ensureClientReady();
 
     const projects = listProjects();
     const archivedFilters = input.includeArchived ? [false, true] : [false];
     const metadata = createSidebarThreadSyncMetadata();
+    let pageCount = 0;
+    let threadCount = 0;
 
-    for (const archived of archivedFilters) {
-      let cursor: string | null = null;
-      do {
-        const response = await this.requestSidebarThreadList({ cursor, archived });
+    try {
+      for (const archived of archivedFilters) {
+        let cursor: string | null = null;
+        do {
+          const response = await this.requestSidebarThreadList({ cursor, archived });
+          pageCount += 1;
+          threadCount += response.data.length;
 
-        for (const thread of response.data) {
-          const result = this.upsertSidebarThreadFromAppServerThread(thread, {
-            projects,
-            includeArchived: input.includeArchived,
-            reason: input.reason,
-          });
-          mergeSidebarThreadMaterialization(metadata, result);
-        }
+          for (const thread of response.data) {
+            const result = this.upsertSidebarThreadFromAppServerThread(thread, {
+              projects,
+              includeArchived: input.includeArchived,
+              reason: input.reason,
+            });
+            mergeSidebarThreadMaterialization(metadata, result);
+          }
 
-        cursor = response.nextCursor;
-      } while (cursor);
+          cursor = response.nextCursor;
+        } while (cursor);
+      }
+
+      logDevRuntimeMetric("codex.sidebar.refresh_thread_list", {
+        outcome: "success",
+        reason: input.reason,
+        includeArchived: input.includeArchived,
+        archivedFilterCount: archivedFilters.length,
+        projectCount: projects.length,
+        pageCount,
+        threadCount,
+        changedProjectCount: metadata.changedProjectIds.size,
+        projectlessChanged: metadata.projectlessChanged,
+        materializedSessionCount: metadata.materializedSessionIds.size,
+        failedThreadCount: metadata.failedThreadIds.size,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return metadata;
+    } catch (error) {
+      logDevRuntimeMetric("codex.sidebar.refresh_thread_list", {
+        outcome: "error",
+        reason: input.reason,
+        includeArchived: input.includeArchived,
+        archivedFilterCount: archivedFilters.length,
+        projectCount: projects.length,
+        pageCount,
+        threadCount,
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      throw error;
     }
-
-    return metadata;
   }
 
   private async requestSidebarThreadList(input: {
     cursor: string | null;
     archived: boolean;
   }): Promise<ThreadListResponse> {
+    const startedAt = getDevRuntimeMetricStart();
     const createParams = (useStateDbOnly: boolean): ThreadListParams => ({
       cursor: input.cursor,
       limit: 100,
@@ -5254,12 +5361,31 @@ export class CodexService extends EventEmitter {
     });
 
     try {
-      return await this.client.request<"thread/list", ThreadListResponse>(
+      const useStateDbOnly = this.sidebarUseStateDbOnlyThreadList;
+      const response = await this.client.request<"thread/list", ThreadListResponse>(
         "thread/list",
-        createParams(this.sidebarUseStateDbOnlyThreadList),
+        createParams(useStateDbOnly),
       );
+      logDevRuntimeMetric("codex.sidebar.thread_list.page", {
+        outcome: "success",
+        archived: input.archived,
+        cursorPresent: input.cursor !== null,
+        useStateDbOnly,
+        rowCount: response.data.length,
+        hasNextCursor: response.nextCursor !== null,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return response;
     } catch (error) {
       if (!this.sidebarUseStateDbOnlyThreadList || !isUnsupportedStateDbOnlyThreadListError(error)) {
+        logDevRuntimeMetric("codex.sidebar.thread_list.page", {
+          outcome: "error",
+          archived: input.archived,
+          cursorPresent: input.cursor !== null,
+          useStateDbOnly: this.sidebarUseStateDbOnlyThreadList,
+          error: error instanceof Error ? error.message : String(error),
+          durationMs: getDevRuntimeMetricDurationMs(startedAt),
+        });
         throw error;
       }
 
@@ -5267,10 +5393,20 @@ export class CodexService extends EventEmitter {
       this.logger.warn("Codex app-server does not support state DB thread listing; falling back to rollout scan", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return await this.client.request<"thread/list", ThreadListResponse>(
+      const response = await this.client.request<"thread/list", ThreadListResponse>(
         "thread/list",
         createParams(false),
       );
+      logDevRuntimeMetric("codex.sidebar.thread_list.page", {
+        outcome: "fallback-success",
+        archived: input.archived,
+        cursorPresent: input.cursor !== null,
+        useStateDbOnly: false,
+        rowCount: response.data.length,
+        hasNextCursor: response.nextCursor !== null,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return response;
     }
   }
 
@@ -5514,8 +5650,19 @@ export class CodexService extends EventEmitter {
   }
 
   private buildSidebarSnapshot(input: { includeArchived: boolean }): CodexSidebarSnapshot {
+    const startedAt = getDevRuntimeMetricStart();
     const cached = this.sidebarSnapshotCacheByIncludeArchived.get(input.includeArchived);
     if (cached && cached.revision === this.sidebarSnapshotRevision) {
+      logDevRuntimeMetric("codex.sidebar.snapshot.build", {
+        cacheHit: true,
+        includeArchived: input.includeArchived,
+        revision: this.sidebarSnapshotRevision,
+        itemCount: cached.snapshot.items.length,
+        pinnedThreadCount: cached.snapshot.pinnedThreadIds.length,
+        projectAssignmentCount: Object.keys(cached.snapshot.projectAssignments).length,
+        projectlessThreadCount: cached.snapshot.projectlessThreadIds.length,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
       return cached.snapshot;
     }
 
@@ -5524,13 +5671,26 @@ export class CodexService extends EventEmitter {
     const projectAssignments: Record<string, string> = {};
     const projectlessThreadIds: string[] = [];
     const items: CodexSidebarThreadItem[] = [];
+    const threadLinks = listCodexThreadLinks({ includeArchived: input.includeArchived });
+    let sessionLinkLookupCount = 0;
+    let sessionReadCount = 0;
+    let skippedArchivedCount = 0;
+    let skippedEphemeralCount = 0;
 
-    for (const thread of listCodexThreadLinks({ includeArchived: input.includeArchived })) {
+    for (const thread of threadLinks) {
+      sessionLinkLookupCount += 1;
       const sessionLink = projectSessionService.getProjectSessionThreadLink(thread.threadId);
       const session = sessionLink ? projectSessionService.getProjectSession(sessionLink.sessionId) : null;
+      if (sessionLink) sessionReadCount += 1;
       const archived = thread.archived || session?.archived === true;
-      if (!input.includeArchived && archived) continue;
-      if (thread.ephemeral || thread.source?.sideConversation) continue;
+      if (!input.includeArchived && archived) {
+        skippedArchivedCount += 1;
+        continue;
+      }
+      if (thread.ephemeral || thread.source?.sideConversation) {
+        skippedEphemeralCount += 1;
+        continue;
+      }
 
       const projectId = session?.projectId ?? thread.projectId;
       if (projectId) {
@@ -5580,6 +5740,22 @@ export class CodexService extends EventEmitter {
     this.sidebarSnapshotCacheByIncludeArchived.set(input.includeArchived, {
       revision: this.sidebarSnapshotRevision,
       snapshot,
+    });
+    logDevRuntimeMetric("codex.sidebar.snapshot.build", {
+      cacheHit: false,
+      includeArchived: input.includeArchived,
+      revision: this.sidebarSnapshotRevision,
+      threadLinkCount: threadLinks.length,
+      sessionLinkLookupCount,
+      sessionReadCount,
+      skippedArchivedCount,
+      skippedEphemeralCount,
+      itemCount: items.length,
+      pinnedThreadCount: pinnedThreadIds.length,
+      projectAssignmentCount: Object.keys(projectAssignments).length,
+      projectlessThreadCount: projectlessThreadIds.length,
+      approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
     });
     return snapshot;
   }
@@ -6638,16 +6814,38 @@ export class CodexService extends EventEmitter {
   }
 
   private async hydrateThreadGoalAfterResume(threadId: string): Promise<void> {
+    const startedAt = getDevRuntimeMetricStart();
     const existing = this.threadGoalHydrationInFlightByThreadId.get(threadId);
     if (existing) {
       this.logger.debug("Joining in-flight Codex thread goal hydration", { threadId });
-      return await existing;
+      await existing;
+      logDevRuntimeMetric("codex.thread.goal_hydration", {
+        threadId,
+        join: true,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return;
     }
 
     const hydrationPromise = this.runThreadGoalHydrationAfterResume(threadId);
     this.threadGoalHydrationInFlightByThreadId.set(threadId, hydrationPromise);
     try {
-      return await hydrationPromise;
+      await hydrationPromise;
+      logDevRuntimeMetric("codex.thread.goal_hydration", {
+        threadId,
+        join: false,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return;
+    } catch (error) {
+      logDevRuntimeMetric("codex.thread.goal_hydration", {
+        threadId,
+        join: false,
+        outcome: "error",
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      throw error;
     } finally {
       if (this.threadGoalHydrationInFlightByThreadId.get(threadId) === hydrationPromise) {
         this.threadGoalHydrationInFlightByThreadId.delete(threadId);
@@ -6656,6 +6854,7 @@ export class CodexService extends EventEmitter {
   }
 
   private async runThreadGoalHydrationAfterResume(threadId: string): Promise<void> {
+    const startedAt = getDevRuntimeMetricStart();
     let response: ThreadGoalGetResponse;
     try {
       response = await this.client.request<"thread/goal/get", ThreadGoalGetResponse>("thread/goal/get", {
@@ -6666,8 +6865,20 @@ export class CodexService extends EventEmitter {
         threadId,
         error: error instanceof Error ? error.message : String(error),
       });
+      logDevRuntimeMetric("codex.thread.goal_get", {
+        threadId,
+        outcome: "error",
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
       return;
     }
+    logDevRuntimeMetric("codex.thread.goal_get", {
+      threadId,
+      outcome: "success",
+      approxPayloadBytes: approximateJsonPayloadBytes(response),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
 
     const payload = asRecord(response);
     const rawGoal = payload && hasOwnValue(payload, "goal") ? payload.goal : null;
@@ -8861,13 +9072,27 @@ export class CodexService extends EventEmitter {
   }
 
   async requestConversationSnapshot(threadId: string): Promise<CodexConversationSnapshot | null> {
+    const startedAt = getDevRuntimeMetricStart();
     this.outputDeltaQueue.flushNow();
     const existingConversation = this.serializeConversationSnapshot(threadId);
     if (existingConversation) {
       this.emitThreadStreamSnapshotFromRecord(threadId, "explicit-resync");
+      logDevRuntimeMetric("codex.thread.snapshot.request", {
+        threadId,
+        cacheHit: true,
+        turnCount: existingConversation.turns.length,
+        childMembershipCount: existingConversation.childMemberships.length,
+        approxPayloadBytes: approximateJsonPayloadBytes(existingConversation),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
       return existingConversation;
     }
 
+    logDevRuntimeMetric("codex.thread.snapshot.request", {
+      threadId,
+      cacheHit: false,
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
     return null;
   }
 
@@ -8875,9 +9100,16 @@ export class CodexService extends EventEmitter {
     threadId: string,
     includeTurns: boolean,
   ): Promise<CodexThreadDetail | null> {
+    const startedAt = getDevRuntimeMetricStart();
     const result = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
       threadId,
       includeTurns,
+    });
+    logDevRuntimeMetric("codex.thread.read", {
+      threadId,
+      includeTurns,
+      approxPayloadBytes: approximateJsonPayloadBytes(result),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
     });
 
     this.upsertLinkFromThread(result.thread);
@@ -8915,8 +9147,18 @@ export class CodexService extends EventEmitter {
     };
     let result: ThreadResumeResponse;
     let usedPagedResume = true;
+    const resumeRequestStartedAt = getDevRuntimeMetricStart();
     try {
       result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", resumeParams);
+      logDevRuntimeMetric("codex.thread.resume.app_server", {
+        threadId,
+        outcome: "success",
+        usedPagedResume: true,
+        initialTurnCount: result.initialTurnsPage?.data.length ?? null,
+        hasNextCursor: result.initialTurnsPage?.nextCursor !== null && result.initialTurnsPage?.nextCursor !== undefined,
+        approxPayloadBytes: approximateJsonPayloadBytes(result),
+        durationMs: getDevRuntimeMetricDurationMs(resumeRequestStartedAt),
+      });
     } catch (error) {
       usedPagedResume = false;
       this.logger.warn("Paged Codex thread resume failed; falling back to full resume", {
@@ -8930,7 +9172,27 @@ export class CodexService extends EventEmitter {
           permissionState,
         }),
       };
-      result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", fallbackResumeParams);
+      try {
+        result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", fallbackResumeParams);
+        logDevRuntimeMetric("codex.thread.resume.app_server", {
+          threadId,
+          outcome: "fallback-success",
+          usedPagedResume: false,
+          pagedError: error instanceof Error ? error.message : String(error),
+          approxPayloadBytes: approximateJsonPayloadBytes(result),
+          durationMs: getDevRuntimeMetricDurationMs(resumeRequestStartedAt),
+        });
+      } catch (fallbackError) {
+        logDevRuntimeMetric("codex.thread.resume.app_server", {
+          threadId,
+          outcome: "fallback-error",
+          usedPagedResume: false,
+          pagedError: error instanceof Error ? error.message : String(error),
+          fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          durationMs: getDevRuntimeMetricDurationMs(resumeRequestStartedAt),
+        });
+        throw fallbackError;
+      }
     }
     this.upsertLinkFromThread(result.thread);
     const rawInitialTurnsPage = usedPagedResume ? result.initialTurnsPage : null;
@@ -8990,16 +9252,54 @@ export class CodexService extends EventEmitter {
     threadId: string,
     options: RequestConversationResumeOptions = {},
   ): Promise<CodexConversationSnapshot | null> {
+    const startedAt = getDevRuntimeMetricStart();
     const existing = this.conversationResumeInFlightByThreadId.get(threadId);
     if (existing) {
       this.logger.debug("Joining in-flight Codex thread resume", { threadId });
-      return await existing;
+      const result = await existing;
+      logDevRuntimeMetric("codex.thread.resume.request", {
+        threadId,
+        outcome: "success",
+        join: true,
+        emitSourceNullSnapshots: options.emitSourceNullSnapshots !== false,
+        replayBufferedNotifications: options.replayBufferedNotifications !== false,
+        hasSnapshot: result !== null,
+        turnCount: result?.turns.length ?? null,
+        childMembershipCount: result?.childMemberships.length ?? null,
+        approxPayloadBytes: result ? approximateJsonPayloadBytes(result) : null,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return result;
     }
 
     const resumePromise = this.runConversationResumeRequest(threadId, options);
     this.conversationResumeInFlightByThreadId.set(threadId, resumePromise);
     try {
-      return await resumePromise;
+      const result = await resumePromise;
+      logDevRuntimeMetric("codex.thread.resume.request", {
+        threadId,
+        outcome: "success",
+        join: false,
+        emitSourceNullSnapshots: options.emitSourceNullSnapshots !== false,
+        replayBufferedNotifications: options.replayBufferedNotifications !== false,
+        hasSnapshot: result !== null,
+        turnCount: result?.turns.length ?? null,
+        childMembershipCount: result?.childMemberships.length ?? null,
+        approxPayloadBytes: result ? approximateJsonPayloadBytes(result) : null,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      return result;
+    } catch (error) {
+      logDevRuntimeMetric("codex.thread.resume.request", {
+        threadId,
+        join: false,
+        emitSourceNullSnapshots: options.emitSourceNullSnapshots !== false,
+        replayBufferedNotifications: options.replayBufferedNotifications !== false,
+        outcome: "error",
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      throw error;
     } finally {
       if (this.conversationResumeInFlightByThreadId.get(threadId) === resumePromise) {
         this.conversationResumeInFlightByThreadId.delete(threadId);

@@ -144,6 +144,12 @@ import {
   safeBroadcastToWindows,
   safeSendToWebContents,
 } from "./ipc-safe-send";
+import {
+  approximateJsonPayloadBytes,
+  getDevRuntimeMetricDurationMs,
+  getDevRuntimeMetricStart,
+  logDevRuntimeMetric,
+} from "./dev-runtime-metrics";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -152,14 +158,6 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
 
 const ipcPayloadLogger = getLogger({ subsystem: "ipc", component: "kanban-read-model" });
 const rendererDiagnosticsLogger = getLogger({ subsystem: "renderer", component: "diagnostics" });
-
-function approximatePayloadBytes(value: unknown): number | null {
-  try {
-    return Buffer.byteLength(JSON.stringify(value), "utf8");
-  } catch {
-    return null;
-  }
-}
 
 function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number {
   return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
@@ -487,9 +485,20 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   // Project sessions
-  registerHandle("project-sessions:list", (_, projectId: string | null, options) =>
-    projectSessionService.listProjectSessions(projectId, options)
-  );
+  registerHandle("project-sessions:list", (_, projectId: string | null, options) => {
+    const startedAt = getDevRuntimeMetricStart();
+    const sessions = projectSessionService.listProjectSessions(projectId, options);
+    logDevRuntimeMetric("ipc.project_sessions_list", {
+      projectId,
+      includeArchived: options?.includeArchived === true,
+      sessionCount: sessions.length,
+      tabCount: sessions.reduce((sum, session) => sum + session.tabs.length, 0),
+      linkedThreadCount: sessions.filter((session) => session.thread !== null).length,
+      approxPayloadBytes: approximateJsonPayloadBytes(sessions),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
+    return sessions;
+  });
 
   registerHandle("project-sessions:create", (_, input) => {
     const session = projectSessionService.createProjectSession(input);
@@ -662,7 +671,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       channel: "board:summary:get",
       projectId,
       cardCount: boardCardCount(board),
-      approxPayloadBytes: approximatePayloadBytes(board),
+      approxPayloadBytes: approximateJsonPayloadBytes(board),
       durationMs: Math.round(performance.now() - startedAt),
     });
     return board;
@@ -677,7 +686,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       projectId,
       requestedCardCount: input.cardIds.length,
       cardCount: cards.length,
-      approxPayloadBytes: approximatePayloadBytes(cards),
+      approxPayloadBytes: approximateJsonPayloadBytes(cards),
       durationMs: Math.round(performance.now() - startedAt),
     });
     return cards;
@@ -690,7 +699,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       channel: "cards:search",
       projectCount: input.projectIds.length,
       resultCount: results.length,
-      approxPayloadBytes: approximatePayloadBytes(results),
+      approxPayloadBytes: approximateJsonPayloadBytes(results),
       durationMs: Math.round(performance.now() - startedAt),
     });
     return results;
@@ -721,7 +730,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       descriptionBytes: typeof updates.description === "string"
         ? Buffer.byteLength(updates.description, "utf8")
         : undefined,
-      approxPayloadBytes: approximatePayloadBytes(result),
+      approxPayloadBytes: approximateJsonPayloadBytes(result),
       durationMs: Math.round(performance.now() - startedAt),
       workerDurationMs: envelope.metrics.workerDurationMs,
       queueWaitMs: envelope.metrics.queueWaitMs,
@@ -763,7 +772,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         cardId: staged.cardId,
         status: result.status,
         descriptionBytes: staged.bytes,
-        approxPayloadBytes: approximatePayloadBytes(result),
+        approxPayloadBytes: approximateJsonPayloadBytes(result),
         durationMs: Math.round(performance.now() - startedAt),
         workerDurationMs: envelope.metrics.workerDurationMs,
         queueWaitMs: envelope.metrics.queueWaitMs,
@@ -1394,13 +1403,41 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.listProjectThreads(projectId, opts)
   );
 
-  registerHandle("codex:sidebar:snapshot", (_, input) =>
-    codexService.syncSidebarThreads(input)
-  );
+  registerHandle("codex:sidebar:snapshot", async (_, input) => {
+    const startedAt = getDevRuntimeMetricStart();
+    const snapshot = await codexService.syncSidebarThreads(input);
+    logDevRuntimeMetric("ipc.codex_sidebar_snapshot", {
+      refresh: input?.refresh === true,
+      includeArchived: input?.includeArchived === true,
+      itemCount: snapshot.items.length,
+      pinnedThreadCount: snapshot.pinnedThreadIds.length,
+      projectAssignmentCount: Object.keys(snapshot.projectAssignments).length,
+      projectlessThreadCount: snapshot.projectlessThreadIds.length,
+      approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
+    return snapshot;
+  });
 
-  registerHandle("codex:sidebar:sync", (_, input) =>
-    codexService.syncSidebarThreadsDetailed(input)
-  );
+  registerHandle("codex:sidebar:sync", async (_, input) => {
+    const startedAt = getDevRuntimeMetricStart();
+    const result = await codexService.syncSidebarThreadsDetailed(input);
+    logDevRuntimeMetric("ipc.codex_sidebar_sync", {
+      policy: input?.policy ?? "stale",
+      reason: input?.reason ?? "manual",
+      includeArchived: input?.includeArchived === true,
+      source: result.source,
+      refreshed: result.refreshed,
+      itemCount: result.snapshot.items.length,
+      changedProjectCount: result.changedProjectIds.length,
+      projectlessChanged: result.projectlessChanged,
+      materializedSessionCount: result.materializedSessionIds.length,
+      failedThreadCount: result.failedThreadIds.length,
+      approxPayloadBytes: approximateJsonPayloadBytes(result),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
+    return result;
+  });
 
   registerHandle("codex:threads:pinned:list", () =>
     codexService.listPinnedThreads()
