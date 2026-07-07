@@ -5488,15 +5488,6 @@ export class CodexService extends EventEmitter {
       const sessionId = sessionResult.session?.id
         ?? projectSessionService.getProjectSessionThreadLink(summary.threadId)?.sessionId
         ?? null;
-      if (
-        changed
-        && !sessionResult.materialized
-        && sessionResult.changedProjectIds.size === 0
-        && !sessionResult.projectlessChanged
-        && sessionId !== null
-      ) {
-        this.notifyLinkedProjectSessionsChanged(summary.threadId);
-      }
       return {
         summary,
         projectId: summary.projectId,
@@ -5612,8 +5603,8 @@ export class CodexService extends EventEmitter {
         createdAt: summary.createdAt,
         updatedAt: summary.updatedAt,
       });
-      dbNotifier.notifyProjectSessionsChanged(existingSession.projectId, "thread", existingSession.id);
-      dbNotifier.notifyProjectSessionsChanged(link.projectId, "thread", existingSession.id);
+      dbNotifier.notifyProjectSessionsChanged(existingSession.projectId, "link", existingSession.id);
+      dbNotifier.notifyProjectSessionsChanged(link.projectId, "link", existingSession.id);
       this.logger.info("Re-homed sidebar thread session", {
         reason: input.reason,
         threadId: summary.threadId,
@@ -5680,7 +5671,7 @@ export class CodexService extends EventEmitter {
     for (const thread of threadLinks) {
       sessionLinkLookupCount += 1;
       const sessionLink = projectSessionService.getProjectSessionThreadLink(thread.threadId);
-      const session = sessionLink ? projectSessionService.getProjectSession(sessionLink.sessionId) : null;
+      const session = sessionLink ? projectSessionService.getProjectSessionSummary(sessionLink.sessionId) : null;
       if (sessionLink) sessionReadCount += 1;
       const archived = thread.archived || session?.archived === true;
       if (!input.includeArchived && archived) {
@@ -5735,6 +5726,7 @@ export class CodexService extends EventEmitter {
       pinnedThreadIds,
       projectAssignments,
       projectlessThreadIds,
+      revision: this.sidebarSnapshotRevision,
       generatedAt: Date.now(),
     };
     this.sidebarSnapshotCacheByIncludeArchived.set(input.includeArchived, {
@@ -5836,7 +5828,7 @@ export class CodexService extends EventEmitter {
     const previous = getCodexThread(normalizedThreadId);
     const summary = this.upsertLinkFromThread(result.thread) ?? getCodexThread(normalizedThreadId);
     if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
-      this.notifyLinkedProjectSessionsChanged(summary.threadId);
+      this.emitSidebarSyncUpdatedForThread(summary, "host-message");
     }
     return summary;
   }
@@ -7703,7 +7695,7 @@ export class CodexService extends EventEmitter {
       updatedAt: detail.updatedAt,
       linkedAt: detail.linkedAt,
     });
-    this.notifyLinkedProjectSessionsChanged(detail.threadId);
+    this.emitSidebarCatalogChangedForThread(detail.threadId, "host-message");
   }
 
   private hasKnownThreadDetail(threadId: string): boolean {
@@ -7742,7 +7734,7 @@ export class CodexService extends EventEmitter {
       updatedAt: Math.max(link.updatedAt, reconciledDetail.updatedAt),
       linkedAt: link.linkedAt,
     });
-    this.notifyLinkedProjectSessionsChanged(threadId);
+    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
     this.setConversationRecordDetail(reconciledDetail);
     const record = this.ensureConversationRecord(threadId);
     if (record.streamRole === null && !record.isStreaming) {
@@ -8239,7 +8231,7 @@ export class CodexService extends EventEmitter {
       updatedAt: normalizeTimestamp(candidate.updatedAt),
     });
 
-    dbNotifier.notifyProjectSessionsChanged(input.projectId, "thread", input.sessionId);
+    dbNotifier.notifyProjectSessionsChanged(input.projectId, "link", input.sessionId);
     const summary = applyThreadAgentMetadata({
       ...sessionThreadLinkToSummary(link),
       threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
@@ -8266,11 +8258,17 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private notifyLinkedProjectSessionsChanged(threadId: string): void {
-    const owners = projectSessionService.listProjectSessionThreadOwners(threadId);
-    for (const owner of owners) {
-      dbNotifier.notifyProjectSessionsChanged(owner.projectId, "thread", owner.sessionId);
+  private emitSidebarCatalogChangedForThread(
+    threadId: string,
+    reason: CodexSidebarRefreshReason,
+  ): void {
+    const summary = getCodexThread(threadId);
+    const metadata = createSidebarThreadSyncMetadata();
+    if (summary) markSidebarSyncScopeChanged(metadata, summary.projectId);
+    for (const owner of projectSessionService.listProjectSessionThreadOwners(threadId)) {
+      markSidebarSyncScopeChanged(metadata, owner.projectId);
     }
+    this.emitSidebarSyncUpdatedFromMetadata(metadata, reason);
   }
 
   private hasThreadTitle(threadId: string): boolean {
@@ -8290,7 +8288,7 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "threadSummary", thread: updated });
     }
     this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
-    this.notifyLinkedProjectSessionsChanged(threadId);
+    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
   }
 
   private scheduleGeneratedThreadName(input: {
@@ -8809,7 +8807,7 @@ export class CodexService extends EventEmitter {
         if (updatedThread) {
           this.emitEvent({ type: "threadSummary", thread: updatedThread });
         }
-        this.notifyLinkedProjectSessionsChanged(link.threadId);
+        this.emitSidebarCatalogChangedForThread(link.threadId, "host-message");
       }
 
       if (!explicitThreadName && input.skipAutoTitleGeneration !== true) {
@@ -10034,7 +10032,7 @@ export class CodexService extends EventEmitter {
     setCodexThreadPinned(threadId, false);
     this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
     this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
-    this.notifyLinkedProjectSessionsChanged(threadId);
+    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
     return true;
   }
 
@@ -10049,7 +10047,7 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "threadArchivedState", threadId, archived: false });
     }
     this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
-    this.notifyLinkedProjectSessionsChanged(threadId);
+    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
 
     return summary;
   }
@@ -12870,7 +12868,6 @@ export class CodexService extends EventEmitter {
       if (!ownerRouted) {
         this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       }
-      this.notifyLinkedProjectSessionsChanged(payload.threadId);
       this.emitEvent({
         type: "threadStatus",
         threadId: payload.threadId,
@@ -12918,7 +12915,6 @@ export class CodexService extends EventEmitter {
         this.emitEvent({ type: "threadSummary", thread: updated });
       }
       this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
-      this.notifyLinkedProjectSessionsChanged(payload.threadId);
       this.emitEvent({ type: "threadArchivedState", threadId: payload.threadId, archived });
       this.emitSidebarSyncUpdatedFromMetadata(metadata, "host-message");
       return;
@@ -12954,7 +12950,7 @@ export class CodexService extends EventEmitter {
       this.forgetThreadLocalState(payload.threadId);
       this.emitEvent({ type: "threadDeleted", threadId: payload.threadId });
       for (const owner of owners) {
-        dbNotifier.notifyProjectSessionsChanged(owner.projectId, "thread", owner.sessionId);
+        dbNotifier.notifyProjectSessionsChanged(owner.projectId, "link", owner.sessionId);
       }
       this.emitSidebarSyncUpdatedFromMetadata(metadata, "host-message");
       return;
@@ -12984,7 +12980,6 @@ export class CodexService extends EventEmitter {
       if (!ownerRouted) {
         this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       }
-      this.notifyLinkedProjectSessionsChanged(payload.threadId);
       return;
     }
 
@@ -13020,7 +13015,6 @@ export class CodexService extends EventEmitter {
           syncCapabilityFlags: true,
         });
       }
-      this.notifyLinkedProjectSessionsChanged(payload.threadId);
       this.emitSidebarSyncUpdatedForThread(known, "host-message");
       return;
     }
@@ -13062,7 +13056,6 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "threadSummary", thread: known });
       if (!ownerRouted) {
         this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
-        this.notifyLinkedProjectSessionsChanged(payload.threadId);
         this.emitSidebarSyncUpdatedForThread(known, "host-message");
       }
       return;

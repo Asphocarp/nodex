@@ -577,13 +577,22 @@ app.delete("/api/projects/:projectId", (c) => {
 app.get("/api/projects/:projectId/sessions", (c) => {
   try {
     const includeArchived = c.req.query("includeArchived") === "true";
-    const sessions = projectSessionService.listProjectSessions(c.req.param("projectId"), {
+    const options = {
       includeArchived,
-    });
+    };
+    const sessions = c.req.query("summary") === "true"
+      ? projectSessionService.listProjectSessionSummaries(c.req.param("projectId"), options)
+      : projectSessionService.listProjectSessions(c.req.param("projectId"), options);
     return c.json({ sessions });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 404);
   }
+});
+
+app.get("/api/project-sessions/:sessionId", (c) => {
+  const session = projectSessionService.getProjectSession(c.req.param("sessionId"));
+  if (!session) return c.json({ error: "Not found" }, 404);
+  return c.json(session);
 });
 
 app.post("/api/projects/:projectId/sessions", async (c) => {
@@ -993,7 +1002,7 @@ app.put("/api/project-sessions/:sessionId/thread", async (c) => {
   const body = await c.req.json();
   try {
     const thread = projectSessionService.upsertProjectSessionThreadLink({ ...body, sessionId });
-    dbNotifier.notifyProjectSessionsChanged(thread.projectId, "thread", sessionId);
+    dbNotifier.notifyProjectSessionsChanged(thread.projectId, "link", sessionId);
     return c.json(thread);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1005,7 +1014,7 @@ app.delete("/api/project-sessions/:sessionId/thread", (c) => {
   const existing = projectSessionService.getProjectSession(sessionId);
   const success = projectSessionService.detachProjectSessionThread(sessionId);
   if (success && existing) {
-    dbNotifier.notifyProjectSessionsChanged(existing.projectId, "thread", sessionId);
+    dbNotifier.notifyProjectSessionsChanged(existing.projectId, "link", sessionId);
   }
   return c.json({ success });
 });

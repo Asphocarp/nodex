@@ -171,7 +171,7 @@ describe("useSidebarThreadSyncModel", () => {
     });
   });
 
-  test("adds inactive project and projectless scopes to session-change read sync results", async () => {
+  test("routes project session changes to affected scopes without sidebar sync", async () => {
     syncResult = makeSyncResult();
     const affectedResults: CodexSidebarSyncResult[] = [];
     render(
@@ -190,6 +190,7 @@ describe("useSidebarThreadSyncModel", () => {
       }
     });
     affectedResults.length = 0;
+    const callsBeforeProjectEvent = invokeCalls.length;
 
     await act(async () => {
       for (const entry of projectSessionListeners) {
@@ -202,8 +203,10 @@ describe("useSidebarThreadSyncModel", () => {
         throw new Error("missing beta affected result");
       }
     });
+    expect(invokeCalls.length).toBe(callsBeforeProjectEvent);
 
     affectedResults.length = 0;
+    const callsBeforeProjectlessEvent = invokeCalls.length;
     await act(async () => {
       for (const entry of projectSessionListeners) {
         entry.listener({ projectId: null, changeType: "update" });
@@ -215,5 +218,6 @@ describe("useSidebarThreadSyncModel", () => {
         throw new Error("missing projectless affected result");
       }
     });
+    expect(invokeCalls.length).toBe(callsBeforeProjectlessEvent);
   });
 });

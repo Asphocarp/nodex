@@ -1173,6 +1173,33 @@ function renderWorkbench({
       const projectId = String(args[0]);
       return (sessionState[projectId] ?? []).filter((session) => !session.archived);
     }
+    if (channel === "project-sessions:list-summaries") {
+      const projectId = String(args[0]);
+      return (sessionState[projectId] ?? [])
+        .filter((session) => !session.archived)
+        .map((session) => ({
+          id: session.id,
+          projectId: session.projectId,
+          noThreadFallbackTitle: session.noThreadFallbackTitle,
+          displayTitle: session.displayTitle,
+          order: session.order,
+          pinned: session.pinned,
+          pinnedOrder: session.pinnedOrder,
+          archived: session.archived,
+          archivedAt: session.archivedAt,
+          unread: session.unread,
+          leftPaneCollapsed: session.leftPaneCollapsed,
+          thread: session.thread,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        }));
+    }
+    if (channel === "project-sessions:get") {
+      const sessionId = String(args[0]);
+      return Object.values(sessionState)
+        .flat()
+        .find((session) => session.id === sessionId) ?? null;
+    }
     if (channel === "codex:sidebar:snapshot") {
       return buildSidebarSnapshot();
     }
@@ -3149,6 +3176,12 @@ describe("workbench session shell", () => {
         throw new Error("missing host message listener");
       }
     });
+    const betaFullRefreshCountBefore = invokeCalls.filter((call) =>
+      call[0] === "project-sessions:list" && call[1] === "beta"
+    ).length;
+    const betaSummaryRefreshCountBefore = invokeCalls.filter((call) =>
+      call[0] === "project-sessions:list-summaries" && call[1] === "beta"
+    ).length;
     await act(async () => {
       codexHostMessageListener?.({
         type: "sidebarSyncUpdated",
@@ -3161,10 +3194,14 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      const betaRefreshCount = invokeCalls.filter((call) =>
+      const betaSummaryRefreshCount = invokeCalls.filter((call) =>
+        call[0] === "project-sessions:list-summaries" && call[1] === "beta"
+      ).length;
+      expect(betaSummaryRefreshCount > betaSummaryRefreshCountBefore).toBeTrue();
+      const betaFullRefreshCountAfter = invokeCalls.filter((call) =>
         call[0] === "project-sessions:list" && call[1] === "beta"
       ).length;
-      expect(betaRefreshCount >= 2).toBeTrue();
+      expect(betaFullRefreshCountAfter).toBe(betaFullRefreshCountBefore);
     });
   });
 

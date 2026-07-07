@@ -48,6 +48,7 @@ export type {
   ProjectPinnedOrderInput,
   ProjectUpdateInput,
   ProjectSession,
+  ProjectSessionSummary,
   ProjectSessionCreateInput,
   ProjectSessionDbView,
   ProjectSessionForkInput,

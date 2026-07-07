@@ -2,7 +2,7 @@ import type {
   CodexSidebarSnapshot,
   CodexSidebarThreadItem,
   Project,
-  ProjectSession,
+  ProjectSessionSummary,
 } from "./types";
 
 export interface CodexSidebarProjectGroup {
@@ -19,7 +19,7 @@ export interface CodexSidebarThreadSyncModel {
 }
 
 type SidebarThreadSortSession = Pick<
-  ProjectSession,
+  ProjectSessionSummary,
   "id" | "order" | "pinned" | "pinnedOrder" | "createdAt" | "updatedAt" | "thread"
 >;
 

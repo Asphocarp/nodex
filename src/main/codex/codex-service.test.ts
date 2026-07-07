@@ -2928,7 +2928,7 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("emits one project session change when sidebar thread summary changes in place", async () => {
+  test("does not emit project session changes when sidebar thread summary changes in place", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
@@ -2967,10 +2967,7 @@ describe("codex-service readThread fallback", () => {
         updatedAt = 60;
         const result = await service.syncSidebarThreadsDetailed({ policy: "force", reason: "manual" });
 
-        expect(captured.events.length).toBe(1);
-        expect(captured.events[0]?.projectId).toBe(defaultProjectId);
-        expect(captured.events[0]?.changeType).toBe("thread");
-        expect(captured.events[0]?.sessionId).toBe(linked?.id);
+        expect(captured.events.length).toBe(0);
         expect(result.changedProjectIds.includes(defaultProjectId)).toBeTrue();
         expect(result.projectlessChanged).toBeFalse();
         expect(result.materializedSessionIds.length).toBe(0);
@@ -3152,12 +3149,12 @@ describe("codex-service readThread fallback", () => {
         expect(captured.events.length).toBe(2);
         const oldScopeEvents = captured.events.filter((event) =>
           event.projectId === null
-          && event.changeType === "thread"
+          && event.changeType === "link"
           && event.sessionId === projectless?.id
         );
         const newScopeEvents = captured.events.filter((event) =>
           event.projectId === defaultProjectId
-          && event.changeType === "thread"
+          && event.changeType === "link"
           && event.sessionId === projectless?.id
         );
         expect(oldScopeEvents.length).toBe(1);

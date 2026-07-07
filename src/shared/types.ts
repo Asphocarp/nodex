@@ -726,6 +726,8 @@ export interface ProjectSession {
   updatedAt: string;
 }
 
+export type ProjectSessionSummary = Omit<ProjectSession, "panels" | "tabs">;
+
 export interface ProjectSessionCreateInput {
   projectId: string | null;
   noThreadFallbackTitle: string;
@@ -910,6 +912,7 @@ export interface CodexSidebarSnapshot {
   pinnedThreadIds: string[];
   projectAssignments: Record<string, string>;
   projectlessThreadIds: string[];
+  revision?: number;
   generatedAt: number;
 }
 

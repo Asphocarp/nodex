@@ -215,6 +215,23 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const data = await res.json();
       return data.sessions ?? [];
     }
+    case "project-sessions:list-summaries": {
+      const [projectId, options] = args as [string, { includeArchived?: boolean }?];
+      const params = new URLSearchParams();
+      if (options?.includeArchived === true) {
+        params.set("includeArchived", "true");
+      }
+      params.set("summary", "true");
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions${suffix}`));
+      const data = await res.json();
+      return data.sessions ?? [];
+    }
+    case "project-sessions:get": {
+      const [sessionId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}`));
+      return res.ok ? res.json() : null;
+    }
     case "project-sessions:create": {
       const [input] = args as [{ projectId: string; title: string }];
       const res = await fetch(toApiUrl(`/api/projects/${input.projectId}/sessions`), {

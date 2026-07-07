@@ -50,6 +50,7 @@ import type {
   ProjectSession,
   ProjectSessionCreateInput,
   ProjectSessionListOptions,
+  ProjectSessionSummary,
   ProjectSessionPanelLayout,
   ProjectSessionPanelState,
   ProjectSessionPanelActivateInput,
@@ -132,6 +133,35 @@ interface DbProjectSessionThread {
   created_at: number;
   updated_at: number;
   linked_at: string;
+}
+
+interface DbProjectSessionSummaryRow {
+  id: string;
+  project_id: string | null;
+  no_thread_fallback_title: string;
+  order: number;
+  pinned: number;
+  pinned_order: number | null;
+  archived: number;
+  archived_at: string | null;
+  unread: number;
+  left_pane_collapsed: number;
+  created_at: string;
+  updated_at: string;
+  thread_session_id: string | null;
+  thread_linked_at: string | null;
+  thread_thread_id: string | null;
+  thread_project_id: string | null;
+  thread_parent_thread_id: string | null;
+  thread_thread_name: string | null;
+  thread_thread_preview: string | null;
+  thread_model_provider: string | null;
+  thread_cwd: string | null;
+  thread_status_type: string | null;
+  thread_status_active_flags_json: string | null;
+  thread_archived: number | null;
+  thread_created_at: number | null;
+  thread_updated_at: number | null;
 }
 
 export interface ProjectSessionThreadOwner {
@@ -283,6 +313,27 @@ function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
   };
 }
 
+function rowToSummaryThread(row: DbProjectSessionSummaryRow): ProjectSessionThreadLink | null {
+  if (!row.thread_session_id || !row.thread_thread_id || row.thread_linked_at === null) return null;
+  return rowToThread({
+    session_id: row.thread_session_id,
+    linked_at: row.thread_linked_at,
+    session_project_id: row.project_id,
+    project_id: row.thread_project_id,
+    thread_id: row.thread_thread_id,
+    parent_thread_id: row.thread_parent_thread_id,
+    thread_name: row.thread_thread_name,
+    thread_preview: row.thread_thread_preview ?? "",
+    model_provider: row.thread_model_provider ?? "openai",
+    cwd: row.thread_cwd,
+    status_type: row.thread_status_type ?? "notLoaded",
+    status_active_flags_json: row.thread_status_active_flags_json ?? "[]",
+    archived: row.thread_archived ?? 0,
+    created_at: row.thread_created_at ?? 0,
+    updated_at: row.thread_updated_at ?? 0,
+  });
+}
+
 function firstNonEmptyTitle(...values: Array<string | null | undefined>): string | null {
   for (const value of values) {
     const trimmed = value?.trim();
@@ -364,6 +415,30 @@ function buildSession(row: DbProjectSession): ProjectSession {
   };
 }
 
+function buildSessionSummary(row: DbProjectSessionSummaryRow): ProjectSessionSummary {
+  const thread = rowToSummaryThread(row);
+  const noThreadFallbackTitle = row.no_thread_fallback_title;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    noThreadFallbackTitle,
+    displayTitle: resolveProjectSessionDisplayTitle({
+      noThreadFallbackTitle,
+      thread,
+    }),
+    order: row.order,
+    pinned: row.pinned === 1,
+    pinnedOrder: row.pinned_order,
+    archived: row.archived === 1,
+    archivedAt: row.archived_at,
+    unread: row.unread === 1,
+    leftPaneCollapsed: row.left_pane_collapsed === 1,
+    thread,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function ensureProjectExists(projectId: string): string {
   return requireProjectId(projectId);
 }
@@ -408,8 +483,72 @@ export function listProjectSessions(
   return rows.map(buildSession);
 }
 
+function projectSessionSummarySelectSql(whereSql: string): string {
+  return `
+    SELECT
+      ps.id,
+      ps.project_id,
+      ps.no_thread_fallback_title,
+      ps."order",
+      ps.pinned,
+      ps.pinned_order,
+      ps.archived,
+      ps.archived_at,
+      ps.unread,
+      ps.left_pane_collapsed,
+      ps.created_at,
+      ps.updated_at,
+      pst.session_id AS thread_session_id,
+      pst.linked_at AS thread_linked_at,
+      t.thread_id AS thread_thread_id,
+      t.project_id AS thread_project_id,
+      t.parent_thread_id AS thread_parent_thread_id,
+      t.thread_name AS thread_thread_name,
+      t.thread_preview AS thread_thread_preview,
+      t.model_provider AS thread_model_provider,
+      t.cwd AS thread_cwd,
+      t.status_type AS thread_status_type,
+      t.status_active_flags_json AS thread_status_active_flags_json,
+      t.archived AS thread_archived,
+      t.created_at AS thread_created_at,
+      t.updated_at AS thread_updated_at
+    FROM project_sessions ps
+    LEFT JOIN project_session_threads pst ON pst.session_id = ps.id
+    LEFT JOIN codex_threads t ON t.thread_id = pst.thread_id
+    WHERE ${whereSql}
+      AND (? = 1 OR ps.archived = 0)
+    ORDER BY
+      CASE WHEN ps.pinned = 1 THEN 0 ELSE 1 END ASC,
+      CASE
+        WHEN ps.pinned = 1 THEN COALESCE(ps.pinned_order, 9223372036854775807)
+        ELSE ps."order"
+      END ASC,
+      ps.created_at ASC
+  `;
+}
+
+export function listProjectSessionSummaries(
+  projectId: string | null,
+  options?: ProjectSessionListOptions,
+): ProjectSessionSummary[] {
+  projectId = normalizeProjectSessionProjectId(projectId);
+  const parsedOptions = ProjectSessionListOptionsSchema.parse(options) ?? {};
+  const whereSql = projectId === null ? "ps.project_id IS NULL" : "ps.project_id = ?";
+  const rows = getDb()
+    .prepare(projectSessionSummarySelectSql(whereSql))
+    .all(
+      ...(projectId === null ? [] : [projectId]),
+      parsedOptions.includeArchived === true ? 1 : 0,
+    ) as DbProjectSessionSummaryRow[];
+  return rows.map(buildSessionSummary);
+}
+
 export function listProjectlessSessions(options?: ProjectSessionListOptions): ProjectSession[] {
   return listProjectSessions(null, options);
+}
+
+export function listProjectlessSessionSummaries(options?: ProjectSessionListOptions): ProjectSessionSummary[] {
+  return listProjectSessionSummaries(null, options);
 }
 
 export function getProjectSession(sessionId: string): ProjectSession | null {
@@ -417,6 +556,13 @@ export function getProjectSession(sessionId: string): ProjectSession | null {
     .prepare("SELECT * FROM project_sessions WHERE id = ?")
     .get(sessionId) as DbProjectSession | undefined;
   return row ? buildSession(row) : null;
+}
+
+export function getProjectSessionSummary(sessionId: string): ProjectSessionSummary | null {
+  const row = getDb()
+    .prepare(`${projectSessionSummarySelectSql("ps.id = ?")} LIMIT 1`)
+    .get(sessionId, 1) as DbProjectSessionSummaryRow | undefined;
+  return row ? buildSessionSummary(row) : null;
 }
 
 export function getProjectSessionThreadLink(threadId: string): ProjectSessionThreadLink | null {

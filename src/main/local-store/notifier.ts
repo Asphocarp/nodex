@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import type { CardSummary } from "../../shared/types";
+import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
 export type ProjectChangeType = "create" | "update" | "delete" | "reorder" | "pin";
@@ -12,6 +13,7 @@ export type ProjectSessionChangeType =
   | "archive"
   | "unarchive"
   | "unread"
+  | "link"
   | "thread";
 
 export interface BoardChangeEvent {
@@ -67,6 +69,16 @@ class DatabaseNotifier extends EventEmitter {
     changeType: ProjectSessionChangeType,
     sessionId?: string,
   ): void {
+    recordDevRuntimeMetricCounter("project_sessions_changed.burst_window", {
+      projectId,
+      changeType,
+      sessionId,
+    }, {
+      groupBy: ["projectId", "changeType"],
+      windowMs: 1_000,
+      burstThreshold: 20,
+      burstMetric: "project_sessions_changed.burst",
+    });
     this.emit("project-sessions-changed", { projectId, changeType, sessionId });
   }
 }

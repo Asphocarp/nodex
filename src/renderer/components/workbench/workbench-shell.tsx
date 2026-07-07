@@ -208,6 +208,7 @@ import type {
   ProjectSessionDbView,
   ProjectSessionForkResult,
   ProjectSessionPanelEnsureRightLeafResult,
+  ProjectSessionSummary,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
   ProjectSessionThreadLink,
@@ -604,6 +605,30 @@ function sortProjectSessionsForSidebar(sessions: ProjectSession[]): ProjectSessi
     if (a.order !== b.order) return a.order - b.order;
     return a.createdAt.localeCompare(b.createdAt);
   });
+}
+
+function applyProjectSessionSummaryToLoadedSession(
+  session: ProjectSession,
+  summary: ProjectSessionSummary,
+): ProjectSession {
+  return {
+    ...summary,
+    panels: session.panels,
+    tabs: session.tabs,
+  };
+}
+
+function mergeLoadedProjectSessionSummaries(
+  current: ProjectSession[],
+  summaries: ProjectSessionSummary[],
+): ProjectSession[] {
+  const loadedById = new Map(current.map((session) => [session.id, session]));
+  return sortProjectSessionsForSidebar(
+    summaries.flatMap((summary): ProjectSession[] => {
+      const loaded = loadedById.get(summary.id);
+      return loaded ? [applyProjectSessionSummaryToLoadedSession(loaded, summary)] : [];
+    }),
+  );
 }
 
 interface WorkbenchShellProps {
@@ -1709,7 +1734,8 @@ export function WorkbenchShell({
     ?? projectlessSessions.find((session) => session.id === activeSessionId)
     ?? null;
   const activeSession = selectedActiveSession ?? activeSessions[0] ?? null;
-  const refreshProjectSessionsRef = useRef<((projectId: string | null) => Promise<ProjectSession[]>) | null>(null);
+  const refreshProjectSessionSummariesRef =
+    useRef<((projectId: string | null) => Promise<ProjectSessionSummary[]>) | null>(null);
   const pendingSidebarSessionScopesRef = useRef<{
     projectIds: Set<string>;
     projectless: boolean;
@@ -1717,20 +1743,22 @@ export function WorkbenchShell({
     projectIds: new Set(),
     projectless: false,
   });
+  const projectSessionSummaryRefreshInFlightRef =
+    useRef<Map<string, Promise<ProjectSessionSummary[]>>>(new Map());
   const refreshSidebarSessionScopes = useCallback((
-    refreshProjectSessionsForId: (projectId: string | null) => Promise<ProjectSession[]>,
+    refreshProjectSessionSummariesForId: (projectId: string | null) => Promise<ProjectSessionSummary[]>,
     projectIds: readonly string[],
     projectless: boolean,
   ) => {
     const uniqueProjectIds = [...new Set(projectIds)];
     if (uniqueProjectIds.length === 0 && !projectless) return;
 
-    const refreshes = uniqueProjectIds.map((projectId) => refreshProjectSessionsForId(projectId));
-    if (projectless) refreshes.push(refreshProjectSessionsForId(null));
+    const refreshes = uniqueProjectIds.map((projectId) => refreshProjectSessionSummariesForId(projectId));
+    if (projectless) refreshes.push(refreshProjectSessionSummariesForId(null));
     void Promise.all(refreshes).catch(() => undefined);
   }, []);
   const drainPendingSidebarSessionScopes = useCallback((
-    refreshProjectSessionsForId: (projectId: string | null) => Promise<ProjectSession[]>,
+    refreshProjectSessionSummariesForId: (projectId: string | null) => Promise<ProjectSessionSummary[]>,
   ) => {
     const pending = pendingSidebarSessionScopesRef.current;
     if (pending.projectIds.size === 0 && !pending.projectless) return;
@@ -1741,21 +1769,21 @@ export function WorkbenchShell({
       projectIds: new Set(),
       projectless: false,
     };
-    refreshSidebarSessionScopes(refreshProjectSessionsForId, projectIds, projectless);
+    refreshSidebarSessionScopes(refreshProjectSessionSummariesForId, projectIds, projectless);
   }, [refreshSidebarSessionScopes]);
   const handleSidebarSessionsAffected = useCallback((result: CodexSidebarSyncResult) => {
-    const refreshProjectSessionsForId = refreshProjectSessionsRef.current;
+    const refreshProjectSessionSummariesForId = refreshProjectSessionSummariesRef.current;
     const affectedProjectIds = [...new Set(result.changedProjectIds)];
     if (affectedProjectIds.length === 0 && !result.projectlessChanged) return;
 
-    if (!refreshProjectSessionsForId) {
+    if (!refreshProjectSessionSummariesForId) {
       const pending = pendingSidebarSessionScopesRef.current;
       for (const projectId of affectedProjectIds) pending.projectIds.add(projectId);
       pending.projectless ||= result.projectlessChanged;
       return;
     }
 
-    refreshSidebarSessionScopes(refreshProjectSessionsForId, affectedProjectIds, result.projectlessChanged);
+    refreshSidebarSessionScopes(refreshProjectSessionSummariesForId, affectedProjectIds, result.projectlessChanged);
   }, [refreshSidebarSessionScopes]);
   const sidebarThreadSync = useSidebarThreadSyncModel({
     projects,
@@ -2207,15 +2235,43 @@ export function WorkbenchShell({
     return sessions;
   }, []);
 
+  const refreshProjectSessionSummaries = useCallback(async (projectId: string | null) => {
+    const key = projectId ?? "__projectless__";
+    const existing = projectSessionSummaryRefreshInFlightRef.current.get(key);
+    if (existing) return await existing;
+
+    const request = (async () => {
+      const summaries = (await invoke("project-sessions:list-summaries", projectId)) as ProjectSessionSummary[];
+      if (projectId === null) {
+        setProjectlessSessions((current) => mergeLoadedProjectSessionSummaries(current, summaries));
+        return summaries;
+      }
+      setSessionsByProject((current) => ({
+        ...current,
+        [projectId]: mergeLoadedProjectSessionSummaries(current[projectId] ?? [], summaries),
+      }));
+      return summaries;
+    })();
+
+    projectSessionSummaryRefreshInFlightRef.current.set(key, request);
+    try {
+      return await request;
+    } finally {
+      if (projectSessionSummaryRefreshInFlightRef.current.get(key) === request) {
+        projectSessionSummaryRefreshInFlightRef.current.delete(key);
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    refreshProjectSessionsRef.current = refreshProjectSessions;
-    drainPendingSidebarSessionScopes(refreshProjectSessions);
+    refreshProjectSessionSummariesRef.current = refreshProjectSessionSummaries;
+    drainPendingSidebarSessionScopes(refreshProjectSessionSummaries);
     return () => {
-      if (refreshProjectSessionsRef.current === refreshProjectSessions) {
-        refreshProjectSessionsRef.current = null;
+      if (refreshProjectSessionSummariesRef.current === refreshProjectSessionSummaries) {
+        refreshProjectSessionSummariesRef.current = null;
       }
     };
-  }, [drainPendingSidebarSessionScopes, refreshProjectSessions]);
+  }, [drainPendingSidebarSessionScopes, refreshProjectSessionSummaries]);
 
   const mergeSessionInState = useCallback((session: ProjectSession) => {
     if (session.projectId === null) {

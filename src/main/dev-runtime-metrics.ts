@@ -89,6 +89,8 @@ export function recordDevRuntimeMetricCounter(
   options: {
     groupBy?: readonly string[];
     windowMs?: number;
+    burstThreshold?: number;
+    burstMetric?: string;
   } = {},
 ): void {
   if (!isDevRuntimeMetricsEnabled()) return;
@@ -118,6 +120,21 @@ export function recordDevRuntimeMetricCounter(
       firstFields: bucket.firstFields,
       lastFields: bucket.lastFields,
     });
+    if (
+      typeof options.burstThreshold === "number"
+      && bucket.count >= options.burstThreshold
+    ) {
+      logDevRuntimeMetric(options.burstMetric ?? `${metric}.burst`, {
+        ...bucket.groupedFields,
+        count: bucket.count,
+        threshold: options.burstThreshold,
+        windowMs,
+        firstAt: bucket.firstAt,
+        lastAt: bucket.lastAt,
+        firstFields: bucket.firstFields,
+        lastFields: bucket.lastFields,
+      });
+    }
   }, windowMs);
   if (
     typeof timer === "object"

@@ -149,6 +149,7 @@ import {
   getDevRuntimeMetricDurationMs,
   getDevRuntimeMetricStart,
   logDevRuntimeMetric,
+  recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
@@ -488,16 +489,65 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("project-sessions:list", (_, projectId: string | null, options) => {
     const startedAt = getDevRuntimeMetricStart();
     const sessions = projectSessionService.listProjectSessions(projectId, options);
+    const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
     logDevRuntimeMetric("ipc.project_sessions_list", {
       projectId,
       includeArchived: options?.includeArchived === true,
       sessionCount: sessions.length,
       tabCount: sessions.reduce((sum, session) => sum + session.tabs.length, 0),
       linkedThreadCount: sessions.filter((session) => session.thread !== null).length,
-      approxPayloadBytes: approximateJsonPayloadBytes(sessions),
+      approxPayloadBytes,
       durationMs: getDevRuntimeMetricDurationMs(startedAt),
     });
+    recordDevRuntimeMetricCounter("ipc.project_sessions_list.burst_window", {
+      projectId,
+      includeArchived: options?.includeArchived === true,
+      approxPayloadBytes,
+    }, {
+      groupBy: ["projectId", "includeArchived"],
+      windowMs: 1_000,
+      burstThreshold: 5,
+      burstMetric: "ipc.project_sessions_list.burst",
+    });
     return sessions;
+  });
+
+  registerHandle("project-sessions:list-summaries", (_, projectId: string | null, options) => {
+    const startedAt = getDevRuntimeMetricStart();
+    const sessions = projectSessionService.listProjectSessionSummaries(projectId, options);
+    const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
+    logDevRuntimeMetric("ipc.project_sessions_list_summaries", {
+      projectId,
+      includeArchived: options?.includeArchived === true,
+      sessionCount: sessions.length,
+      linkedThreadCount: sessions.filter((session) => session.thread !== null).length,
+      approxPayloadBytes,
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
+    recordDevRuntimeMetricCounter("ipc.project_sessions_list_summaries.burst_window", {
+      projectId,
+      includeArchived: options?.includeArchived === true,
+      approxPayloadBytes,
+    }, {
+      groupBy: ["projectId", "includeArchived"],
+      windowMs: 1_000,
+      burstThreshold: 10,
+      burstMetric: "ipc.project_sessions_list_summaries.burst",
+    });
+    return sessions;
+  });
+
+  registerHandle("project-sessions:get", (_, sessionId: string) => {
+    const startedAt = getDevRuntimeMetricStart();
+    const session = projectSessionService.getProjectSession(sessionId);
+    logDevRuntimeMetric("ipc.project_sessions_get", {
+      sessionId,
+      found: session !== null,
+      tabCount: session?.tabs.length ?? 0,
+      approxPayloadBytes: approximateJsonPayloadBytes(session),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
+    return session;
   });
 
   registerHandle("project-sessions:create", (_, input) => {
@@ -650,7 +700,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("project-session-threads:attach", (_, input) => {
     const link = projectSessionService.upsertProjectSessionThreadLink(input);
-    dbNotifier.notifyProjectSessionsChanged(link.projectId, "thread", link.sessionId);
+    dbNotifier.notifyProjectSessionsChanged(link.projectId, "link", link.sessionId);
     return link;
   });
 
@@ -658,7 +708,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     const existing = projectSessionService.getProjectSession(sessionId);
     const success = projectSessionService.detachProjectSessionThread(sessionId);
     if (success && existing) {
-      dbNotifier.notifyProjectSessionsChanged(existing.projectId, "thread", sessionId);
+      dbNotifier.notifyProjectSessionsChanged(existing.projectId, "link", sessionId);
     }
     return success;
   });
@@ -1422,6 +1472,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("codex:sidebar:sync", async (_, input) => {
     const startedAt = getDevRuntimeMetricStart();
     const result = await codexService.syncSidebarThreadsDetailed(input);
+    const approxPayloadBytes = approximateJsonPayloadBytes(result);
     logDevRuntimeMetric("ipc.codex_sidebar_sync", {
       policy: input?.policy ?? "stale",
       reason: input?.reason ?? "manual",
@@ -1433,8 +1484,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       projectlessChanged: result.projectlessChanged,
       materializedSessionCount: result.materializedSessionIds.length,
       failedThreadCount: result.failedThreadIds.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(result),
+      approxPayloadBytes,
       durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
+    recordDevRuntimeMetricCounter("ipc.codex_sidebar_sync.burst_window", {
+      policy: input?.policy ?? "stale",
+      reason: input?.reason ?? "manual",
+      includeArchived: input?.includeArchived === true,
+      approxPayloadBytes,
+    }, {
+      groupBy: ["policy", "reason", "includeArchived"],
+      windowMs: 1_000,
+      burstThreshold: 5,
+      burstMetric: "ipc.codex_sidebar_sync.burst",
     });
     return result;
   });

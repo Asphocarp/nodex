@@ -132,6 +132,7 @@ import type {
   ProjectSessionForkInput,
   ProjectSessionForkResult,
   ProjectSessionListOptions,
+  ProjectSessionSummary,
   ProjectSessionPanelState,
   ProjectSessionPanelActivateInput,
   ProjectSessionPanelEnsureRightLeafInput,
@@ -404,6 +405,7 @@ export type ProjectSessionChangeType =
   | "archive"
   | "unarchive"
   | "unread"
+  | "link"
   | "thread";
 
 export interface ProjectSessionsChangeEvent {
@@ -472,6 +474,11 @@ export interface IpcApi {
   "workspace:pick-directory": { args: [input?: WorkspacePickDirectoryInput]; result: string | null };
   "projects:delete": { args: [projectId: string]; result: boolean };
   "project-sessions:list": { args: [projectId: string | null, options?: ProjectSessionListOptions]; result: ProjectSession[] };
+  "project-sessions:list-summaries": {
+    args: [projectId: string | null, options?: ProjectSessionListOptions];
+    result: ProjectSessionSummary[];
+  };
+  "project-sessions:get": { args: [sessionId: string]; result: ProjectSession | null };
   "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };
   "project-sessions:update": {
     args: [sessionId: string, input: ProjectSessionUpdateInput];

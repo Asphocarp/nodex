@@ -13,6 +13,7 @@ import {
   ensureProjectSessionPanelLeafToRight,
   getProjectSession,
   listProjectSessionThreadOwners,
+  listProjectSessionSummaries,
   activateProjectSessionPanelGroup,
   listProjectSessions,
   listProjectlessSessions,
@@ -126,6 +127,54 @@ describe("project session service", () => {
       getDb().prepare("DELETE FROM project_sessions WHERE id = ?").run(databaseView.id);
 
       expect(listProjectSessions(projectId).length).toBe(0);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("lists lightweight project session summaries without panel or tab payloads", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "Agent run",
+      });
+      createProjectSessionTab({
+        sessionId: session.id,
+        projectId,
+        panelId: "right",
+        kind: "terminal",
+        title: "Terminal",
+        config: {
+          projectId,
+          terminalSessionId: "terminal:summary-test",
+        },
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId,
+        threadId: "thread-summary-test",
+        threadName: "Thread summary title",
+        threadPreview: "Thread summary preview",
+        modelProvider: "openai",
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+
+      const summary = listProjectSessionSummaries(projectId)
+        .find((candidate) => candidate.id === session.id);
+      const detail = getProjectSession(session.id);
+
+      expect(summary !== undefined).toBeTrue();
+      expect(detail !== null).toBeTrue();
+      expect(Object.prototype.hasOwnProperty.call(summary as object, "tabs")).toBeFalse();
+      expect(Object.prototype.hasOwnProperty.call(summary as object, "panels")).toBeFalse();
+      expect(summary?.displayTitle).toBe("Thread summary title");
+      expect(summary?.thread?.threadId).toBe("thread-summary-test");
+      expect(detail?.tabs.length).toBe(1);
+      expect(detail?.panels.right.collapsed).toBeFalse();
     });
 
     if (!ran) expect(true).toBeTrue();
