@@ -51,6 +51,7 @@ function LocalConversationThreadBodyComponent({
           capabilityFlags={model.capabilityFlags}
           statusType={model.statusType}
           parentTurns={model.parentTurns}
+          childMemberships={model.childMemberships}
           projectWorkspacePath={model.projectWorkspacePath}
           searchOpenTick={model.searchOpenTick}
           threadStartProgress={model.threadStartProgress}
@@ -77,6 +78,7 @@ export const LocalConversationThreadBody = memo(
     && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
     && left.model.searchOpenTick === right.model.searchOpenTick
     && left.model.projectWorkspacePath === right.model.projectWorkspacePath
+    && left.model.childMemberships === right.model.childMemberships
     && left.model.threadStartProgress === right.model.threadStartProgress
     && left.model.body === right.model.body
     && left.model.projectId === right.model.projectId

@@ -18,6 +18,7 @@ import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-rev
 import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
 import { PlanMessage } from "../shared/plan-message";
 import { ReasoningSurface } from "../shared/reasoning-surface";
+import { SubagentAvatar } from "../shared/subagent-avatar";
 import { TurnDiffSurface } from "../shared/turn-diff-surface";
 import {
   AssistantRatingButton,
@@ -78,7 +79,7 @@ import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-
 import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import { useWorkedForLabelText } from "../shared/use-worked-for-label";
 import type { CodexCommandAction } from "../../../../lib/types";
-import type { CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
+import type { CodexConversationChildMembership, CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
 import { logAssistantStreamingDebugState } from "../../../../lib/assistant-streaming-debug";
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
@@ -103,6 +104,7 @@ export interface ThreadLeafBlockProps {
   isSearchMatch?: boolean;
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
+  childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
@@ -124,6 +126,7 @@ export interface ThreadSpecialBlockProps {
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
+  childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
@@ -535,11 +538,18 @@ export function ThreadExplorationGroupBlock({
 
 export function ThreadMultiAgentGroupBlock({
   block,
+  childMemberships,
   onOpenThread,
 }: ThreadSpecialBlockProps) {
   if (block.type !== "multiAgentGroup") return null;
 
-  return <MultiAgentActionSurface items={block.entries} onOpenThread={onOpenThread} />;
+  return (
+    <MultiAgentActionSurface
+      childMemberships={childMemberships}
+      items={block.entries}
+      onOpenThread={onOpenThread}
+    />
+  );
 }
 
 export function ThreadWebSearchGroupBlock({
@@ -1214,9 +1224,15 @@ export function ThreadAutomaticApprovalReviewBlock({ block }: ThreadLeafBlockPro
   return <AutomaticApprovalReviewSurface item={block.entry} />;
 }
 
-export function ThreadMultiAgentActionBlock({ block, onOpenThread }: ThreadLeafBlockProps) {
+export function ThreadMultiAgentActionBlock({ block, childMemberships, onOpenThread }: ThreadLeafBlockProps) {
   if (block.type !== "multiAgentAction") return null;
-  return <MultiAgentActionSurface items={[block.entry]} onOpenThread={onOpenThread} />;
+  return (
+    <MultiAgentActionSurface
+      childMemberships={childMemberships}
+      items={[block.entry]}
+      onOpenThread={onOpenThread}
+    />
+  );
 }
 
 const SUBAGENT_ACTIVITY_VISIBLE_CHIP_COUNT = 3;
@@ -1226,18 +1242,6 @@ function resolveSubagentActivityStatusLabel(rows: readonly ThreadSubagentActivit
   if (rows.some((row) => row.activityStatus === "updated")) return "updated";
   if (rows.length > 0 && rows.every((row) => row.activityStatus === "done" || row.status === "done")) return "finished";
   return "started working";
-}
-
-function SubagentActivityChipAvatar({ displayName }: { displayName: string }) {
-  const initial = displayName.trim().charAt(0).toUpperCase() || "A";
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-token-foreground/8 text-[0.625rem] leading-none text-token-description-foreground"
-    >
-      {initial}
-    </span>
-  );
 }
 
 function SubagentActivityInlineChip({
@@ -1253,7 +1257,11 @@ function SubagentActivityInlineChip({
 }) {
   const content = (
     <>
-      <SubagentActivityChipAvatar displayName={row.displayName} />
+      <SubagentAvatar
+        seed={row.conversationId}
+        active={row.status === "active"}
+        className="size-4"
+      />
       <span className="min-w-0 truncate text-base">{row.displayName}</span>
     </>
   );

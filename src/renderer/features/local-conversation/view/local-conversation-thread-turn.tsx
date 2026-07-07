@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, type ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
-import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
+import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type {
   ThreadAgentRenderUnit,
@@ -25,6 +25,7 @@ interface ThreadTurnProps {
   hasPersistedAgentBodyCollapsedState: boolean;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
   projectWorkspacePath?: string | null;
+  childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
@@ -133,6 +134,7 @@ export function ThreadTurn({
   onOpenPlanInSidePanel,
   onClosePlanSidePanel,
   planSidePanelState,
+  childMemberships,
   turnDiffHoverPreviewDisabled = false,
   latestTurnFollowContentRef,
 }: ThreadTurnProps) {
@@ -157,6 +159,7 @@ export function ThreadTurn({
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath}
+      childMemberships={childMemberships}
       threadCwd={threadCwd}
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
@@ -178,6 +181,7 @@ export function ThreadTurn({
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath}
+      childMemberships={childMemberships}
       threadCwd={threadCwd}
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}

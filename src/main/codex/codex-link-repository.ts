@@ -19,6 +19,8 @@ interface DbCodexThread {
   parent_thread_id: string | null;
   thread_name: string | null;
   thread_source: string | null;
+  agent_nickname: string | null;
+  agent_role: string | null;
   thread_preview: string;
   model_provider: string;
   cwd: string | null;
@@ -42,6 +44,8 @@ const CODEX_THREAD_SUMMARY_COLUMNS = `
   t.parent_thread_id,
   t.thread_name,
   t.thread_source,
+  t.agent_nickname,
+  t.agent_role,
   t.thread_preview,
   t.model_provider,
   t.cwd,
@@ -59,6 +63,8 @@ export interface UpsertCodexThreadInput {
   threadId: string;
   source?: CodexConversationSource | null;
   threadSource?: ThreadSource | null;
+  agentNickname?: string | null;
+  agentRole?: string | null;
   threadName?: string | null;
   threadPreview?: string;
   modelProvider?: string;
@@ -89,6 +95,8 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
       : null,
     threadName: row.thread_name,
     threadSource: row.thread_source,
+    agentNickname: row.agent_nickname,
+    agentRole: row.agent_role,
     threadPreview: row.thread_preview,
     modelProvider: row.model_provider,
     cwd: row.cwd,
@@ -106,6 +114,8 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
   const database = getDb();
   const hasProjectIdInput = Object.prototype.hasOwnProperty.call(input, "projectId");
   const hasThreadSourceInput = Object.prototype.hasOwnProperty.call(input, "threadSource");
+  const hasAgentNicknameInput = Object.prototype.hasOwnProperty.call(input, "agentNickname");
+  const hasAgentRoleInput = Object.prototype.hasOwnProperty.call(input, "agentRole");
   const projectId = hasProjectIdInput && input.projectId ? requireProjectId(input.projectId) : null;
   const nowMs = Date.now();
   const createdAt = Number.isFinite(input.createdAt) ? Number(input.createdAt) : nowMs;
@@ -118,6 +128,8 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       thread_id,
       thread_name,
       thread_source,
+      agent_nickname,
+      agent_role,
       parent_thread_id,
       thread_preview,
       model_provider,
@@ -129,11 +141,13 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       updated_at,
       linked_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
       project_id = CASE WHEN ? = 1 THEN excluded.project_id ELSE codex_threads.project_id END,
       thread_name = COALESCE(excluded.thread_name, codex_threads.thread_name),
       thread_source = CASE WHEN ? = 1 THEN excluded.thread_source ELSE codex_threads.thread_source END,
+      agent_nickname = CASE WHEN ? = 1 THEN excluded.agent_nickname ELSE codex_threads.agent_nickname END,
+      agent_role = CASE WHEN ? = 1 THEN excluded.agent_role ELSE codex_threads.agent_role END,
       parent_thread_id = COALESCE(excluded.parent_thread_id, codex_threads.parent_thread_id),
       thread_preview = excluded.thread_preview,
       model_provider = excluded.model_provider,
@@ -148,6 +162,8 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     input.threadId,
     input.threadName ?? null,
     input.threadSource ?? null,
+    input.agentNickname ?? null,
+    input.agentRole ?? null,
     input.source?.parentThreadId ?? null,
     input.threadPreview ?? "",
     input.modelProvider ?? "",
@@ -160,6 +176,8 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     linkedAt,
     hasProjectIdInput ? 1 : 0,
     hasThreadSourceInput ? 1 : 0,
+    hasAgentNicknameInput ? 1 : 0,
+    hasAgentRoleInput ? 1 : 0,
   );
   if (Object.prototype.hasOwnProperty.call(input, "pinned")) {
     setCodexThreadPinned(input.threadId, input.pinned === true);
@@ -194,6 +212,7 @@ export function listCodexProjectThreads(
     FROM codex_threads t
     LEFT JOIN codex_pinned_threads p ON p.thread_id = t.thread_id
     WHERE t.project_id = ?
+      AND t.parent_thread_id IS NULL
       AND (? = 1 OR t.archived = 0)
     ORDER BY t.updated_at DESC
   `).all(projectId, includeArchived ? 1 : 0) as DbCodexThread[];
@@ -208,9 +227,26 @@ export function listCodexThreadLinks(opts?: { includeArchived?: boolean }): Code
     SELECT ${CODEX_THREAD_SUMMARY_COLUMNS}
     FROM codex_threads t
     LEFT JOIN codex_pinned_threads p ON p.thread_id = t.thread_id
-    WHERE (? = 1 OR t.archived = 0)
+    WHERE t.parent_thread_id IS NULL
+      AND (? = 1 OR t.archived = 0)
     ORDER BY t.updated_at DESC
   `).all(includeArchived ? 1 : 0) as DbCodexThread[];
+
+  return rows.map(rowToSummary);
+}
+
+export function listCodexChildThreadLinks(parentThreadId: string): CodexThreadSummary[] {
+  const normalizedParentThreadId = typeof parentThreadId === "string" ? parentThreadId.trim() : "";
+  if (!normalizedParentThreadId) return [];
+
+  const rows = getDb().prepare(`
+    SELECT ${CODEX_THREAD_SUMMARY_COLUMNS}
+    FROM codex_threads t
+    LEFT JOIN codex_pinned_threads p ON p.thread_id = t.thread_id
+    WHERE t.parent_thread_id = ?
+      AND t.archived = 0
+    ORDER BY t.created_at ASC, t.thread_id ASC
+  `).all(normalizedParentThreadId) as DbCodexThread[];
 
   return rows.map(rowToSummary);
 }
@@ -221,6 +257,7 @@ export function listPinnedCodexThreadIds(): string[] {
     FROM codex_pinned_threads p
     JOIN codex_threads t ON t.thread_id = p.thread_id
     WHERE t.archived = 0
+      AND t.parent_thread_id IS NULL
     ORDER BY p.pinned_order ASC, p.created_at ASC, p.thread_id ASC
   `).all() as DbCodexPinnedThread[];
 

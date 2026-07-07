@@ -50,7 +50,9 @@ function stripLeadingAt(value: string): string {
 }
 
 function resolveThreadDisplayName(thread: BackgroundSubagentThreadMetadata | null | undefined): string | null {
-  return normalizeOptionalText(thread?.nickname);
+  return normalizeOptionalText(thread?.displayName)
+    ?? normalizeOptionalText(thread?.name)
+    ?? normalizeOptionalText(thread?.nickname);
 }
 
 function getParentTurnKey(turn: CodexConversationTurn | null | undefined, index: number): string {

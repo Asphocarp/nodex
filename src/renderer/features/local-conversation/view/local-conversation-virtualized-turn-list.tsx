@@ -9,7 +9,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { animate, motion, useMotionValue, useReducedMotion, type MotionValue } from "motion/react";
-import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
+import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
@@ -159,6 +159,7 @@ export interface LocalConversationVirtualizedTurnListApi {
 interface LocalConversationVirtualizedTurnListProps {
   entries: LocalConversationVirtualizedTurnListEntry[];
   conversationId: string;
+  childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd: string | null;
   projectWorkspacePath?: string | null;
   editableTurnId: string | null;
@@ -264,6 +265,7 @@ interface CoreProps extends Omit<
 interface MeasuredTurnProps {
   entry: LocalConversationVirtualizedTurnListEntry;
   conversationId: string;
+  childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd: string | null;
   projectWorkspacePath?: string | null;
   persistedCollapsed?: boolean;
@@ -299,6 +301,7 @@ interface MeasuredTurnProps {
 function MeasuredTurnComponent({
   entry,
   conversationId,
+  childMemberships,
   threadCwd,
   projectWorkspacePath,
   persistedCollapsed,
@@ -349,6 +352,7 @@ function MeasuredTurnComponent({
     >
       <LocalConversationTurnEntry
         conversationId={conversationId}
+        childMemberships={childMemberships}
         turnSearchKey={entry.turnSearchKey}
         turn={entry.turn}
         requests={entry.requests}
@@ -418,6 +422,7 @@ const MeasuredTurn = memo(
 function LocalConversationVirtualizedTurnListCore({
   entries,
   conversationId,
+  childMemberships,
   threadCwd,
   projectWorkspacePath,
   editableTurnId,
@@ -1234,6 +1239,7 @@ function LocalConversationVirtualizedTurnListCore({
               key={entry.turnKey}
               entry={entry}
               conversationId={conversationId}
+              childMemberships={childMemberships}
               threadCwd={threadCwd}
               projectWorkspacePath={projectWorkspacePath}
               persistedCollapsed={collapsedAgentBodyByTurnId[entry.turnId]}

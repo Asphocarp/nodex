@@ -222,6 +222,7 @@ function ConnectedThreadStageBody({
   const capabilityFlags = useConversationCapabilityFlags(activeThreadId);
   const parentThreadId = useConversationParentThreadId(activeThreadId);
   const parentTurns = useConversationTurns(parentThreadId);
+  const childMemberships = useConversationChildMemberships(activeThreadId);
 
   const body = useMemo(
     () =>
@@ -273,6 +274,7 @@ function ConnectedThreadStageBody({
       capabilityFlags,
       body,
       parentTurns,
+      childMemberships,
       projectWorkspacePath: input.projectWorkspacePath ?? null,
       searchOpenTick: input.searchOpenTick,
       threadStartProgress: input.threadStartProgress,
@@ -281,6 +283,7 @@ function ConnectedThreadStageBody({
       activeThreadId,
       body,
       capabilityFlags,
+      childMemberships,
       conversationSnapshot?.turnPagination,
       cwd,
       input.projectId,

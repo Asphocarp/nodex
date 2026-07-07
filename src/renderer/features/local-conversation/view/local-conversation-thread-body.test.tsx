@@ -310,6 +310,7 @@ function buildModel(overrides?: {
     },
     body,
     parentTurns: [],
+    childMemberships: conversation?.childMemberships ?? [],
     projectWorkspacePath: overrides?.projectWorkspacePath ?? "/tmp/project",
     searchOpenTick: overrides?.searchOpenTick ?? 0,
     threadStartProgress: overrides?.threadStartProgress ?? null,

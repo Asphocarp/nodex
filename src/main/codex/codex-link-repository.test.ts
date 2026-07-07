@@ -6,6 +6,7 @@ import { closeDatabase, initializeDatabase } from "../local-store/database";
 import { createProject, updateProject } from "../local-store/projects";
 import {
   getCodexThread,
+  listCodexChildThreadLinks,
   listPinnedCodexThreadIds,
   listCodexProjectThreads,
   setCodexThreadPinned,
@@ -59,6 +60,8 @@ describe("codex-link-repository", () => {
         threadId: "thr_test_1",
         source: { parentThreadId: "thr_parent" },
         threadSource: "appServer",
+        agentNickname: "@Nash",
+        agentRole: "worker",
         threadName: "Thread One",
         threadPreview: "Initial preview",
         modelProvider: "openai",
@@ -71,6 +74,8 @@ describe("codex-link-repository", () => {
       expect(first.archived).toBe(false);
       expect(first.source?.parentThreadId).toBe("thr_parent");
       expect(first.threadSource).toBe("appServer");
+      expect(first.agentNickname).toBe("@Nash");
+      expect(first.agentRole).toBe("worker");
 
       const second = upsertCodexThread({
         projectId: projectId,
@@ -97,10 +102,14 @@ describe("codex-link-repository", () => {
       expect(clearedSource.threadSource).toBe(null);
 
       const byProject = listCodexProjectThreads(projectId);
-      expect(byProject.length).toBe(1);
-      expect(byProject[0]?.threadId).toBe("thr_test_1");
+      expect(byProject.length).toBe(0);
 
-      expect(byProject[0]?.source?.parentThreadId).toBe("thr_parent");
+      const childThreads = listCodexChildThreadLinks("thr_parent");
+      expect(childThreads.length).toBe(1);
+      expect(childThreads[0]?.threadId).toBe("thr_test_1");
+      expect(childThreads[0]?.source?.parentThreadId).toBe("thr_parent");
+      expect(childThreads[0]?.agentNickname).toBe("@Nash");
+      expect(childThreads[0]?.agentRole).toBe("worker");
     });
 
     if (!ran) expect(true).toBeTrue();

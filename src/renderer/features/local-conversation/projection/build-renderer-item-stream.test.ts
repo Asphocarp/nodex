@@ -286,6 +286,7 @@ describe("buildRendererItemStream", () => {
             kind: "started",
             agentThreadId: "thread-child-1",
             agentPath: "agents/@Scout",
+            displayName: "@Scout",
           },
         }),
         buildEntry({
@@ -313,6 +314,8 @@ describe("buildRendererItemStream", () => {
     expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.displayName : "").toBe("Scout");
     expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.status : "").toBe("active");
     expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.statusSummary : "").toBe("Scout started working");
+    expect(second && "subagentActivityRows" in second ? second.subagentActivityRows?.[0]?.displayName : "").toBe("Agent");
+    expect(second && "subagentActivityRows" in second ? second.subagentActivityRows?.[0]?.statusSummary : "").toBe("Agent updated");
     expect(second && "subagentActivityStatusLabel" in second ? second.subagentActivityStatusLabel : "").toBe("updated");
   });
 

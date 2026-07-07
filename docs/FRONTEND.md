@@ -177,6 +177,7 @@
   - Reserve `theme-utilities.css` for Nodex-local additions, not for copies of generated utility families.
 - Treat `--tw-*` property registrations as build-output contract: values such as `--tw-leading` or `--tw-contain-layout` come from Tailwind's compiled property layer, not from manual theme-token declarations.
 - For Threads, keep the scroll body and composer separate: unresolved live request cards belong to the composer shell, not the scroll body. The composer shell owns queued follow-ups, background terminal rows, and background child-agent rows; optimistic steering belongs to the scroll body as `steeringUserMessage` transcript items that can later accept into a separate `steered` divider.
+- Subagent affordances use the shared `SubagentAvatar` identicon everywhere: right-panel background-agent tabs, composer rows, floating summary rows, and inline activity chips. The icon is keyed by child thread id, while visible names come from normalized receiver/membership display metadata rather than child full-conversation hydration.
 - Background terminals are not child-thread metadata. Derive them from the current conversation's older still-running `commandExecution` items, skip the newest in-progress turn, and render them as tooltip-backed mono rows (`command` plus optional `previewLine`) inside the composer shell's running-terminals panel.
 - Keep thread-footer width ownership outside the composer shell:
   - `LocalConversationThreadScrollLayout` owns the scroll viewport, `pt-(--thread-content-top-inset)`, `flex flex-col-reverse`, the shared `mx-auto w-full max-w-(--thread-content-max-width) px-toolbar` content width, the growing `relative flex flex-1 shrink-0 flex-col pb-8` content lane, and the sticky footer inside the scroll container
@@ -229,7 +230,7 @@
 - Start from existing semantics, not from JSX. New UI behavior should usually begin in a projector, bucketizer, normalizer, or other renderer-facing adapter before touching leaf components.
 - Keep leaf renderers dumb. Message/tool/request components should consume already-derived props such as lane membership, action eligibility, placeholder state, or copy text instead of recomputing those rules locally.
 - Keep one canonical lane per semantic role. Final assistant content, leading user prefix actions, exploration groups, pending-request lanes, and diff lanes should each be derived once and rendered once.
-- Keep transcript-special rows dedicated. Items such as context compaction, automatic approval review, and multi-agent activity should render through their own leaf components instead of falling back to generic system banners.
+- Keep transcript-special rows dedicated. Items such as context compaction, automatic approval review, and multi-agent activity should render through their own leaf components instead of falling back to generic system banners. Multi-agent headers include the shared subagent glyph, and row links resolve friendly names from receiver metadata or parent child memberships before falling back to raw thread ids.
 - Keep poor-network reconnect in the transcript, not in shell resume state:
   - retryable transport/turn errors should materialize as `streamError` transcript items with expandable details
   - non-retryable turn failures should materialize as `systemError` transcript items

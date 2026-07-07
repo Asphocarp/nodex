@@ -2001,6 +2001,7 @@ describe("ThreadBlockRenderer subagent activity block", () => {
     expect(Boolean(getByText("and 1 other subagent updated"))).toBeTrue();
     expect(Boolean(queryByText("Tester"))).toBeFalse();
     expect(Boolean(container.querySelector("[data-animate-entrance]"))).toBeTrue();
+    expect(Boolean(container.querySelector('[data-subagent-avatar-seed="thread-child-1"]'))).toBeTrue();
 
     fireEvent.click(getByRole("button", { name: "Open Scout subagent" }));
 

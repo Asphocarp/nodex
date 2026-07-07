@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { ChevronRightIcon } from "@/components/shared/icons";
-import type { CodexConversationItem } from "../../../../lib/types";
+import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
 import {
   normalizeMultiAgentActionPayload,
@@ -16,6 +16,7 @@ import type { ThreadOpenSubagentPayload, ThreadOpenThreadContext } from "../../t
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
 import { CodexShimmerText } from "./codex-shimmer-text";
+import { SubagentGlyphIcon } from "./subagent-avatar";
 
 function getHeaderLabel(action: CodexMultiAgentActionName, status: CodexMultiAgentActionStatus): string {
   if (action === "spawnAgent") {
@@ -93,18 +94,38 @@ function getAgentStateLabel(status: CodexMultiAgentAgentState["status"]): string
 function getAgentDisplayName(
   threadId: string,
   receiverThread: CodexMultiAgentReceiverThread | undefined,
+  membership: CodexConversationChildMembership | undefined,
 ): string {
-  const nickname = receiverThread?.thread?.nickname?.trim();
-  if (nickname) return nickname.startsWith("@") ? nickname.slice(1) : nickname;
+  const displayName = normalizeNullableText(receiverThread?.thread?.displayName)
+    ?? normalizeNullableText(receiverThread?.thread?.name)
+    ?? normalizeNullableText(receiverThread?.thread?.nickname)
+    ?? normalizeNullableText(membership?.displayName)
+    ?? normalizeNullableText(membership?.thread?.displayName)
+    ?? normalizeNullableText(membership?.thread?.name)
+    ?? normalizeNullableText(membership?.thread?.nickname);
+  if (displayName) return displayName.startsWith("@") ? displayName.slice(1) : displayName;
 
   const fallback = threadId.trim();
   return fallback.startsWith("@") ? fallback.slice(1) : fallback;
 }
 
-function getAgentRole(receiverThread: CodexMultiAgentReceiverThread | undefined): string | null {
-  const role = receiverThread?.thread?.agentRole?.trim();
+function getAgentRole(
+  receiverThread: CodexMultiAgentReceiverThread | undefined,
+  membership: CodexConversationChildMembership | undefined,
+): string | null {
+  const role = receiverThread?.thread?.agentRole?.trim()
+    ?? membership?.agentRole?.trim()
+    ?? membership?.thread?.agentRole?.trim();
   if (!role || role === "default") return null;
   return role;
+}
+
+function getAgentModel(
+  receiverThread: CodexMultiAgentReceiverThread | undefined,
+  membership: CodexConversationChildMembership | undefined,
+): string | null {
+  return normalizeNullableText(receiverThread?.thread?.model)
+    ?? normalizeNullableText(membership?.thread?.model);
 }
 
 function getAgentOpenStatus(state: CodexMultiAgentAgentState | undefined): ThreadOpenSubagentPayload["status"] {
@@ -176,20 +197,23 @@ function getSpawnModelByThreadId(items: CodexMultiAgentActionPayload[]): Map<str
 }
 
 function AgentLabel({
+  membership,
   onOpenThread,
+  receiverThread,
   spawnModel,
   state,
   threadId,
-  receiverThread,
 }: {
+  membership: CodexConversationChildMembership | undefined;
   onOpenThread?: OpenMultiAgentThread;
+  receiverThread: CodexMultiAgentReceiverThread | undefined;
   spawnModel: string | null;
   state: CodexMultiAgentAgentState | undefined;
   threadId: string;
-  receiverThread: CodexMultiAgentReceiverThread | undefined;
 }) {
-  const displayName = getAgentDisplayName(threadId, receiverThread);
-  const role = getAgentRole(receiverThread);
+  const displayName = getAgentDisplayName(threadId, receiverThread, membership);
+  const role = getAgentRole(receiverThread, membership);
+  const resolvedSpawnModel = spawnModel ?? getAgentModel(receiverThread, membership);
   const label = onOpenThread ? (
     <button
       type="button"
@@ -202,7 +226,7 @@ function AgentLabel({
             conversationId: threadId,
             diffStats: null,
             displayName,
-            spawnModel,
+            spawnModel: resolvedSpawnModel,
             status: getAgentOpenStatus(state),
             statusSummary: normalizeNullableText(state?.message),
           },
@@ -280,6 +304,12 @@ function getReceiverThreadMap(payload: CodexMultiAgentActionPayload): Map<string
   return new Map(payload.receiverThreads.map((entry) => [entry.threadId, entry]));
 }
 
+function getChildMembershipMap(
+  childMemberships: readonly CodexConversationChildMembership[],
+): Map<string, CodexConversationChildMembership> {
+  return new Map(childMemberships.map((membership) => [membership.threadId, membership]));
+}
+
 function makeRowKey(prefix: string, item: CodexMultiAgentActionPayload, fallbackIndex: number, suffix?: string): string {
   const id = item.id ?? `${item.action}-${fallbackIndex}`;
   return suffix ? `${prefix}-${id}-${suffix}` : `${prefix}-${id}`;
@@ -288,9 +318,11 @@ function makeRowKey(prefix: string, item: CodexMultiAgentActionPayload, fallback
 function renderRows(
   items: CodexMultiAgentActionPayload[],
   onOpenThread: OpenMultiAgentThread | undefined,
+  childMemberships: readonly CodexConversationChildMembership[],
 ): MultiAgentRenderedRow[] {
   const rows: MultiAgentRenderedRow[] = [];
   const spawnModelByThreadId = getSpawnModelByThreadId(items);
+  const childMembershipByThreadId = getChildMembershipMap(childMemberships);
 
   for (const [itemIndex, item] of items.entries()) {
     const targetThreadIds = listTargetThreadIds(item);
@@ -311,6 +343,7 @@ function renderRows(
     for (const threadId of targetThreadIds) {
       const agent = (
         <AgentLabel
+          membership={childMembershipByThreadId.get(threadId)}
           onOpenThread={onOpenThread}
           receiverThread={receiverThreads.get(threadId)}
           spawnModel={spawnModelByThreadId.get(threadId) ?? null}
@@ -390,10 +423,12 @@ function renderRows(
 }
 
 export function MultiAgentActionSurface({
+  childMemberships = [],
   items,
   forceInProgress = false,
   onOpenThread,
 }: {
+  childMemberships?: readonly CodexConversationChildMembership[];
   items: CodexConversationItem[];
   forceInProgress?: boolean;
   onOpenThread?: OpenMultiAgentThread;
@@ -411,7 +446,7 @@ export function MultiAgentActionSurface({
   const [expanded, setExpanded] = useState(false);
   const isOpen = isInProgress || expanded;
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
-  const rowModels = renderRows(normalizedItems, onOpenThread);
+  const rowModels = renderRows(normalizedItems, onOpenThread, childMemberships);
   const targetCount = countTargets(normalizedItems);
   const countLabel = getCountLabel(targetCount);
 
@@ -420,29 +455,33 @@ export function MultiAgentActionSurface({
       <div className="flex flex-col gap-1">
         <button
           type="button"
-          className="group flex cursor-interaction items-center gap-1.5 text-left"
+          aria-expanded={isOpen}
+          className="group/activity-header inline-flex min-w-0 max-w-full cursor-interaction items-center gap-1.5 self-start p-0 text-left"
           data-testid="multi-agent-action-header"
           onClick={() => {
             if (isInProgress) return;
             setExpanded((current) => !current);
           }}
         >
-          <span className="text-size-chat truncate">
-            <CodexShimmerText
-              active={isInProgress}
-              className="text-token-description-foreground/90 group-hover:text-token-foreground"
-            >
-              {getHeaderLabel(primaryItem.action, resolvedStatus)}
-            </CodexShimmerText>
-            {countLabel ? (
-              <span className="text-token-foreground/40 group-hover:text-token-foreground">
-                {countLabel}
-              </span>
-            ) : null}
+          <span className="text-size-chat flex min-w-0 shrink items-center gap-1.5 truncate">
+            <SubagentGlyphIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground" />
+            <span className="text-size-chat truncate text-token-conversation-summary-trailing">
+              <CodexShimmerText
+                active={isInProgress}
+                className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground"
+              >
+                {getHeaderLabel(primaryItem.action, resolvedStatus)}
+              </CodexShimmerText>
+              {countLabel ? (
+                <span className="text-token-conversation-summary-trailing">
+                  {countLabel}
+                </span>
+              ) : null}
+            </span>
           </span>
           <ChevronRightIcon
             className={cn(
-              "text-token-input-placeholder-foreground flex-shrink-0 transition-all duration-300 opacity-0 group-hover:opacity-100",
+              "icon-2xs shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/activity-header:opacity-100 group-hover/activity-header:text-token-foreground group-focus-visible/activity-header:opacity-100 group-focus-visible/activity-header:text-token-foreground",
               isOpen && "opacity-100 rotate-90",
             )}
           />

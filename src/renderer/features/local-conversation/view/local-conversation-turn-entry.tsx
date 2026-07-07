@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import type { CodexConversationTurn, CodexTurnDiffReviewTarget } from "../../../lib/types";
+import type { CodexConversationChildMembership, CodexConversationTurn, CodexTurnDiffReviewTarget } from "../../../lib/types";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
 import type {
@@ -10,6 +10,7 @@ import { ThreadTurn } from "./local-conversation-thread-turn";
 
 interface LocalConversationTurnEntryProps {
   conversationId: string;
+  childMemberships?: readonly CodexConversationChildMembership[];
   turnSearchKey: string;
   turn: CodexConversationTurn;
   requests: CodexTurnScopedConversationRequest[];
@@ -46,6 +47,7 @@ interface LocalConversationTurnEntryProps {
 }
 
 function LocalConversationTurnEntryComponent({
+  childMemberships,
   turnSearchKey,
   turn,
   requests,
@@ -106,6 +108,7 @@ function LocalConversationTurnEntryComponent({
           onSetCollapsed?.(collapsed);
         }}
         projectWorkspacePath={projectWorkspacePath}
+        childMemberships={childMemberships}
         threadCwd={threadCwd}
         onEditLastUserTurn={onEditLastTurnMessage}
         onForkFromTurn={onForkTurnMessage}
@@ -128,6 +131,7 @@ export const LocalConversationTurnEntry = memo(
   LocalConversationTurnEntryComponent,
   (left, right) =>
     left.conversationId === right.conversationId
+    && left.childMemberships === right.childMemberships
     && left.turnSearchKey === right.turnSearchKey
     && left.turn === right.turn
     && left.requests === right.requests

@@ -30,6 +30,7 @@ import { cn } from "../../../lib/utils";
 import type {
   CardRunInTarget,
   CodexConversationCapabilityFlags,
+  CodexConversationChildMembership,
   CodexConversationResumeState,
   CodexConversationServerRequest,
   CodexConversationTurn,
@@ -292,6 +293,7 @@ interface LocalConversationThreadBodyOwnerProps {
   capabilityFlags: CodexConversationCapabilityFlags;
   statusType: CodexThreadStatusType | null;
   parentTurns: readonly CodexConversationTurn[];
+  childMemberships: readonly CodexConversationChildMembership[];
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
@@ -322,6 +324,7 @@ export function LocalConversationThreadBodyOwner({
   capabilityFlags,
   statusType,
   parentTurns,
+  childMemberships,
   projectWorkspacePath,
   threadStartProgress,
   actions,
@@ -398,11 +401,11 @@ export function LocalConversationThreadBodyOwner({
             queuedFollowUps: [],
             pendingSteers: [],
             backgroundTerminalRows: [],
-            childMemberships: [],
+            childMemberships: [...childMemberships],
             capabilityFlags,
           }
         : null,
-    [capabilityFlags, cwd, requests, resumeState, statusType, threadId, turnPagination, turns],
+    [capabilityFlags, childMemberships, cwd, requests, resumeState, statusType, threadId, turnPagination, turns],
   );
 
   const latestTurnId = body.latestTurnId;
@@ -933,6 +936,7 @@ export function LocalConversationThreadBodyOwner({
                 onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
                 onClosePlanSidePanel={actions.onClosePlanSidePanel}
                 planSidePanelState={planSidePanelState}
+                childMemberships={childMemberships}
                 turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
                 initialScrollOffset={initialRestoreSnapshot?.distanceFromBottomPx ?? 0}
                 initialRestoreState={initialRestoreSnapshot?.virtualizedTurnList ?? null}

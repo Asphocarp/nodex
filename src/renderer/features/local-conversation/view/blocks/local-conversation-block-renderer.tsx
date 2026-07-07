@@ -28,7 +28,7 @@ import {
   ThreadWebSearchGroupBlock,
   ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
-import type { CodexTurnDiffReviewTarget } from "../../../../lib/types";
+import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import type {
   ThreadBlockModel,
   ThreadPlanSidePanelState,
@@ -42,6 +42,7 @@ interface ThreadBlockRendererProps {
   isSearchMatch?: boolean;
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
+  childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
@@ -64,6 +65,7 @@ export function ThreadBlockRenderer({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   projectWorkspacePath,
+  childMemberships,
   threadCwd,
   onEditLastUserTurn,
   onForkFromTurn,
@@ -85,6 +87,7 @@ export function ThreadBlockRenderer({
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
+        childMemberships={childMemberships}
         threadCwd={threadCwd}
       />
     );
@@ -97,6 +100,7 @@ export function ThreadBlockRenderer({
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
+        childMemberships={childMemberships}
         threadCwd={threadCwd}
         onOpenThread={onOpenThread}
       />
@@ -209,6 +213,7 @@ export function ThreadBlockRenderer({
         block={block}
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
+        childMemberships={childMemberships}
         onOpenThread={onOpenThread}
       />
     );
@@ -308,6 +313,7 @@ export function ThreadBlockRenderer({
                   isLatestTurn={isLatestTurn}
                   isStreamingTurn={isStreamingTurn}
                   projectWorkspacePath={projectWorkspacePath}
+                  childMemberships={childMemberships}
                   threadCwd={threadCwd}
                   onEditLastUserTurn={onEditLastUserTurn}
                   onForkFromTurn={onForkFromTurn}

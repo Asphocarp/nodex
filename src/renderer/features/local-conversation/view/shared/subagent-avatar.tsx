@@ -1,20 +1,143 @@
-import type { CSSProperties } from "react";
 import { cn } from "../../../../lib/utils";
 
-function hashSubagentSeed(seed: string): number {
-  let hash = 0;
+const SUBAGENT_IDENTICON_GRID_SIZE = 5;
+const SUBAGENT_IDENTICON_MIRROR_COLUMNS = 3;
+const SUBAGENT_IDENTICON_CELL_SIZE = 4;
+const SUBAGENT_IDENTICON_SCAN_DELAY_MS = 200;
+const SUBAGENT_IDENTICON_HASH_MODULUS = 4_294_967_296;
+const SUBAGENT_IDENTICON_HASH_OFFSET = 2_166_136_261;
+const SUBAGENT_IDENTICON_HASH_MULTIPLIER = 131;
+
+const SUBAGENT_IDENTICON_COLORS = [
+  "var(--color-token-charts-yellow)",
+  "var(--color-token-charts-orange)",
+  "var(--color-token-charts-red)",
+  "var(--color-token-charts-purple)",
+  "var(--color-token-charts-blue)",
+] as const;
+
+export function SubagentGlyphIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      data-subagent-glyph-icon="true"
+      fill="none"
+      height="21"
+      viewBox="0 0 20 21"
+      width="20"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M10 13.2135C11.7333 13.2136 13.331 13.7149 14.5117 14.5582C15.691 15.4006 16.4989 16.6247 16.499 18.0455C16.4988 18.4125 16.2009 18.7103 15.834 18.7106C15.4668 18.7106 15.1691 18.4127 15.1689 18.0455C15.1688 17.1656 14.6699 16.3057 13.7383 15.6403C12.8078 14.9757 11.488 14.5436 10 14.5436C8.51211 14.5436 7.19214 14.9758 6.26172 15.6403C5.33026 16.3057 4.83215 17.1657 4.83203 18.0455C4.83186 18.4126 4.53404 18.7104 4.16699 18.7106C3.79983 18.7106 3.50213 18.4127 3.50195 18.0455C3.50207 16.6246 4.3099 15.4006 5.48926 14.5582C6.66991 13.715 8.26685 13.2136 10 13.2135Z"
+        fill="currentColor"
+      />
+      <path
+        d="M7.91699 5.54553C8.60724 5.54566 9.16699 6.10526 9.16699 6.79553C9.16699 7.48581 8.60724 8.0454 7.91699 8.04553C7.22664 8.04553 6.66699 7.48589 6.66699 6.79553C6.66699 6.10518 7.22664 5.54553 7.91699 5.54553Z"
+        fill="currentColor"
+      />
+      <path
+        d="M12.083 5.54553C12.7734 5.54553 13.333 6.10518 13.333 6.79553C13.333 7.48589 12.7734 8.04553 12.083 8.04553C11.3928 8.0454 10.833 7.48581 10.833 6.79553C10.833 6.10526 11.3928 5.54566 12.083 5.54553Z"
+        fill="currentColor"
+      />
+      <path
+        clipRule="evenodd"
+        d="M10 1.54749C10.3673 1.54749 10.665 1.84526 10.665 2.21252V2.79749H13.1113C13.554 2.79749 13.9248 2.7969 14.2275 2.82092C14.5377 2.84557 14.8331 2.89914 15.1143 3.03772C15.5745 3.26474 15.9478 3.63796 16.1748 4.09827C16.3133 4.37938 16.367 4.67495 16.3916 4.98499C16.4156 5.28762 16.415 5.65872 16.415 6.1012C16.415 6.99761 16.4157 7.70971 16.3701 8.28284C16.324 8.86308 16.2274 9.35876 16.0029 9.81409C15.6137 10.6032 14.9746 11.2422 14.1855 11.6315C13.73 11.8561 13.2339 11.9525 12.6533 11.9987C12.0802 12.0442 11.369 12.0446 10.4727 12.0446H9.52734C8.631 12.0446 7.91978 12.0442 7.34668 11.9987C6.76612 11.9525 6.26997 11.8561 5.81445 11.6315C5.02538 11.2422 4.38629 10.6032 3.99707 9.81409C3.77258 9.35876 3.67603 8.86308 3.62988 8.28284C3.58434 7.70971 3.58496 6.99761 3.58496 6.1012C3.58496 5.65872 3.5844 5.28762 3.6084 4.98499C3.63303 4.67495 3.6867 4.37938 3.8252 4.09827C4.05219 3.63796 4.42545 3.26474 4.88574 3.03772C5.16693 2.89914 5.46234 2.84557 5.77246 2.82092C6.07515 2.7969 6.44604 2.79749 6.88867 2.79749H9.33496V2.21252C9.33496 1.84526 9.63273 1.54749 10 1.54749ZM6.88867 4.12756C6.42452 4.12756 6.11484 4.12819 5.87695 4.14709C5.64679 4.16542 5.54082 4.19795 5.47363 4.23108C5.27602 4.3286 5.11605 4.48852 5.01855 4.68616C4.98547 4.75336 4.95287 4.85959 4.93457 5.08948C4.91569 5.32732 4.91504 5.63725 4.91504 6.1012C4.91504 7.01891 4.91567 7.66913 4.95605 8.17737C4.99587 8.67788 5.07138 8.98479 5.19043 9.2262C5.45025 9.75279 5.87667 10.1794 6.40332 10.4391C6.64477 10.5581 6.9515 10.6337 7.45215 10.6735C7.96034 10.7138 8.60976 10.7145 9.52734 10.7145H10.4727C11.3902 10.7145 12.0397 10.7138 12.5479 10.6735C13.0485 10.6337 13.3552 10.5581 13.5967 10.4391C14.1233 10.1794 14.5498 9.75279 14.8096 9.2262C14.9286 8.98479 15.0041 8.67788 15.0439 8.17737C15.0843 7.66913 15.085 7.01891 15.085 6.1012C15.085 5.63725 15.0843 5.32732 15.0654 5.08948C15.0471 4.85959 15.0145 4.75336 14.9814 4.68616C14.884 4.48852 14.724 4.3286 14.5264 4.23108C14.4592 4.19795 14.3532 4.16542 14.123 4.14709C13.8852 4.12819 13.5755 4.12756 13.1113 4.12756H6.88867Z"
+        fill="currentColor"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+export interface SubagentAvatarCell {
+  animationDelayMs: number;
+  column: number;
+  row: number;
+}
+
+export interface SubagentAvatarIdenticon {
+  cells: SubagentAvatarCell[];
+  color: string;
+  scanCells: Array<SubagentAvatarCell & { filled: boolean }>;
+}
+
+function hashSubagentIdenticonSeed(seed: string): number {
+  let hash = SUBAGENT_IDENTICON_HASH_OFFSET;
   for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 33 + seed.charCodeAt(index)) >>> 0;
+    hash = (hash * SUBAGENT_IDENTICON_HASH_MULTIPLIER + seed.charCodeAt(index))
+      % SUBAGENT_IDENTICON_HASH_MODULUS;
   }
   return hash;
 }
 
-function buildSubagentAvatarStyle(seed: string): CSSProperties {
-  const hue = hashSubagentSeed(seed) % 360;
+function hasShapeBit(hash: number, bit: number): boolean {
+  return Math.floor(hash / 2 ** bit) % 2 === 1;
+}
+
+function getCellKey(column: number, row: number): string {
+  return `${row}:${column}`;
+}
+
+function getRowAnimationDelayMs(row: number): number {
+  return row * SUBAGENT_IDENTICON_SCAN_DELAY_MS;
+}
+
+function resolveSubagentIdenticonColor(hash: number): string {
+  const index = Math.floor((hash / SUBAGENT_IDENTICON_HASH_MODULUS) * SUBAGENT_IDENTICON_COLORS.length);
+  return SUBAGENT_IDENTICON_COLORS[index % SUBAGENT_IDENTICON_COLORS.length] ?? SUBAGENT_IDENTICON_COLORS[0];
+}
+
+function buildSubagentIdenticonScanCells(filledKeys: Set<string>): SubagentAvatarIdenticon["scanCells"] {
+  const cells: SubagentAvatarIdenticon["scanCells"] = [];
+  for (let row = 0; row < SUBAGENT_IDENTICON_GRID_SIZE; row += 1) {
+    for (let column = 0; column < SUBAGENT_IDENTICON_GRID_SIZE; column += 1) {
+      cells.push({
+        animationDelayMs: getRowAnimationDelayMs(row),
+        column,
+        filled: filledKeys.has(getCellKey(column, row)),
+        row,
+      });
+    }
+  }
+  return cells;
+}
+
+export function buildSubagentAvatarIdenticon(seed: string): SubagentAvatarIdenticon {
+  const shapeHash = hashSubagentIdenticonSeed(`${seed}:shape`);
+  const colorHash = hashSubagentIdenticonSeed(`${seed}:color`);
+  const cells: SubagentAvatarCell[] = [];
+  const filledKeys = new Set<string>();
+
+  for (let row = 0; row < SUBAGENT_IDENTICON_GRID_SIZE; row += 1) {
+    for (let column = 0; column < SUBAGENT_IDENTICON_MIRROR_COLUMNS; column += 1) {
+      if (!hasShapeBit(shapeHash, row * SUBAGENT_IDENTICON_MIRROR_COLUMNS + column)) continue;
+
+      const animationDelayMs = getRowAnimationDelayMs(row);
+      cells.push({ animationDelayMs, column, row });
+      filledKeys.add(getCellKey(column, row));
+
+      const mirroredColumn = SUBAGENT_IDENTICON_GRID_SIZE - 1 - column;
+      if (mirroredColumn === column) continue;
+      cells.push({ animationDelayMs, column: mirroredColumn, row });
+      filledKeys.add(getCellKey(mirroredColumn, row));
+    }
+  }
+
+  if (cells.length === 0) {
+    const center = Math.floor(SUBAGENT_IDENTICON_GRID_SIZE / 2);
+    cells.push({
+      animationDelayMs: getRowAnimationDelayMs(center),
+      column: center,
+      row: center,
+    });
+    filledKeys.add(getCellKey(center, center));
+  }
+
   return {
-    background:
-      `radial-gradient(circle at 35% 28%, hsl(${hue} 78% 72% / 0.95), hsl(${(hue + 42) % 360} 60% 48% / 0.28) 48%, hsl(${(hue + 208) % 360} 54% 34% / 0.24))`,
-    color: `hsl(${hue} 62% 30%)`,
+    cells,
+    color: resolveSubagentIdenticonColor(colorHash),
+    scanCells: buildSubagentIdenticonScanCells(filledKeys),
   };
 }
 
@@ -29,38 +152,47 @@ export function SubagentAvatar({
   className?: string;
   iconClassName?: string;
 }) {
+  const identicon = buildSubagentAvatarIdenticon(seed);
+
   return (
-    <span
+    <svg
       aria-hidden="true"
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-token-border/40 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.22)]",
-        active && "ring-1 ring-token-text-link-foreground/45",
-        className ?? "size-4",
-      )}
+      className={cn("shrink-0", className ?? "size-4", iconClassName)}
       data-subagent-avatar-active={active ? "true" : "false"}
       data-subagent-avatar-seed={seed}
-      style={buildSubagentAvatarStyle(seed)}
+      fill="none"
+      shapeRendering="crispEdges"
+      viewBox="-2 -1 24 24"
+      xmlns="http://www.w3.org/2000/svg"
     >
-      <svg
-        viewBox="0 0 20 20"
-        className={cn("h-[70%] w-[70%]", iconClassName)}
-        fill="none"
-        aria-hidden="true"
-      >
-        <path
-          d="M10 3.25v1.5m-3.1 3.1h6.2m-7.35.5c0-1.31 1.06-2.38 2.38-2.38h3.74c1.32 0 2.38 1.07 2.38 2.38v2.53a3.12 3.12 0 0 1-3.13 3.12H8.88a3.12 3.12 0 0 1-3.13-3.12V8.35Z"
-          stroke="currentColor"
-          strokeWidth="1.35"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+      {identicon.cells.map((cell) => (
+        <rect
+          className={active ? "subagent-identicon-filled-scan" : undefined}
+          fill={identicon.color}
+          height={SUBAGENT_IDENTICON_CELL_SIZE}
+          key={`${cell.row}:${cell.column}`}
+          style={active ? { animationDelay: `${cell.animationDelayMs}ms` } : undefined}
+          width={SUBAGENT_IDENTICON_CELL_SIZE}
+          x={cell.column * SUBAGENT_IDENTICON_CELL_SIZE}
+          y={cell.row * SUBAGENT_IDENTICON_CELL_SIZE}
         />
-        <path
-          d="M8.3 10.35h.01m3.38 0h.01"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-      </svg>
-    </span>
+      ))}
+      {active
+        ? identicon.scanCells.map((cell) =>
+          cell.filled ? null : (
+            <rect
+              className="subagent-identicon-empty-scan"
+              fill={identicon.color}
+              height={SUBAGENT_IDENTICON_CELL_SIZE}
+              key={`scan:${cell.row}:${cell.column}`}
+              style={{ animationDelay: `${cell.animationDelayMs}ms` }}
+              width={SUBAGENT_IDENTICON_CELL_SIZE}
+              x={cell.column * SUBAGENT_IDENTICON_CELL_SIZE}
+              y={cell.row * SUBAGENT_IDENTICON_CELL_SIZE}
+            />
+          )
+        )
+        : null}
+    </svg>
   );
 }

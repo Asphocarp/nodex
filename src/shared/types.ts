@@ -2619,6 +2619,8 @@ export interface GhPrMutationResult {
 
 export interface CodexConversationChildThreadMetadata {
   nickname?: string | null;
+  displayName?: string | null;
+  name?: string | null;
   model?: string | null;
   agentRole?: string | null;
 }

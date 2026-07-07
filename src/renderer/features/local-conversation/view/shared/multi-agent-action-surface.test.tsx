@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
-import type { CodexConversationItem } from "../../../../lib/types";
+import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
 import { installElementScrollHeight, installMeasuredResizeObserver } from "../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import type {
@@ -108,6 +108,7 @@ describe("MultiAgentActionSurface", () => {
     const header = getByTestId("multi-agent-action-header");
     expect(textContent(header).includes("Messaged")).toBeTrue();
     expect(textContent(header).includes("an agent")).toBeTrue();
+    expect(Boolean(container.querySelector('[data-subagent-glyph-icon="true"]'))).toBeTrue();
 
     fireEvent.click(header);
     await settleAsyncRender();
@@ -289,6 +290,164 @@ describe("MultiAgentActionSurface", () => {
     fireEvent.click(agentButton);
 
     expect(openedThreadIds.join(",")).toBe("thread-agent-1");
+  });
+
+  test("uses app-server agent nicknames instead of thread ids in inline agent rows", async () => {
+    const calls: Array<{ threadId: string; context: ThreadOpenThreadContext | undefined }> = [];
+    const item = buildMultiAgentItem({
+      rawItem: {
+        id: "item-agent-nickname",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["019f3c6a-2ebc-7b82-ab83-cb7edb449ada"],
+        receiverThreads: [
+          {
+            threadId: "019f3c6a-2ebc-7b82-ab83-cb7edb449ada",
+            thread: {
+              agentNickname: "@Euclid",
+              model: "gpt-5-codex",
+              agentRole: "explorer",
+            },
+          },
+        ],
+        prompt: "Map the subagent UI.",
+        model: "gpt-5-codex",
+        reasoningEffort: "medium",
+        agentsStates: {
+          "019f3c6a-2ebc-7b82-ab83-cb7edb449ada": {
+            status: "running",
+            message: "Reading fixtures",
+          },
+        },
+      },
+    });
+
+    const { container, getByRole, getByTestId } = render(
+      <MultiAgentActionSurface
+        items={[item]}
+        onOpenThread={(threadId, context) => {
+          calls.push({ threadId, context });
+        }}
+      />,
+    );
+
+    fireEvent.click(getByTestId("multi-agent-action-header"));
+    await settleAsyncRender();
+
+    const content = textContent(container);
+    expect(content.includes("Euclid (explorer)")).toBeTrue();
+    expect(content.includes("019f3c6a-2ebc-7b82-ab83-cb7edb449ada")).toBeFalse();
+
+    fireEvent.click(getByRole("button", { name: "Euclid" }));
+    expect(calls[0]?.threadId).toBe("019f3c6a-2ebc-7b82-ab83-cb7edb449ada");
+    expect(calls[0]?.context?.subagent?.displayName).toBe("Euclid");
+    expect(calls[0]?.context?.subagent?.agentRole).toBe("explorer");
+  });
+
+  test("falls back to parent child membership metadata when tool items only contain thread ids", async () => {
+    const calls: Array<{ threadId: string; context: ThreadOpenThreadContext | undefined }> = [];
+    const threadId = "019f3c8c-e9b6-7b31-a255-fd447335a704";
+    const childMemberships: CodexConversationChildMembership[] = [
+      {
+        threadId,
+        parentThreadId: "thread-main",
+        role: "backgroundChild",
+        actorName: threadId,
+        thread: {
+          nickname: "@Nash",
+          agentRole: "worker",
+          model: "gpt-5-codex",
+        },
+      },
+    ];
+    const item = buildMultiAgentItem({
+      rawItem: {
+        id: "item-agent-membership",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: [threadId],
+        receiverThreads: [],
+        prompt: "Write a smoke file.",
+        model: null,
+        reasoningEffort: "medium",
+        agentsStates: {
+          [threadId]: {
+            status: "completed",
+            message: null,
+          },
+        },
+      },
+    });
+
+    const { container, getByRole, getByTestId } = render(
+      <MultiAgentActionSurface
+        childMemberships={childMemberships}
+        items={[item]}
+        onOpenThread={(openedThreadId, context) => {
+          calls.push({ threadId: openedThreadId, context });
+        }}
+      />,
+    );
+
+    fireEvent.click(getByTestId("multi-agent-action-header"));
+    await settleAsyncRender();
+
+    const content = textContent(container);
+    expect(content.includes("Nash (worker)")).toBeTrue();
+    expect(content.includes(threadId)).toBeFalse();
+
+    fireEvent.click(getByRole("button", { name: "Nash" }));
+    expect(calls[0]?.threadId).toBe(threadId);
+    expect(calls[0]?.context?.subagent?.displayName).toBe("Nash");
+    expect(calls[0]?.context?.subagent?.agentRole).toBe("worker");
+    expect(calls[0]?.context?.subagent?.spawnModel).toBe("gpt-5-codex");
+  });
+
+  test("does not use child membership actor labels as agent display names", async () => {
+    const threadId = "019f3c8c-e9b6-7b31-a255-fd447335a704";
+    const childMemberships: CodexConversationChildMembership[] = [
+      {
+        threadId,
+        parentThreadId: "thread-main",
+        role: "backgroundChild",
+        actorName: "Structure Scout report preview",
+      },
+    ];
+    const item = buildMultiAgentItem({
+      rawItem: {
+        id: "item-agent-actor-fallback",
+        tool: "sendInput",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: [threadId],
+        receiverThreads: [],
+        prompt: "Continue.",
+        model: null,
+        reasoningEffort: "medium",
+        agentsStates: {
+          [threadId]: {
+            status: "running",
+            message: null,
+          },
+        },
+      },
+    });
+
+    const { container, getByTestId } = render(
+      <MultiAgentActionSurface
+        childMemberships={childMemberships}
+        items={[item]}
+      />,
+    );
+
+    fireEvent.click(getByTestId("multi-agent-action-header"));
+    await settleAsyncRender();
+
+    const content = textContent(container);
+    expect(content.includes(threadId)).toBeTrue();
+    expect(content.includes("Structure Scout report preview")).toBeFalse();
   });
 
   test("passes Codex-style subagent context from inline agent buttons", async () => {

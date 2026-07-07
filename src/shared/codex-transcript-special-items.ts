@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extractCodexThreadSubagentMetadata } from "./codex-subagent-metadata";
 import { CodexUnknownRecordSchema } from "./schemas/codex";
 
 const NullableStringSchema = z.string().nullable().optional().catch(null).transform((value) => value ?? null);
@@ -74,6 +75,8 @@ export interface CodexMultiAgentReceiverThread {
   threadId: string;
   thread: {
     nickname: string | null;
+    displayName?: string | null;
+    name?: string | null;
     model: string | null;
     agentRole: string | null;
   } | null;
@@ -130,13 +133,29 @@ const CodexReceiverThreadSchema = CodexUnknownRecordSchema.transform((value, ctx
   }
 
   const thread = CodexUnknownRecordSchema.safeParse(value.thread);
+  const subagentMetadata = thread.success ? extractCodexThreadSubagentMetadata(thread.data) : null;
+  const displayName = thread.success ? NullableStringSchema.parse(thread.data.displayName) : null;
+  const name = thread.success ? NullableStringSchema.parse(thread.data.name) : null;
+  const nickname = thread.success
+    ? NullableStringSchema.parse(thread.data.nickname)
+      ?? NullableStringSchema.parse(thread.data.agentNickname)
+      ?? subagentMetadata?.agentNickname
+      ?? displayName
+      ?? name
+    : null;
+  const agentRole = thread.success
+    ? NullableStringSchema.parse(thread.data.agentRole) ?? subagentMetadata?.agentRole ?? null
+    : null;
+
   return {
     threadId: threadId.data,
     thread: thread.success
       ? {
-          nickname: NullableStringSchema.parse(thread.data.nickname),
+          nickname,
+          ...(displayName ? { displayName } : {}),
+          ...(name ? { name } : {}),
           model: NullableStringSchema.parse(thread.data.model),
-          agentRole: NullableStringSchema.parse(thread.data.agentRole),
+          agentRole,
         }
       : null,
   } satisfies CodexMultiAgentReceiverThread;

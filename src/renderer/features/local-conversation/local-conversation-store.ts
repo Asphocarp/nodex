@@ -116,6 +116,7 @@ import {
   normalizeAutomaticApprovalReviewPayload,
   shouldShowAutoReviewInterruptionWarning,
 } from "../../../shared/codex-transcript-special-items";
+import { extractCodexThreadSubagentMetadata } from "../../../shared/codex-subagent-metadata";
 import {
   parseCodexReasoningBuffers,
   projectCodexReasoningSummary,
@@ -2676,6 +2677,7 @@ function materializeOwnerRollbackConversation(
     threadId: thread.id,
     status: thread.status,
   });
+  const subagentMetadata = extractCodexThreadSubagentMetadata(thread);
   const threadTurns = Array.isArray(thread.turns) ? thread.turns : [];
   const turns = threadTurns.map((turn) => projectOwnerProtocolTurn(thread.id, turn));
 
@@ -2684,10 +2686,12 @@ function materializeOwnerRollbackConversation(
     threadId: thread.id,
     source: {
       ...currentConversation.source,
-      parentThreadId: thread.parentThreadId ?? currentConversation.source?.parentThreadId ?? null,
+      parentThreadId: subagentMetadata.parentThreadId ?? currentConversation.source?.parentThreadId ?? null,
     },
     ephemeral: thread.ephemeral,
     threadSource: parseOwnerThreadSourceValue(thread.threadSource) ?? currentConversation.threadSource ?? null,
+    agentNickname: subagentMetadata.agentNickname ?? currentConversation.agentNickname ?? null,
+    agentRole: subagentMetadata.agentRole ?? currentConversation.agentRole ?? null,
     threadPreview: typeof thread.preview === "string" ? thread.preview : currentConversation.threadPreview,
     modelProvider: typeof thread.modelProvider === "string" ? thread.modelProvider : currentConversation.modelProvider,
     cwd: typeof thread.cwd === "string" ? thread.cwd : currentConversation.cwd,
@@ -2927,22 +2931,6 @@ function normalizeOwnerThreadTimestamp(value: unknown, fallback: number): number
   return Math.floor(value * 1000);
 }
 
-function parseOwnerThreadSourceParentThreadId(source: unknown): string | null {
-  const candidate = asRecord(source);
-  if (!candidate) return null;
-  if ("subAgent" in candidate) {
-    return parseOwnerThreadSourceParentThreadId(candidate.subAgent);
-  }
-  if ("subagent" in candidate) {
-    return parseOwnerThreadSourceParentThreadId(candidate.subagent);
-  }
-  const threadSpawn = asRecord(candidate.thread_spawn);
-  const parentThreadId = threadSpawn?.parent_thread_id;
-  return typeof parentThreadId === "string" && parentThreadId.trim().length > 0
-    ? parentThreadId
-    : null;
-}
-
 function parseOwnerThreadSourceValue(value: unknown): ThreadSource | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
@@ -2977,17 +2965,14 @@ function parseOwnerThreadStartedPayload(params: unknown): {
     status: thread.status,
   };
   const parsedStatus = parseOwnerThreadStatusPayload(statusPayload);
-  const explicitParentThreadId = getString(thread, "parentThreadId");
-  const parentThreadId = explicitParentThreadId && explicitParentThreadId.trim().length > 0
-    ? explicitParentThreadId
-    : parseOwnerThreadSourceParentThreadId(thread.source);
+  const subagentMetadata = extractCodexThreadSubagentMetadata(thread);
 
   return {
     threadId,
-    parentThreadId,
+    parentThreadId: subagentMetadata.parentThreadId,
     threadSource: parseOwnerThreadSourceValue(thread.threadSource),
-    agentNickname: getString(thread, "agentNickname")?.trim() || null,
-    agentRole: getString(thread, "agentRole")?.trim() || null,
+    agentNickname: subagentMetadata.agentNickname,
+    agentRole: subagentMetadata.agentRole,
     threadName,
     threadPreview: getString(thread, "preview"),
     modelProvider: getString(thread, "modelProvider"),

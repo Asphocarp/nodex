@@ -204,6 +204,7 @@ import {
   normalizeAutomaticApprovalReviewPayload,
   shouldShowAutoReviewInterruptionWarning,
 } from "../../shared/codex-transcript-special-items";
+import { extractCodexThreadSubagentMetadata } from "../../shared/codex-subagent-metadata";
 import {
   buildCodexTurnDiffFromPatchBatches,
   getCodexFileChangeList,
@@ -248,6 +249,7 @@ import { resolveAssetPath } from "../local-store/assets";
 import { getLocalStoreDir } from "../local-store/config";
 import {
   getCodexThread,
+  listCodexChildThreadLinks,
   listPinnedCodexThreadIds,
   listCodexThreadLinks,
   listCodexProjectThreads,
@@ -257,6 +259,7 @@ import {
   updateCodexThreadName,
   updateCodexThreadStatus,
   upsertCodexThread,
+  type UpsertCodexThreadInput,
 } from "./codex-link-repository";
 import {
   CodexAppServerClient,
@@ -1351,19 +1354,15 @@ function parseThreadStatus(status: unknown): ParsedThreadStatus {
   };
 }
 
-function getOptionalStringField(candidate: Record<string, unknown>, key: string): string | null {
-  const value = candidate[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
 function applyThreadAgentMetadata<T extends CodexThreadSummary>(
   summary: T,
   candidate: Record<string, unknown>,
 ): T {
+  const metadata = extractCodexThreadSubagentMetadata(candidate);
   return {
     ...summary,
-    agentNickname: getOptionalStringField(candidate, "agentNickname") ?? summary.agentNickname ?? null,
-    agentRole: getOptionalStringField(candidate, "agentRole") ?? summary.agentRole ?? null,
+    agentNickname: metadata.hasAgentNickname ? metadata.agentNickname : summary.agentNickname ?? null,
+    agentRole: metadata.hasAgentRole ? metadata.agentRole : summary.agentRole ?? null,
   };
 }
 
@@ -1537,38 +1536,12 @@ function parseThreadGoalPayload(value: unknown): ThreadGoal | null {
   };
 }
 
-function parseThreadSourceParentThreadId(source: unknown): string | null {
-  if (typeof source !== "object" || source === null) {
-    return null;
-  }
-
-  const candidate = source as Record<string, unknown>;
-  if ("subAgent" in candidate) {
-    return parseThreadSourceParentThreadId(candidate.subAgent);
-  }
-  if ("subagent" in candidate) {
-    return parseThreadSourceParentThreadId(candidate.subagent);
-  }
-  if (!("thread_spawn" in candidate)) {
-    return null;
-  }
-
-  const threadSpawn = candidate.thread_spawn;
-  if (typeof threadSpawn !== "object" || threadSpawn === null) {
-    return null;
-  }
-
-  const parentThreadId = (threadSpawn as Record<string, unknown>).parent_thread_id;
-  return typeof parentThreadId === "string" && parentThreadId.trim().length > 0
-    ? parentThreadId
-    : null;
+function parseThreadParentThreadId(thread: Record<string, unknown>): string | null {
+  return extractCodexThreadSubagentMetadata(thread).parentThreadId;
 }
 
 function isSubagentThreadSpawnSource(source: unknown): boolean {
-  const sourceRecord = asRecord(source);
-  const subAgent = asRecord(sourceRecord?.subAgent);
-  const threadSpawn = asRecord(subAgent?.thread_spawn);
-  return typeof threadSpawn?.parent_thread_id === "string";
+  return extractCodexThreadSubagentMetadata({ source }).parentThreadId !== null;
 }
 
 function parseThreadSourceValue(value: unknown): ThreadSource | null {
@@ -2590,7 +2563,7 @@ export class CodexService extends EventEmitter {
     if (method !== "thread/started") return;
     const payload = asRecord(params);
     const thread = asRecord(payload?.thread);
-    if (!thread || !isSubagentThreadSpawnSource(thread.source)) return;
+    if (!thread || (!parseThreadParentThreadId(thread) && !isSubagentThreadSpawnSource(thread.source))) return;
 
     const threadId = typeof thread.id === "string" ? thread.id.trim() : "";
     if (threadId.length === 0) return;
@@ -4068,6 +4041,15 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  private listChildThreadLinksSafely(parentThreadId: string): CodexThreadSummary[] {
+    try {
+      return listCodexChildThreadLinks(parentThreadId);
+    } catch (error) {
+      if (isUnavailableSqliteBindingError(error)) return [];
+      throw error;
+    }
+  }
+
   private ensureConversationDetail(threadId: string): CodexThreadDetail | null {
     const record = this.ensureConversationRecord(threadId);
     if (record.detail) return record.detail;
@@ -5455,10 +5437,20 @@ export class CodexService extends EventEmitter {
     const candidate = thread as Record<string, unknown>;
     if (typeof candidate.id !== "string" || candidate.id.trim().length === 0) return empty;
     if (candidate.ephemeral === true) return empty;
-    if (typeof candidate.parentThreadId === "string" && candidate.parentThreadId.trim()) return empty;
-    if (parseThreadSourceParentThreadId(candidate.source)) return empty;
 
     const cwd = typeof candidate.cwd === "string" ? candidate.cwd : null;
+    const parentThreadId = parseThreadParentThreadId(candidate);
+    if (parentThreadId) {
+      const previousSummary = getCodexThread(candidate.id);
+      const summary = this.upsertBackgroundSubagentThreadFromAppServerThread(candidate, parentThreadId, cwd);
+      return {
+        ...empty,
+        summary,
+        projectId: summary?.projectId ?? null,
+        changed: summary ? hasSidebarThreadSummaryChanged(previousSummary, summary) : false,
+      };
+    }
+
     const projectId = resolveSidebarProjectIdForCwd(cwd, input.projects);
     const previousSummary = getCodexThread(candidate.id);
     const summary = this.upsertLinkFromThread(thread, { projectId, cwd }, cwd);
@@ -7684,6 +7676,8 @@ export class CodexService extends EventEmitter {
       threadId: detail.threadId,
       source: detail.source,
       threadSource: detail.threadSource ?? null,
+      agentNickname: detail.agentNickname ?? null,
+      agentRole: detail.agentRole ?? null,
       threadName: detail.threadName,
       threadPreview: detail.threadPreview,
       modelProvider: detail.modelProvider,
@@ -7724,6 +7718,8 @@ export class CodexService extends EventEmitter {
       threadId,
       source: link.source,
       threadSource: reconciledDetail.threadSource ?? link.threadSource ?? null,
+      agentNickname: reconciledDetail.agentNickname ?? link.agentNickname ?? null,
+      agentRole: reconciledDetail.agentRole ?? link.agentRole ?? null,
       threadName: reconciledDetail.threadName ?? link.threadName,
       threadPreview: reconciledDetail.threadPreview || link.threadPreview,
       cwd: reconciledDetail.cwd ?? link.cwd,
@@ -8171,8 +8167,9 @@ export class CodexService extends EventEmitter {
 
     const parsedStatus = parseThreadStatus(candidate.status);
 
-    const parentThreadId = parseThreadSourceParentThreadId(candidate.source);
-    const summary = upsertCodexThread({
+    const subagentMetadata = extractCodexThreadSubagentMetadata(candidate);
+    const parentThreadId = subagentMetadata.parentThreadId;
+    const upsertInput: UpsertCodexThreadInput = {
       projectId: ref ? ref.projectId : existing?.projectId ?? null,
       threadId: candidate.id,
       source: parentThreadId ? { parentThreadId } : null,
@@ -8189,7 +8186,15 @@ export class CodexService extends EventEmitter {
       createdAt: normalizeTimestamp(candidate.createdAt),
       updatedAt: normalizeTimestamp(candidate.updatedAt),
       linkedAt: existing?.linkedAt,
-    });
+    };
+    if (subagentMetadata.hasAgentNickname) {
+      upsertInput.agentNickname = subagentMetadata.agentNickname;
+    }
+    if (subagentMetadata.hasAgentRole) {
+      upsertInput.agentRole = subagentMetadata.agentRole;
+    }
+
+    const summary = upsertCodexThread(upsertInput);
 
     const summaryWithAgentMetadata = applyThreadAgentMetadata({
       ...summary,
@@ -8199,6 +8204,27 @@ export class CodexService extends EventEmitter {
       this.invalidateSidebarSnapshotCache();
     }
     return summaryWithAgentMetadata;
+  }
+
+  private upsertBackgroundSubagentThreadFromAppServerThread(
+    thread: Record<string, unknown>,
+    parentThreadId: string,
+    fallbackCwd: string | null,
+  ): CodexThreadSummary | null {
+    const threadId = typeof thread.id === "string" ? thread.id.trim() : "";
+    if (!threadId) return null;
+
+    const parentSummary = getCodexThread(parentThreadId);
+    const fallbackRef: ThreadRef = {
+      projectId: parentSummary?.projectId ?? null,
+      cwd: parentSummary?.cwd ?? fallbackCwd,
+    };
+    const summary = this.upsertLinkFromThread(thread, fallbackRef, fallbackCwd ?? parentSummary?.cwd ?? null);
+    if (!summary) return null;
+
+    this.subagentThreadIds.add(summary.threadId);
+    this.syncBroadcastConversation(parentThreadId, { syncChildMemberships: true });
+    return summary;
   }
 
   private upsertSessionLinkFromThread(
@@ -8212,7 +8238,7 @@ export class CodexService extends EventEmitter {
 
     const existing = projectSessionService.getProjectSessionThreadLink(candidate.id);
     const parsedStatus = parseThreadStatus(candidate.status);
-    const parentThreadId = parseThreadSourceParentThreadId(candidate.source);
+    const parentThreadId = parseThreadParentThreadId(candidate);
     const link = projectSessionService.upsertProjectSessionThreadLink({
       sessionId: input.sessionId,
       projectId: input.projectId,
@@ -12803,6 +12829,25 @@ export class CodexService extends EventEmitter {
         typeof params === "object" && params !== null
           ? (params as Record<string, unknown>).thread
           : null;
+      const threadRecord = asRecord(thread);
+      const parentThreadId = threadRecord ? parseThreadParentThreadId(threadRecord) : null;
+
+      if (threadRecord && parentThreadId) {
+        const summary = this.upsertBackgroundSubagentThreadFromAppServerThread(
+          threadRecord,
+          parentThreadId,
+          typeof threadRecord.cwd === "string" ? threadRecord.cwd : null,
+        );
+        if (summary) {
+          this.logger.info("Received Codex subagent thread started notification", {
+            threadId: summary.threadId,
+            parentThreadId,
+            projectId: summary.projectId,
+          });
+          this.emitEvent({ type: "threadSummary", thread: summary });
+        }
+        return;
+      }
 
       const result = this.upsertSidebarThreadFromAppServerThread(thread, {
         projects: listProjects(),
@@ -13839,26 +13884,35 @@ export class CodexService extends EventEmitter {
   private formatConversationActorName(
     conversation: CodexConversationSnapshot | null,
     threadId: string,
+    summary?: CodexThreadSummary | null,
   ): string {
     const threadName = conversation?.threadName?.trim();
     if (threadName) return threadName;
+    const summaryName = summary?.threadName?.trim();
+    if (summaryName) return summaryName;
+    const nickname = conversation?.agentNickname?.trim() ?? summary?.agentNickname?.trim();
+    if (nickname) return nickname.startsWith("@") ? nickname.slice(1) : nickname;
     const threadPreview = conversation?.threadPreview?.trim();
     if (threadPreview) return threadPreview;
+    const summaryPreview = summary?.threadPreview?.trim();
+    if (summaryPreview) return summaryPreview;
     return threadId;
   }
 
   private buildConversationChildThreadMetadata(
     conversation: CodexConversationSnapshot | null,
+    summary?: CodexThreadSummary | null,
   ): CodexConversationChildMembership["thread"] {
-    if (!conversation) return null;
-
-    const nickname = conversation.agentNickname?.trim() || null;
-    const agentRole = conversation.agentRole?.trim() || null;
-    if (!nickname && !agentRole) return null;
+    const displayName = conversation?.threadName?.trim() || summary?.threadName?.trim() || null;
+    const nickname = conversation?.agentNickname?.trim() || summary?.agentNickname?.trim() || null;
+    const agentRole = conversation?.agentRole?.trim() || summary?.agentRole?.trim() || null;
+    const model = conversation?.modelProvider?.trim() || summary?.modelProvider?.trim() || null;
+    if (!displayName && !nickname && !agentRole) return null;
 
     return {
+      ...(displayName ? { displayName, name: displayName } : {}),
       nickname,
-      model: null,
+      model,
       agentRole,
     };
   }
@@ -13866,15 +13920,26 @@ export class CodexService extends EventEmitter {
   private deriveConversationChildMemberships(
     conversation: CodexConversationSnapshot,
   ): CodexConversationChildMembership[] {
-    return this.extractConversationChildThreadIds(conversation).map((childThreadId) => {
+    const childThreadSummaries = new Map(
+      this.listChildThreadLinksSafely(conversation.threadId).map((summary) => [summary.threadId, summary] as const),
+    );
+    const childThreadIds = new Set([
+      ...this.extractConversationChildThreadIds(conversation),
+      ...childThreadSummaries.keys(),
+    ]);
+
+    return Array.from(childThreadIds).map((childThreadId) => {
       const childConversation = this.buildConversationBaseSnapshot(childThreadId);
+      const childSummary = childThreadSummaries.get(childThreadId) ?? this.getThreadLinkSafely(childThreadId);
       const primaryRequest = selectPrimaryConversationRequest(childConversation);
-      const thread = this.buildConversationChildThreadMetadata(childConversation);
+      const thread = this.buildConversationChildThreadMetadata(childConversation, childSummary);
+      const agentRole = childConversation?.agentRole?.trim() || childSummary?.agentRole?.trim() || null;
       return {
         threadId: childThreadId,
         parentThreadId: conversation.threadId,
         role: primaryRequest?.type === "approval" ? "childApproval" : "backgroundChild",
-        actorName: this.formatConversationActorName(childConversation, childThreadId),
+        actorName: this.formatConversationActorName(childConversation, childThreadId, childSummary),
+        agentRole,
         ...(thread ? { thread } : {}),
       };
     });

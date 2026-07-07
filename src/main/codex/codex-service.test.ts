@@ -2384,7 +2384,92 @@ describe("codex-service readThread fallback", () => {
           },
         });
 
-        expect(Array.from(serviceInternals.subagentThreadIds).join(",")).toBe("thr_subagent_child");
+        expect(Array.from(serviceInternals.subagentThreadIds).join(",")).toBe("thr_subagent_child,thr_lowercase_subagent");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("persists source-derived subagent nickname metadata without sparse overwrite", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      };
+
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_parent_source_metadata",
+        threadPreview: "Parent thread",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        statusType: "idle",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+
+      try {
+        await serviceInternals.handleNotification("thread/started", {
+          thread: {
+            id: "thr_child_source_metadata",
+            parentThreadId: null,
+            preview: "Child source metadata",
+            ephemeral: false,
+            modelProvider: "openai",
+            cwd: "/tmp/codex",
+            createdAt: 2,
+            updatedAt: 2,
+            status: { type: "idle" },
+            name: null,
+            source: {
+              subagent: {
+                thread_spawn: {
+                  parent_thread_id: "thr_parent_source_metadata",
+                  agent_nickname: "@Euclid",
+                  agent_role: "explorer",
+                },
+              },
+            },
+          },
+        });
+
+        const firstSummary = getCodexThread("thr_child_source_metadata");
+        expect(firstSummary?.source?.parentThreadId).toBe("thr_parent_source_metadata");
+        expect(firstSummary?.agentNickname).toBe("@Euclid");
+        expect(firstSummary?.agentRole).toBe("explorer");
+
+        await serviceInternals.handleNotification("thread/started", {
+          thread: {
+            id: "thr_child_source_metadata",
+            parentThreadId: "thr_parent_source_metadata",
+            preview: "Sparse child update",
+            ephemeral: false,
+            modelProvider: "openai",
+            cwd: "/tmp/codex",
+            createdAt: 2,
+            updatedAt: 3,
+            status: { type: "idle" },
+            name: null,
+            source: "unknown",
+          },
+        });
+
+        const sparseSummary = getCodexThread("thr_child_source_metadata");
+        expect(sparseSummary?.agentNickname).toBe("@Euclid");
+        expect(sparseSummary?.agentRole).toBe("explorer");
+
+        serviceInternals.setConversationRecordDetail({
+          ...makeThreadDetail("thr_parent_source_metadata"),
+          projectId: defaultProjectId,
+          threadName: "Parent",
+        });
+        const conversation = service.serializeConversationSnapshot("thr_parent_source_metadata");
+        expect(conversation?.childMemberships[0]?.thread?.nickname).toBe("@Euclid");
+        expect(conversation?.childMemberships[0]?.thread?.agentRole).toBe("explorer");
       } finally {
         await service.shutdown();
       }
@@ -5539,8 +5624,53 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.childMemberships.length).toBe(1);
         expect(conversation?.childMemberships[0]?.threadId).toBe("thr_child");
         expect(conversation?.childMemberships[0]?.actorName).toBe("Child agent");
+        expect(conversation?.childMemberships[0]?.thread?.displayName).toBe("Child agent");
+        expect(conversation?.childMemberships[0]?.thread?.name).toBe("Child agent");
         expect(conversation?.childMemberships[0]?.thread?.nickname).toBe("@ChildNick");
         expect(conversation?.childMemberships[0]?.thread?.agentRole).toBe("reviewer");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("serializes child-thread memberships from lightweight subagent catalog summaries", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      };
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_parent_catalog"),
+        projectId: defaultProjectId,
+        threadName: "Parent",
+      });
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_child_catalog",
+        source: { parentThreadId: "thr_parent_catalog" },
+        threadSource: "subagent",
+        agentNickname: "@Nash",
+        agentRole: "worker",
+        threadPreview: "Role/name: Smoke Writer",
+        modelProvider: "openai",
+        cwd: "/tmp/project",
+        statusType: "idle",
+        createdAt: 1,
+        updatedAt: 2,
+      });
+
+      try {
+        const conversation = service.serializeConversationSnapshot("thr_parent_catalog");
+        expect(conversation).not.toBeNull();
+        expect(conversation?.childMemberships.length).toBe(1);
+        expect(conversation?.childMemberships[0]?.threadId).toBe("thr_child_catalog");
+        expect(conversation?.childMemberships[0]?.actorName).toBe("Nash");
+        expect(conversation?.childMemberships[0]?.thread?.nickname).toBe("@Nash");
+        expect(conversation?.childMemberships[0]?.thread?.agentRole).toBe("worker");
       } finally {
         await service.shutdown();
       }

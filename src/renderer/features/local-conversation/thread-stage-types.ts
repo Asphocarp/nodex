@@ -13,6 +13,7 @@ import type {
   CodexConnectionState,
   CodexDictationStateSnapshot,
   CodexConversationCapabilityFlags,
+  CodexConversationChildMembership,
   CodexConversationItem,
   CodexUserAttachment,
   CodexConversationLiveRequest,
@@ -810,6 +811,7 @@ export interface ThreadBodySurfaceModel {
   capabilityFlags: CodexConversationCapabilityFlags;
   body: ThreadBodyModel;
   parentTurns: readonly CodexConversationTurn[];
+  childMemberships: readonly CodexConversationChildMembership[];
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {

@@ -21,8 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 49;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49] as const;
+export const CURRENT_SCHEMA_VERSION = 50;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -242,6 +242,8 @@ function createLatestSchema(db: Database.Database): void {
       parent_thread_id TEXT,
       thread_name TEXT,
       thread_source TEXT,
+      agent_nickname TEXT,
+      agent_role TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
       cwd TEXT,
@@ -779,6 +781,8 @@ function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
       parent_thread_id TEXT,
       thread_name TEXT,
       thread_source TEXT,
+      agent_nickname TEXT,
+      agent_role TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
       cwd TEXT,
@@ -791,12 +795,12 @@ function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
     ) WITHOUT ROWID;
 
     INSERT INTO codex_threads_next (
-      thread_id, project_id, parent_thread_id, thread_name, thread_source, thread_preview,
+      thread_id, project_id, parent_thread_id, thread_name, thread_source, agent_nickname, agent_role, thread_preview,
       model_provider, cwd, status_type, status_active_flags_json, archived,
       created_at, updated_at, linked_at
     )
     SELECT
-      thread_id, project_id, parent_thread_id, thread_name, NULL, thread_preview,
+      thread_id, project_id, parent_thread_id, thread_name, NULL, NULL, NULL, thread_preview,
       model_provider, cwd, status_type, status_active_flags_json, archived,
       created_at, updated_at, linked_at
     FROM codex_threads;
@@ -2055,6 +2059,17 @@ function migrateSchema48To49(db: Database.Database): void {
   setUserVersion(db, 49);
 }
 
+function migrateSchema49To50(db: Database.Database): void {
+  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "agent_nickname")) {
+    db.exec("ALTER TABLE codex_threads ADD COLUMN agent_nickname TEXT");
+  }
+  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "agent_role")) {
+    db.exec("ALTER TABLE codex_threads ADD COLUMN agent_role TEXT");
+  }
+
+  setUserVersion(db, 50);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -2211,6 +2226,14 @@ function runMigrations(
       }
       migrateSchema48To49(db);
       fromVersion = 49;
+      continue;
+    }
+    if (target === 50) {
+      if (fromVersion !== 49) {
+        throw new Error(`Unsupported Nodex database migration target 50 from ${fromVersion}`);
+      }
+      migrateSchema49To50(db);
+      fromVersion = 50;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

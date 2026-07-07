@@ -2716,6 +2716,7 @@ export function buildThreadStageStorySurfaceModels(
     capabilityFlags,
     body,
     parentTurns,
+    childMemberships: conversation?.childMemberships ?? [],
     projectWorkspacePath: STORY_WORKSPACE_PATH,
     searchOpenTick: runtime.searchOpenTick,
     threadStartProgress: runtime.threadStartProgress,

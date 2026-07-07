@@ -116,20 +116,11 @@ function stripLeadingAt(value: string): string {
   return value.startsWith("@") ? value.slice(1) : value;
 }
 
-function resolveAgentPathDisplayName(agentPath: string): string | null {
-  const normalizedPath = agentPath.trim().replaceAll("\\", "/");
-  const segments = normalizedPath.split("/").map((segment) => segment.trim()).filter(Boolean);
-  const candidate = segments.at(-1) ?? normalizedPath;
-  const displayName = stripLeadingAt(candidate.trim());
-  return displayName.length > 0 ? displayName : null;
-}
-
 function resolveSubagentActivityDisplayName(rawItem: ProtocolSubAgentActivityItem & Record<string, unknown>): string {
   const directDisplayName = normalizeOptionalText(rawItem.displayName);
   if (directDisplayName) return stripLeadingAt(directDisplayName);
 
-  const pathDisplayName = resolveAgentPathDisplayName(rawItem.agentPath);
-  return pathDisplayName ?? "Agent";
+  return "Agent";
 }
 
 function getSubagentActivityItem(rawItem: unknown): (ProtocolSubAgentActivityItem & Record<string, unknown>) | null {

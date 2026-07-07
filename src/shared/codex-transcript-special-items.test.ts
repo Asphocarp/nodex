@@ -193,4 +193,52 @@ describe("codex-transcript-special-items", () => {
       },
     }));
   });
+
+  test("normalizes subagent receiver display metadata aliases", () => {
+    const payload = normalizeMultiAgentActionPayload({
+      tool: "spawnAgent",
+      status: "completed",
+      receiverThreadIds: ["thr_euclid", "thr_named", "thr_source"],
+      receiverThreads: [
+        {
+          threadId: "thr_euclid",
+          thread: {
+            agentNickname: "@Euclid",
+            model: "gpt-5-codex",
+            agentRole: "explorer",
+          },
+        },
+        {
+          threadId: "thr_named",
+          thread: {
+            name: "Proof Writer",
+            model: null,
+            agentRole: "worker",
+          },
+        },
+        {
+          threadId: "thr_source",
+          thread: {
+            model: "gpt-5-codex",
+            source: {
+              subagent: {
+                thread_spawn: {
+                  parent_thread_id: "thr_parent",
+                  agent_nickname: "@Nash",
+                  agent_role: "reviewer",
+                },
+              },
+            },
+          },
+        },
+      ],
+      agentsStates: {},
+    });
+
+    expect(payload?.receiverThreads[0]?.thread?.nickname).toBe("@Euclid");
+    expect(payload?.receiverThreads[1]?.thread?.nickname).toBe("Proof Writer");
+    expect(payload?.receiverThreads[1]?.thread?.name).toBe("Proof Writer");
+    expect(payload?.receiverThreads[2]?.thread?.nickname).toBe("@Nash");
+    expect(payload?.receiverThreads[2]?.thread?.agentRole).toBe("reviewer");
+  });
 });
