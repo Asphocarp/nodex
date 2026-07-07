@@ -204,7 +204,11 @@ import {
   normalizeAutomaticApprovalReviewPayload,
   shouldShowAutoReviewInterruptionWarning,
 } from "../../shared/codex-transcript-special-items";
-import { extractCodexThreadSubagentMetadata } from "../../shared/codex-subagent-metadata";
+import {
+  extractCodexThreadSubagentMetadata,
+  getCodexSubagentOtherSource,
+  hasCodexSubagentSource,
+} from "../../shared/codex-subagent-metadata";
 import {
   buildCodexTurnDiffFromPatchBatches,
   getCodexFileChangeList,
@@ -267,7 +271,10 @@ import {
   type CodexServerRequest,
   type CodexServerNotification,
 } from "./codex-app-server-client";
-import { readCodexSessionThreadDetail } from "./codex-session-store";
+import {
+  readCodexSessionThreadDetail,
+  readCodexSessionThreadMetadata,
+} from "./codex-session-store";
 import { createManagedWorktree, removeManagedWorktree } from "./git-worktree-service";
 import {
   applyLiveTranscriptMutation,
@@ -341,18 +348,11 @@ const SIDEBAR_THREAD_SYNC_STALE_MS = 60_000;
 const SIDEBAR_THREAD_SYNC_REPAIR_DEBOUNCE_MS = 300;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
-const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [
-  "cli",
-  "vscode",
-  "exec",
-  "appServer",
-  "subAgent",
-  "subAgentReview",
-  "subAgentCompact",
-  "subAgentThreadSpawn",
-  "subAgentOther",
-  "unknown",
-] as const satisfies readonly ThreadSourceKind[];
+const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
+const AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES = [
+  "The following is the Codex agent history",
+  "The following is the Codex agent history added since your last approval assessment",
+] as const;
 const CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS = new Set([
   "item/agentMessage/delta",
   "item/plan/delta",
@@ -393,6 +393,20 @@ interface SidebarThreadSessionReconcileResult {
   materialized: boolean;
   changedProjectIds: Set<string>;
   projectlessChanged: boolean;
+}
+
+function createEmptySidebarThreadMaterializationResult(): SidebarThreadMaterializationResult {
+  return {
+    summary: null,
+    projectId: null,
+    projectless: false,
+    sessionId: null,
+    materialized: false,
+    changed: false,
+    failed: false,
+    changedProjectIds: new Set(),
+    projectlessChanged: false,
+  };
 }
 
 function createSidebarThreadSyncMetadata(): SidebarThreadSyncMetadata {
@@ -670,7 +684,7 @@ interface GenerateThreadTitleAdapterInput {
 type InternalNotificationHandler = (notification: { method: string; params: unknown }) => void;
 
 interface InternalThreadMetadata {
-  kind: "thread-title";
+  kind: "thread-title" | "non-sidebar";
   threadSource: ThreadSource | null;
   ephemeral: boolean;
   createdAt: number;
@@ -1546,6 +1560,33 @@ function isSubagentThreadSpawnSource(source: unknown): boolean {
 
 function parseThreadSourceValue(value: unknown): ThreadSource | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function isInternalThreadSourceValue(threadSource: ThreadSource | null): boolean {
+  return threadSource === "system" || threadSource === "subagent";
+}
+
+function isGuardianSubagentSource(source: unknown): boolean {
+  return getCodexSubagentOtherSource(source)?.toLowerCase() === "guardian";
+}
+
+function isNonSidebarThreadWithoutParent(thread: Record<string, unknown>): boolean {
+  const threadSource = parseThreadSourceValue(thread.threadSource);
+  if (isInternalThreadSourceValue(threadSource)) return true;
+  return hasCodexSubagentSource(thread.source);
+}
+
+function isPotentialAutoReviewReviewerPreview(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
+function isConfirmedAutoReviewReviewerMetadata(threadId: string): boolean {
+  const metadata = readCodexSessionThreadMetadata(threadId);
+  if (!metadata) return false;
+  const threadSource = parseThreadSourceValue(metadata.threadSource);
+  return threadSource === "subagent" && isGuardianSubagentSource(metadata.source);
 }
 
 function isRolloutMaterializationError(error: unknown): boolean {
@@ -2545,17 +2586,20 @@ export class CodexService extends EventEmitter {
     if (method !== "thread/started") return;
     const payload = asRecord(params);
     const thread = asRecord(payload?.thread);
-    if (!thread || thread.ephemeral !== true) return;
+    if (!thread) return;
 
     const threadSource = parseThreadSourceValue(thread.threadSource);
-    if (threadSource !== "system") return;
+    const isThreadTitleHelper = thread.ephemeral === true && threadSource === "system";
+    const isNonSidebarHelper = !parseThreadParentThreadId(thread) && isNonSidebarThreadWithoutParent(thread);
+    if (!isThreadTitleHelper && !isNonSidebarHelper) return;
+
     const threadId = typeof thread.id === "string" ? thread.id : null;
     if (!threadId) return;
 
     this.markInternalThread(threadId, {
-      kind: "thread-title",
+      kind: isThreadTitleHelper ? "thread-title" : "non-sidebar",
       threadSource,
-      ephemeral: true,
+      ephemeral: thread.ephemeral === true,
     });
   }
 
@@ -2563,7 +2607,7 @@ export class CodexService extends EventEmitter {
     if (method !== "thread/started") return;
     const payload = asRecord(params);
     const thread = asRecord(payload?.thread);
-    if (!thread || (!parseThreadParentThreadId(thread) && !isSubagentThreadSpawnSource(thread.source))) return;
+    if (!thread || (!parseThreadParentThreadId(thread) && !isSubagentThreadSpawnSource(thread.source) && !hasCodexSubagentSource(thread.source))) return;
 
     const threadId = typeof thread.id === "string" ? thread.id.trim() : "";
     if (threadId.length === 0) return;
@@ -5253,6 +5297,10 @@ export class CodexService extends EventEmitter {
       const existingLink = projectSessionService.getProjectSessionThreadLink(normalizedThreadId);
       return existingLink ? projectSessionService.getProjectSession(existingLink.sessionId) : null;
     }
+    if (this.shouldHidePersistedNonSidebarThread(summary)) {
+      this.hideNonSidebarThreadMaterialization(summary.threadId, "manual");
+      return null;
+    }
     const reconciled = this.reconcileSidebarThreadSession(summary, { reason: "manual" });
     const paletteSummary = this.getCommandPaletteSidebarChat(normalizedThreadId);
     if (paletteSummary) {
@@ -5421,17 +5469,7 @@ export class CodexService extends EventEmitter {
       reason: CodexSidebarRefreshReason;
     },
   ): SidebarThreadMaterializationResult {
-    const empty: SidebarThreadMaterializationResult = {
-      summary: null,
-      projectId: null,
-      projectless: false,
-      sessionId: null,
-      materialized: false,
-      changed: false,
-      failed: false,
-      changedProjectIds: new Set(),
-      projectlessChanged: false,
-    };
+    const empty = createEmptySidebarThreadMaterializationResult();
     if (typeof thread !== "object" || thread === null) return empty;
 
     const candidate = thread as Record<string, unknown>;
@@ -5449,6 +5487,9 @@ export class CodexService extends EventEmitter {
         projectId: summary?.projectId ?? null,
         changed: summary ? hasSidebarThreadSummaryChanged(previousSummary, summary) : false,
       };
+    }
+    if (isNonSidebarThreadWithoutParent(candidate)) {
+      return this.hideNonSidebarThreadMaterialization(candidate.id, input.reason);
     }
 
     const projectId = resolveSidebarProjectIdForCwd(cwd, input.projects);
@@ -5510,6 +5551,79 @@ export class CodexService extends EventEmitter {
         projectlessChanged: false,
       };
     }
+  }
+
+  private hideNonSidebarThreadMaterialization(
+    threadId: string,
+    reason: CodexSidebarRefreshReason,
+  ): SidebarThreadMaterializationResult {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return createEmptySidebarThreadMaterializationResult();
+
+    const previousSummary = getCodexThread(normalizedThreadId);
+    const owners = projectSessionService.listProjectSessionThreadOwners(normalizedThreadId);
+    const changedProjectIds = new Set<string>();
+    let projectlessChanged = false;
+    let changed = false;
+
+    setCodexThreadPinned(normalizedThreadId, false);
+
+    for (const owner of owners) {
+      const session = projectSessionService.getProjectSession(owner.sessionId);
+      if (!session) continue;
+
+      const archivedSession = session.archived
+        ? session
+        : projectSessionService.archiveProjectSession(session.id);
+      const detached = projectSessionService.detachProjectSessionThread(session.id);
+      if (session.projectId) {
+        changedProjectIds.add(session.projectId);
+      } else {
+        projectlessChanged = true;
+      }
+      if (!session.archived || detached) {
+        changed = true;
+        dbNotifier.notifyProjectSessionsChanged(archivedSession?.projectId ?? session.projectId, "archive", session.id);
+      }
+    }
+
+    const archivedSummary = updateCodexThreadArchived(normalizedThreadId, true) ?? previousSummary;
+    if (previousSummary && !previousSummary.archived) {
+      changed = true;
+      if (previousSummary.projectId) {
+        changedProjectIds.add(previousSummary.projectId);
+      } else {
+        projectlessChanged = true;
+      }
+    }
+
+    if (changed) {
+      this.invalidateSidebarSnapshotCache();
+      this.logger.info("Hid non-sidebar Codex thread from sidebar materialization", {
+        threadId: normalizedThreadId,
+        reason,
+        ownerCount: owners.length,
+      });
+    }
+
+    return {
+      ...createEmptySidebarThreadMaterializationResult(),
+      summary: archivedSummary,
+      projectId: archivedSummary?.projectId ?? previousSummary?.projectId ?? null,
+      projectless: (archivedSummary?.projectId ?? previousSummary?.projectId ?? null) === null,
+      changed,
+      changedProjectIds,
+      projectlessChanged,
+    };
+  }
+
+  private shouldHidePersistedNonSidebarThread(summary: CodexThreadSummary): boolean {
+    if (summary.source?.parentThreadId) return false;
+
+    const threadSource = parseThreadSourceValue(summary.threadSource);
+    if (isInternalThreadSourceValue(threadSource)) return true;
+    if (!isPotentialAutoReviewReviewerPreview(summary.threadPreview)) return false;
+    return isConfirmedAutoReviewReviewerMetadata(summary.threadId);
   }
 
   private createSidebarThreadSessionFromSummary(summary: CodexThreadSummary): ProjectSession | null {
@@ -5659,8 +5773,15 @@ export class CodexService extends EventEmitter {
     let sessionReadCount = 0;
     let skippedArchivedCount = 0;
     let skippedEphemeralCount = 0;
+    let repairedNonSidebarCount = 0;
 
     for (const thread of threadLinks) {
+      if (this.shouldHidePersistedNonSidebarThread(thread)) {
+        this.hideNonSidebarThreadMaterialization(thread.threadId, "session-change");
+        repairedNonSidebarCount += 1;
+        continue;
+      }
+
       sessionLinkLookupCount += 1;
       const sessionLink = projectSessionService.getProjectSessionThreadLink(thread.threadId);
       const session = sessionLink ? projectSessionService.getProjectSessionSummary(sessionLink.sessionId) : null;
@@ -5734,6 +5855,7 @@ export class CodexService extends EventEmitter {
       sessionReadCount,
       skippedArchivedCount,
       skippedEphemeralCount,
+      repairedNonSidebarCount,
       itemCount: items.length,
       pinnedThreadCount: pinnedThreadIds.length,
       projectAssignmentCount: Object.keys(projectAssignments).length,

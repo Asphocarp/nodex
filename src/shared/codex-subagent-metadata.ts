@@ -82,6 +82,16 @@ function getSubagentSourceRecord(source: unknown): { record: Record<string, unkn
   };
 }
 
+export function hasCodexSubagentSource(source: unknown): boolean {
+  return getSubagentSourceRecord(source).found;
+}
+
+export function getCodexSubagentOtherSource(source: unknown): string | null {
+  const subagentSource = getSubagentSourceRecord(source);
+  if (!subagentSource.found) return null;
+  return normalizeOptionalText(subagentSource.record?.other);
+}
+
 export function extractCodexThreadSpawnMetadata(source: unknown): CodexThreadSpawnMetadata {
   const subagentSource = getSubagentSourceRecord(source);
   const threadSpawn = asRecord(subagentSource.record?.thread_spawn);

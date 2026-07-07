@@ -424,11 +424,11 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 12. Codex Threads (Electron-only in this phase)
 - New chats are created for project sessions and linked through `project_session_threads`; cards can mention threads or send selected content to them, but cards do not own threads.
-- The sidebar discovers active Codex threads globally through app-server `thread/list`, including chats created outside Nodex by Codex CLI, VS Code extension, or another local app-server client.
+- The sidebar discovers active interactive Codex root threads globally through app-server `thread/list`, including chats created outside Nodex by Codex CLI, VS Code extension, or another local app-server client.
 - External threads are automatically materialized into local sessions during sidebar sync. Nodex assigns them to the project whose source root is the longest normalized cwd prefix. Threads whose cwd does not match any project become projectless sessions and render under `Chats`.
 - Projectless sessions have `projectId: null`, can open the thread stage, rename, archive, and pin like normal chats, but they do not switch the active project and cannot own DB View or project-only Card Stage tabs.
 - Global thread pinning is stored in `codex_pinned_threads` and controls attached chat ordering in the sidebar pinned section. `project_sessions.pinned` is retained only as a compatibility mirror and for no-thread local rows.
-- Active sidebar lists hide archived Codex threads, archived sessions, deleted threads, ephemeral side chats, and side-conversation helper threads.
+- Active sidebar lists hide archived Codex threads, archived sessions, deleted threads, ephemeral side chats, side-conversation helper threads, background subagents, and detached internal reviewer/helper threads such as auto-review reviewer runs. Existing local rows that previously materialized these internal threads as sessions are repaired by archiving/detaching the leaked session and archiving the helper thread row.
 - Newly created blank project chats render at the top of their normal project subtree below pinned rows such as the starter `Database View` session and above older normal chats. Projectless blank chats render at the top of `Chats`.
 - Thread creation requires the first user prompt and immediately starts the first turn. The pending state belongs to the session/thread-start lifecycle, not to the composer button alone, and it remains visible for attached empty thread snapshots until the first visible turn replaces it.
 - New threads auto-generate a concise title from the first user prompt in the main process after `thread/start` succeeds unless an explicit thread name or `skipAutoTitleGeneration` is provided.

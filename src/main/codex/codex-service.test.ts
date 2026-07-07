@@ -1919,6 +1919,25 @@ function withTempCodexHome(run: (codexHome: string) => void): void {
   }
 }
 
+async function withTempCodexHomeAsync(run: (codexHome: string) => Promise<void>): Promise<void> {
+  const previousCodexHome = process.env.CODEX_HOME;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-home-"));
+  process.env.CODEX_HOME = tempDir;
+  resetCodexSessionStoreCaches();
+
+  try {
+    await run(tempDir);
+  } finally {
+    if (previousCodexHome) {
+      process.env.CODEX_HOME = previousCodexHome;
+    } else {
+      delete process.env.CODEX_HOME;
+    }
+    resetCodexSessionStoreCaches();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 function initializeGitRepository(repoPath: string): void {
   fs.mkdirSync(repoPath, { recursive: true });
   execFileSync("git", ["init", "-b", "main"], { cwd: repoPath });
@@ -2393,6 +2412,54 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("does not materialize detached guardian reviewer thread-started notifications", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const handledMethods: string[] = [];
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+        routeAppServerNotification: (notification: { method: string; params: unknown }) => void;
+        subagentThreadIds: Set<string>;
+      };
+
+      try {
+        serviceInternals.handleNotification = async (method) => {
+          handledMethods.push(method);
+        };
+        serviceInternals.routeAppServerNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              ...makeSidebarListThread({
+                id: "thr_started_reviewer",
+                cwd: "/tmp/codex",
+                preview: "The following is the Codex agent history whose request action you are assessing.",
+              }),
+              source: {
+                subagent: {
+                  other: "guardian",
+                },
+              },
+              threadSource: "subagent",
+            },
+          },
+        });
+
+        const linked = listProjectSessions(defaultProjectId)
+          .find((session) => session.thread?.threadId === "thr_started_reviewer");
+
+        expect(handledMethods.join(",")).toBe("");
+        expect(serviceInternals.subagentThreadIds.has("thr_started_reviewer")).toBeTrue();
+        expect(linked === undefined).toBeTrue();
+        expect(getCodexThread("thr_started_reviewer") === null).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("persists source-derived subagent nickname metadata without sparse overwrite", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -2683,7 +2750,7 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("requests sidebar thread-list with all source kinds from the state DB read model", async () => {
+  test("requests sidebar thread-list with interactive default source kinds from the state DB read model", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
@@ -2691,18 +2758,6 @@ describe("codex-service readThread fallback", () => {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const requests: unknown[] = [];
-      const expectedSourceKinds = [
-        "cli",
-        "vscode",
-        "exec",
-        "appServer",
-        "subAgent",
-        "subAgentReview",
-        "subAgentCompact",
-        "subAgentThreadSpawn",
-        "subAgentOther",
-        "unknown",
-      ];
 
       client.start = async () => undefined;
       client.request = async (method, params) => {
@@ -2734,8 +2789,134 @@ describe("codex-service readThread fallback", () => {
         expect(archivedRequest?.modelProviders).toBe(null);
         expect(activeRequest?.useStateDbOnly).toBe(true);
         expect(archivedRequest?.useStateDbOnly).toBe(true);
-        expect(JSON.stringify(activeRequest?.sourceKinds)).toBe(JSON.stringify(expectedSourceKinds));
-        expect(JSON.stringify(archivedRequest?.sourceKinds)).toBe(JSON.stringify(expectedSourceKinds));
+        expect(JSON.stringify(activeRequest?.sourceKinds)).toBe("[]");
+        expect(JSON.stringify(archivedRequest?.sourceKinds)).toBe("[]");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("does not materialize detached guardian reviewer threads from sidebar sync", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const reviewerPreview = "The following is the Codex agent history whose request action you are assessing.";
+
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        if (method !== "thread/list") return {};
+        const request = params as Record<string, unknown>;
+        return {
+          data: request.archived
+            ? []
+            : [{
+                ...makeSidebarListThread({
+                  id: "thr_auto_review_reviewer",
+                  cwd: "/tmp/codex",
+                  preview: reviewerPreview,
+                }),
+                source: {
+                  subagent: {
+                    other: "guardian",
+                  },
+                },
+                threadSource: "subagent",
+              }],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        const result = await service.syncSidebarThreadsDetailed({
+          includeArchived: true,
+          policy: "force",
+          reason: "manual",
+        });
+        const linked = listProjectSessions(defaultProjectId)
+          .find((session) => session.thread?.threadId === "thr_auto_review_reviewer");
+
+        expect(result.snapshot.items.some((item) => item.threadId === "thr_auto_review_reviewer")).toBeFalse();
+        expect(linked === undefined).toBeTrue();
+        expect(getCodexThread("thr_auto_review_reviewer") === null).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("repairs legacy auto-review reviewer sidebar sessions from rollout metadata", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const reviewerPreview = "The following is the Codex agent history added since your last approval assessment.";
+
+      try {
+        await withTempCodexHomeAsync(async (codexHome) => {
+          fs.mkdirSync(path.join(codexHome, "sessions", "2026", "07", "06"), { recursive: true });
+          fs.writeFileSync(
+            path.join(codexHome, "sessions", "2026", "07", "06", "rollout-2026-07-06T18-08-45-thr_legacy_reviewer.jsonl"),
+            [
+              JSON.stringify({
+                timestamp: "2026-07-06T10:10:30.000Z",
+                type: "session_meta",
+                payload: {
+                  id: "thr_legacy_reviewer",
+                  parent_thread_id: "thr_parent",
+                  source: {
+                    subagent: {
+                      other: "guardian",
+                    },
+                  },
+                  thread_source: "subagent",
+                  cwd: "/tmp/codex",
+                },
+              }),
+              JSON.stringify({
+                timestamp: "2026-07-06T10:10:31.000Z",
+                type: "event_msg",
+                payload: {
+                  type: "user_message",
+                  message: reviewerPreview,
+                },
+              }),
+            ].join("\n"),
+          );
+
+          const session = createProjectSession({
+            projectId: defaultProjectId,
+            noThreadFallbackTitle: reviewerPreview,
+          });
+          upsertProjectSessionThreadLink({
+            sessionId: session.id,
+            projectId: defaultProjectId,
+            threadId: "thr_legacy_reviewer",
+            threadPreview: reviewerPreview,
+            modelProvider: "openai",
+            cwd: "/tmp/codex",
+            statusType: "idle",
+            statusActiveFlags: [],
+            archived: false,
+            createdAt: 10,
+            updatedAt: 20,
+          });
+
+          const snapshot = await service.syncSidebarThreads({ includeArchived: true, refresh: false });
+          const repairedSession = getProjectSession(session.id);
+          const repairedThread = getCodexThread("thr_legacy_reviewer");
+
+          expect(snapshot.items.some((item) => item.threadId === "thr_legacy_reviewer")).toBeFalse();
+          expect(repairedSession?.archived).toBeTrue();
+          expect(repairedSession?.thread === null).toBeTrue();
+          expect(repairedThread?.archived).toBeTrue();
+        });
       } finally {
         await service.shutdown();
       }

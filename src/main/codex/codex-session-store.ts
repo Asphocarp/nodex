@@ -30,6 +30,14 @@ interface SessionThreadMaterializationInput {
   link: CodexThreadSummary;
 }
 
+export interface CodexSessionThreadMetadata {
+  threadId: string;
+  parentThreadId: string | null;
+  source: unknown;
+  threadSource: string | null;
+  cwd: string | null;
+}
+
 interface MutableTurnRecord {
   threadId: string;
   turnId: string;
@@ -157,6 +165,14 @@ function parseJsonString(value: unknown): unknown {
   } catch {
     return value;
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+}
+
+function normalizeOptionalSessionText(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 function normalizeText(value: string): string {
@@ -643,6 +659,41 @@ export function readCodexSessionThreadDetail(
   } catch {
     return null;
   }
+}
+
+export function readCodexSessionThreadMetadata(threadId: string): CodexSessionThreadMetadata | null {
+  const normalizedThreadId = threadId.trim();
+  if (!normalizedThreadId) return null;
+
+  const match = resolveSessionFile(normalizedThreadId);
+  if (!match) return null;
+
+  try {
+    const raw = fs.readFileSync(match.filePath, "utf8");
+    if (!raw.trim() || !match.filePath.endsWith(".jsonl")) return null;
+
+    const fallbackTimestamp = Date.now();
+    for (const rawLine of raw.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const parsedLine = parseCodexSessionJsonlLine(line, fallbackTimestamp);
+      if (!parsedLine || parsedLine.type !== "session_meta") continue;
+
+      const payload = asRecord(parsedLine.payload);
+      if (!payload) return null;
+      return {
+        threadId: normalizeOptionalSessionText(payload.id) ?? normalizedThreadId,
+        parentThreadId: normalizeOptionalSessionText(payload.parent_thread_id ?? payload.parentThreadId),
+        source: payload.source ?? null,
+        threadSource: normalizeOptionalSessionText(payload.thread_source ?? payload.threadSource),
+        cwd: normalizeOptionalSessionText(payload.cwd),
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 export function resetCodexSessionStoreCaches(): void {

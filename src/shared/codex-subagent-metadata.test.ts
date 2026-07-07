@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   extractCodexThreadSpawnMetadata,
   extractCodexThreadSubagentMetadata,
+  getCodexSubagentOtherSource,
+  hasCodexSubagentSource,
 } from "./codex-subagent-metadata";
 
 describe("codex-subagent-metadata", () => {
@@ -102,5 +104,23 @@ describe("codex-subagent-metadata", () => {
     expect(explicitNulls.hasAgentRole).toBeTrue();
     expect(directSpawn.parentThreadId).toBe("parent-direct");
     expect(directSpawn.agentNickname).toBe("@Direct");
+  });
+
+  test("recognizes subagent source families that are not thread spawns", () => {
+    const guardianSource = {
+      subagent: {
+        other: "guardian",
+      },
+    };
+    const reviewSource = {
+      subAgent: "review",
+    };
+    const cliSource = "cli";
+
+    expect(hasCodexSubagentSource(guardianSource)).toBeTrue();
+    expect(getCodexSubagentOtherSource(guardianSource)).toBe("guardian");
+    expect(hasCodexSubagentSource(reviewSource)).toBeTrue();
+    expect(getCodexSubagentOtherSource(reviewSource)).toBe(null);
+    expect(hasCodexSubagentSource(cliSource)).toBeFalse();
   });
 });

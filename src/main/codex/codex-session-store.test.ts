@@ -6,6 +6,7 @@ import type { CodexThreadSummary } from "../../shared/types";
 import {
   hasCodexSessionMaterialized,
   readCodexSessionThreadDetail,
+  readCodexSessionThreadMetadata,
   resetCodexSessionStoreCaches,
 } from "./codex-session-store";
 
@@ -51,6 +52,49 @@ afterEach(() => {
 });
 
 describe("codex-session-store", () => {
+  test("reads session metadata without materializing transcript history", () => {
+    withTempCodexHome((codexHome) => {
+      fs.mkdirSync(path.join(codexHome, "sessions", "2026", "07", "06"), { recursive: true });
+      fs.writeFileSync(
+        path.join(codexHome, "sessions", "2026", "07", "06", "rollout-2026-07-06T18-08-45-thr_reviewer.jsonl"),
+        [
+          JSON.stringify({
+            timestamp: "2026-07-06T10:10:30.000Z",
+            type: "session_meta",
+            payload: {
+              id: "thr_reviewer",
+              parent_thread_id: "thr_parent",
+              source: {
+                subagent: {
+                  other: "guardian",
+                },
+              },
+              thread_source: "subagent",
+              cwd: "/tmp/codex",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-07-06T10:10:31.000Z",
+            type: "event_msg",
+            payload: {
+              type: "user_message",
+              message: "The following is the Codex agent history...",
+            },
+          }),
+        ].join("\n"),
+      );
+
+      const metadata = readCodexSessionThreadMetadata("thr_reviewer");
+      const source = metadata?.source as { subagent?: { other?: string } } | null | undefined;
+
+      expect(metadata?.threadId).toBe("thr_reviewer");
+      expect(metadata?.parentThreadId).toBe("thr_parent");
+      expect(metadata?.threadSource).toBe("subagent");
+      expect(metadata?.cwd).toBe("/tmp/codex");
+      expect(source?.subagent?.other).toBe("guardian");
+    });
+  });
+
   test("materializes modern jsonl sessions into thread detail", () => {
     withTempCodexHome((codexHome) => {
       fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "17"), { recursive: true });
