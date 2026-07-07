@@ -44,7 +44,7 @@ interface WorkspaceFilesPanelProps {
   tab: WorkspaceFilesTab;
   activeSession: ProjectSession;
   project: Project | null;
-  onOpenFileTab: (input: { path: string; title: string; panelId: WorkspaceFilesTab["panelId"] }) => Promise<void>;
+  onOpenFileTab: (input: { path: string; title: string; panelId: WorkspaceFilesTab["panelId"] }) => Promise<unknown>;
 }
 
 type EntriesByPath = Record<string, WorkspaceFileDirectoryEntry[]>;

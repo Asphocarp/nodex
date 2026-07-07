@@ -145,6 +145,12 @@ export function subscribeCommandPaletteThreadIndexUpdates(
   return resolveRendererTransport().subscribeCommandPaletteThreadIndexUpdates(callback);
 }
 
+export function subscribeCodexScheduledAutomationChanges(
+  callback: (event: import("./types").CodexScheduledAutomationChangedEvent) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexScheduledAutomationChanges(callback);
+}
+
 export function getWindowFocusState(): Promise<boolean> {
   return resolveRendererTransport().getWindowFocusState();
 }

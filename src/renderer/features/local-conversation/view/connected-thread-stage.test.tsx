@@ -569,7 +569,9 @@ describe("ConnectedThreadStage new-chat home", () => {
         throw new Error("Expected Codex composer placeholder.");
       }
     });
-    expect(view.getByLabelText("Select Git branch") !== null).toBeTrue();
+    const branchTrigger = view.getByLabelText("Switch branch");
+    expect(branchTrigger !== null).toBeTrue();
+    expect(branchTrigger.getAttribute("title")).toBe("Switch branch");
     expect(lowerStatusRow !== null).toBeTrue();
     expect(externalFooterSlot?.contains(lowerStatusRow)).toBeTrue();
     expect(renderedText.includes("Work locally")).toBeTrue();

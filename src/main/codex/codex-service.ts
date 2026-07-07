@@ -44,7 +44,10 @@ import type { PermissionsRequestApprovalParams } from "@nodex/codex-app-server-p
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
+import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type { ThreadBackgroundTerminalsCleanResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsCleanResponse";
+import type { ThreadBackgroundTerminalsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsListResponse";
+import type { ThreadBackgroundTerminalsTerminateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsTerminateResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
@@ -87,6 +90,8 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexApprovalRequest,
+  CodexBackgroundProcessRow,
+  CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexBackgroundTerminalRow,
   CodexCommandAction,
@@ -153,6 +158,7 @@ import type {
   CodexThreadOwnerNotificationMethod,
   CodexThreadOwnerServerRequest,
   CodexTurnStartOptions,
+  TerminalSessionSnapshot,
   CodexTurnStatus,
   CodexTurnSummary,
   CodexUserAttachment,
@@ -178,6 +184,7 @@ import {
 } from "../../shared/codex-terminal-interaction";
 import { parseInlineContent } from "../../shared/nfm";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
+import { buildCodexBackgroundProcessRow } from "./background-process-rows";
 import {
   MAX_PROJECT_SESSION_TITLE_LENGTH,
   ProjectSessionForkInputSchema,
@@ -334,6 +341,11 @@ import { CodexDictationService } from "./dictation-service";
 import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { terminalManager } from "../terminal-manager";
 import {
+  listCodexBackgroundProcesses,
+  makeCodexBackgroundProcessRecordId,
+  upsertCodexBackgroundProcess,
+} from "../local-store/codex-background-processes";
+import {
   CommandPaletteThreadSearchCoordinator,
   type CommandPaletteThreadSearchClient,
 } from "./command-palette-thread-search-coordinator";
@@ -369,6 +381,7 @@ const CODEX_DYNAMIC_TOOL_SPECS = buildCodexAppMetaThreadToolSpecs();
 interface ThreadRef {
   projectId: string | null;
   cwd: string | null;
+  projectlessOutputDirectory?: string | null;
 }
 
 interface SidebarThreadSyncMetadata {
@@ -1145,6 +1158,25 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function parseGeneratedCommitMessageResponse(value: unknown): string | null {
+  const record = asRecord(value);
+  const message = record?.message;
+  if (typeof message !== "string") return null;
+
+  const normalizedMessage = message.trim();
+  return normalizedMessage.length > 0 ? normalizedMessage : null;
+}
+
+function parseGeneratedPullRequestMessageResponse(value: unknown): { title: string | null; body: string | null } {
+  const record = asRecord(value);
+  const title = typeof record?.title === "string" ? record.title.trim() : "";
+  const body = typeof record?.body === "string" ? record.body.trim() : "";
+  return {
+    title: title.length > 0 ? title : null,
+    body: body.length > 0 ? body : null,
+  };
+}
+
 function hasPendingSteeringTranscriptEntry(entries: readonly CodexTranscriptEntry[]): boolean {
   return entries.some((entry) => {
     if (entry.steeringStatus === "pending") return true;
@@ -1301,6 +1333,8 @@ function sessionThreadLinkToSummary(link: ProjectSessionThreadLink): CodexThread
     threadPreview: link.threadPreview,
     modelProvider: link.modelProvider,
     cwd: link.cwd ?? null,
+    managedWorktreePath: link.managedWorktreePath ?? null,
+    projectlessOutputDirectory: link.projectlessOutputDirectory ?? null,
     statusType: parsedStatus.statusType,
     statusActiveFlags: parsedStatus.statusActiveFlags,
     threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
@@ -5801,6 +5835,7 @@ export class CodexService extends EventEmitter {
       threadPreview: summary.threadPreview,
       modelProvider: summary.modelProvider,
       cwd: summary.cwd,
+      managedWorktreePath: summary.managedWorktreePath ?? null,
       statusType: summary.statusType,
       statusActiveFlags: summary.statusActiveFlags,
       archived: summary.archived,
@@ -5864,6 +5899,7 @@ export class CodexService extends EventEmitter {
         threadPreview: summary.threadPreview,
         modelProvider: summary.modelProvider,
         cwd: summary.cwd,
+        managedWorktreePath: summary.managedWorktreePath ?? null,
         statusType: summary.statusType,
         statusActiveFlags: summary.statusActiveFlags,
         archived: summary.archived,
@@ -6512,6 +6548,7 @@ export class CodexService extends EventEmitter {
     return {
       projectId: source.projectId,
       cwd: source.cwd,
+      projectlessOutputDirectory: source.projectlessOutputDirectory ?? null,
     };
   }
 
@@ -8445,10 +8482,14 @@ export class CodexService extends EventEmitter {
         ? {
             projectId: existing.projectId,
             cwd: existing.cwd,
+            projectlessOutputDirectory: existing.projectlessOutputDirectory ?? null,
           }
         : null);
 
     const parsedStatus = parseThreadStatus(candidate.status);
+    const candidateProjectlessOutputDirectory =
+      readStringField(candidate, "projectlessOutputDirectory")
+      ?? readStringField(candidate, "projectless_output_directory");
 
     const subagentMetadata = extractCodexThreadSubagentMetadata(candidate);
     const parentThreadId = subagentMetadata.parentThreadId;
@@ -8463,6 +8504,10 @@ export class CodexService extends EventEmitter {
       cwd: typeof candidate.cwd === "string"
         ? candidate.cwd
         : (existing?.cwd ?? ref?.cwd ?? (fallbackCwd?.trim() || null)),
+      projectlessOutputDirectory: candidateProjectlessOutputDirectory
+        ?? existing?.projectlessOutputDirectory
+        ?? ref?.projectlessOutputDirectory
+        ?? null,
       statusType: parsedStatus.statusType,
       statusActiveFlags: parsedStatus.statusActiveFlags,
       archived: existing?.archived ?? false,
@@ -8501,6 +8546,7 @@ export class CodexService extends EventEmitter {
     const fallbackRef: ThreadRef = {
       projectId: parentSummary?.projectId ?? null,
       cwd: parentSummary?.cwd ?? fallbackCwd,
+      projectlessOutputDirectory: parentSummary?.projectlessOutputDirectory ?? null,
     };
     const summary = this.upsertLinkFromThread(thread, fallbackRef, fallbackCwd ?? parentSummary?.cwd ?? null);
     if (!summary) return null;
@@ -8513,7 +8559,10 @@ export class CodexService extends EventEmitter {
   private upsertSessionLinkFromThread(
     thread: unknown,
     input: { sessionId: string; projectId: string | null },
-    fallbackCwd?: string | null,
+    options: {
+      fallbackCwd?: string | null;
+      managedWorktreePath?: string | null;
+    } = {},
   ): CodexThreadSummary | null {
     if (typeof thread !== "object" || thread === null) return null;
     const candidate = thread as Record<string, unknown>;
@@ -8532,7 +8581,13 @@ export class CodexService extends EventEmitter {
       modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : (existing?.modelProvider ?? ""),
       cwd: typeof candidate.cwd === "string"
         ? candidate.cwd
-        : (existing?.cwd ?? (fallbackCwd?.trim() || null)),
+        : (existing?.cwd ?? (options.fallbackCwd?.trim() || null)),
+      managedWorktreePath: options.managedWorktreePath ?? existing?.managedWorktreePath ?? null,
+      projectlessOutputDirectory:
+        readStringField(candidate, "projectlessOutputDirectory")
+        ?? readStringField(candidate, "projectless_output_directory")
+        ?? existing?.projectlessOutputDirectory
+        ?? null,
       statusType: parsedStatus.statusType,
       statusActiveFlags: parsedStatus.statusActiveFlags,
       archived: existing?.archived ?? false,
@@ -8954,6 +9009,50 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  async generateCommitMessage(input: {
+    hostId?: string | null;
+    prompt: string;
+    cwd: string;
+  }): Promise<string | null> {
+    try {
+      await this.ensureClientReady();
+      const hostId = input.hostId?.trim() || CODEX_APP_LOCAL_HOST_ID;
+      const result = await this.client.request<unknown>("generate-commit-message", {
+        hostId,
+        prompt: input.prompt,
+        cwd: input.cwd,
+      });
+      return parseGeneratedCommitMessageResponse(result);
+    } catch (error) {
+      this.logger.warn("Failed to generate commit message", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  async generatePullRequestMessage(input: {
+    hostId?: string | null;
+    prompt: string;
+    cwd: string;
+  }): Promise<{ title: string | null; body: string | null }> {
+    try {
+      await this.ensureClientReady();
+      const hostId = input.hostId?.trim() || CODEX_APP_LOCAL_HOST_ID;
+      const result = await this.client.request<unknown>("generate-pull-request-message", {
+        hostId,
+        prompt: input.prompt,
+        cwd: input.cwd,
+      });
+      return parseGeneratedPullRequestMessageResponse(result);
+    } catch (error) {
+      this.logger.warn("Failed to generate pull request message", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
   async startThreadForSession(input: CodexThreadStartForSessionInput): Promise<CodexThreadDetail> {
     await this.ensureClientReady();
 
@@ -9069,7 +9168,10 @@ export class CodexService extends EventEmitter {
         link = this.upsertSessionLinkFromThread(threadStart.thread, {
           projectId: input.projectId,
           sessionId: input.sessionId,
-        }, runLocation.cwd);
+        }, {
+          fallbackCwd: runLocation.cwd,
+          managedWorktreePath: runLocation.createdManagedWorktree ? runLocation.cwd : null,
+        });
 
         if (!link) {
           throw new Error("Codex thread/start returned an invalid thread payload");
@@ -9334,7 +9436,10 @@ export class CodexService extends EventEmitter {
         projectId: sourceProjectId,
         sessionId: nextSession.id,
       },
-      runLocation.cwd,
+      {
+        fallbackCwd: runLocation.cwd,
+        managedWorktreePath: runLocation.createdManagedWorktree ? runLocation.cwd : null,
+      },
     );
     if (!summary) {
       throw new Error("Thread fork completed but could not be attached to a project session");
@@ -10062,6 +10167,31 @@ export class CodexService extends EventEmitter {
       case "thread/compact/start":
         await this.startThreadCompaction(conversationId);
         return null;
+      case "thread/backgroundTerminals/list": {
+        const cursor = readStringField(params, "cursor");
+        const limit = getFiniteNumber(params.limit);
+        return await this.client.request<"thread/backgroundTerminals/list", ThreadBackgroundTerminalsListResponse>(
+          "thread/backgroundTerminals/list",
+          {
+            threadId: conversationId,
+            cursor,
+            limit: limit && limit > 0 ? limit : undefined,
+          },
+        );
+      }
+      case "thread/backgroundTerminals/terminate": {
+        const processId = readStringField(params, "processId");
+        if (!processId) {
+          throw new Error("Owner thread/backgroundTerminals/terminate requires a processId");
+        }
+        return await this.client.request<
+          "thread/backgroundTerminals/terminate",
+          ThreadBackgroundTerminalsTerminateResponse
+        >(
+          "thread/backgroundTerminals/terminate",
+          { threadId: conversationId, processId },
+        );
+      }
     }
   }
 
@@ -10971,6 +11101,224 @@ export class CodexService extends EventEmitter {
     );
     this.markBackgroundTerminalsInterruptedSilently(threadId);
     return true;
+  }
+
+  async listBackgroundTerminals(threadId: string): Promise<ThreadBackgroundTerminal[]> {
+    const trimmedThreadId = threadId.trim();
+    if (!trimmedThreadId) {
+      return [];
+    }
+
+    await this.ensureClientReady();
+
+    const rows: ThreadBackgroundTerminal[] = [];
+    let cursor: string | null = null;
+    do {
+      const response: ThreadBackgroundTerminalsListResponse = await this.client.request<
+        "thread/backgroundTerminals/list",
+        ThreadBackgroundTerminalsListResponse
+      >(
+        "thread/backgroundTerminals/list",
+        {
+          threadId: trimmedThreadId,
+          cursor,
+          limit: 100,
+        },
+      );
+      rows.push(...response.data);
+      cursor = response.nextCursor;
+    } while (cursor);
+
+    return rows;
+  }
+
+  async listBackgroundProcessRows(input: {
+    threadId: string;
+    observedTerminals?: ThreadBackgroundTerminal[];
+  }): Promise<CodexBackgroundProcessRow[]> {
+    const threadId = input.threadId.trim();
+    if (!threadId) {
+      return [];
+    }
+
+    let terminals: ThreadBackgroundTerminal[];
+    if (input.observedTerminals) {
+      terminals = input.observedTerminals;
+    } else {
+      try {
+        terminals = await this.listBackgroundTerminals(threadId);
+      } catch (error) {
+        this.logger.warn("Falling back to registered background process rows without live terminal snapshots", {
+          threadId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        terminals = [];
+      }
+    }
+
+    this.recordObservedBackgroundTerminals(threadId, terminals);
+    await this.refreshBackgroundProcessTerminalSessionMetrics(threadId);
+    return this.buildBackgroundProcessRows(threadId, terminals);
+  }
+
+  registerBackgroundProcessRunAction(input: CodexBackgroundProcessRunActionInput): CodexBackgroundProcessRow[] {
+    const threadId = input.threadId.trim();
+    const itemId = input.itemId.trim();
+    const command = input.command.trim();
+    const cwd = input.cwd.trim();
+    const terminalSessionId = input.terminalSessionId.trim();
+    if (!threadId || !itemId || !command || !cwd || !terminalSessionId) {
+      return [];
+    }
+
+    const thread = getCodexThread(threadId);
+    const now = Date.now();
+    upsertCodexBackgroundProcess({
+      id: makeCodexBackgroundProcessRecordId({ threadId, itemId }),
+      threadId,
+      threadTitle: input.threadTitle?.trim() || thread?.threadName || thread?.threadPreview || null,
+      itemId,
+      turnId: input.turnId?.trim() || null,
+      command,
+      cwd,
+      processId: null,
+      osPid: null,
+      terminalSessionId,
+      source: "terminal-action",
+      startedAtMs: now,
+      updatedAtMs: now,
+    }, { preserveStartedAt: false });
+
+    return this.buildBackgroundProcessRows(threadId, []);
+  }
+
+  async terminateBackgroundTerminal(input: { threadId: string; processId: string }): Promise<boolean> {
+    const threadId = input.threadId.trim();
+    const processId = input.processId.trim();
+    if (!threadId || !processId) {
+      return false;
+    }
+
+    await this.ensureClientReady();
+
+    const response: ThreadBackgroundTerminalsTerminateResponse = await this.client.request<
+      "thread/backgroundTerminals/terminate",
+      ThreadBackgroundTerminalsTerminateResponse
+    >(
+      "thread/backgroundTerminals/terminate",
+      { threadId, processId },
+    );
+    return response.terminated;
+  }
+
+  private recordObservedBackgroundTerminals(
+    threadId: string,
+    terminals: readonly ThreadBackgroundTerminal[],
+  ): void {
+    if (terminals.length === 0) {
+      return;
+    }
+
+    const thread = getCodexThread(threadId);
+    const threadTitle = thread?.threadName ?? thread?.threadPreview ?? null;
+    const conversationRowByTerminalKey = this.getBackgroundTerminalConversationRowsByTerminalKey(threadId);
+    const now = Date.now();
+
+    for (const terminal of terminals) {
+      const command = terminal.command.trim();
+      if (!command) {
+        continue;
+      }
+
+      const conversationRow =
+        conversationRowByTerminalKey.get(terminal.itemId)
+        ?? conversationRowByTerminalKey.get(String(terminal.processId));
+      const processId = terminal.processId.trim() || null;
+      const recordId = makeCodexBackgroundProcessRecordId({
+        threadId,
+        itemId: terminal.itemId,
+        processId,
+      });
+      upsertCodexBackgroundProcess({
+        id: recordId,
+        threadId,
+        threadTitle,
+        itemId: terminal.itemId,
+        turnId: conversationRow?.turnId ?? null,
+        command,
+        cwd: terminal.cwd,
+        processId,
+        osPid: terminal.osPid,
+        terminalSessionId: null,
+        source: "app-server",
+        startedAtMs: conversationRow?.createdAt ?? now,
+        updatedAtMs: now,
+      });
+    }
+  }
+
+  private getBackgroundTerminalConversationRowsByTerminalKey(threadId: string): Map<string, CodexConversationItem> {
+    const conversation = this.serializeConversationSnapshot(threadId);
+    const rows = new Map<string, CodexConversationItem>();
+    if (!conversation) {
+      return rows;
+    }
+
+    for (const turn of conversation.turns) {
+      for (const item of turn.items) {
+        if (item.kind !== "commandExecution") {
+          continue;
+        }
+        rows.set(item.itemId, item);
+        const processId = this.extractBackgroundTerminalProcessId(item);
+        if (processId !== null && processId !== undefined) {
+          rows.set(String(processId), item);
+        }
+      }
+    }
+
+    return rows;
+  }
+
+  private buildBackgroundProcessRows(
+    threadId: string,
+    terminals: readonly ThreadBackgroundTerminal[],
+  ): CodexBackgroundProcessRow[] {
+    const terminalByRecordKey = new Map<string, ThreadBackgroundTerminal>();
+    for (const terminal of terminals) {
+      const processId = terminal.processId.trim() || null;
+      const recordId = makeCodexBackgroundProcessRecordId({
+        threadId,
+        itemId: terminal.itemId,
+        processId,
+      });
+      terminalByRecordKey.set(recordId, terminal);
+    }
+
+    return listCodexBackgroundProcesses(threadId).map((record) => {
+      const terminal = terminalByRecordKey.get(record.id) ?? null;
+      const terminalSession = this.getBackgroundProcessTerminalSession(record.terminalSessionId);
+      return buildCodexBackgroundProcessRow({ record, terminal, terminalSession });
+    });
+  }
+
+  private async refreshBackgroundProcessTerminalSessionMetrics(threadId: string): Promise<void> {
+    const terminalSessionIds = listCodexBackgroundProcesses(threadId)
+      .map((record) => record.terminalSessionId)
+      .filter((sessionId): sessionId is string => sessionId !== null);
+    await terminalManager.refreshSessionProcessMetrics(terminalSessionIds);
+  }
+
+  private getBackgroundProcessTerminalSession(sessionId: string | null): TerminalSessionSnapshot | null {
+    if (!sessionId) {
+      return null;
+    }
+
+    const snapshot = terminalManager.getSessionSnapshot(sessionId);
+    if (!snapshot || snapshot.exited) {
+      return null;
+    }
+    return snapshot;
   }
 
   private markBackgroundTerminalsInterruptedSilently(threadId: string): void {
@@ -11924,6 +12272,9 @@ export class CodexService extends EventEmitter {
 
         const sourceDetail = this.serializeThreadDetail(params.threadId);
         const projectId = target.type === "project" ? this.parseDynamicString(target.projectId) : null;
+        const projectlessOutputDirectory = target.type === "projectless"
+          ? (this.parseDynamicString(target.directoryName)?.trim() || null)
+          : null;
         const projectContext = projectId ? this.maybeResolveProjectRuntimeContext(projectId) : null;
         const cwd = projectContext?.primaryWorkspaceRoot ?? sourceDetail?.cwd ?? null;
         const result = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", {
@@ -11933,9 +12284,9 @@ export class CodexService extends EventEmitter {
           experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
           dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
         });
-        const fallbackRef = projectId
-          ? { projectId, cardId: null, cwd }
-          : null;
+        const fallbackRef: ThreadRef | null = projectId
+          ? { projectId, cwd }
+          : { projectId: null, cwd, projectlessOutputDirectory };
         const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, fallbackRef, cwd);
         this.setConversationRecordDetail(detail);
         if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
@@ -14288,6 +14639,7 @@ export class CodexService extends EventEmitter {
           turnId: turn.turnId,
           row: {
             id: item.itemId,
+            turnId: turn.turnId,
             command: this.extractBackgroundTerminalCommand(item),
             cwd: this.extractBackgroundTerminalCwd(item),
             processId: this.extractBackgroundTerminalProcessId(item),

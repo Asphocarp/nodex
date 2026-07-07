@@ -188,6 +188,7 @@ describe("buildComposerShellModel", () => {
         backgroundTerminalRows: [
           {
             id: "row_1",
+            turnId: "turn_1",
             command: "bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx",
             cwd: "/tmp/project",
             previewLine: "1418 pass",

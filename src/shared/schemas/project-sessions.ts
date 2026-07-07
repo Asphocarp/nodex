@@ -307,6 +307,8 @@ export const ProjectSessionThreadLinkInputSchema = z.object({
   threadPreview: z.string().optional(),
   modelProvider: z.string().optional(),
   cwd: z.string().nullable().optional(),
+  managedWorktreePath: z.string().nullable().optional(),
+  projectlessOutputDirectory: z.string().nullable().optional(),
   statusType: z.string().optional(),
   statusActiveFlags: z.array(z.string()).optional(),
   archived: z.boolean().optional(),

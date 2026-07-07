@@ -16,11 +16,15 @@ function StorySurface({ children }: { children: React.ReactNode }) {
 function BranchSelectorStory({
   cwd = "/Users/asc/repo/nodex",
   busy = false,
+  loading = false,
+  error = false,
   branches = ["main", "refactor/settings-pages", "codex/dropdown"],
   selectedBranch: initialSelectedBranch = "main",
 }: {
   cwd?: string | null;
   busy?: boolean;
+  loading?: boolean;
+  error?: boolean;
   branches?: string[];
   selectedBranch?: string | null;
 }) {
@@ -31,6 +35,8 @@ function BranchSelectorStory({
       <BranchSelectorPopover
         cwd={cwd}
         busy={busy}
+        loading={loading}
+        error={error}
         state={{
           currentBranch: branches[0] ?? null,
           defaultBranch: branches[0] ?? null,
@@ -72,6 +78,14 @@ export const EmptyRepository: Story = {
 
 export const Busy: Story = {
   render: () => <BranchSelectorStory busy={true} />,
+};
+
+export const Loading: Story = {
+  render: () => <BranchSelectorStory loading branches={[]} selectedBranch={null} />,
+};
+
+export const Error: Story = {
+  render: () => <BranchSelectorStory error branches={[]} selectedBranch={null} />,
 };
 
 export const LongBranchNames: Story = {

@@ -36,6 +36,8 @@ import type {
   CodexReasoningEffort,
   CodexReasoningEffortOption,
   CodexTurnDiffReviewTarget,
+  GitReviewSource,
+  PanelId,
   WorktreeEnvironmentOption,
   WorktreeStartMode,
 } from "../../lib/types";
@@ -67,9 +69,52 @@ export interface ThreadSummaryPanelAuxiliaryRow {
   id: string;
   title: string;
   status?: string | null;
+  isResponseInProgress?: boolean;
+  panelId?: PanelId;
+  leafId?: string | null;
+}
+
+export interface ThreadSummaryPanelBrowserRow {
+  id: string;
+  title: string;
+  displayUrl: string | null;
+  url: string;
+  faviconUrl: string | null;
+  isAgentWorking: boolean;
+  panelId?: PanelId;
+  leafId?: string | null;
+}
+
+export interface ThreadSummaryPanelScheduledAutomationRow {
+  id: string;
+  name: string;
+  scheduleSummary: string | null;
+  nextRunLabel: string;
+}
+
+export interface ThreadSummaryPanelScheduledAutomationOpenInput {
+  automationId: string;
+  title: string;
+}
+
+export interface ThreadSummaryPanelGitReviewOpenInput {
+  source: GitReviewSource;
+}
+
+export interface ThreadSummaryPanelGitActionInput {
+  action: "commit-or-push" | "create-pull-request";
+}
+
+export interface ThreadSummaryPanelComputerUsePipState {
+  visible: boolean;
 }
 
 export interface ThreadTurnDiffFileSidePanelTarget {
+  path: string;
+  title: string;
+}
+
+export interface ThreadSummaryPanelOutputSidePanelTarget {
   path: string;
   title: string;
 }
@@ -154,7 +199,9 @@ export interface ThreadStageRouteInput {
   composerEnterBehavior: ComposerEnterBehavior;
   searchOpenTick: number;
   summarySideChatRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
-  summaryBrowserRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
+  summaryBrowserRows?: readonly ThreadSummaryPanelBrowserRow[];
+  summaryScheduledAutomation?: ThreadSummaryPanelScheduledAutomationRow | null;
+  summaryComputerUsePip?: ThreadSummaryPanelComputerUsePipState | null;
   planSidePanelState?: ThreadPlanSidePanelState | null;
   composerIntent: CodexComposerIntent | null;
   primaryRequest: CodexConversationLiveRequest | null;
@@ -198,6 +245,15 @@ export interface ThreadStageActions {
   onOpenMcpAppSidePanel?: (input: ThreadMcpAppSidePanelInput) => Promise<void>;
   onOpenPlanInSidePanel?: (input: ThreadPlanSidePanelTarget) => void | Promise<void>;
   onClosePlanSidePanel?: (input: { planKey: string }) => void | Promise<void>;
+  onOpenSummarySideChatRow?: (input: ThreadSummaryPanelAuxiliaryRowOpenInput) => void | Promise<void>;
+  onOpenSummaryBrowserRow?: (input: ThreadSummaryPanelAuxiliaryRowOpenInput) => void | Promise<void>;
+  onOpenSummaryScheduledAutomation?: (input: ThreadSummaryPanelScheduledAutomationOpenInput) => void | Promise<void>;
+  onOpenSummaryOutputInSidePanel?: (target: ThreadSummaryPanelOutputSidePanelTarget) => boolean | Promise<boolean>;
+  onOpenSummaryGitReview?: (input: ThreadSummaryPanelGitReviewOpenInput) => void | Promise<void>;
+  onStartSummaryGitAction?: (input: ThreadSummaryPanelGitActionInput) => void | Promise<void>;
+  onOpenProcessManager?: () => void | Promise<void>;
+  onOpenBackgroundTerminalOutput?: (row: CodexBackgroundTerminalRow) => void | Promise<void>;
+  onToggleSummaryComputerUsePip?: (nextVisible: boolean) => void | Promise<void>;
   onRequestRenameThread?: () => void;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
@@ -254,6 +310,12 @@ export interface ThreadStageActions {
   onOpenThread: (threadId: string, context?: ThreadOpenThreadContext) => void | Promise<void>;
   onStopBackgroundAgents?: (threadIds: readonly string[]) => Promise<void>;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
+}
+
+export interface ThreadSummaryPanelAuxiliaryRowOpenInput {
+  rowId: string;
+  panelId: PanelId;
+  leafId?: string | null;
 }
 
 export type ThreadOpenSideChatInput =

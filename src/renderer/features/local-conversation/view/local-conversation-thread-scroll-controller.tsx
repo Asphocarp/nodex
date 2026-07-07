@@ -14,6 +14,11 @@ import { motion, useReducedMotion } from "motion/react";
 import { CODEX_SHELL_PANEL_TRANSITION } from "../../../lib/codex-panel-motion";
 import { cn } from "../../../lib/utils";
 import {
+  REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE,
+  REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
+  REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE,
+} from "../../../../shared/remote-hosted-pip";
+import {
   buildPendingLatestTurnSubmitPlacement,
   resolveAdjustedScrollDistanceFromBottomForMeasuredTurnHeightDelta,
   type MeasuredTurnHeightDeltaInput,
@@ -21,6 +26,7 @@ import {
   type ThreadScrollMode,
   THREAD_NEAR_BOTTOM_THRESHOLD_PX,
 } from "./local-conversation-turn-virtualization";
+import { useRemoteHostedPipHostLayoutReporter } from "./remote-hosted-pip-host-layout-reporter";
 
 const USER_SCROLL_WHEEL_DELTA_THRESHOLD_PX = 12;
 const USER_SCROLL_GRACE_WINDOW_MS = 1_000;
@@ -676,6 +682,7 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   const controller = useLocalConversationThreadScrollController();
   const reducedMotion = useReducedMotion();
   const footerRef = useRef<HTMLDivElement | null>(null);
+  useRemoteHostedPipHostLayoutReporter();
 
   useImperativeHandle(ref, () => ({
     scrollToBottom: controller.scrollToBottom,
@@ -718,6 +725,9 @@ export const LocalConversationThreadScrollLayout = forwardRef<
       <div
         ref={controller.registerScrollElement}
         data-local-conversation-thread-body="true"
+        {...{
+          [REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE]: REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
+        }}
         className={cn(
           THREAD_SCROLL_VIEWPORT_CLASS_NAME,
           scrollViewClassName,
@@ -747,7 +757,10 @@ export const LocalConversationThreadScrollLayout = forwardRef<
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 flex h-full w-full justify-center pt-4">
                 <div className="z-0 h-full w-full bg-gradient-to-t from-token-main-surface-primary via-token-main-surface-primary extension:from-token-bg-primary extension:via-token-bg-primary" />
               </div>
-              <div className="relative z-10 flex flex-col">
+              <div
+                {...{ [REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE]: "thread-footer" }}
+                className="relative z-10 flex flex-col"
+              >
                 {footer}
               </div>
             </div>

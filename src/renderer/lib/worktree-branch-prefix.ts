@@ -1,9 +1,11 @@
 import {
+  buildWorktreeThreadSlug,
   DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX,
   normalizeWorktreeAutoBranchPrefix,
 } from "../../shared/worktree-auto-branch";
 
 export {
+  buildWorktreeThreadSlug,
   DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX,
   normalizeWorktreeAutoBranchPrefix,
 };

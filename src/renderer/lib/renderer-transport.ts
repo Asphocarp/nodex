@@ -28,6 +28,9 @@ export interface RendererTransport {
   subscribeCommandPaletteThreadIndexUpdates: (
     callback: (event: import("../../shared/types").CommandPaletteThreadIndexUpdatedEvent) => void,
   ) => () => void;
+  subscribeCodexScheduledAutomationChanges: (
+    callback: (event: import("../../shared/types").CodexScheduledAutomationChangedEvent) => void,
+  ) => () => void;
   subscribePersistedAtomUpdates: (
     callback: (update: import("../../shared/ipc-api").PersistedAtomUpdate) => void,
   ) => () => void;

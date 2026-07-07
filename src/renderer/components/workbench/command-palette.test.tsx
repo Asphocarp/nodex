@@ -83,6 +83,25 @@ describe("buildCommandPaletteCommands", () => {
     expect(Boolean(findCommand?.mockReason)).toBeFalse();
   });
 
+  test("includes Manage automations as a real shell command", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext());
+    const manageTasksCommand = commands.find((command) => command.id === "manageTasks");
+
+    expect(manageTasksCommand?.title).toBe("Manage automations");
+    expect(Boolean(manageTasksCommand?.disabled)).toBeFalse();
+    expect(Boolean(manageTasksCommand?.mockReason)).toBeFalse();
+  });
+
+  test("includes Process Manager as a real shell command", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext());
+    const processManagerCommand = commands.find((command) => command.id === "openProcessManager");
+
+    expect(processManagerCommand?.title).toBe("Process Manager");
+    expect(processManagerCommand?.shortcut).toBe("⌃⌥M");
+    expect(Boolean(processManagerCommand?.disabled)).toBeFalse();
+    expect(Boolean(processManagerCommand?.mockReason)).toBeFalse();
+  });
+
   test("omits legacy stage and DB view-switch commands", () => {
     const commands = buildCommandPaletteCommands(makeCommandContext());
     const ids = commands.map((command) => command.id).join(",");

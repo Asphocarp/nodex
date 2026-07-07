@@ -3,6 +3,7 @@ import { useMotionValue } from "motion/react";
 import {
   HeaderAction,
   HeaderActionProvider,
+  HeaderInlineActionRail,
   HeaderShellSlot,
   collectHeaderActions,
 } from "./workbench-header-actions";
@@ -136,5 +137,35 @@ describe("workbench header actions", () => {
 
     expect(slot.getAttribute("style")?.includes("width: 188px")).toBeTrue();
     expect(textContent(slot)).toBe("Motion");
+  });
+
+  test("renders center actions through an inline rail", async () => {
+    const view = render(
+      <HeaderActionProvider
+        actions={(
+          <>
+            <HeaderAction actionId="right-action" slotPosition="right" align="end" order={10}>
+              <button type="button">Right</button>
+            </HeaderAction>
+            <HeaderAction actionId="center-action" slotPosition="center" align="end" order={10}>
+              <button type="button">Center</button>
+            </HeaderAction>
+          </>
+        )}
+      >
+        <HeaderInlineActionRail
+          slotPosition="center"
+          data-testid="center-header-actions"
+          className="ms-auto"
+        />
+      </HeaderActionProvider>,
+    );
+
+    await settleAsyncRender();
+
+    const railHost = view.getByTestId("center-header-actions");
+    const visibleRail = railHost.querySelector('[data-workbench-header-action-rail="visible"]');
+    expect(visibleRail instanceof HTMLElement).toBeTrue();
+    expect(textContent(railHost)).toBe("Center");
   });
 });

@@ -1,3 +1,5 @@
+import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
+
 import type {
   BackupRecord,
   BackupSettings,
@@ -8,6 +10,8 @@ import type {
   BoardSummary,
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexBackgroundProcessRow,
+  CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexConversationSnapshot,
   CodexConnectionState,
@@ -23,6 +27,9 @@ import type {
   CodexReviewStartResponse,
   CodexRendererClientRequestMessage,
   CodexRendererClientResponseMessage,
+  CodexScheduledAutomation,
+  CodexScheduledAutomationChangedEvent,
+  CodexScheduledAutomationUpsertInput,
   CodexThreadFollowerActionInput,
   CodexThreadOwnerNotificationAckInput,
   CodexThreadOwnerStreamStatePublishInput,
@@ -32,8 +39,19 @@ import type {
   CodexSidebarSyncResult,
   BranchDiffStatsRequest,
   BranchDiffStatsResult,
+  GitActionCancelInput,
+  GitActionCancelResult,
+  GitActionMutationResult,
+  GitActionStatusRequest,
+  GitActionStatusResult,
   GitApplyPatchInput,
   GitApplyPatchResult,
+  GitCommitMessageGenerateInput,
+  GitCommitMessageGenerateResult,
+  GitCommitInput,
+  GitPullRequestMessageGenerateInput,
+  GitPullRequestMessageGenerateResult,
+  GitPushInput,
   GitReviewBranchCommitsRequest,
   GitReviewBranchCommitsResult,
   GitMergeBaseRequest,
@@ -194,6 +212,11 @@ import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
 } from "./native-context-menu";
+import type {
+  CodexDesktopMessageFromView,
+  RemoteHostedPipStreamStateChangedMessage,
+  RemoteHostedPipVisibilityRequestedMessage,
+} from "./remote-hosted-pip";
 import type { WorkbenchLayoutSnapshot } from "./workbench-layout";
 import type {
   WindowSessionBootstrap,
@@ -450,6 +473,10 @@ export interface RendererDiagnosticsLogInput {
 export interface IpcApi {
   "diagnostics:renderer-log": {
     args: [input: RendererDiagnosticsLogInput];
+    result: void;
+  };
+  "codex-desktop:message-from-view": {
+    args: [message: CodexDesktopMessageFromView];
     result: void;
   };
   "persisted-atom:sync-request": { args: []; result: PersistedAtomState };
@@ -827,6 +854,18 @@ export interface IpcApi {
   "git:review:blame-file": { args: [input: GitReviewBlameInput]; result: GitReviewBlameResult };
   "git:apply-patch": { args: [input: GitApplyPatchInput]; result: GitApplyPatchResult };
   "git:init": { args: [cwd: string]; result: GitReviewSnapshot };
+  "git:action:status": { args: [input: GitActionStatusRequest]; result: GitActionStatusResult };
+  "git:action:commit-message:generate": {
+    args: [input: GitCommitMessageGenerateInput];
+    result: GitCommitMessageGenerateResult;
+  };
+  "git:action:pull-request-message:generate": {
+    args: [input: GitPullRequestMessageGenerateInput];
+    result: GitPullRequestMessageGenerateResult;
+  };
+  "git:action:commit": { args: [input: GitCommitInput]; result: GitActionMutationResult };
+  "git:action:push": { args: [input: GitPushInput]; result: GitActionMutationResult };
+  "git:action:cancel": { args: [input: GitActionCancelInput]; result: GitActionCancelResult };
 
   // GitHub pull request review
   "gh-cli-status": { args: [input: { cwd: string }]; result: GhCliStatusResult };
@@ -844,6 +883,10 @@ export interface IpcApi {
   "terminal-attach": { args: [input: TerminalAttachRequest]; result: void };
   "terminal-write": { args: [sessionId: string, data: string]; result: void };
   "terminal-run-action": { args: [input: TerminalRunActionRequest]; result: void };
+  "terminal-session:snapshot": {
+    args: [sessionId: string];
+    result: TerminalSessionSnapshot | null;
+  };
   "terminal-resize": { args: [sessionId: string, size: TerminalSize]; result: void };
   "terminal-close": { args: [sessionId: string]; result: void };
   "thread-terminal-snapshot": { args: [threadId: string]; result: TerminalSessionSnapshot | null };
@@ -900,6 +943,18 @@ export interface IpcApi {
   "codex:thread:summary:get": {
     args: [threadId: string];
     result: CodexThreadSummary | null;
+  };
+  "codex:scheduled-automations:list": {
+    args: [];
+    result: CodexScheduledAutomation[];
+  };
+  "codex:scheduled-automations:upsert": {
+    args: [input: CodexScheduledAutomationUpsertInput];
+    result: CodexScheduledAutomation;
+  };
+  "codex:scheduled-automations:delete": {
+    args: [automationId: string];
+    result: boolean;
   };
   "codex:model:list": {
     args: [];
@@ -1095,6 +1150,22 @@ export interface IpcApi {
     args: [threadId: string];
     result: boolean;
   };
+  "codex:thread:background-terminals:list": {
+    args: [threadId: string];
+    result: ThreadBackgroundTerminal[];
+  };
+  "codex:thread:background-processes:list": {
+    args: [input: { threadId: string; observedTerminals?: ThreadBackgroundTerminal[] }];
+    result: CodexBackgroundProcessRow[];
+  };
+  "codex:thread:background-processes:run-action": {
+    args: [input: CodexBackgroundProcessRunActionInput];
+    result: CodexBackgroundProcessRow[];
+  };
+  "codex:thread:background-terminals:terminate": {
+    args: [input: { threadId: string; processId: string }];
+    result: boolean;
+  };
   "codex:mcp-resource:read": {
     args: [params: ProtocolMcpResourceReadParams];
     result: ProtocolMcpResourceReadResponse;
@@ -1160,6 +1231,7 @@ export interface IpcEvents {
   "codex:host-message": CodexHostMessage;
   "codex:renderer-client:request": CodexRendererClientRequestMessage;
   "codex:threads:palette:index-updated": CommandPaletteThreadIndexUpdatedEvent;
+  "codex:scheduled-automations:changed": CodexScheduledAutomationChangedEvent;
   "browser-sidebar-state": BrowserSidebarStateSnapshot;
   "browser-sidebar-local-servers": BrowserSidebarLocalServersSnapshot;
   "browser-sidebar-browser-use-state": BrowserSidebarBrowserUseStateSnapshot;
@@ -1169,6 +1241,8 @@ export interface IpcEvents {
   "browser-sidebar-browser-use-page-released": { tabId: string };
   "browser-sidebar-webview-attached": BrowserSidebarWebviewAttached;
   "browser-sidebar-destroy-webview": BrowserSidebarDestroyWebviewRequest;
+  "remote-hosted-pip-stream-state-changed": RemoteHostedPipStreamStateChangedMessage;
+  "remote-hosted-pip-visibility-requested": RemoteHostedPipVisibilityRequestedMessage;
   "desktop-notification:action": DesktopNotificationActionPayload & {
     conversationId: string | null;
     requestId: string | null;

@@ -1,20 +1,28 @@
-import type { ProjectSessionTab } from "@/lib/types";
-
-export function readBrowserConfigUrl(tab: ProjectSessionTab): string {
-  if (!("url" in tab.config) || typeof tab.config.url !== "string") return "about:blank";
-  return tab.config.url;
+interface BrowserTabConfigCarrier {
+  config: unknown;
 }
 
-export function readBrowserConfigTitle(tab: ProjectSessionTab): string | undefined {
-  if (!("title" in tab.config) || typeof tab.config.title !== "string") return undefined;
-  return tab.config.title;
+function readBrowserConfig(tab: BrowserTabConfigCarrier): Record<string, unknown> {
+  if (typeof tab.config !== "object" || tab.config === null || Array.isArray(tab.config)) return {};
+  return tab.config as Record<string, unknown>;
 }
 
-export function readBrowserConfigFavicon(tab: ProjectSessionTab): string | undefined {
-  if (!("faviconUrl" in tab.config) || typeof tab.config.faviconUrl !== "string") return undefined;
-  return tab.config.faviconUrl;
+export function readBrowserConfigUrl(tab: BrowserTabConfigCarrier): string {
+  const config = readBrowserConfig(tab);
+  return typeof config.url === "string" ? config.url : "about:blank";
 }
 
-export function readBrowserConfigDeviceToolbarVisible(tab: ProjectSessionTab): boolean {
-  return "deviceToolbarVisible" in tab.config && tab.config.deviceToolbarVisible === true;
+export function readBrowserConfigTitle(tab: BrowserTabConfigCarrier): string | undefined {
+  const config = readBrowserConfig(tab);
+  return typeof config.title === "string" ? config.title : undefined;
+}
+
+export function readBrowserConfigFavicon(tab: BrowserTabConfigCarrier): string | undefined {
+  const config = readBrowserConfig(tab);
+  return typeof config.faviconUrl === "string" ? config.faviconUrl : undefined;
+}
+
+export function readBrowserConfigDeviceToolbarVisible(tab: BrowserTabConfigCarrier): boolean {
+  const config = readBrowserConfig(tab);
+  return config.deviceToolbarVisible === true;
 }

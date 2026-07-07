@@ -17,6 +17,11 @@ function makeSnapshot(input: Partial<TerminalSessionSnapshot> & { sessionId: str
     sessionId: input.sessionId,
     conversationId: input.conversationId ?? null,
     projectSessionId: input.projectSessionId ?? null,
+    osPid: input.osPid ?? null,
+    cpuPercent: input.cpuPercent ?? null,
+    rssKb: input.rssKb ?? null,
+    childProcessCount: input.childProcessCount ?? null,
+    processMetricsSampledAtMs: input.processMetricsSampledAtMs ?? null,
     cwd: input.cwd ?? null,
     shell: input.shell ?? "/bin/zsh",
     title: input.title ?? null,
@@ -124,6 +129,35 @@ describe("TerminalSessionStore", () => {
     const snapshot = store.getSnapshot("session:one:terminal:3");
     expect(snapshot.buffer.length).toBe(TERMINAL_RENDERER_BUFFER_LIMIT);
     expect(snapshot.truncated).toBeTrue();
+  });
+
+  test("runs terminal actions and fetches buffered snapshots", async () => {
+    const { calls } = installTerminalApiMock();
+    const store = new TerminalSessionStore();
+
+    await store.runAction({
+      sessionId: "process:thread:item:action",
+      conversationId: "thread-action",
+      cwd: "/repo",
+      command: "bun run dev",
+      title: "bun run dev",
+    });
+    const snapshot = await store.fetchSnapshot("process:thread:item:action");
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      [
+        "terminal-run-action",
+        {
+          sessionId: "process:thread:item:action",
+          conversationId: "thread-action",
+          cwd: "/repo",
+          command: "bun run dev",
+          title: "bun run dev",
+        },
+      ],
+      ["terminal-session:snapshot", "process:thread:item:action"],
+    ]));
+    expect(snapshot === null).toBeTrue();
   });
 
   test("does not invalidate global tab-title subscribers for terminal output chunks", () => {

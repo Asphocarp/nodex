@@ -7,6 +7,7 @@ import type {
   TerminalErrorEvent,
   TerminalExitEvent,
   TerminalInitLogEvent,
+  TerminalRunActionRequest,
   TerminalSessionSnapshot,
   TerminalSize,
 } from "../../shared/types";
@@ -37,6 +38,11 @@ function createEmptySnapshot(sessionId: string): TerminalSessionSnapshot {
     sessionId,
     conversationId: null,
     projectSessionId: null,
+    osPid: null,
+    cpuPercent: null,
+    rssKb: null,
+    childProcessCount: null,
+    processMetricsSampledAtMs: null,
     cwd: null,
     shell: null,
     title: null,
@@ -180,6 +186,30 @@ export class TerminalSessionStore {
 
     if (!hasApi()) return;
     await window.api!.invoke("terminal-attach", input);
+  }
+
+  async runAction(input: TerminalRunActionRequest): Promise<void> {
+    this.ensureEventSubscriptions();
+    this.mergeSnapshot(input.sessionId, {
+      conversationId: input.conversationId ?? null,
+      projectSessionId: input.projectSessionId ?? null,
+      cwd: input.cwd ?? null,
+      title: input.title ?? null,
+    });
+
+    if (!hasApi()) return;
+    await window.api!.invoke("terminal-run-action", input);
+  }
+
+  async fetchSnapshot(sessionId: string): Promise<TerminalSessionSnapshot | null> {
+    this.ensureEventSubscriptions();
+    if (!hasApi()) return null;
+
+    const snapshot = await window.api!.invoke("terminal-session:snapshot", sessionId);
+    if (!snapshot) return null;
+
+    this.mergeSnapshot(sessionId, snapshot as TerminalSessionSnapshot);
+    return snapshot as TerminalSessionSnapshot;
   }
 
   write(sessionId: string, data: string): void {

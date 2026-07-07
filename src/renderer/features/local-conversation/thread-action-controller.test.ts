@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
+  GIT_ACTION_CREATE_PR_PROMPT,
+} from "@/lib/git-action-prompts";
 import { createThreadStageActions, type ThreadActionControllerInput } from "./thread-action-controller";
 
 function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadActionControllerInput {
@@ -166,6 +170,64 @@ describe("createThreadStageActions settings routing", () => {
     ]));
   });
 
+  test("routes summary commit-or-push action through the active thread", async () => {
+    const calls: unknown[] = [];
+    const input = buildInput({
+      activeThreadId: "thread-summary",
+      projectId: "project-summary",
+      selectedCollaborationMode: "plan",
+      codexControl: {
+        startTurn: async (threadId: string, prompt: string, opts: unknown) => {
+          calls.push({ threadId, prompt, opts });
+          return null;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onStartSummaryGitAction?.({ action: "commit-or-push" });
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      {
+        threadId: "thread-summary",
+        prompt: GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
+        opts: {
+          projectId: "project-summary",
+          collaborationMode: "plan",
+        },
+      },
+    ]));
+  });
+
+  test("routes summary create-pull-request action through the active thread", async () => {
+    const calls: unknown[] = [];
+    const input = buildInput({
+      activeThreadId: "thread-summary",
+      projectId: "project-summary",
+      selectedCollaborationMode: "plan",
+      codexControl: {
+        startTurn: async (threadId: string, prompt: string, opts: unknown) => {
+          calls.push({ threadId, prompt, opts });
+          return null;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onStartSummaryGitAction?.({ action: "create-pull-request" });
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      {
+        threadId: "thread-summary",
+        prompt: GIT_ACTION_CREATE_PR_PROMPT,
+        opts: {
+          projectId: "project-summary",
+          collaborationMode: "plan",
+        },
+      },
+    ]));
+  });
+
   test("passes subagent context to the shell opener without hydrating inline", async () => {
     const calls: string[] = [];
     const input = buildInput({
@@ -247,5 +309,41 @@ describe("createThreadStageActions settings routing", () => {
       "thread-child-a",
       "thread-child-b",
     ]));
+  });
+
+  test("passes summary output side-panel opener through the action controller", async () => {
+    const calls: unknown[] = [];
+    const input = buildInput({
+      onOpenSummaryOutputInSidePanel: async (target) => {
+        calls.push(target);
+        return true;
+      },
+    });
+    const actions = createThreadStageActions(input);
+
+    const opened = await actions.onOpenSummaryOutputInSidePanel?.({
+      path: "/repo/project/report.txt",
+      title: "report.txt",
+    });
+
+    expect(opened).toBe(true);
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([{
+      path: "/repo/project/report.txt",
+      title: "report.txt",
+    }]));
+  });
+
+  test("passes summary Computer Use PiP toggles through the action controller", async () => {
+    const calls: boolean[] = [];
+    const input = buildInput({
+      onToggleSummaryComputerUsePip: async (nextVisible) => {
+        calls.push(nextVisible);
+      },
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onToggleSummaryComputerUsePip?.(true);
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([true]));
   });
 });

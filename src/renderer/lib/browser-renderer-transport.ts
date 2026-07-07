@@ -1405,6 +1405,90 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         errorMessage: null,
       };
     }
+    case "git:action:status": {
+      const [input] = args as [{ cwd: string }];
+      if (isStorybookRuntime()) {
+        const hasNoDiff = input.cwd.includes("no-diff");
+        const hasNoGit = input.cwd.includes("no-git");
+        return {
+          cwd: input.cwd,
+          isGitRepository: !hasNoGit,
+          currentBranch: hasNoGit ? null : "codex/storybook",
+          defaultBranch: hasNoGit ? null : "main",
+          upstreamBranch: hasNoDiff ? "origin/codex/storybook" : null,
+          remotes: hasNoGit ? [] : ["origin"],
+          hasHeadCommit: !hasNoGit,
+          hasStagedChanges: !hasNoDiff && !hasNoGit,
+          hasUnstagedChanges: !hasNoDiff && !hasNoGit,
+          hasUntrackedFiles: false,
+          hasUncommittedChanges: !hasNoDiff && !hasNoGit,
+          commitsAhead: hasNoDiff || hasNoGit ? 0 : 1,
+          canCommit: !hasNoDiff && !hasNoGit,
+          canPush: !hasNoGit,
+          pushNeedsUpstream: !hasNoDiff && !hasNoGit,
+          errorMessage: null,
+        };
+      }
+      return {
+        cwd: input.cwd,
+        isGitRepository: false,
+        currentBranch: null,
+        defaultBranch: null,
+        upstreamBranch: null,
+        remotes: [],
+        hasHeadCommit: false,
+        hasStagedChanges: false,
+        hasUnstagedChanges: false,
+        hasUntrackedFiles: false,
+        hasUncommittedChanges: false,
+        commitsAhead: 0,
+        canCommit: false,
+        canPush: false,
+        pushNeedsUpstream: false,
+        errorMessage: "Git actions are unavailable outside Electron.",
+      };
+    }
+    case "git:action:pull-request-message:generate": {
+      const [input] = args as [{ cwd: string; title?: string | null; body?: string | null; headBranch?: string | null }];
+      return {
+        cwd: input.cwd,
+        status: isStorybookRuntime() ? "success" : "error",
+        title: isStorybookRuntime()
+          ? (input.title?.trim() || input.headBranch?.trim() || "Storybook pull request")
+          : null,
+        body: isStorybookRuntime()
+          ? (input.body?.trim() || "Generated pull request summary.")
+          : null,
+        stderr: "",
+        errorMessage: isStorybookRuntime() ? null : "Git actions are unavailable outside Electron.",
+      };
+    }
+    case "git:action:commit-message:generate": {
+      const [input] = args as [{ cwd: string }];
+      return {
+        cwd: input.cwd,
+        status: "error",
+        message: null,
+        stderr: "",
+        errorMessage: "Git actions are unavailable outside Electron.",
+      };
+    }
+    case "git:action:commit":
+    case "git:action:push": {
+      const [input] = args as [{ cwd: string }];
+      return {
+        cwd: input.cwd,
+        status: isStorybookRuntime() ? "success" : "error",
+        branch: isStorybookRuntime() ? "codex/storybook" : null,
+        stdout: "",
+        stderr: "",
+        errorMessage: isStorybookRuntime() ? null : "Git actions are unavailable outside Electron.",
+      };
+    }
+    case "git:action:cancel":
+      return {
+        canceled: isStorybookRuntime(),
+      };
     case "codex:review:start": {
       const [input] = args as [{ threadId: string }];
       return {
@@ -1722,6 +1806,13 @@ function subscribeCommandPaletteThreadIndexUpdates(
   return () => {};
 }
 
+function subscribeCodexScheduledAutomationChanges(
+  callback: (event: import("./types").CodexScheduledAutomationChangedEvent) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 function subscribePersistedAtomUpdates(
   callback: (update: import("../../shared/ipc-api").PersistedAtomUpdate) => void,
 ): () => void {
@@ -1766,6 +1857,7 @@ export const browserRendererTransport = {
   subscribeAppUpdateStatus,
   subscribeCommandKeymapChanges,
   subscribeCommandPaletteThreadIndexUpdates,
+  subscribeCodexScheduledAutomationChanges,
   subscribePersistedAtomUpdates,
   getWindowFocusState,
   subscribeWindowFocusChanges,

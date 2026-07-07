@@ -830,6 +830,7 @@ function buildBackgroundConversation(): {
     backgroundTerminalRows: [
       {
         id: "background_terminal_story_1",
+        turnId: "turn_story_background",
         command: "bun test src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.test.tsx",
         cwd: STORY_WORKSPACE_PATH,
         previewLine: "1418 pass",

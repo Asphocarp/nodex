@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useRef,
+  type ComponentPropsWithoutRef,
   type Ref,
   type ReactElement,
   type ReactNode,
@@ -74,6 +75,25 @@ export function useHeaderActions(slotPosition?: HeaderActionSlotPosition): reado
   if (!slotPosition) return entries;
 
   return entries.filter((entry) => entry.slotPosition === slotPosition);
+}
+
+type HeaderInlineActionRailProps = ComponentPropsWithoutRef<"div"> & {
+  slotPosition: HeaderActionSlotPosition;
+};
+
+export function HeaderInlineActionRail({
+  slotPosition,
+  className,
+  ...divProps
+}: HeaderInlineActionRailProps) {
+  const entries = useHeaderActions(slotPosition);
+  if (entries.length === 0) return null;
+
+  return (
+    <div {...divProps} className={cn("flex shrink-0 items-center", className)}>
+      <HeaderActionRail entries={entries} railKind="visible" />
+    </div>
+  );
 }
 
 export function collectHeaderActions(actions: ReactNode): HeaderActionEntry[] {
@@ -229,10 +249,12 @@ export function HeaderShellSlot({
 function HeaderActionRail({
   entries,
   fillSlot = false,
+  railKind = fillSlot ? "visible" : "measure",
   railRef,
 }: {
   entries: readonly HeaderActionEntry[];
   fillSlot?: boolean;
+  railKind?: "measure" | "visible";
   railRef?: Ref<HTMLDivElement>;
 }) {
   const startEntries = entries.filter((entry) => entry.align === "start");
@@ -241,7 +263,7 @@ function HeaderActionRail({
   return (
     <div
       ref={railRef}
-      data-workbench-header-action-rail={fillSlot ? "visible" : "measure"}
+      data-workbench-header-action-rail={railKind}
       className={cn(
         "inline-flex h-full items-center gap-1.5",
         fillSlot ? "no-drag pointer-events-none w-full" : "no-drag pointer-events-auto w-auto",

@@ -1,13 +1,31 @@
-import { GitPullRequest, UploadCloud } from "lucide-react";
+import { ExternalLink, FileIcon, ImageIcon, ListTree, PictureInPicture2, Slash, SquareTerminal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { BranchStatusIcon, ChevronRightIcon, LocalStatusIcon } from "@/components/shared/icons";
+import {
+  BranchStatusIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  ComposerPlanModeIcon,
+  CodexSidePanelSideChatIcon,
+  LocalStatusIcon,
+  SpinnerIcon,
+  ThreadSummaryChangesIcon,
+  ThreadSummaryCommitIcon,
+  ThreadSummaryCreatePullRequestIcon,
+  ThreadSummaryPushIcon,
+} from "@/components/shared/icons";
 import {
   NodexPopover,
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { BranchSelectorPopover } from "../shared/branch-selector-popover";
+import { NewChatStartInSelector, StartInIcon } from "../shared/new-chat-start-in-selector";
+import {
+  ToolActivityIcon,
+  type ToolActivityIconDescriptor,
+} from "../shared/tools/tool-call-icons";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   isBranchSelectorMutationCurrent,
@@ -16,11 +34,18 @@ import {
   type BranchSelectorState,
 } from "../shared/branch-selector-state";
 import { DiffStats } from "../shared/tools/diff-file-shared";
+import {
+  CodexConnectorFallbackIcon,
+  CodexGlobeIcon,
+  CodexPluginCubeIcon,
+} from "../shared/tools/codex-tool-icons";
 import { invoke } from "../../../../lib/api";
 import {
   CODEX_SUMMARY_PANEL_TRANSITION,
   CODEX_SUMMARY_PANEL_WIDTH,
 } from "../../../../lib/codex-panel-motion";
+import { buildFileUrl } from "../../../../../shared/file-link-openers";
+import { useMcpResource, useMcpServerStatuses } from "../../../../lib/use-mcp-queries";
 import { useGitBranchState } from "../../../../lib/use-git-branch-state";
 import { cn } from "../../../../lib/utils";
 import type {
@@ -28,38 +53,90 @@ import type {
   CodexConversationChildMembership,
   CodexConversationSnapshot,
   CodexConversationTurn,
+  GitActionStatusResult,
+  GhPrStatusResult,
   GitReviewSnapshot,
   GitReviewSource,
+  ProtocolMcpServerStatus,
 } from "../../../../lib/types";
-import { getCodexFileChangePaths } from "../../../../../shared/codex-file-change";
 import { buildBackgroundAgentOpenContext } from "../../projection/background-subagent-open-context";
 import { buildBackgroundSubagentRows } from "../../projection/background-subagent-row-model";
+import {
+  buildBackgroundSubagentCompactStripModel,
+  getBackgroundSubagentListRows,
+  type BackgroundSubagentCompactStripModel,
+} from "../../projection/background-subagent-summary-model";
+import {
+  buildThreadSummaryPanelOutputRows,
+  isThreadSummaryPanelImagePreviewableOutput,
+  resolveThreadSummaryPanelOutputOpenTarget,
+  type ThreadSummaryPanelOutputRow,
+} from "../../projection/thread-summary-panel-output-model";
+import {
+  buildThreadSummaryPanelPlanRow,
+  type ThreadSummaryPanelPlanRow,
+} from "../../projection/thread-summary-panel-plan-model";
+import {
+  buildThreadSummaryPanelSourceModel,
+  type ThreadSummaryPanelSourceItem,
+  type ThreadSummaryPanelSourceOpenAction,
+} from "../../projection/thread-summary-panel-source-model";
+import {
+  buildThreadSummaryPanelSectionModel,
+  type ThreadSummaryPanelSectionModel,
+} from "../../projection/thread-summary-panel-section-model";
 import type {
   ThreadComposerShellBackgroundAgentRowModel,
   ThreadStageActions,
   ThreadStageRouteInput,
+  ThreadSummaryPanelComputerUsePipState,
   ThreadSummaryPanelAuxiliaryRow,
+  ThreadSummaryPanelBrowserRow,
+  ThreadSummaryPanelScheduledAutomationRow,
 } from "../../thread-stage-types";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
+import {
+  ThreadSummaryGitActionDialog,
+  type SummaryGitActionDialogMode,
+  type SummaryGitActionWorkflowPhase,
+  type SummaryGitActionWorkflowState,
+} from "./thread-summary-git-action-dialog";
+import { ThreadSummaryCreatePullRequestDialog } from "./thread-summary-create-pull-request-dialog";
+import { ThreadSummaryBranchSetupDialog } from "./thread-summary-branch-setup-dialog";
 import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
 import { SubagentAvatar } from "../shared/subagent-avatar";
+import { ImagePreviewDialog } from "../shared/user-message-attachments";
+import {
+  buildMcpAppSidePanelInput,
+  resolveMcpAppResourceUri,
+  resolveMcpEmbeddedRenderableResource,
+  resolveMcpRenderableResource,
+} from "../shared/tools/mcp-tool-call-resource-utils";
 
 const EMPTY_CHILD_MEMBERSHIPS: readonly CodexConversationChildMembership[] = [];
 const EMPTY_KNOWN_CONVERSATIONS_BY_ID: Record<string, CodexConversationSnapshot> = {};
+const EMPTY_MCP_SERVER_STATUSES: readonly ProtocolMcpServerStatus[] = [];
 
 export interface ThreadSummaryPanelContentProps {
   activeThreadId: string | null;
+  activeThreadTitle?: string | null;
+  activeThreadIsManagedWorktree?: boolean;
+  activeThreadProjectless?: boolean;
   cwd: string | null;
+  projectlessOutputDirectory?: string | null;
   projectWorkspacePath: string | null;
   turns: readonly CodexConversationTurn[];
   backgroundTerminalRows?: readonly CodexBackgroundTerminalRow[];
   childMemberships?: readonly CodexConversationChildMembership[];
   knownConversationsById?: Record<string, CodexConversationSnapshot>;
   sideChatRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
-  browserRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
+  browserRows?: readonly ThreadSummaryPanelBrowserRow[];
+  scheduledAutomation?: ThreadSummaryPanelScheduledAutomationRow | null;
+  computerUsePip?: ThreadSummaryPanelComputerUsePipState | null;
   isVisible?: boolean;
   newThreadStartInSelector?: ThreadStageRouteInput["newThreadStartInSelector"];
+  actions?: Partial<ThreadStageActions>;
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onErrorMessage: (message: string | null) => void;
 }
@@ -76,11 +153,52 @@ interface GitSummaryState {
   snapshots: Partial<Record<GitReviewSource, GitReviewSnapshot>>;
 }
 
+interface SummaryGitActionStatusState {
+  loading: boolean;
+  cwd: string | null;
+  status: GitActionStatusResult | null;
+}
+
+interface SummaryPullRequestStatusState {
+  loading: boolean;
+  cwd: string | null;
+  status: GhPrStatusResult | null;
+}
+
+type SummaryCommitBlockerReason = "changes-loading" | "changes-unavailable" | "no-changes";
+type SummaryPushBlockerReason = "branch-missing" | "nothing-to-push" | "push-status-loading";
+
 const EMPTY_GIT_SUMMARY: GitSummaryState = {
   loading: false,
   cwd: null,
   snapshots: {},
 };
+
+const EMPTY_GIT_ACTION_STATUS: SummaryGitActionStatusState = {
+  loading: false,
+  cwd: null,
+  status: null,
+};
+
+const EMPTY_PULL_REQUEST_STATUS: SummaryPullRequestStatusState = {
+  loading: false,
+  cwd: null,
+  status: null,
+};
+
+function resolveSummaryOutputImagePreviewSrc(row: ThreadSummaryPanelOutputRow): string | null {
+  if (!isThreadSummaryPanelImagePreviewableOutput(row)) return null;
+
+  if (!("path" in row)) return null;
+  const source = row.path.trim();
+  if (!source) return null;
+  if (/^(?:data:image\/|https?:\/\/|file:\/\/)/iu.test(source)) return source;
+  if (source.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(source)) {
+    return buildFileUrl({ path: source });
+  }
+
+  return null;
+}
 
 function sumSnapshotFiles(snapshot: GitReviewSnapshot | undefined): { additions: number; deletions: number } {
   if (!snapshot?.isGitRepository) return { additions: 0, deletions: 0 };
@@ -104,86 +222,328 @@ function resolvePrimaryGitSource(snapshots: Partial<Record<GitReviewSource, GitR
   return "branch";
 }
 
-function formatSourceName(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  if (trimmed.toLowerCase() === "context7") return "Context7";
-  return trimmed;
+type SummaryCommitOrPushMode = "commit" | "push";
+type SummaryBranchSetupNextAction = SummaryGitActionDialogMode | "create-pull-request";
+
+function getSummaryGitActionPhaseLabel(phase: SummaryGitActionWorkflowPhase): string {
+  if (phase === "generating-commit-message" || phase === "generating-pr-message") return "Generating messages…";
+  if (phase === "pushing") return "Pushing changes…";
+  if (phase === "creating-pr") return "Creating PR…";
+  return "Committing…";
 }
 
-function collectMcpSourceNames(turns: readonly CodexConversationTurn[]): string[] {
-  const names = new Map<string, string>();
-  for (const turn of turns) {
-    for (const item of turn.items) {
-      const sourceName = formatSourceName(item.mcpToolCall?.invocation.server ?? item.toolCall?.server ?? "");
-      if (!sourceName) continue;
-      const key = sourceName.toLowerCase();
-      if (!names.has(key)) names.set(key, sourceName);
-    }
+function getSummaryCommitBlockerLabel(reason: SummaryCommitBlockerReason): string {
+  if (reason === "changes-loading") return "Loading diff…";
+  if (reason === "changes-unavailable") return "Commit is unavailable right now";
+  return "No changes to commit";
+}
+
+function getSummaryPushBlockerLabel(reason: SummaryPushBlockerReason): string {
+  if (reason === "branch-missing") return "Branch information unavailable";
+  if (reason === "nothing-to-push") return "No new commits to push";
+  return "Loading push status…";
+}
+
+function resolveSummaryCommitBlockerReason({
+  hasUncommittedChanges,
+  isChangesLoading,
+  isChangesUnavailable,
+}: {
+  hasUncommittedChanges: boolean;
+  isChangesLoading: boolean;
+  isChangesUnavailable: boolean;
+}): SummaryCommitBlockerReason | null {
+  if (isChangesLoading) return "changes-loading";
+  if (isChangesUnavailable) return "changes-unavailable";
+  if (!hasUncommittedChanges) return "no-changes";
+  return null;
+}
+
+function resolveSummaryPushBlockerReason({
+  status,
+  loading,
+}: {
+  status: GitActionStatusResult | null;
+  loading: boolean;
+}): SummaryPushBlockerReason | null {
+  if (loading || !status) return "push-status-loading";
+  if (!status.currentBranch) return "branch-missing";
+  if (status.commitsAhead === 0) return "nothing-to-push";
+  return null;
+}
+
+function resolveSummaryCommitOrPushMode({
+  hasUncommittedChanges,
+  hasBranchChanges,
+}: {
+  hasUncommittedChanges: boolean;
+  hasBranchChanges: boolean;
+}): SummaryCommitOrPushMode | null {
+  if (hasUncommittedChanges) return "commit";
+  if (hasBranchChanges) return "push";
+  return null;
+}
+
+function buildSummarySourceIconDescriptor(item: ThreadSummaryPanelSourceItem): ToolActivityIconDescriptor {
+  if (item.kind !== "tool") return { kind: "semantic", icon: "web-search" };
+
+  if (!item.logoUrl && !item.logoUrlDark) {
+    return { kind: "semantic", icon: "connector" };
   }
 
-  return Array.from(names.values()).slice(0, 8);
+  return {
+    kind: "logo",
+    alt: `${item.label} logo`,
+    logoUrl: item.logoUrl,
+    logoDarkUrl: item.logoUrlDark,
+    fallbackIcon: "connector",
+  };
 }
 
-function collectWebSearchCount(turns: readonly CodexConversationTurn[]): number {
-  return turns.reduce(
-    (count, turn) => count + turn.items.filter((item) => item.type === "webSearch").length,
-    0,
+function useSummarySourceMcpAppInput(
+  item: ThreadSummaryPanelSourceItem,
+  enabled: boolean,
+) {
+  const immediateInput = item.openAction?.type === "mcpApp" ? item.openAction.input : null;
+  const target = item.mcpAppTarget;
+  const shouldResolve = enabled && !immediateInput && Boolean(target);
+  const { data: statusData } = useMcpServerStatuses(target?.threadId ?? null, {
+    enabled: shouldResolve,
+  });
+  const serverStatuses = Array.isArray(statusData) ? statusData : EMPTY_MCP_SERVER_STATUSES;
+  const resourceUri = useMemo(
+    () => target ? resolveMcpAppResourceUri({ payload: target.payload, serverStatuses }) : null,
+    [serverStatuses, target],
+  );
+  const resourceParams = useMemo(() => {
+    if (!target || !resourceUri) return null;
+    return {
+      threadId: target.threadId,
+      server: target.payload.invocation.server,
+      uri: resourceUri,
+    };
+  }, [resourceUri, target]);
+  const { data: resourceResponse = null } = useMcpResource(resourceParams, {
+    enabled: shouldResolve,
+  });
+  const fetchedResource = useMemo(
+    () => resourceUri ? resolveMcpRenderableResource(resourceUri, resourceResponse) : null,
+    [resourceResponse, resourceUri],
+  );
+  const embeddedResource = useMemo(
+    () => target ? resolveMcpEmbeddedRenderableResource({ payload: target.payload, serverStatuses }) : null,
+    [serverStatuses, target],
+  );
+  const resource = fetchedResource ?? embeddedResource;
+
+  if (immediateInput) return immediateInput;
+  if (!target || !resource) return null;
+
+  return buildMcpAppSidePanelInput({
+    threadId: target.threadId,
+    payload: target.payload,
+    resource,
+  });
+}
+
+function SummarySourceIcon({
+  item,
+  canOpenMcpApps,
+  onOpenSource,
+}: {
+  item: ThreadSummaryPanelSourceItem;
+  canOpenMcpApps: boolean;
+  onOpenSource: (action: ThreadSummaryPanelSourceOpenAction) => void;
+}) {
+  const resolvedMcpAppInput = useSummarySourceMcpAppInput(item, canOpenMcpApps);
+  const openAction = item.openAction?.type === "url"
+    ? item.openAction
+    : resolvedMcpAppInput
+      ? { type: "mcpApp" as const, input: resolvedMcpAppInput }
+      : null;
+  const icon = (
+    <ToolActivityIcon
+      descriptor={buildSummarySourceIconDescriptor(item)}
+      className="icon-xs shrink-0"
+    />
+  );
+
+  const trigger = openAction ? (
+    <button
+      type="button"
+      aria-label={item.label}
+      className="flex size-6 shrink-0 cursor-interaction items-center justify-center rounded-sm text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground"
+      onClick={() => onOpenSource(openAction)}
+    >
+      {icon}
+    </button>
+  ) : (
+    <span
+      role="img"
+      aria-label={item.label}
+      className="flex size-6 shrink-0 items-center justify-center rounded-sm text-token-text-secondary"
+    >
+      {icon}
+    </span>
+  );
+
+  return (
+    <NodexTooltip tooltipContent={item.label} side="left">
+      {trigger}
+    </NodexTooltip>
   );
 }
 
-function collectProgressRows(turns: readonly CodexConversationTurn[]): string[] {
-  const latestProgressItem = [...turns]
-    .reverse()
-    .flatMap((turn) => [...turn.items].reverse())
-    .find((item) => item.semanticKind === "todoList" || item.semanticKind === "proposedPlan");
-  const markdownText = latestProgressItem?.markdownText?.trim();
-  if (!markdownText) return [];
-
-  return markdownText
-    .split(/\r?\n/u)
-    .map((line) => line.replace(/^[-*]\s+(?:\[[ xX]\]\s*)?/u, "").trim())
-    .filter(Boolean)
-    .slice(0, 4);
-}
-
-function collectOutputRows(turns: readonly CodexConversationTurn[]): string[] {
-  const paths = new Map<string, string>();
-  for (const turn of turns) {
-    for (const item of turn.items) {
-      if (item.fileChange) {
-        for (const path of getCodexFileChangePaths(item.fileChange.changes)) {
-          paths.set(path, path);
-        }
-      }
-      if (item.type !== "imageGeneration" && item.type !== "imageView") continue;
-      const rawItem = item.rawItem as { savedPath?: string; path?: string } | undefined;
-      const path = rawItem?.savedPath ?? rawItem?.path;
-      if (path) paths.set(path, path);
-    }
+function SummarySourceIconStrip({
+  items,
+  canOpenMcpApps,
+  onOpenSource,
+}: {
+  items: readonly ThreadSummaryPanelSourceItem[];
+  canOpenMcpApps: boolean;
+  onOpenSource: (action: ThreadSummaryPanelSourceOpenAction) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="py-1 text-base text-token-description-foreground">
+        No sources yet
+      </div>
+    );
   }
-  return Array.from(paths.values()).slice(0, 5);
+
+  return (
+    <ul className="-ml-1 flex flex-wrap gap-0.5" aria-label="Sources">
+      {items.map((item) => (
+        <li key={item.id} className="flex">
+          <SummarySourceIcon
+            item={item}
+            canOpenMcpApps={canOpenMcpApps}
+            onOpenSource={onOpenSource}
+          />
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function SummaryCountBadge({ count }: { count: number }) {
+  if (count === 0) return null;
+
   return (
-    <span className="ms-auto text-size-chat text-token-text-tertiary">
+    <span className="text-base text-token-description-foreground opacity-50">
       {count}
     </span>
   );
 }
 
-function isBackgroundSubagentWorking(row: ThreadComposerShellBackgroundAgentRowModel): boolean {
-  return row.status !== "done";
+function SummaryDropdownRowLabel({ label }: { label: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1 text-token-foreground">
+      <span className="min-w-0 truncate">{label}</span>
+      <ChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+    </span>
+  );
 }
 
-function selectCompactBackgroundSubagentRows(
-  rows: readonly ThreadComposerShellBackgroundAgentRowModel[],
-): ThreadComposerShellBackgroundAgentRowModel[] {
-  const inlineRows = rows.filter((row) => row.showInlineActivity);
-  const workingRows = inlineRows.filter(isBackgroundSubagentWorking);
-  if (workingRows.length > 0) return workingRows.slice(0, 4);
-  return inlineRows.filter((row) => row.status === "done").slice(-4);
+function getBrowserRowVisibleDisplayUrl(row: ThreadSummaryPanelBrowserRow): string | null {
+  if (!row.displayUrl) return null;
+  if (row.displayUrl === row.title) return null;
+  return row.displayUrl;
+}
+
+function getBrowserRowAriaLabel(row: ThreadSummaryPanelBrowserRow): string {
+  const displayUrl = getBrowserRowVisibleDisplayUrl(row);
+  return displayUrl ? `${row.title} ${displayUrl}` : row.title;
+}
+
+function getBrowserRowTitle(row: ThreadSummaryPanelBrowserRow): string {
+  if (row.url.length === 0) return row.title;
+  return `${row.title}\n${row.url}`;
+}
+
+function getScheduledAutomationTitle(row: ThreadSummaryPanelScheduledAutomationRow): string {
+  return `Next run: ${row.nextRunLabel}`;
+}
+
+function SummaryScheduledAutomationLabel({ row }: { row: ThreadSummaryPanelScheduledAutomationRow }) {
+  return (
+    <>
+      <span className="min-w-0 flex-1 truncate">{row.name}</span>
+      {row.scheduleSummary ? (
+        <span className="max-w-48 shrink-0 truncate text-size-chat text-token-text-secondary">
+          {row.scheduleSummary}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function SummaryComputerUsePipTrailing({ visible }: { visible: boolean }) {
+  return (
+    <span className="relative flex size-5 shrink-0 items-center justify-center text-token-text-tertiary">
+      <PictureInPicture2 className="size-5" aria-hidden="true" />
+      {visible ? null : <Slash className="absolute size-5" aria-hidden="true" />}
+    </span>
+  );
+}
+
+function SummaryBrowserFavicon({
+  faviconUrl,
+  isAgentWorking,
+}: {
+  faviconUrl: string | null;
+  isAgentWorking: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const iconClassName = cn("size-full", isAgentWorking && "opacity-30");
+
+  if (!faviconUrl || failed) {
+    return <CodexGlobeIcon className={iconClassName} aria-hidden={true} />;
+  }
+
+  return (
+    <img
+      src={faviconUrl}
+      alt=""
+      className={cn("size-full rounded-[2px] object-contain", isAgentWorking && "opacity-30")}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function SummaryBrowserRowIcon({ row }: { row: ThreadSummaryPanelBrowserRow }) {
+  return (
+    <span aria-hidden={true} className="icon-xs relative flex shrink-0 items-center justify-center overflow-visible">
+      <SummaryBrowserFavicon faviconUrl={row.faviconUrl} isAgentWorking={row.isAgentWorking} />
+      {row.isAgentWorking ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <SpinnerIcon className="size-4 text-token-text-secondary" />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function SummaryBrowserRowLabel({ row }: { row: ThreadSummaryPanelBrowserRow }) {
+  const displayUrl = getBrowserRowVisibleDisplayUrl(row);
+  const content = (
+    <>
+      <span className={cn("min-w-0 truncate", displayUrl && "max-w-[60%]")}>{row.title}</span>
+      {displayUrl ? (
+        <span className="min-w-0 max-w-[40%] truncate text-size-chat text-token-text-tertiary">
+          {displayUrl}
+        </span>
+      ) : null}
+    </>
+  );
+
+  if (!row.isAgentWorking) return content;
+
+  return (
+    <span className="loading-shimmer-pure-text flex min-w-0 items-baseline gap-2">
+      {content}
+    </span>
+  );
 }
 
 function getBackgroundSubagentTitle(row: ThreadComposerShellBackgroundAgentRowModel): string {
@@ -226,6 +586,40 @@ function BackgroundSubagentRowTrailing({ row }: { row: ThreadComposerShellBackgr
   );
 }
 
+function SummaryOutputIcon({ row }: { row: ThreadSummaryPanelOutputRow }) {
+  if (row.kind === "generated-image" || row.kind === "image") {
+    return <ImageIcon className="size-3.5" />;
+  }
+
+  if (row.kind === "website") {
+    return <CodexGlobeIcon className="size-3.5" aria-hidden={true} />;
+  }
+
+  if (row.kind === "google-drive") {
+    return <CodexConnectorFallbackIcon className="size-3.5" aria-hidden={true} />;
+  }
+
+  if (row.kind === "appgen-app") {
+    return <CodexPluginCubeIcon className="size-3.5" aria-hidden={true} />;
+  }
+
+  return <FileIcon className="size-3.5" />;
+}
+
+function SummaryOutputLabel({ row }: { row: ThreadSummaryPanelOutputRow }) {
+  if (row.kind !== "appgen-app") return row.label;
+
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="truncate">{row.label}</span>
+      <ExternalLink
+        className="icon-xs shrink-0 opacity-0 group-focus-visible/summary-panel-row:opacity-100 group-hover/summary-panel-row:opacity-100"
+        aria-hidden={true}
+      />
+    </span>
+  );
+}
+
 function BackgroundSubagentCompactButton({
   onOpenThread,
   row,
@@ -244,8 +638,7 @@ function BackgroundSubagentCompactButton({
   if (!onOpenThread) {
     return (
       <span
-        title={getBackgroundSubagentTitle(row)}
-        className="-ms-1 first:ms-0"
+        className="flex size-4"
       >
         {avatar}
       </span>
@@ -255,9 +648,8 @@ function BackgroundSubagentCompactButton({
   return (
     <button
       type="button"
-      aria-label={`Open ${row.displayName}`}
-      title={getBackgroundSubagentTitle(row)}
-      className="-ms-1 first:ms-0 rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-token-text-link-foreground"
+      aria-label={row.displayName}
+      className="flex size-4 cursor-interaction rounded-full focus-visible:outline-2 focus-visible:outline-offset-2"
       onClick={() => {
         void onOpenThread(row.conversationId, buildBackgroundAgentOpenContext(row));
       }}
@@ -268,21 +660,18 @@ function BackgroundSubagentCompactButton({
 }
 
 function BackgroundSubagentCompactStrip({
-  rows,
+  model,
   onOpenThread,
 }: {
-  rows: readonly ThreadComposerShellBackgroundAgentRowModel[];
+  model: BackgroundSubagentCompactStripModel<ThreadComposerShellBackgroundAgentRowModel>;
   onOpenThread: ThreadStageActions["onOpenThread"] | undefined;
 }) {
-  if (rows.length === 0) return null;
-
-  const workingCount = rows.filter(isBackgroundSubagentWorking).length;
-  const doneCount = rows.length - workingCount;
+  if (model.displayRows.length === 0) return null;
 
   return (
-    <div className="flex h-7 min-w-0 items-center justify-between gap-2">
-      <span className="flex min-w-0 items-center pl-1">
-        {rows.map((row) => (
+    <div className="flex min-h-8 items-center gap-2">
+      <span className="flex shrink-0 items-center gap-1.5">
+        {model.displayRows.map((row) => (
           <BackgroundSubagentCompactButton
             key={row.conversationId}
             row={row}
@@ -290,24 +679,26 @@ function BackgroundSubagentCompactStrip({
           />
         ))}
       </span>
-      <span className="ms-auto flex shrink-0 items-center gap-1.5 text-size-chat">
-        {workingCount > 0 ? (
-          <span className="whitespace-nowrap text-token-foreground">{workingCount} working</span>
-        ) : null}
-        {doneCount > 0 ? (
-          <span className="whitespace-nowrap text-token-text-tertiary">{doneCount} done</span>
-        ) : null}
-      </span>
+      {model.workingCount > 0 ? (
+        <span className="text-base whitespace-nowrap text-token-foreground">{model.workingCount} working</span>
+      ) : null}
+      {model.doneCount > 0 ? (
+        <span className="text-base whitespace-nowrap text-token-text-tertiary">{model.doneCount} done</span>
+      ) : null}
     </div>
   );
 }
 
-function useGitSummary(cwd: string | null, open: boolean): GitSummaryState {
+function useGitSummary(cwd: string | null, open: boolean, refreshKey = 0): GitSummaryState {
   const [state, setState] = useState<GitSummaryState>(EMPTY_GIT_SUMMARY);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     if (!open || !cwd) {
-      setState(EMPTY_GIT_SUMMARY);
+      if (stateRef.current !== EMPTY_GIT_SUMMARY) {
+        setState(EMPTY_GIT_SUMMARY);
+      }
       return;
     }
 
@@ -335,7 +726,81 @@ function useGitSummary(cwd: string | null, open: boolean): GitSummaryState {
     return () => {
       cancelled = true;
     };
-  }, [cwd, open]);
+  }, [cwd, open, refreshKey]);
+
+  return state;
+}
+
+function useSummaryGitActionStatus(
+  cwd: string | null,
+  open: boolean,
+  refreshKey = 0,
+): SummaryGitActionStatusState {
+  const [state, setState] = useState<SummaryGitActionStatusState>(EMPTY_GIT_ACTION_STATUS);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  useEffect(() => {
+    if (!open || !cwd) {
+      if (stateRef.current !== EMPTY_GIT_ACTION_STATUS) {
+        setState(EMPTY_GIT_ACTION_STATUS);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setState({ loading: true, cwd, status: null });
+    void invoke("git:action:status", { cwd })
+      .then((result) => {
+        if (cancelled) return;
+        setState({ loading: false, cwd, status: result as GitActionStatusResult });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState({ loading: false, cwd, status: null });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, open, refreshKey]);
+
+  return state;
+}
+
+function useSummaryPullRequestStatus(
+  cwd: string | null,
+  open: boolean,
+  refreshKey = 0,
+): SummaryPullRequestStatusState {
+  const [state, setState] = useState<SummaryPullRequestStatusState>(EMPTY_PULL_REQUEST_STATUS);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  useEffect(() => {
+    if (!open || !cwd) {
+      if (stateRef.current !== EMPTY_PULL_REQUEST_STATUS) {
+        setState(EMPTY_PULL_REQUEST_STATUS);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setState({ loading: true, cwd, status: null });
+    void invoke("gh-pr-status", { cwd })
+      .then((result) => {
+        if (cancelled) return;
+        setState({ loading: false, cwd, status: result as GhPrStatusResult });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState({ loading: false, cwd, status: null });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, open, refreshKey]);
 
   return state;
 }
@@ -351,21 +816,34 @@ function useSummaryPanelBranchState({
 }) {
   const [branchState, setBranchState] = useState<BranchSelectorState>(EMPTY_BRANCH_SELECTOR_STATE);
   const [busy, setBusy] = useState(false);
+  const branchStateRef = useRef(branchState);
   const branchCwdRef = useRef<string | null>(cwd);
   const mutationRequestIdRef = useRef(0);
-  const { data: branchStateData, refetch: refetchBranchState } = useGitBranchState(cwd, {
+  const {
+    data: branchStateData,
+    isError: branchStateError,
+    isFetching: branchStateFetching,
+    isLoading: branchStateLoading,
+    refetch: refetchBranchState,
+  } = useGitBranchState(cwd, {
     enabled,
   });
+  branchStateRef.current = branchState;
   branchCwdRef.current = cwd;
+
+  const resetBranchState = useCallback(() => {
+    if (branchStateRef.current === EMPTY_BRANCH_SELECTOR_STATE) return;
+    setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
+  }, []);
 
   const refreshBranchState = useCallback(async () => {
     if (!enabled) {
-      setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
+      resetBranchState();
       return;
     }
     const requestedCwd = branchCwdRef.current;
     if (!requestedCwd) {
-      setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
+      resetBranchState();
       return;
     }
 
@@ -377,21 +855,21 @@ function useSummaryPanelBranchState({
       if (branchCwdRef.current !== requestedCwd) return;
       setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
     }
-  }, [enabled, refetchBranchState]);
+  }, [enabled, refetchBranchState, resetBranchState]);
 
   useEffect(() => {
     if (!enabled || !cwd) {
-      setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
+      resetBranchState();
       return;
     }
 
     if (!branchStateData) {
-      setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
+      resetBranchState();
       return;
     }
 
     setBranchState(parseBranchSelectorState(branchStateData));
-  }, [branchStateData, cwd, enabled]);
+  }, [branchStateData, cwd, enabled, resetBranchState]);
 
   const checkoutBranch = useCallback(async (branch: string) => {
     const requestedCwd = cwd;
@@ -454,6 +932,8 @@ function useSummaryPanelBranchState({
   return {
     branchState,
     busy,
+    error: branchStateError,
+    loading: branchStateLoading || (branchStateFetching && branchState === EMPTY_BRANCH_SELECTOR_STATE),
     refreshBranchState,
     checkoutBranch,
     createBranch,
@@ -462,7 +942,11 @@ function useSummaryPanelBranchState({
 
 export function ThreadSummaryPanelSurface({
   activeThreadId,
+  activeThreadTitle = null,
+  activeThreadIsManagedWorktree = false,
+  activeThreadProjectless = false,
   cwd,
+  projectlessOutputDirectory = null,
   projectWorkspacePath,
   turns,
   backgroundTerminalRows = [],
@@ -470,8 +954,11 @@ export function ThreadSummaryPanelSurface({
   knownConversationsById = EMPTY_KNOWN_CONVERSATIONS_BY_ID,
   sideChatRows = [],
   browserRows = [],
+  scheduledAutomation = null,
+  computerUsePip = null,
   isVisible = true,
   newThreadStartInSelector,
+  actions,
   onOpenThread,
   onErrorMessage,
 }: Omit<ThreadFloatingSummaryPanelProps, "mounted" | "open">) {
@@ -479,12 +966,37 @@ export function ThreadSummaryPanelSurface({
     () => resolveBranchSelectorCwd(cwd, projectWorkspacePath),
     [cwd, projectWorkspacePath],
   );
-  const gitSummary = useGitSummary(branchCwd, isVisible);
+  const [previewImage, setPreviewImage] = useState<{
+    row: ThreadSummaryPanelOutputRow;
+    src: string;
+  } | null>(null);
+  const [gitActionDialogMode, setGitActionDialogMode] = useState<SummaryGitActionDialogMode | null>(null);
+  const [createPullRequestDialogOpen, setCreatePullRequestDialogOpen] = useState(false);
+  const [gitActionWorkflow, setGitActionWorkflow] = useState<SummaryGitActionWorkflowState | null>(null);
+  const [branchSetupOpen, setBranchSetupOpen] = useState(false);
+  const [branchSetupNextAction, setBranchSetupNextAction] = useState<SummaryBranchSetupNextAction | null>(null);
+  const [gitSummaryRefreshKey, setGitSummaryRefreshKey] = useState(0);
+  const previewReturnFocusRef = useRef<HTMLDivElement | null>(null);
+  const gitSummary = useGitSummary(branchCwd, isVisible, gitSummaryRefreshKey);
+  const gitActionStatus = useSummaryGitActionStatus(branchCwd, isVisible, gitSummaryRefreshKey);
   const branch = useSummaryPanelBranchState({ cwd: branchCwd, enabled: isVisible, onErrorMessage });
-  const sourceNames = useMemo(() => collectMcpSourceNames(turns), [turns]);
-  const webSearchCount = useMemo(() => collectWebSearchCount(turns), [turns]);
-  const progressRows = useMemo(() => collectProgressRows(turns), [turns]);
-  const outputRows = useMemo(() => collectOutputRows(turns), [turns]);
+  const sourceModel = useMemo(() => buildThreadSummaryPanelSourceModel(turns), [turns]);
+  const handleOpenSource = useCallback((action: ThreadSummaryPanelSourceOpenAction) => {
+    if (action.type === "url") {
+      window.open(action.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    void actions?.onOpenMcpAppSidePanel?.(action.input);
+  }, [actions]);
+  const planRow = useMemo(
+    () => buildThreadSummaryPanelPlanRow({ activeThreadId, cwd, turns }),
+    [activeThreadId, cwd, turns],
+  );
+  const outputRows = useMemo(
+    () => buildThreadSummaryPanelOutputRows(turns, { cwd, projectlessOutputDirectory }),
+    [cwd, projectlessOutputDirectory, turns],
+  );
   const backgroundSubagentRows = useMemo(
     () => buildBackgroundSubagentRows({
       childMemberships,
@@ -493,238 +1005,775 @@ export function ThreadSummaryPanelSurface({
     }),
     [childMemberships, knownConversationsById, turns],
   );
-  const compactBackgroundSubagentRows = useMemo(
-    () => selectCompactBackgroundSubagentRows(backgroundSubagentRows),
+  const compactBackgroundSubagentModel = useMemo(
+    () => buildBackgroundSubagentCompactStripModel(backgroundSubagentRows),
     [backgroundSubagentRows],
   );
   const listedBackgroundSubagentRows = useMemo(
-    () => backgroundSubagentRows.filter((row) => !row.showInlineActivity),
+    () => getBackgroundSubagentListRows(backgroundSubagentRows),
     [backgroundSubagentRows],
   );
   const snapshots = gitSummary.snapshots;
   const unstaged = sumSnapshotFiles(snapshots.unstaged);
   const staged = sumSnapshotFiles(snapshots.staged);
   const branchDiff = sumSnapshotFiles(snapshots.branch);
+  const hasRepository = Object.values(snapshots).some((snapshot) => snapshot?.isGitRepository);
+  const currentBranch = branch.branchState.currentBranch
+    ?? gitActionStatus.status?.currentBranch
+    ?? snapshots.branch?.currentBranch
+    ?? null;
+  const defaultBranch = branch.branchState.defaultBranch
+    ?? gitActionStatus.status?.defaultBranch
+    ?? snapshots.branch?.defaultBranch
+    ?? null;
+  const pullRequestStatus = useSummaryPullRequestStatus(
+    branchCwd,
+    Boolean(isVisible && hasRepository && currentBranch),
+    gitSummaryRefreshKey,
+  );
+  const isDetachedHead = Boolean(
+    hasRepository
+    && gitActionStatus.status?.hasHeadCommit
+    && !currentBranch,
+  );
+  const isManagedWorktreeDefaultBranch = Boolean(
+    activeThreadIsManagedWorktree
+    && currentBranch
+    && defaultBranch
+    && currentBranch === defaultBranch,
+  );
   const changes = {
     additions: unstaged.additions + staged.additions + branchDiff.additions,
     deletions: unstaged.deletions + staged.deletions + branchDiff.deletions,
   };
-  const hasRepository = Object.values(snapshots).some((snapshot) => snapshot?.isGitRepository);
-  const currentBranch = branch.branchState.currentBranch ?? snapshots.branch?.currentBranch ?? null;
+  const hasUncommittedChanges = unstaged.additions > 0
+    || unstaged.deletions > 0
+    || staged.additions > 0
+    || staged.deletions > 0;
+  const hasBranchChanges = branchDiff.additions > 0 || branchDiff.deletions > 0;
+  const hasChangesSnapshotError = Object.values(snapshots).some((snapshot) => snapshot?.errorMessage);
+  const commitBlockerReason = resolveSummaryCommitBlockerReason({
+    hasUncommittedChanges,
+    isChangesLoading: gitSummary.loading,
+    isChangesUnavailable: hasChangesSnapshotError,
+  });
+  const pushBlockerReason = resolveSummaryPushBlockerReason({
+    status: gitActionStatus.status,
+    loading: gitActionStatus.loading,
+  });
+  const commitOrPushMode = resolveSummaryCommitOrPushMode({
+    hasUncommittedChanges,
+    hasBranchChanges,
+  });
+  const commitOrPushBranchStatusPending = Boolean(
+    commitOrPushMode === "commit"
+    && hasRepository
+    && !currentBranch
+    && gitActionStatus.loading,
+  );
+  const commitOrPushBlockerLabel = commitOrPushBranchStatusPending
+    ? "Branch information unavailable"
+    : commitOrPushMode === "push"
+      ? (pushBlockerReason ? getSummaryPushBlockerLabel(pushBlockerReason) : null)
+      : (commitBlockerReason ? getSummaryCommitBlockerLabel(commitBlockerReason) : null);
+  const commitOrPushNeedsBranchSetup = Boolean(
+    (isDetachedHead && commitOrPushMode === "commit")
+    || (isManagedWorktreeDefaultBranch && commitOrPushMode === "push"),
+  );
+  const createPullRequestNeedsBranchSetup = isManagedWorktreeDefaultBranch;
+  const commitOrPushWorkflow = gitActionWorkflow?.workflow === "commit" || gitActionWorkflow?.workflow === "push"
+    ? gitActionWorkflow
+    : null;
+  const createPullRequestWorkflow = gitActionWorkflow?.workflow === "create-pull-request"
+    ? gitActionWorkflow
+    : null;
+  const existingPullRequestUrl = pullRequestStatus.status?.status === "ready"
+    ? pullRequestStatus.status.url
+    : null;
+  const commitOrPushRowLabel = commitOrPushWorkflow
+    ? getSummaryGitActionPhaseLabel(commitOrPushWorkflow.phase)
+    : "Commit or push";
+  const createPullRequestGhBlockerLabel = pullRequestStatus.status?.available === false
+    ? (pullRequestStatus.status.message ?? "GitHub CLI unavailable")
+    : null;
+  const createPullRequestRowLabel = createPullRequestWorkflow
+    ? getSummaryGitActionPhaseLabel(createPullRequestWorkflow.phase)
+    : existingPullRequestUrl
+      ? "Open pull request"
+      : createPullRequestGhBlockerLabel ?? "Create pull request";
+  const createPullRequestRowTitle = createPullRequestWorkflow
+    ? getSummaryGitActionPhaseLabel(createPullRequestWorkflow.phase)
+    : pullRequestStatus.loading
+      ? "Checking pull request"
+      : existingPullRequestUrl
+        ? (pullRequestStatus.status?.title ?? "Open pull request")
+        : createPullRequestNeedsBranchSetup
+          ? "Create branch"
+          : currentBranch
+            ? createPullRequestGhBlockerLabel ?? "Create pull request"
+            : "Branch information unavailable";
+  const commitOrPushRowTitle = commitOrPushWorkflow
+    ? getSummaryGitActionPhaseLabel(commitOrPushWorkflow.phase)
+    : commitOrPushNeedsBranchSetup
+      ? "Create branch"
+      : (commitOrPushBlockerLabel ?? (commitOrPushMode ? "Commit or push" : "No changes to commit or push"));
+  const commitOrPushRowDisplayTitle = commitOrPushRowTitle === commitOrPushRowLabel
+    ? undefined
+    : commitOrPushRowTitle;
+  const createPullRequestRowDisplayTitle = createPullRequestRowTitle === createPullRequestRowLabel
+    ? undefined
+    : createPullRequestRowTitle;
+  const hasGitEnvironmentSummary = Boolean(
+    branchCwd && !activeThreadProjectless && (hasRepository || gitSummary.loading),
+  );
+  const hasComputerUsePip = computerUsePip !== null && actions?.onToggleSummaryComputerUsePip !== undefined;
+  const summarySections = useMemo(
+    () => buildThreadSummaryPanelSectionModel({
+      activeThreadId,
+      hasScheduledAutomation: scheduledAutomation !== null,
+      hasEnvironment: hasGitEnvironmentSummary,
+      hasPlan: planRow !== null,
+      outputCount: outputRows.length,
+      suppressOutputs: hasGitEnvironmentSummary,
+      sideChatCount: sideChatRows.length,
+      backgroundSubagentRows,
+      taskCount: backgroundTerminalRows.length,
+      hasComputerUsePip,
+      browserCount: browserRows.length,
+      sourceCount: sourceModel.count,
+    }),
+    [
+      activeThreadId,
+      backgroundSubagentRows,
+      backgroundTerminalRows.length,
+      browserRows.length,
+      hasComputerUsePip,
+      outputRows.length,
+      planRow,
+      scheduledAutomation,
+      sideChatRows.length,
+      sourceModel.count,
+      hasGitEnvironmentSummary,
+    ],
+  );
   const primaryGitSource = resolvePrimaryGitSource(snapshots);
   const runTargetLabel = newThreadStartInSelector?.target.runInTarget === "newWorktree" ? "New worktree" : "Local";
+  const worktreeAvailable = Boolean(
+    branchCwd
+    && (branch.branchState.currentBranch || branch.branchState.defaultBranch || branch.branchState.branches.length > 0),
+  );
 
   const handleOpenGitReview = useCallback((source: GitReviewSource) => {
     if (!hasRepository) return;
-    onErrorMessage(`Open the Diff stage to review ${source} changes.`);
-  }, [hasRepository, onErrorMessage]);
+    void actions?.onOpenSummaryGitReview?.({ source });
+  }, [actions, hasRepository]);
+  const handleOpenGitActionDialog = useCallback((mode: "commit" | "push" | null) => {
+    if (!hasRepository || gitSummary.loading || !mode) return;
+    setGitActionDialogMode(mode);
+  }, [gitSummary.loading, hasRepository]);
+  const handleOpenBranchSetup = useCallback((nextAction: SummaryBranchSetupNextAction | null) => {
+    if (!hasRepository || gitSummary.loading) return;
+    setBranchSetupNextAction(nextAction);
+    setBranchSetupOpen(true);
+  }, [gitSummary.loading, hasRepository]);
+  const handleBranchSetupOpenChange = useCallback((nextOpen: boolean) => {
+    setBranchSetupOpen(nextOpen);
+    if (!nextOpen) setBranchSetupNextAction(null);
+  }, []);
+  const handleOpenCreatePullRequestDialog = useCallback(() => {
+    if (!hasRepository || gitSummary.loading) return;
+    setCreatePullRequestDialogOpen(true);
+  }, [gitSummary.loading, hasRepository]);
+  const handleBranchSetupCreated = useCallback(() => {
+    setGitSummaryRefreshKey((current) => current + 1);
+    void branch.refreshBranchState();
+    if (branchSetupNextAction === "create-pull-request") {
+      setCreatePullRequestDialogOpen(true);
+    } else if (branchSetupNextAction) {
+      setGitActionDialogMode(branchSetupNextAction);
+    }
+    setBranchSetupNextAction(null);
+  }, [branch.refreshBranchState, branchSetupNextAction]);
+  const handleGitActionDialogOpenChange = useCallback((nextOpen: boolean) => {
+    if (nextOpen) return;
+    setGitActionDialogMode(null);
+  }, []);
+  const handleCreatePullRequestDialogOpenChange = useCallback((nextOpen: boolean) => {
+    setCreatePullRequestDialogOpen(nextOpen);
+  }, []);
+  const handleGitActionCompleted = useCallback(() => {
+    setGitSummaryRefreshKey((current) => current + 1);
+    void branch.refreshBranchState();
+  }, [branch.refreshBranchState]);
+  const handleCreatePullRequestCompleted = useCallback(() => {
+    setGitSummaryRefreshKey((current) => current + 1);
+    void branch.refreshBranchState();
+  }, [branch.refreshBranchState]);
+  const handleCancelGitAction = useCallback((operationId: string) => {
+    void invoke("git:action:cancel", { operationId })
+      .finally(() => {
+        setGitActionWorkflow((current) => current?.operationId === operationId ? null : current);
+        setGitActionDialogMode(null);
+      });
+  }, []);
+  const handlePreviewOpenChange = useCallback((nextOpen: boolean) => {
+    if (nextOpen) return;
+
+    setPreviewImage(null);
+    window.setTimeout(() => {
+      previewReturnFocusRef.current?.focus();
+      previewReturnFocusRef.current = null;
+    }, 0);
+  }, []);
+  const openSummaryOutputInSidePanel = actions?.onOpenSummaryOutputInSidePanel;
+  const handleOpenOutput = useCallback((row: ThreadSummaryPanelOutputRow, returnFocusTarget: HTMLDivElement) => {
+    onErrorMessage(null);
+    const previewSrc = resolveSummaryOutputImagePreviewSrc(row);
+    if (previewSrc) {
+      previewReturnFocusRef.current = returnFocusTarget;
+      setPreviewImage({ row, src: previewSrc });
+      return;
+    }
+
+    const target = resolveThreadSummaryPanelOutputOpenTarget(row);
+    if (target.type === "url") {
+      window.open(target.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const openDesktopFile = () => invoke("shell:open-file-link", { path: target.path }, "fileManager")
+      .then((opened) => {
+        if (opened) return;
+        onErrorMessage("Could not open output");
+      })
+      .catch((error: unknown) => {
+        onErrorMessage(error instanceof Error ? error.message : "Could not open output");
+      });
+
+    if (!openSummaryOutputInSidePanel) {
+      void openDesktopFile();
+      return;
+    }
+
+    void Promise.resolve(openSummaryOutputInSidePanel({
+      path: target.path,
+      title: row.label,
+    }))
+      .then((opened) => {
+        if (opened) return;
+        return openDesktopFile();
+      })
+      .catch(() => openDesktopFile());
+  }, [onErrorMessage, openSummaryOutputInSidePanel]);
+  const onOpenPlanInSidePanel = actions?.onOpenPlanInSidePanel;
+  const handleOpenPlan = useCallback((row: ThreadSummaryPanelPlanRow) => {
+    void onOpenPlanInSidePanel?.(row.target);
+  }, [onOpenPlanInSidePanel]);
+  const onOpenBackgroundTerminalOutput = actions?.onOpenBackgroundTerminalOutput;
+  const handleOpenBackgroundTerminalOutput = useCallback((row: CodexBackgroundTerminalRow) => {
+    void onOpenBackgroundTerminalOutput?.(row);
+  }, [onOpenBackgroundTerminalOutput]);
+  const onOpenScheduledAutomation = actions?.onOpenSummaryScheduledAutomation;
+  const onToggleComputerUsePip = actions?.onToggleSummaryComputerUsePip;
+  const handleOpenScheduledAutomation = useCallback((row: ThreadSummaryPanelScheduledAutomationRow) => {
+    void onOpenScheduledAutomation?.({
+      automationId: row.id,
+      title: row.name,
+    });
+  }, [onOpenScheduledAutomation]);
+  const handleOpenAuxiliaryRow = useCallback((
+    row: Pick<ThreadSummaryPanelAuxiliaryRow, "id" | "panelId" | "leafId">,
+    open: ThreadStageActions["onOpenSummarySideChatRow"] | ThreadStageActions["onOpenSummaryBrowserRow"],
+  ) => {
+    if (!open || !row.panelId) return;
+    void open({
+      rowId: row.id,
+      panelId: row.panelId,
+      leafId: row.leafId ?? null,
+    });
+  }, []);
+  const processManagerAction = actions?.onOpenProcessManager ? (
+    <NodexTooltip tooltipContent="View all processes" side="top">
+      <button
+        type="button"
+        aria-label="View all processes"
+        className="ms-auto inline-flex size-6 cursor-interaction items-center justify-center rounded-sm border-0 bg-transparent text-token-text-tertiary hover:text-token-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
+        title="View all processes"
+        onClick={() => {
+          void actions.onOpenProcessManager?.();
+        }}
+      >
+        <ListTree className="icon-xs" aria-hidden="true" />
+      </button>
+    </NodexTooltip>
+  ) : null;
 
   return (
-    <div
-      data-testid="thread-summary-panel"
-      className="relative flex max-h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-token-border-default bg-token-dropdown-background pt-3 shadow-md select-none"
-    >
-      <div className="flex h-fit max-h-full min-h-0 flex-col gap-3 overflow-y-auto pb-3">
-        <ThreadSummaryPanelSection title="Environment">
-          <ThreadSummaryPanelRow
-            label="Changes"
-            interactive={hasRepository}
-            disabled={!hasRepository || gitSummary.loading}
-            onClick={() => handleOpenGitReview(primaryGitSource)}
-            trailing={(
-              changes.additions > 0 || changes.deletions > 0 ? (
-                <DiffStats
-                  additions={changes.additions}
-                  deletions={changes.deletions}
-                  className="text-size-chat"
-                />
-              ) : (
-                <span className="text-size-chat text-token-text-tertiary">
-                  {gitSummary.loading ? "Loading" : "Clean"}
-                </span>
-              )
-            )}
-            trailingVisible
-          />
-          <ThreadSummaryPanelRow
-            label={runTargetLabel}
-            icon={<LocalStatusIcon />}
-            trailing={<ChevronRightIcon className="size-3 text-token-text-tertiary" />}
-            trailingVisible
-            interactive={Boolean(newThreadStartInSelector)}
-            onClick={() => {
-              if (!newThreadStartInSelector) return;
-              onErrorMessage("Use the composer Start in selector to change the run target.");
-            }}
-          />
-          <ThreadSummaryPanelRow
-            label={currentBranch ?? "No branch"}
-            icon={<BranchStatusIcon />}
-            disabled={!isVisible || !branchCwd || branch.busy}
-            accessory={(
-              <BranchSelectorPopover
-                cwd={branchCwd}
-                state={branch.branchState}
-                busy={branch.busy}
-                onRefresh={branch.refreshBranchState}
-                onCheckout={branch.checkoutBranch}
-                onCreate={branch.createBranch}
-                triggerClassName="h-6 max-w-36 text-token-text-tertiary hover:text-token-foreground"
-              />
-            )}
-          />
-          <ThreadSummaryPanelRow
-            label="Commit or push"
-            icon={<UploadCloud className="size-3.5" />}
-            interactive={hasRepository}
-            disabled={!hasRepository}
-            onClick={() => handleOpenGitReview(staged.additions > 0 || staged.deletions > 0 ? "staged" : "unstaged")}
-          />
-          <ThreadSummaryPanelRow
-            label="Create pull request"
-            icon={<GitPullRequest className="size-3.5" />}
-            interactive={hasRepository && Boolean(currentBranch)}
-            disabled={!hasRepository || !currentBranch}
-            onClick={() => handleOpenGitReview("branch")}
-          />
-        </ThreadSummaryPanelSection>
+    <>
+      <div
+        data-testid="thread-summary-panel"
+        className="relative flex max-h-full min-h-0 flex-col overflow-hidden rounded-3xl bg-token-dropdown-background pt-3 electron:elevation-prominent extension:border extension:border-token-border-default extension:shadow-md"
+      >
+        <div className="flex h-fit max-h-full min-h-0 flex-col gap-3 overflow-y-auto pb-3">
+          {summarySections.map((section: ThreadSummaryPanelSectionModel) => {
+            switch (section.kind) {
+              case "scheduled":
+                if (!scheduledAutomation) return null;
+                return (
+                  <ThreadSummaryPanelSection key={section.kind} sectionKey="automation" title="Scheduled">
+                    <ThreadSummaryPanelRow
+                      aria-label="Open scheduled task"
+                      icon={<ClockIcon className="icon-xs shrink-0" />}
+                      label={<SummaryScheduledAutomationLabel row={scheduledAutomation} />}
+                      labelClassName="flex min-w-0 flex-1 items-baseline gap-2"
+                      title={getScheduledAutomationTitle(scheduledAutomation)}
+                      interactive={Boolean(onOpenScheduledAutomation)}
+                      onClick={onOpenScheduledAutomation ? () => handleOpenScheduledAutomation(scheduledAutomation) : undefined}
+                    />
+                  </ThreadSummaryPanelSection>
+                );
 
-        {progressRows.length > 0 ? (
-          <ThreadSummaryPanelSection title="Progress" actions={<SummaryCountBadge count={progressRows.length} />}>
-            {progressRows.map((row) => (
-              <ThreadSummaryPanelRow key={row} label={row} />
-            ))}
-          </ThreadSummaryPanelSection>
-        ) : null}
+              case "environment":
+                return (
+                  <ThreadSummaryPanelSection key={section.kind} sectionKey="environment" title="Environment">
+                    <ThreadSummaryPanelRow
+                      label="Changes"
+                      icon={<ThreadSummaryChangesIcon className="icon-sm shrink-0" />}
+                      interactive={Boolean(hasRepository && actions?.onOpenSummaryGitReview)}
+                      disabled={!hasRepository || gitSummary.loading || !actions?.onOpenSummaryGitReview}
+                      onClick={() => handleOpenGitReview(primaryGitSource)}
+                      trailing={(
+                        gitSummary.loading ? (
+                          <SpinnerIcon className="icon-xs shrink-0 text-token-text-tertiary" />
+                        ) : changes.additions > 0 || changes.deletions > 0 ? (
+                          <DiffStats
+                            additions={changes.additions}
+                            deletions={changes.deletions}
+                            className="text-size-chat"
+                          />
+                        ) : null
+                      )}
+                      trailingVisible
+                    />
+                    {newThreadStartInSelector && actions ? (
+                      <NewChatStartInSelector
+                        model={newThreadStartInSelector}
+                        actions={actions}
+                        disabled={!isVisible}
+                        worktreeAvailable={worktreeAvailable}
+                        side="left"
+                        align="start"
+                        sideOffset={4}
+                        contentWidth="menuNarrow"
+                        contentClassName="max-w-[calc(100vw-2rem)]"
+                        menuTitle="Continue in"
+                        tooltipContent="Select where to run the task"
+                        renderTrigger={({ iconKey, title, disabled }) => (
+                          <ThreadSummaryPanelRow
+                            label={<SummaryDropdownRowLabel label={runTargetLabel} />}
+                            labelClassName="flex min-w-0 items-center"
+                            title={title}
+                            icon={<span className="shrink-0"><StartInIcon iconKey={iconKey} className="icon-sm text-token-foreground" /></span>}
+                            disabled={disabled}
+                            interactive
+                          />
+                        )}
+                      />
+                    ) : (
+                      <ThreadSummaryPanelRow
+                        label={runTargetLabel}
+                        icon={<LocalStatusIcon className="icon-sm text-token-foreground" />}
+                      />
+                    )}
+                    {isDetachedHead ? (
+                      <ThreadSummaryPanelRow
+                        label="Create branch"
+                        title="Create branch"
+                        icon={<BranchStatusIcon className="icon-sm shrink-0" />}
+                        interactive
+                        disabled={!isVisible || branch.busy}
+                        onClick={() => handleOpenBranchSetup(null)}
+                      />
+                    ) : (
+                      <BranchSelectorPopover
+                        cwd={branchCwd}
+                        state={branch.branchState}
+                        busy={branch.busy}
+                        loading={branch.loading}
+                        error={branch.error}
+                        onRefresh={branch.refreshBranchState}
+                        onCheckout={branch.checkoutBranch}
+                        onCreate={branch.createBranch}
+                        selectedBranch={currentBranch}
+                        disabled={!isVisible || !branchCwd || branch.busy}
+                        side="left"
+                        align="start"
+                        sideOffset={4}
+                        contentClassName="!w-[296px]"
+                        renderTrigger={({ triggerLabel, title, disabled }) => (
+                          <ThreadSummaryPanelRow
+                            label={<SummaryDropdownRowLabel label={triggerLabel} />}
+                            labelClassName="flex min-w-0 items-center"
+                            title={title}
+                            icon={<BranchStatusIcon className="icon-sm shrink-0" />}
+                            disabled={disabled}
+                            interactive
+                          />
+                        )}
+                      />
+                    )}
+                    {isManagedWorktreeDefaultBranch ? (
+                      <ThreadSummaryPanelRow
+                        label="Create branch"
+                        title="Create branch"
+                        icon={<BranchStatusIcon className="icon-sm shrink-0" />}
+                        interactive
+                        disabled={!isVisible || branch.busy}
+                        onClick={() => handleOpenBranchSetup(null)}
+                      />
+                    ) : null}
+                    <ThreadSummaryPanelRow
+                      label={commitOrPushRowLabel}
+                      title={commitOrPushRowDisplayTitle}
+                      icon={commitOrPushMode === "push"
+                        ? <ThreadSummaryPushIcon className="icon-sm shrink-0" />
+                        : <ThreadSummaryCommitIcon className="icon-sm shrink-0" />}
+                      interactive={Boolean(
+                        hasRepository
+                        && commitOrPushMode
+                        && !commitOrPushWorkflow
+                        && (commitOrPushNeedsBranchSetup || !commitOrPushBlockerLabel)
+                      )}
+                      disabled={
+                        !hasRepository
+                        || !commitOrPushMode
+                        || Boolean(commitOrPushWorkflow)
+                        || (!commitOrPushNeedsBranchSetup && Boolean(commitOrPushBlockerLabel))
+                      }
+                      trailing={commitOrPushWorkflow ? (
+                        <button
+                          type="button"
+                          aria-label="Cancel git action"
+                          title="Cancel git action"
+                          className="cursor-interaction flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-token-text-tertiary hover:text-token-foreground focus:outline-none"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCancelGitAction(commitOrPushWorkflow.operationId);
+                          }}
+                        >
+                          <X className="icon-xs" aria-hidden="true" />
+                        </button>
+                      ) : undefined}
+                      trailingVisible={Boolean(commitOrPushWorkflow)}
+                      onClick={() => {
+                        if (commitOrPushNeedsBranchSetup) {
+                          handleOpenBranchSetup("commit");
+                          return;
+                        }
 
-        {outputRows.length > 0 ? (
-          <ThreadSummaryPanelSection title="Outputs" actions={<SummaryCountBadge count={outputRows.length} />}>
-            {outputRows.map((path) => (
-              <ThreadSummaryPanelRow
-                key={path}
-                label={path.split("/").at(-1) ?? path}
-                title={path}
-              />
-            ))}
-          </ThreadSummaryPanelSection>
-        ) : null}
+                        handleOpenGitActionDialog(commitOrPushMode);
+                      }}
+                    />
+                    <ThreadSummaryPanelRow
+                      label={createPullRequestRowLabel}
+                      title={createPullRequestRowDisplayTitle}
+                      icon={<ThreadSummaryCreatePullRequestIcon className="icon-sm shrink-0 text-token-text-tertiary" />}
+                      interactive={Boolean(
+                        hasRepository
+                        && !createPullRequestWorkflow
+                        && !createPullRequestGhBlockerLabel
+                        && (existingPullRequestUrl || currentBranch || createPullRequestNeedsBranchSetup)
+                      )}
+                      disabled={
+                        !hasRepository
+                        || Boolean(createPullRequestWorkflow)
+                        || gitSummary.loading
+                        || pullRequestStatus.loading
+                        || Boolean(createPullRequestGhBlockerLabel)
+                        || (!existingPullRequestUrl && !currentBranch && !createPullRequestNeedsBranchSetup)
+                      }
+                      trailing={createPullRequestWorkflow ? (
+                        <button
+                          type="button"
+                          aria-label="Cancel git action"
+                          title="Cancel git action"
+                          className="cursor-interaction flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-token-text-tertiary hover:text-token-foreground focus:outline-none"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCancelGitAction(createPullRequestWorkflow.operationId);
+                          }}
+                        >
+                          <X className="icon-xs" aria-hidden="true" />
+                        </button>
+                      ) : undefined}
+                      trailingVisible={Boolean(createPullRequestWorkflow)}
+                      onClick={() => {
+                        if (existingPullRequestUrl) {
+                          window.open(existingPullRequestUrl, "_blank", "noopener,noreferrer");
+                          return;
+                        }
 
-        {sideChatRows.length > 0 ? (
-          <ThreadSummaryPanelSection title="Side chats" actions={<SummaryCountBadge count={sideChatRows.length} />}>
-            {sideChatRows.slice(0, 4).map((row) => (
-              <ThreadSummaryPanelRow
-                key={row.id}
-                label={row.title}
-                title={row.title}
-                trailing={row.status ? (
-                  <span className="block max-w-24 truncate text-size-chat text-token-text-tertiary">
-                    {row.status}
-                  </span>
-                ) : null}
-                trailingVisible={Boolean(row.status)}
-              />
-            ))}
-          </ThreadSummaryPanelSection>
-        ) : null}
+                        if (createPullRequestNeedsBranchSetup) {
+                          handleOpenBranchSetup("create-pull-request");
+                          return;
+                        }
 
-        {backgroundSubagentRows.length > 0 ? (
-          <ThreadSummaryPanelSection title="Subagents" actions={<SummaryCountBadge count={backgroundSubagentRows.length} />}>
-            <BackgroundSubagentCompactStrip
-              rows={compactBackgroundSubagentRows}
-              onOpenThread={onOpenThread}
-            />
-            {listedBackgroundSubagentRows.map((row) => (
-              <ThreadSummaryPanelRow
-                key={row.conversationId}
-                label={<BackgroundSubagentRowLabel row={row} />}
-                title={getBackgroundSubagentTitle(row)}
-                interactive={Boolean(onOpenThread)}
-                onClick={onOpenThread
-                  ? () => {
-                      void onOpenThread(row.conversationId, buildBackgroundAgentOpenContext(row));
-                    }
-                  : undefined}
-                trailing={<BackgroundSubagentRowTrailing row={row} />}
-                trailingVisible={Boolean(row.diffStats)}
-              />
-            ))}
-          </ThreadSummaryPanelSection>
-        ) : null}
+                        handleOpenCreatePullRequestDialog();
+                      }}
+                    />
+                  </ThreadSummaryPanelSection>
+                );
 
-        {backgroundTerminalRows.length > 0 ? (
-          <ThreadSummaryPanelSection title="Background tasks" actions={<SummaryCountBadge count={backgroundTerminalRows.length} />}>
-            {backgroundTerminalRows.slice(0, 4).map((row) => (
-              <ThreadSummaryPanelRow
-                key={row.id}
-                label={row.command}
-                title={row.command}
-                trailing={row.previewLine ? (
-                  <span className="block max-w-24 truncate text-size-chat text-token-text-tertiary">
-                    {row.previewLine}
-                  </span>
-                ) : null}
-                trailingVisible={Boolean(row.previewLine)}
-              />
-            ))}
-          </ThreadSummaryPanelSection>
-        ) : null}
+              case "plan":
+                if (!planRow) return null;
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="plan"
+                    title="Plan"
+                  >
+                    <ThreadSummaryPanelRow
+                      icon={<ComposerPlanModeIcon className="icon-xs shrink-0" />}
+                      label={planRow.label}
+                      labelClassName="min-w-0 truncate"
+                      title={planRow.title}
+                      interactive={Boolean(onOpenPlanInSidePanel)}
+                      onClick={onOpenPlanInSidePanel ? () => handleOpenPlan(planRow) : undefined}
+                    />
+                  </ThreadSummaryPanelSection>
+                );
 
-        {browserRows.length > 0 ? (
-          <ThreadSummaryPanelSection title="Browser" actions={<SummaryCountBadge count={browserRows.length} />}>
-            {browserRows.slice(0, 4).map((row) => (
-              <ThreadSummaryPanelRow
-                key={row.id}
-                label={row.title}
-                title={row.title}
-                trailing={row.status ? (
-                  <span className="block max-w-24 truncate text-size-chat text-token-text-tertiary">
-                    {row.status}
-                  </span>
-                ) : null}
-                trailingVisible={Boolean(row.status)}
-              />
-            ))}
-          </ThreadSummaryPanelSection>
-        ) : null}
+              case "outputs":
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="artifacts"
+                    title="Outputs"
+                    titleSuffix={<SummaryCountBadge count={section.count ?? outputRows.length} />}
+                  >
+                    {outputRows.map((row) => (
+                      <ThreadSummaryPanelRow
+                        key={row.id}
+                        label={<SummaryOutputLabel row={row} />}
+                        labelClassName={row.kind === "appgen-app" ? "min-w-0" : undefined}
+                        title={row.title}
+                        icon={<SummaryOutputIcon row={row} />}
+                        interactive
+                        onClick={(event) => handleOpenOutput(row, event.currentTarget)}
+                      />
+                    ))}
+                  </ThreadSummaryPanelSection>
+                );
 
-        <ThreadSummaryPanelSection
-          title="Sources"
-          actions={<SummaryCountBadge count={sourceNames.length + (webSearchCount > 0 ? 1 : 0)} />}
-        >
-          {sourceNames.length > 0 || webSearchCount > 0 ? (
-            <div className="flex flex-wrap gap-1.5 py-0.5" aria-label="Sources">
-              {webSearchCount > 0 ? (
-                <span
-                  title="Web search"
-                  className="inline-flex h-6 max-w-full items-center gap-1 rounded-lg bg-token-foreground/5 px-2 text-size-chat text-token-foreground"
-                >
-                  <span className="size-1.5 shrink-0 rounded-full bg-token-text-link-foreground" aria-hidden="true" />
-                  <span className="truncate">Web search</span>
-                </span>
-              ) : null}
-              {sourceNames.map((sourceName) => (
-                <span
-                  key={sourceName}
-                  title={sourceName}
-                  className="inline-flex h-6 max-w-full items-center gap-1 rounded-lg bg-token-foreground/5 px-2 text-size-chat text-token-foreground"
-                >
-                  <span className="size-1.5 shrink-0 rounded-full bg-token-text-link-foreground" aria-hidden="true" />
-                  <span className="truncate">{sourceName}</span>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <div className="py-0.5 text-size-chat text-token-text-tertiary">No sources yet</div>
-          )}
-        </ThreadSummaryPanelSection>
+              case "sideChats":
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="side-chats"
+                    title="Side chats"
+                    titleSuffix={<SummaryCountBadge count={section.count ?? sideChatRows.length} />}
+                  >
+                    {sideChatRows.slice(0, 4).map((row) => (
+                      <ThreadSummaryPanelRow
+                        key={row.id}
+                        label={row.title}
+                        title={row.title}
+                        icon={row.isResponseInProgress
+                          ? <SpinnerIcon className="icon-sm shrink-0" />
+                          : <CodexSidePanelSideChatIcon className="icon-sm shrink-0" />}
+                        interactive={Boolean(actions?.onOpenSummarySideChatRow && row.panelId)}
+                        onClick={actions?.onOpenSummarySideChatRow && row.panelId
+                          ? () => handleOpenAuxiliaryRow(row, actions.onOpenSummarySideChatRow)
+                          : undefined}
+                      />
+                    ))}
+                  </ThreadSummaryPanelSection>
+                );
 
-        {!activeThreadId ? (
-          <div className="px-4 text-size-chat text-token-text-tertiary">
-            Start a thread to populate live summary rows.
-          </div>
-        ) : null}
+              case "subagents":
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="background-subagents"
+                    title="Subagents"
+                    titleSuffix={section.count === null ? null : <SummaryCountBadge count={section.count} />}
+                    autoCollapse={section.autoCollapse}
+                  >
+                    <BackgroundSubagentCompactStrip
+                      model={compactBackgroundSubagentModel}
+                      onOpenThread={onOpenThread}
+                    />
+                    {listedBackgroundSubagentRows.map((row) => (
+                      <ThreadSummaryPanelRow
+                        key={row.conversationId}
+                        label={<BackgroundSubagentRowLabel row={row} />}
+                        title={getBackgroundSubagentTitle(row)}
+                        interactive={Boolean(onOpenThread)}
+                        onClick={onOpenThread
+                          ? () => {
+                              void onOpenThread(row.conversationId, buildBackgroundAgentOpenContext(row));
+                            }
+                          : undefined}
+                        trailing={<BackgroundSubagentRowTrailing row={row} />}
+                        trailingVisible={Boolean(row.diffStats)}
+                      />
+                    ))}
+                  </ThreadSummaryPanelSection>
+                );
+
+              case "tasks":
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="background-tasks"
+                    title="Tasks"
+                    titleSuffix={<SummaryCountBadge count={section.count ?? backgroundTerminalRows.length} />}
+                    after={processManagerAction}
+                  >
+                    {backgroundTerminalRows.slice(0, 4).map((row) => (
+                      <ThreadSummaryPanelRow
+                        key={row.id}
+                        label={row.command}
+                        title={row.command}
+                        icon={<SquareTerminal className="icon-sm shrink-0" />}
+                        interactive={Boolean(onOpenBackgroundTerminalOutput)}
+                        onClick={onOpenBackgroundTerminalOutput
+                          ? () => handleOpenBackgroundTerminalOutput(row)
+                          : undefined}
+                        trailing={row.previewLine ? (
+                          <span className="block max-w-24 truncate text-size-chat text-token-text-tertiary">
+                            {row.previewLine}
+                          </span>
+                        ) : null}
+                        trailingVisible={Boolean(row.previewLine)}
+                      />
+                    ))}
+                  </ThreadSummaryPanelSection>
+                );
+
+              case "computerUsePip": {
+                if (!computerUsePip || !onToggleComputerUsePip) return null;
+
+                const title = computerUsePip.visible ? "Hide PiP" : "Show PiP";
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="computer-use-pip"
+                    mode="headerless"
+                    title="Computer Use"
+                  >
+                    <ThreadSummaryPanelRow
+                      aria-label={title}
+                      icon={(
+                        <ToolActivityIcon
+                          descriptor={{ kind: "semantic", icon: "computer-use" }}
+                          className="icon-xs shrink-0"
+                        />
+                      )}
+                      label="Computer Use"
+                      title={title}
+                      interactive
+                      onClick={() => {
+                        void onToggleComputerUsePip(!computerUsePip.visible);
+                      }}
+                      trailing={<SummaryComputerUsePipTrailing visible={computerUsePip.visible} />}
+                      trailingVisible
+                    />
+                  </ThreadSummaryPanelSection>
+                );
+              }
+
+              case "browser":
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="browser-tabs"
+                    title="Browser"
+                    titleSuffix={<SummaryCountBadge count={section.count ?? browserRows.length} />}
+                  >
+                    {browserRows.slice(0, 4).map((row) => (
+                      <ThreadSummaryPanelRow
+                        key={row.id}
+                        label={<SummaryBrowserRowLabel row={row} />}
+                        title={getBrowserRowTitle(row)}
+                        aria-label={getBrowserRowAriaLabel(row)}
+                        icon={<SummaryBrowserRowIcon row={row} />}
+                        labelClassName={cn(
+                          "min-w-0 flex-1",
+                          !row.isAgentWorking && "flex items-baseline gap-2",
+                        )}
+                        interactive={Boolean(actions?.onOpenSummaryBrowserRow && row.panelId)}
+                        onClick={actions?.onOpenSummaryBrowserRow && row.panelId
+                          ? () => handleOpenAuxiliaryRow(row, actions.onOpenSummaryBrowserRow)
+                          : undefined}
+                      />
+                    ))}
+                  </ThreadSummaryPanelSection>
+                );
+
+              case "sources":
+                return (
+                  <ThreadSummaryPanelSection
+                    key={section.kind}
+                    sectionKey="tool-sources"
+                    title="Sources"
+                    titleSuffix={<SummaryCountBadge count={section.count ?? sourceModel.count} />}
+                  >
+                    <SummarySourceIconStrip
+                      items={sourceModel.items}
+                      canOpenMcpApps={Boolean(actions?.onOpenMcpAppSidePanel)}
+                      onOpenSource={handleOpenSource}
+                    />
+                  </ThreadSummaryPanelSection>
+                );
+
+              case "emptyHint":
+                return (
+                  <div key={section.kind} className="px-4 text-size-chat text-token-text-tertiary">
+                    Start a thread to populate live summary rows.
+                  </div>
+                );
+            }
+          })}
+        </div>
       </div>
-    </div>
+      {previewImage ? (
+        <ImagePreviewDialog
+          open
+          onOpenChange={handlePreviewOpenChange}
+          src={previewImage.src}
+          alt={previewImage.row.label}
+        />
+      ) : null}
+      <ThreadSummaryGitActionDialog
+        open={gitActionDialogMode !== null}
+        cwd={branchCwd}
+        initialMode={gitActionDialogMode ?? "commit"}
+        onOpenChange={handleGitActionDialogOpenChange}
+        onCompleted={handleGitActionCompleted}
+        onErrorMessage={onErrorMessage}
+        onWorkflowChange={setGitActionWorkflow}
+      />
+      <ThreadSummaryCreatePullRequestDialog
+        open={createPullRequestDialogOpen}
+        cwd={branchCwd}
+        onOpenChange={handleCreatePullRequestDialogOpenChange}
+        onCompleted={handleCreatePullRequestCompleted}
+        onErrorMessage={onErrorMessage}
+        onWorkflowChange={setGitActionWorkflow}
+      />
+      <ThreadSummaryBranchSetupDialog
+        open={branchSetupOpen}
+        branches={branch.branchState.branches}
+        currentBranch={currentBranch}
+        defaultBranch={defaultBranch}
+        threadTitle={activeThreadTitle}
+        onCreateBranch={branch.createBranch}
+        onCreated={handleBranchSetupCreated}
+        onErrorMessage={onErrorMessage}
+        onOpenChange={handleBranchSetupOpenChange}
+      />
+    </>
   );
 }
 

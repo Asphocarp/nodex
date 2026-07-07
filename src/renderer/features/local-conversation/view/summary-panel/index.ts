@@ -1,4 +1,8 @@
 export {
+  ThreadSummaryPanelRenderBoundary,
+  ThreadSummaryPanelRenderErrorFallback,
+} from "./thread-summary-panel-error-boundary";
+export {
   ThreadFloatingSummaryPanel,
   ThreadSummaryPanelPopover,
   ThreadSummaryPanelSurface,

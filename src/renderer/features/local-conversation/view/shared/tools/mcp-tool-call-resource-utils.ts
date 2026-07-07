@@ -4,6 +4,8 @@ import type {
   ProtocolMcpResourceReadResponse,
   ProtocolMcpServerStatus,
 } from "../../../../../lib/types";
+import type { ThreadMcpAppSidePanelInput } from "../../../thread-stage-types";
+import { formatMcpServerName } from "./mcp-tool-call-labels";
 
 export interface McpWidgetCsp {
   connectDomains?: string[];
@@ -25,6 +27,26 @@ export interface McpRenderableResource {
   html: string;
   mimeType: string | null;
   metadata: McpWidgetMetadata;
+}
+
+export function buildMcpAppSidePanelInput(input: {
+  threadId: string;
+  payload: CodexMcpToolCallView;
+  resource: McpRenderableResource;
+}): ThreadMcpAppSidePanelInput {
+  const server = input.payload.invocation.server;
+  const tool = input.payload.invocation.tool;
+  const title = `${formatMcpServerName(tool)} - ${formatMcpServerName(server)}`;
+
+  return {
+    mcpAppId: `${server}:${input.resource.uri}`,
+    capabilityId: `mcp-capability:${input.threadId}:${server}:${tool}:${input.payload.callId}`,
+    title,
+    threadId: input.threadId,
+    server,
+    tool,
+    resource: input.resource,
+  };
 }
 
 export const MCP_APP_HTML_MAX_BYTES = 10_000_000;
@@ -204,6 +226,54 @@ export function resolveMcpRenderableResource(
   }
 
   return null;
+}
+
+function getEmbeddedResourceContents(
+  payload: CodexMcpToolCallView,
+): ProtocolMcpResourceReadResponse["contents"] {
+  if (payload.result?.type !== "success") return [];
+
+  type ResourceContent = ProtocolMcpResourceReadResponse["contents"][number];
+
+  return payload.result.content.flatMap<ResourceContent>((content) => {
+    if (content.type !== "embedded_resource") return [];
+
+    const meta = content.resource.meta ?? content.meta;
+    if (typeof content.resource.text === "string") {
+      const resourceContent: ResourceContent = {
+        uri: content.resource.uri,
+        mimeType: content.resource.mimeType,
+        text: content.resource.text,
+        _meta: meta as ResourceContent["_meta"],
+      };
+      return [resourceContent];
+    }
+
+    if (typeof content.resource.blob === "string") {
+      const resourceContent: ResourceContent = {
+        uri: content.resource.uri,
+        mimeType: content.resource.mimeType,
+        blob: content.resource.blob,
+        _meta: meta as ResourceContent["_meta"],
+      };
+      return [resourceContent];
+    }
+
+    return [];
+  });
+}
+
+export function resolveMcpEmbeddedRenderableResource(input: {
+  payload: CodexMcpToolCallView;
+  serverStatuses?: readonly ProtocolMcpServerStatus[];
+}): McpRenderableResource | null {
+  const contents = getEmbeddedResourceContents(input.payload);
+  if (contents.length === 0) return null;
+
+  const resourceUri = resolveMcpAppResourceUri(input) ?? contents[0]?.uri;
+  if (!resourceUri) return null;
+
+  return resolveMcpRenderableResource(resourceUri, { contents });
 }
 
 export function shouldHideDuplicateMcpTextContent(

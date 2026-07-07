@@ -12,6 +12,7 @@ import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
 } from "../shared/native-context-menu";
+import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
 
 declare module "*.css";
 
@@ -56,6 +57,7 @@ declare global {
       getPathForFile?: (file: File) => string;
     };
     electronBridge?: {
+      sendMessageFromView?: (message: CodexDesktopMessageFromView) => Promise<void>;
       showContextMenu: (
         items: NativeContextMenuItem[],
         options?: NativeContextMenuOptions,

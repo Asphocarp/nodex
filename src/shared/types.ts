@@ -28,6 +28,7 @@ import type {
   ReviewTarget as CodexAppServerReviewTarget,
   ThreadGoal as CodexAppServerThreadGoal,
   ThreadGoalSetParams as CodexAppServerThreadGoalSetParams,
+  ThreadBackgroundTerminal as CodexAppServerThreadBackgroundTerminal,
   ThreadStatus as CodexAppServerThreadStatus,
   ThreadSettings as CodexAppServerThreadSettings,
   ThreadSource as CodexAppServerThreadSource,
@@ -479,6 +480,11 @@ export interface TerminalSessionSnapshot {
   sessionId: string;
   conversationId: string | null;
   projectSessionId: string | null;
+  osPid: number | null;
+  cpuPercent: number | null;
+  rssKb: bigint | null;
+  childProcessCount: number | null;
+  processMetricsSampledAtMs: number | null;
   cwd: string | null;
   shell: string | null;
   title: string | null;
@@ -699,6 +705,8 @@ export interface ProjectSessionThreadLink {
   threadPreview: string;
   modelProvider: string;
   cwd?: string;
+  managedWorktreePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   statusType: string;
   statusActiveFlags: string[];
   archived: boolean;
@@ -876,6 +884,8 @@ export interface ProjectSessionThreadLinkInput {
   threadPreview?: string;
   modelProvider?: string;
   cwd?: string | null;
+  managedWorktreePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   statusType?: string;
   statusActiveFlags?: string[];
   archived?: boolean;
@@ -1315,6 +1325,8 @@ export interface CodexThreadSummary {
   threadPreview: string;
   modelProvider: string;
   cwd: string | null;
+  managedWorktreePath?: string | null;
+  projectlessOutputDirectory?: string | null;
   approvalPolicy?: CodexApprovalPolicy | null;
   approvalsReviewer?: CodexApprovalsReviewer | null;
   sandbox?: CodexSandboxPolicy | null;
@@ -1327,6 +1339,39 @@ export interface CodexThreadSummary {
   createdAt: number;
   updatedAt: number;
   linkedAt: string;
+}
+
+export type CodexScheduledAutomationKind = "cron" | "heartbeat";
+export type CodexScheduledAutomationStatus = "ACTIVE" | "PAUSED" | "DELETED";
+
+export interface CodexScheduledAutomation {
+  id: string;
+  kind: CodexScheduledAutomationKind;
+  status: CodexScheduledAutomationStatus;
+  targetThreadId: string | null;
+  name: string;
+  rrule: string | null;
+  nextRunAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodexScheduledAutomationUpsertInput {
+  id: string;
+  kind: CodexScheduledAutomationKind;
+  status: CodexScheduledAutomationStatus;
+  targetThreadId?: string | null;
+  name: string;
+  rrule?: string | null;
+  nextRunAt?: number | null;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface CodexScheduledAutomationChangedEvent {
+  automationId: string;
+  targetThreadId: string | null;
+  reason: "upsert" | "delete";
 }
 
 export type CodexConversationResumeState = "needs_resume" | "resuming" | "resumed";
@@ -1585,7 +1630,9 @@ export type CodexOwnerAppServerRequestMethod =
   | "thread/goal/set"
   | "thread/goal/clear"
   | "thread/memoryMode/set"
-  | "thread/compact/start";
+  | "thread/compact/start"
+  | "thread/backgroundTerminals/list"
+  | "thread/backgroundTerminals/terminate";
 
 export interface CodexOwnerAppServerRequestInput {
   conversationId: string;
@@ -2185,10 +2232,47 @@ export interface CodexQueuedFollowUp {
 
 export interface CodexBackgroundTerminalRow {
   id: string;
+  turnId: string;
   command: string;
   cwd: string | null;
   processId?: number | string | null;
   previewLine: string | null;
+}
+
+export type CodexBackgroundProcessRecordSource = "app-server" | "terminal-action";
+
+export type CodexBackgroundProcessStatus = "running" | "not-found";
+
+export interface CodexBackgroundProcessRecord {
+  id: string;
+  threadId: string;
+  threadTitle: string | null;
+  itemId: string;
+  turnId: string | null;
+  command: string;
+  cwd: string | null;
+  processId: string | null;
+  osPid: number | null;
+  terminalSessionId: string | null;
+  source: CodexBackgroundProcessRecordSource;
+  startedAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface CodexBackgroundProcessRow extends CodexBackgroundProcessRecord {
+  status: CodexBackgroundProcessStatus;
+  terminal: CodexAppServerThreadBackgroundTerminal | null;
+  terminalSession: TerminalSessionSnapshot | null;
+}
+
+export interface CodexBackgroundProcessRunActionInput {
+  threadId: string;
+  threadTitle?: string | null;
+  itemId: string;
+  turnId?: string | null;
+  command: string;
+  cwd: string;
+  terminalSessionId: string;
 }
 
 export type ReviewDiffSourceKind =
@@ -2359,6 +2443,98 @@ export interface GitReviewSummaryResult {
   isGitRepository: boolean;
   currentBranch: string | null;
   defaultBranch: string | null;
+  errorMessage: string | null;
+}
+
+export interface GitActionStatusRequest {
+  cwd: string;
+}
+
+export interface GitActionStatusResult {
+  cwd: string;
+  isGitRepository: boolean;
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  upstreamBranch: string | null;
+  remotes: string[];
+  hasHeadCommit: boolean;
+  hasStagedChanges: boolean;
+  hasUnstagedChanges: boolean;
+  hasUntrackedFiles: boolean;
+  hasUncommittedChanges: boolean;
+  commitsAhead: number;
+  canCommit: boolean;
+  canPush: boolean;
+  pushNeedsUpstream: boolean;
+  errorMessage: string | null;
+}
+
+export type GitCommitNextStep = "commit" | "commit-and-push";
+
+export interface GitCommitMessageGenerateInput {
+  cwd: string;
+  hostId?: string;
+  draftMessage?: string;
+  includeUnstaged?: boolean;
+  operationId?: string;
+}
+
+export interface GitCommitMessageGenerateResult {
+  cwd: string;
+  status: "success" | "error";
+  message: string | null;
+  stderr: string;
+  errorMessage: string | null;
+}
+
+export interface GitPullRequestMessageGenerateInput {
+  cwd: string;
+  hostId?: string;
+  title?: string | null;
+  body?: string | null;
+  headBranch?: string | null;
+  baseBranch?: string | null;
+  operationId?: string;
+}
+
+export interface GitPullRequestMessageGenerateResult {
+  cwd: string;
+  status: "success" | "error";
+  title: string | null;
+  body: string | null;
+  stderr: string;
+  errorMessage: string | null;
+}
+
+export interface GitCommitInput {
+  cwd: string;
+  hostId?: string;
+  message: string;
+  includeUnstaged?: boolean;
+  nextStep?: GitCommitNextStep;
+  operationId?: string;
+}
+
+export interface GitPushInput {
+  cwd: string;
+  force?: boolean;
+  operationId?: string;
+}
+
+export interface GitActionCancelInput {
+  operationId: string;
+}
+
+export interface GitActionCancelResult {
+  canceled: boolean;
+}
+
+export interface GitActionMutationResult {
+  cwd: string;
+  status: "success" | "error";
+  branch: string | null;
+  stdout: string;
+  stderr: string;
   errorMessage: string | null;
 }
 

@@ -44,6 +44,59 @@ describe("ThreadSummaryPanelRow", () => {
 
     expect(String(count)).toBe("0");
     expect(row.getAttribute("aria-disabled")).toBe("true");
+    expect(row.hasAttribute("tabindex")).toBeFalse();
+  });
+
+  test("treats pointer and key handlers as row interactions", async () => {
+    const { ThreadSummaryPanelRow } = await import("./thread-summary-panel-row");
+    let pointerDownCount = 0;
+    let keyDownCount = 0;
+    const { getByRole } = render(
+      <ThreadSummaryPanelRow
+        label="Branch"
+        onPointerDown={() => {
+          pointerDownCount += 1;
+        }}
+        onKeyDown={() => {
+          keyDownCount += 1;
+        }}
+      />,
+    );
+
+    const row = getByRole("button");
+    fireEvent.pointerDown(row);
+    fireEvent.keyDown(row, { key: "ArrowDown" });
+
+    expect(String(pointerDownCount)).toBe("1");
+    expect(String(keyDownCount)).toBe("1");
+    expect(row.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("does not invoke disabled row handlers", async () => {
+    const { ThreadSummaryPanelRow } = await import("./thread-summary-panel-row");
+    let pointerDownCount = 0;
+    let keyDownCount = 0;
+    const { getByRole } = render(
+      <ThreadSummaryPanelRow
+        label="Create pull request"
+        disabled
+        onPointerDown={() => {
+          pointerDownCount += 1;
+        }}
+        onKeyDown={() => {
+          keyDownCount += 1;
+        }}
+      />,
+    );
+
+    const row = getByRole("button");
+    fireEvent.pointerDown(row);
+    fireEvent.keyDown(row, { key: "Enter" });
+
+    expect(String(pointerDownCount)).toBe("0");
+    expect(String(keyDownCount)).toBe("0");
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    expect(row.hasAttribute("tabindex")).toBeFalse();
   });
 
   test("shows trailing content when requested", async () => {
@@ -88,6 +141,35 @@ describe("ThreadSummaryPanelRow", () => {
     fireEvent.click(getByText("select"));
 
     expect(String(accessoryClicks)).toBe("1");
+    expect(String(rowClicks)).toBe("0");
+  });
+
+  test("does not propagate action clicks to the row action", async () => {
+    const { ThreadSummaryPanelRow } = await import("./thread-summary-panel-row");
+    let rowClicks = 0;
+    let actionClicks = 0;
+    const { getByText } = render(
+      <ThreadSummaryPanelRow
+        label="Background terminal"
+        onClick={() => {
+          rowClicks += 1;
+        }}
+        actions={(
+          <button
+            type="button"
+            onClick={() => {
+              actionClicks += 1;
+            }}
+          >
+            stop
+          </button>
+        )}
+      />,
+    );
+
+    fireEvent.click(getByText("stop"));
+
+    expect(String(actionClicks)).toBe("1");
     expect(String(rowClicks)).toBe("0");
   });
 });

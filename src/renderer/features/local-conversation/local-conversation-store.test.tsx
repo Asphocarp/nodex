@@ -9514,6 +9514,7 @@ describe("local-conversation-store", () => {
       ],
       backgroundTerminalRows: [{
         id: "cmd-1",
+        turnId: "turn-older",
         command: "bun test",
         cwd: null,
         processId: null,

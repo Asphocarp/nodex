@@ -3,6 +3,7 @@ import { invoke } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
   BoardSummary,
+  CodexScheduledAutomation,
   GitReviewBranchCommitsRequest,
   GitReviewBranchCommitsResult,
   GitReviewFileContents,
@@ -78,6 +79,14 @@ export function commandKeymapStateQueryOptions() {
     queryKey: queryKeys.settings.commandKeymap(),
     queryFn: () => invoke("codex-command-keymap-state") as Promise<CommandKeymapState>,
     staleTime: 60_000,
+  });
+}
+
+export function codexScheduledAutomationsListQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.codexScheduledAutomations.list(),
+    queryFn: () => invoke("codex:scheduled-automations:list") as Promise<CodexScheduledAutomation[]>,
+    staleTime: 30_000,
   });
 }
 

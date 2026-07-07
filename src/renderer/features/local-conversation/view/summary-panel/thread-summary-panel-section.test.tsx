@@ -1,12 +1,59 @@
-import { describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { act, fireEvent } from "@testing-library/react";
+import { MotionConfig } from "motion/react";
+import { createRef, type ReactElement } from "react";
 import { render, textContent } from "../../../../test/dom";
-import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
+import {
+  THREAD_SUMMARY_PANEL_SECTION_AUTO_COLLAPSE_MS,
+  THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX,
+  ThreadSummaryPanelSection,
+  type ThreadSummaryPanelSectionHandle,
+} from "./thread-summary-panel-section";
+
+function clearSectionStorage(sectionKey: string) {
+  window.localStorage.removeItem(`${THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX}${sectionKey}`);
+}
+
+function renderReducedMotion(ui: ReactElement) {
+  return render(
+    <MotionConfig reducedMotion="always">
+      {ui}
+    </MotionConfig>,
+  );
+}
 
 describe("ThreadSummaryPanelSection", () => {
-  test("renders the section chevron after the title and only reveals it on hover or focus", () => {
-    const view = render(
-      <ThreadSummaryPanelSection title="Environment">
+  const originalMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (query: string) => ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  test("renders the section chevron after the title and persists explicit collapse state", () => {
+    const sectionKey = "test-environment";
+    clearSectionStorage(sectionKey);
+
+    const view = renderReducedMotion(
+      <ThreadSummaryPanelSection sectionKey={sectionKey} title="Environment">
         <div>Changes</div>
       </ThreadSummaryPanelSection>,
     );
@@ -25,6 +72,158 @@ describe("ThreadSummaryPanelSection", () => {
     fireEvent.click(button);
 
     expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(window.localStorage.getItem(`${THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX}${sectionKey}`)).toBe("false");
     expect(textContent(view.container).includes("Changes")).toBeFalse();
+
+    view.unmount();
+    const nextView = renderReducedMotion(
+      <ThreadSummaryPanelSection sectionKey={sectionKey} title="Environment">
+        <div>Changes</div>
+      </ThreadSummaryPanelSection>,
+    );
+
+    expect(nextView.getByRole("button").getAttribute("aria-expanded")).toBe("false");
+    expect(textContent(nextView.container).includes("Changes")).toBeFalse();
+  });
+
+  test("shows title suffix only while the section is collapsed", () => {
+    const sectionKey = "test-output-suffix";
+    clearSectionStorage(sectionKey);
+    const view = renderReducedMotion(
+      <ThreadSummaryPanelSection
+        sectionKey={sectionKey}
+        title="Outputs"
+        titleSuffix={<span>2</span>}
+      >
+        <div>thread-layout.tsx</div>
+      </ThreadSummaryPanelSection>,
+    );
+
+    const button = view.getByRole("button");
+    expect(textContent(button).includes("2")).toBeFalse();
+
+    fireEvent.click(button);
+
+    expect(textContent(button).includes("2")).toBeTrue();
+  });
+
+  test("supports headerless sections without rendering a toggle", () => {
+    const sectionKey = "test-headerless";
+    clearSectionStorage(sectionKey);
+    const view = renderReducedMotion(
+      <ThreadSummaryPanelSection sectionKey={sectionKey} title="Computer use" mode="headerless">
+        <div>Browser preview</div>
+      </ThreadSummaryPanelSection>,
+    );
+
+    expect(view.queryByRole("button") === null).toBeTrue();
+    expect(textContent(view.container).includes("Browser preview")).toBeTrue();
+  });
+
+  test("passes expanded state to the after slot", () => {
+    const sectionKey = "test-after-slot";
+    clearSectionStorage(sectionKey);
+    const view = renderReducedMotion(
+      <ThreadSummaryPanelSection
+        sectionKey={sectionKey}
+        title="Progress"
+        after={({ isExpanded }) => <span>{isExpanded ? "Open" : "Closed"}</span>}
+      >
+        <div>Inspect</div>
+      </ThreadSummaryPanelSection>,
+    );
+
+    const button = view.getByRole("button");
+    expect(textContent(view.container).includes("Open")).toBeTrue();
+
+    fireEvent.click(button);
+
+    expect(textContent(view.container).includes("Closed")).toBeTrue();
+  });
+
+  test("exposes imperative expand and collapse methods", () => {
+    const sectionKey = "test-imperative";
+    clearSectionStorage(sectionKey);
+    const ref = createRef<ThreadSummaryPanelSectionHandle>();
+    const view = renderReducedMotion(
+      <ThreadSummaryPanelSection ref={ref} sectionKey={sectionKey} title="Sources">
+        <div>Context7</div>
+      </ThreadSummaryPanelSection>,
+    );
+
+    expect(ref.current !== null).toBeTrue();
+    act(() => {
+      ref.current?.collapse();
+    });
+
+    expect(view.getByRole("button").getAttribute("aria-expanded")).toBe("false");
+    expect(textContent(view.container).includes("Context7")).toBeFalse();
+
+    act(() => {
+      ref.current?.expand();
+    });
+
+    expect(view.getByRole("button").getAttribute("aria-expanded")).toBe("true");
+    expect(textContent(view.container).includes("Context7")).toBeTrue();
+  });
+
+  test("auto-collapses pending sections and cancels when the user interacts", () => {
+    type TimeoutCallback = Parameters<typeof window.setTimeout>[0];
+    const originalSetTimeout = window.setTimeout;
+    const originalClearTimeout = window.clearTimeout;
+    let nextTimerId = 1;
+    const scheduled = new Map<number, () => void>();
+    window.setTimeout = ((callback: TimeoutCallback, delay?: number) => {
+      expect(delay).toBe(THREAD_SUMMARY_PANEL_SECTION_AUTO_COLLAPSE_MS);
+      const timerId = nextTimerId;
+      nextTimerId += 1;
+      scheduled.set(timerId, () => {
+        if (typeof callback === "function") callback();
+      });
+      return timerId as unknown as ReturnType<typeof window.setTimeout>;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = ((timerId?: number) => {
+      if (timerId == null) return;
+      scheduled.delete(timerId);
+    }) as typeof window.clearTimeout;
+
+    const collapseKey = "test-auto-collapse";
+    const cancelKey = "test-auto-collapse-cancel";
+    clearSectionStorage(collapseKey);
+    clearSectionStorage(cancelKey);
+
+    try {
+      const view = renderReducedMotion(
+        <ThreadSummaryPanelSection sectionKey={collapseKey} title="Subagents" autoCollapse>
+          <div>Subagent output</div>
+        </ThreadSummaryPanelSection>,
+      );
+
+      expect(scheduled.size).toBe(1);
+      act(() => {
+        Array.from(scheduled.values())[0]?.();
+      });
+
+      expect(view.getByRole("button").getAttribute("aria-expanded")).toBe("false");
+      expect(textContent(view.container).includes("Subagent output")).toBeFalse();
+
+      view.unmount();
+      scheduled.clear();
+      const cancelView = renderReducedMotion(
+        <ThreadSummaryPanelSection sectionKey={cancelKey} title="Subagents" autoCollapse>
+          <div>Keep visible</div>
+        </ThreadSummaryPanelSection>,
+      );
+
+      expect(scheduled.size).toBe(1);
+      fireEvent.click(cancelView.getByText("Keep visible"));
+
+      expect(scheduled.size).toBe(0);
+      expect(cancelView.getByRole("button").getAttribute("aria-expanded")).toBe("true");
+      expect(textContent(cancelView.container).includes("Keep visible")).toBeTrue();
+    } finally {
+      window.setTimeout = originalSetTimeout;
+      window.clearTimeout = originalClearTimeout;
+    }
   });
 });

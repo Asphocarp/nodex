@@ -108,6 +108,19 @@ export const queryKeys = {
     snapshot: () => ["codexSidebar", "snapshot"] as const,
     pinnedThreads: () => ["codexSidebar", "pinnedThreads"] as const,
   },
+  codexScheduledAutomations: {
+    all: () => ["codexScheduledAutomations"] as const,
+    list: () => ["codexScheduledAutomations", "list"] as const,
+  },
+  codexBackgroundTerminals: {
+    all: () => ["codexBackgroundTerminals"] as const,
+    processManager: (threads: readonly { threadId: string; title: string }[]) =>
+      [
+        "codexBackgroundTerminals",
+        "processManager",
+        ...threads.map((thread) => `${thread.threadId}\u0000${thread.title}`),
+      ] as const,
+  },
   workspaceFiles: {
     all: () => ["workspaceFiles"] as const,
     directory: (input: WorkspaceDirectoryEntriesInput) =>

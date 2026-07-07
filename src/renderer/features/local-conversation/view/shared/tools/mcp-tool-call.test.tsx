@@ -7,7 +7,8 @@ import { installWindowApi } from "../../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import { createTestQueryClient, TestQueryProvider } from "../../../../../test/query";
 import { queryKeys } from "../../../../../lib/query-keys";
-import { buildMcpAppSidePanelInput, McpToolCall } from "./mcp-tool-call";
+import { McpToolCall } from "./mcp-tool-call";
+import { buildMcpAppSidePanelInput } from "./mcp-tool-call-resource-utils";
 
 function renderMcp(ui: ReactElement, client = createTestQueryClient()) {
   return render(<TestQueryProvider client={client}>{ui}</TestQueryProvider>);

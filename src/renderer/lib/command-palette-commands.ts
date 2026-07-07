@@ -32,6 +32,8 @@ export type CommandPaletteShellCommandId =
   | typeof OPEN_DB_VIEW_TAB_COMMAND_ID
   | "openSideChat"
   | "findInThread"
+  | "manageTasks"
+  | "openProcessManager"
   | "settings"
   | "showKeyboardShortcuts";
 
@@ -73,6 +75,8 @@ export function isCommandPaletteShellCommandId(id: string): id is CommandPalette
     || id === OPEN_DB_VIEW_TAB_COMMAND_ID
     || id === "openSideChat"
     || id === "findInThread"
+    || id === "manageTasks"
+    || id === "openProcessManager"
     || id === "settings"
     || id === "showKeyboardShortcuts";
 }
@@ -256,8 +260,10 @@ export function buildCommandPaletteCommands(
     ...maybeMockCommand("themePreset", "Configure", "Theme presets", "Choose a theme preset", ["theme", "preset", "appearance"], 680),
     ...maybeMockCommand("openSkills", "Skills", "Go to skills", "Open the skills surface", ["skills", "plugins"], 660),
     ...maybeMockCommand("forceReloadSkills", "Skills", "Force reload skills", "Reload installed skills", ["skills", "reload"], 650),
-    ...maybeMockCommand("manageTasks", "App", "Manage automations", "Open automation management", ["automation", "tasks", "manage"], 630),
-    ...maybeMockCommand("openProcessManager", "App", "Process Manager", "Open the process manager", ["process", "manager"], 620, shortcutLabel("openProcessManager", "Ctrl+Alt+M")),
+    command("manageTasks", "App", "Manage automations", "Open scheduled task management", ["automation", "tasks", "manage"], 630),
+    command("openProcessManager", "App", "Process Manager", "Open the process manager", ["process", "manager"], 620, {
+      shortcut: shortcutLabel("openProcessManager", "Ctrl+Alt+M"),
+    }),
     ...maybeMockCommand("openControlWindow", "App", "Open control window", "Open the control window", ["control", "window"], 610),
     ...maybeMockCommand("logOut", "App", "Log out", "Log out of Codex account", ["logout", "account"], 600),
     ...maybeMockCommand("feedback", "App", "Feedback", "Send feedback", ["feedback", "support"], 590),

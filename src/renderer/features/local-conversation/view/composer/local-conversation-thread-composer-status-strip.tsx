@@ -98,7 +98,13 @@ function ThreadComposerStatusStripContent({
     () => resolveBranchSelectorCwd(model.conversation?.cwd, model.projectWorkspacePath),
     [model.conversation?.cwd, model.projectWorkspacePath],
   );
-  const { data: branchStateData, refetch: refetchBranchState } = useGitBranchState(branchCwd, {
+  const {
+    data: branchStateData,
+    isError: branchStateError,
+    isFetching: branchStateFetching,
+    isLoading: branchStateLoading,
+    refetch: refetchBranchState,
+  } = useGitBranchState(branchCwd, {
     watch: true,
   });
   const branchCwdRef = useRef<string | null>(branchCwd);
@@ -244,7 +250,7 @@ function ThreadComposerStatusStripContent({
             className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
             aria-label="Run target"
           >
-            <LocalStatusIcon className="shrink-0" />
+            <LocalStatusIcon className="size-3.5 shrink-0" />
             <span className="max-w-40 truncate text-sm">Work locally</span>
             <ChevronDownIcon />
           </button>
@@ -270,6 +276,8 @@ function ThreadComposerStatusStripContent({
           cwd={branchCwd}
           state={branchState}
           busy={isBranchBusy}
+          loading={branchStateLoading || (branchStateFetching && branchState === EMPTY_BRANCH_SELECTOR_STATE)}
+          error={branchStateError}
           onRefresh={handleRefreshBranchState}
           onCheckout={handleCheckoutBranch}
           onCreate={handleCreateBranch}

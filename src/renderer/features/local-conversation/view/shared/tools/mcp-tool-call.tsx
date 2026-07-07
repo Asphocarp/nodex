@@ -14,7 +14,7 @@ import type {
   CodexTranscriptEntry,
   ProtocolMcpServerStatus,
 } from "../../../../../lib/types";
-import type { ThreadMcpAppSidePanelInput, ThreadStageActions } from "../../../thread-stage-types";
+import type { ThreadStageActions } from "../../../thread-stage-types";
 import { useMcpResource, useMcpServerStatuses } from "../../../../../lib/use-mcp-queries";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
@@ -27,9 +27,10 @@ import {
   asRecord,
 } from "./tool-call-utils";
 import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
-import { formatMcpServerName, resolveMcpToolDisplayName } from "./mcp-tool-call-labels";
+import { resolveMcpToolDisplayName } from "./mcp-tool-call-labels";
 import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
 import {
+  buildMcpAppSidePanelInput,
   isMcpAppHtmlTooLarge,
   resolveMcpAppFrameHeight,
   resolveMcpAppResourceUri,
@@ -51,26 +52,6 @@ interface McpToolCallProps {
   rawDialogOpen?: boolean;
   onRawDialogOpenChange?: (open: boolean) => void;
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
-}
-
-export function buildMcpAppSidePanelInput(input: {
-  threadId: string;
-  payload: CodexMcpToolCallView;
-  resource: McpRenderableResource;
-}): ThreadMcpAppSidePanelInput {
-  const server = input.payload.invocation.server;
-  const tool = input.payload.invocation.tool;
-  const title = `${formatMcpServerName(tool)} - ${formatMcpServerName(server)}`;
-
-  return {
-    mcpAppId: `${server}:${input.resource.uri}`,
-    capabilityId: `mcp-capability:${input.threadId}:${server}:${tool}:${input.payload.callId}`,
-    title,
-    threadId: input.threadId,
-    server,
-    tool,
-    resource: input.resource,
-  };
 }
 
 function formatAnnotations(annotations: unknown): string | null {

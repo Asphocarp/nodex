@@ -25,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Added temporary Side chat conversations in right or bottom panels, including empty-panel, header-menu, `/side`, and selected-text `Ask in side chat` overlay entry points, loading/expired states, background discard on close, and migration cleanup for older saved durable launcher rows.
 - Added a right-panel Plan tab for completed proposed-plan cards, with an in-thread preview card that opens full markdown in the side panel and collapses while that tab is active.
 - Added ephemeral panel previews for Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
+- Added a native floating-summary `Commit or push` workflow for local Git threads, including managed-worktree branch setup from detached or default-branch checkouts, commit, app-server-generated blank-message commit messages, commit-and-push, push, create-PR setup, blocker titles, and cancellable workflow-state actions backed by main-process Git operations.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added chat rename entry points for active project sessions, including title double-click, thread/header actions, command palette, macOS menu, and `Cmd/Ctrl+Alt+R`.
 - Added sidebar-wide chat search to the command palette, including projectless/sessionless sidebar chats, fuzzy metadata matches, bounded FTS5 local content snippets, and direct navigation through chat session materialization.
@@ -67,6 +68,8 @@ All notable changes to this project will be documented in this file.
 - Refined project session thread headers to use the thread title as the session header and hide the redundant header separator while the right panel is closed.
 - Existing thread composers no longer show the lower run-target/status row under the prompt; that row remains available on new-chat composers.
 - Added a top-right thread summary surface for attached local conversation sessions, with a pinned-summary toggle/icon, a right-panel-open `Toggle summary` popover, toolbar-safe under-header pinned placement, and hover-revealed section chevrons.
+- Added a Workbench Automations route that opens from the sidebar, command palette, and scheduled summary rows to inspect local scheduled task metadata.
+- Added a Workbench Process Manager dialog that opens from the command palette, `Ctrl+Alt+M`, and summary Tasks rows to inspect and stop running thread background terminals.
 - Centralized workbench top-right header controls through a header action registry so panel toggles and adjacent panel-header actions keep consistent spacing and reserved width.
 - Collapsed sidebar titlebar chrome now uses a measured left header rail, compact `New chat` button, and thread title alignment after the macOS traffic-light safe area.
 - Moved authenticated Codex quota visibility from the floating thread summary panel into a double-ring indicator in the sidebar footer, with the existing account details available on hover.

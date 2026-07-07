@@ -30,30 +30,157 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
+    const supportedTargets = [
+      31,
+      32,
+      33,
+      34,
+      35,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+    ];
+    const expectedTargetsAfter = (version: number) => JSON.stringify(
+      supportedTargets.filter((target) => target > version),
+    );
+
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe("[41,42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe("[42,43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe("[43,44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe("[44,45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe("[45,46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(45))).toBe("[46,47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(46))).toBe("[47,48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(47))).toBe("[48,49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(48))).toBe("[49,50]");
-    expect(JSON.stringify(getSchemaMigrationTargets(49))).toBe("[50]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe(expectedTargetsAfter(26));
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe(expectedTargetsAfter(30));
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe(expectedTargetsAfter(31));
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe(expectedTargetsAfter(32));
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe(expectedTargetsAfter(33));
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe(expectedTargetsAfter(34));
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe(expectedTargetsAfter(35));
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe(expectedTargetsAfter(36));
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe(expectedTargetsAfter(37));
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe(expectedTargetsAfter(38));
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe(expectedTargetsAfter(39));
+    expect(JSON.stringify(getSchemaMigrationTargets(40))).toBe(expectedTargetsAfter(40));
+    expect(JSON.stringify(getSchemaMigrationTargets(41))).toBe(expectedTargetsAfter(41));
+    expect(JSON.stringify(getSchemaMigrationTargets(42))).toBe(expectedTargetsAfter(42));
+    expect(JSON.stringify(getSchemaMigrationTargets(43))).toBe(expectedTargetsAfter(43));
+    expect(JSON.stringify(getSchemaMigrationTargets(44))).toBe(expectedTargetsAfter(44));
+    expect(JSON.stringify(getSchemaMigrationTargets(45))).toBe(expectedTargetsAfter(45));
+    expect(JSON.stringify(getSchemaMigrationTargets(46))).toBe(expectedTargetsAfter(46));
+    expect(JSON.stringify(getSchemaMigrationTargets(47))).toBe(expectedTargetsAfter(47));
+    expect(JSON.stringify(getSchemaMigrationTargets(48))).toBe(expectedTargetsAfter(48));
+    expect(JSON.stringify(getSchemaMigrationTargets(49))).toBe(expectedTargetsAfter(49));
+    expect(JSON.stringify(getSchemaMigrationTargets(50))).toBe(expectedTargetsAfter(50));
+    expect(JSON.stringify(getSchemaMigrationTargets(51))).toBe(expectedTargetsAfter(51));
+    expect(JSON.stringify(getSchemaMigrationTargets(52))).toBe(expectedTargetsAfter(52));
+    expect(JSON.stringify(getSchemaMigrationTargets(53))).toBe(expectedTargetsAfter(53));
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
+  });
+
+  test("migrates schema 53 databases with Codex background process registry", async () => {
+    closeDatabase();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-53-"));
+    process.env.NODEX_DIR = tempDir;
+    try {
+      try {
+        await initializeDatabase();
+        closeDatabase();
+
+        const db = new Database(getDatabasePath(), { readonly: false });
+        try {
+          db.exec(`
+            DROP TABLE IF EXISTS codex_background_processes;
+            PRAGMA user_version = 53;
+          `);
+        } finally {
+          db.close();
+        }
+
+        await initializeDatabase();
+
+        const migrated = new Database(getDatabasePath(), { readonly: false });
+        try {
+          const version = migrated.prepare("PRAGMA user_version").get() as
+            | { user_version: number }
+            | undefined;
+          expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+          const backgroundProcessColumnNames = tableColumnNames(migrated, "codex_background_processes");
+          expect(backgroundProcessColumnNames.includes("process_record_id")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("thread_id")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("thread_title")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("item_id")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("turn_id")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("command")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("cwd")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("app_server_process_id")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("os_pid")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("terminal_session_id")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("source")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("started_at_ms")).toBeTrue();
+          expect(backgroundProcessColumnNames.includes("updated_at_ms")).toBeTrue();
+
+          const backgroundProcessTableSql = migrated.prepare(`
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'codex_background_processes'
+          `).get() as { sql: string } | undefined;
+          expect((backgroundProcessTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+
+          const backgroundProcessIndex = migrated.prepare(`
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND name = 'idx_codex_background_processes_thread_updated'
+          `).get();
+          expect(backgroundProcessIndex !== undefined).toBeTrue();
+
+          migrated.prepare(`
+            INSERT INTO codex_background_processes (
+              process_record_id, thread_id, thread_title, item_id, turn_id, command, cwd,
+              app_server_process_id, os_pid, terminal_session_id, source, started_at_ms, updated_at_ms
+            ) VALUES (
+              'thread-1:item-1', 'thread-1', 'Thread 1', 'item-1', 'turn-1',
+              'bun dev', '/repo', 'process-1', 1234, NULL, 'app-server', 10, 20
+            )
+          `).run();
+          const inserted = migrated.prepare(`
+            SELECT thread_id, item_id, command, source
+            FROM codex_background_processes
+            WHERE process_record_id = 'thread-1:item-1'
+          `).get() as { thread_id: string; item_id: string; command: string; source: string } | undefined;
+          expect(inserted?.thread_id).toBe("thread-1");
+          expect(inserted?.item_id).toBe("item-1");
+          expect(inserted?.command).toBe("bun dev");
+          expect(inserted?.source).toBe("app-server");
+        } finally {
+          migrated.close();
+        }
+      } catch (error) {
+        if (isUnsupportedSqliteError(error)) {
+          expect(true).toBeTrue();
+        } else {
+          throw error;
+        }
+      } finally {
+        closeDatabase();
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.NODEX_DIR;
+    }
   });
 
   test("initializes the latest schema from a fresh database", async () => {
@@ -117,6 +244,8 @@ describe("schema initialization", () => {
       expect(codexThreadColumnNames.includes("thread_source")).toBeTrue();
       expect(codexThreadColumnNames.includes("agent_nickname")).toBeTrue();
       expect(codexThreadColumnNames.includes("agent_role")).toBeTrue();
+      expect(codexThreadColumnNames.includes("managed_worktree_path")).toBeTrue();
+      expect(codexThreadColumnNames.includes("projectless_output_directory")).toBeTrue();
       expect(codexThreadColumnNames.includes("card_id")).toBeFalse();
 
       const codexTableSql = db.prepare(`
@@ -125,6 +254,49 @@ describe("schema initialization", () => {
         WHERE type = 'table' AND name = 'codex_threads'
       `).get() as { sql: string } | undefined;
       expect((codexTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+
+      const scheduledAutomationColumnNames = tableColumnNames(db, "codex_scheduled_automations");
+      expect(scheduledAutomationColumnNames.includes("automation_id")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("kind")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("status")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("rrule")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("next_run_at")).toBeTrue();
+      const scheduledAutomationTableSql = db.prepare(`
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'codex_scheduled_automations'
+      `).get() as { sql: string } | undefined;
+      expect((scheduledAutomationTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+      const scheduledAutomationIndex = db.prepare(`
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND name = 'idx_codex_scheduled_automations_target'
+      `).get();
+      expect(scheduledAutomationIndex !== undefined).toBeTrue();
+
+      const backgroundProcessColumnNames = tableColumnNames(db, "codex_background_processes");
+      expect(backgroundProcessColumnNames.includes("process_record_id")).toBeTrue();
+      expect(backgroundProcessColumnNames.includes("thread_id")).toBeTrue();
+      expect(backgroundProcessColumnNames.includes("item_id")).toBeTrue();
+      expect(backgroundProcessColumnNames.includes("turn_id")).toBeTrue();
+      expect(backgroundProcessColumnNames.includes("command")).toBeTrue();
+      expect(backgroundProcessColumnNames.includes("app_server_process_id")).toBeTrue();
+      expect(backgroundProcessColumnNames.includes("terminal_session_id")).toBeTrue();
+      const backgroundProcessTableSql = db.prepare(`
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'codex_background_processes'
+      `).get() as { sql: string } | undefined;
+      expect((backgroundProcessTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+      const backgroundProcessIndex = db.prepare(`
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND name = 'idx_codex_background_processes_thread_updated'
+      `).get();
+      expect(backgroundProcessIndex !== undefined).toBeTrue();
 
       const autoVacuum = db.prepare("PRAGMA auto_vacuum").get() as
         | { auto_vacuum: number }
@@ -157,6 +329,8 @@ describe("schema initialization", () => {
       expect(tableNames.includes("thread_search_units_fts")).toBeTrue();
       expect(tableNames.includes("card_search_units")).toBeTrue();
       expect(tableNames.includes("card_search_units_fts")).toBeTrue();
+      expect(tableNames.includes("codex_scheduled_automations")).toBeTrue();
+      expect(tableNames.includes("codex_background_processes")).toBeTrue();
       expect(tableNames.includes("codex_thread_card_links")).toBeFalse();
       expect(tableNames.includes("card_history_snapshots")).toBeTrue();
       expect(tableColumnNames(db, "codex_threads").includes("card_id")).toBeFalse();
@@ -2756,17 +2930,117 @@ describe("schema initialization", () => {
         expect(columnNames.includes("thread_source")).toBeTrue();
         expect(columnNames.includes("agent_nickname")).toBeTrue();
         expect(columnNames.includes("agent_role")).toBeTrue();
-        const row = migrated.prepare("SELECT thread_name, thread_source, agent_nickname, agent_role FROM codex_threads WHERE thread_id = 'thread-1'")
+        expect(columnNames.includes("managed_worktree_path")).toBeTrue();
+        expect(columnNames.includes("projectless_output_directory")).toBeTrue();
+        const row = migrated.prepare("SELECT thread_name, thread_source, agent_nickname, agent_role, projectless_output_directory FROM codex_threads WHERE thread_id = 'thread-1'")
           .get() as {
             thread_name: string;
             thread_source: string | null;
             agent_nickname: string | null;
             agent_role: string | null;
+            projectless_output_directory: string | null;
           } | undefined;
         expect(row?.thread_name).toBe("Existing thread");
         expect(row?.thread_source).toBe(null);
         expect(row?.agent_nickname).toBe(null);
         expect(row?.agent_role).toBe(null);
+        expect(row?.projectless_output_directory).toBe(null);
+      } finally {
+        migrated.close();
+      }
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.NODEX_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates schema 51 by creating scheduled automation storage", async () => {
+    closeDatabase();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-scheduled-automations-"));
+    process.env.NODEX_DIR = tempDir;
+    let initializationRan = true;
+
+    try {
+      await initializeDatabase();
+      closeDatabase();
+
+      const db = new Database(getDatabasePath());
+      try {
+        db.exec(`
+          DROP TABLE IF EXISTS codex_scheduled_automations;
+          PRAGMA user_version = 51;
+        `);
+      } finally {
+        db.close();
+      }
+
+      await initializeDatabase();
+
+      const migrated = new Database(getDatabasePath(), { readonly: false });
+      try {
+        const version = migrated.prepare("PRAGMA user_version").get() as
+          | { user_version: number }
+          | undefined;
+        expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+        const scheduledAutomationColumnNames = tableColumnNames(migrated, "codex_scheduled_automations");
+        expect(scheduledAutomationColumnNames.includes("automation_id")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("kind")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("status")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("name")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("rrule")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("next_run_at")).toBeTrue();
+
+        const scheduledAutomationTableSql = migrated.prepare(`
+          SELECT sql
+          FROM sqlite_master
+          WHERE type = 'table' AND name = 'codex_scheduled_automations'
+        `).get() as { sql: string } | undefined;
+        expect((scheduledAutomationTableSql?.sql ?? "").includes("WITHOUT ROWID")).toBeTrue();
+
+        const scheduledAutomationIndex = migrated.prepare(`
+          SELECT 1
+          FROM sqlite_master
+          WHERE type = 'index'
+            AND name = 'idx_codex_scheduled_automations_target'
+        `).get();
+        expect(scheduledAutomationIndex !== undefined).toBeTrue();
+
+        const codexThreadColumnNames = tableColumnNames(migrated, "codex_threads");
+        expect(codexThreadColumnNames.includes("thread_source")).toBeTrue();
+        expect(codexThreadColumnNames.includes("agent_nickname")).toBeTrue();
+        expect(codexThreadColumnNames.includes("agent_role")).toBeTrue();
+        expect(codexThreadColumnNames.includes("projectless_output_directory")).toBeTrue();
+
+        migrated.prepare(`
+          INSERT INTO codex_scheduled_automations (
+            automation_id, kind, status, target_thread_id, name, rrule, next_run_at, created_at, updated_at
+          ) VALUES (
+            'automation-heartbeat', 'heartbeat', 'ACTIVE', 'thread-1', 'Scheduled check',
+            'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', 1783503000000, 10, 20
+          )
+        `).run();
+        const inserted = migrated.prepare(`
+          SELECT kind, status, target_thread_id, name
+          FROM codex_scheduled_automations
+          WHERE automation_id = 'automation-heartbeat'
+        `).get() as { kind: string; status: string; target_thread_id: string; name: string } | undefined;
+        expect(inserted?.kind).toBe("heartbeat");
+        expect(inserted?.status).toBe("ACTIVE");
+        expect(inserted?.target_thread_id).toBe("thread-1");
+        expect(inserted?.name).toBe("Scheduled check");
       } finally {
         migrated.close();
       }

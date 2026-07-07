@@ -171,9 +171,7 @@ export const CODEX_COMMAND_REGISTRY: CommandRegistryEntry[] = [
   command("closeWindow", "Close window", "Close the active app window", 270, "electron", ["CmdOrCtrl+Shift+W"]),
   command("newWindow", "New window", "Open a new app window", 280, "electron", ["CmdOrCtrl+Shift+N"]),
   command("openFolder", "Open folder", "Open a local folder", 290, "electron", ["CmdOrCtrl+O"], { available: false }),
-  command("openProcessManager", "Open process manager", "Open the process manager", 300, "electron", ["Ctrl+Alt+M"], {
-    available: false,
-  }),
+  command("openProcessManager", "Open process manager", "Open the process manager", 300, "electron", ["Ctrl+Alt+M"]),
   command("hotkeyWindow", "Hotkey window", "Show the global hotkey window", 310, "os-global", [], {
     available: false,
   }),

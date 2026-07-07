@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "@testing-library/react";
 import { useEffect } from "react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
-import { render } from "../../../test/dom";
+import { render, settleAsyncRender } from "../../../test/dom";
+import {
+  REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE,
+  REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
+  REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE,
+  type CodexDesktopMessageFromView,
+} from "../../../../shared/remote-hosted-pip";
 import {
   EnsureLocalConversationThreadScrollController,
   LocalConversationThreadScrollLayout,
@@ -24,6 +30,8 @@ function ControllerProbe({
 
 describe("LocalConversationThreadScrollLayout", () => {
   const originalResizeObserver = globalThis.ResizeObserver;
+  const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+  const originalElectronBridge = window.electronBridge;
 
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
@@ -37,11 +45,28 @@ describe("LocalConversationThreadScrollLayout", () => {
         },
         "ResizeObserver",
       );
+    } else {
+      Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        value: originalResizeObserver,
+        writable: true,
+      });
+    }
+
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: originalGetBoundingClientRect,
+      writable: true,
+    });
+
+    if (typeof originalElectronBridge === "undefined") {
+      Reflect.deleteProperty(window, "electronBridge");
       return;
     }
-    Object.defineProperty(globalThis, "ResizeObserver", {
+
+    Object.defineProperty(window, "electronBridge", {
       configurable: true,
-      value: originalResizeObserver,
+      value: originalElectronBridge,
       writable: true,
     });
   });
@@ -92,12 +117,14 @@ describe("LocalConversationThreadScrollLayout", () => {
     const widthWrapper = shiftedContent?.querySelector("[data-mcp-app-portal-target='true']") as HTMLElement | null;
 
     expect(scrollContainer !== null).toBeTrue();
+    expect(scrollContainer?.getAttribute(REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE)).toBe(
+      REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID,
+    );
     expect(widthWrapper !== null).toBeTrue();
     expect(shiftedContent?.style.transform.includes("translateX(-158px)")).toBeTrue();
   });
 
   test("measures sticky footer height into Codex scroll padding", () => {
-    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
     Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
       configurable: true,
       value(this: HTMLElement) {
@@ -150,9 +177,83 @@ describe("LocalConversationThreadScrollLayout", () => {
 
     const scrollContainer = view.container.querySelector("[data-local-conversation-thread-body='true']") as HTMLElement | null;
     const footer = view.container.querySelector("[data-thread-scroll-footer='true']");
+    const footerObstacle = view.container.querySelector(`[${REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE}='thread-footer']`);
 
     expect(Boolean(footer)).toBeTrue();
+    expect(Boolean(footerObstacle)).toBeTrue();
     expect(scrollContainer?.style.getPropertyValue("--thread-scroll-padding-bottom")).toBe("64px");
+  });
+
+  test("publishes remote-hosted PiP host layout and clears it on unmount", async () => {
+    const messages: CodexDesktopMessageFromView[] = [];
+
+    Object.defineProperty(window, "electronBridge", {
+      configurable: true,
+      value: {
+        sendMessageFromView: async (message: CodexDesktopMessageFromView) => {
+          messages.push(message);
+        },
+        showContextMenu: async () => null,
+      },
+      writable: true,
+    });
+
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        if (this.getAttribute("data-local-conversation-thread-body") === "true") {
+          return createDomRect({
+            height: 800,
+            width: 1_000,
+            x: 100,
+            y: 50,
+          });
+        }
+        if (this.getAttribute(REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE) === "thread-footer") {
+          return createDomRect({
+            height: 120,
+            width: 1_000,
+            x: 100,
+            y: 730,
+          });
+        }
+        return originalGetBoundingClientRect.call(this);
+      },
+      writable: true,
+    });
+
+    const view = render(
+      <EnsureLocalConversationThreadScrollController>
+        <LocalConversationThreadScrollLayout footer={<div>Composer</div>}>
+          <div>Thread content</div>
+        </LocalConversationThreadScrollLayout>
+      </EnsureLocalConversationThreadScrollController>,
+    );
+
+    await settleAsyncRender();
+
+    const layoutMessage = messages.find((message) =>
+      message.type === "remote-hosted-pip-host-layout-changed"
+      && message.layout.anchorRect !== null
+    );
+    expect(layoutMessage !== undefined).toBeTrue();
+    if (layoutMessage?.type !== "remote-hosted-pip-host-layout-changed") return;
+
+    const bottomRight = layoutMessage.layout.anchors?.find((anchor) => anchor.alignment === "bottom-right");
+    expect(layoutMessage.layout.hostId).toBe(REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID);
+    expect(bottomRight?.point.y ?? 0).toBe(718);
+
+    await act(async () => {
+      view.unmount();
+      await Promise.resolve();
+    });
+
+    const lastMessage = messages[messages.length - 1];
+    expect(lastMessage?.type ?? "").toBe("remote-hosted-pip-host-layout-changed");
+    if (lastMessage?.type !== "remote-hosted-pip-host-layout-changed") return;
+
+    expect(lastMessage.layout.anchorRect === null).toBeTrue();
+    expect(lastMessage.layout.anchors === null).toBeTrue();
   });
 
   test("records pending latest-turn placement against response spacer height", async () => {
@@ -212,3 +313,27 @@ describe("LocalConversationThreadScrollLayout", () => {
     expect(controller.consumePendingLatestTurnSubmitPlacement() === null).toBeTrue();
   });
 });
+
+function createDomRect({
+  height,
+  width,
+  x,
+  y,
+}: {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}): DOMRect {
+  return {
+    bottom: y + height,
+    height,
+    left: x,
+    right: x + width,
+    top: y,
+    width,
+    x,
+    y,
+    toJSON: () => ({}),
+  } as DOMRect;
+}

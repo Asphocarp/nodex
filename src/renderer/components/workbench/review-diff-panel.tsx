@@ -60,6 +60,10 @@ import {
   getNodexDiffHostStyle,
   getNodexReviewDiffOptions,
 } from "@/lib/diff-presentation";
+import {
+  GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
+  GIT_ACTION_CREATE_PR_PROMPT,
+} from "@/lib/git-action-prompts";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
@@ -175,6 +179,7 @@ interface ReviewDiffPanelProps {
   projectWorkspacePath?: string | null;
   selectedTurnDiff?: CodexTurnDiffReviewTarget | null;
   initialSource?: ReviewSource;
+  initialSourceRequestKey?: number | null;
   initialCommitSha?: string | null;
   initialFileTreeOpen?: boolean;
   searchOpenTick?: number;
@@ -2071,6 +2076,7 @@ export function ReviewDiffPanel({
   projectWorkspacePath,
   selectedTurnDiff = null,
   initialSource = "last-turn",
+  initialSourceRequestKey = null,
   initialCommitSha = null,
   initialFileTreeOpen = false,
   deps,
@@ -2134,6 +2140,15 @@ export function ReviewDiffPanel({
 
     setSource(selectedTurnDiff.source ?? "selected-turn");
   }, [selectedTurnDiff?.entryId, selectedTurnDiff?.patch, selectedTurnDiff?.source]);
+
+  useEffect(() => {
+    if (initialSourceRequestKey === null) return;
+    setCommitSha(initialCommitSha?.trim() || null);
+    setSelectedPath(null);
+    setSelectedTreeItemId(null);
+    setFocusedTreeItemId(null);
+    setSource(initialSource);
+  }, [initialCommitSha, initialSource, initialSourceRequestKey]);
 
   useEffect(() => {
     const path = selectedTurnDiff?.path?.trim() ?? "";
@@ -2806,8 +2821,6 @@ export function ReviewDiffPanel({
     }
   };
 
-  const commitOrPushPrompt = "Commit or push the reviewed workspace changes. Inspect the current Git state first, then choose the smallest appropriate commit or push action.";
-  const createPrPrompt = "Create a pull request for the reviewed branch changes. Inspect the branch, remote, and merge base first, then open a PR with an accurate title and summary.";
   const canUseThreadGitActions = Boolean(conversation?.threadId && snapshot.isGitRepository && reviewCwd);
   const reviewOptionsWordWrapLabel = wrap ? "Disable word wrap" : "Enable word wrap";
   const reviewOptionsExpandLabel = areAllDiffsExpanded ? "Collapse all diffs" : "Expand all diffs";
@@ -3255,7 +3268,7 @@ export function ReviewDiffPanel({
               className={REVIEW_HEADER_ACTION_BUTTON_CLASS_NAME}
               aria-label="Commit or push"
               disabled={!canUseThreadGitActions}
-              onClick={() => void startThreadPrompt(commitOrPushPrompt)}
+              onClick={() => void startThreadPrompt(GIT_ACTION_COMMIT_OR_PUSH_PROMPT)}
             >
               <ReviewCommitOrPushIcon className="icon-xs shrink-0" />
               <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>Commit or push</span>
@@ -3265,7 +3278,7 @@ export function ReviewDiffPanel({
               className={REVIEW_HEADER_ACTION_BUTTON_CLASS_NAME}
               aria-label="Create PR"
               disabled={!canUseThreadGitActions}
-              onClick={() => void startThreadPrompt(createPrPrompt)}
+              onClick={() => void startThreadPrompt(GIT_ACTION_CREATE_PR_PROMPT)}
             >
               <ReviewCreatePrIcon className="icon-xs shrink-0" />
               <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>Create PR</span>

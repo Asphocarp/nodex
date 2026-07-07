@@ -66,6 +66,7 @@ describe("codex-link-repository", () => {
         threadPreview: "Initial preview",
         modelProvider: "openai",
         cwd: "/tmp/codex",
+        managedWorktreePath: "/tmp/codex/.worktrees/thr_test_1",
         statusType: "idle",
       });
 
@@ -76,6 +77,7 @@ describe("codex-link-repository", () => {
       expect(first.threadSource).toBe("appServer");
       expect(first.agentNickname).toBe("@Nash");
       expect(first.agentRole).toBe("worker");
+      expect(first.managedWorktreePath).toBe("/tmp/codex/.worktrees/thr_test_1");
 
       const second = upsertCodexThread({
         projectId: projectId,
@@ -93,6 +95,14 @@ describe("codex-link-repository", () => {
       expect(second.statusActiveFlags.length).toBe(1);
       expect(second.source?.parentThreadId).toBe("thr_parent");
       expect(second.threadSource).toBe("appServer");
+      expect(second.managedWorktreePath).toBe("/tmp/codex/.worktrees/thr_test_1");
+
+      const clearedWorktree = upsertCodexThread({
+        projectId: projectId,
+        threadId: "thr_test_1",
+        managedWorktreePath: null,
+      });
+      expect(clearedWorktree.managedWorktreePath ?? null).toBe(null);
 
       const clearedSource = upsertCodexThread({
         projectId: projectId,
@@ -166,11 +176,25 @@ describe("codex-link-repository", () => {
         projectId: null,
         threadId: "thr_projectless",
         threadName: "Projectless thread",
+        projectlessOutputDirectory: "output",
         statusType: "idle",
       });
 
       expect(projectOnly.projectId).toBe(projectId);
       expect(projectless.projectId ?? null).toBe(null);
+      expect(projectless.projectlessOutputDirectory ?? null).toBe("output");
+
+      const preserved = upsertCodexThread({
+        threadId: "thr_projectless",
+        threadName: "Projectless thread refreshed",
+      });
+      expect(preserved.projectlessOutputDirectory ?? null).toBe("output");
+
+      const cleared = upsertCodexThread({
+        threadId: "thr_projectless",
+        projectlessOutputDirectory: null,
+      });
+      expect(cleared.projectlessOutputDirectory ?? null).toBe(null);
 
       const byProject = listCodexProjectThreads(projectId);
       expect(byProject.length).toBe(1);

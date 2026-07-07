@@ -4,10 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type {
-  CodexHostMessage,
-  CodexConversationSnapshot,
+  CodexBackgroundProcessRow,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexConversationSnapshot,
   CodexEvent,
+  CodexHostMessage,
   CodexItemView,
   CodexMcpServerElicitationResponse,
   CodexCollaborationModePreset,
@@ -27,7 +28,7 @@ import type {
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
 } from "../../shared/types";
-import type { ThreadGoal, ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2";
+import type { ThreadBackgroundTerminal, ThreadGoal, ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
 import {
   applyCodexConversationStateUpdates,
@@ -182,6 +183,12 @@ interface TestableCodexService {
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
+  listBackgroundTerminals: (threadId: string) => Promise<ThreadBackgroundTerminal[]>;
+  listBackgroundProcessRows: (input: {
+    threadId: string;
+    observedTerminals?: ThreadBackgroundTerminal[];
+  }) => Promise<CodexBackgroundProcessRow[]>;
+  terminateBackgroundTerminal: (input: { threadId: string; processId: string }) => Promise<boolean>;
   markSubagentThreadOpened: (threadId: string) => boolean;
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,
@@ -6355,6 +6362,146 @@ describe("codex-service session-backed transcript recovery", () => {
     }
   });
 
+  test("listBackgroundTerminals pages through app-server process rows", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/backgroundTerminals/list") {
+        const cursor = (params as { cursor?: string | null }).cursor ?? null;
+        if (cursor === null) {
+          return {
+            data: [{
+              itemId: "item-a",
+              processId: "proc-a",
+              command: "bun run dev",
+              cwd: "/tmp/a",
+              osPid: 101,
+              cpuPercent: 12.5,
+              rssKb: 2048n,
+            }],
+            nextCursor: "next-page",
+          };
+        }
+        return {
+          data: [{
+            itemId: "item-b",
+            processId: "proc-b",
+            command: "python -m http.server",
+            cwd: "/tmp/b",
+            osPid: null,
+            cpuPercent: null,
+            rssKb: null,
+          }],
+          nextCursor: null,
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const rows = await service.listBackgroundTerminals(" thr_process_rows ");
+
+      expect(rows.length).toBe(2);
+      expect(rows[0]?.processId).toBe("proc-a");
+      expect(rows[1]?.processId).toBe("proc-b");
+      expect(requests.length).toBe(2);
+      expect((requests[0]?.params as { threadId?: string; cursor?: string | null })?.threadId).toBe("thr_process_rows");
+      expect((requests[0]?.params as { cursor?: string | null })?.cursor).toBe(null);
+      expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("listBackgroundProcessRows keeps registered rows when live terminal listing fails", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+
+      try {
+        const observedRows = await service.listBackgroundProcessRows({
+          threadId: "thread-process-registry",
+          observedTerminals: [{
+            itemId: "item-dev",
+            processId: "process-dev",
+            command: "bun run dev",
+            cwd: "/tmp/nodex",
+            osPid: 4301,
+            cpuPercent: 8.5,
+            rssKb: 4096n,
+          }],
+        });
+
+        client.start = async () => undefined;
+        client.request = async (method: string) => {
+          if (method === "thread/backgroundTerminals/list") {
+            throw new Error("app-server unavailable");
+          }
+          throw new Error(`Unexpected client request: ${method}`);
+        };
+
+        const registeredRows = await service.listBackgroundProcessRows({
+          threadId: "thread-process-registry",
+        });
+
+        expect(observedRows.length).toBe(1);
+        expect(observedRows[0]?.status).toBe("running");
+        expect(registeredRows.length).toBe(1);
+        expect(registeredRows[0]?.status).toBe("not-found");
+        expect(registeredRows[0]?.terminal === null).toBeTrue();
+        expect(registeredRows[0]?.itemId).toBe("item-dev");
+        expect(registeredRows[0]?.command).toBe("bun run dev");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("terminateBackgroundTerminal delegates to app-server process id", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/backgroundTerminals/terminate") {
+        return { terminated: true };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const terminated = await service.terminateBackgroundTerminal({
+        threadId: " thr_process_stop ",
+        processId: " proc-42 ",
+      });
+
+      expect(terminated).toBeTrue();
+      expect(requests.length).toBe(1);
+      expect(requests[0]?.method).toBe("thread/backgroundTerminals/terminate");
+      expect((requests[0]?.params as { threadId?: string; processId?: string })?.threadId).toBe("thr_process_stop");
+      expect((requests[0]?.params as { threadId?: string; processId?: string })?.processId).toBe("proc-42");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
 });
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {
@@ -10604,6 +10751,7 @@ describe("codex-service startThreadForSession", () => {
         expect(fs.existsSync(threadStartCwd)).toBeTrue();
         expect(turnStartCwd).toBe(threadStartCwd);
         expect(linked?.cwd).toBe(threadStartCwd);
+        expect(linked?.managedWorktreePath).toBe(threadStartCwd);
         expect(goalSetIndex > turnStartIndex).toBeTrue();
         expect(goalSetParams?.threadId).toBe("thr_session_worktree");
         expect(goalSetParams?.objective).toBe("Keep refining the worktree setup until tests pass");
@@ -11236,6 +11384,92 @@ describe("codex-service startThreadForSession", () => {
       });
 
       expect(JSON.stringify(result)).toBe(JSON.stringify({ title: null }));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("generates commit messages through the app-server commit-message method", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      generateCommitMessage: (input: {
+        hostId?: string | null;
+        prompt: string;
+        cwd: string;
+      }) => Promise<string | null>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      return { message: "  feat: generated commit message\n" };
+    };
+
+    try {
+      const message = await serviceInternals.generateCommitMessage({
+        hostId: "local",
+        prompt: "Changes:\ndiff --git a/feature.txt b/feature.txt",
+        cwd: "/tmp/project",
+      });
+
+      expect(message).toBe("feat: generated commit message");
+      const capturedRequest = requests[0];
+      expect(capturedRequest?.method).toBe("generate-commit-message");
+      expect(JSON.stringify(capturedRequest?.params)).toBe(JSON.stringify({
+        hostId: "local",
+        prompt: "Changes:\ndiff --git a/feature.txt b/feature.txt",
+        cwd: "/tmp/project",
+      }));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("generates pull request messages through the app-server pull-request-message method", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      generatePullRequestMessage: (input: {
+        hostId?: string | null;
+        prompt: string;
+        cwd: string;
+      }) => Promise<{ title: string | null; body: string | null }>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      return {
+        title: "  Generated PR title\n",
+        body: "  Generated PR body\n",
+      };
+    };
+
+    try {
+      const message = await serviceInternals.generatePullRequestMessage({
+        hostId: "local",
+        prompt: "Branches:\n- Head: feature\n- Base: main",
+        cwd: "/tmp/project",
+      });
+
+      expect(JSON.stringify(message)).toBe(JSON.stringify({
+        title: "Generated PR title",
+        body: "Generated PR body",
+      }));
+      const capturedRequest = requests[0];
+      expect(capturedRequest?.method).toBe("generate-pull-request-message");
+      expect(JSON.stringify(capturedRequest?.params)).toBe(JSON.stringify({
+        hostId: "local",
+        prompt: "Branches:\n- Head: feature\n- Base: main",
+        cwd: "/tmp/project",
+      }));
     } finally {
       await service.shutdown();
     }

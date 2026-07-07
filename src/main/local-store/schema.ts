@@ -21,8 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 50;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50] as const;
+export const CURRENT_SCHEMA_VERSION = 54;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -49,6 +49,8 @@ const RESETTABLE_TABLES = [
   "card_history_snapshots",
   "history",
   "codex_thread_card_links",
+  "codex_background_processes",
+  "codex_scheduled_automations",
   "codex_pinned_threads",
   "codex_threads",
   "codex_card_threads",
@@ -247,6 +249,8 @@ function createLatestSchema(db: Database.Database): void {
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
       cwd TEXT,
+      managed_worktree_path TEXT,
+      projectless_output_directory TEXT,
       status_type TEXT NOT NULL DEFAULT 'notLoaded',
       status_active_flags_json TEXT NOT NULL DEFAULT '[]',
       archived INTEGER NOT NULL DEFAULT 0,
@@ -257,6 +261,43 @@ function createLatestSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
       ON codex_threads(project_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS codex_scheduled_automations (
+      automation_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      target_thread_id TEXT,
+      name TEXT NOT NULL,
+      rrule TEXT,
+      next_run_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (kind IN ('cron', 'heartbeat')),
+      CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED'))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_scheduled_automations_target
+      ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
+
+    CREATE TABLE IF NOT EXISTS codex_background_processes (
+      process_record_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      thread_title TEXT,
+      item_id TEXT NOT NULL,
+      turn_id TEXT,
+      command TEXT NOT NULL,
+      cwd TEXT,
+      app_server_process_id TEXT,
+      os_pid INTEGER,
+      terminal_session_id TEXT,
+      source TEXT NOT NULL,
+      started_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      CHECK (source IN ('app-server', 'terminal-action'))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_background_processes_thread_updated
+      ON codex_background_processes(thread_id, updated_at_ms DESC, process_record_id);
 
     CREATE TABLE IF NOT EXISTS project_sessions (
       id TEXT PRIMARY KEY,
@@ -2070,6 +2111,71 @@ function migrateSchema49To50(db: Database.Database): void {
   setUserVersion(db, 50);
 }
 
+function migrateSchema50To51(db: Database.Database): void {
+  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "projectless_output_directory")) {
+    db.exec("ALTER TABLE codex_threads ADD COLUMN projectless_output_directory TEXT");
+  }
+
+  setUserVersion(db, 51);
+}
+
+function migrateSchema51To52(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS codex_scheduled_automations (
+      automation_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      target_thread_id TEXT,
+      name TEXT NOT NULL,
+      rrule TEXT,
+      next_run_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (kind IN ('cron', 'heartbeat')),
+      CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED'))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_scheduled_automations_target
+      ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
+  `);
+
+  setUserVersion(db, 52);
+}
+
+function migrateSchema52To53(db: Database.Database): void {
+  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "managed_worktree_path")) {
+    db.exec("ALTER TABLE codex_threads ADD COLUMN managed_worktree_path TEXT");
+  }
+
+  setUserVersion(db, 53);
+}
+
+function migrateSchema53To54(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS codex_background_processes (
+      process_record_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      thread_title TEXT,
+      item_id TEXT NOT NULL,
+      turn_id TEXT,
+      command TEXT NOT NULL,
+      cwd TEXT,
+      app_server_process_id TEXT,
+      os_pid INTEGER,
+      terminal_session_id TEXT,
+      source TEXT NOT NULL,
+      started_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      CHECK (source IN ('app-server', 'terminal-action'))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_background_processes_thread_updated
+      ON codex_background_processes(thread_id, updated_at_ms DESC, process_record_id);
+  `);
+
+  setUserVersion(db, 54);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -2234,6 +2340,38 @@ function runMigrations(
       }
       migrateSchema49To50(db);
       fromVersion = 50;
+      continue;
+    }
+    if (target === 51) {
+      if (fromVersion !== 50) {
+        throw new Error(`Unsupported Nodex database migration target 51 from ${fromVersion}`);
+      }
+      migrateSchema50To51(db);
+      fromVersion = 51;
+      continue;
+    }
+    if (target === 52) {
+      if (fromVersion !== 51) {
+        throw new Error(`Unsupported Nodex database migration target 52 from ${fromVersion}`);
+      }
+      migrateSchema51To52(db);
+      fromVersion = 52;
+      continue;
+    }
+    if (target === 53) {
+      if (fromVersion !== 52) {
+        throw new Error(`Unsupported Nodex database migration target 53 from ${fromVersion}`);
+      }
+      migrateSchema52To53(db);
+      fromVersion = 53;
+      continue;
+    }
+    if (target === 54) {
+      if (fromVersion !== 53) {
+        throw new Error(`Unsupported Nodex database migration target 54 from ${fromVersion}`);
+      }
+      migrateSchema53To54(db);
+      fromVersion = 54;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

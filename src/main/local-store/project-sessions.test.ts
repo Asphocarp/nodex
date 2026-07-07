@@ -156,6 +156,7 @@ describe("project session service", () => {
         threadName: "Thread summary title",
         threadPreview: "Thread summary preview",
         modelProvider: "openai",
+        managedWorktreePath: "/tmp/project/.worktrees/thread-summary-test",
         statusType: "idle",
         statusActiveFlags: [],
         archived: false,
@@ -173,6 +174,7 @@ describe("project session service", () => {
       expect(Object.prototype.hasOwnProperty.call(summary as object, "panels")).toBeFalse();
       expect(summary?.displayTitle).toBe("Thread summary title");
       expect(summary?.thread?.threadId).toBe("thread-summary-test");
+      expect(summary?.thread?.managedWorktreePath).toBe("/tmp/project/.worktrees/thread-summary-test");
       expect(detail?.tabs.length).toBe(1);
       expect(detail?.panels.right.collapsed).toBeFalse();
     });
@@ -688,6 +690,8 @@ describe("project session service", () => {
         threadPreview: "Working on the redesign",
         modelProvider: "openai",
         cwd: "/tmp/project",
+        managedWorktreePath: "/tmp/project/.worktrees/thread-1",
+        projectlessOutputDirectory: "output",
         statusType: "running",
         statusActiveFlags: ["streaming"],
         archived: false,
@@ -698,6 +702,8 @@ describe("project session service", () => {
       expect(attached.threadId).toBe("thread-1");
       expect(attached.parentThreadId).toBe("parent-1");
       expect(attached.threadName).toBe("Thread One");
+      expect(attached.managedWorktreePath).toBe("/tmp/project/.worktrees/thread-1");
+      expect(attached.projectlessOutputDirectory ?? null).toBe("output");
       expect(JSON.stringify(attached.statusActiveFlags)).toBe(JSON.stringify(["streaming"]));
       expect(getProjectSession(session.id)?.displayTitle).toBe("Thread One");
 
@@ -710,6 +716,7 @@ describe("project session service", () => {
       expect(updated.threadId).toBe("thread-2");
       expect(updated.parentThreadId ?? null).toBe(null);
       expect(updated.threadPreview).toBe("Follow-up");
+      expect(updated.projectlessOutputDirectory ?? null).toBe(null);
       expect(getProjectSession(session.id)?.displayTitle).toBe("Follow-up");
       const owners = listProjectSessionThreadOwners("thread-2");
       expect(owners.length).toBe(1);

@@ -42,10 +42,21 @@ function NodexDropdownRoot(
   return <DropdownMenuPrimitive.Root modal={false} {...props} />;
 }
 
-function NodexDropdownTrigger(
-  props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>,
-) {
-  return <DropdownMenuPrimitive.Trigger data-slot="dropdown-trigger" {...props} />;
+function NodexDropdownTrigger({
+  asChild,
+  className,
+  disabled,
+  ...props
+}: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>) {
+  return (
+    <DropdownMenuPrimitive.Trigger
+      data-slot={asChild ? undefined : "dropdown-trigger"}
+      asChild={asChild}
+      disabled={disabled}
+      className={cn("outline-hidden", !disabled && "cursor-interaction", className)}
+      {...props}
+    />
+  );
 }
 
 function NodexDropdownPortal(

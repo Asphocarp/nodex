@@ -5,8 +5,11 @@ import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type {
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexHostMessage,
+  CodexScheduledAutomation,
+  CodexScheduledAutomationUpsertInput,
   CodexSidebarSyncResult,
   CodexSidebarThreadItem,
+  GitReviewSource,
   Project,
   ProjectSession,
   ProjectSessionPanelNode,
@@ -68,6 +71,9 @@ let editLastUserTurnCalls: unknown[][] = [];
 let setComposerIntentCalls: unknown[][] = [];
 let removePlanImplementationRequestCalls: unknown[][] = [];
 let cleanBackgroundTerminalsCalls: string[] = [];
+let listBackgroundTerminalsCalls: string[] = [];
+let listBackgroundProcessesCalls: string[] = [];
+let terminateBackgroundTerminalCalls: unknown[] = [];
 let startSideChatCalls: unknown[] = [];
 let discardSideChatCalls: string[] = [];
 let sideChatConversations: Record<string, Record<string, unknown>> = {};
@@ -211,6 +217,59 @@ const mockCodexControl = {
     cleanBackgroundTerminalsCalls.push(threadId);
     return true;
   },
+  listBackgroundTerminals: async (threadId: string) => {
+    listBackgroundTerminalsCalls.push(threadId);
+    if (threadId !== "thread-alpha") return [];
+    return [{
+      itemId: "item-process",
+      processId: "process-alpha",
+      command: "bun run dev",
+      cwd: "/Users/asc/repo/nodex",
+      osPid: 4312,
+      cpuPercent: 12.5,
+      rssKb: 1536n,
+    }];
+  },
+  listBackgroundProcesses: async (threadId: string) => {
+    listBackgroundProcessesCalls.push(threadId);
+    if (threadId !== "thread-alpha") return [];
+    const terminal = {
+      itemId: "item-process",
+      processId: "process-alpha",
+      command: "bun run dev",
+      cwd: "/Users/asc/repo/nodex",
+      osPid: 4312,
+      cpuPercent: 12.5,
+      rssKb: 1536n,
+    };
+    return [{
+      id: "thread-alpha:item-process",
+      threadId,
+      threadTitle: "Thread alpha",
+      itemId: terminal.itemId,
+      turnId: "turn-process",
+      command: terminal.command,
+      cwd: terminal.cwd,
+      processId: terminal.processId,
+      osPid: terminal.osPid,
+      terminalSessionId: null,
+      source: "app-server",
+      startedAtMs: 1,
+      updatedAtMs: 2,
+      status: "running",
+      terminal,
+      terminalSession: null,
+    }];
+  },
+  runBackgroundProcess: async () => [],
+  stopBackgroundProcess: async (input: { threadId: string; processId: string | null; terminalSessionId: string | null }) => {
+    terminateBackgroundTerminalCalls.push(input);
+    return true;
+  },
+  terminateBackgroundTerminal: async (input: unknown) => {
+    terminateBackgroundTerminalCalls.push(input);
+    return true;
+  },
   setComposerIntent: (threadId: string, composerIntent: unknown) => {
     setComposerIntentCalls.push([threadId, composerIntent]);
   },
@@ -247,6 +306,7 @@ mock.module("@/lib/api", () => ({
     };
   },
   subscribeDesktopNotificationActions: () => () => undefined,
+  subscribeCodexScheduledAutomationChanges: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
@@ -472,6 +532,7 @@ mock.module("@/features/local-conversation", () => ({
         )
       : null;
     const actions = props.actions as {
+      onOpenSummaryGitReview?: (input: { source: GitReviewSource }) => void | Promise<void>;
       onStartThreadForSession?: (input: {
         projectId: string;
         sessionId: string;
@@ -518,6 +579,14 @@ mock.module("@/features/local-conversation", () => ({
               },
             }, "Send")
           : null,
+        props.isNewThreadTab
+          ? null
+          : createElement("button", {
+              type: "button",
+              onClick: () => {
+                void actions?.onOpenSummaryGitReview?.({ source: "staged" });
+              },
+            }, "Open staged changes"),
         createElement("span", null, String(props.selectedModel)),
         createElement("span", null, String(props.selectedReasoningEffort)),
         createElement("span", {
@@ -534,6 +603,11 @@ mock.module("@/features/local-conversation", () => ({
   },
   useCodexAppServerControl: () => mockCodexControl,
   useConversation: (threadId: string | null) => threadId ? sideChatConversations[threadId] ?? null : null,
+  useConversationSubset: (threadIds: readonly string[]) => Object.fromEntries(
+    threadIds.flatMap((threadId) =>
+      sideChatConversations[threadId] ? [[threadId, sideChatConversations[threadId]]] : []
+    ),
+  ),
   useCodexThreadStartProgress: () => mockThreadStartProgress,
   useLocalConversationAccount: () => null,
   useLocalConversationConnection: () => ({ status: "connected", retries: 0 }),
@@ -690,6 +764,23 @@ function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): 
     pinnedOrder: null,
     created: new Date("2026-06-07T00:00:00.000Z"),
     updated: new Date("2026-06-07T00:00:00.000Z"),
+  };
+}
+
+function makeScheduledAutomation(
+  overrides: Partial<CodexScheduledAutomation> = {},
+): CodexScheduledAutomation {
+  return {
+    id: "automation-alpha",
+    kind: "heartbeat",
+    status: "ACTIVE",
+    targetThreadId: "thread-alpha",
+    name: "Alpha standup",
+    rrule: "FREQ=DAILY",
+    nextRunAt: new Date("2026-06-08T09:00:00.000Z").getTime(),
+    createdAt: new Date("2026-06-07T00:00:00.000Z").getTime(),
+    updatedAt: new Date("2026-06-07T00:00:00.000Z").getTime(),
+    ...overrides,
   };
 }
 
@@ -888,7 +979,7 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
     title,
     ...sessionOverrides
   } = overrides;
-  const projectId = overrides.projectId ?? "alpha";
+  const projectId = overrides.projectId === undefined ? "alpha" : overrides.projectId;
   const sessionId = overrides.id ?? "session:alpha:database-view";
   const thread = sessionOverrides.thread ?? null;
   const noThreadFallbackTitle = sessionOverrides.noThreadFallbackTitle ?? title ?? "Database View";
@@ -899,7 +990,7 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
     ?? noThreadFallbackTitle;
   const databaseViewStarter = thread === null && noThreadFallbackTitle === "Database View";
   const tabId = `${sessionId}:db`;
-  const tabs = (rawTabs ?? [
+  const defaultTabs: SessionTabFixture[] = projectId === null ? [] : [
     makeSessionTab({
       id: tabId,
       sessionId,
@@ -908,9 +999,10 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
       title: "DB View",
       config: { projectId, view: "kanban" },
     }),
-  ]).map((tab, index) => makeSessionTab({
+  ];
+  const tabs = (rawTabs ?? defaultTabs).map((tab, index) => makeSessionTab({
     sessionId,
-    projectId,
+    projectId: tab.projectId ?? projectId ?? "alpha",
     panelId: tab.panelId ?? (tab.kind === "terminal" ? "bottom" : "right"),
     order: index,
     ...tab,
@@ -955,7 +1047,7 @@ function makeAttachedSession(overrides: SessionFixtureOverrides = {}): ProjectSe
     leftPaneCollapsed: true,
     thread: {
       sessionId: overrides.id ?? "session:alpha:database-view",
-      projectId: overrides.projectId ?? "alpha",
+      projectId: overrides.projectId === undefined ? "alpha" : overrides.projectId,
       threadId,
       parentThreadId: undefined,
       threadName: "Alpha thread",
@@ -1126,33 +1218,42 @@ function installReducedMotionMatchMediaForTest() {
 function renderWorkbench({
   projects = [makeProject()],
   sessionsByProject = { alpha: [makeSession()] },
+  projectlessSessions = [],
   sidebarSnapshotItems = [],
   sidebarSyncChangedProjectIds = [],
   sidebarSyncProjectlessChanged = false,
   searchByProject = {},
   dbViewPrefsByProject = {},
   sidebar,
+  initialActiveProjectSessionId = null,
   navigationCommandRequest = null,
   panelTabCycleRequest = null,
   panelTabCloseRequest = null,
   onNavigationStateChange,
   cardGetOverride = null,
+  scheduledAutomations = [],
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
+  projectlessSessions?: ProjectSession[];
   sidebarSnapshotItems?: CodexSidebarThreadItem[];
   sidebarSyncChangedProjectIds?: string[];
   sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: { collapsed: boolean; width: number; pinnedOrganizationMode?: SidebarPinnedOrganizationMode };
+  initialActiveProjectSessionId?: string | null;
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
   cardGetOverride?: ((projectId: string, cardId: string) => Promise<unknown> | unknown) | null;
+  scheduledAutomations?: CodexScheduledAutomation[];
 } = {}) {
-  let sessionState = sessionsByProject;
+  const projectlessSessionStateKey = "__projectless__";
+  let sessionState = projectlessSessions.length > 0
+    ? { ...sessionsByProject, [projectlessSessionStateKey]: projectlessSessions }
+    : sessionsByProject;
   const buildSidebarSnapshot = () => ({
     items: sidebarSnapshotItems,
     pinnedThreadIds: sidebarSnapshotItems.filter((item) => item.pinned).map((item) => item.threadId),
@@ -1166,11 +1267,11 @@ function renderWorkbench({
   });
   mockInvokeImpl = async (channel, ...args) => {
     if (channel === "project-sessions:list") {
-      const projectId = String(args[0]);
+      const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
       return (sessionState[projectId] ?? []).filter((session) => !session.archived);
     }
     if (channel === "project-sessions:list-summaries") {
-      const projectId = String(args[0]);
+      const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
       return (sessionState[projectId] ?? [])
         .filter((session) => !session.archived)
         .map((session) => ({
@@ -1210,6 +1311,33 @@ function renderWorkbench({
         materializedSessionIds: [],
         failedThreadIds: [],
       } satisfies CodexSidebarSyncResult;
+    }
+    if (channel === "codex:scheduled-automations:list") {
+      return scheduledAutomations;
+    }
+    if (channel === "codex:scheduled-automations:upsert") {
+      const input = args[0] as CodexScheduledAutomationUpsertInput;
+      const saved: CodexScheduledAutomation = {
+        id: input.id,
+        kind: input.kind,
+        status: input.status,
+        targetThreadId: input.targetThreadId ?? null,
+        name: input.name,
+        rrule: input.rrule ?? null,
+        nextRunAt: input.nextRunAt ?? null,
+        createdAt: input.createdAt ?? 300,
+        updatedAt: input.updatedAt ?? 400,
+      };
+      scheduledAutomations = scheduledAutomations.some((automation) => automation.id === saved.id)
+        ? scheduledAutomations.map((automation) => (automation.id === saved.id ? saved : automation))
+        : [...scheduledAutomations, saved];
+      return saved;
+    }
+    if (channel === "codex:scheduled-automations:delete") {
+      const automationId = String(args[0]);
+      const previousLength = scheduledAutomations.length;
+      scheduledAutomations = scheduledAutomations.filter((automation) => automation.id !== automationId);
+      return scheduledAutomations.length !== previousLength;
     }
     if (channel === "codex:threads:pinned:list") {
       return Object.values(sessionState)
@@ -1849,6 +1977,41 @@ function renderWorkbench({
     if (channel === "workspace:pick-directory") {
       return "/repo/selected";
     }
+    if (channel === "workspace-directory-entries") {
+      const input = (args[0] ?? {}) as { hostId?: string; workspaceRoot?: string; path?: string };
+      return {
+        hostId: input.hostId ?? "local",
+        workspaceRoot: input.workspaceRoot ?? "",
+        path: input.path ?? input.workspaceRoot ?? "",
+        entries: [],
+      };
+    }
+    if (channel === "read-file-metadata") {
+      const input = (args[0] ?? {}) as { path?: string };
+      return {
+        path: input.path ?? "",
+        kind: "file",
+        isDirectory: false,
+        isFile: true,
+        isSymlink: false,
+        size: 12,
+        createdAtMs: 1,
+        modifiedAtMs: 1,
+        binary: false,
+        mimeType: "text/markdown",
+      };
+    }
+    if (channel === "read-file") {
+      const input = (args[0] ?? {}) as { path?: string };
+      return {
+        path: input.path ?? "",
+        content: "# Preview\n",
+        encoding: "utf8",
+        size: 10,
+        truncated: false,
+        binary: false,
+      };
+    }
     if (channel === "shell:open-file-link") {
       return true;
     }
@@ -1913,6 +2076,7 @@ function renderWorkbench({
       <WorkbenchShell
         projects={projects}
         dbProjectId={dbProjectId}
+        initialActiveProjectSessionId={initialActiveProjectSessionId}
         activeView="kanban"
         activeSearchQuery=""
         activeDbViewPrefs={null}
@@ -1990,6 +2154,7 @@ function renderWorkbench({
     requestPanelTabClose: () => {
       requestPanelTabClose();
     },
+    getScheduledAutomations: () => scheduledAutomations,
   };
 }
 
@@ -2023,6 +2188,9 @@ beforeEach(() => {
   setComposerIntentCalls = [];
   removePlanImplementationRequestCalls = [];
   cleanBackgroundTerminalsCalls = [];
+  listBackgroundTerminalsCalls = [];
+  listBackgroundProcessesCalls = [];
+  terminateBackgroundTerminalCalls = [];
   startSideChatCalls = [];
   discardSideChatCalls = [];
   sideChatConversations = {};
@@ -3577,6 +3745,22 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
   });
 
+  test("opens scheduled task management as a full-window route shell from the sidebar", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Automations" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-thread-stage="true"]')).toBe(null);
+    expect(textContent(screen.container).includes("Scheduled tasks")).toBeTrue();
+  });
+
   test("restores full-width right-panel geometry after returning from settings", async () => {
     const measurement = installSessionContentMeasurementForTest({ width: 850, height: 640 });
     try {
@@ -3826,6 +4010,142 @@ describe("workbench session shell", () => {
     expect(props?.isNewThreadTab).toBeTrue();
     expect(props?.activeThreadId === null).toBeTrue();
     expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:blank"')).toBeTrue();
+  });
+
+  test("passes the start-in selector to attached thread summary panels", async () => {
+    renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const selector = props?.newThreadStartInSelector as {
+      target?: { runInTarget?: string; worktreeStartMode?: string; worktreeBranchPrefix?: string };
+      disabled?: boolean;
+    } | null | undefined;
+    expect(props?.isNewThreadTab).toBeFalse();
+    expect(props?.newThreadTarget === null).toBeTrue();
+    expect(selector?.target?.runInTarget).toBe("localProject");
+    expect(selector?.target?.worktreeStartMode).toBe("detachedHead");
+    expect(selector?.target?.worktreeBranchPrefix).toBe("nodex/");
+    expect(selector?.disabled).toBeFalse();
+  });
+
+  test("summary scheduled automation action opens the selected automation route", async () => {
+    installTerminalEventApiMock();
+    const automation = makeScheduledAutomation({
+      id: "automation-summary",
+      name: "Summary cadence",
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+      scheduledAutomations: [automation],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actions = getLastThreadStageActions();
+    const openScheduledAutomation = actions.onOpenSummaryScheduledAutomation as ((input: {
+      automationId: string;
+      title: string;
+    }) => void) | undefined;
+    expect(typeof openScheduledAutomation).toBe("function");
+
+    await act(async () => {
+      openScheduledAutomation?.({
+        automationId: automation.id,
+        title: automation.name,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBeTrue();
+    await waitFor(() => {
+      expect(textContent(screen.container).includes("Summary cadence")).toBeTrue();
+    });
+    expect(screen.container.querySelector('[data-thread-stage="true"]')).toBe(null);
+  });
+
+  test("automations route creates updates and deletes scheduled tasks", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:automation-crud" })],
+      },
+      scheduledAutomations: [],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Automations" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New scheduled task" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      const nameInput = screen.getByLabelText("Scheduled task name") as HTMLInputElement;
+      const targetInput = screen.getByLabelText("Target thread") as HTMLInputElement;
+      const scheduleSelect = screen.getByLabelText("Schedule") as HTMLSelectElement;
+      nameInput.value = "Weekly triage";
+      fireEvent.input(nameInput);
+      targetInput.value = "thread-weekly";
+      fireEvent.input(targetInput);
+      scheduleSelect.value = "weekly";
+      fireEvent.change(scheduleSelect);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Create" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getScheduledAutomations().length).toBe(1);
+    });
+    expect(screen.getScheduledAutomations()[0]?.name).toBe("Weekly triage");
+    expect(screen.getScheduledAutomations()[0]?.targetThreadId).toBe("thread-weekly");
+    expect(screen.getScheduledAutomations()[0]?.rrule).toBe("FREQ=WEEKLY");
+
+    await act(async () => {
+      const nameInput = screen.getByLabelText("Scheduled task name") as HTMLInputElement;
+      nameInput.value = "Updated triage";
+      fireEvent.input(nameInput);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getScheduledAutomations()[0]?.name).toBe("Updated triage");
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getScheduledAutomations().length).toBe(0);
+    });
+    expect(textContent(screen.container).includes("No scheduled tasks.")).toBeTrue();
   });
 
   test("session composer submit starts a session-owned thread and refreshes sessions", async () => {
@@ -4152,6 +4472,7 @@ describe("workbench session shell", () => {
     let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(within(globalHeader).queryByRole("button", { name: "Toggle pinned summary" }) !== null).toBeTrue();
     expect(globalHeader.contains(summaryRail)).toBeTrue();
+    expect(summaryRail.querySelector('[data-workbench-header-action-rail="visible"]') !== null).toBeTrue();
     expect(within(summaryRail).queryByRole("button", { name: "Toggle pinned summary" }) !== null).toBeTrue();
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
     expect(stageProps?.summaryPanelMounted).toBe(true);
@@ -5253,6 +5574,85 @@ describe("workbench session shell", () => {
     }));
   });
 
+  test("summary output side-panel opener creates a renderer-local Files preview tab", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ rightCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actions = getLastThreadStageActions();
+    const openOutput = actions.onOpenSummaryOutputInSidePanel as ((input: {
+      path: string;
+      title: string;
+    }) => Promise<boolean>) | undefined;
+    expect(typeof openOutput).toBe("function");
+
+    let opened = false;
+    await act(async () => {
+      opened = await openOutput?.({
+        path: "/Users/asc/repo/nodex/reports/summary.txt",
+        title: "summary.txt",
+      }) ?? false;
+    });
+    await settleAsyncRender();
+
+    expect(opened).toBeTrue();
+    expect(screen.getByRole("tab", { name: "summary.txt" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+  });
+
+  test("summary output side-panel opener supports projectless file previews", async () => {
+    const projectlessSession = makeAttachedSession({
+      id: "session:projectless:summary-output",
+      projectId: null,
+      title: "Projectless output",
+      threadId: "thread-projectless-output",
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [] },
+      projectlessSessions: [projectlessSession],
+      initialActiveProjectSessionId: projectlessSession.id,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await waitFor(() => {
+      expect(getThreadRow(screen.container, "Projectless output") !== null).toBeTrue();
+    });
+    await act(async () => {
+      fireEvent.click(getThreadRow(screen.container, "Projectless output"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await waitFor(() => {
+      expect(Boolean((globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps?.actions)).toBeTrue();
+    });
+
+    const actions = getLastThreadStageActions();
+    const openOutput = actions.onOpenSummaryOutputInSidePanel as ((input: {
+      path: string;
+      title: string;
+    }) => Promise<boolean>) | undefined;
+    expect(typeof openOutput).toBe("function");
+
+    let opened = false;
+    await act(async () => {
+      opened = await openOutput?.({
+        path: "/Users/asc/Downloads/nodex-output/report.md",
+        title: "report.md",
+      }) ?? false;
+    });
+    await settleAsyncRender();
+
+    expect(opened).toBeTrue();
+    expect(screen.getByRole("tab", { name: "report.md" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-workspace-files-session-id="session:projectless:summary-output"]') !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+  });
+
   test("right-panel add menu keeps custom action icons compact", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -5812,6 +6212,31 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
   });
 
+  test("summary Changes action opens Review with the requested git source", async () => {
+    (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = undefined;
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open staged changes" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"review"')
+    )).toBeTrue();
+    const props = (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps;
+    expect(props?.initialGitSource).toBe("staged");
+    expect(props?.initialGitSourceRequestKey).toBe(1);
+    expect(props?.selectedTurnDiff).toBe(null);
+  });
+
   test("bottom panel add menu does not expose Review", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
@@ -5904,6 +6329,95 @@ describe("workbench session shell", () => {
     const routeShell = screen.container.querySelector('[data-testid="settings-route-shell"]');
     expect(routeShell !== null).toBeTrue();
     expect(textContent(screen.container).includes("Keyboard shortcuts")).toBeTrue();
+  });
+
+  test("command palette opens scheduled task management", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:automation-command" })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await executeCommandPaletteCommand(screen, "automation", "Manage automations");
+
+    expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-thread-stage="true"]')).toBe(null);
+  });
+
+  test("command palette opens the process manager dialog", async () => {
+    sideChatConversations["thread-alpha"] = {
+      threadId: "thread-alpha",
+      projectId: "alpha",
+      source: null,
+      threadName: "Alpha thread",
+      threadPreview: "",
+      modelProvider: "openai",
+      cwd: "/Users/asc/repo/nodex",
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: 1,
+      updatedAt: 1,
+      linkedAt: "",
+      resumeState: "resumed",
+      turns: [{
+        turnId: "turn-process",
+        status: "completed",
+        userMessages: [],
+        assistantText: "",
+        createdAt: 1,
+        updatedAt: 1,
+        items: [{
+          threadId: "thread-alpha",
+          turnId: "turn-process",
+          itemId: "item-process",
+          type: "commandExecution",
+          kind: "commandExecution",
+          status: "inProgress",
+          command: "bun run dev",
+          cwd: "/Users/asc/repo/nodex",
+          aggregatedOutput: "ready in 421ms\n",
+          createdAt: 1,
+          updatedAt: 1,
+        }],
+      }],
+      requests: [],
+      pendingSteers: [],
+      queuedFollowUps: [],
+      backgroundTerminalRows: [],
+      childMemberships: [],
+      capabilityFlags: {
+        canEditLastUserTurn: false,
+        canForkFromTurn: false,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:process-manager" })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await executeCommandPaletteCommand(screen, "process", "Process Manager");
+
+    await waitFor(() => {
+      expect(textContent(document.body).includes("Process Manager")).toBeTrue();
+      expect(textContent(document.body).includes("bun run dev")).toBeTrue();
+    });
+    expect(listBackgroundProcessesCalls.includes("thread-alpha")).toBeTrue();
+    expect(textContent(document.body).includes("12.5%")).toBeTrue();
+    expect(textContent(document.body).includes("1.5 MB")).toBeTrue();
+
+    fireEvent.click(screen.getByText("bun run dev"));
+    await waitFor(() => {
+      expect(screen.container.querySelector("[data-process-output-panel-tab]") !== null).toBeTrue();
+      expect(textContent(screen.container).includes("ready in 421ms")).toBeTrue();
+    });
   });
 
   test("Files shortcut uses Ctrl+Shift+E and leaves Ctrl+P for the command palette", async () => {

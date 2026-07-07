@@ -1,19 +1,31 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  forwardRef,
+  type ComponentPropsWithoutRef,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { cn } from "../../../../lib/utils";
 
-interface ThreadSummaryPanelRowProps {
+interface ThreadSummaryPanelRowProps extends Omit<
+  ComponentPropsWithoutRef<"div">,
+  "children" | "onClick" | "onPointerDown" | "title"
+> {
   label: ReactNode;
   icon?: ReactNode;
   accessory?: ReactNode;
   actions?: ReactNode;
+  actionsAlwaysFocusable?: boolean;
+  actionsVisible?: boolean;
   trailing?: ReactNode;
   trailingVisible?: boolean;
+  density?: "compact" | "comfortable";
   title?: string;
   disabled?: boolean;
   interactive?: boolean;
   labelClassName?: string;
   className?: string;
-  onClick?: () => void;
+  onClick?: (event: MouseEvent<HTMLDivElement>) => void;
   onPointerDown?: (event: MouseEvent<HTMLDivElement>) => void;
 }
 
@@ -21,13 +33,16 @@ function stopRowPropagation(event: MouseEvent<HTMLSpanElement>) {
   event.stopPropagation();
 }
 
-export function ThreadSummaryPanelRow({
+export const ThreadSummaryPanelRow = forwardRef<HTMLDivElement, ThreadSummaryPanelRowProps>(function ThreadSummaryPanelRow({
   label,
   icon,
   accessory,
   actions,
+  actionsAlwaysFocusable = false,
+  actionsVisible = false,
   trailing,
   trailingVisible = false,
+  density = "compact",
   title,
   disabled = false,
   interactive,
@@ -35,67 +50,102 @@ export function ThreadSummaryPanelRow({
   className,
   onClick,
   onPointerDown,
-}: ThreadSummaryPanelRowProps) {
-  const isInteractive = interactive ?? Boolean(onClick);
+  onKeyDown,
+  ...props
+}, ref) {
+  const hasInteractionHandler = Boolean(onClick || onPointerDown || onKeyDown);
+  const isActionable = !disabled && hasInteractionHandler;
+  const isVisuallyInteractive = !disabled && Boolean(interactive || hasInteractionHandler);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (disabled || !isInteractive) return;
+    if (disabled) return;
+    onKeyDown?.(event);
+    if (event.defaultPrevented) return;
+    if (!isActionable || !onClick) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    onClick?.();
+    event.currentTarget.click();
   };
 
-  const content = (
+  const labelContent = (
+    <span className={cn("text-base", labelClassName ?? "truncate")}>{label}</span>
+  );
+
+  const accessoryContent = accessory ? (
+    <span className="shrink-0 leading-none" onClick={stopRowPropagation}>
+      {accessory}
+    </span>
+  ) : null;
+
+  const actionsContent = actions ? (
+    <span
+      className={cn(
+        "shrink-0 items-center",
+        (actionsVisible || !actionsAlwaysFocusable) && "ms-auto",
+        actionsVisible
+          ? "flex"
+          : actionsAlwaysFocusable
+            ? "pointer-events-none absolute inset-y-0 end-0 flex opacity-0 group-focus-within/summary-panel-row:pointer-events-auto group-focus-within/summary-panel-row:opacity-100 group-hover/summary-panel-row:pointer-events-auto group-hover/summary-panel-row:opacity-100"
+            : "hidden group-focus-within/summary-panel-row:flex group-hover/summary-panel-row:flex",
+      )}
+      onClick={stopRowPropagation}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+      }}
+    >
+      {actions}
+    </span>
+  ) : null;
+
+  const trailingContent = trailing ? (
+    <span
+      className={cn(
+        "shrink-0 leading-none opacity-0 group-focus-visible/summary-panel-row:opacity-100 group-focus-within/summary-panel-row:opacity-100 group-hover/summary-panel-row:opacity-100",
+        (!actions || !actionsVisible || trailingVisible) && "ms-auto",
+        actions && !actionsVisible && "group-focus-within/summary-panel-row:ms-0 group-hover/summary-panel-row:ms-0",
+        trailingVisible && "opacity-100",
+      )}
+    >
+      {trailing}
+    </span>
+  ) : null;
+
+  const rowContent = (
     <>
-      {icon ? <span className="shrink-0 leading-none text-token-text-tertiary">{icon}</span> : null}
-      <span className={cn("min-w-0 flex-1 truncate text-base", labelClassName)}>{label}</span>
-      {accessory ? (
-        <span className="shrink-0 leading-none" onClick={stopRowPropagation}>
-          {accessory}
-        </span>
-      ) : null}
-      {actions ? (
-        <span className="shrink-0 leading-none" onClick={stopRowPropagation}>
-          {actions}
-        </span>
-      ) : null}
-      {trailing ? (
-        <span
-          className={cn(
-            "ms-auto shrink-0 leading-none opacity-0 group-focus-visible/summary-panel-row:opacity-100 group-hover/summary-panel-row:opacity-100",
-            trailingVisible && "opacity-100",
-          )}
-        >
-          {trailing}
-        </span>
-      ) : null}
+      {icon ?? null}
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        {labelContent}
+        {accessoryContent}
+        {actionsContent}
+        {trailingContent}
+      </span>
     </>
   );
 
   const rowClassName = cn(
-    "group/summary-panel-row relative isolate flex h-7 w-full min-w-0 items-center gap-2 rounded-sm border-0 bg-transparent px-0 py-1 text-left",
-    isInteractive
+    "group/summary-panel-row relative isolate flex w-full min-w-0 items-center gap-2 rounded-sm border-0 bg-transparent px-0 text-left",
+    density === "comfortable" ? "min-h-8 py-1.5" : "h-7 py-1",
+    isVisuallyInteractive
       ? "cursor-interaction text-token-foreground before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-sm before:content-[''] hover:before:bg-token-list-hover-background"
       : "cursor-default text-token-text-secondary",
-    disabled && "cursor-not-allowed opacity-40",
+    disabled && "cursor-not-allowed",
     className,
   );
 
   return (
     <div
-      role={isInteractive ? "button" : undefined}
-      tabIndex={isInteractive && !disabled ? 0 : undefined}
+      {...props}
+      ref={ref}
+      role={hasInteractionHandler ? "button" : undefined}
+      tabIndex={isActionable ? 0 : undefined}
       title={title}
       aria-disabled={disabled || undefined}
       className={rowClassName}
-      onClick={() => {
-        if (disabled || !isInteractive) return;
-        onClick?.();
-      }}
+      onClick={isActionable && onClick ? onClick : undefined}
       onKeyDown={handleKeyDown}
-      onPointerDown={onPointerDown}
+      onPointerDown={isActionable ? onPointerDown : undefined}
     >
-      {content}
+      {rowContent}
     </div>
   );
-}
+});

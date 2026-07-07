@@ -1,7 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ExternalLink, FileIcon, Globe, ListTree, MessageSquare, PictureInPicture2, Slash, SquareTerminal } from "lucide-react";
 import { MotionConfig } from "motion/react";
 import type { CSSProperties } from "react";
-import { BranchStatusIcon, LocalStatusIcon } from "@/components/shared/icons";
+import {
+  BranchStatusIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  ComposerPlanModeIcon,
+  LocalStatusIcon,
+  ThreadSummaryChangesIcon,
+  ThreadSummaryCommitIcon,
+  ThreadSummaryCreatePullRequestIcon,
+} from "@/components/shared/icons";
 import { CODEX_SUMMARY_PANEL_WIDTH } from "@/lib/codex-panel-motion";
 import type {
   CodexConversationChildMembership,
@@ -9,8 +19,16 @@ import type {
   CodexConversationTurn,
 } from "@/lib/types";
 import { ThreadFloatingSummaryPanel } from "./thread-floating-summary-panel";
+import { ThreadSummaryBranchSetupDialog } from "./thread-summary-branch-setup-dialog";
+import { ThreadSummaryGitActionDialog } from "./thread-summary-git-action-dialog";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
+import {
+  CodexConnectorFallbackIcon,
+  CodexGlobeIcon,
+  CodexPluginCubeIcon,
+} from "../shared/tools/codex-tool-icons";
+import { ToolActivityIcon } from "../shared/tools/tool-call-icons";
 
 const SUMMARY_PANEL_STORY_CHILD_MEMBERSHIPS: CodexConversationChildMembership[] = [
   {
@@ -129,53 +147,225 @@ const SUMMARY_PANEL_STORY_KNOWN_CONVERSATIONS: Record<string, CodexConversationS
   }),
 };
 
+function StoryCountSuffix({ count }: { count: number }) {
+  if (count === 0) return null;
+  return <span className="text-base text-token-description-foreground opacity-50">{count}</span>;
+}
+
+function StorySummaryDropdownRowLabel({ label }: { label: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1 text-token-foreground">
+      <span className="min-w-0 truncate">{label}</span>
+      <ChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
+    </span>
+  );
+}
+
 function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
   return (
     <div className="flex min-h-screen items-start justify-end bg-token-main-surface-primary p-10 text-token-text-primary">
       <div
-        className="relative flex max-h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-token-border-default bg-token-dropdown-background pt-3 shadow-md select-none"
+        className="relative flex max-h-full min-h-0 flex-col overflow-hidden rounded-3xl bg-token-dropdown-background pt-3 electron:elevation-prominent extension:border extension:border-token-border-default extension:shadow-md"
         style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}
       >
         <div className="flex h-fit max-h-full min-h-0 flex-col gap-3 overflow-y-auto pb-3">
-          <ThreadSummaryPanelSection title="Environment">
+          <ThreadSummaryPanelSection sectionKey="story-automation" title="Scheduled">
+            <ThreadSummaryPanelRow
+              aria-label="Open scheduled task"
+              icon={<ClockIcon className="icon-xs shrink-0" />}
+              label={(
+                <>
+                  <span className="min-w-0 flex-1 truncate">Review release notes</span>
+                  <span className="max-w-48 shrink-0 truncate text-size-chat text-token-text-secondary">Every weekday</span>
+                </>
+              )}
+              labelClassName="flex min-w-0 flex-1 items-baseline gap-2"
+              title="Next run: tomorrow at 9:00 AM"
+              interactive
+            />
+          </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection sectionKey="story-environment" title="Environment">
             <ThreadSummaryPanelRow
               label="Changes"
+              icon={<ThreadSummaryChangesIcon className="icon-sm shrink-0" />}
               trailing={<span className="text-size-chat text-token-text-tertiary">{noGit ? "No Git" : "+9,212 -4,412"}</span>}
               trailingVisible
               disabled={noGit}
               interactive={!noGit}
             />
-            <ThreadSummaryPanelRow label="Local" icon={<LocalStatusIcon />} trailing={<span className="text-size-chat text-token-text-tertiary">Work locally</span>} trailingVisible />
-            <ThreadSummaryPanelRow label="dev-redesign" icon={<BranchStatusIcon />} disabled={noGit} />
-            <ThreadSummaryPanelRow label="Commit or push" disabled={noGit} interactive={!noGit} />
-            <ThreadSummaryPanelRow label="Create pull request" disabled={noGit} interactive={!noGit} />
+            <ThreadSummaryPanelRow
+              label={<StorySummaryDropdownRowLabel label="Local" />}
+              labelClassName="flex min-w-0 items-center"
+              icon={<span className="shrink-0"><LocalStatusIcon className="icon-sm text-token-foreground" /></span>}
+            />
+            <ThreadSummaryPanelRow
+              label={<StorySummaryDropdownRowLabel label="dev-redesign" />}
+              labelClassName="flex min-w-0 items-center"
+              icon={<BranchStatusIcon className="icon-sm shrink-0" />}
+              disabled={noGit}
+              interactive={!noGit}
+            />
+            <ThreadSummaryPanelRow
+              label="Commit or push"
+              icon={<ThreadSummaryCommitIcon className="icon-sm shrink-0" />}
+              disabled={noGit}
+              interactive={!noGit}
+            />
+            <ThreadSummaryPanelRow
+              label="Create pull request"
+              icon={<ThreadSummaryCreatePullRequestIcon className="icon-sm shrink-0 text-token-text-tertiary" />}
+              disabled={noGit}
+              interactive={!noGit}
+            />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Progress">
-            <ThreadSummaryPanelRow label="Inspect shell width math" />
-            <ThreadSummaryPanelRow label="Wire summary panel rows" />
+          <ThreadSummaryPanelSection
+            sectionKey="story-plan"
+            title="Plan"
+          >
+            <ThreadSummaryPanelRow
+              icon={<ComposerPlanModeIcon className="icon-xs shrink-0" />}
+              label="Summary panel parity"
+              labelClassName="min-w-0 truncate"
+              title="Summary panel parity"
+              interactive
+              onClick={() => undefined}
+            />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Outputs">
-            <ThreadSummaryPanelRow label="thread-layout.tsx" title="src/renderer/features/local-conversation/view/thread-layout.tsx" />
+          <ThreadSummaryPanelSection
+            sectionKey="story-outputs"
+            title="Outputs"
+            titleSuffix={<StoryCountSuffix count={4} />}
+          >
+            <ThreadSummaryPanelRow
+              icon={<FileIcon className="size-3.5" />}
+              label="thread-layout.tsx"
+              title="src/renderer/features/local-conversation/view/thread-layout.tsx"
+            />
+            <ThreadSummaryPanelRow
+              icon={<CodexGlobeIcon className="size-3.5" aria-hidden={true} />}
+              label="localhost:5173/preview"
+              title="http://localhost:5173/preview"
+              interactive
+            />
+            <ThreadSummaryPanelRow
+              icon={<CodexConnectorFallbackIcon className="size-3.5" aria-hidden={true} />}
+              label="Reference Roadmap"
+              title="https://docs.google.com/document/d/doc-123/edit"
+              interactive
+            />
+            <ThreadSummaryPanelRow
+              icon={<CodexPluginCubeIcon className="size-3.5" aria-hidden={true} />}
+              label={(
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="truncate">Story app</span>
+                  <ExternalLink className="icon-xs shrink-0 opacity-0 group-hover/summary-panel-row:opacity-100" aria-hidden={true} />
+                </span>
+              )}
+              labelClassName="min-w-0"
+              title="https://story-app.example.com"
+              interactive
+            />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Side chats">
-            <ThreadSummaryPanelRow label="Investigate header edge" trailing={<span className="text-size-chat text-token-text-tertiary">Open</span>} trailingVisible />
+          <ThreadSummaryPanelSection
+            sectionKey="story-side-chats"
+            title="Side chats"
+            titleSuffix={<StoryCountSuffix count={1} />}
+          >
+            <ThreadSummaryPanelRow label="Investigate header edge" icon={<MessageSquare className="icon-sm shrink-0" />} interactive />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Subagents">
+          <ThreadSummaryPanelSection
+            sectionKey="story-background-subagents"
+            title="Subagents"
+            titleSuffix={<StoryCountSuffix count={1} />}
+          >
             <ThreadSummaryPanelRow label="Layout parity agent" />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Background tasks">
-            <ThreadSummaryPanelRow label="bun test" trailing={<span className="text-size-chat text-token-text-tertiary">3 pass</span>} trailingVisible />
+          <ThreadSummaryPanelSection
+            sectionKey="story-background-tasks"
+            title="Tasks"
+            titleSuffix={<StoryCountSuffix count={1} />}
+            after={(
+              <button
+                type="button"
+                aria-label="View all processes"
+                className="ms-auto inline-flex size-6 cursor-interaction items-center justify-center rounded-sm border-0 bg-transparent text-token-text-tertiary hover:text-token-foreground"
+              >
+                <ListTree className="icon-xs" aria-hidden="true" />
+              </button>
+            )}
+          >
+            <ThreadSummaryPanelRow
+              label="bun test"
+              icon={<SquareTerminal className="icon-sm shrink-0" />}
+              trailing={<span className="text-size-chat text-token-text-tertiary">3 pass</span>}
+              trailingVisible
+            />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Browser">
-            <ThreadSummaryPanelRow label="Release notes" trailing={<span className="text-size-chat text-token-text-tertiary">Right panel</span>} trailingVisible />
+          <ThreadSummaryPanelSection sectionKey="story-computer-use-pip" mode="headerless" title="Computer Use">
+            <ThreadSummaryPanelRow
+              aria-label="Show PiP"
+              icon={(
+                <ToolActivityIcon
+                  descriptor={{ kind: "semantic", icon: "computer-use" }}
+                  className="icon-xs shrink-0"
+                />
+              )}
+              label="Computer Use"
+              title="Show PiP"
+              interactive
+              trailing={(
+                <span className="relative flex size-5 shrink-0 items-center justify-center text-token-text-tertiary">
+                  <PictureInPicture2 className="size-5" aria-hidden="true" />
+                  <Slash className="absolute size-5" aria-hidden="true" />
+                </span>
+              )}
+              trailingVisible
+            />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection title="Sources">
-            <div className="flex flex-wrap gap-1.5 py-0.5" aria-label="Sources">
-              <span className="inline-flex h-6 items-center gap-1 rounded-lg bg-token-foreground/5 px-2 text-size-chat text-token-foreground">
-                <span className="size-1.5 shrink-0 rounded-full bg-token-text-link-foreground" aria-hidden="true" />
-                Context7
-              </span>
-            </div>
+          <ThreadSummaryPanelSection
+            sectionKey="story-browser-tabs"
+            title="Browser"
+            titleSuffix={<StoryCountSuffix count={1} />}
+          >
+            <ThreadSummaryPanelRow
+              label="Release notes"
+              icon={<Globe className="icon-xs shrink-0" />}
+              trailing={<span className="text-size-chat text-token-text-tertiary">Right panel</span>}
+              trailingVisible
+              interactive
+            />
+          </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection
+            sectionKey="story-tool-sources"
+            title="Sources"
+            titleSuffix={<StoryCountSuffix count={2} />}
+          >
+            <ul className="-ml-1 flex flex-wrap gap-0.5" aria-label="Sources">
+              <li className="flex">
+                <span
+                  role="img"
+                  aria-label="Context7"
+                  className="flex size-6 shrink-0 items-center justify-center rounded-sm text-token-text-secondary"
+                >
+                  <ToolActivityIcon
+                    descriptor={{ kind: "semantic", icon: "connector" }}
+                    className="icon-xs shrink-0"
+                  />
+                </span>
+              </li>
+              <li className="flex">
+                <button
+                  type="button"
+                  aria-label="example.com/docs"
+                  className="flex size-6 shrink-0 cursor-interaction items-center justify-center rounded-sm text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground"
+                >
+                  <ToolActivityIcon
+                    descriptor={{ kind: "semantic", icon: "web-search" }}
+                    className="icon-xs shrink-0"
+                  />
+                </button>
+              </li>
+            </ul>
           </ThreadSummaryPanelSection>
         </div>
       </div>
@@ -224,8 +414,25 @@ function FloatingSummaryPanelStory({
           turns={[]}
           childMemberships={SUMMARY_PANEL_STORY_CHILD_MEMBERSHIPS}
           knownConversationsById={SUMMARY_PANEL_STORY_KNOWN_CONVERSATIONS}
-          sideChatRows={[{ id: "side-chat", title: "Investigate layout", status: "Open" }]}
-          browserRows={[{ id: "browser", title: "Release notes", status: "Right panel" }]}
+          scheduledAutomation={{
+            id: "automation-story",
+            name: "Review release notes",
+            scheduleSummary: "Every weekday",
+            nextRunLabel: "tomorrow at 9:00 AM",
+          }}
+          sideChatRows={[{ id: "side-chat", title: "Investigate layout", isResponseInProgress: true }]}
+          computerUsePip={{ visible: false }}
+          browserRows={[{
+            id: "browser",
+            title: "Release notes",
+            displayUrl: "example.com",
+            url: "https://example.com/release-notes",
+            faviconUrl: null,
+            isAgentWorking: false,
+          }]}
+          actions={{
+            onToggleSummaryComputerUsePip: () => undefined,
+          }}
           onErrorMessage={() => undefined}
         />
       </div>
@@ -331,6 +538,78 @@ export const FloatingPinnedClosingReducedMotion: StoryObj<typeof FloatingSummary
     docs: {
       description: {
         story: "Reduced-motion close state: the Codex summary body snaps to opacity 0, translateX(100%), and scale 0.8 without a spring.",
+      },
+    },
+  },
+};
+
+export const CommitWorkflowDialog: StoryObj<typeof ThreadSummaryGitActionDialog> = {
+  render: () => (
+    <div className="min-h-screen bg-token-main-surface-primary text-token-text-primary">
+      <ThreadSummaryGitActionDialog
+        open
+        cwd="/storybook/project"
+        initialMode="commit"
+        onOpenChange={() => undefined}
+        onCompleted={() => undefined}
+        onErrorMessage={() => undefined}
+      />
+    </div>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Native commit/push workflow opened from the floating summary Environment section.",
+      },
+    },
+  },
+};
+
+export const BranchSetupDialog: StoryObj<typeof ThreadSummaryBranchSetupDialog> = {
+  render: () => (
+    <div className="min-h-screen bg-token-main-surface-primary text-token-text-primary">
+      <ThreadSummaryBranchSetupDialog
+        open
+        branches={["main", "release/candidate"]}
+        currentBranch={null}
+        defaultBranch="main"
+        threadTitle="Review detached worktree"
+        onCreateBranch={async () => true}
+        onCreated={() => undefined}
+        onErrorMessage={() => undefined}
+        onOpenChange={() => undefined}
+      />
+    </div>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Detached-checkout branch setup dialog opened from the floating summary Environment section before commit/push.",
+      },
+    },
+  },
+};
+
+export const ManagedDefaultBranchSetupDialog: StoryObj<typeof ThreadSummaryBranchSetupDialog> = {
+  render: () => (
+    <div className="min-h-screen bg-token-main-surface-primary text-token-text-primary">
+      <ThreadSummaryBranchSetupDialog
+        open
+        branches={["main", "release/candidate"]}
+        currentBranch="main"
+        defaultBranch="main"
+        threadTitle="Default branch worktree"
+        onCreateBranch={async () => true}
+        onCreated={() => undefined}
+        onErrorMessage={() => undefined}
+        onOpenChange={() => undefined}
+      />
+    </div>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Managed-worktree branch setup dialog opened from the floating summary Environment section while the checkout is still on the default branch.",
       },
     },
   },

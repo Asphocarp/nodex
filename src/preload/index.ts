@@ -16,6 +16,7 @@ import {
   TOGGLE_SIDEBAR_HOST_CHANNEL,
 } from "../shared/window-navigation";
 import { inspectClipboardPasteItems, readClipboardPastePayload } from "../main/clipboard-paste-inspector";
+import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
 
 const SERVER_URL_ARG_PREFIX = "--nodex-server-url=";
 const ASSET_PATH_PREFIX_ARG_PREFIX = "--nodex-asset-path-prefix=";
@@ -174,6 +175,8 @@ contextBridge.exposeInMainWorld("api", {
 });
 
 contextBridge.exposeInMainWorld("electronBridge", {
+  sendMessageFromView: (message: CodexDesktopMessageFromView) =>
+    ipcRenderer.invoke("codex-desktop:message-from-view", message).then(() => undefined),
   showContextMenu: (items: unknown[], options?: unknown) =>
     ipcRenderer.invoke("native-context-menu:show", items, options),
 });

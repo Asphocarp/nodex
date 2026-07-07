@@ -55,6 +55,8 @@ import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
 import {
   ThreadFloatingSummaryPanel,
+  ThreadSummaryPanelRenderBoundary,
+  ThreadSummaryPanelRenderErrorFallback,
 } from "./summary-panel";
 
 type ConnectedThreadStageInput = Omit<
@@ -622,10 +624,22 @@ export function ConnectedThreadStage({
   const childThreadIds = useMemo(() => [] as string[], []);
   const knownConversationsById = useConversationSubset(childThreadIds);
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
+  const activeThreadProjectless = summaryFields.threadId
+    ? summaryFields.projectId === null
+    : input.activeThreadSummary?.projectId === null;
+  const activeThreadTitle = resolveThreadTitle(input, summaryFields);
+  const activeThreadIsManagedWorktree = Boolean(
+    summaryFields.managedWorktreePath
+    ?? input.activeThreadSummary?.managedWorktreePath,
+  );
   const summaryPanelContentProps = useMemo(
     () => ({
       activeThreadId,
+      activeThreadTitle,
+      activeThreadIsManagedWorktree,
+      activeThreadProjectless,
       cwd,
+      projectlessOutputDirectory: summaryFields.projectlessOutputDirectory,
       projectWorkspacePath: input.projectWorkspacePath ?? null,
       turns,
       backgroundTerminalRows,
@@ -633,20 +647,30 @@ export function ConnectedThreadStage({
       knownConversationsById,
       sideChatRows: input.summarySideChatRows ?? [],
       browserRows: input.summaryBrowserRows ?? [],
+      scheduledAutomation: input.summaryScheduledAutomation ?? null,
+      computerUsePip: input.summaryComputerUsePip ?? null,
       newThreadStartInSelector: input.newThreadStartInSelector,
+      actions,
       onOpenThread: actions.onOpenThread,
       onErrorMessage: setErrorMessage,
     }),
     [
       activeThreadId,
+      activeThreadTitle,
+      activeThreadIsManagedWorktree,
+      activeThreadProjectless,
       backgroundTerminalRows,
       childMemberships,
+      input.summaryComputerUsePip,
       input.summaryBrowserRows,
+      input.summaryScheduledAutomation,
       input.summarySideChatRows,
       knownConversationsById,
       cwd,
+      summaryFields.projectlessOutputDirectory,
       input.newThreadStartInSelector,
       input.projectWorkspacePath,
+      actions,
       actions.onOpenThread,
       turns,
     ],
@@ -710,12 +734,24 @@ export function ConnectedThreadStage({
           />
         )}
         floatingContent={(
-          <ThreadFloatingSummaryPanel
-            hideImmediately={summaryPanelHideImmediately}
-            mounted={summaryPanelMounted}
-            open={summaryPanelOpen}
-            {...summaryPanelContentProps}
-          />
+          <ThreadSummaryPanelRenderBoundary
+            fallback={({ resetError }) => (
+              <ThreadSummaryPanelRenderErrorFallback
+                hideImmediately={summaryPanelHideImmediately}
+                mounted={summaryPanelMounted}
+                onRetry={resetError}
+                open={summaryPanelOpen}
+              />
+            )}
+            resetKey={activeThreadId}
+          >
+            <ThreadFloatingSummaryPanel
+              hideImmediately={summaryPanelHideImmediately}
+              mounted={summaryPanelMounted}
+              open={summaryPanelOpen}
+              {...summaryPanelContentProps}
+            />
+          </ThreadSummaryPanelRenderBoundary>
         )}
         contentShiftX={summaryPanelContentShift}
       />
@@ -763,12 +799,24 @@ export function ConnectedThreadStage({
           />
         )}
         floatingContent={(
-          <ThreadFloatingSummaryPanel
-            hideImmediately={summaryPanelHideImmediately}
-            mounted={summaryPanelMounted}
-            open={summaryPanelOpen}
-            {...summaryPanelContentProps}
-          />
+          <ThreadSummaryPanelRenderBoundary
+            fallback={({ resetError }) => (
+              <ThreadSummaryPanelRenderErrorFallback
+                hideImmediately={summaryPanelHideImmediately}
+                mounted={summaryPanelMounted}
+                onRetry={resetError}
+                open={summaryPanelOpen}
+              />
+            )}
+            resetKey={activeThreadId}
+          >
+            <ThreadFloatingSummaryPanel
+              hideImmediately={summaryPanelHideImmediately}
+              mounted={summaryPanelMounted}
+              open={summaryPanelOpen}
+              {...summaryPanelContentProps}
+            />
+          </ThreadSummaryPanelRenderBoundary>
         )}
       />
     </>

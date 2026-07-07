@@ -127,6 +127,8 @@ interface DbProjectSessionThread {
   thread_preview: string;
   model_provider: string;
   cwd: string | null;
+  managed_worktree_path: string | null;
+  projectless_output_directory: string | null;
   status_type: string;
   status_active_flags_json: string;
   archived: number;
@@ -157,6 +159,8 @@ interface DbProjectSessionSummaryRow {
   thread_thread_preview: string | null;
   thread_model_provider: string | null;
   thread_cwd: string | null;
+  thread_managed_worktree_path: string | null;
+  thread_projectless_output_directory: string | null;
   thread_status_type: string | null;
   thread_status_active_flags_json: string | null;
   thread_archived: number | null;
@@ -304,6 +308,8 @@ function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
     threadPreview: row.thread_preview,
     modelProvider: row.model_provider,
     cwd: row.cwd || undefined,
+    managedWorktreePath: row.managed_worktree_path,
+    projectlessOutputDirectory: row.projectless_output_directory,
     statusType: row.status_type,
     statusActiveFlags: parseStatusActiveFlags(row.status_active_flags_json),
     archived: row.archived === 1,
@@ -326,6 +332,8 @@ function rowToSummaryThread(row: DbProjectSessionSummaryRow): ProjectSessionThre
     thread_preview: row.thread_thread_preview ?? "",
     model_provider: row.thread_model_provider ?? "openai",
     cwd: row.thread_cwd,
+    managed_worktree_path: row.thread_managed_worktree_path,
+    projectless_output_directory: row.thread_projectless_output_directory,
     status_type: row.thread_status_type ?? "notLoaded",
     status_active_flags_json: row.thread_status_active_flags_json ?? "[]",
     archived: row.thread_archived ?? 0,
@@ -377,6 +385,8 @@ function buildSession(row: DbProjectSession): ProjectSession {
         t.thread_preview,
         t.model_provider,
         t.cwd,
+        t.managed_worktree_path,
+        t.projectless_output_directory,
         t.status_type,
         t.status_active_flags_json,
         t.archived,
@@ -507,6 +517,8 @@ function projectSessionSummarySelectSql(whereSql: string): string {
       t.thread_preview AS thread_thread_preview,
       t.model_provider AS thread_model_provider,
       t.cwd AS thread_cwd,
+      t.managed_worktree_path AS thread_managed_worktree_path,
+      t.projectless_output_directory AS thread_projectless_output_directory,
       t.status_type AS thread_status_type,
       t.status_active_flags_json AS thread_status_active_flags_json,
       t.archived AS thread_archived,
@@ -579,6 +591,8 @@ export function getProjectSessionThreadLink(threadId: string): ProjectSessionThr
         t.thread_preview,
         t.model_provider,
         t.cwd,
+        t.managed_worktree_path,
+        t.projectless_output_directory,
         t.status_type,
         t.status_active_flags_json,
         t.archived,
@@ -1503,6 +1517,7 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
   const nowMs = Date.now();
   const linkedAt = new Date().toISOString();
   const existing = getCodexThread(parsed.threadId);
+  const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(parsed, "managedWorktreePath");
   upsertCodexThread({
     projectId,
     threadId: parsed.threadId,
@@ -1513,6 +1528,10 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
     threadPreview: parsed.threadPreview ?? existing?.threadPreview ?? "",
     modelProvider: parsed.modelProvider ?? existing?.modelProvider ?? "",
     cwd: parsed.cwd ?? existing?.cwd ?? null,
+    managedWorktreePath: hasManagedWorktreePathInput
+      ? (parsed.managedWorktreePath ?? null)
+      : (existing?.managedWorktreePath ?? null),
+    projectlessOutputDirectory: parsed.projectlessOutputDirectory ?? existing?.projectlessOutputDirectory ?? null,
     statusType: parsed.statusType as CodexThreadStatusType | undefined,
     statusActiveFlags: parsed.statusActiveFlags as CodexThreadActiveFlag[] | undefined,
     archived: parsed.archived ?? existing?.archived ?? false,

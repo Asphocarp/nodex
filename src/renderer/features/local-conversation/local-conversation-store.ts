@@ -13,6 +13,9 @@ import { flushSync } from "react-dom";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type {
   FeedbackUploadParams,
+  ThreadBackgroundTerminal,
+  ThreadBackgroundTerminalsListResponse,
+  ThreadBackgroundTerminalsTerminateResponse,
   ThreadGoal,
   ThreadGoalSetParams,
   ThreadRollbackResponse,
@@ -85,7 +88,13 @@ import type {
   CodexTurnStartOptions,
 } from "../../lib/types";
 import { normalizeCodexMcpServerElicitationResponse } from "../../../shared/codex-mcp-elicitation";
-import type { CodexThreadActiveFlag, CodexThreadRuntimeStatus, CodexTurnStatus } from "../../../shared/types";
+import type {
+  CodexBackgroundProcessRow,
+  CodexBackgroundProcessRunActionInput,
+  CodexThreadActiveFlag,
+  CodexThreadRuntimeStatus,
+  CodexTurnStatus,
+} from "../../../shared/types";
 import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
@@ -135,6 +144,7 @@ import {
 } from "../../lib/codex-service-tier-settings";
 import { parseCodexThreadTokenUsage } from "../../../shared/schemas/codex";
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
+import { terminalSessionStore } from "../../lib/terminal-session-store";
 import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-settings";
 import {
   logAssistantStreamingDebug,
@@ -206,6 +216,8 @@ const EMPTY_CONVERSATION_SUMMARY_FIELDS = {
   threadPreview: "",
   modelProvider: null,
   cwd: null,
+  managedWorktreePath: null,
+  projectlessOutputDirectory: null,
   archived: false,
   createdAt: 0,
   updatedAt: 0,
@@ -608,6 +620,14 @@ interface RendererOwnerAppServerRequestClient {
   clearThreadGoal(conversationId: string, params: { threadId: string }): Promise<void>;
   setThreadMemoryMode(conversationId: string, params: { threadId: string; mode: ThreadMemoryMode }): Promise<void>;
   compactThread(conversationId: string, params: { threadId: string }): Promise<void>;
+  listBackgroundTerminals(
+    conversationId: string,
+    params: { threadId: string; cursor?: string | null; limit?: number | null },
+  ): Promise<ThreadBackgroundTerminalsListResponse>;
+  terminateBackgroundTerminal(
+    conversationId: string,
+    params: { threadId: string; processId: string },
+  ): Promise<ThreadBackgroundTerminalsTerminateResponse>;
 }
 
 class IpcRendererOwnerAppServerRequestClient implements RendererOwnerAppServerRequestClient {
@@ -714,6 +734,26 @@ class IpcRendererOwnerAppServerRequestClient implements RendererOwnerAppServerRe
   async compactThread(conversationId: string, params: { threadId: string }): Promise<void> {
     await this.sendRequest(conversationId, {
       method: "thread/compact/start",
+      params,
+    });
+  }
+
+  async listBackgroundTerminals(
+    conversationId: string,
+    params: { threadId: string; cursor?: string | null; limit?: number | null },
+  ): Promise<ThreadBackgroundTerminalsListResponse> {
+    return await this.sendRequest(conversationId, {
+      method: "thread/backgroundTerminals/list",
+      params,
+    });
+  }
+
+  async terminateBackgroundTerminal(
+    conversationId: string,
+    params: { threadId: string; processId: string },
+  ): Promise<ThreadBackgroundTerminalsTerminateResponse> {
+    return await this.sendRequest(conversationId, {
+      method: "thread/backgroundTerminals/terminate",
       params,
     });
   }
@@ -1250,6 +1290,8 @@ interface ConversationSummaryFields {
   threadPreview: string;
   modelProvider: string | null;
   cwd: string | null;
+  managedWorktreePath: string | null;
+  projectlessOutputDirectory: string | null;
   archived: boolean;
   createdAt: number;
   updatedAt: number;
@@ -1338,6 +1380,8 @@ function areConversationSummaryFieldsEqual(
     && left.threadPreview === right.threadPreview
     && left.modelProvider === right.modelProvider
     && left.cwd === right.cwd
+    && left.managedWorktreePath === right.managedWorktreePath
+    && left.projectlessOutputDirectory === right.projectlessOutputDirectory
     && left.archived === right.archived
     && left.createdAt === right.createdAt
     && left.updatedAt === right.updatedAt
@@ -6296,6 +6340,134 @@ export class CodexAppServerManager {
     return (await invoke("codex:thread:background-terminals:clean", threadId)) as boolean;
   }
 
+  async listBackgroundTerminals(threadId: string): Promise<ThreadBackgroundTerminal[]> {
+    const trimmedThreadId = threadId.trim();
+    if (!trimmedThreadId) {
+      return [];
+    }
+
+    if (this.isFollowerForConversation(trimmedThreadId)) {
+      throw new Error("Please continue this conversation on the window where it was started.");
+    }
+
+    if (this.streamState.getRole(trimmedThreadId)?.role !== "owner") {
+      return (await invoke(
+        "codex:thread:background-terminals:list",
+        trimmedThreadId,
+      )) as ThreadBackgroundTerminal[];
+    }
+
+    const rows: ThreadBackgroundTerminal[] = [];
+    let cursor: string | null = null;
+    do {
+      const response = await this.ownerAppServerRequestClient.listBackgroundTerminals(
+        trimmedThreadId,
+        {
+          threadId: trimmedThreadId,
+          cursor,
+          limit: 100,
+        },
+      );
+      rows.push(...response.data);
+      cursor = response.nextCursor;
+    } while (cursor);
+
+    return rows;
+  }
+
+  async listBackgroundProcesses(threadId: string): Promise<CodexBackgroundProcessRow[]> {
+    const trimmedThreadId = threadId.trim();
+    if (!trimmedThreadId) {
+      return [];
+    }
+
+    if (this.isFollowerForConversation(trimmedThreadId)) {
+      throw new Error("Please continue this conversation on the window where it was started.");
+    }
+
+    if (this.streamState.getRole(trimmedThreadId)?.role !== "owner") {
+      return (await invoke(
+        "codex:thread:background-processes:list",
+        { threadId: trimmedThreadId },
+      )) as CodexBackgroundProcessRow[];
+    }
+
+    const observedTerminals = await this.listBackgroundTerminals(trimmedThreadId);
+    return (await invoke(
+      "codex:thread:background-processes:list",
+      { threadId: trimmedThreadId, observedTerminals },
+    )) as CodexBackgroundProcessRow[];
+  }
+
+  async runBackgroundProcess(input: CodexBackgroundProcessRunActionInput): Promise<CodexBackgroundProcessRow[]> {
+    const threadId = input.threadId.trim();
+    if (!threadId) {
+      return [];
+    }
+
+    if (this.isFollowerForConversation(threadId)) {
+      throw new Error("Please continue this conversation on the window where it was started.");
+    }
+
+    return (await invoke(
+      "codex:thread:background-processes:run-action",
+      { ...input, threadId },
+    )) as CodexBackgroundProcessRow[];
+  }
+
+  async stopBackgroundProcess(input: {
+    threadId: string;
+    processId: string | null;
+    terminalSessionId: string | null;
+  }): Promise<boolean> {
+    const threadId = input.threadId.trim();
+    if (!threadId) {
+      return false;
+    }
+
+    if (this.isFollowerForConversation(threadId)) {
+      throw new Error("Please continue this conversation on the window where it was started.");
+    }
+
+    const processId = input.processId?.trim() || null;
+    if (processId) {
+      return await this.terminateBackgroundTerminal({ threadId, processId });
+    }
+
+    const terminalSessionId = input.terminalSessionId?.trim() || null;
+    if (!terminalSessionId) {
+      return false;
+    }
+
+    terminalSessionStore.close(terminalSessionId);
+    return true;
+  }
+
+  async terminateBackgroundTerminal(input: { threadId: string; processId: string }): Promise<boolean> {
+    const threadId = input.threadId.trim();
+    const processId = input.processId.trim();
+    if (!threadId || !processId) {
+      return false;
+    }
+
+    if (this.isFollowerForConversation(threadId)) {
+      throw new Error("Please continue this conversation on the window where it was started.");
+    }
+
+    if (this.streamState.getRole(threadId)?.role !== "owner") {
+      return (await invoke(
+        "codex:thread:background-terminals:terminate",
+        { threadId, processId },
+      )) as boolean;
+    }
+
+    const response = await this.ownerAppServerRequestClient.terminateBackgroundTerminal(threadId, {
+      threadId,
+      processId,
+    });
+    return response.terminated;
+  }
+
   async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
     const promptText = input.prompt.trim();
     if (!promptText) {
@@ -9311,6 +9483,8 @@ export function useConversationSummaryFields(
         threadPreview: conversation.threadPreview,
         modelProvider: conversation.modelProvider,
         cwd: conversation.cwd,
+        managedWorktreePath: conversation.managedWorktreePath ?? null,
+        projectlessOutputDirectory: conversation.projectlessOutputDirectory ?? null,
         archived: conversation.archived,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
@@ -9800,6 +9974,27 @@ export function useCodexAppServerControl(activeProjectId: string) {
     async (threadId: string) => manager.cleanBackgroundTerminals(threadId),
     [manager],
   );
+  const listBackgroundTerminals = useCallback(
+    async (threadId: string) => manager.listBackgroundTerminals(threadId),
+    [manager],
+  );
+  const listBackgroundProcesses = useCallback(
+    async (threadId: string) => manager.listBackgroundProcesses(threadId),
+    [manager],
+  );
+  const runBackgroundProcess = useCallback(
+    async (input: CodexBackgroundProcessRunActionInput) => manager.runBackgroundProcess(input),
+    [manager],
+  );
+  const stopBackgroundProcess = useCallback(
+    async (input: { threadId: string; processId: string | null; terminalSessionId: string | null }) =>
+      manager.stopBackgroundProcess(input),
+    [manager],
+  );
+  const terminateBackgroundTerminal = useCallback(
+    async (input: { threadId: string; processId: string }) => manager.terminateBackgroundTerminal(input),
+    [manager],
+  );
   const setComposerIntent = useCallback(
     (threadId: string, composerIntent: CodexComposerIntent) => manager.setComposerIntent(threadId, composerIntent),
     [manager],
@@ -9913,6 +10108,11 @@ export function useCodexAppServerControl(activeProjectId: string) {
     setThreadMemoryMode,
     uploadFeedback,
     cleanBackgroundTerminals,
+    listBackgroundTerminals,
+    listBackgroundProcesses,
+    runBackgroundProcess,
+    stopBackgroundProcess,
+    terminateBackgroundTerminal,
     setComposerIntent,
     consumeComposerIntent,
     setConversationCollaborationMode,

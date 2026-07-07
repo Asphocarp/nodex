@@ -1,16 +1,20 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { act } from "react";
 import type { ReactElement } from "react";
 import type {
   CodexConversationChildMembership,
   CodexConversationSnapshot,
   CodexConversationTurn,
+  GitActionStatusResult,
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
+import { NodexTooltipProvider } from "../../../../components/ui/tooltip";
 import { buildCodexFileChangeMap } from "../../../../../shared/codex-file-change";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { TestQueryProvider } from "../../../../test/query";
+import type { ThreadPlanSidePanelTarget, ThreadStageActions } from "../../thread-stage-types";
 
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
@@ -31,8 +35,36 @@ mock.module("../../../../lib/api", () => ({
   subscribeWindowFocusChanges: () => () => undefined,
 }));
 
+mock.module("../shared/user-message-attachments", () => ({
+  ImagePreviewDialog: ({
+    open,
+    src,
+    alt,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    src: string;
+    alt?: string;
+  }) => open ? (
+    <div data-testid="summary-image-preview">
+      <img src={src} alt={alt ?? ""} />
+    </div>
+  ) : null,
+}));
+
 function renderSummary(ui: ReactElement) {
-  return render(<TestQueryProvider>{ui}</TestQueryProvider>);
+  return render(
+    <TestQueryProvider>
+      <NodexTooltipProvider>{ui}</NodexTooltipProvider>
+    </TestQueryProvider>,
+  );
+}
+
+async function clickAndSettle(target: Element): Promise<void> {
+  await act(async () => {
+    fireEvent.click(target);
+    await settleAsyncRender();
+  });
 }
 
 function makeSnapshot(source: GitReviewSource, additions: number, deletions: number): GitReviewSnapshot {
@@ -55,6 +87,33 @@ function makeSnapshot(source: GitReviewSource, additions: number, deletions: num
     defaultBranch: "main",
     errorMessage: null,
   };
+}
+
+function makeDetachedSnapshot(source: GitReviewSource, additions: number, deletions: number): GitReviewSnapshot {
+  return {
+    ...makeSnapshot(source, additions, deletions),
+    currentBranch: null,
+  };
+}
+
+function makeDefaultBranchSnapshot(source: GitReviewSource, additions: number, deletions: number): GitReviewSnapshot {
+  return {
+    ...makeSnapshot(source, additions, deletions),
+    currentBranch: "main",
+    defaultBranch: "main",
+  };
+}
+
+function getBranchSetupInput(expectedValuePart: string): HTMLInputElement {
+  const inputs = Array.from(
+    document.body.querySelectorAll<HTMLInputElement>('input[aria-label="Branch name"]'),
+  );
+  const input = inputs.find((candidate) => candidate.value.includes(expectedValuePart));
+  if (!input) {
+    throw new Error(`Expected branch setup input containing ${expectedValuePart}.`);
+  }
+
+  return input;
 }
 
 function makeSubagentMembership(
@@ -108,6 +167,15 @@ describe("ThreadFloatingSummaryPanel", () => {
   beforeEach(() => {
     invokeCalls = [];
     mockInvokeImpl = null;
+  });
+
+  afterEach(async () => {
+    await settleAsyncRender();
+    await act(async () => {
+      cleanup();
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
   });
 
   test("renders the pinned summary without authenticated quota content", async () => {
@@ -205,7 +273,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
-    fireEvent.click(trigger);
+    await clickAndSettle(trigger);
     await waitFor(() => {
       const popover = view.container.ownerDocument.body.querySelector('[data-thread-summary-panel-mode="popover"]');
       expect(Boolean(popover)).toBeTrue();
@@ -213,9 +281,12 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(trigger.getAttribute("aria-pressed")).toBe("true");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
-    fireEvent.pointerDown(view.container.ownerDocument.body);
-    fireEvent.mouseDown(view.container.ownerDocument.body);
-    fireEvent.click(view.container.ownerDocument.body);
+    await act(async () => {
+      fireEvent.pointerDown(view.container.ownerDocument.body);
+      fireEvent.mouseDown(view.container.ownerDocument.body);
+      fireEvent.click(view.container.ownerDocument.body);
+      await settleAsyncRender();
+    });
     await waitFor(() => {
       const popover = view.container.ownerDocument.body.querySelector('[data-thread-summary-panel-mode="popover"]');
       expect(Boolean(popover)).toBeFalse();
@@ -262,21 +333,1479 @@ describe("ThreadFloatingSummaryPanel", () => {
       }
     });
 
+    const panelContent = textContent(view.getByTestId("thread-summary-panel"));
+    const branchCount = panelContent.split("feature/summary-panel").length - 1;
+    expect(branchCount).toBe(1);
+
+    await act(async () => {
+      const branchTrigger = view.getByTitle("Switch branch");
+      expect(branchTrigger.getAttribute("title")).toBe("Switch branch");
+      fireEvent.pointerDown(branchTrigger, { button: 0, ctrlKey: false });
+      fireEvent.click(branchTrigger);
+      await settleAsyncRender();
+    });
+
+    const searchInput = view.container.ownerDocument.body.querySelector('input[placeholder="Search branches"]');
+    expect(searchInput !== null).toBeTrue();
+
     expect(invokeCalls.some((call) => call[0] === "git:review:snapshot")).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "git:branch:state")).toBeTrue();
+  });
+
+  test("opens the Review surface from the Changes row using the primary git source", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openedSources: GitReviewSource[] = [];
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: [],
+          errorMessage: null,
+        };
+      }
+
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") return makeSnapshot(source, 4, 0);
+      if (source === "unstaged") return makeSnapshot(source, 1, 0);
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        actions={{
+          onOpenSummaryGitReview: ({ source }) => {
+            openedSources.push(source);
+          },
+        } as Partial<ThreadStageActions> as ThreadStageActions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+5")) {
+        throw new Error("Expected git summary stats to load.");
+      }
+    });
+
+    await clickAndSettle(view.getByText("Changes"));
+
+    expect(openedSources.length).toBe(1);
+    expect(openedSources[0]).toBe("staged");
+  });
+
+  test("opens the native commit workflow from the Environment git action row", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openedSources: GitReviewSource[] = [];
+    const commitInputs: unknown[] = [];
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: null,
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: true,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: true,
+      commitsAhead: 0,
+      canCommit: true,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: [],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel === "git:action:commit") {
+        commitInputs.push(input);
+        return {
+          cwd: "/repo/project",
+          status: "success",
+          branch: "feature/summary-panel",
+          stdout: "",
+          stderr: "",
+          errorMessage: null,
+        };
+      }
+
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") return makeSnapshot(source, 2, 0);
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        actions={{
+          onOpenSummaryGitReview: ({ source }) => {
+            openedSources.push(source);
+          },
+        } as Partial<ThreadStageActions> as ThreadStageActions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+2")) {
+        throw new Error("Expected staged git summary stats to load.");
+      }
+    });
+
+    await act(async () => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      expect(Boolean(commitRow)).toBeTrue();
+      fireEvent.click(commitRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (!view.getByLabelText("Commit message")) {
+        throw new Error("Expected commit workflow dialog to open.");
+      }
+    });
+
+    await act(async () => {
+      const textarea = view.getByLabelText("Commit message") as HTMLTextAreaElement;
+      textarea.value = "Update summary panel";
+      fireEvent.input(textarea);
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      const commitButton = view.getByRole("button", { name: "Commit" });
+      if (commitButton.hasAttribute("disabled")) {
+        throw new Error("Expected commit action to become enabled.");
+      }
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Commit" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (commitInputs.length !== 1) {
+        throw new Error("Expected commit workflow to call git action IPC.");
+      }
+    });
+
+    const commitInput = commitInputs[0] as Record<string, unknown>;
+    expect(typeof commitInput.operationId).toBe("string");
+    expect(JSON.stringify({
+      ...commitInput,
+      operationId: "<operation>",
+    })).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      hostId: "local",
+      message: "Update summary panel",
+      includeUnstaged: true,
+      nextStep: "commit",
+      operationId: "<operation>",
+    }));
+    expect(JSON.stringify(openedSources)).toBe(JSON.stringify([]));
+  });
+
+  test("renders a create-branch row for detached Git checkouts", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: null,
+      defaultBranch: "main",
+      upstreamBranch: null,
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: true,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: true,
+      commitsAhead: 0,
+      canCommit: true,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: null,
+          defaultBranch: "main",
+          branches: ["main"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") return makeDetachedSnapshot(source, 2, 0);
+      return makeDetachedSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        activeThreadTitle="Review detached worktree"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+2")) {
+        throw new Error("Expected staged git summary stats to load.");
+      }
+    });
+
+    const createBranchRow = view.getByText("Create branch").closest("[role='button']");
+    expect(Boolean(createBranchRow)).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(createBranchRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    const branchNameInput = getBranchSetupInput("review-detached-worktree");
+    expect(branchNameInput.value.includes("review-detached-worktree")).toBeTrue();
+  });
+
+  test("creates a branch before opening the detached commit workflow", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const branchCreateInputs: unknown[] = [];
+    let branchCreated = false;
+    const readStatus = (): GitActionStatusResult => ({
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: branchCreated ? "nodex/detached-fix" : null,
+      defaultBranch: "main",
+      upstreamBranch: null,
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: true,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: true,
+      commitsAhead: 0,
+      canCommit: true,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    });
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: branchCreated ? "nodex/detached-fix" : null,
+          defaultBranch: "main",
+          branches: branchCreated ? ["nodex/detached-fix", "main"] : ["main"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:branch:create") {
+        branchCreateInputs.push(input);
+        branchCreated = true;
+        return {
+          cwd: "/repo/project",
+          currentBranch: "nodex/detached-fix",
+          defaultBranch: "main",
+          branches: ["nodex/detached-fix", "main"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return readStatus();
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") {
+        return branchCreated ? makeSnapshot(source, 2, 0) : makeDetachedSnapshot(source, 2, 0);
+      }
+      return branchCreated ? makeSnapshot(source, 0, 0) : makeDetachedSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        activeThreadTitle="Detached fix"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+2")) {
+        throw new Error("Expected staged git summary stats to load.");
+      }
+    });
+
+    await act(async () => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      expect(Boolean(commitRow)).toBeTrue();
+      fireEvent.click(commitRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    const branchNameInput = getBranchSetupInput("detached-fix");
+    await act(async () => {
+      branchNameInput.value = "nodex/detached-fix";
+      fireEvent.input(branchNameInput);
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Create" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (branchCreateInputs.length !== 1) {
+        throw new Error("Expected branch creation before commit workflow.");
+      }
+    });
+
+    expect(JSON.stringify(branchCreateInputs[0])).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      branch: "nodex/detached-fix",
+    }));
+
+    await waitFor(() => {
+      if (!view.getByLabelText("Commit message")) {
+        throw new Error("Expected commit workflow dialog after branch setup.");
+      }
+    });
+  });
+
+  test("renders a create-branch action for managed worktrees on the default branch", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "main",
+      defaultBranch: "main",
+      upstreamBranch: "origin/main",
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: false,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: false,
+      commitsAhead: 0,
+      canCommit: false,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "main",
+          defaultBranch: "main",
+          branches: ["main", "feature/summary-panel"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      return makeDefaultBranchSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        activeThreadTitle="Default branch worktree"
+        activeThreadIsManagedWorktree
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("Environment")) {
+        throw new Error("Expected environment section to load.");
+      }
+    });
+
+    const rows = Array.from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"));
+    const createBranchRows = rows.filter((row) => textContent(row).includes("Create branch"));
+    const branchRows = rows.filter((row) => textContent(row).includes("main"));
+    expect(createBranchRows.length).toBe(1);
+    expect(branchRows.length > 0).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(createBranchRows[0] as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    const branchNameInput = getBranchSetupInput("default-branch-worktree");
+    expect(branchNameInput.value.includes("default-branch-worktree")).toBeTrue();
+  });
+
+  test("creates a branch before opening the managed default-branch push workflow", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const branchCreateInputs: unknown[] = [];
+    let branchCreated = false;
+    const readStatus = (): GitActionStatusResult => ({
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: branchCreated ? "nodex/default-worktree" : "main",
+      defaultBranch: "main",
+      upstreamBranch: branchCreated ? null : "origin/main",
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: false,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: false,
+      commitsAhead: 1,
+      canCommit: false,
+      canPush: true,
+      pushNeedsUpstream: branchCreated,
+      errorMessage: null,
+    });
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: branchCreated ? "nodex/default-worktree" : "main",
+          defaultBranch: "main",
+          branches: branchCreated ? ["main", "nodex/default-worktree"] : ["main"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:branch:create") {
+        branchCreateInputs.push(input);
+        branchCreated = true;
+        return {
+          cwd: "/repo/project",
+          currentBranch: "nodex/default-worktree",
+          defaultBranch: "main",
+          branches: ["main", "nodex/default-worktree"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return readStatus();
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "branch") {
+        return branchCreated ? makeSnapshot(source, 3, 0) : makeDefaultBranchSnapshot(source, 3, 0);
+      }
+      return branchCreated ? makeSnapshot(source, 0, 0) : makeDefaultBranchSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        activeThreadTitle="Default worktree"
+        activeThreadIsManagedWorktree
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+3")) {
+        throw new Error("Expected branch diff stats to load.");
+      }
+    });
+
+    await act(async () => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      expect(Boolean(commitRow)).toBeTrue();
+      expect(commitRow?.getAttribute("title")).toBe("Create branch");
+      fireEvent.click(commitRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    const branchNameInput = getBranchSetupInput("default-worktree");
+    await act(async () => {
+      branchNameInput.value = "nodex/default-worktree";
+      fireEvent.input(branchNameInput);
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Create" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (branchCreateInputs.length !== 1) {
+        throw new Error("Expected branch creation before default-branch push workflow.");
+      }
+    });
+
+    expect(JSON.stringify(branchCreateInputs[0])).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      branch: "nodex/default-worktree",
+    }));
+
+    await waitFor(() => {
+      if (!textContent(view.baseElement).includes("Push nodex/default-worktree and set upstream.")) {
+        throw new Error("Expected push workflow dialog after branch setup.");
+      }
+      expect(Boolean(view.getByRole("button", { name: "Push" }))).toBeTrue();
+    });
+  });
+
+  test("shows the reference no-changes blocker on the Environment git action row", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: "origin/feature/summary-panel",
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: false,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: false,
+      commitsAhead: 0,
+      canCommit: false,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: ["origin"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      if (commitRow?.getAttribute("title") !== "No changes to commit") {
+        throw new Error("Expected the no-changes blocker title.");
+      }
+      expect(commitRow.getAttribute("aria-disabled")).toBe("true");
+    });
+  });
+
+  test("shows the reference nothing-to-push blocker on the Environment git action row", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: "origin/feature/summary-panel",
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: false,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: false,
+      commitsAhead: 0,
+      canCommit: false,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: ["origin"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "branch") return makeSnapshot(source, 2, 0);
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      if (commitRow?.getAttribute("title") !== "No new commits to push") {
+        throw new Error("Expected the push blocker title.");
+      }
+      expect(commitRow.getAttribute("aria-disabled")).toBe("true");
+    });
+  });
+
+  test("allows blank commit messages so the native workflow can generate one", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const generateInputs: unknown[] = [];
+    const commitInputs: unknown[] = [];
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: null,
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: true,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: true,
+      commitsAhead: 0,
+      canCommit: true,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: [],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel === "git:action:commit-message:generate") {
+        generateInputs.push(input);
+        return {
+          cwd: "/repo/project",
+          status: "success",
+          message: "Generated summary panel",
+          stderr: "",
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:commit") {
+        commitInputs.push(input);
+        return {
+          cwd: "/repo/project",
+          status: "success",
+          branch: "feature/summary-panel",
+          stdout: "",
+          stderr: "",
+          errorMessage: null,
+        };
+      }
+
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") return makeSnapshot(source, 2, 0);
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+2")) {
+        throw new Error("Expected staged git summary stats to load.");
+      }
+    });
+
+    await act(async () => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      expect(Boolean(commitRow)).toBeTrue();
+      fireEvent.click(commitRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      const textarea = view.getByLabelText("Commit message") as HTMLTextAreaElement;
+      expect(textarea.getAttribute("placeholder")).toBe("Commit message (leave blank to generate)…");
+      const commitButton = view.getByRole("button", { name: "Commit" });
+      if (commitButton.hasAttribute("disabled")) {
+        throw new Error("Expected blank commit action to be enabled.");
+      }
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Commit" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (generateInputs.length !== 1) {
+        throw new Error("Expected blank commit workflow to generate a commit message first.");
+      }
+      if (commitInputs.length !== 1) {
+        throw new Error("Expected blank commit workflow to call git action IPC.");
+      }
+    });
+
+    const generateInput = generateInputs[0] as Record<string, unknown>;
+    expect(typeof generateInput.operationId).toBe("string");
+    expect(JSON.stringify({
+      ...generateInput,
+      operationId: "<operation>",
+    })).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      hostId: "local",
+      draftMessage: "",
+      includeUnstaged: true,
+      operationId: "<operation>",
+    }));
+
+    const commitInput = commitInputs[0] as Record<string, unknown>;
+    expect(typeof commitInput.operationId).toBe("string");
+    expect(JSON.stringify({
+      ...commitInput,
+      operationId: "<operation>",
+    })).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      hostId: "local",
+      message: "Generated summary panel",
+      includeUnstaged: false,
+      nextStep: "commit",
+      operationId: "<operation>",
+    }));
+  });
+
+  test("offers push as a commit modal action when branch commits are ready", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const pushInputs: unknown[] = [];
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: "origin/feature/summary-panel",
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: true,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: true,
+      commitsAhead: 2,
+      canCommit: true,
+      canPush: true,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          defaultBranch: "main",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: ["origin"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel === "git:action:push") {
+        pushInputs.push(input);
+        return {
+          cwd: "/repo/project",
+          status: "success",
+          branch: "feature/summary-panel",
+          stdout: "",
+          stderr: "",
+          errorMessage: null,
+        };
+      }
+
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") return makeSnapshot(source, 2, 0);
+      if (source === "branch") return makeSnapshot(source, 3, 0);
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+5")) {
+        throw new Error("Expected staged and branch git summary stats to load.");
+      }
+    });
+
+    await act(async () => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      expect(Boolean(commitRow)).toBeTrue();
+      fireEvent.click(commitRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      expect(Boolean(view.getByRole("button", { name: "Commit" }))).toBeTrue();
+      expect(Boolean(view.getByRole("button", { name: "Commit and push" }))).toBeTrue();
+      expect(Boolean(view.getByRole("button", { name: "Push" }))).toBeTrue();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Push" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (pushInputs.length !== 1) {
+        throw new Error("Expected push-only action to call push IPC.");
+      }
+    });
+
+    const pushInput = pushInputs[0] as Record<string, unknown>;
+    expect(pushInput.cwd).toBe("/repo/project");
+    expect(typeof pushInput.operationId).toBe("string");
+  });
+
+  test("shows generated-message and commit phases for blank commit messages", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const commitInputs: unknown[] = [];
+    let resolveGeneration: (value: unknown) => void = () => undefined;
+    let resolveCommit: (value: unknown) => void = () => undefined;
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: null,
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: true,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: true,
+      commitsAhead: 0,
+      canCommit: true,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: [],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel === "git:action:commit-message:generate") {
+        return new Promise((resolve) => {
+          resolveGeneration = resolve;
+        });
+      }
+
+      if (channel === "git:action:commit") {
+        commitInputs.push(input);
+        return new Promise((resolve) => {
+          resolveCommit = resolve;
+        });
+      }
+
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") return makeSnapshot(source, 2, 0);
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+2")) {
+        throw new Error("Expected staged git summary stats to load.");
+      }
+    });
+
+    await act(async () => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      expect(Boolean(commitRow)).toBeTrue();
+      fireEvent.click(commitRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Commit" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (!textContent(view.getByTestId("thread-summary-panel")).includes("Generating messages…")) {
+        throw new Error("Expected summary row to show the generated-message phase.");
+      }
+    });
+
+    await act(async () => {
+      resolveGeneration({
+        cwd: "/repo/project",
+        status: "success",
+        message: "Generated summary panel",
+        stderr: "",
+        errorMessage: null,
+      });
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (commitInputs.length !== 1) {
+        throw new Error("Expected generated commit message to continue into commit IPC.");
+      }
+      if (!textContent(view.getByTestId("thread-summary-panel")).includes("Committing…")) {
+        throw new Error("Expected summary row to show the commit phase after generation.");
+      }
+    });
+
+    await act(async () => {
+      resolveCommit({
+        cwd: "/repo/project",
+        status: "success",
+        branch: "feature/summary-panel",
+        stdout: "",
+        stderr: "",
+        errorMessage: null,
+      });
+      await settleAsyncRender();
+    });
+  });
+
+  test("shows the git workflow phase and cancels the active operation from the summary row", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const commitInputs: unknown[] = [];
+    const cancelInputs: unknown[] = [];
+    let resolveCommit: (value: unknown) => void = () => undefined;
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: null,
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: true,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: true,
+      commitsAhead: 0,
+      canCommit: true,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: [],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel === "git:action:cancel") {
+        cancelInputs.push(input);
+        return { canceled: true };
+      }
+
+      if (channel === "git:action:commit") {
+        commitInputs.push(input);
+        return new Promise((resolve) => {
+          resolveCommit = resolve;
+        });
+      }
+
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      if (source === "staged") return makeSnapshot(source, 2, 0);
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (!textContent(view.container).includes("+2")) {
+        throw new Error("Expected staged git summary stats to load.");
+      }
+    });
+
+    await act(async () => {
+      const commitRow = Array
+        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
+        .find((row) => textContent(row).includes("Commit or push"));
+      expect(Boolean(commitRow)).toBeTrue();
+      fireEvent.click(commitRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      const textarea = view.getByLabelText("Commit message") as HTMLTextAreaElement;
+      textarea.value = "Update summary panel";
+      fireEvent.input(textarea);
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Commit" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (!textContent(view.getByTestId("thread-summary-panel")).includes("Committing…")) {
+        throw new Error("Expected summary row to show the commit phase.");
+      }
+    });
+
+    await act(async () => {
+      const cancelButton = view.getByTestId("thread-summary-panel")
+        .querySelector<HTMLButtonElement>('[aria-label="Cancel git action"]');
+      expect(Boolean(cancelButton)).toBeTrue();
+      fireEvent.click(cancelButton as HTMLButtonElement);
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (cancelInputs.length !== 1) {
+        throw new Error("Expected cancel IPC to be called.");
+      }
+    });
+
+    const commitInput = commitInputs[0] as Record<string, unknown>;
+    const cancelInput = cancelInputs[0] as Record<string, unknown>;
+    expect(cancelInput.operationId).toBe(commitInput.operationId);
+
+    resolveCommit({
+      cwd: "/repo/project",
+      status: "error",
+      branch: "feature/summary-panel",
+      stdout: "",
+      stderr: "",
+      errorMessage: "Git action was canceled.",
+    });
+    await settleAsyncRender();
+  });
+
+  test("opens the native create-pull-request workflow from the Environment PR row", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openedSources: GitReviewSource[] = [];
+    const messageGenerateInputs: unknown[] = [];
+    const createPullRequestInputs: unknown[] = [];
+    const actionStatus: GitActionStatusResult = {
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: "feature/summary-panel",
+      defaultBranch: "main",
+      upstreamBranch: "origin/feature/summary-panel",
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: false,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: false,
+      commitsAhead: 0,
+      canCommit: false,
+      canPush: false,
+      pushNeedsUpstream: false,
+      errorMessage: null,
+    };
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: "feature/summary-panel",
+          defaultBranch: "main",
+          branches: [{ name: "feature/summary-panel", current: true }],
+          remotes: [],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return actionStatus;
+      if (channel === "gh-pr-status") {
+        return {
+          cwd: "/repo/project",
+          available: true,
+          status: "error",
+          disabledReason: null,
+          prNumber: null,
+          title: null,
+          url: null,
+          state: null,
+          mergeStateStatus: null,
+          message: "no pull requests found",
+        };
+      }
+
+      if (channel === "git:action:pull-request-message:generate") {
+        messageGenerateInputs.push(input);
+        return {
+          cwd: "/repo/project",
+          status: "success",
+          title: "Generated PR title",
+          body: "Generated PR body",
+          stderr: "",
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "gh-pr-create") {
+        createPullRequestInputs.push(input);
+        return {
+          cwd: "/repo/project",
+          available: true,
+          disabledReason: null,
+          url: "https://github.com/acme/project/pull/12",
+          message: null,
+        };
+      }
+
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      return makeSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        actions={{
+          onOpenSummaryGitReview: ({ source }) => {
+            openedSources.push(source);
+          },
+        } as Partial<ThreadStageActions> as ThreadStageActions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      const createPullRequestRow = view.getByText("Create pull request").closest("[role='button']");
+      if (createPullRequestRow?.getAttribute("aria-disabled") === "true") {
+        throw new Error("Expected create pull request row to become enabled.");
+      }
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByText("Create pull request"));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (!view.queryByLabelText("Title")) {
+        throw new Error("Expected native create PR dialog to open.");
+      }
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Create PR" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (messageGenerateInputs.length !== 1) {
+        throw new Error("Expected blank PR title/body to be generated before creating the PR.");
+      }
+      if (createPullRequestInputs.length !== 1) {
+        throw new Error("Expected gh-pr-create to be called.");
+      }
+    });
+
+    expect(JSON.stringify(messageGenerateInputs[0])).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      hostId: "local",
+      title: "",
+      body: "",
+      headBranch: "feature/summary-panel",
+      baseBranch: "main",
+      operationId: (messageGenerateInputs[0] as { operationId: string }).operationId,
+    }));
+    expect(typeof (messageGenerateInputs[0] as { operationId: unknown }).operationId).toBe("string");
+    expect(JSON.stringify(createPullRequestInputs[0])).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      title: "Generated PR title",
+      body: "Generated PR body",
+      base: "main",
+      head: "feature/summary-panel",
+      draft: false,
+    }));
+    expect(JSON.stringify(openedSources)).toBe(JSON.stringify([]));
+  });
+
+  test("creates a branch before opening the managed default-branch create-pr workflow", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const branchCreateInputs: unknown[] = [];
+    let branchCreated = false;
+    const readStatus = (): GitActionStatusResult => ({
+      cwd: "/repo/project",
+      isGitRepository: true,
+      currentBranch: branchCreated ? "nodex/default-pr-worktree" : "main",
+      defaultBranch: "main",
+      upstreamBranch: branchCreated ? null : "origin/main",
+      remotes: ["origin"],
+      hasHeadCommit: true,
+      hasStagedChanges: false,
+      hasUnstagedChanges: false,
+      hasUntrackedFiles: false,
+      hasUncommittedChanges: false,
+      commitsAhead: 0,
+      canCommit: false,
+      canPush: false,
+      pushNeedsUpstream: branchCreated,
+      errorMessage: null,
+    });
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel === "git:branch:state") {
+        return {
+          cwd: "/repo/project",
+          currentBranch: branchCreated ? "nodex/default-pr-worktree" : "main",
+          defaultBranch: "main",
+          branches: branchCreated ? ["main", "nodex/default-pr-worktree"] : ["main"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:branch:create") {
+        branchCreateInputs.push(input);
+        branchCreated = true;
+        return {
+          cwd: "/repo/project",
+          currentBranch: "nodex/default-pr-worktree",
+          defaultBranch: "main",
+          branches: ["main", "nodex/default-pr-worktree"],
+          errorMessage: null,
+        };
+      }
+
+      if (channel === "git:action:status") return readStatus();
+      if (channel === "gh-pr-status") {
+        return {
+          cwd: "/repo/project",
+          available: true,
+          status: "error",
+          disabledReason: null,
+          prNumber: null,
+          title: null,
+          url: null,
+          state: null,
+          mergeStateStatus: null,
+          message: "no pull requests found",
+        };
+      }
+      if (channel !== "git:review:snapshot") return null;
+      const source = (input as { source: GitReviewSource }).source;
+      return branchCreated ? makeSnapshot(source, 0, 0) : makeDefaultBranchSnapshot(source, 0, 0);
+    };
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        activeThreadTitle="Default PR worktree"
+        activeThreadIsManagedWorktree
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      const createPullRequestRow = view.getByText("Create pull request").closest("[role='button']");
+      if (createPullRequestRow?.getAttribute("title") !== "Create branch") {
+        throw new Error("Expected create pull request to require branch setup.");
+      }
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByText("Create pull request"));
+      await settleAsyncRender();
+    });
+
+    const branchNameInput = getBranchSetupInput("default-pr-worktree");
+    await act(async () => {
+      branchNameInput.value = "nodex/default-pr-worktree";
+      fireEvent.input(branchNameInput);
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Create" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (branchCreateInputs.length !== 1) {
+        throw new Error("Expected branch creation before create-pr workflow.");
+      }
+      if (!view.queryByLabelText("Title")) {
+        throw new Error("Expected create-pr dialog after branch setup.");
+      }
+    });
+
+    expect(JSON.stringify(branchCreateInputs[0])).toBe(JSON.stringify({
+      cwd: "/repo/project",
+      branch: "nodex/default-pr-worktree",
+    }));
   });
 
   test("renders available Codex summary sections in source order", async () => {
     const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
     const turns = [
       {
+        turnId: "turn-plan",
         items: [
           {
-            itemId: "todo",
+            threadId: "thread-1",
+            turnId: "turn-plan",
+            itemId: "plan",
             type: "plan",
-            semanticKind: "todoList",
-            markdownText: "- [ ] Inspect shell\n- [x] Wire summary",
+            kind: "plan",
+            semanticKind: "proposedPlan",
+            status: "completed",
+            role: "assistant",
+            markdownText: "# Summary panel parity\n\n- Inspect shell\n- Wire summary",
           },
+        ],
+        status: "completed",
+      },
+      {
+        items: [
           {
             itemId: "file",
             type: "fileChange",
@@ -287,6 +1816,17 @@ describe("ThreadFloatingSummaryPanel", () => {
                 movePath: null,
                 unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
               }]),
+            },
+          },
+          {
+            itemId: "generated-image",
+            type: "imageGeneration",
+            rawItem: {
+              id: "generated-image",
+              type: "imageGeneration",
+              status: "completed",
+              result: "",
+              savedPath: "/repo/project/generated-one.png",
             },
           },
           {
@@ -344,10 +1884,17 @@ describe("ThreadFloatingSummaryPanel", () => {
         knownConversationsById={{}}
         backgroundTerminalRows={[{
           id: "terminal-1",
+          turnId: "turn-terminal-1",
           command: "bun test",
           cwd: "/repo/project",
           previewLine: "3 pass",
         }]}
+        scheduledAutomation={{
+          id: "automation-1",
+          name: "Review release notes",
+          scheduleSummary: "Every weekday",
+          nextRunLabel: "tomorrow at 9:00 AM",
+        }}
         sideChatRows={[{
           id: "side-chat-1",
           title: "Investigate layout",
@@ -356,20 +1903,27 @@ describe("ThreadFloatingSummaryPanel", () => {
         browserRows={[{
           id: "browser-1",
           title: "Release notes",
-          status: "Right panel",
+          displayUrl: "example.com",
+          url: "https://example.com/release-notes",
+          faviconUrl: null,
+          isAgentWorking: false,
         }]}
         onErrorMessage={() => undefined}
       />,
     );
 
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
     const content = textContent(view.container);
     const orderedTitles = [
-      "Environment",
-      "Progress",
+      "Scheduled",
+      "Plan",
       "Outputs",
       "Side chats",
       "Subagents",
-      "Background tasks",
+      "Tasks",
       "Browser",
       "Sources",
     ];
@@ -377,13 +1931,1038 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(indexes.every((index) => index >= 0)).toBeTrue();
     expect(indexes.join(",")).toBe(indexes.slice().sort((left, right) => left - right).join(","));
     expect(content.includes("Automations")).toBeFalse();
-    expect(content.includes("app.tsx")).toBeTrue();
+    expect(content.includes("Review release notes")).toBeTrue();
+    expect(content.includes("Every weekday")).toBeTrue();
+    expect(content.includes("Summary panel parity")).toBeTrue();
+    expect(content.includes("Inspect shell")).toBeFalse();
+    expect(content.includes("app.tsx")).toBeFalse();
+    expect(content.includes("Generated image 1")).toBeTrue();
     expect(content.includes("Scout")).toBeTrue();
     expect(content.includes("Investigate layout")).toBeTrue();
     expect(content.includes("Release notes")).toBeTrue();
-    expect(content.includes("Context7")).toBeTrue();
-    expect(content.includes("Web search")).toBeTrue();
+    expect(view.container.querySelector('[aria-label="Context7"]') !== null).toBeTrue();
+    expect(view.container.querySelector('[aria-label="Web search"]') !== null).toBeTrue();
     expect(content.includes("bun test")).toBeTrue();
+    expect(content.includes("Environment")).toBeFalse();
+  });
+
+  test("opens the scheduled automation row with the reference action payload", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openedAutomations: unknown[] = [];
+    const actions = {
+      onOpenSummaryScheduledAutomation: (input) => {
+        openedAutomations.push(input);
+      },
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        scheduledAutomation={{
+          id: "automation-1",
+          name: "Review release notes",
+          scheduleSummary: "Every weekday",
+          nextRunLabel: "tomorrow at 9:00 AM",
+        }}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const row = view.getByRole("button", { name: "Open scheduled task" });
+    expect(row.getAttribute("title")).toBe("Next run: tomorrow at 9:00 AM");
+    expect(textContent(row).includes("Review release notes")).toBeTrue();
+    expect(textContent(row).includes("Every weekday")).toBeTrue();
+
+    await clickAndSettle(row);
+
+    const payload = openedAutomations[0] as { automationId?: string; title?: string } | undefined;
+    expect(openedAutomations.length).toBe(1);
+    expect(payload?.automationId).toBe("automation-1");
+    expect(payload?.title).toBe("Review release notes");
+  });
+
+  test("opens auxiliary rows and exposes the process manager action", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openedSideChats: unknown[] = [];
+    const openedBrowsers: unknown[] = [];
+    const openedTerminals: unknown[] = [];
+    let processManagerOpenCount = 0;
+    const actions = {
+      onOpenSummarySideChatRow: (input) => {
+        openedSideChats.push(input);
+      },
+      onOpenSummaryBrowserRow: (input) => {
+        openedBrowsers.push(input);
+      },
+      onOpenBackgroundTerminalOutput: (row) => {
+        openedTerminals.push(row);
+      },
+      onOpenProcessManager: () => {
+        processManagerOpenCount += 1;
+      },
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        backgroundTerminalRows={[{
+          id: "terminal-1",
+          turnId: "turn-terminal-1",
+          command: "bun dev",
+          cwd: "/repo/project",
+          previewLine: null,
+        }]}
+        sideChatRows={[{
+          id: "side-chat-1",
+          title: "Investigate layout",
+          panelId: "right",
+          leafId: "leaf-a",
+        }]}
+        browserRows={[{
+          id: "browser-1",
+          title: "Release notes",
+          displayUrl: "example.com",
+          url: "https://example.com/release-notes",
+          faviconUrl: null,
+          isAgentWorking: false,
+          panelId: "bottom",
+          leafId: null,
+        }]}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Investigate layout" }));
+      fireEvent.click(view.getByRole("button", { name: "Release notes example.com" }));
+      fireEvent.click(view.getByRole("button", { name: "bun dev" }));
+      fireEvent.click(view.getByRole("button", { name: "View all processes" }));
+      await settleAsyncRender();
+    });
+
+    const sideChatCall = openedSideChats[0] as { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
+    const browserCall = openedBrowsers[0] as { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
+    const terminalCall = openedTerminals[0] as { id?: string; turnId?: string; command?: string } | undefined;
+    expect(openedSideChats.length).toBe(1);
+    expect(sideChatCall?.rowId).toBe("side-chat-1");
+    expect(sideChatCall?.panelId).toBe("right");
+    expect(sideChatCall?.leafId).toBe("leaf-a");
+    expect(openedBrowsers.length).toBe(1);
+    expect(browserCall?.rowId).toBe("browser-1");
+    expect(browserCall?.panelId).toBe("bottom");
+    expect(browserCall?.leafId).toBe(null);
+    expect(openedTerminals.length).toBe(1);
+    expect(terminalCall?.id).toBe("terminal-1");
+    expect(terminalCall?.turnId).toBe("turn-terminal-1");
+    expect(terminalCall?.command).toBe("bun dev");
+    expect(String(processManagerOpenCount)).toBe("1");
+    expect(textContent(view.container).includes("Tasks")).toBeTrue();
+    expect(textContent(view.container).includes("Background tasks")).toBeFalse();
+  });
+
+  test("uses the response-in-progress icon for active side chat rows", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const actions = {
+      onOpenSummarySideChatRow: () => undefined,
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        sideChatRows={[{
+          id: "side-chat-active",
+          title: "Investigate layout",
+          isResponseInProgress: true,
+          panelId: "right",
+        }, {
+          id: "side-chat-idle",
+          title: "Compare bundle",
+          isResponseInProgress: false,
+          panelId: "right",
+        }]}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const activeRow = view.getByRole("button", { name: "Investigate layout" });
+    const idleRow = view.getByRole("button", { name: "Compare bundle" });
+    expect(activeRow.querySelector("svg.animate-spin") !== null).toBeTrue();
+    expect(idleRow.querySelector("svg.animate-spin") === null).toBeTrue();
+  });
+
+  test("renders the Computer Use PiP as a headerless toggle row when state and action exist", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const toggles: boolean[] = [];
+    const actions = {
+      onOpenSummaryBrowserRow: () => undefined,
+      onToggleSummaryComputerUsePip: (nextVisible: boolean) => {
+        toggles.push(nextVisible);
+      },
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        computerUsePip={{ visible: false }}
+        backgroundTerminalRows={[{
+          id: "terminal-1",
+          turnId: "turn-terminal-1",
+          command: "bun dev",
+          cwd: "/repo/project",
+          previewLine: null,
+        }]}
+        browserRows={[{
+          id: "browser-1",
+          title: "Release notes",
+          displayUrl: "example.com",
+          url: "https://example.com/release-notes",
+          faviconUrl: null,
+          isAgentWorking: false,
+          panelId: "bottom",
+          leafId: null,
+        }]}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const content = textContent(view.container);
+    const tasksIndex = content.indexOf("Tasks");
+    const computerUseIndex = content.indexOf("Computer Use");
+    const browserIndex = content.indexOf("Browser");
+    expect(tasksIndex >= 0).toBeTrue();
+    expect(computerUseIndex >= 0).toBeTrue();
+    expect(browserIndex >= 0).toBeTrue();
+    expect(tasksIndex < computerUseIndex).toBeTrue();
+    expect(computerUseIndex < browserIndex).toBeTrue();
+
+    const row = view.getByRole("button", { name: "Show PiP" });
+    expect(row.getAttribute("title")).toBe("Show PiP");
+    expect(textContent(row).includes("Computer Use")).toBeTrue();
+
+    await clickAndSettle(row);
+
+    expect(JSON.stringify(toggles)).toBe(JSON.stringify([true]));
+  });
+
+  test("does not render the Computer Use PiP row without a toggle action", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        computerUsePip={{ visible: true }}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    expect(textContent(view.container).includes("Computer Use")).toBeFalse();
+  });
+
+  test("renders browser rows with Codex-style URL, favicon, and working metadata", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        browserRows={[{
+          id: "browser-1",
+          title: "Release notes",
+          displayUrl: "example.com",
+          url: "https://www.example.com/release-notes",
+          faviconUrl: "https://www.example.com/favicon.ico",
+          isAgentWorking: true,
+          panelId: "right",
+          leafId: "leaf-browser",
+        }]}
+        actions={{
+          onOpenSummaryBrowserRow: () => undefined,
+        } as Partial<ThreadStageActions> as ThreadStageActions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const browserButton = view.getByRole("button", { name: "Release notes example.com" });
+    expect(browserButton.getAttribute("title") ?? "").toBe("Release notes\nhttps://www.example.com/release-notes");
+    expect(Boolean(view.container.querySelector('img[src="https://www.example.com/favicon.ico"]'))).toBeTrue();
+    expect(Boolean(browserButton.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(browserButton.querySelector("svg.animate-spin"))).toBeTrue();
+    expect(textContent(view.container).includes("Right panel")).toBeFalse();
+  });
+
+  test("renders the start-in row as a summary-panel dropdown trigger", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel !== "git:review:snapshot") return null;
+      return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
+    };
+    const actions = {
+      onNewThreadStartInTargetChange: () => undefined,
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={[]}
+        actions={actions}
+        newThreadStartInSelector={{
+          target: {
+            runInTarget: "localProject",
+            runInEnvironmentPath: null,
+            worktreeStartMode: "detachedHead",
+            worktreeBranchPrefix: "nodex/",
+          },
+          disabled: false,
+          worktreeAvailable: true,
+          environments: [],
+          environmentsLoading: false,
+          selectedEnvironmentPath: null,
+          worktreeStartMode: "detachedHead",
+          worktreeBranchPrefix: "nodex/",
+        }}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const trigger = await view.findByTitle("Select where to run the task");
+    expect(trigger.getAttribute("role")).toBe("button");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.getAttribute("title")).toBe("Select where to run the task");
+    expect(textContent(trigger).includes("Local")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await settleAsyncRender();
+    });
+
+    const menuText = view.container.ownerDocument.body.textContent ?? "";
+    expect(menuText.includes("Continue in")).toBeTrue();
+    expect(menuText.includes("Work locally")).toBeTrue();
+    expect(menuText.includes("New worktree")).toBeTrue();
+  });
+
+  test("renders the Sources section with the reference empty state", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const content = textContent(view.container);
+    expect(content.includes("Sources")).toBeTrue();
+    expect(content.includes("No sources yet")).toBeTrue();
+    expect(content.includes("Environment")).toBeFalse();
+    expect(view.container.querySelector('[aria-label="Sources"]') === null).toBeTrue();
+  });
+
+  test("renders search-only sources as a non-openable icon", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const turns = [{
+      items: [{
+        itemId: "web-search",
+        type: "webSearch",
+        semanticKind: "webSearch",
+        rawItem: {
+          type: "webSearch",
+          query: "Codex app-server",
+          action: { type: "search", query: "Codex app-server" },
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    expect(view.container.querySelector('button[aria-label="Web search"]') === null).toBeTrue();
+    expect(view.container.querySelector('[role="img"][aria-label="Web search"]') !== null).toBeTrue();
+  });
+
+  test("opens page sources externally", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const windowOpenCalls: unknown[][] = [];
+    const originalWindowOpen = window.open;
+    window.open = ((...args: unknown[]) => {
+      windowOpenCalls.push(args);
+      return null;
+    }) as typeof window.open;
+
+    try {
+      const turns = [{
+        items: [{
+          itemId: "web-page",
+          type: "webSearch",
+          semanticKind: "webSearch",
+          rawItem: {
+            type: "webSearch",
+            query: "Codex app-server",
+            action: { type: "openPage", url: "https://www.example.com/docs" },
+          },
+        }],
+        status: "completed",
+      }] as unknown as CodexConversationTurn[];
+
+      const view = renderSummary(
+        <ThreadFloatingSummaryPanel
+          mounted
+          open
+          activeThreadId="thread-1"
+          cwd={null}
+          projectWorkspacePath={null}
+          turns={turns}
+          onErrorMessage={() => undefined}
+        />,
+      );
+
+      const sourceButton = view.container.querySelector('button[aria-label="example.com/docs"]') as HTMLElement | null;
+      expect(Boolean(sourceButton)).toBeTrue();
+      await clickAndSettle(sourceButton as HTMLElement);
+
+      expect(JSON.stringify(windowOpenCalls[0])).toBe(
+        JSON.stringify(["https://www.example.com/docs", "_blank", "noopener,noreferrer"]),
+      );
+    } finally {
+      window.open = originalWindowOpen;
+    }
+  });
+
+  test("opens MCP app sources in the side panel when a renderable resource is already available", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openCalls: unknown[] = [];
+    const actions = {
+      onOpenMcpAppSidePanel: async (input: unknown) => {
+        openCalls.push(input);
+      },
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+    const turns = [{
+      threadId: "thread-1",
+      turnId: "turn-1",
+      items: [{
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "mcp-app",
+        type: "mcpToolCall",
+        semanticKind: "mcpToolCall",
+        mcpToolCall: {
+          callId: "call-1",
+          functionName: "docs__search",
+          invocation: {
+            server: "docs",
+            tool: "search",
+            arguments: {},
+          },
+          result: {
+            type: "success",
+            content: [{
+              type: "embedded_resource",
+              resource: {
+                uri: "ui://docs/search.html",
+                mimeType: "text/html;profile=mcp-app",
+                text: "<main>Docs app</main>",
+              },
+            }],
+            structuredContent: null,
+            meta: { "openai/outputTemplate": "ui://docs/search.html" },
+            raw: { content: [], structuredContent: null },
+          },
+          durationMs: null,
+          completed: true,
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const sourceButton = view.container.querySelector('button[aria-label="Docs"]') as HTMLElement | null;
+    expect(Boolean(sourceButton)).toBeTrue();
+    await clickAndSettle(sourceButton as HTMLElement);
+
+    const call = openCalls[0] as {
+      mcpAppId?: string;
+      capabilityId?: string;
+      resource?: { html?: string };
+    } | undefined;
+    expect(openCalls.length).toBe(1);
+    expect(call?.mcpAppId).toBe("docs:ui://docs/search.html");
+    expect(call?.capabilityId).toBe("mcp-capability:thread-1:docs:search:call-1");
+    expect(call?.resource?.html).toBe("<main>Docs app</main>");
+  });
+
+  test("resolves MCP app source resources before opening the side panel", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openCalls: unknown[] = [];
+    mockInvokeImpl = async (channel) => {
+      if (channel === "codex:mcp-server-statuses:list") return [];
+      if (channel === "codex:mcp-resource:read") {
+        return {
+          contents: [{
+            uri: "ui://docs/search.html",
+            mimeType: "text/html;profile=mcp-app",
+            text: "<main>Fetched Docs app</main>",
+          }],
+        };
+      }
+      return null;
+    };
+    const actions = {
+      onOpenMcpAppSidePanel: async (input: unknown) => {
+        openCalls.push(input);
+      },
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+    const turns = [{
+      threadId: "thread-1",
+      turnId: "turn-1",
+      items: [{
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "mcp-app",
+        type: "mcpToolCall",
+        semanticKind: "mcpToolCall",
+        mcpToolCall: {
+          callId: "call-1",
+          functionName: "docs__search",
+          invocation: {
+            server: "docs",
+            tool: "search",
+            arguments: {},
+          },
+          result: {
+            type: "success",
+            content: [],
+            structuredContent: null,
+            meta: { "openai/outputTemplate": "ui://docs/search.html" },
+            raw: { content: [], structuredContent: null },
+          },
+          durationMs: null,
+          completed: true,
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      const sourceButton = view.container.querySelector('button[aria-label="Docs"]');
+      if (!sourceButton) throw new Error("Expected resolved MCP source button");
+    });
+
+    const sourceButton = view.container.querySelector('button[aria-label="Docs"]') as HTMLElement | null;
+    await clickAndSettle(sourceButton as HTMLElement);
+
+    const call = openCalls[0] as {
+      mcpAppId?: string;
+      resource?: { html?: string };
+    } | undefined;
+    expect(openCalls.length).toBe(1);
+    expect(call?.mcpAppId).toBe("docs:ui://docs/search.html");
+    expect(call?.resource?.html).toBe("<main>Fetched Docs app</main>");
+  });
+
+  test("opens the summary panel plan row in the plan side panel", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const openCalls: unknown[] = [];
+    const actions = {
+      onOpenPlanInSidePanel: (input: ThreadPlanSidePanelTarget) => {
+        openCalls.push(input);
+      },
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+    const turns = [{
+      threadId: "thread-1",
+      turnId: "turn-plan",
+      items: [{
+        threadId: "thread-1",
+        turnId: "turn-plan",
+        itemId: "plan-item",
+        type: "plan",
+        kind: "plan",
+        semanticKind: "proposedPlan",
+        status: "completed",
+        role: "assistant",
+        markdownText: "# Summary panel parity\n\nFull plan body",
+        cwd: "/repo/project",
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const row = view.getByText("Summary panel parity").closest("[role='button']") as HTMLElement | null;
+    expect(Boolean(row)).toBeTrue();
+    await clickAndSettle(row as HTMLElement);
+
+    const call = openCalls[0] as {
+      planKey?: string;
+      threadId?: string;
+      turnId?: string;
+      itemId?: string;
+      content?: string;
+      cwd?: string | null;
+      hideCodeBlocks?: boolean;
+    } | undefined;
+    expect(openCalls.length).toBe(1);
+    expect(call?.planKey).toBe("turn-plan");
+    expect(call?.threadId).toBe("thread-1");
+    expect(call?.turnId).toBe("turn-plan");
+    expect(call?.itemId).toBe("plan-item");
+    expect(call?.content).toBe("# Summary panel parity\n\nFull plan body");
+    expect(call?.cwd).toBe("/repo/project");
+    expect(call?.hideCodeBlocks).toBeFalse();
+  });
+
+  test("does not render changed files as summary panel outputs", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const turns = [{
+      items: [{
+        itemId: "file",
+        type: "fileChange",
+        fileChange: {
+          changes: buildCodexFileChangeMap([{
+            path: "src/renderer/app.tsx",
+            type: "update",
+            movePath: null,
+            unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+          }]),
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const content = textContent(view.container);
+    expect(content.includes("Outputs")).toBeFalse();
+    expect(content.includes("app.tsx")).toBeFalse();
+  });
+
+  test("suppresses outputs when the active thread is in a git environment", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel !== "git:review:snapshot") return null;
+      return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
+    };
+    const turns = [{
+      items: [{
+        itemId: "generated-image",
+        type: "imageGeneration",
+        rawItem: {
+          id: "generated-image",
+          type: "imageGeneration",
+          status: "completed",
+          result: "",
+          savedPath: "/repo/project/generated-one.png",
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={turns}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      if (invokeCalls.filter((call) => call[0] === "git:review:snapshot").length < 3) {
+        throw new Error("Expected git snapshots to load.");
+      }
+      const content = textContent(view.container);
+      expect(content.includes("Clean")).toBeFalse();
+      expect(content.includes("Outputs")).toBeFalse();
+      expect(content.includes("Generated image 1")).toBeFalse();
+    });
+  });
+
+  test("keeps outputs visible for projectless threads with a git cwd", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    mockInvokeImpl = async (channel: string, input?: unknown) => {
+      if (channel !== "git:review:snapshot") return null;
+      return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
+    };
+    const turns = [{
+      items: [{
+        itemId: "generated-image",
+        type: "imageGeneration",
+        rawItem: {
+          id: "generated-image",
+          type: "imageGeneration",
+          status: "completed",
+          result: "",
+          savedPath: "/repo/project/generated-one.png",
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        activeThreadProjectless
+        cwd="/repo/project"
+        projectWorkspacePath="/repo/project"
+        turns={turns}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      if (invokeCalls.filter((call) => call[0] === "git:review:snapshot").length < 3) {
+        throw new Error("Expected git snapshots to load.");
+      }
+      const content = textContent(view.container);
+      expect(content.includes("Environment")).toBeFalse();
+      expect(content.includes("Outputs")).toBeTrue();
+      expect(content.includes("Generated image 1")).toBeTrue();
+    });
+  });
+
+  test("opens generated image output rows in the image preview dialog", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const turns = [{
+      items: [{
+        itemId: "generated-image",
+        type: "imageGeneration",
+        rawItem: {
+          id: "generated-image",
+          type: "imageGeneration",
+          status: "completed",
+          result: "",
+          savedPath: "/repo/project/generated-one.png",
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const outputRow = view.getByText("Generated image 1").closest("[role='button']") as HTMLElement | null;
+    expect(Boolean(outputRow)).toBeTrue();
+    await act(async () => {
+      fireEvent.click(outputRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    const preview = await view.findByTestId("summary-image-preview");
+    const previewImage = preview.querySelector("img");
+    if (!(previewImage instanceof HTMLImageElement)) {
+      throw new Error("expected generated image preview dialog");
+    }
+    expect(previewImage.alt).toBe("Generated image 1");
+    expect(previewImage.src).toBe("file:///repo/project/generated-one.png");
+    expect(invokeCalls.some((call) =>
+      call[0] === "shell:open-file-link"
+    )).toBeFalse();
+  });
+
+  test("opens non-image summary panel output rows through the side panel opener first", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    mockInvokeImpl = async (channel: string) => channel === "shell:open-file-link";
+    const openedOutputs: unknown[] = [];
+    const actions = {
+      onOpenSummaryOutputInSidePanel: async (target) => {
+        openedOutputs.push(target);
+        return true;
+      },
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+    const turns = [{
+      items: [{
+        itemId: "assistant",
+        type: "agentMessage",
+        markdownText: "Saved report at 【/repo/project/dist/report.txt†L1】.",
+        rawItem: {
+          id: "assistant",
+          type: "agentMessage",
+          text: "Saved report at 【/repo/project/dist/report.txt†L1】.",
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const outputRow = view.getByText("report.txt").closest("[role='button']") as HTMLElement | null;
+    expect(Boolean(outputRow)).toBeTrue();
+    await act(async () => {
+      fireEvent.click(outputRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    expect(JSON.stringify(openedOutputs)).toBe(JSON.stringify([{
+      path: "/repo/project/dist/report.txt",
+      title: "report.txt",
+    }]));
+    expect(invokeCalls.some((call) => call[0] === "shell:open-file-link")).toBeFalse();
+  });
+
+  test("falls back to the desktop file opener when summary output side panel open is unavailable", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    mockInvokeImpl = async (channel: string) => channel === "shell:open-file-link";
+    const actions = {
+      onOpenSummaryOutputInSidePanel: async () => false,
+    } as Partial<ThreadStageActions> as ThreadStageActions;
+    const turns = [{
+      items: [{
+        itemId: "assistant",
+        type: "agentMessage",
+        markdownText: "Saved report at 【/repo/project/dist/report.txt†L1】.",
+        rawItem: {
+          id: "assistant",
+          type: "agentMessage",
+          text: "Saved report at 【/repo/project/dist/report.txt†L1】.",
+        },
+      }],
+      status: "completed",
+    }] as unknown as CodexConversationTurn[];
+
+    const view = renderSummary(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        actions={actions}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const outputRow = view.getByText("report.txt").closest("[role='button']") as HTMLElement | null;
+    expect(Boolean(outputRow)).toBeTrue();
+    await act(async () => {
+      fireEvent.click(outputRow as HTMLElement);
+      await settleAsyncRender();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "shell:open-file-link"
+      && JSON.stringify(call).includes("/repo/project/dist/report.txt")
+      && JSON.stringify(call).includes("fileManager")
+    )).toBeTrue();
+  });
+
+  test("opens URL summary panel output rows through the browser opener", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const originalOpen = window.open;
+    const openedUrls: string[] = [];
+    Object.defineProperty(window, "open", {
+      configurable: true,
+      value: (url?: string | URL) => {
+        openedUrls.push(String(url ?? ""));
+        return null;
+      },
+    });
+
+    try {
+      const driveUrl = "https://docs.google.com/document/d/doc-123/edit";
+      const turns = [{
+        items: [
+          {
+            itemId: "drive-tool",
+            type: "mcpToolCall",
+            mcpToolCall: {
+              callId: "drive-tool",
+              functionName: "google-drive__create_document",
+              pluginId: null,
+              mcpAppResourceUri: null,
+              invocation: {
+                server: "google-drive",
+                tool: "create_document",
+                arguments: {},
+              },
+              result: {
+                type: "success",
+                content: [],
+                structuredContent: {
+                  title: "Reference Roadmap",
+                  document_url: driveUrl,
+                },
+                raw: {
+                  content: [],
+                  structuredContent: {
+                    title: "Reference Roadmap",
+                    document_url: driveUrl,
+                  },
+                },
+              },
+              durationMs: null,
+              completed: true,
+            },
+          },
+          {
+            itemId: "assistant",
+            type: "agentMessage",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            markdownText: `Created [Draft](${driveUrl}).`,
+          },
+        ],
+        status: "completed",
+      }] as unknown as CodexConversationTurn[];
+
+      const view = renderSummary(
+        <ThreadFloatingSummaryPanel
+          mounted
+          open
+          activeThreadId="thread-1"
+          cwd={null}
+          projectWorkspacePath={null}
+          turns={turns}
+          onErrorMessage={() => undefined}
+        />,
+      );
+
+      const outputRow = view.getByText("Reference Roadmap").closest("[role='button']") as HTMLElement | null;
+      expect(Boolean(outputRow)).toBeTrue();
+      await act(async () => {
+        fireEvent.click(outputRow as HTMLElement);
+        await settleAsyncRender();
+      });
+
+      expect(openedUrls.join(",")).toBe(driveUrl);
+      expect(invokeCalls.some((call) => call[0] === "shell:open-file-link")).toBeFalse();
+    } finally {
+      Object.defineProperty(window, "open", {
+        configurable: true,
+        value: originalOpen,
+      });
+    }
   });
 
   test("opens background subagent rows with subagent opener context", async () => {
@@ -458,7 +3037,7 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const row = view.getByText("Scout").closest("[role='button']") as HTMLElement | null;
     expect(Boolean(row)).toBeTrue();
-    fireEvent.click(row as HTMLElement);
+    await clickAndSettle(row as HTMLElement);
 
     const call = openCalls[0] as {
       threadId?: string;
@@ -572,7 +3151,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const content = textContent(view.container);
     expect(Boolean(content.includes("Subagents"))).toBeTrue();
     expect(Boolean(content.includes("2 working"))).toBeTrue();
-    expect(Boolean(content.includes("1 done"))).toBeFalse();
+    expect(Boolean(content.includes("1 done"))).toBeTrue();
     expect(Boolean(content.includes("Listed active"))).toBeTrue();
     expect(Boolean(content.includes("Listed waiting"))).toBeTrue();
     expect(Boolean(content.includes("is working"))).toBeTrue();
@@ -585,7 +3164,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(view.container.querySelector('[data-subagent-avatar-seed="inline-done"]') === null).toBeTrue();
     expect(view.container.querySelector('[data-subagent-avatar-seed="listed-active"]') !== null).toBeTrue();
 
-    fireEvent.click(view.getByRole("button", { name: "Open Inline active" }));
+    await clickAndSettle(view.getByRole("button", { name: "Inline active" }));
     const call = openCalls[0] as {
       threadId?: string;
       context?: { subagent?: { conversationId?: string; showInlineActivity?: boolean } };
@@ -631,7 +3210,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     const content = textContent(view.container);
-    expect(Boolean(content.includes("4 done"))).toBeTrue();
+    expect(Boolean(content.includes("5 done"))).toBeTrue();
     expect(view.container.querySelector('[data-subagent-avatar-seed="done-inline-1"]') === null).toBeTrue();
     expect(view.container.querySelector('[data-subagent-avatar-seed="done-inline-2"]') !== null).toBeTrue();
     expect(view.container.querySelector('[data-subagent-avatar-seed="done-inline-5"]') !== null).toBeTrue();

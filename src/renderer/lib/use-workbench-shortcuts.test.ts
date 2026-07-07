@@ -57,6 +57,7 @@ function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): Workben
     onRequestContentSearch: () => {},
     onRequestSettingsToggle: () => {},
     onRequestKeyboardShortcuts: () => {},
+    onRequestProcessManager: () => {},
     ...overrides,
   };
 }
@@ -681,6 +682,31 @@ describe("handleWorkbenchShortcut", () => {
         key: "/",
         ctrlKey: false,
         metaKey: true,
+        shiftKey: false,
+        altKey: true,
+        target: null,
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(opened).toBeTrue();
+  });
+
+  test("Ctrl+Alt+M opens the process manager", () => {
+    let opened = false;
+    const actions = makeActions({
+      onRequestProcessManager: () => {
+        opened = true;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "m",
+        ctrlKey: true,
+        metaKey: false,
         shiftKey: false,
         altKey: true,
         target: null,

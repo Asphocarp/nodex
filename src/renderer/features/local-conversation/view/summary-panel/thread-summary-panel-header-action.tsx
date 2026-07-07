@@ -1,8 +1,13 @@
 import { useMemo } from "react";
-import type { ThreadSummaryPanelMode } from "../../thread-stage-types";
+import type {
+  ThreadStageActions,
+  ThreadSummaryPanelMode,
+  ThreadSummaryPanelScheduledAutomationRow,
+} from "../../thread-stage-types";
 import {
   useConversationBackgroundTerminalRows,
   useConversationCwd,
+  useConversationSummaryFields,
   useConversationTurns,
 } from "../../local-conversation-store";
 import {
@@ -13,36 +18,64 @@ import { ThreadSummaryPanelToggle } from "./thread-summary-panel-toggle";
 
 export interface ThreadSummaryPanelHeaderActionProps {
   activeThreadId: string | null;
+  activeThreadIsManagedWorktree?: boolean;
   onPopoverOpenChange?: (open: boolean) => void;
   projectWorkspacePath: string | null;
   mode: ThreadSummaryPanelMode;
   pinnedOpen: boolean;
   onPinnedOpenToggle?: () => void;
   popoverOpen?: boolean;
+  scheduledAutomation?: ThreadSummaryPanelScheduledAutomationRow | null;
+  actions?: Pick<ThreadStageActions, "onOpenSummaryOutputInSidePanel" | "onOpenSummaryScheduledAutomation">;
 }
 
 export function ThreadSummaryPanelHeaderAction({
   activeThreadId,
+  activeThreadIsManagedWorktree = false,
   onPopoverOpenChange,
   projectWorkspacePath,
   mode,
   pinnedOpen,
   onPinnedOpenToggle,
   popoverOpen,
+  scheduledAutomation,
+  actions,
 }: ThreadSummaryPanelHeaderActionProps) {
   const cwd = useConversationCwd(activeThreadId);
   const turns = useConversationTurns(activeThreadId);
   const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
+  const summaryFields = useConversationSummaryFields(activeThreadId);
+  const activeThreadProjectless = summaryFields.threadId ? summaryFields.projectId === null : false;
   const contentProps = useMemo<ThreadSummaryPanelContentProps>(
     () => ({
       activeThreadId,
+      activeThreadTitle: summaryFields.threadName || summaryFields.threadPreview || null,
+      activeThreadIsManagedWorktree: Boolean(summaryFields.managedWorktreePath) || activeThreadIsManagedWorktree,
+      activeThreadProjectless,
       cwd,
+      projectlessOutputDirectory: summaryFields.projectlessOutputDirectory,
       projectWorkspacePath,
       turns,
       backgroundTerminalRows,
+      scheduledAutomation: scheduledAutomation ?? null,
+      actions,
       onErrorMessage: () => undefined,
     }),
-    [activeThreadId, backgroundTerminalRows, cwd, projectWorkspacePath, turns],
+    [
+      actions,
+      activeThreadIsManagedWorktree,
+      activeThreadId,
+      activeThreadProjectless,
+      backgroundTerminalRows,
+      cwd,
+      projectWorkspacePath,
+      scheduledAutomation,
+      summaryFields.threadName,
+      summaryFields.threadPreview,
+      summaryFields.managedWorktreePath,
+      summaryFields.projectlessOutputDirectory,
+      turns,
+    ],
   );
 
   if (mode === "hidden") return null;

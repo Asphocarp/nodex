@@ -30,6 +30,7 @@ export interface WorkbenchShortcutActions {
   onRequestContentSearch?: (projectId: string, preferredDomain?: ContentSearchDomain) => void;
   onRequestSettingsToggle?: () => void;
   onRequestKeyboardShortcuts?: () => void;
+  onRequestProcessManager?: () => void;
   navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
   navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
   onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
@@ -154,6 +155,11 @@ export function handleWorkbenchShortcut(
 
   if (matchesCommandShortcut(e, actions, "showKeyboardShortcuts", isMac) && actions.onRequestKeyboardShortcuts) {
     actions.onRequestKeyboardShortcuts();
+    return true;
+  }
+
+  if (matchesCommandShortcut(e, actions, "openProcessManager", isMac) && actions.onRequestProcessManager) {
+    actions.onRequestProcessManager();
     return true;
   }
 

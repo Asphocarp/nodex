@@ -156,7 +156,7 @@ export function ImagePreviewDialog({
         closeButtonAriaLabel="Close image preview"
       >
         <DialogTitle className="sr-only">Image preview</DialogTitle>
-        <DialogDescription className="sr-only">Preview of the user-sent image attachment.</DialogDescription>
+        <DialogDescription className="sr-only">Preview of the selected image.</DialogDescription>
         <img
           src={src}
           alt={alt}

@@ -32,6 +32,7 @@ import type { PanelDestination, PanelDestinationPickerScope } from "./panel-dest
 import {
   HeaderAction,
   HeaderActionProvider,
+  HeaderInlineActionRail,
   HeaderShellSlot,
 } from "./workbench-header-actions";
 import {
@@ -51,6 +52,11 @@ import {
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
 import {
+  readBrowserConfigFavicon,
+  readBrowserConfigTitle,
+  readBrowserConfigUrl,
+} from "@/features/browser-sidebar/browser-sidebar-tab-config";
+import {
   ContentSearchProvider,
   type ContentSearchDomain,
   type ContentSearchOpenRequest,
@@ -66,6 +72,9 @@ import {
 import { CommandPalette } from "./workbench-shell-deps";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
+import { WorkbenchAutomationsRouteShell } from "./workbench-automations-overlay";
+import { buildAutomationsPath } from "./workbench-automations-routes";
+import { WorkbenchProcessManagerDialog } from "./workbench-process-manager-dialog";
 import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarProjectsSectionActions } from "./sidebar-projects-section-actions";
@@ -85,11 +94,19 @@ import {
   ThreadSummaryPanelHeaderAction,
   useCodexAppServerControl,
   useConversation,
+  useConversationSubset,
   useCodexThreadStartProgress,
   useLocalConversationAccount,
   useLocalConversationConnection,
 } from "@/features/local-conversation";
 import { createThreadStageActions } from "@/features/local-conversation/thread-action-controller";
+import {
+  buildThreadSummaryPanelBrowserRow,
+  isThreadSummaryBrowserRowAgentWorking,
+} from "@/features/local-conversation/projection/thread-summary-panel-browser-row-model";
+import { buildThreadSummaryPanelSideChatRow } from "@/features/local-conversation/projection/thread-summary-panel-side-chat-row-model";
+import { buildThreadSummaryPanelScheduledAutomationRow } from "@/features/local-conversation/projection/thread-summary-panel-scheduled-automation-model";
+import { useRemoteHostedPipSummaryControl } from "@/features/local-conversation/view/use-remote-hosted-pip-summary-control";
 import { SubagentAvatar } from "@/features/local-conversation/view/shared/subagent-avatar";
 import { McpCapabilityViewFrame } from "@/features/local-conversation/view/shared/tools/mcp-capability-view-frame";
 import { PlanSidePanelTab } from "./plan-side-panel-tab";
@@ -109,6 +126,7 @@ import type { CalendarRangeState } from "@/lib/calendar-range";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { invoke } from "@/lib/api";
+import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automations";
 import { useKanban } from "@/lib/use-kanban";
 import { useCardDetail } from "@/lib/card-detail-store";
 import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
@@ -168,6 +186,7 @@ import {
   listProjectSessionPanelLeaves,
 } from "../../../shared/project-session-panel-layout";
 import { resolveCodexSubagentDisplayName } from "../../../shared/codex-subagent-display";
+import type { BrowserSidebarBrowserUseStateSnapshot } from "../../../shared/browser-sidebar";
 import { resolveSameLeafInsertionIndex } from "./panel-tab-dnd";
 import {
   readWorktreeStartMode,
@@ -190,13 +209,17 @@ import type {
   CardInput,
   CardUpdateMutationResult,
   CodexAccountSnapshot,
+  CodexBackgroundTerminalRow,
   CodexCollaborationModeKind,
+  CodexConversationItem,
+  CodexConversationSnapshot,
   CodexConnectionState,
   CodexCollaborationModePreset,
   CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   CodexThreadSummary,
   CodexTurnDiffReviewTarget,
+  GitReviewSource,
   CodexPromptInput,
   PanelId,
   Project,
@@ -211,12 +234,14 @@ import type {
   ProjectSessionPanelEnsureRightLeafResult,
   ProjectSessionSummary,
   ProjectSessionTab,
+  ProjectSessionTabConfig,
   ProjectSessionTabCreateInput,
   ProjectSessionThreadLink,
   ProjectSessionPanelSplitSide,
   WorktreeStartMode,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
+import type { TerminalSessionSnapshot } from "../../../shared/types";
 import type { ThreadActionControllerInput, ThreadStageActions } from "@/features/local-conversation";
 import type {
   ThreadOpenSideChatInput,
@@ -224,7 +249,11 @@ import type {
   ThreadOpenSubagentPayload,
   ThreadPlanSidePanelState,
   ThreadPlanSidePanelTarget,
+  NewChatStartInSelectorModel,
   ThreadSummaryPanelAuxiliaryRow,
+  ThreadSummaryPanelBrowserRow,
+  ThreadSummaryPanelComputerUsePipState,
+  ThreadSummaryPanelScheduledAutomationRow,
 } from "@/features/local-conversation/thread-stage-types";
 import {
   getDefaultDbViewPrefs,
@@ -337,6 +366,10 @@ import {
 } from "../../../shared/command-keybindings";
 import type { CommandMenuMode } from "@/lib/command-palette";
 import type {
+  CodexBackgroundTerminalProcessRow,
+  CodexBackgroundTerminalProcessThreadRef,
+} from "@/lib/codex-background-terminal-processes";
+import type {
   CommandPaletteShellCommandContext,
   CommandPaletteShellCommandHandlers,
 } from "@/lib/command-palette-commands";
@@ -412,13 +445,27 @@ interface PanelNewTabAction {
   Icon: ComponentType<{ className?: string }>;
 }
 
-type ProjectSessionPreviewTab = ProjectSessionTab & {
+type ProjectSessionFilesPreviewTab = WorkspaceFilesTab & {
   preview: true;
+  kind: "files";
+  config: WorkspaceFilesTab["config"] & {
+    hostId: "local";
+    workspaceRoot: string;
+    path: string;
+  };
 };
+
+type ProjectSessionPreviewTab =
+  | (ProjectSessionTab & { preview: true })
+  | ProjectSessionFilesPreviewTab;
 
 type DurableProjectSessionRenderableTab = ProjectSessionTab & {
   preview?: true;
 };
+
+type ProjectSessionTabPanelTab =
+  | DurableProjectSessionRenderableTab
+  | ProjectSessionFilesPreviewTab;
 
 type SideChatPanelTabStatus = "loading" | "ready" | "expired";
 
@@ -480,12 +527,40 @@ interface BackgroundAgentPanelTab {
   subagent: ThreadOpenSubagentPayload;
 }
 
+interface ProcessOutputPanelTab {
+  processOutputPanel: true;
+  id: string;
+  sessionId: string;
+  projectId: string | null;
+  panelId: "right";
+  leafId?: string;
+  threadId: string;
+  turnId: string | null;
+  itemId: string;
+  title: string;
+  stateKey: number;
+  command: string;
+  cwd: string | null;
+  terminalSessionId: string | null;
+}
+
+interface ProcessOutputPanelTarget {
+  threadId: string;
+  turnId?: string | null;
+  itemId: string;
+  command: string;
+  cwd: string | null;
+  terminalSessionId?: string | null;
+}
+
 type ProjectSessionRenderableTab =
   | DurableProjectSessionRenderableTab
+  | ProjectSessionFilesPreviewTab
   | SideChatPanelTab
   | McpAppPanelTab
   | PlanPanelTab
-  | BackgroundAgentPanelTab;
+  | BackgroundAgentPanelTab
+  | ProcessOutputPanelTab;
 
 interface CardStageHistoryModalContext {
   sessionId: string;
@@ -908,6 +983,7 @@ function resolveProjectTargetTabChromeContext(
     || isMcpAppPanelTab(tab)
     || isPlanPanelTab(tab)
     || isBackgroundAgentPanelTab(tab)
+    || isProcessOutputPanelTab(tab)
   ) return {};
   if (tab.kind !== "db_view" && tab.kind !== "card_stage") return {};
   if (!("projectId" in tab.config)) return {};
@@ -996,6 +1072,14 @@ function normalizeProjectPrimaryWorkspaceRoot(project: Project | null | undefine
 
 function projectWorkspaceRootOrNull(project: Project | null | undefined): string | null {
   return normalizeProjectPrimaryWorkspaceRoot(project) ?? null;
+}
+
+function getWorkspaceFileParentPath(path: string): string {
+  const normalizedPath = path.trim();
+  const lastSlashIndex = Math.max(normalizedPath.lastIndexOf("/"), normalizedPath.lastIndexOf("\\"));
+  if (lastSlashIndex > 0) return normalizedPath.slice(0, lastSlashIndex);
+  if (lastSlashIndex === 0) return normalizedPath.slice(0, 1);
+  return "";
 }
 
 function resolveSessionTerminalCwd(
@@ -1170,6 +1254,12 @@ function makePanelPreviewKey(sessionId: string, panelId: PanelId, leafId?: strin
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
+function resolvePanelPreviewKeyLeafId(key: string, sessionId: string, panelId: PanelId): string | null {
+  const leafPrefix = `${sessionId}:${panelId}:`;
+  if (!key.startsWith(leafPrefix)) return null;
+  return key.slice(leafPrefix.length) || null;
+}
+
 function makePanelLeafStateKey(sessionId: string, panelId: PanelId, leafId: string): string {
   return `${sessionId}:${panelId}:${leafId}`;
 }
@@ -1241,8 +1331,74 @@ function makeBackgroundAgentPanelKey(sessionId: string, panelId: PanelId, leafId
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
+function makeProcessOutputPanelKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
+  return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
+}
+
 function makeBackgroundAgentPanelTabId(threadId: string): string {
   return `background-agent:${threadId}`;
+}
+
+function encodeProcessOutputPanelTabPart(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function makeProcessOutputPanelTabId(threadId: string, itemId: string): string {
+  return `process-output:${encodeProcessOutputPanelTabPart(threadId)}:${encodeProcessOutputPanelTabPart(itemId)}`;
+}
+
+function resolveProcessOutputPanelTitle(command: string): string {
+  const trimmed = command.trim();
+  return trimmed.length > 0 ? trimmed : "Process output";
+}
+
+function findProcessOutputCommandItem(
+  conversation: CodexConversationSnapshot | null | undefined,
+  itemId: string,
+  turnId?: string | null,
+): CodexConversationItem | null {
+  if (!conversation) return null;
+
+  const candidateTurns = turnId
+    ? conversation.turns.filter((turn) => turn.turnId === turnId)
+    : conversation.turns;
+  for (const turn of candidateTurns) {
+    const item = turn.items.find((candidate) =>
+      candidate.itemId === itemId && candidate.kind === "commandExecution"
+    );
+    if (item) return item;
+  }
+
+  return null;
+}
+
+function buildProcessOutputTargetFromManagerRow(
+  row: CodexBackgroundTerminalProcessRow,
+  conversation: CodexConversationSnapshot | null | undefined,
+): ProcessOutputPanelTarget {
+  const item = findProcessOutputCommandItem(conversation, row.itemId, row.turnId);
+  return {
+    threadId: row.threadId,
+    turnId: item?.turnId ?? row.turnId,
+    itemId: row.itemId,
+    command: item?.command ?? row.command,
+    cwd: item?.cwd ?? row.cwd,
+    terminalSessionId: row.terminalSessionId,
+  };
+}
+
+function buildProcessOutputTargetFromSummaryRow(
+  threadId: string,
+  row: CodexBackgroundTerminalRow,
+): ProcessOutputPanelTarget {
+  return {
+    threadId,
+    turnId: row.turnId,
+    itemId: row.id,
+    command: row.command,
+    cwd: row.cwd,
+    terminalSessionId: null,
+  };
 }
 
 function createBackgroundAgentTabIcon(threadId: string): ComponentType<{ className?: string }> {
@@ -1274,13 +1430,22 @@ function isBackgroundAgentPanelTab(tab: ProjectSessionRenderableTab): tab is Bac
   return "backgroundAgent" in tab && tab.backgroundAgent === true;
 }
 
+function isProcessOutputPanelTab(tab: ProjectSessionRenderableTab): tab is ProcessOutputPanelTab {
+  return "processOutputPanel" in tab && tab.processOutputPanel === true;
+}
+
+function isProjectSessionFilesPreviewTab(tab: ProjectSessionRenderableTab): tab is ProjectSessionFilesPreviewTab {
+  return "kind" in tab && tab.kind === "files" && tab.preview === true && "workspaceRoot" in tab.config;
+}
+
 function isTransientPanelTab(
   tab: ProjectSessionRenderableTab,
-): tab is SideChatPanelTab | McpAppPanelTab | PlanPanelTab | BackgroundAgentPanelTab {
+): tab is SideChatPanelTab | McpAppPanelTab | PlanPanelTab | BackgroundAgentPanelTab | ProcessOutputPanelTab {
   return isSideChatPanelTab(tab)
     || isMcpAppPanelTab(tab)
     || isPlanPanelTab(tab)
-    || isBackgroundAgentPanelTab(tab);
+    || isBackgroundAgentPanelTab(tab)
+    || isProcessOutputPanelTab(tab);
 }
 
 function isRootThreadRightPanelComposerOverlayEligibleTab(
@@ -1397,12 +1562,9 @@ function makePreviewWorkspaceFileTab(
   session: ProjectSession,
   panelId: PanelId,
   input: { path: string; title: string; workspaceRoot: string },
-): ProjectSessionPreviewTab {
-  const projectId = resolveProjectBoundSessionId(session);
-  if (projectId === null) {
-    throw new Error("Projectless sessions cannot own project-scoped tabs");
-  }
+): ProjectSessionFilesPreviewTab {
   const now = new Date().toISOString();
+  const projectId = session.projectId;
   return {
     id: `preview:${session.id}:${panelId}:files:${input.path}`,
     sessionId: session.id,
@@ -1626,6 +1788,10 @@ export function WorkbenchShell({
   const [backgroundAgentTabsBySession, setBackgroundAgentTabsBySession] =
     useState<Record<string, BackgroundAgentPanelTab[]>>({});
   const [backgroundAgentActiveTabByPanel, setBackgroundAgentActiveTabByPanel] = useState<Record<string, string>>({});
+  const [processOutputTabsBySession, setProcessOutputTabsBySession] =
+    useState<Record<string, ProcessOutputPanelTab[]>>({});
+  const [processOutputActiveTabByPanel, setProcessOutputActiveTabByPanel] = useState<Record<string, string>>({});
+  const [pendingProcessOutputOpen, setPendingProcessOutputOpen] = useState<ProcessOutputPanelTarget | null>(null);
   const [activePlanKeyBySession, setActivePlanKeyBySession] = useState<Record<string, string>>({});
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
@@ -1707,6 +1873,8 @@ export function WorkbenchShell({
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
   const lastHandledKeyboardShortcutsSettingsOpenTickRef = useRef(keyboardShortcutsSettingsOpenTick);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
+  const [automationsPath, setAutomationsPath] = useState<string | null>(null);
+  const [processManagerOpen, setProcessManagerOpen] = useState(false);
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
   const [composerEnterBehavior, setComposerEnterBehavior] = useState<ComposerEnterBehavior>(readComposerEnterBehavior);
   const [worktreeStartMode, setWorktreeStartMode] = useState<WorktreeStartMode>(readWorktreeStartMode);
@@ -1717,6 +1885,11 @@ export function WorkbenchShell({
   );
   const [selectedTurnDiffReviewTarget, setSelectedTurnDiffReviewTarget] =
     useState<CodexTurnDiffReviewTarget | null>(null);
+  const summaryGitReviewRequestKeyRef = useRef(0);
+  const [summaryGitReviewRequest, setSummaryGitReviewRequest] = useState<{
+    source: GitReviewSource;
+    key: number;
+  } | null>(null);
   const codexAccount = useLocalConversationAccount();
   const codexConnection = useLocalConversationConnection();
   const codexAccountActions = useCodexAccountActions();
@@ -1735,6 +1908,7 @@ export function WorkbenchShell({
     ?? projectlessSessions.find((session) => session.id === activeSessionId)
     ?? null;
   const activeSession = selectedActiveSession ?? activeSessions[0] ?? null;
+  const scheduledAutomationsQuery = useCodexScheduledAutomations();
   const refreshProjectSessionSummariesRef =
     useRef<((projectId: string | null) => Promise<ProjectSessionSummary[]>) | null>(null);
   const pendingSidebarSessionScopesRef = useRef<{
@@ -1796,6 +1970,27 @@ export function WorkbenchShell({
     () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
     [projectlessSessions, sessionsByProject],
   );
+  const processManagerThreads = useMemo<CodexBackgroundTerminalProcessThreadRef[]>(() => {
+    const seen = new Set<string>();
+    const refs: CodexBackgroundTerminalProcessThreadRef[] = [];
+    for (const session of knownSessions) {
+      const threadId = session.thread?.threadId;
+      if (!threadId || seen.has(threadId)) {
+        continue;
+      }
+      seen.add(threadId);
+      refs.push({
+        threadId,
+        title: session.displayTitle || threadId,
+      });
+    }
+    return refs;
+  }, [knownSessions]);
+  const processManagerThreadIds = useMemo(
+    () => processManagerThreads.map((thread) => thread.threadId),
+    [processManagerThreads],
+  );
+  const processManagerConversationsById = useConversationSubset(processManagerThreadIds);
   useEffect(() => {
     setSidebarArchiveSuppressedKeys((current) => {
       if (current.size === 0) return current;
@@ -1840,6 +2035,8 @@ export function WorkbenchShell({
   const rightPlanTabs = activeSessionPlanTabs.filter((tab) => tab.panelId === "right");
   const activeSessionBackgroundAgentTabs = activeSession ? backgroundAgentTabsBySession[activeSession.id] ?? [] : [];
   const rightBackgroundAgentTabs = activeSessionBackgroundAgentTabs.filter((tab) => tab.panelId === "right");
+  const activeSessionProcessOutputTabs = activeSession ? processOutputTabsBySession[activeSession.id] ?? [] : [];
+  const rightProcessOutputTabs = activeSessionProcessOutputTabs.filter((tab) => tab.panelId === "right");
   const rightRenderableTabs: ProjectSessionRenderableTab[] = rightPreviewTab
     ? [
         ...rightPanelTabs,
@@ -1847,9 +2044,17 @@ export function WorkbenchShell({
         ...rightMcpAppTabs,
         ...rightPlanTabs,
         ...rightBackgroundAgentTabs,
+        ...rightProcessOutputTabs,
         rightPreviewTab,
       ]
-    : [...rightPanelTabs, ...rightSideChatTabs, ...rightMcpAppTabs, ...rightPlanTabs, ...rightBackgroundAgentTabs];
+    : [
+        ...rightPanelTabs,
+        ...rightSideChatTabs,
+        ...rightMcpAppTabs,
+        ...rightPlanTabs,
+        ...rightBackgroundAgentTabs,
+        ...rightProcessOutputTabs,
+      ];
   const bottomRenderableTabs: ProjectSessionRenderableTab[] = bottomPreviewTab
     ? [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs, bottomPreviewTab]
     : [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs];
@@ -1878,6 +2083,11 @@ export function WorkbenchShell({
       ?? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, "right")]
       ?? null
     : null;
+  const rightProcessOutputActiveTabId = activeSession
+    ? processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, "right", rightActiveLeafId)]
+      ?? processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, "right")]
+      ?? null
+    : null;
   const bottomMcpAppActiveTabId = activeSession
     ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom", bottomActiveLeafId)]
       ?? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom")]
@@ -1895,6 +2105,9 @@ export function WorkbenchShell({
       : null)
     ?? (rightBackgroundAgentActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightBackgroundAgentActiveTabId)
       ? rightBackgroundAgentActiveTabId
+      : null)
+    ?? (rightProcessOutputActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightProcessOutputActiveTabId)
+      ? rightProcessOutputActiveTabId
       : rightPanel ? getProjectSessionPanelActiveLeaf(rightPanel.layout).activeTabId : null)
     ?? rightRenderableTabs[0]?.id
     ?? null;
@@ -2151,19 +2364,31 @@ export function WorkbenchShell({
   ]);
 
   const openSettings = useCallback(() => {
+    setAutomationsPath(null);
     setSettingsPath(buildSettingsPath("general-settings"));
   }, []);
 
   const openKeyboardShortcutsSettings = useCallback(() => {
+    setAutomationsPath(null);
     setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
   }, []);
 
   const openLocalEnvironmentsSettings = useCallback(() => {
+    setAutomationsPath(null);
     setSettingsPath(buildSettingsPath("local-environments"));
   }, []);
 
   const closeSettings = useCallback(() => {
     setSettingsPath(null);
+  }, []);
+
+  const openAutomations = useCallback((path = buildAutomationsPath()) => {
+    setSettingsPath(null);
+    setAutomationsPath(path);
+  }, []);
+
+  const closeAutomations = useCallback(() => {
+    setAutomationsPath(null);
   }, []);
 
   useEffect(() => {
@@ -2176,6 +2401,7 @@ export function WorkbenchShell({
     }
 
     lastHandledSettingsToggleTickRef.current = settingsToggleTick;
+    setAutomationsPath(null);
     setSettingsPath((current) => current ? null : buildSettingsPath("general-settings"));
   }, [settingsToggleTick]);
 
@@ -3023,14 +3249,19 @@ export function WorkbenchShell({
       if (tab.id === excludedTabId) return false;
       return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
     }).length;
+    const processOutputCount = (processOutputTabsBySession[activeSession.id] ?? []).filter((tab) => {
+      if (tab.id === excludedTabId) return false;
+      return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
+    }).length;
     const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leafId, previewTabsByPanel);
     const previewCount = previewTab && previewTab.id !== excludedTabId ? 1 : 0;
-    return durableCount + sideChatCount + mcpAppCount + planCount + backgroundAgentCount + previewCount;
+    return durableCount + sideChatCount + mcpAppCount + planCount + backgroundAgentCount + processOutputCount + previewCount;
   }, [
     activeSession,
     backgroundAgentTabsBySession,
     mcpAppTabsBySession,
     planTabsBySession,
+    processOutputTabsBySession,
     previewTabsByPanel,
     sideChatTabsBySession,
   ]);
@@ -3105,6 +3336,23 @@ export function WorkbenchShell({
     });
   }, []);
 
+  const clearProcessOutputActiveTab = useCallback((
+    sessionId: string,
+    panelId: PanelId,
+    leafId?: string | null,
+  ) => {
+    setProcessOutputActiveTabByPanel((current) => {
+      const keys = [
+        makeProcessOutputPanelKey(sessionId, panelId, leafId),
+        makeProcessOutputPanelKey(sessionId, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+  }, []);
+
   const activatePanelTabAfterClose = useCallback(async (
     panelId: PanelId,
     tabId: string | null,
@@ -3117,6 +3365,7 @@ export function WorkbenchShell({
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
       setMcpAppActiveTabByPanel((current) => {
         const keys = [
           makeMcpAppPanelKey(activeSession.id, panelId, leafId),
@@ -3137,6 +3386,7 @@ export function WorkbenchShell({
     if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, leafId),
@@ -3158,6 +3408,7 @@ export function WorkbenchShell({
     if (planTab) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, leafId),
@@ -3191,6 +3442,7 @@ export function WorkbenchShell({
 
     if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, leafId),
@@ -3228,9 +3480,50 @@ export function WorkbenchShell({
       return;
     }
 
+    if ((processOutputTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+      setPlanActiveTabByPanel((current) => {
+        const keys = [
+          makePlanPanelKey(activeSession.id, panelId, leafId),
+          makePlanPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, leafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setProcessOutputActiveTabByPanel((current) => ({
+        ...current,
+        [makeProcessOutputPanelKey(activeSession.id, panelId, leafId)]: tabId,
+      }));
+      return;
+    }
+
     if (!activeSession.tabs.some((tab) => tab.id === tabId && tab.panelId === panelId)) return;
 
     clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
     setPlanActiveTabByPanel((current) => {
       const keys = [
         makePlanPanelKey(activeSession.id, panelId, leafId),
@@ -3267,8 +3560,10 @@ export function WorkbenchShell({
     backgroundAgentTabsBySession,
     clearPanelPreviewTab,
     clearBackgroundAgentActiveTab,
+    clearProcessOutputActiveTab,
     mcpAppTabsBySession,
     planTabsBySession,
+    processOutputTabsBySession,
     previewTabsByPanel,
     setActivePanelTab,
     sideChatTabsBySession,
@@ -3540,6 +3835,50 @@ export function WorkbenchShell({
     updateActivePanel,
   ]);
 
+  const closeProcessOutputPanelTab = useCallback(async (
+    panelId: PanelId,
+    tabId: string,
+    replacementTabId: string | null = null,
+  ) => {
+    if (!activeSession) return;
+    const processOutputTab = (processOutputTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
+    if (!processOutputTab) return;
+    const targetLeafId = processOutputTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+
+    setProcessOutputTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      return {
+        ...current,
+        [activeSession.id]: tabs.filter((tab) => tab.id !== tabId),
+      };
+    });
+    setProcessOutputActiveTabByPanel((current) => {
+      const keys = [
+        makeProcessOutputPanelKey(activeSession.id, panelId, processOutputTab.leafId),
+        makeProcessOutputPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => current[key] === tabId)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+
+    await activatePanelTabAfterClose(panelId, replacementTabId, targetLeafId);
+    if (getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: tabId }) === 0) {
+      await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: tabId });
+    }
+    if (getPanelVisibleTabCount(panelId, { excludingTabId: tabId }) > 0) return;
+    await updateActivePanel(panelId, { collapsed: true });
+  }, [
+    activeSession,
+    activatePanelTabAfterClose,
+    getPanelVisibleLeafTabCount,
+    getPanelVisibleTabCount,
+    processOutputTabsBySession,
+    removeEmptyVisiblePanelLeaf,
+    updateActivePanel,
+  ]);
+
   const closePanelTab = useCallback(async (
     panelId: PanelId,
     tabId: string,
@@ -3569,6 +3908,10 @@ export function WorkbenchShell({
       await closeBackgroundAgentPanelTab(panelId, tabId, replacementTabId);
       return;
     }
+    if ((processOutputTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      await closeProcessOutputPanelTab(panelId, tabId, replacementTabId);
+      return;
+    }
 
     const preserveEmptyLeafIds = getPreserveEmptyLeafIdsAfterDurableRemoval(panelId, targetLeafId, tabId);
     const durableReplacementTabId = replacementTabId && activeSession.tabs.some((tab) =>
@@ -3592,6 +3935,7 @@ export function WorkbenchShell({
     activatePanelTabAfterClose,
     backgroundAgentTabsBySession,
     closeBackgroundAgentPanelTab,
+    closeProcessOutputPanelTab,
     closePreviewTab,
     closeMcpAppPanelTab,
     closePlanPanelTab,
@@ -3600,6 +3944,7 @@ export function WorkbenchShell({
     getPreserveEmptyLeafIdsAfterDurableRemoval,
     mcpAppTabsBySession,
     planTabsBySession,
+    processOutputTabsBySession,
     previewTabsByPanel,
     resolvePanelTabCloseTarget,
     sideChatTabsBySession,
@@ -3614,6 +3959,7 @@ export function WorkbenchShell({
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3643,6 +3989,7 @@ export function WorkbenchShell({
     if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3674,6 +4021,7 @@ export function WorkbenchShell({
     if (planTab) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3707,6 +4055,7 @@ export function WorkbenchShell({
 
     if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3744,7 +4093,48 @@ export function WorkbenchShell({
       return;
     }
 
+    if ((processOutputTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
+      setPlanActiveTabByPanel((current) => {
+        const keys = [
+          makePlanPanelKey(activeSession.id, panelId, targetLeafId),
+          makePlanPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, targetLeafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setProcessOutputActiveTabByPanel((current) => ({
+        ...current,
+        [makeProcessOutputPanelKey(activeSession.id, panelId, targetLeafId)]: tabId,
+      }));
+      return;
+    }
+
     clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
+    clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
     setPlanActiveTabByPanel((current) => {
       const keys = [
         makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -3781,8 +4171,10 @@ export function WorkbenchShell({
     backgroundAgentTabsBySession,
     clearPanelPreviewTab,
     clearBackgroundAgentActiveTab,
+    clearProcessOutputActiveTab,
     mcpAppTabsBySession,
     planTabsBySession,
+    processOutputTabsBySession,
     previewTabsByPanel,
     setActivePanelTab,
     sideChatTabsBySession,
@@ -3843,6 +4235,7 @@ export function WorkbenchShell({
     const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
       ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
     if (!previewTab || previewTab.id !== tabId) return;
+    if (isProjectSessionFilesPreviewTab(previewTab) && previewTab.config.projectId === null) return;
     if (pinningPreviewTabIdsRef.current.has(tabId)) return;
 
     pinningPreviewTabIdsRef.current.add(tabId);
@@ -3852,6 +4245,9 @@ export function WorkbenchShell({
         panelId,
         leafId: targetLeafId,
       });
+      const previewTabConfig: ProjectSessionTabConfig = isProjectSessionFilesPreviewTab(previewTab)
+        ? { ...previewTab.config, projectId }
+        : previewTab.config;
       const createInput: ProjectSessionTabCreateInput = {
         sessionId: activeSession.id,
         projectId,
@@ -3860,7 +4256,7 @@ export function WorkbenchShell({
         ...(previewTab.kind === "card_stage" ? { clientTabId: previewTab.id } : {}),
         kind: previewTab.kind,
         title: previewTab.title,
-        config: previewTab.config,
+        config: previewTabConfig,
       };
       await invoke("project-session-tabs:create", createInput);
       if (previewTab.kind === "card_stage") {
@@ -4061,6 +4457,7 @@ export function WorkbenchShell({
       for (const key of keys) delete next[key];
       return next;
     });
+    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
     clearPanelPreviewTab(activeSession.id, panelId, leafId);
     await ensureActivePanelOpenWithoutRefresh(panelId);
 
@@ -4125,6 +4522,7 @@ export function WorkbenchShell({
     }
   }, [
     activeSession,
+    clearProcessOutputActiveTab,
     clearPanelPreviewTab,
     ensureActivePanelOpenWithoutRefresh,
     sideChatTabsBySession,
@@ -4189,12 +4587,13 @@ export function WorkbenchShell({
       for (const key of keys) delete next[key];
       return next;
     });
+    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
     setMcpAppActiveTabByPanel((current) => ({
       ...current,
       [makeMcpAppPanelKey(activeSession.id, panelId, leafId)]: tabId,
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
-  }, [activeSession, clearPanelPreviewTab, ensureActivePanelOpenWithoutRefresh]);
+  }, [activeSession, clearPanelPreviewTab, clearProcessOutputActiveTab, ensureActivePanelOpenWithoutRefresh]);
 
   const openPlanSidePanel = useCallback(async (input: ThreadPlanSidePanelTarget) => {
     if (!activeSession || activeSession.projectId === null) return;
@@ -4259,6 +4658,7 @@ export function WorkbenchShell({
       for (const key of keys) delete next[key];
       return next;
     });
+    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
     setPlanActiveTabByPanel((current) => ({
       ...current,
       [makePlanPanelKey(activeSession.id, panelId, leafId)]: tabId,
@@ -4272,7 +4672,7 @@ export function WorkbenchShell({
       [makePanelPreviewKey(activeSession.id, panelId)]: false,
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
-  }, [activeSession, clearPanelPreviewTab, ensureActivePanelOpenWithoutRefresh]);
+  }, [activeSession, clearPanelPreviewTab, clearProcessOutputActiveTab, ensureActivePanelOpenWithoutRefresh]);
 
   const recreateSideChatPanelTab = useCallback(async (tabId: string) => {
     if (!activeSession) return;
@@ -4385,11 +4785,14 @@ export function WorkbenchShell({
     title: string;
     panelId: PanelId;
   }) => {
-    if (!activeSession) return;
+    if (!activeSession) return false;
     const sessionProjectId = activeSession.projectId;
-    if (sessionProjectId === null) return;
-    const project = projects.find((candidate) => candidate.id === sessionProjectId) ?? null;
-    const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(project) ?? "";
+    const project = sessionProjectId === null
+      ? null
+      : projects.find((candidate) => candidate.id === sessionProjectId) ?? null;
+    const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(project)
+      ?? getWorkspaceFileParentPath(input.path);
+    if (!workspaceRoot) return false;
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "files"
       && tab.panelId === input.panelId
@@ -4398,7 +4801,7 @@ export function WorkbenchShell({
     );
     if (existing) {
       await setActivePanelTab(input.panelId, existing.id, { openPanel: true });
-      return;
+      return true;
     }
 
     const leafId = resolveSessionPanelActiveLeafId(activeSession, input.panelId);
@@ -4412,6 +4815,7 @@ export function WorkbenchShell({
     }));
     await ensureActivePanelOpenWithoutRefresh(input.panelId);
     await refreshProjectSessions(sessionProjectId);
+    return true;
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, projects, refreshProjectSessions, setActivePanelTab]);
 
   const openCardTab = useCallback<OpenCardTabHandler>(async (projectId, cardId, titleSnapshot, options) => {
@@ -4613,6 +5017,12 @@ export function WorkbenchShell({
         return;
       }
 
+      if (matchesKeyboardEventToCommand(event, shortcutState, "openProcessManager")) {
+        event.preventDefault();
+        setProcessManagerOpen(true);
+        return;
+      }
+
       if (matchesKeyboardEventToCommand(event, shortcutState, "openThreadInNewWindow")) {
         if (!activeSession) return;
         event.preventDefault();
@@ -4773,6 +5183,7 @@ export function WorkbenchShell({
       for (const key of keys) delete next[key];
       return next;
     });
+    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
     setBackgroundAgentActiveTabByPanel((current) => ({
       ...current,
       [makeBackgroundAgentPanelKey(activeSession.id, panelId, leafId)]: tabId,
@@ -4786,6 +5197,7 @@ export function WorkbenchShell({
   }, [
     activeSession,
     clearPanelPreviewTab,
+    clearProcessOutputActiveTab,
     ensureActivePanelOpenWithoutRefresh,
     workbenchCodexControl,
   ]);
@@ -4827,8 +5239,142 @@ export function WorkbenchShell({
     await openAttachedThreadSession(threadId);
   }, [openAttachedThreadSession]);
 
+  const openProcessOutputInCurrentSession = useCallback(async (target: ProcessOutputPanelTarget): Promise<boolean> => {
+    if (!activeSession?.thread || activeSession.thread.threadId !== target.threadId) return false;
+
+    const panelId = "right" as const;
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const tabId = makeProcessOutputPanelTabId(target.threadId, target.itemId);
+    const tab: ProcessOutputPanelTab = {
+      processOutputPanel: true,
+      id: tabId,
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      leafId,
+      threadId: target.threadId,
+      turnId: target.turnId ?? null,
+      itemId: target.itemId,
+      title: resolveProcessOutputPanelTitle(target.command),
+      stateKey: Date.now(),
+      command: target.command,
+      cwd: target.cwd,
+      terminalSessionId: target.terminalSessionId ?? null,
+    };
+
+    setProcessOutputTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      const existingIndex = tabs.findIndex((candidate) => candidate.id === tabId);
+      if (existingIndex < 0) {
+        return {
+          ...current,
+          [activeSession.id]: [...tabs, tab],
+        };
+      }
+
+      return {
+        ...current,
+        [activeSession.id]: tabs.map((candidate) =>
+          candidate.id === tabId
+            ? { ...candidate, ...tab, stateKey: candidate.stateKey + 1 }
+            : candidate
+        ),
+      };
+    });
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
+    clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+    setPlanActiveTabByPanel((current) => {
+      const keys = [
+        makePlanPanelKey(activeSession.id, panelId, leafId),
+        makePlanPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setMcpAppActiveTabByPanel((current) => {
+      const keys = [
+        makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+        makeMcpAppPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setSideChatActiveTabByPanel((current) => {
+      const keys = [
+        makeSideChatPanelKey(activeSession.id, panelId, leafId),
+        makeSideChatPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setProcessOutputActiveTabByPanel((current) => ({
+      ...current,
+      [makeProcessOutputPanelKey(activeSession.id, panelId, leafId)]: tabId,
+    }));
+    setPanelCollapsedOverrides((current) => ({
+      ...current,
+      [makePanelPreviewKey(activeSession.id, panelId)]: false,
+    }));
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    return true;
+  }, [
+    activeSession,
+    clearBackgroundAgentActiveTab,
+    clearPanelPreviewTab,
+    ensureActivePanelOpenWithoutRefresh,
+  ]);
+
+  const openProcessOutputForThread = useCallback(async (target: ProcessOutputPanelTarget) => {
+    setPendingProcessOutputOpen(target);
+    await openAttachedThreadSession(target.threadId);
+  }, [openAttachedThreadSession]);
+
+  useEffect(() => {
+    if (!pendingProcessOutputOpen) return;
+    if (!activeSession?.thread || activeSession.thread.threadId !== pendingProcessOutputOpen.threadId) return;
+
+    let cancelled = false;
+    void openProcessOutputInCurrentSession(pendingProcessOutputOpen)
+      .then((opened) => {
+        if (cancelled || !opened) return;
+        setPendingProcessOutputOpen((current) =>
+          current === pendingProcessOutputOpen ? null : current
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSession?.thread,
+    openProcessOutputInCurrentSession,
+    pendingProcessOutputOpen,
+  ]);
+
+  const openProcessManagerOutput = useCallback((row: CodexBackgroundTerminalProcessRow) => {
+    const conversation = processManagerConversationsById[row.threadId] ?? null;
+    const target = buildProcessOutputTargetFromManagerRow(row, conversation);
+    void openProcessOutputForThread(target);
+  }, [openProcessOutputForThread, processManagerConversationsById]);
+
   const openTurnDiffReview = useCallback((target: CodexTurnDiffReviewTarget) => {
+    setSummaryGitReviewRequest(null);
     setSelectedTurnDiffReviewTarget(target);
+    void createManualTab("review", "right");
+  }, [createManualTab]);
+  const openSummaryGitReview = useCallback<NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>>((input) => {
+    summaryGitReviewRequestKeyRef.current += 1;
+    setSelectedTurnDiffReviewTarget(null);
+    setSummaryGitReviewRequest({
+      source: input.source,
+      key: summaryGitReviewRequestKeyRef.current,
+    });
     void createManualTab("review", "right");
   }, [createManualTab]);
 
@@ -4839,6 +5385,14 @@ export function WorkbenchShell({
       panelId: "right",
     });
   }, [openWorkspaceFileTab]);
+  const openSummaryOutputInSidePanel = useCallback<NonNullable<ThreadStageActions["onOpenSummaryOutputInSidePanel"]>>(async (target) => {
+    if (!activeSession) return false;
+    return await openWorkspaceFileTab({
+      path: target.path,
+      title: target.title,
+      panelId: "right",
+    });
+  }, [activeSession, openWorkspaceFileTab]);
 
   const forkSessionFromTurn = useCallback(async (input: {
     threadId: string;
@@ -5595,6 +6149,7 @@ export function WorkbenchShell({
           ?? null;
         const activeTab = activeTabId ? renderableTabs.find((tab) => tab.id === activeTabId) : null;
         if (!activeTab || isTransientPanelTab(activeTab)) continue;
+        if (isProjectSessionFilesPreviewTab(activeTab)) continue;
 
         const cardRef = readCardStagePanelTabCardRef(activeTab);
         if (!cardRef) continue;
@@ -5659,8 +6214,12 @@ export function WorkbenchShell({
               : isPlanPanelTab(tab)
                 ? ComposerPlanModeIcon
                 : isBackgroundAgentPanelTab(tab)
-                ? createBackgroundAgentTabIcon(tab.threadId)
-                : getBrowserTabIcon(tab),
+                  ? createBackgroundAgentTabIcon(tab.threadId)
+                  : isProcessOutputPanelTab(tab)
+                    ? CodexSidePanelTerminalIcon
+                    : isProjectSessionFilesPreviewTab(tab)
+                      ? getTabIcon(tab.kind)
+                      : getBrowserTabIcon(tab),
         closable: isSideChatPanelTab(tab)
           ? tab.status !== "loading"
           : isMcpAppPanelTab(tab)
@@ -5669,7 +6228,9 @@ export function WorkbenchShell({
               ? true
               : isBackgroundAgentPanelTab(tab)
                 ? true
-              : tab.preview === true || activeSession.tabs.length > 1,
+                : isProcessOutputPanelTab(tab)
+                  ? true
+                  : tab.preview === true || activeSession.tabs.length > 1,
         preview: transientPanelTab ? undefined : tab.preview,
         keepMounted,
         reorderable: transientPanelTab ? false : tab.preview === true ? false : true,
@@ -5719,6 +6280,9 @@ export function WorkbenchShell({
           }
           if (isPlanPanelTab(tab)) {
             return <PlanSidePanelTab key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} content={tab.content} />;
+          }
+          if (isProcessOutputPanelTab(tab)) {
+            return <ProcessOutputPanelTabView key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
           }
           if (isBackgroundAgentPanelTab(tab)) {
             return (
@@ -5770,6 +6334,7 @@ export function WorkbenchShell({
               cardStageHistoryModal={cardStageHistoryModal}
               onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
               selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
+              summaryGitReviewRequest={summaryGitReviewRequest}
               browserBoundsSyncTrigger={tab.panelId === "bottom"
                 ? bottomPanelMotion.animatedSize
                 : rightPanelMotion.animatedSize}
@@ -5804,10 +6369,13 @@ export function WorkbenchShell({
         const backgroundAgentTabs = (backgroundAgentTabsBySession[activeSession.id] ?? []).filter((tab) =>
           tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
         );
+        const processOutputTabs = (processOutputTabsBySession[activeSession.id] ?? []).filter((tab) =>
+          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+        );
         const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leaf.id, previewTabsByPanel);
         const renderableTabs: ProjectSessionRenderableTab[] = previewTab
-          ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, previewTab]
-          : [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs];
+          ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs, previewTab]
+          : [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs];
         const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
           ?? (leaf.id === activeLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId)] : null)
           ?? null;
@@ -5823,6 +6391,12 @@ export function WorkbenchShell({
             ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId)]
             : null)
           ?? null;
+        const processOutputActiveTabId =
+          processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === activeLeafId
+            ? processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, panelId)]
+            : null)
+          ?? null;
         const activeTabId = previewTab?.id
           ?? (planActiveTabId && renderableTabs.some((tab) => tab.id === planActiveTabId)
             ? planActiveTabId
@@ -5835,6 +6409,9 @@ export function WorkbenchShell({
             : null)
           ?? (backgroundAgentActiveTabId && renderableTabs.some((tab) => tab.id === backgroundAgentActiveTabId)
             ? backgroundAgentActiveTabId
+            : null)
+          ?? (processOutputActiveTabId && renderableTabs.some((tab) => tab.id === processOutputActiveTabId)
+            ? processOutputActiveTabId
             : leaf.activeTabId)
           ?? renderableTabs[0]?.id
           ?? null;
@@ -5870,6 +6447,8 @@ export function WorkbenchShell({
     mcpAppTabsBySession,
     planActiveTabByPanel,
     planTabsBySession,
+    processOutputActiveTabByPanel,
+    processOutputTabsBySession,
     onLeaveCardStageCard,
     onReminderHandled,
     openSideChat,
@@ -5879,6 +6458,7 @@ export function WorkbenchShell({
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
+    openSummaryGitReview,
     openTurnDiffReview,
     openTurnDiffFileInSidePanel,
     pendingReminderOpen,
@@ -5895,6 +6475,7 @@ export function WorkbenchShell({
     sideChatActiveTabByPanel,
     sideChatTabsBySession,
     selectedTurnDiffReviewTarget,
+    summaryGitReviewRequest,
     terminalSessionVersion,
     toggleCardStageHistoryModal,
     previewTabsByPanel,
@@ -5942,8 +6523,8 @@ export function WorkbenchShell({
   const browserRetentionTabs = useMemo<ProjectSessionTab[]>(() => {
     if (!activeSession) return [];
     const durableBrowserTabs = activeSession.tabs.filter((tab) => tab.kind === "browser");
-    const previewBrowserTabs = Object.values(previewTabsByPanel).filter((tab): tab is ProjectSessionPreviewTab =>
-      tab.sessionId === activeSession.id && tab.kind === "browser"
+    const previewBrowserTabs = Object.values(previewTabsByPanel).filter((tab): tab is ProjectSessionTab & { preview: true } =>
+      tab.sessionId === activeSession.id && tab.kind === "browser" && typeof tab.projectId === "string"
     );
     return [...durableBrowserTabs, ...previewBrowserTabs];
   }, [activeSession, previewTabsByPanel]);
@@ -6264,32 +6845,109 @@ export function WorkbenchShell({
     if (threadSummaryPanelMode === "popover") return;
     setThreadSummaryPanelPopoverOpen(false);
   }, [threadSummaryPanelMode]);
+  const [browserUseState, setBrowserUseState] = useState<BrowserSidebarBrowserUseStateSnapshot | null>(null);
+  useEffect(() => {
+    const unsubscribeBrowserUse = window.api?.on("browser-sidebar-browser-use-state", (payload) => {
+      setBrowserUseState(payload as BrowserSidebarBrowserUseStateSnapshot);
+    });
+    return () => {
+      unsubscribeBrowserUse?.();
+    };
+  }, []);
+  const releasedBrowserUseTabIds = useMemo(() => new Set(
+    (browserUseState?.tabs ?? [])
+      .filter((tab) => tab.released)
+      .map((tab) => tab.tabId),
+  ), [browserUseState]);
+  const threadSummarySideChatThreadIds = useMemo(() => {
+    if (!activeSession) return [];
+    return (sideChatTabsBySession[activeSession.id] ?? []).flatMap((tab) =>
+      tab.threadId ? [tab.threadId] : []
+    );
+  }, [activeSession, sideChatTabsBySession]);
+  const threadSummarySideChatConversationsById = useConversationSubset(threadSummarySideChatThreadIds);
   const threadSummarySideChatRows = useMemo<ThreadSummaryPanelAuxiliaryRow[]>(() => {
     if (!activeSession) return [];
-    return (sideChatTabsBySession[activeSession.id] ?? []).map((tab) => ({
-      id: tab.id,
-      title: tab.title,
-      status: tab.status === "ready" ? "Open" : tab.status === "loading" ? "Starting" : "Expired",
-    }));
-  }, [activeSession, sideChatTabsBySession]);
-  const threadSummaryBrowserRows = useMemo<ThreadSummaryPanelAuxiliaryRow[]>(() => {
+    return (sideChatTabsBySession[activeSession.id] ?? []).map((tab) =>
+      buildThreadSummaryPanelSideChatRow(tab, tab.threadId ? threadSummarySideChatConversationsById[tab.threadId] : null)
+    );
+  }, [activeSession, sideChatTabsBySession, threadSummarySideChatConversationsById]);
+  const threadSummaryBrowserRows = useMemo<ThreadSummaryPanelBrowserRow[]>(() => {
     if (!activeSession) return [];
     const browserTabs = activeSession.tabs
       .filter((tab) => tab.kind === "browser")
-      .map((tab) => ({
+      .map((tab) => buildThreadSummaryPanelBrowserRow({
         id: tab.id,
-        title: tab.title,
-        status: tab.panelId === "right" ? "Right panel" : "Bottom panel",
+        tabTitle: tab.title,
+        configTitle: readBrowserConfigTitle(tab),
+        url: readBrowserConfigUrl(tab),
+        faviconUrl: readBrowserConfigFavicon(tab),
+        isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
+          browserUseState?.activeTabId,
+          releasedBrowserUseTabIds,
+          tab.id,
+        ),
+        panelId: tab.panelId,
+        leafId: resolveLeafIdForPanelTab(activeSession, tab.panelId, tab.id),
       }));
-    const browserPreviewTabs = Object.values(previewTabsByPanel)
-      .filter((tab) => tab.sessionId === activeSession.id && tab.kind === "browser")
-      .map((tab) => ({
+    const browserPreviewTabs = Object.entries(previewTabsByPanel)
+      .filter(([, tab]) => tab.sessionId === activeSession.id && tab.kind === "browser")
+      .map(([key, tab]) => buildThreadSummaryPanelBrowserRow({
         id: tab.id,
-        title: tab.title,
-        status: "Preview",
+        tabTitle: tab.title,
+        configTitle: readBrowserConfigTitle(tab),
+        url: readBrowserConfigUrl(tab),
+        faviconUrl: readBrowserConfigFavicon(tab),
+        isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
+          browserUseState?.activeTabId,
+          releasedBrowserUseTabIds,
+          tab.id,
+        ),
+        panelId: tab.panelId,
+        leafId: resolvePanelPreviewKeyLeafId(key, activeSession.id, tab.panelId),
       }));
     return [...browserTabs, ...browserPreviewTabs];
-  }, [activeSession, previewTabsByPanel]);
+  }, [activeSession, browserUseState?.activeTabId, previewTabsByPanel, releasedBrowserUseTabIds]);
+  const threadSummaryScheduledAutomation = useMemo<ThreadSummaryPanelScheduledAutomationRow | null>(() =>
+    buildThreadSummaryPanelScheduledAutomationRow({
+      automations: scheduledAutomationsQuery.data ?? [],
+      conversationId: activeSession?.thread?.threadId ?? null,
+    }), [activeSession?.thread?.threadId, scheduledAutomationsQuery.data]);
+  const remoteHostedPipSummaryControl = useRemoteHostedPipSummaryControl(activeSession?.thread?.threadId ?? null);
+  const openSummarySideChatRow = useCallback<NonNullable<ThreadStageActions["onOpenSummarySideChatRow"]>>(async ({
+    rowId,
+    panelId,
+    leafId,
+  }) => {
+    if (!activeSession) return;
+    await setActivePanelCollapsed(panelId, false);
+    await selectPanelTab(panelId, rowId, leafId ?? undefined);
+  }, [activeSession, selectPanelTab, setActivePanelCollapsed]);
+  const openSummaryBrowserRow = useCallback<NonNullable<ThreadStageActions["onOpenSummaryBrowserRow"]>>(async ({
+    rowId,
+    panelId,
+    leafId,
+  }) => {
+    if (!activeSession) return;
+    await setActivePanelCollapsed(panelId, false);
+    await selectPanelTab(panelId, rowId, leafId ?? undefined);
+  }, [activeSession, selectPanelTab, setActivePanelCollapsed]);
+  const openSummaryScheduledAutomation = useCallback<NonNullable<ThreadStageActions["onOpenSummaryScheduledAutomation"]>>(({
+    automationId,
+  }) => {
+    openAutomations(buildAutomationsPath({ automationId }));
+  }, [openAutomations]);
+  const openSummaryProcessManager = useCallback<NonNullable<ThreadStageActions["onOpenProcessManager"]>>(() => {
+    setProcessManagerOpen(true);
+  }, []);
+  const openSummaryBackgroundTerminalOutput = useCallback<NonNullable<ThreadStageActions["onOpenBackgroundTerminalOutput"]>>(async (row) => {
+    if (!activeSession?.thread) return;
+    await openProcessOutputInCurrentSession(buildProcessOutputTargetFromSummaryRow(activeSession.thread.threadId, row));
+  }, [activeSession?.thread, openProcessOutputInCurrentSession]);
+  const threadSummaryHeaderActions = useMemo<Pick<ThreadStageActions, "onOpenSummaryOutputInSidePanel" | "onOpenSummaryScheduledAutomation">>(() => ({
+    onOpenSummaryOutputInSidePanel: openSummaryOutputInSidePanel,
+    onOpenSummaryScheduledAutomation: openSummaryScheduledAutomation,
+  }), [openSummaryOutputInSidePanel, openSummaryScheduledAutomation]);
 
   const toggleThreadSummaryPanel = useCallback(() => {
     setThreadSummaryPanelPinnedOpen((current) => {
@@ -6301,12 +6959,15 @@ export function WorkbenchShell({
   const threadSummaryHeaderAction = threadSummaryPanelMode !== "hidden" && activeSession ? (
     <ThreadSummaryPanelHeaderAction
       activeThreadId={activeSession.thread?.threadId ?? null}
+      activeThreadIsManagedWorktree={Boolean(activeSession.thread?.managedWorktreePath)}
       onPopoverOpenChange={setThreadSummaryPanelPopoverOpen}
       projectWorkspacePath={projectWorkspaceRootOrNull(activeProject)}
       mode={threadSummaryPanelMode}
       pinnedOpen={threadSummaryPanelPinnedOpen}
       onPinnedOpenToggle={toggleThreadSummaryPanel}
       popoverOpen={threadSummaryPanelPopoverOpen}
+      scheduledAutomation={threadSummaryScheduledAutomation}
+      actions={threadSummaryHeaderActions}
     />
   ) : null;
 
@@ -6437,6 +7098,16 @@ export function WorkbenchShell({
   const headerActions = (
     <>
       {sidebarHeaderActions}
+      {threadSummaryHeaderAction ? (
+        <HeaderAction
+          actionId="local-thread-summary-panel-toggle"
+          slotPosition="center"
+          align="end"
+          order={250}
+        >
+          {threadSummaryHeaderAction}
+        </HeaderAction>
+      ) : null}
       {panelHeaderActions}
     </>
   );
@@ -6651,7 +7322,14 @@ export function WorkbenchShell({
       onStripSmartPrefixFromTitleEnabledChange={handleStripSmartPrefixFromTitleEnabledChange}
     />
   ) : null;
-  const appShellHeaderCenterVisible = activeSession != null && settingsRouteShell == null;
+  const automationsRouteShell = automationsPath ? (
+    <WorkbenchAutomationsRouteShell
+      path={automationsPath}
+      onPathChange={setAutomationsPath}
+      onBackToApp={closeAutomations}
+    />
+  ) : null;
+  const appShellHeaderCenterVisible = activeSession != null && settingsRouteShell == null && automationsRouteShell == null;
 
   const renameSessionDialog = (
     <RenameChatDialog
@@ -6738,6 +7416,12 @@ export function WorkbenchShell({
       setCommandPaletteOpen(false);
       onRequestContentSearchOpen?.(undefined, "command_palette");
     },
+    manageTasks: () => {
+      openAutomations();
+    },
+    openProcessManager: () => {
+      setProcessManagerOpen(true);
+    },
     settings: openSettings,
     showKeyboardShortcuts: openKeyboardShortcutsSettings,
   };
@@ -6761,12 +7445,21 @@ export function WorkbenchShell({
   );
 
   return (
-    <HeaderActionProvider actions={settingsPath ? null : headerActions}>
+    <HeaderActionProvider actions={settingsPath || automationsPath ? null : headerActions}>
       <NodexTooltipProvider>
         <ContentSearchProvider openRequest={contentSearchOpenRequest}>
           <ContentSearchSurface />
           {renameSessionDialog}
           {commandPalette}
+          <WorkbenchProcessManagerDialog
+            open={processManagerOpen}
+            activeThreadId={activeSession?.thread?.threadId ?? null}
+            threads={processManagerThreads}
+            control={workbenchCodexControl}
+            onOpenChange={setProcessManagerOpen}
+            onOpenThread={openAttachedThreadSession}
+            onOpenOutput={openProcessManagerOutput}
+          />
           <ThreadHeaderPortalProvider target={threadHeaderPortalElement}>
           <motion.div
             ref={workbenchRootRef}
@@ -6818,16 +7511,11 @@ export function WorkbenchShell({
                   data-testid="thread-stage-header-portal-target"
                   className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
                 />
-                {threadSummaryHeaderAction ? (
-                  <div
-                    data-testid="thread-stage-header-summary-actions"
-                    className="ms-auto flex shrink-0 items-center gap-1.5"
-                  >
-                    <div className="no-drag pointer-events-auto flex shrink-0 items-center">
-                      {threadSummaryHeaderAction}
-                    </div>
-                  </div>
-                ) : null}
+                <HeaderInlineActionRail
+                  slotPosition="center"
+                  data-testid="thread-stage-header-summary-actions"
+                  className="ms-auto"
+                />
               </div>
             ) : null}
             <HeaderShellSlot
@@ -6842,8 +7530,8 @@ export function WorkbenchShell({
           </header>
 
         <div className="relative flex max-h-full min-h-0 w-full flex-1">
-          {settingsRouteShell ? (
-            settingsRouteShell
+          {settingsRouteShell || automationsRouteShell ? (
+            settingsRouteShell ?? automationsRouteShell
           ) : (
             <>
           {showInlineSidebar ? (
@@ -6880,6 +7568,7 @@ export function WorkbenchShell({
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
               onOpenCommandPalette={openSidebarCommandPalette}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
+              onOpenAutomations={openAutomations}
               projectPickerOpenTick={projectPickerOpenTick}
               onCreateProject={async (input) => {
                 const project = await onCreateProject(input);
@@ -6948,6 +7637,7 @@ export function WorkbenchShell({
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
                   onOpenCommandPalette={openSidebarCommandPalette}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
+                  onOpenAutomations={openAutomations}
                   projectPickerOpenTick={projectPickerOpenTick}
                   onCreateProject={async (input) => {
                     const project = await onCreateProject(input);
@@ -7018,6 +7708,7 @@ export function WorkbenchShell({
                         onOpenThread={openAttachedThreadSession}
                         onOpenTurnDiffReview={openTurnDiffReview}
                         onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                        onOpenSummaryGitReview={openSummaryGitReview}
                         turnDiffHoverPreviewDisabled={sidePanelOpen}
                         onForkSessionFromTurn={forkSessionFromTurn}
                         accountActions={codexAccountActions}
@@ -7030,6 +7721,15 @@ export function WorkbenchShell({
                         summaryPanelContentShift={threadSummaryPanelContentShift}
                         summarySideChatRows={threadSummarySideChatRows}
                         summaryBrowserRows={threadSummaryBrowserRows}
+                        summaryScheduledAutomation={threadSummaryScheduledAutomation}
+                        summaryComputerUsePip={remoteHostedPipSummaryControl.summaryComputerUsePip}
+                        onOpenSummarySideChatRow={openSummarySideChatRow}
+                        onOpenSummaryBrowserRow={openSummaryBrowserRow}
+                        onOpenSummaryScheduledAutomation={openSummaryScheduledAutomation}
+                        onOpenSummaryOutputInSidePanel={openSummaryOutputInSidePanel}
+                        onOpenProcessManager={openSummaryProcessManager}
+                        onOpenBackgroundTerminalOutput={openSummaryBackgroundTerminalOutput}
+                        onToggleSummaryComputerUsePip={remoteHostedPipSummaryControl.onToggleSummaryComputerUsePip}
                         rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
                         rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
                         onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
@@ -7901,6 +8601,7 @@ function ProjectSessionSidebar({
   onStartNewChatInProject,
   onOpenCommandPalette,
   onShowUnavailableProduct,
+  onOpenAutomations,
   projectPickerOpenTick = 0,
   onCreateProject,
   onUpdateProject,
@@ -7949,6 +8650,7 @@ function ProjectSessionSidebar({
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   onOpenCommandPalette: () => void;
   onShowUnavailableProduct: (label: string) => void;
+  onOpenAutomations: () => void;
   projectPickerOpenTick?: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
@@ -8095,7 +8797,7 @@ function ProjectSessionSidebar({
               <CodexSidebarTopAction
                 label="Automations"
                 icon={<CodexAutomationsIcon />}
-                onClick={() => onShowUnavailableProduct("Automations")}
+                onClick={() => onOpenAutomations()}
               />
             </div>
 
@@ -8417,6 +9119,7 @@ function SessionThreadPage({
   onOpenThread,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
+  onOpenSummaryGitReview,
   turnDiffHoverPreviewDisabled,
   onForkSessionFromTurn,
   accountActions,
@@ -8429,6 +9132,15 @@ function SessionThreadPage({
   summaryPanelContentShift,
   summarySideChatRows,
   summaryBrowserRows,
+  summaryScheduledAutomation,
+  summaryComputerUsePip,
+  onOpenSummarySideChatRow,
+  onOpenSummaryBrowserRow,
+  onOpenSummaryScheduledAutomation,
+  onOpenSummaryOutputInSidePanel,
+  onOpenProcessManager,
+  onOpenBackgroundTerminalOutput,
+  onToggleSummaryComputerUsePip,
   rightPanelComposerOverlayEnabled,
   rightPanelComposerOverlayTarget,
   onOpenSideChat,
@@ -8451,6 +9163,7 @@ function SessionThreadPage({
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
+  onOpenSummaryGitReview: NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>;
   turnDiffHoverPreviewDisabled: boolean;
   onForkSessionFromTurn: NonNullable<ThreadActionControllerInput["onForkSessionFromTurn"]>;
   accountActions: ReturnType<typeof useCodexAccountActions>;
@@ -8462,7 +9175,16 @@ function SessionThreadPage({
   summaryPanelHideImmediately: boolean;
   summaryPanelContentShift: number;
   summarySideChatRows: readonly ThreadSummaryPanelAuxiliaryRow[];
-  summaryBrowserRows: readonly ThreadSummaryPanelAuxiliaryRow[];
+  summaryBrowserRows: readonly ThreadSummaryPanelBrowserRow[];
+  summaryScheduledAutomation: ThreadSummaryPanelScheduledAutomationRow | null;
+  summaryComputerUsePip: ThreadSummaryPanelComputerUsePipState | null;
+  onOpenSummarySideChatRow: NonNullable<ThreadStageActions["onOpenSummarySideChatRow"]>;
+  onOpenSummaryBrowserRow: NonNullable<ThreadStageActions["onOpenSummaryBrowserRow"]>;
+  onOpenSummaryScheduledAutomation: NonNullable<ThreadStageActions["onOpenSummaryScheduledAutomation"]>;
+  onOpenSummaryOutputInSidePanel: NonNullable<ThreadStageActions["onOpenSummaryOutputInSidePanel"]>;
+  onOpenProcessManager?: ThreadStageActions["onOpenProcessManager"];
+  onOpenBackgroundTerminalOutput?: ThreadStageActions["onOpenBackgroundTerminalOutput"];
+  onToggleSummaryComputerUsePip: NonNullable<ThreadStageActions["onToggleSummaryComputerUsePip"]>;
   rightPanelComposerOverlayEnabled: boolean;
   rightPanelComposerOverlayTarget: HTMLElement | null;
   onOpenSideChat: (input?: ThreadOpenSideChatInput & {
@@ -8482,6 +9204,7 @@ function SessionThreadPage({
   const [newThreadEnvironmentOptions, setNewThreadEnvironmentOptions] = useState<WorktreeEnvironmentOption[]>([]);
   const [newThreadEnvironmentsLoading, setNewThreadEnvironmentsLoading] = useState(false);
   const selectedNewThreadProject = projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ?? project ?? null;
+  const startInSelectorProject = summary ? project : selectedNewThreadProject;
   const effectiveProjectId = summary ? projectId : selectedNewThreadProject?.id ?? projectId;
   const codexControl = useCodexAppServerControl(effectiveProjectId);
   const threadStartProgress = useCodexThreadStartProgress(effectiveProjectId, session.id);
@@ -8521,9 +9244,33 @@ function SessionThreadPage({
   }, [effectiveProjectId]);
 
   useEffect(() => {
-    if (summary || selectedNewThreadRunInTarget !== "newWorktree") return;
+    if (selectedNewThreadRunInTarget !== "newWorktree") return;
     void refreshNewThreadEnvironments();
-  }, [refreshNewThreadEnvironments, selectedNewThreadRunInTarget, summary]);
+  }, [refreshNewThreadEnvironments, selectedNewThreadRunInTarget]);
+
+  const startInSelectorModel = useMemo<NewChatStartInSelectorModel>(() => ({
+    target: {
+      runInTarget: selectedNewThreadRunInTarget,
+      runInEnvironmentPath: selectedNewThreadEnvironmentPath,
+      worktreeStartMode,
+      worktreeBranchPrefix,
+    },
+    disabled: false,
+    worktreeAvailable: Boolean(normalizeProjectPrimaryWorkspaceRoot(startInSelectorProject)),
+    environments: newThreadEnvironmentOptions,
+    environmentsLoading: newThreadEnvironmentsLoading,
+    selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
+    worktreeStartMode,
+    worktreeBranchPrefix,
+  }), [
+    newThreadEnvironmentOptions,
+    newThreadEnvironmentsLoading,
+    selectedNewThreadEnvironmentPath,
+    selectedNewThreadRunInTarget,
+    startInSelectorProject,
+    worktreeBranchPrefix,
+    worktreeStartMode,
+  ]);
 
   const actions = useMemo(() => createThreadStageActions({
     activeThreadId: summary?.threadId ?? null,
@@ -8556,6 +9303,14 @@ function SessionThreadPage({
     onOpenMcpAppSidePanel,
     onOpenPlanInSidePanel,
     onClosePlanSidePanel,
+    onOpenSummarySideChatRow,
+    onOpenSummaryBrowserRow,
+    onOpenSummaryScheduledAutomation,
+    onOpenSummaryOutputInSidePanel,
+    onOpenSummaryGitReview,
+    onOpenProcessManager,
+    onOpenBackgroundTerminalOutput,
+    onToggleSummaryComputerUsePip,
     onRequestRenameThread,
     selectedCollaborationMode,
     setSelectedCollaborationMode,
@@ -8575,6 +9330,14 @@ function SessionThreadPage({
     onOpenMcpAppSidePanel,
     onOpenPlanInSidePanel,
     onClosePlanSidePanel,
+    onOpenSummarySideChatRow,
+    onOpenSummaryBrowserRow,
+    onOpenSummaryScheduledAutomation,
+    onOpenSummaryOutputInSidePanel,
+    onOpenSummaryGitReview,
+    onOpenProcessManager,
+    onOpenBackgroundTerminalOutput,
+    onToggleSummaryComputerUsePip,
     onRequestRenameThread,
     refreshNewThreadEnvironments,
     effectiveProjectId,
@@ -8605,21 +9368,7 @@ function SessionThreadPage({
           disabled: false,
           canAddProject: true,
         }}
-        newThreadStartInSelector={summary ? null : {
-          target: {
-            runInTarget: selectedNewThreadRunInTarget,
-            runInEnvironmentPath: selectedNewThreadEnvironmentPath,
-            worktreeStartMode,
-            worktreeBranchPrefix,
-          },
-          disabled: false,
-          worktreeAvailable: Boolean(normalizeProjectPrimaryWorkspaceRoot(selectedNewThreadProject)),
-          environments: newThreadEnvironmentOptions,
-          environmentsLoading: newThreadEnvironmentsLoading,
-          selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
-          worktreeStartMode,
-          worktreeBranchPrefix,
-        }}
+        newThreadStartInSelector={startInSelectorModel}
         threadStartProgress={threadStartProgress}
         activeThreadId={summary?.threadId ?? null}
         activeThreadSummary={summary}
@@ -8639,6 +9388,8 @@ function SessionThreadPage({
         summaryPanelContentShift={summaryPanelContentShift}
         summarySideChatRows={summarySideChatRows}
         summaryBrowserRows={summaryBrowserRows}
+        summaryScheduledAutomation={summaryScheduledAutomation}
+        summaryComputerUsePip={summaryComputerUsePip}
         planSidePanelState={planSidePanelState}
         rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
         rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
@@ -8658,6 +9409,8 @@ function makeThreadSummary(thread: ProjectSessionThreadLink): CodexThreadSummary
     threadPreview: thread.threadPreview,
     modelProvider: thread.modelProvider,
     cwd: thread.cwd ?? null,
+    managedWorktreePath: thread.managedWorktreePath ?? null,
+    projectlessOutputDirectory: thread.projectlessOutputDirectory ?? null,
     statusType: thread.statusType as CodexThreadSummary["statusType"],
     statusActiveFlags: thread.statusActiveFlags as CodexThreadSummary["statusActiveFlags"],
     archived: thread.archived,
@@ -8675,6 +9428,92 @@ function McpAppSessionTab({ tab }: { tab: McpAppPanelTab }) {
       data-mcp-capability-id={tab.app.capabilityId}
     >
       <McpCapabilityViewFrame resource={tab.app.resource} mode="side-panel" />
+    </div>
+  );
+}
+
+function useProcessOutputTerminalSnapshot(sessionId: string | null): TerminalSessionSnapshot | null {
+  const [snapshot, setSnapshot] = useState<TerminalSessionSnapshot | null>(() =>
+    sessionId ? terminalSessionStore.getSnapshot(sessionId) : null
+  );
+
+  useEffect(() => {
+    if (!sessionId) {
+      setSnapshot(null);
+      return;
+    }
+
+    let cancelled = false;
+    terminalSessionStore.ensureEventSubscriptions();
+    setSnapshot(terminalSessionStore.getSnapshot(sessionId));
+    void terminalSessionStore.fetchSnapshot(sessionId)
+      .then((nextSnapshot) => {
+        if (!cancelled && nextSnapshot) {
+          setSnapshot(nextSnapshot);
+        }
+      });
+
+    const unsubscribe = terminalSessionStore.subscribe(sessionId, (event) => {
+      if (cancelled) return;
+      if (event.type === "init-log" || event.type === "attached") {
+        setSnapshot(event.snapshot);
+        return;
+      }
+      if (event.type === "exit") {
+        setSnapshot((current) => current
+          ? { ...current, exited: true, exitCode: event.exitCode }
+          : terminalSessionStore.getSnapshot(sessionId)
+        );
+        return;
+      }
+      setSnapshot(terminalSessionStore.getSnapshot(sessionId));
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [sessionId]);
+
+  return snapshot;
+}
+
+function ProcessOutputPanelTabView({ tab }: { tab: ProcessOutputPanelTab }) {
+  const conversation = useConversation(tab.threadId);
+  const terminalSnapshot = useProcessOutputTerminalSnapshot(tab.terminalSessionId);
+  const item = findProcessOutputCommandItem(conversation, tab.itemId, tab.turnId);
+  const command = item?.command ?? tab.command;
+  const cwd = terminalSnapshot?.cwd ?? item?.cwd ?? tab.cwd;
+  const output = terminalSnapshot ? terminalSnapshot.buffer : item?.aggregatedOutput ?? "";
+  const displayCommand = command.trim() || "Background terminal";
+  const displayOutput = output.trimEnd();
+
+  return (
+    <div
+      className="flex h-full min-h-0 flex-col bg-token-main-surface-primary"
+      data-process-output-panel-tab={tab.id}
+      data-thread-id={tab.threadId}
+      data-item-id={tab.itemId}
+    >
+      <div className="flex min-h-14 shrink-0 flex-col justify-center border-b border-token-border px-3 py-2">
+        <div className="truncate font-mono text-xs text-token-foreground" title={displayCommand}>
+          {displayCommand}
+        </div>
+        {cwd ? (
+          <div className="mt-1 truncate text-xs text-token-description-foreground" title={cwd}>
+            {cwd}
+          </div>
+        ) : null}
+      </div>
+      {displayOutput ? (
+        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 text-token-foreground">
+          {displayOutput}
+        </pre>
+      ) : (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-sm text-token-description-foreground">
+          No output yet
+        </div>
+      )}
     </div>
   );
 }
@@ -9007,10 +9846,11 @@ function ProjectSessionTabPanel({
   cardStageHistoryModal,
   onToggleCardStageHistoryModal,
   selectedTurnDiffReviewTarget,
+  summaryGitReviewRequest,
   browserBoundsSyncTrigger,
   isActivePanelTab,
 }: {
-  tab: ProjectSessionTab & { preview?: true };
+  tab: ProjectSessionTabPanelTab;
   activeSession: ProjectSession;
   projects: Project[];
   activeView: WorkbenchView;
@@ -9041,7 +9881,7 @@ function ProjectSessionTabPanel({
   }) => void;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
   onOpenCardTab: OpenCardTabHandler;
-  onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<void>;
+  onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<unknown>;
   onEnsureBlankSessionForProject: (
     projectId: string,
     options?: { select?: boolean },
@@ -9053,6 +9893,10 @@ function ProjectSessionTabPanel({
   cardStageHistoryModal: CardStageHistoryModalContext | null;
   onToggleCardStageHistoryModal: (context: CardStageHistoryModalContext) => void;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
+  summaryGitReviewRequest: {
+    source: GitReviewSource;
+    key: number;
+  } | null;
   browserBoundsSyncTrigger?: MotionValue<number>;
   isActivePanelTab: boolean;
 }) {
@@ -9159,6 +10003,8 @@ function ProjectSessionTabPanel({
         threadId={activeSession.thread?.threadId ?? null}
         projectWorkspacePath={projectWorkspaceRootOrNull(project)}
         searchOpenTick={0}
+        initialGitSource={summaryGitReviewRequest?.source ?? null}
+        initialGitSourceRequestKey={summaryGitReviewRequest?.key ?? null}
         selectedTurnDiff={selectedTurnDiffReviewTarget}
       />
     );

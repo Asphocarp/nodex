@@ -8,6 +8,7 @@ import * as boardReadModel from "./local-store/board-read-model";
 import * as canvasService from "./local-store/canvas";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
+import * as codexScheduledAutomationsStore from "./local-store/codex-scheduled-automations";
 import * as historyStore from "./local-store/history";
 import {
   readPersistedAtomState,
@@ -39,6 +40,8 @@ import {
 import { resolveAssetPath } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
+import type { CodexBackgroundProcessRunActionInput } from "../shared/types";
+import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
   RendererClientRouter,
   RendererClientWebContents,
@@ -98,6 +101,14 @@ import {
   watchGitBranch,
 } from "./git-branch-service";
 import {
+  cancelGitAction,
+  commitGitChanges,
+  generateGitCommitMessage,
+  generateGitPullRequestMessage,
+  pushGitChanges,
+  readGitActionStatus,
+} from "./git-action-service";
+import {
   applyGitReviewPatch,
   cancelGitReviewRequest,
   initializeGitRepositoryAndReadReviewSnapshot,
@@ -144,6 +155,7 @@ import {
   safeBroadcastToWindows,
   safeSendToWebContents,
 } from "./ipc-safe-send";
+import { RemoteHostedPipService } from "./remote-hosted-pip-service";
 import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
@@ -159,7 +171,6 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
 
 const ipcPayloadLogger = getLogger({ subsystem: "ipc", component: "kanban-read-model" });
 const rendererDiagnosticsLogger = getLogger({ subsystem: "renderer", component: "diagnostics" });
-
 function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number {
   return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
 }
@@ -190,6 +201,13 @@ function registerHandle<Channel extends keyof IpcApi>(
   });
 }
 
+function broadcastIpcEvent<Channel extends keyof IpcEvents>(
+  channel: Channel,
+  payload: IpcEvents[Channel],
+): void {
+  safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, [payload]);
+}
+
 async function showDirectoryPicker(
   event: IpcMainInvokeEvent,
   options: OpenDialogOptions,
@@ -209,6 +227,17 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
 ): void {
   safeSendToWebContents(sender, channel, [payload]);
 }
+
+const remoteHostedPipService = new RemoteHostedPipService({
+  broadcast: (channel, payload) => {
+    broadcastIpcEvent(channel, payload);
+  },
+  resolveThreadIdForSession: (sessionId) =>
+    projectSessionService.getProjectSession(sessionId)?.thread?.threadId ?? null,
+  sendToSender: (sender, channel, payload) => {
+    sendIpcEvent(sender as Electron.WebContents, channel, payload);
+  },
+});
 
 function buildNativeContextMenuTemplate(
   items: NativeContextMenuItem[],
@@ -300,13 +329,17 @@ function ensureBrowserSidebarEventBridge(): void {
   browserSidebarEventBridgeRegistered = true;
   browserSidebarService.on("state", (snapshot) => broadcastBrowserSidebarEvent("state", snapshot));
   browserSidebarService.on("localServers", (snapshot) => broadcastBrowserSidebarEvent("localServers", snapshot));
-  browserSidebarService.on("browserUseState", (snapshot) => broadcastBrowserSidebarEvent("browserUseState", snapshot));
+  browserSidebarService.on("browserUseState", (snapshot) => {
+    remoteHostedPipService.handleBrowserUseStateSnapshot(snapshot);
+    broadcastBrowserSidebarEvent("browserUseState", snapshot);
+  });
   browserSidebarService.on("browserUseViewport", (event) => broadcastBrowserSidebarEvent("browserUseViewport", event));
   browserSidebarService.on("browserUseCaptureSurface", (event) => broadcastBrowserSidebarEvent("browserUseCaptureSurface", event));
   browserSidebarService.on("browserUseCursor", (event) => broadcastBrowserSidebarEvent("browserUseCursor", event));
   browserSidebarService.on("pageReleased", (event) => broadcastBrowserSidebarEvent("pageReleased", event));
   browserSidebarService.on("webviewAttached", (event) => broadcastBrowserSidebarEvent("webviewAttached", event));
   browserSidebarService.on("destroyWebview", (event) => broadcastBrowserSidebarEvent("destroyWebview", event));
+  remoteHostedPipService.handleBrowserUseStateSnapshot(browserSidebarService.getBrowserUseStateSnapshot());
 }
 
 function broadcastCommandKeymapState(state: CommandKeymapState): void {
@@ -361,6 +394,28 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents).clientId ?? null;
 
+  const createGitCommitMessageGenerator = (hostId: string | undefined) =>
+    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
+      if (signal?.aborted) return null;
+      const message = await codexService.generateCommitMessage({
+        hostId,
+        prompt,
+        cwd,
+      });
+      return signal?.aborted ? null : message;
+    };
+
+  const createGitPullRequestMessageGenerator = (hostId: string | undefined) =>
+    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
+      if (signal?.aborted) return null;
+      const message = await codexService.generatePullRequestMessage({
+        hostId,
+        prompt,
+        cwd,
+      });
+      return signal?.aborted ? null : message;
+    };
+
   const broadcastRendererClientMessage = (
     channel: string,
     args: readonly unknown[],
@@ -395,6 +450,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       return;
     }
     rendererDiagnosticsLogger.info(input.message, input.fields);
+  });
+  registerHandle("codex-desktop:message-from-view", (event, message) => {
+    remoteHostedPipService.handleDesktopMessageFromView(event.sender, message);
   });
 
   registerHandle("codex:renderer-client:id", (event) =>
@@ -1241,6 +1299,36 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return initializeGitRepositoryAndReadReviewSnapshot(cwd);
   });
 
+  registerHandle("git:action:status", (_, input) => {
+    return readGitActionStatus(input);
+  });
+
+  registerHandle("git:action:commit-message:generate", (_, input) => {
+    return generateGitCommitMessage(input, {
+      generateCommitMessage: createGitCommitMessageGenerator(input.hostId),
+    });
+  });
+
+  registerHandle("git:action:pull-request-message:generate", (_, input) => {
+    return generateGitPullRequestMessage(input, {
+      generatePullRequestMessage: createGitPullRequestMessageGenerator(input.hostId),
+    });
+  });
+
+  registerHandle("git:action:commit", (_, input) => {
+    return commitGitChanges(input, {
+      generateCommitMessage: createGitCommitMessageGenerator(input.hostId),
+    });
+  });
+
+  registerHandle("git:action:push", (_, input) => {
+    return pushGitChanges(input);
+  });
+
+  registerHandle("git:action:cancel", (_, input) => {
+    return cancelGitAction(input);
+  });
+
   registerHandle("gh-cli-status", (_, input) => {
     return readGhCliStatus(input);
   });
@@ -1416,6 +1504,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     });
   });
 
+  registerHandle("terminal-session:snapshot", (_, sessionId: string) =>
+    terminalManager.getSessionSnapshot(sessionId)
+  );
+
   registerHandle("terminal-resize", (event, sessionId: string, size) => {
     const sender = event.sender;
     terminalManager.resize(sender, sessionId, size, (channel, payload) => {
@@ -1524,6 +1616,33 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("codex:thread:summary:get", (_, threadId: string) =>
     codexService.resolveThreadSummary(threadId)
   );
+
+  registerHandle("codex:scheduled-automations:list", () =>
+    codexScheduledAutomationsStore.listCodexScheduledAutomations()
+  );
+
+  registerHandle("codex:scheduled-automations:upsert", (_, input) => {
+    const automation = codexScheduledAutomationsStore.upsertCodexScheduledAutomation(input);
+    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [{
+      automationId: automation.id,
+      targetThreadId: automation.targetThreadId,
+      reason: "upsert",
+    }]);
+    return automation;
+  });
+
+  registerHandle("codex:scheduled-automations:delete", (_, automationId: string) => {
+    const existing = codexScheduledAutomationsStore.getCodexScheduledAutomation(automationId);
+    const deleted = codexScheduledAutomationsStore.deleteCodexScheduledAutomation(automationId);
+    if (deleted) {
+      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [{
+        automationId: existing?.id ?? automationId,
+        targetThreadId: existing?.targetThreadId ?? null,
+        reason: "delete",
+      }]);
+    }
+    return deleted;
+  });
 
   registerHandle("codex:model:list", () =>
     codexService.listModels()
@@ -1811,6 +1930,39 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:thread:background-terminals:clean-silent", (_, threadId: string) =>
     codexService.cleanBackgroundTerminalsSilently(threadId)
+  );
+
+  registerHandle("codex:thread:background-terminals:list", (_, threadId: string) =>
+    codexService.listBackgroundTerminals(threadId)
+  );
+
+  registerHandle("codex:thread:background-processes:list", (_, input: {
+    threadId: string;
+    observedTerminals?: ThreadBackgroundTerminal[];
+  }) =>
+    codexService.listBackgroundProcessRows(input)
+  );
+
+  registerHandle("codex:thread:background-processes:run-action", async (event, input: CodexBackgroundProcessRunActionInput) => {
+    const sender = event.sender;
+    codexService.registerBackgroundProcessRunAction(input);
+    await terminalManager.runAction(sender, {
+      sessionId: input.terminalSessionId,
+      conversationId: input.threadId,
+      cwd: input.cwd,
+      command: input.command,
+      title: input.command,
+    }, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
+    return codexService.listBackgroundProcessRows({
+      threadId: input.threadId,
+      observedTerminals: [],
+    });
+  });
+
+  registerHandle("codex:thread:background-terminals:terminate", (_, input: { threadId: string; processId: string }) =>
+    codexService.terminateBackgroundTerminal(input)
   );
 
   registerHandle("codex:mcp-resource:read", (_, params) =>

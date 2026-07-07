@@ -1,4 +1,8 @@
 import type { useCodexAccountActions } from "@/lib/use-codex-account-actions";
+import {
+  GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
+  GIT_ACTION_CREATE_PR_PROMPT,
+} from "@/lib/git-action-prompts";
 import type {
   CodexCollaborationModeKind,
   CodexReasoningEffort,
@@ -40,6 +44,14 @@ export interface ThreadActionControllerInput {
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
   onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
+  onOpenSummarySideChatRow?: ThreadStageActions["onOpenSummarySideChatRow"];
+  onOpenSummaryBrowserRow?: ThreadStageActions["onOpenSummaryBrowserRow"];
+  onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
+  onOpenSummaryOutputInSidePanel?: ThreadStageActions["onOpenSummaryOutputInSidePanel"];
+  onOpenSummaryGitReview?: ThreadStageActions["onOpenSummaryGitReview"];
+  onOpenProcessManager?: ThreadStageActions["onOpenProcessManager"];
+  onOpenBackgroundTerminalOutput?: ThreadStageActions["onOpenBackgroundTerminalOutput"];
+  onToggleSummaryComputerUsePip?: ThreadStageActions["onToggleSummaryComputerUsePip"];
   onRequestRenameThread?: ThreadStageActions["onRequestRenameThread"];
 }
 
@@ -138,6 +150,25 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     ...(input.onOpenMcpAppSidePanel ? { onOpenMcpAppSidePanel: input.onOpenMcpAppSidePanel } : {}),
     ...(input.onOpenPlanInSidePanel ? { onOpenPlanInSidePanel: input.onOpenPlanInSidePanel } : {}),
     ...(input.onClosePlanSidePanel ? { onClosePlanSidePanel: input.onClosePlanSidePanel } : {}),
+    ...(input.onOpenSummarySideChatRow ? { onOpenSummarySideChatRow: input.onOpenSummarySideChatRow } : {}),
+    ...(input.onOpenSummaryBrowserRow ? { onOpenSummaryBrowserRow: input.onOpenSummaryBrowserRow } : {}),
+    ...(input.onOpenSummaryScheduledAutomation ? { onOpenSummaryScheduledAutomation: input.onOpenSummaryScheduledAutomation } : {}),
+    ...(input.onOpenSummaryOutputInSidePanel ? { onOpenSummaryOutputInSidePanel: input.onOpenSummaryOutputInSidePanel } : {}),
+    ...(input.onOpenSummaryGitReview ? { onOpenSummaryGitReview: input.onOpenSummaryGitReview } : {}),
+    onStartSummaryGitAction: async ({ action }) => {
+      const threadId = requireActiveThreadId(input.activeThreadId, "Starting a Git action");
+      await input.codexControl.startTurn(
+        threadId,
+        action === "commit-or-push" ? GIT_ACTION_COMMIT_OR_PUSH_PROMPT : GIT_ACTION_CREATE_PR_PROMPT,
+        {
+          projectId: input.projectId,
+          collaborationMode: input.selectedCollaborationMode,
+        },
+      );
+    },
+    ...(input.onOpenProcessManager ? { onOpenProcessManager: input.onOpenProcessManager } : {}),
+    ...(input.onOpenBackgroundTerminalOutput ? { onOpenBackgroundTerminalOutput: input.onOpenBackgroundTerminalOutput } : {}),
+    ...(input.onToggleSummaryComputerUsePip ? { onToggleSummaryComputerUsePip: input.onToggleSummaryComputerUsePip } : {}),
     ...(input.onRequestRenameThread ? { onRequestRenameThread: input.onRequestRenameThread } : {}),
     onSendPrompt: async (prompt, opts) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Sending a prompt");

@@ -11,6 +11,7 @@ import type {
   TerminalSessionSnapshot,
   TerminalSize,
 } from "../shared/types";
+import { readTerminalProcessMetricsByRootPid } from "./terminal-process-metrics";
 
 export const TERMINAL_BUFFER_LIMIT = 16_000;
 
@@ -49,6 +50,11 @@ interface TerminalManagerSession {
   title: string | null;
   backendKind: TerminalBackendKind;
   backend: TerminalBackendHandle | null;
+  osPid: number | null;
+  cpuPercent: number | null;
+  rssKb: bigint | null;
+  childProcessCount: number | null;
+  processMetricsSampledAtMs: number | null;
   attached: boolean;
   buffer: string;
   truncated: boolean;
@@ -115,6 +121,13 @@ function buildTerminalEnv(): Record<string, string> {
   }
 
   return env;
+}
+
+function normalizeOsPid(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value)) return null;
+  const normalized = Math.trunc(value);
+  return normalized > 0 ? normalized : null;
 }
 
 function appendBoundedBuffer(
@@ -188,6 +201,11 @@ export class TerminalManager {
       title: request.title ?? null,
       backendKind: request.backendKind ?? "local",
       backend: null,
+      osPid: null,
+      cpuPercent: null,
+      rssKb: null,
+      childProcessCount: null,
+      processMetricsSampledAtMs: null,
       attached: false,
       buffer: "",
       truncated: false,
@@ -357,6 +375,50 @@ export class TerminalManager {
     return session ? this.snapshotSession(session) : null;
   }
 
+  async refreshSessionProcessMetrics(sessionIds: readonly string[]): Promise<void> {
+    const uniqueSessionIds = [...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))];
+    const sessions = uniqueSessionIds.flatMap((sessionId) => {
+      const session = this.sessionsById.get(sessionId);
+      if (!session) return [];
+
+      if (!session.backend || session.exited || session.osPid === null) {
+        this.clearSessionProcessMetrics(session);
+        return [];
+      }
+
+      return [session];
+    });
+    if (sessions.length === 0) return;
+
+    try {
+      const metricsByRootPid = await readTerminalProcessMetricsByRootPid(
+        sessions.map((session) => session.osPid!),
+      );
+      for (const session of sessions) {
+        if (this.sessionsById.get(session.sessionId) !== session || session.exited || !session.backend) {
+          continue;
+        }
+
+        const metrics = metricsByRootPid.get(session.osPid!);
+        if (!metrics) {
+          this.clearSessionProcessMetrics(session);
+          continue;
+        }
+
+        session.cpuPercent = metrics.cpuPercent;
+        session.rssKb = metrics.rssKb;
+        session.childProcessCount = metrics.childProcessCount;
+        session.processMetricsSampledAtMs = metrics.sampledAtMs;
+      }
+    } catch (error) {
+      for (const session of sessions) this.clearSessionProcessMetrics(session);
+      logger.debug("Failed to refresh terminal process metrics", {
+        sessionIds: sessions.map((session) => session.sessionId),
+        error,
+      });
+    }
+  }
+
   killAll(): void {
     for (const session of this.sessionsById.values()) {
       this.disposeBackend(session, true);
@@ -385,6 +447,8 @@ export class TerminalManager {
     session.truncated = false;
     session.exited = false;
     session.exitCode = null;
+    session.osPid = null;
+    this.clearSessionProcessMetrics(session);
     session.attached = false;
     session.lastSize = normalizeSize(request.size ?? session.lastSize);
     this.linkSession(session);
@@ -436,6 +500,7 @@ export class TerminalManager {
       const onExitDisposable = proc.onExit(({ exitCode }) => {
         session.exited = true;
         session.exitCode = typeof exitCode === "number" ? exitCode : null;
+        this.clearSessionProcessMetrics(session);
         this.disposeBackend(session, false);
         emit("terminal-exit", {
           sessionId: session.sessionId,
@@ -444,6 +509,8 @@ export class TerminalManager {
       });
 
       session.backend = { process: proc, onDataDisposable, onExitDisposable };
+      session.osPid = normalizeOsPid(proc.pid);
+      this.clearSessionProcessMetrics(session);
       session.exited = false;
       session.exitCode = null;
       session.cwd = cwd;
@@ -454,6 +521,7 @@ export class TerminalManager {
         ownerWebContentsId: session.ownerWebContentsId,
         cwd,
         shell,
+        osPid: session.osPid,
         cols: size.cols,
         rows: size.rows,
       });
@@ -487,6 +555,13 @@ export class TerminalManager {
       }
     }
     session.backend = null;
+  }
+
+  private clearSessionProcessMetrics(session: TerminalManagerSession): void {
+    session.cpuPercent = null;
+    session.rssKb = null;
+    session.childProcessCount = null;
+    session.processMetricsSampledAtMs = null;
   }
 
   private ensureOwner(
@@ -566,6 +641,11 @@ export class TerminalManager {
       sessionId: session.sessionId,
       conversationId: session.conversationId,
       projectSessionId: session.projectSessionId,
+      osPid: session.osPid,
+      cpuPercent: session.cpuPercent,
+      rssKb: session.rssKb,
+      childProcessCount: session.childProcessCount,
+      processMetricsSampledAtMs: session.processMetricsSampledAtMs,
       cwd: session.cwd,
       shell: session.shell,
       title: session.title,

@@ -4,6 +4,7 @@ import {
   MCP_APP_HTML_MAX_BYTES,
   getMcpAppHtmlByteSize,
   isMcpAppHtmlTooLarge,
+  resolveMcpEmbeddedRenderableResource,
   resolveMcpAppResourceUri,
   resolveMcpAppResourceScopeUri,
   resolveMcpExpandedSuccessDisplay,
@@ -129,6 +130,32 @@ describe("mcp-tool-call-resource-utils", () => {
     expect(resource?.mode ?? "").toBe("html");
     expect(resource?.metadata.heightHint ?? 0).toBe(320);
     expect(shouldHideDuplicateMcpTextContent({ type: "text", text: "<main>Docs</main>" }, resource)).toBeTrue();
+  });
+
+  test("resolves embedded HTML MCP app resources from successful tool results", () => {
+    const payload = buildPayload({
+      result: {
+        type: "success",
+        content: [{
+          type: "embedded_resource",
+          resource: {
+            uri: "ui://docs/search.html",
+            mimeType: "text/html;profile=mcp-app",
+            text: "<main>Embedded Docs</main>",
+            meta: { "openai/widgetHeightHint": 360 },
+          },
+        }],
+        structuredContent: null,
+        meta: { "openai/outputTemplate": "ui://docs/search.html" },
+        raw: { content: [], structuredContent: null },
+      },
+    });
+
+    const resource = resolveMcpEmbeddedRenderableResource({ payload });
+
+    expect(resource?.uri ?? "").toBe("ui://docs/search.html");
+    expect(resource?.html ?? "").toBe("<main>Embedded Docs</main>");
+    expect(resource?.metadata.heightHint ?? 0).toBe(360);
   });
 
   test("uses HTML fallback for DIL resources while DIL rendering is disabled", () => {

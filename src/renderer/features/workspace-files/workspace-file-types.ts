@@ -1,9 +1,11 @@
-import type { ProjectSessionTab, WorkspaceFileDirectoryEntry, WorkspaceFileMetadata } from "@/lib/types";
+import type { PanelId, ProjectSessionTab, WorkspaceFileDirectoryEntry, WorkspaceFileMetadata } from "@/lib/types";
 
-export type WorkspaceFilesTab = ProjectSessionTab & {
+export type WorkspaceFilesTab = Omit<ProjectSessionTab, "projectId" | "config"> & {
+  projectId: string | null;
+  panelId: PanelId;
   preview?: true;
   config: {
-    projectId: string;
+    projectId: string | null;
     hostId?: "local";
     workspaceRoot?: string;
     path?: string;
