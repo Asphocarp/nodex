@@ -456,19 +456,15 @@ mock.module("@/features/local-conversation", () => ({
           createElement(
             "div",
             {
-              className: "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
+              className: "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
             },
             createElement(
               "div",
               { className: "flex min-w-0 items-center gap-2 truncate text-base electron:font-medium" },
               createElement(
-                "div",
-                { className: "pointer-events-none w-full min-w-0 flex-1" },
-                createElement(
-                  "div",
-                  { "data-testid": "thread-stage-title", className: "max-w-[320px] min-w-0 truncate text-token-foreground select-none" },
-                  threadTitle,
-                ),
+                "span",
+                { "data-testid": "thread-stage-title", className: "inline-flex max-w-[320px] min-w-[2ch] items-center overflow-hidden text-token-foreground" },
+                createElement("span", { className: "min-w-0 truncate" }, threadTitle),
               ),
             ),
           ),

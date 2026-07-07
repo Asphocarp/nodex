@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LocalConversationFooter } from "./local-conversation-footer";
 import { LocalConversationNewThreadHomeScreen } from "./local-conversation-new-thread-home-screen";
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
@@ -27,6 +27,29 @@ import type {
 
 export interface ThreadStageDevStoryPageProps extends ThreadStageStoryControls {
   renderPreview?: boolean;
+}
+
+function ThreadStageStoryHeaderShell({
+  header,
+  children,
+}: {
+  header: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex h-[760px] min-h-[760px] flex-col bg-(--background)">
+      <header className="app-header-tint draggable pointer-events-none flex h-toolbar min-w-0 shrink-0 items-center">
+        <div className="pointer-events-none ms-4 flex h-full min-w-0 flex-1 isolate items-center gap-1.5 overflow-hidden pe-1.5">
+          <div className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto">
+            {header}
+          </div>
+        </div>
+      </header>
+      <div className="min-h-0 flex-1">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function getNextTimestamp(conversation: CodexConversationSnapshot | null): number {
@@ -739,25 +762,29 @@ export function ThreadStageDevStoryPage({
                     )}
                   />
                 ) : (
-                  <LocalConversationStageScreen
+                  <ThreadStageStoryHeaderShell
                     header={<ThreadStageHeader model={surfaceModels.headerModel} actions={actions} onErrorMessage={() => {}} />}
-                    body={
-                      <LocalConversationThreadBody
-                        model={surfaceModels.bodyModel}
-                        actions={actions}
-                        onErrorMessage={() => {}}
-                        initialUiState={scenario.initialUiState}
-                      />
-                    }
-                    footer={
-                      <LocalConversationFooter
-                        model={surfaceModels.footerModel}
-                        actions={actions}
-                        errorMessage={null}
-                        onErrorMessage={() => {}}
-                      />
-                    }
-                  />
+                  >
+                    <LocalConversationStageScreen
+                      header={null}
+                      body={
+                        <LocalConversationThreadBody
+                          model={surfaceModels.bodyModel}
+                          actions={actions}
+                          onErrorMessage={() => {}}
+                          initialUiState={scenario.initialUiState}
+                        />
+                      }
+                      footer={
+                        <LocalConversationFooter
+                          model={surfaceModels.footerModel}
+                          actions={actions}
+                          errorMessage={null}
+                          onErrorMessage={() => {}}
+                        />
+                      }
+                    />
+                  </ThreadStageStoryHeaderShell>
                 )}
               </div>
             </StorybookElectronTransportBoundary>

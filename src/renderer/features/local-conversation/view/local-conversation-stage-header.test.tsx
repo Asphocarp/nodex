@@ -100,6 +100,23 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(header?.className.includes("draggable")).toBeTrue();
   });
 
+  test("uses the single-lane Codex titlebar grid", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const { container } = render(
+      <ThreadStageHeader
+        model={buildModel({ title: "Review shell header parity" })}
+        actions={buildActions()}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    const header = container.firstElementChild;
+    const title = container.querySelector('[data-testid="thread-stage-title"]');
+    expect(header?.className.includes("grid-cols-[minmax(0,1fr)]")).toBeTrue();
+    expect(header?.className.includes("grid-cols-[minmax(0,1fr)_auto]")).toBeFalse();
+    expect(title?.firstElementChild?.className.includes("min-w-0 truncate")).toBeTrue();
+  });
+
   test("keeps thread actions left-aligned immediately after the title", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const actions = {

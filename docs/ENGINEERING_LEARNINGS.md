@@ -336,6 +336,8 @@ That scroll controller contract also depends on the footer staying in normal flo
 
 The active thread title row is not part of that scroll layout. The connected title/auth/card header should render into the fixed app-header center surface through `ThreadHeaderPortalProvider`, and `LocalConversationStageScreen` should keep only an empty `sticky top-0 z-10` slot. Rendering `ThreadStageHeader` inside that sticky slot adds a 46px in-flow toolbar before `.thread-scroll-container`, which prevents wide `thread-edge-scroll` layouts from visually reaching the window top.
 
+That fixed title row uses the Codex local-conversation titlebar shape, not the generic page-header shape. Keep `ThreadStageHeader` as a single-column grid (`grid-cols-[minmax(0,1fr)]`) with title and title-adjacent actions in the same flex row; the two-column `_auto` grid belongs to page headers with their own trailing action cell. Reintroducing `_auto` inside the thread title portal creates a second header layout model inside the 46px global toolbar and can make the title appear as an extra row.
+
 The summary panel has the same mounted-vs-visible distinction. For attached threads, the floating inline panel should remain mounted when the shell crosses into overlay width; only `open` changes to false so Motion can animate `opacity`, `translateX(100%)`, and `scale(0.8)`. Use the instant `invisible`/`duration: 0` branch only while the overlay popover itself is open. Unmounting the inline panel on ordinary resize removes the close/open spring and makes width-threshold changes feel broken.
 
 ### Zod usage belongs at boundaries, not inside internal renderer state machines

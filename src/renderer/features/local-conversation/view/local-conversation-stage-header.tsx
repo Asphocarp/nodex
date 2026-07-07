@@ -59,19 +59,19 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
   return (
     <div
       className={cn(
-        "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
+        "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
       )}
     >
       <div
         className="flex min-w-0 items-center gap-2 truncate text-base electron:font-medium"
       >
-        <div
+        <span
           data-testid="thread-stage-title"
-          className="max-w-[320px] min-w-0 truncate text-token-foreground select-none"
+          className="inline-flex max-w-[320px] min-w-[2ch] items-center overflow-hidden text-token-foreground"
         >
-          {model.title}
-        </div>
-        <div className="no-drag flex shrink-0 items-center gap-1.5">
+          <span className="min-w-0 truncate">{model.title}</span>
+        </span>
+        <div className="no-drag flex items-center gap-2">
           <AuthPopover
             account={model.account}
             busyAction={busyAction}
