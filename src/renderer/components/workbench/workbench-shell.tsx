@@ -167,6 +167,7 @@ import {
   getProjectSessionPanelActiveLeaf,
   listProjectSessionPanelLeaves,
 } from "../../../shared/project-session-panel-layout";
+import { resolveCodexSubagentDisplayName } from "../../../shared/codex-subagent-display";
 import { resolveSameLeafInsertionIndex } from "./panel-tab-dnd";
 import {
   readWorktreeStartMode,
@@ -4690,8 +4691,9 @@ export function WorkbenchShell({
     const threadId = subagent.conversationId.trim();
     if (!threadId) return false;
 
+    let hydratedSummaries: CodexThreadSummary[] = [];
     try {
-      await workbenchCodexControl.hydrateBackgroundSubagentThreads({ threadIds: [threadId] });
+      hydratedSummaries = await workbenchCodexControl.hydrateBackgroundSubagentThreads({ threadIds: [threadId] });
     } catch {
       toast.danger("Failed to open background agent");
       return false;
@@ -4700,7 +4702,11 @@ export function WorkbenchShell({
     const panelId = "right" as const;
     const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
     const tabId = makeBackgroundAgentPanelTabId(threadId);
-    const title = subagent.displayName.trim() || "Agent";
+    const title = resolveCodexSubagentDisplayName({
+      threadId,
+      childSummary: hydratedSummaries.find((summary) => summary.threadId === threadId) ?? null,
+      fallbackDisplayName: subagent.displayName,
+    });
     const tab: BackgroundAgentPanelTab = {
       backgroundAgent: true,
       id: tabId,

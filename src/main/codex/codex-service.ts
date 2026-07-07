@@ -209,6 +209,7 @@ import {
   getCodexSubagentOtherSource,
   hasCodexSubagentSource,
 } from "../../shared/codex-subagent-metadata";
+import { isRawCodexSubagentThreadIdLabel } from "../../shared/codex-subagent-display";
 import {
   buildCodexTurnDiffFromPatchBatches,
   getCodexFileChangeList,
@@ -348,6 +349,7 @@ const SIDEBAR_THREAD_SYNC_STALE_MS = 60_000;
 const SIDEBAR_THREAD_SYNC_REPAIR_DEBOUNCE_MS = 300;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
+const BACKGROUND_SUBAGENT_METADATA_REPAIR_RETRY_MS = 30_000;
 const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
 const AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES = [
   "The following is the Codex agent history",
@@ -2411,6 +2413,9 @@ export class CodexService extends EventEmitter {
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
   private readonly subagentThreadIds = new Set<string>();
   private readonly fullFidelitySubagentThreadIds = new Set<string>();
+  private readonly backgroundSubagentMetadataRepairInFlightByThreadId = new Map<string, Promise<void>>();
+  private readonly backgroundSubagentMetadataRepairCompletedThreadIds = new Set<string>();
+  private readonly backgroundSubagentMetadataRepairLastAttemptAtByThreadId = new Map<string, number>();
   private readonly deferredThreadStartThreadIds = new Set<string>();
   private readonly readyDeferredThreadStartThreadIds = new Set<string>();
   private threadStartNotificationDeferralDepth = 0;
@@ -3352,6 +3357,9 @@ export class CodexService extends EventEmitter {
       version: this.getNextConversationVersion(input.conversationId),
       sourceClientId,
     });
+    if (nextConversation) {
+      this.syncParentChildMembershipMetadataFromConversation(nextConversation);
+    }
     if (typeof input.ownerNotificationSequence === "number") {
       this.ackOwnerNotificationSequence(input.conversationId, input.ownerNotificationSequence);
     }
@@ -3657,6 +3665,159 @@ export class CodexService extends EventEmitter {
         draft.childMemberships = this.deriveConversationChildMemberships(draft);
       }
     });
+  }
+
+  private areConversationChildThreadMetadataEqual(
+    left: CodexConversationChildMembership["thread"] | undefined,
+    right: CodexConversationChildMembership["thread"] | undefined,
+  ): boolean {
+    const normalizedLeft = left ?? null;
+    const normalizedRight = right ?? null;
+    if (normalizedLeft === normalizedRight) return true;
+    if (!normalizedLeft || !normalizedRight) return false;
+    return normalizedLeft.nickname === normalizedRight.nickname
+      && normalizedLeft.displayName === normalizedRight.displayName
+      && normalizedLeft.name === normalizedRight.name
+      && normalizedLeft.model === normalizedRight.model
+      && normalizedLeft.agentRole === normalizedRight.agentRole;
+  }
+
+  private areConversationChildMembershipsEqual(
+    left: readonly CodexConversationChildMembership[] | undefined,
+    right: readonly CodexConversationChildMembership[],
+  ): boolean {
+    const normalizedLeft = left ?? [];
+    if (normalizedLeft.length !== right.length) return false;
+    for (let index = 0; index < normalizedLeft.length; index += 1) {
+      const leftEntry = normalizedLeft[index];
+      const rightEntry = right[index];
+      if (!leftEntry || !rightEntry) return false;
+      if (
+        leftEntry.threadId !== rightEntry.threadId
+        || leftEntry.parentThreadId !== rightEntry.parentThreadId
+        || leftEntry.role !== rightEntry.role
+        || leftEntry.actorName !== rightEntry.actorName
+        || leftEntry.displayName !== rightEntry.displayName
+        || leftEntry.agentRole !== rightEntry.agentRole
+        || leftEntry.showInlineActivity !== rightEntry.showInlineActivity
+        || !this.areConversationChildThreadMetadataEqual(leftEntry.thread, rightEntry.thread)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private emitConversationChildMembershipsUpdated(
+    parentThreadId: string,
+    childMemberships: CodexConversationChildMembership[],
+  ): void {
+    this.emitHostMessage({
+      type: "sharedObjectUpdated",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      object: {
+        objectType: "conversationChildMemberships",
+        objectId: parentThreadId,
+        value: {
+          parentThreadId,
+          childMemberships,
+        },
+      },
+    });
+  }
+
+  private syncParentChildMembershipMetadata(
+    parentThreadId: string,
+    options: { repairMissing?: boolean } = {},
+  ): void {
+    const conversation =
+      this.lastBroadcastConversationById.get(parentThreadId)
+      ?? this.buildConversationBaseSnapshot(parentThreadId);
+    if (!conversation) return;
+    this.syncParentChildMembershipMetadataFromConversation(conversation, options);
+  }
+
+  private syncParentChildMembershipMetadataFromConversation(
+    conversation: CodexConversationSnapshot,
+    options: { repairMissing?: boolean } = {},
+  ): void {
+    const parentThreadId = conversation.threadId;
+    const childThreadIds = this.extractConversationChildThreadIds(conversation);
+    if (childThreadIds.length === 0 && conversation.childMemberships.length === 0) return;
+
+    const childThreadLinks = this.listChildThreadLinksSafely(parentThreadId);
+    if (childThreadIds.length === 0 && childThreadLinks.length === 0) return;
+
+    const childMemberships = this.deriveConversationChildMemberships(conversation);
+    if (!this.areConversationChildMembershipsEqual(conversation.childMemberships, childMemberships)) {
+      this.mutateBroadcastConversationCacheSilently(parentThreadId, (draft) => {
+        draft.childMemberships = childMemberships;
+      });
+      this.emitConversationChildMembershipsUpdated(parentThreadId, childMemberships);
+    }
+
+    if (options.repairMissing !== false) {
+      this.scheduleMissingBackgroundSubagentMetadataRepairs(conversation, childThreadIds);
+    }
+  }
+
+  private shouldRepairBackgroundSubagentMetadata(parentThreadId: string, childThreadId: string): boolean {
+    if (this.backgroundSubagentMetadataRepairCompletedThreadIds.has(childThreadId)) return false;
+    if (this.backgroundSubagentMetadataRepairInFlightByThreadId.has(childThreadId)) return false;
+
+    const lastAttemptAt = this.backgroundSubagentMetadataRepairLastAttemptAtByThreadId.get(childThreadId) ?? 0;
+    if (Date.now() - lastAttemptAt < BACKGROUND_SUBAGENT_METADATA_REPAIR_RETRY_MS) return false;
+
+    const summary = this.getThreadLinkSafely(childThreadId);
+    if (!summary) return true;
+    if (summary.source?.parentThreadId && summary.source.parentThreadId !== parentThreadId) return false;
+    const hasFriendlyDisplayName = Boolean(summary.agentNickname?.trim())
+      || Boolean(
+        summary.threadName?.trim()
+        && !isRawCodexSubagentThreadIdLabel(summary.threadName, childThreadId),
+      );
+    return !(summary.source?.parentThreadId === parentThreadId && hasFriendlyDisplayName);
+  }
+
+  private scheduleMissingBackgroundSubagentMetadataRepairs(
+    conversation: CodexConversationSnapshot,
+    childThreadIds = this.extractConversationChildThreadIds(conversation),
+  ): void {
+    for (const childThreadId of childThreadIds) {
+      if (!this.shouldRepairBackgroundSubagentMetadata(conversation.threadId, childThreadId)) continue;
+      this.backgroundSubagentMetadataRepairLastAttemptAtByThreadId.set(childThreadId, Date.now());
+      const repairPromise = this.runBackgroundSubagentMetadataRepair(conversation.threadId, childThreadId);
+      this.backgroundSubagentMetadataRepairInFlightByThreadId.set(childThreadId, repairPromise);
+      void repairPromise.finally(() => {
+        this.backgroundSubagentMetadataRepairInFlightByThreadId.delete(childThreadId);
+      });
+    }
+  }
+
+  private async runBackgroundSubagentMetadataRepair(
+    parentThreadId: string,
+    childThreadId: string,
+  ): Promise<void> {
+    try {
+      await this.readThread(childThreadId, false);
+      const summary = this.getThreadLinkSafely(childThreadId);
+      const hasFriendlyDisplayName = Boolean(summary?.agentNickname?.trim())
+        || Boolean(
+          summary?.threadName?.trim()
+          && !isRawCodexSubagentThreadIdLabel(summary.threadName, childThreadId),
+        );
+      if (hasFriendlyDisplayName) {
+        this.backgroundSubagentMetadataRepairCompletedThreadIds.add(childThreadId);
+      }
+      const resolvedParentThreadId = summary?.source?.parentThreadId ?? parentThreadId;
+      this.syncParentChildMembershipMetadata(resolvedParentThreadId, { repairMissing: false });
+    } catch (error) {
+      this.logger.warn("Could not repair background subagent metadata", {
+        parentThreadId,
+        childThreadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private syncBroadcastConversationSummary(
@@ -8345,7 +8506,7 @@ export class CodexService extends EventEmitter {
     if (!summary) return null;
 
     this.subagentThreadIds.add(summary.threadId);
-    this.syncBroadcastConversation(parentThreadId, { syncChildMemberships: true });
+    this.syncParentChildMembershipMetadata(parentThreadId);
     return summary;
   }
 
@@ -9258,7 +9419,10 @@ export class CodexService extends EventEmitter {
       durationMs: getDevRuntimeMetricDurationMs(startedAt),
     });
 
-    this.upsertLinkFromThread(result.thread);
+    const threadSummary = this.upsertLinkFromThread(result.thread);
+    if (threadSummary?.source?.parentThreadId) {
+      this.syncParentChildMembershipMetadata(threadSummary.source.parentThreadId, { repairMissing: false });
+    }
     const liveDetail = this.buildThreadDetailFromRead(result.thread);
     if (!liveDetail) return null;
 

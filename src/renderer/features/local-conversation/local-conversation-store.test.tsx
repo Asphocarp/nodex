@@ -2246,6 +2246,70 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("shared child membership updates patch active parent conversations without child snapshots", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-parent",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread-parent", "project-1"),
+        },
+        sourceClientId: null,
+      });
+      await flushAsyncWork();
+
+      dispatchCodexAppServerMessage("shared-object-updated", {
+        hostId: "default",
+        object: {
+          objectType: "conversationChildMemberships",
+          objectId: "thread-parent",
+          value: {
+            parentThreadId: "thread-parent",
+            childMemberships: [{
+              threadId: "thread-child",
+              parentThreadId: "thread-parent",
+              role: "backgroundChild",
+              actorName: "Nash",
+              thread: {
+                nickname: "@Nash",
+                agentRole: "worker",
+                model: "gpt-5-codex",
+              },
+            }],
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const conversation = manager.readConversation("thread-parent");
+      expect(conversation?.childMemberships[0]?.thread?.nickname).toBe("@Nash");
+      expect(conversation?.childMemberships[0]?.thread?.agentRole).toBe("worker");
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread:snapshot:request" &&
+        record.args[0] === "thread-child"
+      )).toBeFalse();
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("renderer resume failure releases buffer and rolls back to needs_resume from bundle 47815-47835", async () => {
     invokeCalls = [];
     invokeRecords = [];

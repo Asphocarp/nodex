@@ -12,6 +12,7 @@ import {
   type CodexMultiAgentActionStatus,
   type CodexMultiAgentAgentState,
 } from "../../../../../shared/codex-transcript-special-items";
+import { resolveCodexSubagentDisplayName } from "../../../../../shared/codex-subagent-display";
 import type { ThreadOpenSubagentPayload, ThreadOpenThreadContext } from "../../thread-stage-types";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
@@ -96,17 +97,11 @@ function getAgentDisplayName(
   receiverThread: CodexMultiAgentReceiverThread | undefined,
   membership: CodexConversationChildMembership | undefined,
 ): string {
-  const displayName = normalizeNullableText(receiverThread?.thread?.displayName)
-    ?? normalizeNullableText(receiverThread?.thread?.name)
-    ?? normalizeNullableText(receiverThread?.thread?.nickname)
-    ?? normalizeNullableText(membership?.displayName)
-    ?? normalizeNullableText(membership?.thread?.displayName)
-    ?? normalizeNullableText(membership?.thread?.name)
-    ?? normalizeNullableText(membership?.thread?.nickname);
-  if (displayName) return displayName.startsWith("@") ? displayName.slice(1) : displayName;
-
-  const fallback = threadId.trim();
-  return fallback.startsWith("@") ? fallback.slice(1) : fallback;
+  return resolveCodexSubagentDisplayName({
+    threadId,
+    receiverThread,
+    membership,
+  });
 }
 
 function getAgentRole(

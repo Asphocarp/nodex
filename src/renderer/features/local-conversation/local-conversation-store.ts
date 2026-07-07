@@ -1055,6 +1055,49 @@ function areThreadSummariesStructurallyEqual(
   );
 }
 
+function areConversationChildThreadMetadataEqual(
+  left: CodexConversationChildMembership["thread"] | undefined,
+  right: CodexConversationChildMembership["thread"] | undefined,
+): boolean {
+  const normalizedLeft = left ?? null;
+  const normalizedRight = right ?? null;
+  if (normalizedLeft === normalizedRight) return true;
+  if (!normalizedLeft || !normalizedRight) return false;
+  return (
+    normalizedLeft.nickname === normalizedRight.nickname
+    && normalizedLeft.displayName === normalizedRight.displayName
+    && normalizedLeft.name === normalizedRight.name
+    && normalizedLeft.model === normalizedRight.model
+    && normalizedLeft.agentRole === normalizedRight.agentRole
+  );
+}
+
+function areConversationChildMembershipsEqual(
+  left: readonly CodexConversationChildMembership[] | undefined,
+  right: readonly CodexConversationChildMembership[],
+): boolean {
+  const normalizedLeft = left ?? [];
+  if (normalizedLeft.length !== right.length) return false;
+  for (let index = 0; index < normalizedLeft.length; index += 1) {
+    const leftEntry = normalizedLeft[index];
+    const rightEntry = right[index];
+    if (!leftEntry || !rightEntry) return false;
+    if (
+      leftEntry.threadId !== rightEntry.threadId
+      || leftEntry.parentThreadId !== rightEntry.parentThreadId
+      || leftEntry.role !== rightEntry.role
+      || leftEntry.actorName !== rightEntry.actorName
+      || leftEntry.displayName !== rightEntry.displayName
+      || leftEntry.agentRole !== rightEntry.agentRole
+      || leftEntry.showInlineActivity !== rightEntry.showInlineActivity
+      || !areConversationChildThreadMetadataEqual(leftEntry.thread, rightEntry.thread)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function areConversationMapSelectionsEqual(
   left: Record<string, CodexConversationSnapshot>,
   right: Record<string, CodexConversationSnapshot>,
@@ -6839,6 +6882,11 @@ export class CodexAppServerManager {
       return;
     }
 
+    if (sharedObject.objectType === "conversationChildMemberships") {
+      this.applyConversationChildMembershipsUpdate(sharedObject.value);
+      return;
+    }
+
     if (sharedObject.objectType === "threadStartProgress") {
       this.applyThreadStartProgress(sharedObject.value);
     }
@@ -8202,6 +8250,22 @@ export class CodexAppServerManager {
       });
     } catch {
     }
+  }
+
+  private applyConversationChildMembershipsUpdate(
+    event: Extract<CodexSharedObject, { objectType: "conversationChildMemberships" }>["value"],
+  ): void {
+    const parentThreadId = event.parentThreadId.trim();
+    if (!parentThreadId) return;
+
+    const conversation = this.conversationsById.get(parentThreadId);
+    if (!conversation) return;
+    if (areConversationChildMembershipsEqual(conversation.childMemberships, event.childMemberships)) return;
+
+    this.applyConversationSnapshot(parentThreadId, {
+      ...conversation,
+      childMemberships: event.childMemberships,
+    });
   }
 
   private applyThreadStartProgress(event: Extract<CodexSharedObject, { objectType: "threadStartProgress" }>["value"]): void {

@@ -368,7 +368,15 @@ describe("MultiAgentActionSurface", () => {
         status: "completed",
         senderThreadId: "thread-main",
         receiverThreadIds: [threadId],
-        receiverThreads: [],
+        receiverThreads: [{
+          threadId,
+          thread: {
+            displayName: threadId,
+            nickname: null,
+            model: null,
+            agentRole: null,
+          },
+        }],
         prompt: "Write a smoke file.",
         model: null,
         reasoningEffort: "medium",

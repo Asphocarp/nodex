@@ -2752,6 +2752,14 @@ export type CodexSharedObject =
       value: CodexThreadSummary;
     }
   | {
+      objectType: "conversationChildMemberships";
+      objectId: string;
+      value: {
+        parentThreadId: string;
+        childMemberships: CodexConversationChildMembership[];
+      };
+    }
+  | {
       objectType: "threadStartProgress";
       objectId: string;
       value: {

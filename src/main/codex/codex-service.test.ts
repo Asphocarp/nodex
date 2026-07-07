@@ -2545,6 +2545,110 @@ describe("codex-service readThread fallback", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("repairs missing parent child memberships through lightweight thread/read metadata", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+      const hostMessages: CodexHostMessage[] = [];
+
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        requests.push({ method, params: params as Record<string, unknown> });
+        if (method !== "thread/read") {
+          throw new Error(`Unexpected metadata repair request: ${method}`);
+        }
+        return {
+          thread: {
+            ...makeSidebarListThread({
+              id: "thr_child_metadata_repair",
+              cwd: "/tmp/codex",
+              preview: "Role/name: Worker",
+              updatedAt: 3,
+            }),
+            source: {
+              subAgent: {
+                thread_spawn: {
+                  parent_thread_id: "thr_parent_metadata_repair",
+                  agent_nickname: "@Lorentz",
+                  agent_role: "worker",
+                },
+              },
+            },
+          },
+        };
+      };
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+
+      const parentConversation = makeConversationSnapshot({
+        threadId: "thr_parent_metadata_repair",
+      });
+      const multiAgentItem: CodexConversationSnapshot["turns"][number]["items"][number] = {
+        threadId: "thr_parent_metadata_repair",
+        turnId: "turn-1",
+        itemId: "item-spawn-child",
+        type: "collabAgentToolCall",
+        kind: "toolCall",
+        semanticKind: "multiAgentAction",
+        status: "completed",
+        markdownText: "",
+        createdAt: 1,
+        updatedAt: 1,
+        toolCall: {
+          toolName: "spawnAgent",
+          subtype: "generic",
+          args: {
+            receivers: ["thr_child_metadata_repair"],
+            receiverThreads: [],
+            agentsStates: {},
+          },
+          result: null,
+        },
+      };
+
+      try {
+        expect(service.publishRendererThreadStreamStateChange("owner-a", {
+          conversationId: "thr_parent_metadata_repair",
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: {
+              ...parentConversation,
+              turns: [{
+                ...parentConversation.turns[0]!,
+                items: [multiAgentItem],
+              }],
+            },
+          },
+        })).toBeTrue();
+
+        await waitForCondition(() => requests.length === 1, 250);
+        await waitForCondition(() => hostMessages.some((message) => {
+          if (message.type !== "sharedObjectUpdated") return false;
+          if (message.object.objectType !== "conversationChildMemberships") return false;
+          return message.object.value.childMemberships.some((membership) =>
+            membership.threadId === "thr_child_metadata_repair" &&
+            membership.thread?.nickname === "@Lorentz"
+          );
+        }), 250);
+
+        expect(requests[0]?.method).toBe("thread/read");
+        expect(String(requests[0]?.params.threadId)).toBe("thr_child_metadata_repair");
+        expect(String(requests[0]?.params.includeTurns)).toBe("false");
+        expect(getCodexThread("thr_child_metadata_repair")?.agentNickname).toBe("@Lorentz");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("marks opened subagent threads as full fidelity", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
