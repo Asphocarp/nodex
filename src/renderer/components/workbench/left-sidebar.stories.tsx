@@ -955,6 +955,53 @@ function CodexSidebarThreadArchiveActionHarness() {
   );
 }
 
+function CodexSidebarThreadElapsedActionRailHarness() {
+  const items = [
+    makeSidebarThreadItem({
+      key: "local:elapsed-long",
+      threadId: "thread-elapsed-long",
+      title: "Long running CodexElectron sidebar parity investigation with enough text to test truncation",
+      projectId: null,
+      projectless: true,
+      cwd: "/Users/asc/repo/nodex",
+      updatedAt: Date.now() - STORY_TWO_DAYS_MS - 60_000,
+    }),
+    makeSidebarThreadItem({
+      key: "local:elapsed-pinned",
+      threadId: "thread-elapsed-pinned",
+      title: "Pinned thread with elapsed metadata",
+      projectId: null,
+      projectless: true,
+      cwd: "/Users/asc/repo/nodex",
+      pinned: true,
+      updatedAt: Date.now() - 3 * 60 * 60 * 1_000,
+    }),
+    makeSidebarThreadItem({
+      key: "local:elapsed-unread",
+      threadId: "thread-elapsed-unread",
+      title: "Unread thread keeps the indicator while actions reveal",
+      projectId: null,
+      projectless: true,
+      cwd: "/Users/asc/repo/nodex",
+      unread: true,
+      updatedAt: Date.now() - 8 * 60 * 1_000,
+    }),
+  ];
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+        <ThreadRowsList
+          label="Chats"
+          items={items}
+          activeKey="local:elapsed-long"
+          openKey="local:elapsed-long"
+        />
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
 function CodexSidebarThreadHoverCardHarness() {
   const project = SIDEBAR_PARITY_PROJECTS[0]!;
   const item = makeSidebarThreadItem({
@@ -1190,6 +1237,10 @@ export const CodexSidebarArchivedHidden: Story = {
 
 export const CodexSidebarThreadArchiveAction: Story = {
   render: () => <CodexSidebarThreadArchiveActionHarness />,
+};
+
+export const CodexSidebarThreadElapsedActionRail: Story = {
+  render: () => <CodexSidebarThreadElapsedActionRailHarness />,
 };
 
 export const CodexSidebarThreadHoverCard: Story = {

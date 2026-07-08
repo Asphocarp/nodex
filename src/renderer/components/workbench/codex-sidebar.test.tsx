@@ -90,3 +90,74 @@ describe("codex sidebar thread hover card", () => {
     expect(tooltipText.includes("Chat")).toBeTrue();
   });
 });
+
+describe("codex sidebar thread row", () => {
+  test("renders the relative elapsed time in the row", async () => {
+    let container!: HTMLElement;
+
+    await act(async () => {
+      ({ container } = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem({ updatedAt: Date.now() - TWO_DAYS_MS - 60_000 })}
+            active={false}
+            onSelect={() => {}}
+          />
+        </NodexTooltipProvider>,
+      ));
+    });
+
+    const elapsed = container.querySelector("[data-app-action-sidebar-thread-elapsed]") as HTMLElement | null;
+    expect(elapsed).not.toBeNull();
+    expect(textContent(elapsed as HTMLElement).trim()).toBe("2d");
+  });
+
+  test("keeps hover actions out of the main title content flow", async () => {
+    let container!: HTMLElement;
+
+    await act(async () => {
+      ({ container } = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem()}
+            active={false}
+            onSelect={() => {}}
+            onArchive={() => {}}
+            onTogglePinned={() => {}}
+          />
+        </NodexTooltipProvider>,
+      ));
+    });
+
+    const row = container.querySelector("[data-app-action-sidebar-thread-row]") as HTMLElement | null;
+    expect(row).not.toBeNull();
+
+    const main = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-main]") as HTMLElement | null;
+    const actionRail = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-action-rail]") as HTMLElement | null;
+    expect(main).not.toBeNull();
+    expect(actionRail).not.toBeNull();
+
+    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBeTrue();
+    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBeTrue();
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") !== null).toBeTrue();
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBeTrue();
+  });
+
+  test("omits elapsed metadata when the timestamp is unavailable", async () => {
+    let container!: HTMLElement;
+
+    await act(async () => {
+      ({ container } = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem({ updatedAt: Number.NaN })}
+            active={false}
+            onSelect={() => {}}
+          />
+        </NodexTooltipProvider>,
+      ));
+    });
+
+    expect(container.querySelector("[data-app-action-sidebar-thread-elapsed]") === null).toBeTrue();
+  });
+});

@@ -63,9 +63,10 @@ export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 poin
 export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 export const CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
 export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
-export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "flex items-center gap-2 opacity-0 group-hover:opacity-100 [&:has(:focus-visible)]:opacity-100";
+export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [&:has(:focus-visible)]:pointer-events-auto [&:has(:focus-visible)]:opacity-100";
 export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4";
 const CODEX_SIDEBAR_THREAD_HOVER_CARD_DELAY_MS = 700;
+const CODEX_SIDEBAR_THREAD_ELAPSED_REFRESH_MS = 30_000;
 const CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL = "Chat";
 
 const NOOP_SIDEBAR_GROUP_DND_CONTROLLER: SidebarGroupDndController = {
@@ -868,8 +869,11 @@ export function CodexSidebarThreadRow({
   const pinButtonLabel = item.pinned ? "Unpin chat" : "Pin chat";
   const title = item.title;
   const archiveDisabled = item.disabled || archivePending;
+  const hasElapsedMeta = Number.isFinite(item.updatedAt) && item.updatedAt > 0;
+  const showActionRail = showPinSlot || showArchiveAction;
   const [internalHoverCardOpen, setInternalHoverCardOpen] = useState(false);
   const [lazyBranchName, setLazyBranchName] = useState<string | null>(null);
+  const [elapsedNowMs, setElapsedNowMs] = useState(() => Date.now());
   const resolvedHoverCardOpen = hoverCardOpen ?? internalHoverCardOpen;
   const normalizedHoverCardCwd = item.cwd?.trim() ?? "";
   const resolvedHoverCardBranchName = hoverCardBranchName ?? lazyBranchName;
@@ -901,10 +905,24 @@ export function CodexSidebarThreadRow({
     };
   }, [hoverCardBranchName, normalizedHoverCardCwd, resolvedHoverCardOpen]);
 
+  useEffect(() => {
+    if (!hasElapsedMeta) return;
+
+    const intervalId = window.setInterval(() => {
+      setElapsedNowMs(Date.now());
+    }, CODEX_SIDEBAR_THREAD_ELAPSED_REFRESH_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasElapsedMeta, item.updatedAt]);
+
   const handleHoverCardOpenChange = (nextOpen: boolean) => {
     if (hoverCardOpen === undefined) setInternalHoverCardOpen(nextOpen);
     onHoverCardOpenChange?.(nextOpen);
   };
+  const elapsedLabel = hasElapsedMeta ? formatElapsedSince(item.updatedAt, elapsedNowMs) : null;
+  const elapsedTitle = hasElapsedMeta ? `Updated ${new Date(item.updatedAt).toLocaleString()}` : undefined;
 
   const row = (
     <div
@@ -952,7 +970,10 @@ export function CodexSidebarThreadRow({
                 ) : null}
               </div>
             </div>
-            <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-2 pl-0.5">
+            <div
+              className="ml-1.5 flex min-w-0 flex-1 items-center pl-0.5"
+              data-app-action-sidebar-thread-main=""
+            >
               <div
                 className="flex min-w-0 flex-1 self-stretch items-center gap-2 text-base leading-5 text-token-foreground"
                 data-thread-title-trigger="true"
@@ -965,47 +986,69 @@ export function CodexSidebarThreadRow({
                   {title}
                 </span>
               </div>
-            </div>
-            {showPinSlot ? (
-              <div
-                className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center"
-                data-app-action-sidebar-thread-pin-slot=""
-              >
-                {item.unread ? (
-                  <span aria-hidden="true" className="block h-5 w-5" />
-                ) : (
-                  <button
-                    type="button"
-                    aria-label={pinButtonLabel}
+              {elapsedLabel ? (
+                <div
+                  className={cn(
+                    "ml-[3px] flex min-w-[26px] items-center justify-end gap-1 group-has-[:focus-visible]:min-w-12 group-hover:min-w-12",
+                    contextMenuOpen && "min-w-12",
+                  )}
+                  data-app-action-sidebar-thread-elapsed-slot=""
+                >
+                  <span
                     className={cn(
-                      "flex h-5 w-5 items-center justify-center leading-none text-token-foreground/50 hover:text-token-foreground",
-                      !item.pinned && "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
+                      "truncate text-right text-sm leading-4 tabular-nums text-token-description-foreground group-has-[:focus-visible]:hidden group-hover:hidden empty:hidden",
+                      contextMenuOpen && "hidden",
                     )}
-                    data-state={contextMenuOpen ? "open" : "closed"}
-                    data-app-action-sidebar-thread-pin-session=""
-                    onPointerDown={stopCodexSidebarRowActionPropagation}
-                    onMouseDown={stopCodexSidebarRowActionPropagation}
-                    onKeyDown={stopCodexSidebarRowActionPropagation}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void onTogglePinned?.(item);
-                    }}
+                    title={elapsedTitle}
+                    data-app-action-sidebar-thread-elapsed=""
                   >
-                    {item.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
-                  </button>
-                )}
-              </div>
-            ) : null}
-            {showArchiveAction ? (
-              <div
-                className={cn(
-                  CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS,
-                  "ml-1 shrink-0",
-                  contextMenuOpen && "opacity-100",
-                )}
-                data-state={contextMenuOpen ? "open" : "closed"}
-              >
+                    {elapsedLabel}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+          {showActionRail ? (
+            <div
+              className={cn(
+                CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS,
+                contextMenuOpen && "pointer-events-auto opacity-100",
+              )}
+              data-state={contextMenuOpen ? "open" : "closed"}
+              data-app-action-sidebar-thread-action-rail=""
+            >
+              {showPinSlot ? (
+                <div
+                  className="flex h-5 w-5 shrink-0 items-center justify-center"
+                  data-app-action-sidebar-thread-pin-slot=""
+                >
+                  {item.unread ? (
+                    <span aria-hidden="true" className="block h-5 w-5" />
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={pinButtonLabel}
+                      className={cn(
+                        "flex h-5 w-5 items-center justify-center leading-none text-token-foreground/50 hover:text-token-foreground [&>svg]:!h-4 [&>svg]:!w-4",
+                        !item.pinned && "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
+                      )}
+                      data-state={contextMenuOpen ? "open" : "closed"}
+                      data-app-action-sidebar-thread-pin-session=""
+                      onPointerDown={stopCodexSidebarRowActionPropagation}
+                      onMouseDown={stopCodexSidebarRowActionPropagation}
+                      onKeyDown={stopCodexSidebarRowActionPropagation}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void onTogglePinned?.(item);
+                      }}
+                    >
+                      {item.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
+                    </button>
+                  )}
+                </div>
+              ) : null}
+              {showArchiveAction ? (
                 <button
                   type="button"
                   aria-label="Archive chat"
@@ -1026,9 +1069,9 @@ export function CodexSidebarThreadRow({
                 >
                   <CodexArchiveIcon />
                 </button>
-              </div>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
     </div>
   );
