@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   buildThreadSectionPromptInput,
   deriveThreadSectionPromptBlocks,
-  isToggleShortcutBlock,
   resolveShortcutBlockId,
   resolveThreadSectionForBlock,
   resolveThreadSectionSendPlan,
@@ -366,12 +365,5 @@ describe("thread-section helpers", () => {
 
     expect(resolveTopLevelBlockId(editor, "child-1")).toBe("parent-1");
     expect(resolveShortcutBlockId(editor)).toBe("child-1");
-  });
-
-  test("recognizes toggle shortcut targets", () => {
-    expect(isToggleShortcutBlock({ type: "toggleListItem" })).toBeTrue();
-    expect(isToggleShortcutBlock({ type: "cardToggle" })).toBeTrue();
-    expect(isToggleShortcutBlock({ type: "heading", props: { isToggleable: true } })).toBeTrue();
-    expect(isToggleShortcutBlock({ type: "paragraph" })).toBeFalse();
   });
 });

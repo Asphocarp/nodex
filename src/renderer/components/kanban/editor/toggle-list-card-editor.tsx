@@ -4,6 +4,7 @@ import { BlockNoteView } from "@blocknote/shadcn";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { resolveAssetSourceToHttpUrl, uploadImageAsset } from "@/lib/assets";
+import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
 import type { CardInput, Estimate, MoveCardInput } from "@/lib/types";
 import type { Priority } from "@/lib/types";
 import {
@@ -80,6 +81,10 @@ import {
 } from "./card-toggle-snapshot";
 import { shouldSuppressPreferIndentBoundaryTab } from "./prefer-indent-tab-boundary";
 import { shouldRejectToggleListStructureChange } from "./projection-structure-guard";
+import {
+  modifyCurrentBlock,
+  type ModifyShortcutEditor,
+} from "./modify-block-shortcut";
 
 interface ActiveChipEdit {
   propertyType: Exclude<MetaChipPropertyType, "tag">;
@@ -97,6 +102,12 @@ interface ToggleListCardEditorProps {
   hiddenProperties: ToggleListPropertyKey[];
   updateCard: (columnId: string, cardId: string, updates: Partial<CardInput>) => Promise<unknown>;
   moveCard?: (input: MoveCardInput) => Promise<boolean>;
+  openCardStage?: (
+    projectId: string,
+    cardId: string,
+    titleSnapshot?: string,
+    options?: OpenCardStageOptions,
+  ) => void;
   showEmptyEstimate?: boolean;
   showEmptyPriority?: boolean;
   className?: string;
@@ -220,6 +231,7 @@ export function ToggleListCardEditor({
   hiddenProperties,
   updateCard,
   moveCard,
+  openCardStage,
   showEmptyEstimate = false,
   showEmptyPriority = false,
   className,
@@ -778,6 +790,41 @@ export function ToggleListCardEditor({
         event.target instanceof HTMLTextAreaElement;
       if (targetIsTextField) return;
 
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modifier = isMac ? event.metaKey : event.ctrlKey;
+      if (
+        modifier
+        && event.key.toLowerCase() === "enter"
+        && !event.altKey
+        && !event.shiftKey
+      ) {
+        const handled = modifyCurrentBlock(editor as unknown as ModifyShortcutEditor, {
+          projectId,
+          openImagePreview: (preview) => {
+            setImagePreview({
+              source: resolveAssetSourceToHttpUrl(preview.source),
+              alt: preview.alt,
+            });
+          },
+          openCard: openCardStage
+            ? ({ projectId: targetProjectId, cardId, titleSnapshot }) => {
+                const localCard = targetProjectId === projectId ? cardById.get(cardId) : undefined;
+                openCardStage(
+                  targetProjectId,
+                  cardId,
+                  titleSnapshot ?? localCard?.title,
+                  { openMode: "durable" },
+                );
+              }
+            : undefined,
+        });
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+
       if (
         event.key === "Tab"
         && !event.altKey
@@ -828,7 +875,7 @@ export function ToggleListCardEditor({
     return () => {
       el.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [editor]);
+  }, [cardById, editor, openCardStage, projectId]);
 
   useEffect(() => {
     const el = containerRef.current;

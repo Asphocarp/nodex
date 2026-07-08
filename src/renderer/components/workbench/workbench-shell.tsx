@@ -9963,6 +9963,7 @@ function ProjectSessionTabPanel({
         }}
         onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
         onRefreshSessions={onRefreshSessions}
+        onOpenCardTab={onOpenCardTab}
         onOpenThread={onOpenThread}
         historyPanelActive={Boolean(
           cardStageHistoryModal
@@ -10275,6 +10276,7 @@ function CardStageSessionTab({
   onOpenTerminal,
   onEnsureBlankSessionForProject,
   onRefreshSessions,
+  onOpenCardTab,
   onOpenThread,
   historyPanelActive,
   onToggleHistoryPanel,
@@ -10296,6 +10298,7 @@ function CardStageSessionTab({
     options?: { select?: boolean },
   ) => Promise<ProjectSession>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onOpenCardTab: OpenCardTabHandler;
   onOpenThread: (threadId: string) => Promise<void>;
   historyPanelActive: boolean;
   onToggleHistoryPanel: (context: CardStageHistoryModalContext) => void;
@@ -10454,6 +10457,9 @@ function CardStageSessionTab({
         canStartThreadInSession={canStartThreadInSession}
         linkedCodexThreads={[]}
         onOpenCodexThread={onOpenThread}
+        onOpenCard={({ projectId, cardId, titleSnapshot }) => {
+          void onOpenCardTab(projectId, cardId, titleSnapshot, { openMode: "durable" });
+        }}
         onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
         onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
           await codexControl.startTurn(threadId, prompt, { projectId, promptInput });

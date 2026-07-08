@@ -14,14 +14,21 @@ import { TOGGLE_LIST_PROPERTY_KEYS, type ToggleListCard, type ToggleListProperty
 import { ToggleListCardEditor } from "./editor/toggle-list-card-editor";
 import { toggleListSchema } from "./editor/toggle-list-schema";
 import { ToggleListScrollContainer } from "./view-scroll-containers";
+import type { OpenCardStageOptions } from "./open-card-stage";
 
 interface ToggleListViewProps {
   projectId: string;
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
+  openCardStage?: (
+    projectId: string,
+    cardId: string,
+    titleSnapshot?: string,
+    options?: OpenCardStageOptions,
+  ) => void;
 }
 
-export function ToggleListView({ projectId, searchQuery, dbViewPrefs }: ToggleListViewProps) {
+export function ToggleListView({ projectId, searchQuery, dbViewPrefs, openCardStage }: ToggleListViewProps) {
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const { board, loading, error, updateCard, moveCard } = useKanban({ projectId });
   const viewPrefs = dbViewPrefs ?? getDefaultDbViewPrefs("toggle-list");
@@ -139,6 +146,7 @@ export function ToggleListView({ projectId, searchQuery, dbViewPrefs }: ToggleLi
             showEmptyPriority={viewPrefs.display.showEmptyPriority}
             updateCard={updateCard}
             moveCard={moveCard}
+            openCardStage={openCardStage}
             className="nodex-toggle-list-editor min-h-80"
           />
         </section>

@@ -71,13 +71,6 @@ export function isThreadSectionBlock(block: ThreadSectionBlockLike | undefined):
   return block?.type === "threadSection";
 }
 
-export function isToggleShortcutBlock(block: { type?: string; props?: Record<string, unknown> } | undefined): boolean {
-  if (!block) return false;
-  if (block.type === "toggleListItem") return true;
-  if (block.type === "cardToggle") return true;
-  return block.type === "heading" && block.props?.isToggleable === true;
-}
-
 export function resolveTopLevelBlockId(
   editor: ThreadSectionParentLookup,
   blockId: string,

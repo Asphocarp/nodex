@@ -142,8 +142,6 @@ import {
   buildThreadSectionPromptInput,
   createEmptyThreadSectionBlock,
   deriveThreadSectionPromptBlocks,
-  isToggleShortcutBlock,
-  resolveShortcutBlockId,
   resolveThreadSectionSendPlan,
   type ThreadSectionBlockLike,
 } from "./thread-section";
@@ -189,6 +187,8 @@ import {
   useCodexAppServerControl,
   useProjectThreadSummaries,
 } from "@/features/local-conversation/local-conversation-store";
+import type { ModifyShortcutEditor } from "./modify-block-shortcut";
+import { handleNfmEditorModEnterShortcut } from "./nfm-editor-mod-enter-shortcut";
 
 interface ActiveChipEdit {
   propertyType: Exclude<MetaChipPropertyType, "tag">;
@@ -215,6 +215,7 @@ interface NfmEditorProps {
   canStartThreadInSession?: boolean;
   linkedCodexThreads?: CardStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
+  onOpenCard?: (input: { projectId: string; cardId: string; titleSnapshot?: string }) => void | Promise<void>;
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
     targetSessionId?: string;
@@ -524,6 +525,7 @@ export function NfmEditor({
   canStartThreadInSession = false,
   linkedCodexThreads = [],
   onOpenCodexThread,
+  onOpenCard,
   onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab = true,
@@ -1620,26 +1622,31 @@ export function NfmEditor({
 
       if (
         key === "enter"
-        && !(event.target instanceof HTMLInputElement)
-        && !(event.target instanceof HTMLTextAreaElement)
+        && !targetIsTextField
       ) {
-        const cursorBlock = editor.getTextCursorPosition().block;
-        if (isToggleShortcutBlock(cursorBlock)) {
-          return;
-        }
-
-        const blockId = resolveShortcutBlockId(editor);
-        if (blockId) {
-          const handled = handleSendThreadSectionByBlockId(blockId);
-          if (handled) {
-            event.preventDefault();
-            return;
-          }
-        } else {
-          toast.info("Insert /thread section to send notebook-style prompts.", {
-            id: "nfm-thread-section",
-          });
+        const handled = !event.altKey && !event.shiftKey && handleNfmEditorModEnterShortcut(
+          editor as unknown as ModifyShortcutEditor,
+          {
+            projectId,
+            openImagePreview: (preview) => {
+              setImagePreview({
+                source: resolveAssetSourceToHttpUrl(preview.source),
+                alt: preview.alt,
+              });
+            },
+            openCard: onOpenCard,
+            openThread: onOpenCodexThread ? handleOpenThreadSectionThread : undefined,
+            sendThreadSectionByBlockId: handleSendThreadSectionByBlockId,
+            showMissingThreadSectionHint: () => {
+              toast.info("Insert /thread section to send notebook-style prompts.", {
+                id: "nfm-thread-section",
+              });
+            },
+          },
+        );
+        if (handled) {
           event.preventDefault();
+          event.stopPropagation();
           return;
         }
       }
@@ -1679,8 +1686,12 @@ export function NfmEditor({
   }, [
     editor,
     handleSendThreadSectionByBlockId,
+    handleOpenThreadSectionThread,
     navigateSearch,
+    onOpenCard,
+    onOpenCodexThread,
     openSearch,
+    projectId,
     searchOpen,
   ]);
 

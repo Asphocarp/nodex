@@ -71,6 +71,7 @@ describe("card stage", () => {
     writeCardStageContentWidthPreference(true);
     writeCardStageShowRawContentPreference(false);
     const { CardStage, CARD_STAGE_SCROLL_CONTAINER_TEST_ID } = await import("./card-stage");
+    const onOpenCard = () => undefined;
     const { container, getByText, queryByText } = render(
       <NodexTooltipProvider>
         <CardStage
@@ -83,6 +84,7 @@ describe("card stage", () => {
           availableTags={[]}
           sessionId="session-current"
           canStartThreadInSession
+          onOpenCard={onOpenCard}
           onUpdate={async () => buildUpdateAck()}
           onPatch={() => undefined}
           onDelete={async () => undefined}
@@ -105,6 +107,7 @@ describe("card stage", () => {
       projectName?: unknown;
       sessionId?: unknown;
       canStartThreadInSession?: unknown;
+      onOpenCard?: unknown;
       headingRail?: {
         portalElement?: unknown;
         scrollContainerRef?: unknown;
@@ -114,6 +117,7 @@ describe("card stage", () => {
     expect(editorProps?.projectName).toBe("Default");
     expect(editorProps?.sessionId).toBe("session-current");
     expect(editorProps?.canStartThreadInSession).toBe(true);
+    expect(editorProps?.onOpenCard).toBe(onOpenCard);
     expect(typeof editorProps?.headingRail?.portalElement).toBe("object");
     expect(typeof editorProps?.headingRail?.scrollContainerRef).toBe("object");
     expect(container.querySelector('[data-card-stage-heading-navigation-portal-target="true"]')).not.toBeNull();

@@ -34,6 +34,7 @@ interface CardStageDescriptionEditorProps {
   canStartThreadInSession: CardStageProps["canStartThreadInSession"];
   linkedCodexThreads: CardStageProps["linkedCodexThreads"];
   onOpenCodexThread: CardStageProps["onOpenCodexThread"];
+  onOpenCard: CardStageProps["onOpenCard"];
   onStartNewSessionThreadFromEditor: CardStageProps["onStartNewSessionThreadFromEditor"];
   onSendThreadSectionPrompt: CardStageProps["onSendThreadSectionPrompt"];
   isActivePanelTab: boolean;
@@ -57,6 +58,7 @@ const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
   canStartThreadInSession,
   linkedCodexThreads,
   onOpenCodexThread,
+  onOpenCard,
   onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab,
@@ -86,6 +88,7 @@ const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
       canStartThreadInSession={canStartThreadInSession}
       linkedCodexThreads={linkedCodexThreads}
       onOpenCodexThread={onOpenCodexThread}
+      onOpenCard={onOpenCard}
       onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
       onSendThreadSectionPrompt={onSendThreadSectionPrompt}
       isActivePanelTab={isActivePanelTab}
@@ -225,6 +228,7 @@ export function CardStage(props: CardStageProps) {
                   canStartThreadInSession={props.canStartThreadInSession}
                   linkedCodexThreads={props.linkedCodexThreads}
                   onOpenCodexThread={props.onOpenCodexThread}
+                  onOpenCard={props.onOpenCard}
                   onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
                   onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
                   isActivePanelTab={props.isActivePanelTab ?? true}

@@ -13,7 +13,6 @@ import {
   handleToggleEnterToChild,
 } from "./child-group-enter";
 import { handleChildGroupBackspace } from "./child-group-backspace";
-import { toggleCurrentToggleBlock } from "./toggle-shortcut";
 import {
   createCopiedSelectionPayloadFromSelection,
   createStructuredPlainTextPayload,
@@ -91,13 +90,6 @@ const headingToggleAware = createExtension({
       },
     ]),
   ),
-});
-
-const toggleShortcut = createExtension({
-  key: "toggle-cmd-enter-shortcut",
-  keyboardShortcuts: {
-    "Meta-Enter": ({ editor }) => toggleCurrentToggleBlock(editor),
-  },
 });
 
 const selectBlockShortcut = createExtension({
@@ -347,7 +339,6 @@ export function createNfmEditorExtensions() {
     toggleInputRule,
     quoteInputRule,
     threadSectionInputRule,
-    toggleShortcut,
     selectBlockShortcut,
     selectedImageBlockDecorationsExtension(),
     childGroupEnterExt,

@@ -242,19 +242,24 @@ This is intentionally approximate v1 status chrome, not a durable execution-time
 ### `Cmd/Ctrl+Enter`
 
 In the Card Stage editor:
-- when the cursor is inside a `threadSection` region, `Cmd/Ctrl+Enter` prepares that section for send
+- `Cmd/Ctrl+Enter` first attempts the current block's modify action
+- if no block-level modify action is handled and the cursor is inside a `threadSection` region, the shortcut prepares that section for send
 - this includes nested child regions, where a child `threadSection` sends its following siblings in the same parent block
 - the editor opens the same thread picker used by the row `Send` action
 - the shortcut is handled at the editor surface, not by the Threads stage composer
 - successful send does not move focus to the Threads stage
 
-### Toggle exception
+### Modify-first precedence
 
-If the current cursor block is a toggle header or toggle heading:
-- the editor preserves toggle behavior
-- `Cmd/Ctrl+Enter` does not hijack that keypress for section sending
+If the current block has a modify action:
+- `checkListItem` flips its checked state
+- `toggleListItem` and toggle headings expand or collapse through the existing toggle button path
+- `image` opens the image preview
+- `cardRef` opens the referenced card in Card Stage
+- `cardToggle` opens its card target when one is present, and only falls back to expand/collapse when it has no valid card target
+- a bound `threadSection` opens its linked thread
 
-This prevents notebook sending from breaking an existing toggle editing affordance.
+Handled modify actions prevent the thread-section send fallback. This keeps notebook sending from overriding block-specific actions while preserving the send shortcut for ordinary text blocks and unbound section markers.
 
 ### No explicit section
 

@@ -122,6 +122,7 @@ export function MainViewHost({
       projectId={projectId}
       searchQuery={searchQuery}
       dbViewPrefs={dbViewPrefs}
+      openCardStage={openCardStage}
     />
   );
 }

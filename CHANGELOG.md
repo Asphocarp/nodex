@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - Added a Card Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy cards.
 
 ### Changed
+- `Cmd/Ctrl+Enter` in NFM editors now modifies the current actionable block before falling back to Card Stage thread-section send, including checkbox toggles, toggle rows, image previews, card opens, and linked thread-section opens.
 - Renamed the main local-store server environment variables from `KANBAN_*` to `NODEX_*` and the SQLite database file from `kanban.db` to `nodex.db`; startup moves an existing legacy database file when no `nodex.db` exists.
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.
 - Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and unsupported placeholder rows are now development-only mock entries instead of production command results.

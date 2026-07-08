@@ -92,12 +92,11 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 
 ### Block Formatting
 
-| Shortcut | Action |
-|----------|--------|
-| `⌘/Ctrl+Alt+1`–`4` | Heading level 1–4 |
-| `⌘/Ctrl+Enter` | Send current thread section | Opens a confirmation preview by default; can auto-create a section at the current block when none exists |
-| `⌘+Enter` | Toggle expand/collapse (Mac, when the cursor is on a toggle header or `cardToggle` row) |
-| `⌘/Ctrl+A` | Select current block content |
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `⌘/Ctrl+Alt+1`–`4` | Heading level 1–4 | |
+| `⌘/Ctrl+Enter` | Modify current block; otherwise send current thread section in Card Stage | Modifies actionable blocks first: checkbox toggle, toggle expand/collapse, image preview, card/card toggle open, or bound thread-section open. In Card Stage, unhandled blocks keep the existing thread-section send fallback and confirmation preview. |
+| `⌘/Ctrl+A` | Select current block content | |
 
 ### Input Rules (text triggers)
 
