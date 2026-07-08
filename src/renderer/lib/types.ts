@@ -252,6 +252,9 @@ export type {
   GitReviewFileSummary,
   GitReviewFileContents,
   GitReviewFileContentsInput,
+  GitReviewPatchDiff,
+  GitReviewPatchRequest,
+  GitReviewPatchResult,
   GitReviewSearchInput,
   GitReviewSearchResult,
   GitReviewSummaryRequest,
@@ -281,6 +284,8 @@ export type {
   ReviewDiffResult,
   ReviewDiffSourceDescriptor,
   ReviewDiffSourceKind,
+  ReviewFileSafety,
+  ReviewSkipReason,
   ReviewPanelTabStateV1,
   BackupRecord,
   BackupSettings,
@@ -350,15 +355,27 @@ export type {
 
 import type { Estimate, CardUpdateResult } from "../../shared/types";
 
-export const estimateStyles: Record<Estimate, { label: string; className: string }> = {
+export const estimateStyles: Record<
+  Estimate,
+  { label: string; className: string }
+> = {
   xl: { label: "XL", className: "bg-[var(--red-bg)] text-[var(--red-text)]" },
-  l: { label: "L", className: "bg-[var(--orange-bg)] text-[var(--orange-text)]" },
-  m: { label: "M", className: "bg-[var(--yellow-bg)] text-[var(--yellow-text)]" },
+  l: {
+    label: "L",
+    className: "bg-[var(--orange-bg)] text-[var(--orange-text)]",
+  },
+  m: {
+    label: "M",
+    className: "bg-[var(--yellow-bg)] text-[var(--yellow-text)]",
+  },
   s: { label: "S", className: "bg-[var(--green-bg)] text-[var(--green-text)]" },
   xs: { label: "XS", className: "bg-[var(--blue-bg)] text-[var(--blue-text)]" },
 };
 
-export const estimateOptions: Array<{ value: "none" | Estimate; label: string }> = [
+export const estimateOptions: Array<{
+  value: "none" | Estimate;
+  label: string;
+}> = [
   { value: "none", label: "None" },
   ...Object.entries(estimateStyles).map(([value, { label }]) => ({
     value: value as Estimate,
@@ -366,7 +383,9 @@ export const estimateOptions: Array<{ value: "none" | Estimate; label: string }>
   })),
 ];
 
-export type CardUpdateMutationResult = CardUpdateResult | {
-  status: "error";
-  error: string;
-};
+export type CardUpdateMutationResult =
+  | CardUpdateResult
+  | {
+      status: "error";
+      error: string;
+    };

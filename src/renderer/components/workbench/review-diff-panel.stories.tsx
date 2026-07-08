@@ -5,6 +5,7 @@ import {
   addReviewDiffCommentAttachment,
   clearReviewDiffCommentAttachments,
 } from "@/lib/review-diff-comment-attachment-store";
+import { buildReviewFileSafety } from "../../../shared/review-file-safety";
 import { ReviewDiffPanel } from "./review-diff-panel";
 
 function buildStoryConversation(): CodexConversationSnapshot {
@@ -154,6 +155,50 @@ function buildReviewParityConversation(): CodexConversationSnapshot {
   return conversation;
 }
 
+function buildMetadataOnlyReviewConversation(input: {
+  threadId: string;
+  path: string;
+  safety: ReturnType<typeof buildReviewFileSafety>;
+}): CodexConversationSnapshot {
+  const conversation = buildStoryConversation();
+  conversation.threadId = input.threadId;
+  conversation.turns[0] = {
+    ...conversation.turns[0]!,
+    threadId: input.threadId,
+    turnId: "turn_metadata_only",
+    diff: "",
+    items: [{
+      threadId: input.threadId,
+      turnId: "turn_metadata_only",
+      entryId: "turn-diff:turn_metadata_only",
+      itemId: "turn-diff:turn_metadata_only",
+      type: "turn_diff",
+      kind: "systemEvent",
+      semanticKind: "diff",
+      status: "completed",
+      source: "live",
+      sequence: 0,
+      rawItem: {
+        type: "turn-diff",
+        unifiedDiff: "",
+        patchBatches: [{
+          cwd: conversation.cwd,
+          changes: [{
+            path: input.path,
+            type: "nonRenderable",
+            originalType: "add",
+            movePath: null,
+            safety: input.safety,
+          }],
+        }],
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    }],
+  };
+  return conversation;
+}
+
 function ReviewStorySurface({
   openControlLabel,
   pendingCommentAttachments,
@@ -266,6 +311,38 @@ export const CodexParityLineInfoAndIcons: Story = {
         story: "Review diff parity fixture: line-info unchanged-range separators, compact file rows, and file-type icons should be visible together.",
       },
     },
+  },
+};
+
+export const BinaryPlaceholder: Story = {
+  args: {
+    conversation: buildMetadataOnlyReviewConversation({
+      threadId: "thr_story_review_binary",
+      path: "assets/logo.png",
+      safety: buildReviewFileSafety({
+        binary: true,
+        sizeBytes: 2_048,
+        mimeType: "image/png",
+      }),
+    }),
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+    initialFileTreeOpen: true,
+  },
+};
+
+export const TooLargePlaceholder: Story = {
+  args: {
+    conversation: buildMetadataOnlyReviewConversation({
+      threadId: "thr_story_review_large",
+      path: "logs/debug.txt",
+      safety: buildReviewFileSafety({
+        tooLarge: true,
+        sizeBytes: 1_048_577,
+        mimeType: "text/plain",
+      }),
+    }),
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+    initialFileTreeOpen: true,
   },
 };
 

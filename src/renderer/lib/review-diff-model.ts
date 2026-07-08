@@ -2,8 +2,8 @@ export interface ReviewDiffModelFile {
   key: string;
   displayPath: string;
   patchText: string;
-  additions: number;
-  deletions: number;
+  additions: number | null;
+  deletions: number | null;
 }
 
 export interface ReviewSearchableContent {
@@ -40,7 +40,7 @@ const REVIEW_CONTAIN_INTRINSIC_LINE_HEIGHT = 20;
 const REVIEW_CONTAIN_INTRINSIC_MAX_CHANGED_LINES = 480;
 
 export function getReviewTotalChangedLines<TFile extends ReviewDiffModelFile>(files: TFile[]): number {
-  return files.reduce((sum, file) => sum + file.additions + file.deletions, 0);
+  return files.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0);
 }
 
 export function getReviewTotalChangedBytes(patch: string): number {
@@ -165,11 +165,11 @@ export function buildReviewRenderPlan<TFile extends ReviewDiffModelFile>(
 }
 
 export function getReviewContainIntrinsicSize(
-  additions: number,
-  deletions: number,
+  additions: number | null,
+  deletions: number | null,
   diffMode: "unified" | "split",
 ): string {
-  const changedLineCount = Math.min(additions + deletions, REVIEW_CONTAIN_INTRINSIC_MAX_CHANGED_LINES);
+  const changedLineCount = Math.min((additions ?? 0) + (deletions ?? 0), REVIEW_CONTAIN_INTRINSIC_MAX_CHANGED_LINES);
   const multiplier = diffMode === "split" ? 2 : 1;
   const estimatedHeight = REVIEW_CONTAIN_INTRINSIC_BASE_HEIGHT
     + changedLineCount * REVIEW_CONTAIN_INTRINSIC_LINE_HEIGHT * multiplier;

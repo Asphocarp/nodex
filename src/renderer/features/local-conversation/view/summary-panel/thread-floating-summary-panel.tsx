@@ -205,8 +205,8 @@ function sumSnapshotFiles(snapshot: GitReviewSnapshot | undefined): { additions:
 
   return snapshot.files.reduce(
     (summary, file) => ({
-      additions: summary.additions + file.additions,
-      deletions: summary.deletions + file.deletions,
+      additions: summary.additions + (file.additions ?? 0),
+      deletions: summary.deletions + (file.deletions ?? 0),
     }),
     { additions: 0, deletions: 0 },
   );

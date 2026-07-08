@@ -7572,8 +7572,9 @@ export class CodexService extends EventEmitter {
     const fallbackCwd = this.getMaybeConversationRecord(threadId)?.detail?.cwd ?? null;
     const patchBatches = this.buildPatchBatchesFromItems(this.listKnownTurnItems(threadId, turnId), fallbackCwd);
     const projectedDiff = this.resolveProjectedTurnDiff(diff, patchBatches);
+    const hasPatchBatchChanges = patchBatches.some((batch) => batch.changes.length > 0);
 
-    if (!projectedDiff) {
+    if (!projectedDiff && !hasPatchBatchChanges) {
       if (byItem.has(itemKey)) {
         byItem.delete(itemKey);
         if (byItem.size === 0) {
@@ -7586,7 +7587,7 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    const item = this.buildTurnDiffItemView({ threadId, turnId, diff: projectedDiff, status, patchBatches });
+    const item = this.buildTurnDiffItemView({ threadId, turnId, diff: projectedDiff ?? "", status, patchBatches });
     byItem.set(itemKey, item);
     record.itemsByTurn.set(turnId, byItem);
 
@@ -11840,18 +11841,22 @@ export class CodexService extends EventEmitter {
         type: "fileChange",
         id: item.itemId,
         status: item.status ?? null,
-        changes: getCodexFileChangeList(item.fileChange?.changes).map((change) => ({
-          path: change.path,
-          kind: change.type,
-          ...(includeOutputs
-            ? {
-                diff: this.truncateDynamicOutput(
-                  "unifiedDiff" in change ? change.unifiedDiff : change.content,
-                  maxOutputCharsPerItem,
-                ),
-              }
-            : {}),
-        })),
+        changes: getCodexFileChangeList(item.fileChange?.changes).map((change) => {
+          const diff = change.type === "update"
+            ? change.unifiedDiff
+            : change.type === "nonRenderable"
+              ? ""
+              : change.content;
+          return {
+            path: change.path,
+            kind: change.type === "nonRenderable" ? change.originalType : change.type,
+            ...(includeOutputs
+              ? {
+                  diff: this.truncateDynamicOutput(diff, maxOutputCharsPerItem),
+                }
+              : {}),
+          };
+        }),
       };
     }
 

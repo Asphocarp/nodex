@@ -13,7 +13,11 @@ import type {
   WindowSessionBootstrap,
   WorkbenchLayoutSnapshot,
 } from "./types";
-import type { BoardChangeEvent, ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
+import type {
+  BoardChangeEvent,
+  ProjectSessionsChangeEvent,
+  ProjectsChangeEvent,
+} from "../../shared/ipc-api";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -38,18 +42,23 @@ function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
 
 let browserWindowSessionLayout = createDefaultWorkbenchLayoutSnapshot();
 let browserCommandKeybindingOverrides: CommandKeybindingOverrides = {};
-const browserCardDescriptionStaging = new Map<string, {
-  input: {
-    projectId: string;
-    columnId?: string;
-    cardId: string;
-    sessionId?: string;
-    expectedRevision?: number;
-  };
-  chunks: string[];
-}>();
+const browserCardDescriptionStaging = new Map<
+  string,
+  {
+    input: {
+      projectId: string;
+      columnId?: string;
+      cardId: string;
+      sessionId?: string;
+      expectedRevision?: number;
+    };
+    chunks: string[];
+  }
+>();
 
-function createBrowserWindowSessionBootstrap(layout: WorkbenchLayoutSnapshot): WindowSessionBootstrap {
+function createBrowserWindowSessionBootstrap(
+  layout: WorkbenchLayoutSnapshot,
+): WindowSessionBootstrap {
   const timestamp = new Date().toISOString();
   return {
     session: {
@@ -65,9 +74,21 @@ function createBrowserWindowSessionBootstrap(layout: WorkbenchLayoutSnapshot): W
 interface StoryGitReviewFile {
   path: string;
   previousPath: string | null;
-  status: "modified" | "added" | "deleted" | "renamed";
+  status:
+    | "modified"
+    | "added"
+    | "deleted"
+    | "renamed"
+    | "copied"
+    | "type-changed"
+    | "unmerged"
+    | "untracked";
   additions: number;
   deletions: number;
+  rawStatus?: string | null;
+  oldOid?: string | null;
+  newOid?: string | null;
+  revision?: string | null;
 }
 
 interface StoryGitReviewSnapshot {
@@ -93,12 +114,19 @@ function splitStoryPatchFileDiffs(patch: string): string[] {
   });
 }
 
-function buildStoryFileFromDiff(diff: string, index: number): StoryGitReviewFile {
+function buildStoryFileFromDiff(
+  diff: string,
+  index: number,
+): StoryGitReviewFile {
   const header = diff.match(/^diff --git a\/(.+?) b\/(.+)$/m);
   const path = header?.[2] ?? `src/file-${index + 1}.ts`;
   const previousPath = header?.[1] && header[1] !== path ? header[1] : null;
-  const additions = diff.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-  const deletions = diff.split("\n").filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+  const additions = diff
+    .split("\n")
+    .filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+  const deletions = diff
+    .split("\n")
+    .filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
   const status = diff.includes("--- /dev/null")
     ? "added"
     : diff.includes("+++ /dev/null")
@@ -111,6 +139,10 @@ function buildStoryFileFromDiff(diff: string, index: number): StoryGitReviewFile
     path,
     previousPath,
     status,
+    rawStatus: null,
+    oldOid: null,
+    newOid: null,
+    revision: `story:${status}:${path}:${additions}:${deletions}`,
     additions,
     deletions,
   };
@@ -118,23 +150,32 @@ function buildStoryFileFromDiff(diff: string, index: number): StoryGitReviewFile
 
 function toStoryReviewDiffResult(snapshot: StoryGitReviewSnapshot) {
   const fileDiffs = splitStoryPatchFileDiffs(snapshot.patch);
-  const files = (snapshot.files.length > 0 ? snapshot.files : fileDiffs.map(buildStoryFileFromDiff))
-    .map((file, index) => {
-      const diff = fileDiffs[index] ?? "";
-      return {
-        ...file,
-        diff,
-        loadStatus: "loaded" as const,
-        renderKey: `${file.previousPath ?? ""}->${file.path}:${file.additions}:${file.deletions}:${diff.length}`,
-        changedBytes: diff.length,
-        tooLarge: file.additions + file.deletions > 15_000,
-        tooLargeReason: null,
-      };
-    });
+  const files = (
+    snapshot.files.length > 0
+      ? snapshot.files
+      : fileDiffs.map(buildStoryFileFromDiff)
+  ).map((file, index) => {
+    const diff = fileDiffs[index] ?? "";
+    return {
+      ...file,
+      diff,
+      loadStatus: "loaded" as const,
+      renderKey: `${file.previousPath ?? ""}->${file.path}:${file.additions}:${file.deletions}:${diff.length}`,
+      diffBytes: diff.length,
+      diffError: null,
+      canApplyPatchActions: diff.trim().length > 0,
+      changedBytes: diff.length,
+      tooLarge: file.additions + file.deletions > 15_000,
+      tooLargeReason: null,
+    };
+  });
 
   return {
     ...snapshot,
-    patch: files.map((file) => file.diff).filter(Boolean).join("\n"),
+    patch: files
+      .map((file) => file.diff)
+      .filter(Boolean)
+      .join("\n"),
     files,
   };
 }
@@ -147,7 +188,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return data.projects;
     }
     case "projects:create": {
-      const [input] = args as [{ name?: string; description?: string; icon?: string; sources?: string[] }];
+      const [input] = args as [
+        {
+          name?: string;
+          description?: string;
+          icon?: string;
+          sources?: string[];
+        },
+      ];
       const res = await fetch(toApiUrl("/api/projects"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -166,7 +214,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "projects:update": {
       const [projectId, updates] = args as [
         string,
-        { name?: string; description?: string; icon?: string; sources?: string[] },
+        {
+          name?: string;
+          description?: string;
+          icon?: string;
+          sources?: string[];
+        },
       ];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}`), {
         method: "PUT",
@@ -205,25 +258,35 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return data.projects ?? [];
     }
     case "project-sessions:list": {
-      const [projectId, options] = args as [string, { includeArchived?: boolean }?];
+      const [projectId, options] = args as [
+        string,
+        { includeArchived?: boolean }?,
+      ];
       const params = new URLSearchParams();
       if (options?.includeArchived === true) {
         params.set("includeArchived", "true");
       }
       const suffix = params.size > 0 ? `?${params.toString()}` : "";
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions${suffix}`));
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/sessions${suffix}`),
+      );
       const data = await res.json();
       return data.sessions ?? [];
     }
     case "project-sessions:list-summaries": {
-      const [projectId, options] = args as [string, { includeArchived?: boolean }?];
+      const [projectId, options] = args as [
+        string,
+        { includeArchived?: boolean }?,
+      ];
       const params = new URLSearchParams();
       if (options?.includeArchived === true) {
         params.set("includeArchived", "true");
       }
       params.set("summary", "true");
       const suffix = params.size > 0 ? `?${params.toString()}` : "";
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions${suffix}`));
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/sessions${suffix}`),
+      );
       const data = await res.json();
       return data.sessions ?? [];
     }
@@ -234,11 +297,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     }
     case "project-sessions:create": {
       const [input] = args as [{ projectId: string; title: string }];
-      const res = await fetch(toApiUrl(`/api/projects/${input.projectId}/sessions`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${input.projectId}/sessions`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.json();
     }
     case "project-sessions:update": {
@@ -252,107 +318,151 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     }
     case "project-sessions:rename": {
       const [sessionId, input] = args as [string, object];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/rename`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/rename`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-sessions:delete": {
       const [sessionId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}`), { method: "DELETE" });
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}`), {
+        method: "DELETE",
+      });
       const data = await res.json();
       return data.success ?? false;
     }
     case "project-sessions:reorder": {
       const [projectId, orderedSessionIds] = args as [string, string[]];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions/reorder`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderedSessionIds }),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/sessions/reorder`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderedSessionIds }),
+        },
+      );
       const data = await res.json();
       return data.sessions ?? [];
     }
     case "project-sessions:set-pinned": {
       const [sessionId, input] = args as [string, { pinned: boolean }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/pinned`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/pinned`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-sessions:set-pinned-order": {
-      const [projectId, input] = args as [string, { orderedSessionIds: string[] }];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions/pinned-order`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const [projectId, input] = args as [
+        string,
+        { orderedSessionIds: string[] },
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/sessions/pinned-order`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       const data = await res.json();
       return data.sessions ?? [];
     }
     case "project-sessions:archive": {
       const [sessionId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/archive`), {
-        method: "PUT",
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/archive`),
+        {
+          method: "PUT",
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-sessions:unarchive": {
       const [sessionId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/unarchive`), {
-        method: "PUT",
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/unarchive`),
+        {
+          method: "PUT",
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "codex:thread:archive": {
       const [threadId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/codex/threads/${encodeURIComponent(threadId)}/archive`), {
-        method: "PUT",
-      });
+      const res = await fetch(
+        toApiUrl(`/api/codex/threads/${encodeURIComponent(threadId)}/archive`),
+        {
+          method: "PUT",
+        },
+      );
       if (!res.ok) return false;
       const data = await res.json();
       return data.success === true;
     }
     case "codex:thread:unarchive": {
       const [threadId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/codex/threads/${encodeURIComponent(threadId)}/unarchive`), {
-        method: "PUT",
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/codex/threads/${encodeURIComponent(threadId)}/unarchive`,
+        ),
+        {
+          method: "PUT",
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-sessions:mark-unread": {
       const [sessionId, input] = args as [string, { unread: boolean }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/unread`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/unread`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-sessions:fork": {
       const [sessionId, input] = args as [string, object];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/fork`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/fork`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
-        throw new Error(typeof error.error === "string" ? error.error : "Failed to fork session");
+        throw new Error(
+          typeof error.error === "string"
+            ? error.error
+            : "Failed to fork session",
+        );
       }
       return res.json();
     }
     case "project-session-tabs:create": {
       const [input] = args as [{ sessionId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/tabs`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${input.sessionId}/tabs`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.json();
     }
     case "project-session-tabs:update": {
@@ -366,74 +476,110 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     }
     case "project-session-panels:update": {
       const [sessionId, panelId, input] = args as [string, string, object];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/panels/${panelId}`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/panels/${panelId}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-panels:split": {
       const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/split`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/split`,
+        ),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-panels:ensure-right-leaf": {
       const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/ensure-right-leaf`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/ensure-right-leaf`,
+        ),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-panels:merge": {
       const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/merge`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/merge`,
+        ),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-panels:activate": {
       const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/active-group`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/active-group`,
+        ),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-panels:resize": {
       const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/resize-group`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/resize-group`,
+        ),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-panels:maximize": {
       const [input] = args as [{ sessionId: string; panelId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/maximized-group`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/project-sessions/${input.sessionId}/panels/${input.panelId}/maximized-group`,
+        ),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-tabs:state:update": {
       const [tabId, stateKey, state] = args as [string, number, unknown];
-      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}/state`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stateKey, state }),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-session-tabs/${tabId}/state`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stateKey, state }),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-tabs:delete": {
@@ -441,7 +587,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const tabId = typeof input === "string" ? input : input.tabId;
       const deleteBody: Partial<ProjectSessionTabDeleteInput> = {};
       if (typeof input !== "string") {
-        if (input.preserveEmptyLeafIds && input.preserveEmptyLeafIds.length > 0) {
+        if (
+          input.preserveEmptyLeafIds &&
+          input.preserveEmptyLeafIds.length > 0
+        ) {
           deleteBody.preserveEmptyLeafIds = input.preserveEmptyLeafIds;
         }
         if (input.preferredActiveLeafId !== undefined) {
@@ -465,62 +614,94 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return data.success ?? false;
     }
     case "project-session-tabs:reorder": {
-      const [input] = args as [{ sessionId: string; panelId: string; leafId?: string; orderedTabIds: string[] }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/tabs/reorder`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ panelId: input.panelId, leafId: input.leafId, orderedTabIds: input.orderedTabIds }),
-      });
+      const [input] = args as [
+        {
+          sessionId: string;
+          panelId: string;
+          leafId?: string;
+          orderedTabIds: string[];
+        },
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${input.sessionId}/tabs/reorder`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            panelId: input.panelId,
+            leafId: input.leafId,
+            orderedTabIds: input.orderedTabIds,
+          }),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-tabs:move": {
-      const [input] = args as [{
-        tabId: string;
-        targetPanelId: string;
-        targetLeafId?: string;
-        targetIndex?: number;
-        preserveEmptyLeafIds?: string[];
-        splitTarget?: object;
-      }];
-      const res = await fetch(toApiUrl(`/api/project-session-tabs/${input.tabId}/move`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const [input] = args as [
+        {
+          tabId: string;
+          targetPanelId: string;
+          targetLeafId?: string;
+          targetIndex?: number;
+          preserveEmptyLeafIds?: string[];
+          splitTarget?: object;
+        },
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/project-session-tabs/${input.tabId}/move`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.ok ? res.json() : null;
     }
     case "project-session-threads:attach": {
       const [input] = args as [{ sessionId: string }];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/thread`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${input.sessionId}/thread`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       return res.json();
     }
     case "project-session-threads:detach": {
       const [sessionId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/thread`), { method: "DELETE" });
+      const res = await fetch(
+        toApiUrl(`/api/project-sessions/${sessionId}/thread`),
+        { method: "DELETE" },
+      );
       const data = await res.json();
       return data.success ?? false;
     }
     case "board:summary:get": {
       const [projectId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/board-summary`));
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/board-summary`),
+      );
       return res.json();
     }
     case "cards:details:get": {
       const [projectId, input] = args as [string, { cardIds: string[] }];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/cards/details`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/cards/details`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
       if (!res.ok) return [];
       return res.json();
     }
     case "cards:search": {
-      const [input] = args as [{ projectIds: string[]; query: string; limit?: number }];
+      const [input] = args as [
+        { projectIds: string[]; query: string; limit?: number },
+      ];
       const res = await fetch(toApiUrl("/api/cards/search"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -545,37 +726,42 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "card:update": {
-      const [projectId, status, cardId, updates, sessionId, expectedRevision] = args as [
-        string,
-        string,
-        string,
-        object,
-        string?,
-        number?,
-      ];
+      const [projectId, status, cardId, updates, sessionId, expectedRevision] =
+        args as [string, string, string, object, string?, number?];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/card`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, cardId, ...updates, sessionId, expectedRevision }),
+        body: JSON.stringify({
+          status,
+          cardId,
+          ...updates,
+          sessionId,
+          expectedRevision,
+        }),
       });
       if (!res.ok) {
         if (res.status === 404 || res.status === 409) {
           return res.json();
         }
         const error = await res.json().catch(() => ({}));
-        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        const message =
+          typeof error.error === "string"
+            ? error.error
+            : `Request failed: ${res.status}`;
         throw new Error(message);
       }
       return res.json();
     }
     case "card:description:update:start": {
-      const [input] = args as [{
-        projectId: string;
-        columnId?: string;
-        cardId: string;
-        sessionId?: string;
-        expectedRevision?: number;
-      }];
+      const [input] = args as [
+        {
+          projectId: string;
+          columnId?: string;
+          cardId: string;
+          sessionId?: string;
+          expectedRevision?: number;
+        },
+      ];
       const stagingId = crypto.randomUUID();
       browserCardDescriptionStaging.set(stagingId, { input, chunks: [] });
       return { stagingId };
@@ -585,7 +771,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const entry = browserCardDescriptionStaging.get(stagingId);
       if (!entry) throw new Error("Unknown card description staging id");
       entry.chunks.push(chunk);
-      return { ok: true, bytes: entry.chunks.reduce((sum, value) => sum + value.length, 0) };
+      return {
+        ok: true,
+        bytes: entry.chunks.reduce((sum, value) => sum + value.length, 0),
+      };
     }
     case "card:description:update:abort": {
       const [stagingId] = args as [string];
@@ -602,14 +791,22 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       if (typeof entry.input.expectedRevision === "number") {
         params.set("expectedRevision", String(entry.input.expectedRevision));
       }
-      const res = await fetch(toApiUrl(`/api/projects/${entry.input.projectId}/card/description?${params.toString()}`), {
-        method: "PUT",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: entry.chunks.join(""),
-      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/projects/${entry.input.projectId}/card/description?${params.toString()}`,
+        ),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+          body: entry.chunks.join(""),
+        },
+      );
       if (!res.ok && res.status !== 404 && res.status !== 409) {
         const error = await res.json().catch(() => ({}));
-        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        const message =
+          typeof error.error === "string"
+            ? error.error
+            : `Request failed: ${res.status}`;
         throw new Error(message);
       }
       return res.json();
@@ -618,7 +815,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const [projectId, cardId, status] = args as [string, string, string?];
       const params = new URLSearchParams({ cardId });
       if (status) params.set("status", status);
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card?${params.toString()}`));
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/card?${params.toString()}`),
+      );
       if (!res.ok) return null;
       return res.json();
     }
@@ -631,7 +830,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       ];
       const params = new URLSearchParams({ status, cardId });
       if (sessionId) params.set("sessionId", sessionId);
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card?${params}`), { method: "DELETE" });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/card?${params}`),
+        { method: "DELETE" },
+      );
       const data = await res.json();
       return data.success ?? false;
     }
@@ -649,25 +851,34 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "card:move-many": {
       const [input] = args as [{ projectId: string; sessionId?: string }];
       const { projectId, ...rest } = input;
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/move-many`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rest),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/move-many`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(rest),
+        },
+      );
       const data = await res.json();
       return data.success ?? false;
     }
     case "card:move-to-project": {
       const [input] = args as [{ sourceProjectId: string; sessionId?: string }];
       const { sourceProjectId, ...rest } = input;
-      const res = await fetch(toApiUrl(`/api/projects/${sourceProjectId}/card-move-to-project`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rest),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${sourceProjectId}/card-move-to-project`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(rest),
+        },
+      );
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
-        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        const message =
+          typeof error.error === "string"
+            ? error.error
+            : `Request failed: ${res.status}`;
         throw new Error(message);
       }
       return res.json();
@@ -685,47 +896,74 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     }
     case "card:import-block-drop": {
       const [projectId, input, sessionId] = args as [string, object, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card-import-block-drop`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...input, sessionId }),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/card-import-block-drop`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...input, sessionId }),
+        },
+      );
       return res.json();
     }
     case "calendar:occurrences": {
-      const [projectId, windowStart, windowEnd, searchQuery] = args as [string, Date, Date, string?];
+      const [projectId, windowStart, windowEnd, searchQuery] = args as [
+        string,
+        Date,
+        Date,
+        string?,
+      ];
       const params = new URLSearchParams({
         start: windowStart.toISOString(),
         end: windowEnd.toISOString(),
       });
-      if (searchQuery && searchQuery.trim().length > 0) params.set("search", searchQuery);
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/calendar/occurrences?${params.toString()}`));
+      if (searchQuery && searchQuery.trim().length > 0)
+        params.set("search", searchQuery);
+      const res = await fetch(
+        toApiUrl(
+          `/api/projects/${projectId}/calendar/occurrences?${params.toString()}`,
+        ),
+      );
       return res.json();
     }
     case "card:occurrence:complete": {
-      const [projectId, input, sessionId] = args as [string, { cardId: string; occurrenceStart: Date; source: string }, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card-occurrence/complete`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...input,
-          occurrenceStart: input.occurrenceStart.toISOString(),
-          sessionId,
-        }),
-      });
+      const [projectId, input, sessionId] = args as [
+        string,
+        { cardId: string; occurrenceStart: Date; source: string },
+        string?,
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/card-occurrence/complete`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...input,
+            occurrenceStart: input.occurrenceStart.toISOString(),
+            sessionId,
+          }),
+        },
+      );
       return res.json();
     }
     case "card:occurrence:skip": {
-      const [projectId, input, sessionId] = args as [string, { cardId: string; occurrenceStart: Date; source: string }, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card-occurrence/skip`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...input,
-          occurrenceStart: input.occurrenceStart.toISOString(),
-          sessionId,
-        }),
-      });
+      const [projectId, input, sessionId] = args as [
+        string,
+        { cardId: string; occurrenceStart: Date; source: string },
+        string?,
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/card-occurrence/skip`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...input,
+            occurrenceStart: input.occurrenceStart.toISOString(),
+            sessionId,
+          }),
+        },
+      );
       return res.json();
     }
     case "card:occurrence:update": {
@@ -739,41 +977,58 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         },
         string?,
       ];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card-occurrence`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...input,
-          occurrenceStart: input.occurrenceStart.toISOString(),
-          sessionId,
-        }),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/card-occurrence`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...input,
+            occurrenceStart: input.occurrenceStart.toISOString(),
+            sessionId,
+          }),
+        },
+      );
       return res.json();
     }
     case "card:move-drop-to-editor": {
       const [projectId, input, sessionId] = args as [string, object, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/card-move-drop-to-editor`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...input, sessionId }),
-      });
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/card-move-drop-to-editor`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...input, sessionId }),
+        },
+      );
       return res.json();
     }
     case "history:recent": {
       const [projectId, sessionId] = args as [string, string?];
       const params = sessionId ? `?sessionId=${sessionId}` : "";
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/history${params}`));
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/history${params}`),
+      );
       return res.json();
     }
     case "history:card": {
       const [projectId, cardId] = args as [string, string];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/history/card?cardId=${cardId}`));
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/history/card?cardId=${cardId}`),
+      );
       return res.json();
     }
     case "history:card-version-preview": {
       const [projectId, cardId, historyId] = args as [string, string, number];
-      const params = new URLSearchParams({ cardId, historyId: String(historyId) });
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/history/card-version-preview?${params.toString()}`));
+      const params = new URLSearchParams({
+        cardId,
+        historyId: String(historyId),
+      });
+      const res = await fetch(
+        toApiUrl(
+          `/api/projects/${projectId}/history/card-version-preview?${params.toString()}`,
+        ),
+      );
       return res.json();
     }
     case "history:undo": {
@@ -795,21 +1050,36 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "history:revert": {
-      const [projectId, historyId, sessionId] = args as [string, number, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/history/revert`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ historyId, sessionId }),
-      });
+      const [projectId, historyId, sessionId] = args as [
+        string,
+        number,
+        string?,
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/history/revert`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ historyId, sessionId }),
+        },
+      );
       return res.json();
     }
     case "history:restore": {
-      const [projectId, cardId, historyId, sessionId] = args as [string, string, number, string?];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/history/restore`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardId, historyId, sessionId }),
-      });
+      const [projectId, cardId, historyId, sessionId] = args as [
+        string,
+        string,
+        number,
+        string?,
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/projects/${projectId}/history/restore`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cardId, historyId, sessionId }),
+        },
+      );
       return res.json();
     }
     case "db:schema": {
@@ -840,36 +1110,53 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
-        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        const message =
+          typeof error.error === "string"
+            ? error.error
+            : `Request failed: ${res.status}`;
         throw new Error(message);
       }
       return res.json();
     }
     case "backup:delete": {
       const [backupId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/backups/${encodeURIComponent(backupId)}`), {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        toApiUrl(`/api/backups/${encodeURIComponent(backupId)}`),
+        {
+          method: "DELETE",
+        },
+      );
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
-        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        const message =
+          typeof error.error === "string"
+            ? error.error
+            : `Request failed: ${res.status}`;
         throw new Error(message);
       }
       return res.json();
     }
     case "backup:restore": {
-      const [input] = args as [{ backupId: string; confirm: boolean; createSafetyBackup?: boolean }];
-      const res = await fetch(toApiUrl(`/api/backups/${encodeURIComponent(input.backupId)}/restore`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          confirm: input.confirm,
-          createSafetyBackup: input.createSafetyBackup,
-        }),
-      });
+      const [input] = args as [
+        { backupId: string; confirm: boolean; createSafetyBackup?: boolean },
+      ];
+      const res = await fetch(
+        toApiUrl(`/api/backups/${encodeURIComponent(input.backupId)}/restore`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            confirm: input.confirm,
+            createSafetyBackup: input.createSafetyBackup,
+          }),
+        },
+      );
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
-        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        const message =
+          typeof error.error === "string"
+            ? error.error
+            : `Request failed: ${res.status}`;
         throw new Error(message);
       }
       return res.json();
@@ -879,11 +1166,13 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "settings:backup:update": {
-      const [input] = args as [{
-        autoEnabled: boolean;
-        intervalHours: number;
-        retentionCount: number;
-      }];
+      const [input] = args as [
+        {
+          autoEnabled: boolean;
+          intervalHours: number;
+          retentionCount: number;
+        },
+      ];
       const res = await fetch(toApiUrl("/api/settings/backup"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -927,16 +1216,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       };
     }
     case "settings:diagnostics:update": {
-      const [input] = args as [{
-        enabled?: boolean;
-        dsn?: string;
-        environment?: string;
-        release?: string | null;
-        tracesSampleRate?: number;
-        replayEnabled?: boolean;
-        replaysSessionSampleRate?: number;
-        replaysOnErrorSampleRate?: number;
-      }];
+      const [input] = args as [
+        {
+          enabled?: boolean;
+          dsn?: string;
+          environment?: string;
+          release?: string | null;
+          tracesSampleRate?: number;
+          replayEnabled?: boolean;
+          replaysSessionSampleRate?: number;
+          replaysOnErrorSampleRate?: number;
+        },
+      ];
       return {
         enabled: input.enabled === true,
         dsn: input.dsn ?? "",
@@ -973,12 +1264,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       };
     }
     case "settings:telemetry:update": {
-      const [input] = args as [{
-        enabled?: boolean;
-        clientKey?: string;
-        environment?: string;
-        autoCaptureEnabled?: boolean;
-      }];
+      const [input] = args as [
+        {
+          enabled?: boolean;
+          clientKey?: string;
+          environment?: string;
+          autoCaptureEnabled?: boolean;
+        },
+      ];
       return {
         enabled: input.enabled === true,
         clientKey: input.clientKey ?? "",
@@ -997,11 +1290,13 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "settings:thread-notifications:update": {
-      const [input] = args as [{
-        turnMode: "off" | "unfocused" | "always";
-        permissionsEnabled: boolean;
-        questionsEnabled: boolean;
-      }];
+      const [input] = args as [
+        {
+          turnMode: "off" | "unfocused" | "always";
+          permissionsEnabled: boolean;
+          questionsEnabled: boolean;
+        },
+      ];
       const res = await fetch(toApiUrl("/api/settings/thread-notifications"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1022,7 +1317,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "settings:window-restore:update": {
       const [input] = args as [{ policy?: string }];
       return {
-        policy: input.policy === "last-window" || input.policy === "none" ? input.policy : "all",
+        policy:
+          input.policy === "last-window" || input.policy === "none"
+            ? input.policy
+            : "all",
       };
     }
     case "codex-command-keymap-state": {
@@ -1089,13 +1387,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "git:review:snapshot": {
-      const [input] = args as [{
-        cwd: string;
-        source: "unstaged" | "staged" | "branch";
-        baseRef?: string | null;
-      }];
+      const [input] = args as [
+        {
+          cwd: string;
+          source: "unstaged" | "staged" | "branch";
+          baseRef?: string | null;
+        },
+      ];
       if (isStorybookRuntime()) {
-        const buildStorybookMultiFilePatch = (fileCount: number, nested = false): string => {
+        const buildStorybookMultiFilePatch = (
+          fileCount: number,
+          nested = false,
+        ): string => {
           return Array.from({ length: fileCount }, (_, index) => {
             const suffix = String(index + 1).padStart(3, "0");
             const dirPrefix = nested
@@ -1114,18 +1417,22 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
             ].join("\n");
           }).join("\n");
         };
-        const buildStorybookGitReviewFiles = (fileCount: number, nested = false) => {
+        const buildStorybookGitReviewFiles = (
+          fileCount: number,
+          nested = false,
+        ) => {
           return Array.from({ length: fileCount }, (_, index) => {
             const suffix = String(index + 1).padStart(3, "0");
             const dirPrefix = nested
               ? `src/domain-${String((index % 12) + 1).padStart(2, "0")}/feature-${String(Math.floor(index / 12) + 1).padStart(2, "0")}`
               : "src";
             const filePath = `${dirPrefix}/file-${suffix}.ts`;
-            const status = index % 3 === 0
-              ? "added"
-              : index % 3 === 1
-                ? "modified"
-                : "deleted";
+            const status =
+              index % 3 === 0
+                ? "added"
+                : index % 3 === 1
+                  ? "modified"
+                  : "deleted";
             return {
               path: filePath,
               previousPath: null,
@@ -1155,7 +1462,8 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
             patch: "",
             files: [],
             isGitRepository: true,
-            baseRef: input.source === "branch" ? (input.baseRef ?? "main") : null,
+            baseRef:
+              input.source === "branch" ? (input.baseRef ?? "main") : null,
             currentBranch: "codex/storybook",
             defaultBranch: "main",
             errorMessage: null,
@@ -1175,14 +1483,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           };
         }
         if (input.cwd.includes("large-diff")) {
-          const addedLines = Array.from({ length: 9_105 }, (_, index) => `+line ${index + 1}`).join("\n");
+          const addedLines = Array.from(
+            { length: 9_105 },
+            (_, index) => `+line ${index + 1}`,
+          ).join("\n");
           return {
             cwd: input.cwd,
             source: input.source,
             patch: `diff --git a/src/large.ts b/src/large.ts\nindex 1111111..2222222 100644\n--- a/src/large.ts\n+++ b/src/large.ts\n@@ -1 +1,9106 @@\n export const large = true;\n${addedLines}\n`,
             files: [],
             isGitRepository: true,
-            baseRef: input.source === "branch" ? (input.baseRef ?? "main") : null,
+            baseRef:
+              input.source === "branch" ? (input.baseRef ?? "main") : null,
             currentBranch: "codex/storybook",
             defaultBranch: "main",
             errorMessage: null,
@@ -1195,17 +1507,19 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
             patch: buildStorybookMultiFilePatch(120, true),
             files: buildStorybookGitReviewFiles(120, true),
             isGitRepository: true,
-            baseRef: input.source === "branch" ? (input.baseRef ?? "main") : null,
+            baseRef:
+              input.source === "branch" ? (input.baseRef ?? "main") : null,
             currentBranch: "codex/storybook",
             defaultBranch: "main",
             errorMessage: null,
           };
         }
-        const patch = input.source === "staged"
-          ? "diff --git a/src/app.ts b/src/app.ts\nindex 1111111..2222222 100644\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,3 @@\n export const title = 'Nodex';\n+export const staged = true;\n export const version = '1.0.0';\n"
-          : input.source === "branch"
-            ? "diff --git a/src/feature.ts b/src/feature.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/feature.ts\n@@ -0,0 +1,4 @@\n+export function reviewPanel() {\n+  return 'branch diff';\n+}\n+\n"
-            : "diff --git a/src/workbench.tsx b/src/workbench.tsx\nindex 3333333..4444444 100644\n--- a/src/workbench.tsx\n+++ b/src/workbench.tsx\n@@ -10,2 +10,4 @@\n export function Workbench() {\n+  const showDiffTree = true;\n   return null;\n }\n";
+        const patch =
+          input.source === "staged"
+            ? "diff --git a/src/app.ts b/src/app.ts\nindex 1111111..2222222 100644\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,3 @@\n export const title = 'Nodex';\n+export const staged = true;\n export const version = '1.0.0';\n"
+            : input.source === "branch"
+              ? "diff --git a/src/feature.ts b/src/feature.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/feature.ts\n@@ -0,0 +1,4 @@\n+export function reviewPanel() {\n+  return 'branch diff';\n+}\n+\n"
+              : "diff --git a/src/workbench.tsx b/src/workbench.tsx\nindex 3333333..4444444 100644\n--- a/src/workbench.tsx\n+++ b/src/workbench.tsx\n@@ -10,2 +10,4 @@\n export function Workbench() {\n+  const showDiffTree = true;\n   return null;\n }\n";
         return {
           cwd: input.cwd,
           source: input.source,
@@ -1231,38 +1545,76 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       };
     }
     case "git:review:diff": {
-      const [input] = args as [{
-        cwd: string;
-        source: "unstaged" | "staged" | "branch";
-        files?: string[];
-        baseRef?: string | null;
-        baseBranch?: string | null;
-      }];
-      const snapshot = await invoke("git:review:snapshot", {
+      const [input] = args as [
+        {
+          cwd: string;
+          source: "unstaged" | "staged" | "branch";
+          files?: string[];
+          baseRef?: string | null;
+          baseBranch?: string | null;
+        },
+      ];
+      const snapshot = (await invoke("git:review:snapshot", {
         cwd: input.cwd,
         source: input.source,
         baseRef: input.baseBranch ?? input.baseRef ?? null,
-      }) as StoryGitReviewSnapshot;
+      })) as StoryGitReviewSnapshot;
       const result = toStoryReviewDiffResult(snapshot);
       const requestedPaths = new Set(input.files ?? []);
       if (requestedPaths.size === 0) return result;
 
-      const files = result.files.filter((file) =>
-        requestedPaths.has(file.path) || (file.previousPath ? requestedPaths.has(file.previousPath) : false)
+      const files = result.files.filter(
+        (file) =>
+          requestedPaths.has(file.path) ||
+          (file.previousPath ? requestedPaths.has(file.previousPath) : false),
       );
       return {
         ...result,
-        patch: files.map((file) => file.diff).filter(Boolean).join("\n"),
+        patch: files
+          .map((file) => file.diff)
+          .filter(Boolean)
+          .join("\n"),
         files,
       };
     }
+    case "git:review:patch": {
+      const [input] = args as [
+        {
+          cwd: string;
+          source: "unstaged" | "staged" | "branch";
+          baseRef?: string | null;
+          baseBranch?: string | null;
+        },
+      ];
+      const result = (await invoke("git:review:diff", {
+        cwd: input.cwd,
+        source: input.source,
+        baseRef: input.baseBranch ?? input.baseRef ?? null,
+      })) as ReturnType<typeof toStoryReviewDiffResult>;
+      return {
+        cwd: result.cwd,
+        source: result.source,
+        diff: {
+          type: "success" as const,
+          unifiedDiff: result.patch,
+          unifiedDiffBytes: new TextEncoder().encode(result.patch).byteLength,
+        },
+        isGitRepository: result.isGitRepository,
+        baseRef: result.baseRef,
+        currentBranch: result.currentBranch,
+        defaultBranch: result.defaultBranch,
+        errorMessage: result.errorMessage,
+      };
+    }
     case "git:review:branch-diff-stats": {
-      const [input] = args as [{ cwd: string; baseRef?: string | null; baseBranch?: string | null }];
-      const result = await invoke("git:review:diff", {
+      const [input] = args as [
+        { cwd: string; baseRef?: string | null; baseBranch?: string | null },
+      ];
+      const result = (await invoke("git:review:diff", {
         cwd: input.cwd,
         source: "branch",
         baseRef: input.baseBranch ?? input.baseRef ?? null,
-      }) as ReturnType<typeof toStoryReviewDiffResult>;
+      })) as ReturnType<typeof toStoryReviewDiffResult>;
       return {
         cwd: result.cwd,
         baseRef: result.baseRef,
@@ -1270,11 +1622,21 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           path: file.path,
           previousPath: file.previousPath,
           status: file.status,
+          rawStatus: file.rawStatus ?? null,
+          oldOid: file.oldOid ?? null,
+          newOid: file.newOid ?? null,
+          revision: file.revision ?? null,
           additions: file.additions,
           deletions: file.deletions,
         })),
-        additions: result.files.reduce((total, file) => total + file.additions, 0),
-        deletions: result.files.reduce((total, file) => total + file.deletions, 0),
+        additions: result.files.reduce(
+          (total, file) => total + file.additions,
+          0,
+        ),
+        deletions: result.files.reduce(
+          (total, file) => total + file.deletions,
+          0,
+        ),
         isGitRepository: result.isGitRepository,
         currentBranch: result.currentBranch,
         defaultBranch: result.defaultBranch,
@@ -1319,17 +1681,23 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return {
         cwd: input.cwd,
         baseBranch: input.baseBranch,
-        mergeBaseSha: input.baseBranch.trim() ? "1111111111111111111111111111111111111111" : null,
-        errorMessage: input.baseBranch.trim() ? null : "Base branch is required.",
+        mergeBaseSha: input.baseBranch.trim()
+          ? "1111111111111111111111111111111111111111"
+          : null,
+        errorMessage: input.baseBranch.trim()
+          ? null
+          : "Base branch is required.",
       };
     }
     case "git:review:file-contents": {
-      const [input] = args as [{
-        cwd: string;
-        source: "unstaged" | "staged" | "branch";
-        path: string;
-        previousPath?: string | null;
-      }];
+      const [input] = args as [
+        {
+          cwd: string;
+          source: "unstaged" | "staged" | "branch";
+          path: string;
+          previousPath?: string | null;
+        },
+      ];
       if (isStorybookRuntime()) {
         if (input.cwd.includes("large-diff")) {
           return {
@@ -1345,8 +1713,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         return {
           path: input.path,
           previousPath: input.previousPath ?? null,
-          oldText: "export const title = 'Nodex';\nexport const version = '1.0.0';\n",
-          newText: "export const title = 'Nodex';\nexport const version = '1.0.0';\nexport const review = true;\n",
+          oldText:
+            "export const title = 'Nodex';\nexport const version = '1.0.0';\n",
+          newText:
+            "export const title = 'Nodex';\nexport const version = '1.0.0';\nexport const review = true;\n",
           oldExists: true,
           newExists: true,
           errorMessage: null,
@@ -1363,24 +1733,29 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       };
     }
     case "git:review:search": {
-      const [input] = args as [{
-        cwd: string;
-        source: "unstaged" | "staged" | "branch";
-        query: string;
-      }];
+      const [input] = args as [
+        {
+          cwd: string;
+          source: "unstaged" | "staged" | "branch";
+          query: string;
+        },
+      ];
       if (isStorybookRuntime()) {
         const normalizedQuery = input.query.trim().toLowerCase();
-        const matchingPaths = normalizedQuery.length === 0
-          ? []
-          : normalizedQuery.includes("feature")
-            ? ["src/feature.ts"]
-            : normalizedQuery.includes("file-090")
-              ? ["src/file-090.ts"]
-            : normalizedQuery.includes("app") || normalizedQuery.includes("title")
-              ? ["src/app.ts"]
-              : normalizedQuery.includes("workbench") || normalizedQuery.includes("difftree")
-                ? ["src/workbench.tsx"]
-                : [];
+        const matchingPaths =
+          normalizedQuery.length === 0
+            ? []
+            : normalizedQuery.includes("feature")
+              ? ["src/feature.ts"]
+              : normalizedQuery.includes("file-090")
+                ? ["src/file-090.ts"]
+                : normalizedQuery.includes("app") ||
+                    normalizedQuery.includes("title")
+                  ? ["src/app.ts"]
+                  : normalizedQuery.includes("workbench") ||
+                      normalizedQuery.includes("difftree")
+                    ? ["src/workbench.tsx"]
+                    : [];
         return {
           query: input.query,
           matchingPaths,
@@ -1449,18 +1824,29 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       };
     }
     case "git:action:pull-request-message:generate": {
-      const [input] = args as [{ cwd: string; title?: string | null; body?: string | null; headBranch?: string | null }];
+      const [input] = args as [
+        {
+          cwd: string;
+          title?: string | null;
+          body?: string | null;
+          headBranch?: string | null;
+        },
+      ];
       return {
         cwd: input.cwd,
         status: isStorybookRuntime() ? "success" : "error",
         title: isStorybookRuntime()
-          ? (input.title?.trim() || input.headBranch?.trim() || "Storybook pull request")
+          ? input.title?.trim() ||
+            input.headBranch?.trim() ||
+            "Storybook pull request"
           : null,
         body: isStorybookRuntime()
-          ? (input.body?.trim() || "Generated pull request summary.")
+          ? input.body?.trim() || "Generated pull request summary."
           : null,
         stderr: "",
-        errorMessage: isStorybookRuntime() ? null : "Git actions are unavailable outside Electron.",
+        errorMessage: isStorybookRuntime()
+          ? null
+          : "Git actions are unavailable outside Electron.",
       };
     }
     case "git:action:commit-message:generate": {
@@ -1482,7 +1868,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         branch: isStorybookRuntime() ? "codex/storybook" : null,
         stdout: "",
         stderr: "",
-        errorMessage: isStorybookRuntime() ? null : "Git actions are unavailable outside Electron.",
+        errorMessage: isStorybookRuntime()
+          ? null
+          : "Git actions are unavailable outside Electron.",
       };
     }
     case "git:action:cancel":
@@ -1500,16 +1888,22 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       };
     }
     case "git:apply-patch": {
-      const [input] = args as [{
-        cwd: string;
-        diff: string;
-        target: "staged" | "unstaged";
-        revert?: boolean;
-      }];
+      const [input] = args as [
+        {
+          cwd: string;
+          diff: string;
+          target: "staged" | "unstaged";
+          revert?: boolean;
+        },
+      ];
       if (isStorybookRuntime()) {
         return {
           status: "success" as const,
-          appliedPaths: [input.diff.includes("src/feature.ts") ? "src/feature.ts" : "src/workbench.tsx"],
+          appliedPaths: [
+            input.diff.includes("src/feature.ts")
+              ? "src/feature.ts"
+              : "src/workbench.tsx",
+          ],
           skippedPaths: [],
           conflictedPaths: [],
           errorCode: null,
@@ -1535,7 +1929,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "canvas:save": {
-      const [projectId, data] = args as [string, { elements: string; appState: string; files: string; updated: string }];
+      const [projectId, data] = args as [
+        string,
+        { elements: string; appState: string; files: string; updated: string },
+      ];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/canvas`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1614,7 +2011,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       };
     }
     case "worktrees:environments:config:save": {
-      const [input] = args as [import("../../shared/types").UpdateWorktreeEnvironmentConfigInput];
+      const [input] = args as [
+        import("../../shared/types").UpdateWorktreeEnvironmentConfigInput,
+      ];
       return {
         projectId: input.projectId,
         projectName: "Storybook workspace",
@@ -1673,7 +2072,8 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           source: "user",
           filePath: "/tmp/storybook/config.toml",
         },
-        customDescription: "Uses the permission policy defined in your local Codex config.",
+        customDescription:
+          "Uses the permission policy defined in your local Codex config.",
       };
     }
     case "workspace:pick-directory": {
@@ -1687,7 +2087,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   }
 }
 
-function subscribeBoardChanges(projectId: string, callback: (event: BoardChangeEvent) => void): () => void {
+function subscribeBoardChanges(
+  projectId: string,
+  callback: (event: BoardChangeEvent) => void,
+): () => void {
   if (typeof EventSource === "undefined") {
     return () => {};
   }
@@ -1696,7 +2099,9 @@ function subscribeBoardChanges(projectId: string, callback: (event: BoardChangeE
 
   es.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data) as BoardChangeEvent & { event?: string };
+      const data = JSON.parse(event.data) as BoardChangeEvent & {
+        event?: string;
+      };
       if (data.event === "board-changed") {
         callback(data);
       }
@@ -1736,7 +2141,9 @@ function subscribeProjectSessionChanges(
   return () => es.close();
 }
 
-function subscribeProjectChanges(callback: (event: ProjectsChangeEvent) => void): () => void {
+function subscribeProjectChanges(
+  callback: (event: ProjectsChangeEvent) => void,
+): () => void {
   if (typeof EventSource === "undefined") {
     return () => {};
   }
@@ -1745,10 +2152,13 @@ function subscribeProjectChanges(callback: (event: ProjectsChangeEvent) => void)
 
   es.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data) as ProjectsChangeEvent & { event?: string };
+      const data = JSON.parse(event.data) as ProjectsChangeEvent & {
+        event?: string;
+      };
       if (data.event === "projects-changed") {
         callback({
-          projectId: typeof data.projectId === "string" ? data.projectId : undefined,
+          projectId:
+            typeof data.projectId === "string" ? data.projectId : undefined,
           changeType: data.changeType,
         });
       }
@@ -1764,67 +2174,87 @@ function subscribeCodexHostMessages(
   callback: (message: import("./types").CodexHostMessage) => void,
 ): () => void {
   void callback;
-  return () => { };
+  return () => {};
 }
 
 function subscribeCodexRendererClientRequests(
-  callback: (message: import("./types").CodexRendererClientRequestMessage) => void,
+  callback: (
+    message: import("./types").CodexRendererClientRequestMessage,
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
 }
 
 function subscribeDesktopNotificationActions(
-  callback: (payload: import("./types").DesktopNotificationActionPayload & {
-    conversationId: string | null;
-    requestId: string | null;
-  }) => void,
+  callback: (
+    payload: import("./types").DesktopNotificationActionPayload & {
+      conversationId: string | null;
+      requestId: string | null;
+    },
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
 }
 
-function subscribeGitBranchChanges(callback: (event: { cwd: string }) => void): () => void {
+function subscribeGitBranchChanges(
+  callback: (event: { cwd: string }) => void,
+): () => void {
   void callback;
-  return () => { };
+  return () => {};
 }
 
-function subscribeAppUpdateStatus(callback: (status: AppUpdateStatus) => void): () => void {
+function subscribeAppUpdateStatus(
+  callback: (status: AppUpdateStatus) => void,
+): () => void {
   void callback;
-  return () => { };
+  return () => {};
 }
 
-function subscribeCommandKeymapChanges(callback: (state: CommandKeymapState) => void): () => void {
+function subscribeCommandKeymapChanges(
+  callback: (state: CommandKeymapState) => void,
+): () => void {
   void callback;
   return () => {};
 }
 
 function subscribeCommandPaletteThreadIndexUpdates(
-  callback: (event: import("./types").CommandPaletteThreadIndexUpdatedEvent) => void,
+  callback: (
+    event: import("./types").CommandPaletteThreadIndexUpdatedEvent,
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
 }
 
 function subscribeCodexScheduledAutomationChanges(
-  callback: (event: import("./types").CodexScheduledAutomationChangedEvent) => void,
+  callback: (
+    event: import("./types").CodexScheduledAutomationChangedEvent,
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
 }
 
 function subscribePersistedAtomUpdates(
-  callback: (update: import("../../shared/ipc-api").PersistedAtomUpdate) => void,
+  callback: (
+    update: import("../../shared/ipc-api").PersistedAtomUpdate,
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
 }
 
 async function getWindowFocusState(): Promise<boolean> {
-  return typeof document !== "undefined" ? document.visibilityState !== "hidden" : true;
+  return typeof document !== "undefined"
+    ? document.visibilityState !== "hidden"
+    : true;
 }
 
-function subscribeWindowFocusChanges(callback: (isFocused: boolean) => void): () => void {
+function subscribeWindowFocusChanges(
+  callback: (isFocused: boolean) => void,
+): () => void {
   if (typeof window === "undefined" || typeof document === "undefined") {
     void callback;
     return () => {};

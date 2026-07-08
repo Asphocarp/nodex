@@ -61,10 +61,12 @@ import type {
   GitReviewCancelInput,
   GitReviewFileContents,
   GitReviewFileContentsInput,
+  GitReviewPatchRequest,
+  GitReviewPatchResult,
   GitReviewSearchInput,
   GitReviewSearchResult,
   GitReviewSnapshot,
-  GitReviewSource,
+  GitReviewSnapshotRequest,
   GitReviewSummaryRequest,
   GitReviewSummaryResult,
   GhCliStatusResult,
@@ -223,10 +225,7 @@ import type {
   WindowSessionBounds,
   WindowSessionSeed,
 } from "./window-session";
-import type {
-  FileLinkOpenerId,
-  FileLinkTarget,
-} from "./file-link-openers";
+import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
 import type {
   CommandKeybindingUpdate,
   CommandKeymapState,
@@ -288,8 +287,7 @@ export interface HistoryPanelSnapshotField {
 }
 
 export type ClipboardWriteImageResult =
-  | { ok: true }
-  | { ok: false; message: string };
+  { ok: true } | { ok: false; message: string };
 
 export interface ComposerPickedFile {
   label: string;
@@ -480,7 +478,10 @@ export interface IpcApi {
     result: void;
   };
   "persisted-atom:sync-request": { args: []; result: PersistedAtomState };
-  "persisted-atom:update": { args: [update: PersistedAtomUpdate]; result: PersistedAtomState };
+  "persisted-atom:update": {
+    args: [update: PersistedAtomUpdate];
+    result: PersistedAtomState;
+  };
   "projects:list": { args: []; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
   "projects:create": { args: [input: ProjectCreateInput]; result: Project };
@@ -498,15 +499,27 @@ export interface IpcApi {
     result: Project[];
   };
   "projects:pick-source-root": { args: []; result: string | null };
-  "workspace:pick-directory": { args: [input?: WorkspacePickDirectoryInput]; result: string | null };
+  "workspace:pick-directory": {
+    args: [input?: WorkspacePickDirectoryInput];
+    result: string | null;
+  };
   "projects:delete": { args: [projectId: string]; result: boolean };
-  "project-sessions:list": { args: [projectId: string | null, options?: ProjectSessionListOptions]; result: ProjectSession[] };
+  "project-sessions:list": {
+    args: [projectId: string | null, options?: ProjectSessionListOptions];
+    result: ProjectSession[];
+  };
   "project-sessions:list-summaries": {
     args: [projectId: string | null, options?: ProjectSessionListOptions];
     result: ProjectSessionSummary[];
   };
-  "project-sessions:get": { args: [sessionId: string]; result: ProjectSession | null };
-  "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };
+  "project-sessions:get": {
+    args: [sessionId: string];
+    result: ProjectSession | null;
+  };
+  "project-sessions:create": {
+    args: [input: ProjectSessionCreateInput];
+    result: ProjectSession;
+  };
   "project-sessions:update": {
     args: [sessionId: string, input: ProjectSessionUpdateInput];
     result: ProjectSession | null;
@@ -516,7 +529,10 @@ export interface IpcApi {
     result: ProjectSession | null;
   };
   "project-sessions:delete": { args: [sessionId: string]; result: boolean };
-  "project-sessions:reorder": { args: [projectId: string, orderedSessionIds: string[]]; result: ProjectSession[] };
+  "project-sessions:reorder": {
+    args: [projectId: string, orderedSessionIds: string[]];
+    result: ProjectSession[];
+  };
   "project-sessions:set-pinned": {
     args: [sessionId: string, input: ProjectSessionPinnedInput];
     result: ProjectSession | null;
@@ -525,8 +541,14 @@ export interface IpcApi {
     args: [projectId: string, input: ProjectSessionPinnedOrderInput];
     result: ProjectSession[];
   };
-  "project-sessions:archive": { args: [sessionId: string]; result: ProjectSession | null };
-  "project-sessions:unarchive": { args: [sessionId: string]; result: ProjectSession | null };
+  "project-sessions:archive": {
+    args: [sessionId: string];
+    result: ProjectSession | null;
+  };
+  "project-sessions:unarchive": {
+    args: [sessionId: string];
+    result: ProjectSession | null;
+  };
   "project-sessions:mark-unread": {
     args: [sessionId: string, input: ProjectSessionUnreadInput];
     result: ProjectSession | null;
@@ -535,41 +557,87 @@ export interface IpcApi {
     args: [sessionId: string, input: ProjectSessionForkInput];
     result: ProjectSessionForkResult;
   };
-  "project-session-tabs:create": { args: [input: ProjectSessionTabCreateInput]; result: ProjectSessionTab };
+  "project-session-tabs:create": {
+    args: [input: ProjectSessionTabCreateInput];
+    result: ProjectSessionTab;
+  };
   "project-session-tabs:update": {
     args: [tabId: string, input: ProjectSessionTabUpdateInput];
     result: ProjectSessionTab | null;
   };
-  "project-session-tabs:delete": { args: [input: string | ProjectSessionTabDeleteInput]; result: boolean };
+  "project-session-tabs:delete": {
+    args: [input: string | ProjectSessionTabDeleteInput];
+    result: boolean;
+  };
   "project-session-panels:update": {
-    args: [sessionId: string, panelId: "right" | "bottom", input: Partial<ProjectSessionPanelState>];
+    args: [
+      sessionId: string,
+      panelId: "right" | "bottom",
+      input: Partial<ProjectSessionPanelState>,
+    ];
     result: ProjectSession | null;
   };
-  "project-session-panels:split": { args: [input: ProjectSessionPanelSplitInput]; result: ProjectSession | null };
+  "project-session-panels:split": {
+    args: [input: ProjectSessionPanelSplitInput];
+    result: ProjectSession | null;
+  };
   "project-session-panels:ensure-right-leaf": {
     args: [input: ProjectSessionPanelEnsureRightLeafInput];
     result: ProjectSessionPanelEnsureRightLeafResult | null;
   };
-  "project-session-panels:merge": { args: [input: ProjectSessionPanelMergeInput]; result: ProjectSession | null };
-  "project-session-panels:activate": { args: [input: ProjectSessionPanelActivateInput]; result: ProjectSession | null };
-  "project-session-panels:resize": { args: [input: ProjectSessionPanelResizeInput]; result: ProjectSession | null };
-  "project-session-panels:maximize": { args: [input: ProjectSessionPanelMaximizeInput]; result: ProjectSession | null };
+  "project-session-panels:merge": {
+    args: [input: ProjectSessionPanelMergeInput];
+    result: ProjectSession | null;
+  };
+  "project-session-panels:activate": {
+    args: [input: ProjectSessionPanelActivateInput];
+    result: ProjectSession | null;
+  };
+  "project-session-panels:resize": {
+    args: [input: ProjectSessionPanelResizeInput];
+    result: ProjectSession | null;
+  };
+  "project-session-panels:maximize": {
+    args: [input: ProjectSessionPanelMaximizeInput];
+    result: ProjectSession | null;
+  };
   "project-session-tabs:state:update": {
     args: [tabId: string, stateKey: number, state: unknown];
     result: ProjectSessionTab | null;
   };
-  "project-session-tabs:reorder": { args: [input: ProjectSessionTabReorderInput]; result: ProjectSession | null };
-  "project-session-tabs:move": { args: [input: ProjectSessionTabMoveInput]; result: ProjectSession | null };
+  "project-session-tabs:reorder": {
+    args: [input: ProjectSessionTabReorderInput];
+    result: ProjectSession | null;
+  };
+  "project-session-tabs:move": {
+    args: [input: ProjectSessionTabMoveInput];
+    result: ProjectSession | null;
+  };
   "project-session-threads:attach": {
     args: [input: ProjectSessionThreadLinkInput];
     result: ProjectSessionThreadLink;
   };
-  "project-session-threads:detach": { args: [sessionId: string]; result: boolean };
+  "project-session-threads:detach": {
+    args: [sessionId: string];
+    result: boolean;
+  };
   "board:summary:get": { args: [projectId: string]; result: BoardSummary };
-  "cards:details:get": { args: [projectId: string, input: CardsDetailsInput]; result: Card[] };
-  "cards:search": { args: [input: CardSearchInput]; result: CardSearchResult[] };
+  "cards:details:get": {
+    args: [projectId: string, input: CardsDetailsInput];
+    result: Card[];
+  };
+  "cards:search": {
+    args: [input: CardSearchInput];
+    result: CardSearchResult[];
+  };
   "card:create": {
-    args: [projectId: string, status: Card["status"], input: CardCreateInput, sessionId?: string, placement?: CardCreatePlacement];
+    args: [
+      projectId: string,
+      status: Card["status"],
+      input: CardCreateInput,
+      sessionId?: string,
+      placement?: CardCreatePlacement,
+    ];
     result: Card;
   };
   "card:update": {
@@ -604,7 +672,12 @@ export interface IpcApi {
     result: Card | null;
   };
   "card:delete": {
-    args: [projectId: string, status: Card["status"] | undefined, cardId: string, sessionId?: string];
+    args: [
+      projectId: string,
+      status: Card["status"] | undefined,
+      cardId: string,
+      sessionId?: string,
+    ];
     result: boolean;
   };
   "card:move": {
@@ -624,23 +697,44 @@ export interface IpcApi {
     result: BlockDropImportResult;
   };
   "card:move-drop-to-editor": {
-    args: [projectId: string, input: CardDropMoveToEditorInput, sessionId?: string];
+    args: [
+      projectId: string,
+      input: CardDropMoveToEditorInput,
+      sessionId?: string,
+    ];
     result: CardDropMoveToEditorResult;
   };
   "calendar:occurrences": {
-    args: [projectId: string, windowStart: Date, windowEnd: Date, searchQuery?: string];
+    args: [
+      projectId: string,
+      windowStart: Date,
+      windowEnd: Date,
+      searchQuery?: string,
+    ];
     result: { occurrences: CalendarOccurrence[] };
   };
   "card:occurrence:complete": {
-    args: [projectId: string, input: CardOccurrenceActionInput, sessionId?: string];
+    args: [
+      projectId: string,
+      input: CardOccurrenceActionInput,
+      sessionId?: string,
+    ];
     result: { success: boolean; error?: string };
   };
   "card:occurrence:skip": {
-    args: [projectId: string, input: CardOccurrenceActionInput, sessionId?: string];
+    args: [
+      projectId: string,
+      input: CardOccurrenceActionInput,
+      sessionId?: string,
+    ];
     result: { success: boolean; error?: string };
   };
   "card:occurrence:update": {
-    args: [projectId: string, input: CardOccurrenceUpdateInput, sessionId?: string];
+    args: [
+      projectId: string,
+      input: CardOccurrenceUpdateInput,
+      sessionId?: string,
+    ];
     result: { success: boolean; error?: string };
   };
   "history:recent": {
@@ -668,19 +762,39 @@ export interface IpcApi {
     result: { success: boolean; error?: string };
   };
   "history:restore": {
-    args: [projectId: string, cardId: string, historyId: number, sessionId?: string];
+    args: [
+      projectId: string,
+      cardId: string,
+      historyId: number,
+      sessionId?: string,
+    ];
     result: { success: boolean; error?: string };
   };
   "db:schema": { args: [projectId: string]; result: SchemaResult };
-  "db:query": { args: [projectId: string, sql: string, params?: unknown[]]; result: QueryResult };
+  "db:query": {
+    args: [projectId: string, sql: string, params?: unknown[]];
+    result: QueryResult;
+  };
   "backup:list": { args: []; result: BackupRecord[] };
   "backup:create": { args: [input?: CreateBackupInput]; result: BackupRecord };
-  "backup:delete": { args: [backupId: string]; result: { success: true; deletedBackupId: string } };
-  "backup:restore": { args: [input: RestoreBackupInput]; result: RestoreBackupResult };
+  "backup:delete": {
+    args: [backupId: string];
+    result: { success: true; deletedBackupId: string };
+  };
+  "backup:restore": {
+    args: [input: RestoreBackupInput];
+    result: RestoreBackupResult;
+  };
   "settings:backup:get": { args: []; result: BackupSettings };
-  "settings:backup:update": { args: [input: UpdateBackupSettingsInput]; result: BackupSettings };
+  "settings:backup:update": {
+    args: [input: UpdateBackupSettingsInput];
+    result: BackupSettings;
+  };
   "settings:history:get": { args: []; result: HistorySettings };
-  "settings:history:update": { args: [input: UpdateHistorySettingsInput]; result: HistorySettings };
+  "settings:history:update": {
+    args: [input: UpdateHistorySettingsInput];
+    result: HistorySettings;
+  };
   "settings:diagnostics:get": { args: []; result: DiagnosticsSettings };
   "settings:diagnostics:update": {
     args: [input: UpdateDiagnosticsSettingsInput];
@@ -691,7 +805,10 @@ export interface IpcApi {
     args: [input: UpdateTelemetrySettingsInput];
     result: TelemetrySettings;
   };
-  "settings:thread-notifications:get": { args: []; result: ThreadNotificationSettings };
+  "settings:thread-notifications:get": {
+    args: [];
+    result: ThreadNotificationSettings;
+  };
   "settings:thread-notifications:update": {
     args: [input: UpdateThreadNotificationSettingsInput];
     result: ThreadNotificationSettings;
@@ -741,11 +858,26 @@ export interface IpcApi {
     args: [input: WorkspaceDirectoryEntriesInput];
     result: WorkspaceDirectoryEntriesResult;
   };
-  "read-file": { args: [input: WorkspaceFileReadInput]; result: WorkspaceFileReadResult };
-  "read-file-metadata": { args: [input: WorkspaceFileRequest]; result: WorkspaceFileMetadata };
-  "read-file-binary": { args: [input: WorkspaceFileRequest]; result: WorkspaceFileBinaryReadResult };
-  "write-file": { args: [input: WorkspaceFileWriteInput]; result: WorkspaceFileWriteResult };
-  "paths-exist": { args: [input: WorkspacePathsExistInput]; result: WorkspacePathsExistResult };
+  "read-file": {
+    args: [input: WorkspaceFileReadInput];
+    result: WorkspaceFileReadResult;
+  };
+  "read-file-metadata": {
+    args: [input: WorkspaceFileRequest];
+    result: WorkspaceFileMetadata;
+  };
+  "read-file-binary": {
+    args: [input: WorkspaceFileRequest];
+    result: WorkspaceFileBinaryReadResult;
+  };
+  "write-file": {
+    args: [input: WorkspaceFileWriteInput];
+    result: WorkspaceFileWriteResult;
+  };
+  "paths-exist": {
+    args: [input: WorkspacePathsExistInput];
+    result: WorkspacePathsExistResult;
+  };
   "open-file": {
     args: [target: FileLinkTarget, openerId: FileLinkOpenerId];
     result: boolean;
@@ -753,8 +885,14 @@ export interface IpcApi {
   "canvas:get": { args: [projectId: string]; result: CanvasData | null };
   "canvas:save": { args: [projectId: string, data: CanvasData]; result: void };
   "asset:resolve-path": { args: [source: string]; result: string | null };
-  "clipboard:write-image": { args: [input: { source: string }]; result: ClipboardWriteImageResult };
-  "clipboard:inspect-paste": { args: []; result: ClipboardPasteInspectionResult };
+  "clipboard:write-image": {
+    args: [input: { source: string }];
+    result: ClipboardWriteImageResult;
+  };
+  "clipboard:inspect-paste": {
+    args: [];
+    result: ClipboardPasteInspectionResult;
+  };
   "composer:pick-files": {
     args: [input: { imagesOnly: boolean; title: string }];
     result: ComposerPickedFile[];
@@ -771,7 +909,10 @@ export interface IpcApi {
     result: void;
   };
   // Internal app lifecycle handshake used to flush renderer state before window close.
-  "app:flush-before-close:done": { args: [webContentsId: number]; result: void };
+  "app:flush-before-close:done": {
+    args: [webContentsId: number];
+    result: void;
+  };
 
   // Browser sidebar
   "browser-sidebar-command": {
@@ -815,7 +956,7 @@ export interface IpcApi {
 
   // Git review
   "git:review:snapshot": {
-    args: [input: { cwd: string; source: GitReviewSource; baseRef?: string | null; commitSha?: string | null }];
+    args: [input: GitReviewSnapshotRequest];
     result: GitReviewSnapshot;
   };
   "git:review:summary": {
@@ -850,11 +991,23 @@ export interface IpcApi {
     args: [input: GitReviewSearchInput];
     result: GitReviewSearchResult;
   };
-  "git:review:patch": { args: [input: GitApplyPatchInput]; result: GitApplyPatchResult };
-  "git:review:blame-file": { args: [input: GitReviewBlameInput]; result: GitReviewBlameResult };
-  "git:apply-patch": { args: [input: GitApplyPatchInput]; result: GitApplyPatchResult };
+  "git:review:patch": {
+    args: [input: GitReviewPatchRequest];
+    result: GitReviewPatchResult;
+  };
+  "git:review:blame-file": {
+    args: [input: GitReviewBlameInput];
+    result: GitReviewBlameResult;
+  };
+  "git:apply-patch": {
+    args: [input: GitApplyPatchInput];
+    result: GitApplyPatchResult;
+  };
   "git:init": { args: [cwd: string]; result: GitReviewSnapshot };
-  "git:action:status": { args: [input: GitActionStatusRequest]; result: GitActionStatusResult };
+  "git:action:status": {
+    args: [input: GitActionStatusRequest];
+    result: GitActionStatusResult;
+  };
   "git:action:commit-message:generate": {
     args: [input: GitCommitMessageGenerateInput];
     result: GitCommitMessageGenerateResult;
@@ -863,41 +1016,85 @@ export interface IpcApi {
     args: [input: GitPullRequestMessageGenerateInput];
     result: GitPullRequestMessageGenerateResult;
   };
-  "git:action:commit": { args: [input: GitCommitInput]; result: GitActionMutationResult };
-  "git:action:push": { args: [input: GitPushInput]; result: GitActionMutationResult };
-  "git:action:cancel": { args: [input: GitActionCancelInput]; result: GitActionCancelResult };
+  "git:action:commit": {
+    args: [input: GitCommitInput];
+    result: GitActionMutationResult;
+  };
+  "git:action:push": {
+    args: [input: GitPushInput];
+    result: GitActionMutationResult;
+  };
+  "git:action:cancel": {
+    args: [input: GitActionCancelInput];
+    result: GitActionCancelResult;
+  };
 
   // GitHub pull request review
-  "gh-cli-status": { args: [input: { cwd: string }]; result: GhCliStatusResult };
-  "gh-pr-status": { args: [input: GhPrStatusRequest]; result: GhPrStatusResult };
-  "gh-pr-checks": { args: [input: GhPrChecksRequest]; result: GhPrChecksResult };
-  "gh-pr-comments": { args: [input: GhPrCommentsRequest]; result: GhPrCommentsResult };
+  "gh-cli-status": {
+    args: [input: { cwd: string }];
+    result: GhCliStatusResult;
+  };
+  "gh-pr-status": {
+    args: [input: GhPrStatusRequest];
+    result: GhPrStatusResult;
+  };
+  "gh-pr-checks": {
+    args: [input: GhPrChecksRequest];
+    result: GhPrChecksResult;
+  };
+  "gh-pr-comments": {
+    args: [input: GhPrCommentsRequest];
+    result: GhPrCommentsResult;
+  };
   "gh-pr-diff": { args: [input: GhPrDiffRequest]; result: GhPrDiffResult };
-  "gh-pr-comment": { args: [input: GhPrCommentInput]; result: GhPrCommentResult };
+  "gh-pr-comment": {
+    args: [input: GhPrCommentInput];
+    result: GhPrCommentResult;
+  };
   "gh-pr-merge": { args: [input: GhPrMergeInput]; result: GhPrMutationResult };
-  "gh-pr-update": { args: [input: GhPrUpdateInput]; result: GhPrMutationResult };
-  "gh-pr-create": { args: [input: GhPrCreateInput]; result: GhPrMutationResult };
+  "gh-pr-update": {
+    args: [input: GhPrUpdateInput];
+    result: GhPrMutationResult;
+  };
+  "gh-pr-create": {
+    args: [input: GhPrCreateInput];
+    result: GhPrMutationResult;
+  };
 
   // Terminal
   "terminal-create": { args: [input: TerminalCreateRequest]; result: void };
   "terminal-attach": { args: [input: TerminalAttachRequest]; result: void };
   "terminal-write": { args: [sessionId: string, data: string]; result: void };
-  "terminal-run-action": { args: [input: TerminalRunActionRequest]; result: void };
+  "terminal-run-action": {
+    args: [input: TerminalRunActionRequest];
+    result: void;
+  };
   "terminal-session:snapshot": {
     args: [sessionId: string];
     result: TerminalSessionSnapshot | null;
   };
-  "terminal-resize": { args: [sessionId: string, size: TerminalSize]; result: void };
+  "terminal-resize": {
+    args: [sessionId: string, size: TerminalSize];
+    result: void;
+  };
   "terminal-close": { args: [sessionId: string]; result: void };
-  "thread-terminal-snapshot": { args: [threadId: string]; result: TerminalSessionSnapshot | null };
+  "thread-terminal-snapshot": {
+    args: [threadId: string];
+    result: TerminalSessionSnapshot | null;
+  };
 
   // Codex
   "codex:connection:status": { args: []; result: CodexConnectionState };
   "codex:account:read": { args: []; result: CodexAccountSnapshot };
-  "codex:dictation:state:read": { args: []; result: CodexDictationStateSnapshot };
+  "codex:dictation:state:read": {
+    args: [];
+    result: CodexDictationStateSnapshot;
+  };
   "codex:account:login:start": {
     args: [input: { type: "chatgpt" } | { type: "apiKey"; apiKey: string }];
-    result: { type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string };
+    result:
+      | { type: "apiKey" }
+      | { type: "chatgpt"; loginId: string; authUrl: string };
   };
   "codex:account:login:cancel": {
     args: [loginId: string];
@@ -913,11 +1110,13 @@ export interface IpcApi {
     result: CodexSidebarSnapshot;
   };
   "codex:sidebar:sync": {
-    args: [input?: {
-      includeArchived?: boolean;
-      policy?: CodexSidebarRefreshPolicy;
-      reason?: CodexSidebarRefreshReason;
-    }];
+    args: [
+      input?: {
+        includeArchived?: boolean;
+        policy?: CodexSidebarRefreshPolicy;
+        reason?: CodexSidebarRefreshReason;
+      },
+    ];
     result: CodexSidebarSyncResult;
   };
   "codex:threads:pinned:list": {
@@ -1009,8 +1208,14 @@ export interface IpcApi {
     result: ProtocolDynamicToolCallResponse | null;
   };
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };
-  "worktrees:environments:list": { args: [projectId: string]; result: WorktreeEnvironmentOption[] };
-  "worktrees:environments:configs:list": { args: [projectId: string]; result: WorktreeEnvironmentConfigRecord[] };
+  "worktrees:environments:list": {
+    args: [projectId: string];
+    result: WorktreeEnvironmentOption[];
+  };
+  "worktrees:environments:configs:list": {
+    args: [projectId: string];
+    result: WorktreeEnvironmentConfigRecord[];
+  };
   "worktrees:environments:config:read": {
     args: [projectId: string, configPath?: string | null];
     result: WorktreeEnvironmentSettingsSnapshot;
@@ -1061,7 +1266,10 @@ export interface IpcApi {
     result: { title: string | null };
   };
   "codex:thread:archive": { args: [threadId: string]; result: boolean };
-  "codex:thread:unarchive": { args: [threadId: string]; result: CodexThreadSummary | null };
+  "codex:thread:unarchive": {
+    args: [threadId: string];
+    result: CodexThreadSummary | null;
+  };
   "codex:thread:collaboration-mode:set": {
     args: [threadId: string, collaborationMode: "default" | "plan"];
     result: CodexCollaborationModeState;
@@ -1155,7 +1363,12 @@ export interface IpcApi {
     result: ThreadBackgroundTerminal[];
   };
   "codex:thread:background-processes:list": {
-    args: [input: { threadId: string; observedTerminals?: ThreadBackgroundTerminal[] }];
+    args: [
+      input: {
+        threadId: string;
+        observedTerminals?: ThreadBackgroundTerminal[];
+      },
+    ];
     result: CodexBackgroundProcessRow[];
   };
   "codex:thread:background-processes:run-action": {
@@ -1221,7 +1434,11 @@ export interface IpcEvents {
   "board-changed": BoardChangeEvent;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;
-  "reminder:open": { projectId: string; cardId: string; occurrenceStart: string };
+  "reminder:open": {
+    projectId: string;
+    cardId: string;
+    occurrenceStart: string;
+  };
   "terminal-data": TerminalDataEvent;
   "terminal-init-log": TerminalInitLogEvent;
   "terminal-attached": TerminalAttachedEvent;
@@ -1248,5 +1465,7 @@ export interface IpcEvents {
     requestId: string | null;
   };
   "electron-window:focus-changed": { isFocused: boolean };
-  "electron-window-opaque-surface-changed": { opaqueWindowSurfaceEnabled: boolean };
+  "electron-window-opaque-surface-changed": {
+    opaqueWindowSurfaceEnabled: boolean;
+  };
 }

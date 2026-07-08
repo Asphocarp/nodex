@@ -1,7 +1,7 @@
 # Review Right Panel Behavior
 
 Status: Active
-Last updated: 2026-07-01
+Last updated: 2026-07-09
 
 ## Purpose
 
@@ -34,7 +34,7 @@ Aggregate `+N` / `-N` stats use the Review toolbar text rhythm: `text-size-chat 
 
 `Jump to file` opens an end-aligned `panelWide` searchable menu with `contentMaxHeight="list"` and no separator between the search row and results. Empty query results sort by file name, then parent path. Search scores the basename first and falls back to the full path. Each result row uses the wrapped dropdown item body: filename is the primary `shrink-0 text-token-foreground` label, and the folder path is a secondary `min-w-0 flex-1 text-token-description-foreground` label rendered after the filename with middle truncation.
 
-`Review options` includes view/query actions only and uses iconized menu rows. For Git-backed sources the order is `Refresh`, `Enable/Disable word wrap`, `Expand/Collapse all diffs`, separator, `Load full files` / `Don't load full files`, `Enable/Disable rich preview`, `Enable/Disable word diffs`, `Hide/Show white space`, and `Copy git apply command`. The copy action writes a `git apply --3way` heredoc for the current patch. Review request actions must live in an explicit review-start surface, not inside the source selector or the `Review options` menu. The old restriction against word diffs, rich preview, full-file loading, and manual file-tree resizing no longer applies.
+`Review options` includes view/query actions only and uses iconized menu rows. For Git-backed sources the order is `Refresh`, `Enable/Disable word wrap`, `Expand/Collapse all diffs`, separator, `Load full files` / `Don't load full files`, `Enable/Disable rich preview`, `Enable/Disable word diffs`, `Hide/Show white space`, and `Copy git apply command`. The copy action reads a capped full patch through the read-only Review patch query and writes a `git apply --3way` heredoc only when that query succeeds. Review request actions must live in an explicit review-start surface, not inside the source selector or the `Review options` menu. The old restriction against word diffs, rich preview, full-file loading, and manual file-tree resizing no longer applies.
 
 ## Source And State Contract
 
@@ -51,6 +51,8 @@ Selected transcript turns can still open an internal selected-turn diff, but sel
 
 `last-turn` reads the completed `turn-diff` transcript item's raw `unifiedDiff` first, then falls back to the turn summary `diff`. The completed `turn-diff` item is the preferred source because it preserves the app-server turn diff payload plus patch-batch metadata when available; when the app-server turn diff is missing or empty, main may populate this item from completed patch batches with path-aware hunk folding.
 
+Review treats unified diff text as renderable content only after file safety classification. Binary, oversized, invalid-text, or unsupported file changes remain metadata rows with their original path and action, but they do not feed `@pierre/diffs`, full-file loading, or body text search. These rows render typed placeholders such as `Binary file changed` or `File too large to display`; they still appear in the file tree and can match path search.
+
 Review tab state is lightweight and may persist source descriptor, diff mode, file-tree visibility, side-pane width, hide-whitespace, wrap, rich/full-file flags, selected path, filter, and expanded paths. Raw diffs, file contents, and comments are not persisted in tab state.
 
 ## Empty-State Contract
@@ -62,6 +64,8 @@ Generic no-diff states render `No file changes yet` with the Codex 66x73 documen
 ## Diff And File Tree Contract
 
 Review builds one file entry per display path. If a legacy or fallback patch payload contains repeated `diff --git` sections for the same path, Review folds them into a single row and single file-tree item: stats and search text accumulate across all sections, while inline diff rendering uses the last parsed file diff for that path. Git-backed sources normally arrive as net diffs already, but the same path-fold guard applies to every source.
+
+File entries are metadata-first. A row may have `fileDiff: null` when the path is binary, too large, invalid text, or otherwise unavailable. Renderer code must branch on the row load status before rendering a diff body: `loaded` rows may render `FileDiff` or `MultiFileDiff`, while `binary`, `diff-too-large`, and `unsupported` rows render placeholders. Binary file line stats are nullable, matching Git `numstat` semantics, and aggregate stats treat null values as absent rather than as displayed zeroes.
 
 Each file diff card exposes `data-review-path`, `group/file-diff`, `codex-review-diff-card`, a toggle marked `data-app-action-review-file-toggle`, and an `Open in` action. The diff scroll viewport is zero-inset horizontally; file rows must not sit inside an extra padded or gapped card list. The file row surface uses `--codex-diffs-surface` with the primary surface fallback and `pb-0.5`. The sticky row header is a `group/diff-header` strip with blurred surface mix, `text-size-chat`, `py-0.5 ps-3 pe-2`, a file-type icon, path label, a chevron toggle button that appears on header hover or when the toggle itself has keyboard focus, right-aligned stats, and icon-only `Open in`. Row-level `+N` / `-N` stats inherit that `text-size-chat` header size and must not add a smaller `text-xs` override. Diff rendering uses `@pierre/diffs` through `src/renderer/lib/diff-presentation.ts` and must pass the Review-specific host style/options rather than feature-local shadow-DOM CSS. Review options are `hunkSeparators: "line-info"`, `collapsedContextThreshold: 1`, `expansionLineCount: 20`, `diffIndicators: "bars"`, `lineDiffType: "word-alt"` while word diffs are enabled, and `overflow: "scroll"`, producing expandable `N unmodified lines` rows between distant hunks. Separator wrappers align to the package line-number column via `grid-template-columns: var(--diffs-column-number-width) auto` and `padding-inline: 2px`; do not add local first-child margins or fixed expand-button widths.
 
@@ -75,12 +79,15 @@ Large diff mode activates when any of these are true: file count is above 128, t
 
 Review does not own a local find bar. It registers a global content-search source with `domain: "diff"`. Matches are capped at 250. Match ids use a `diff:<path>:<hunk>:<start>` prefix, and activation scrolls the matching `data-review-path` card before marking and centering the text match.
 
+Content search indexes file paths for every row, but it indexes patch text and full-file contents only for renderable files. Binary, oversized, invalid-text, and unsupported rows must not trigger full-file reads only to satisfy search.
+
 ## Backend Contract
 
 Renderer code calls `src/renderer/lib/api.ts`; it does not call Electron or main-process services directly.
 
 Git-backed Review uses:
 
+- `git:review:snapshot`
 - `git:review:summary`
 - `git:review:diff`
 - `git:review:branch-commits`
@@ -88,9 +95,15 @@ Git-backed Review uses:
 - `git:review:patch`
 - `git:review:cancel`
 - `git:review:blame-file`
-- compatibility channels `git:review:snapshot`, `git:review:branch-diff-stats`, `git:merge-base`, `git:review:file-contents`, `git:apply-patch`, and `git:init`
+- compatibility channels `git:review:branch-diff-stats`, `git:merge-base`, `git:review:file-contents`, `git:apply-patch`, and `git:init`
 
 `git:review:diff` accepts `cwd`, `source`, optional `files`, `baseBranch` / `baseRef`, `commitSha`, `hideWhitespace`, `hostConfig`, `operationSource: "review_model"`, and `requestId`. Main process owns Git execution, per-request cancellation, per-file load/error/large states, and diff parsing.
+
+Git-backed Review builds its file list from machine-readable Git metadata before renderer diff parsing. Main uses no-textconv/no-ext-diff, colorless Git diff commands and reads `--name-status -z`, `--numstat -z`, and `--raw -z` style metadata so binary files can be represented even when no textual hunk exists. File summaries include nullable line stats, raw status, old/new object ids, and a per-file revision identity when Git can provide one. Untracked files are diffed with `git diff --no-index -- /dev/null <path>` instead of pre-reading the worktree file as UTF-8.
+
+`git:review:snapshot` is a metadata snapshot: it returns file summaries, aggregate stats, stage counts, and source metadata, but it must not send an aggregate textual patch to the renderer as the normal render path. `git:review:diff` is the body loader and may be called for only the visible, selected, or otherwise needed files; it must return typed load statuses for binary, oversized, unsupported, and load-failed rows instead of decoded text. `git:review:file-contents` returns old/new side load statuses and never returns decoded body text for binary or oversized sides.
+
+`git:review:patch` is a read-only full-patch query used for commands such as `Copy git apply command`; it does not mutate the worktree or index. Patch application and revert actions use `git:apply-patch`, which is the only Git-backed Review IPC that applies patch content.
 
 GitHub pull-request review uses typed `gh`-backed IPC:
 

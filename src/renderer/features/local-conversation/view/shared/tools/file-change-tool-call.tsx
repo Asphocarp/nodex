@@ -256,6 +256,19 @@ function SemanticChangePreview({
     return <FileChangeCodePreview content={row.change.content} isShortView={isShortView} />;
   }
 
+  if (row.change.type === "nonRenderable") {
+    const label = row.change.safety.skipReason === "binary"
+      ? "Binary file changed"
+      : row.change.safety.skipReason === "tooLarge"
+        ? "File too large to display"
+        : "File diff is not available";
+    return (
+      <div className="text-token-description-foreground/80 bg-token-editor-background flex w-full items-center justify-center px-2 pt-7 pb-8 text-size-chat">
+        {label}
+      </div>
+    );
+  }
+
   return <FileChangeCodePreview content={row.change.unifiedDiff} isShortView={isShortView} />;
 }
 

@@ -1,4 +1,14 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  dialog,
+  ipcMain,
+  nativeImage,
+  type IpcMainInvokeEvent,
+  type MenuItemConstructorOptions,
+  type OpenDialogOptions,
+} from "electron";
 import { performance } from "node:perf_hooks";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
@@ -87,7 +97,10 @@ import type {
   WindowSessionBounds,
   WindowSessionSeed,
 } from "../shared/window-session";
-import type { NativeContextMenuItem, NativeContextMenuOptions } from "../shared/native-context-menu";
+import type {
+  NativeContextMenuItem,
+  NativeContextMenuOptions,
+} from "../shared/native-context-menu";
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
 import {
   browserSidebarService,
@@ -117,6 +130,7 @@ import {
   readGitReviewBranchCommits,
   readGitReviewDiff,
   readGitReviewFileContents,
+  readGitReviewPatch,
   readGitReviewSnapshot,
   readGitReviewSummary,
   resolveGitMergeBase,
@@ -151,10 +165,7 @@ import {
   COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
   type CommandKeymapState,
 } from "../shared/command-keybindings";
-import {
-  safeBroadcastToWindows,
-  safeSendToWebContents,
-} from "./ipc-safe-send";
+import { safeBroadcastToWindows, safeSendToWebContents } from "./ipc-safe-send";
 import { RemoteHostedPipService } from "./remote-hosted-pip-service";
 import {
   approximateJsonPayloadBytes,
@@ -169,9 +180,17 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const ipcPayloadLogger = getLogger({ subsystem: "ipc", component: "kanban-read-model" });
-const rendererDiagnosticsLogger = getLogger({ subsystem: "renderer", component: "diagnostics" });
-function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number {
+const ipcPayloadLogger = getLogger({
+  subsystem: "ipc",
+  component: "kanban-read-model",
+});
+const rendererDiagnosticsLogger = getLogger({
+  subsystem: "renderer",
+  component: "diagnostics",
+});
+function boardCardCount(board: {
+  columns: Array<{ cards: unknown[] }>;
+}): number {
   return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
 }
 
@@ -233,7 +252,8 @@ const remoteHostedPipService = new RemoteHostedPipService({
     broadcastIpcEvent(channel, payload);
   },
   resolveThreadIdForSession: (sessionId) =>
-    projectSessionService.getProjectSession(sessionId)?.thread?.threadId ?? null,
+    projectSessionService.getProjectSession(sessionId)?.thread?.threadId ??
+    null,
   sendToSender: (sender, channel, payload) => {
     sendIpcEvent(sender as Electron.WebContents, channel, payload);
   },
@@ -327,23 +347,45 @@ let browserSidebarEventBridgeRegistered = false;
 function ensureBrowserSidebarEventBridge(): void {
   if (browserSidebarEventBridgeRegistered) return;
   browserSidebarEventBridgeRegistered = true;
-  browserSidebarService.on("state", (snapshot) => broadcastBrowserSidebarEvent("state", snapshot));
-  browserSidebarService.on("localServers", (snapshot) => broadcastBrowserSidebarEvent("localServers", snapshot));
+  browserSidebarService.on("state", (snapshot) =>
+    broadcastBrowserSidebarEvent("state", snapshot),
+  );
+  browserSidebarService.on("localServers", (snapshot) =>
+    broadcastBrowserSidebarEvent("localServers", snapshot),
+  );
   browserSidebarService.on("browserUseState", (snapshot) => {
     remoteHostedPipService.handleBrowserUseStateSnapshot(snapshot);
     broadcastBrowserSidebarEvent("browserUseState", snapshot);
   });
-  browserSidebarService.on("browserUseViewport", (event) => broadcastBrowserSidebarEvent("browserUseViewport", event));
-  browserSidebarService.on("browserUseCaptureSurface", (event) => broadcastBrowserSidebarEvent("browserUseCaptureSurface", event));
-  browserSidebarService.on("browserUseCursor", (event) => broadcastBrowserSidebarEvent("browserUseCursor", event));
-  browserSidebarService.on("pageReleased", (event) => broadcastBrowserSidebarEvent("pageReleased", event));
-  browserSidebarService.on("webviewAttached", (event) => broadcastBrowserSidebarEvent("webviewAttached", event));
-  browserSidebarService.on("destroyWebview", (event) => broadcastBrowserSidebarEvent("destroyWebview", event));
-  remoteHostedPipService.handleBrowserUseStateSnapshot(browserSidebarService.getBrowserUseStateSnapshot());
+  browserSidebarService.on("browserUseViewport", (event) =>
+    broadcastBrowserSidebarEvent("browserUseViewport", event),
+  );
+  browserSidebarService.on("browserUseCaptureSurface", (event) =>
+    broadcastBrowserSidebarEvent("browserUseCaptureSurface", event),
+  );
+  browserSidebarService.on("browserUseCursor", (event) =>
+    broadcastBrowserSidebarEvent("browserUseCursor", event),
+  );
+  browserSidebarService.on("pageReleased", (event) =>
+    broadcastBrowserSidebarEvent("pageReleased", event),
+  );
+  browserSidebarService.on("webviewAttached", (event) =>
+    broadcastBrowserSidebarEvent("webviewAttached", event),
+  );
+  browserSidebarService.on("destroyWebview", (event) =>
+    broadcastBrowserSidebarEvent("destroyWebview", event),
+  );
+  remoteHostedPipService.handleBrowserUseStateSnapshot(
+    browserSidebarService.getBrowserUseStateSnapshot(),
+  );
 }
 
 function broadcastCommandKeymapState(state: CommandKeymapState): void {
-  safeBroadcastToWindows(BrowserWindow.getAllWindows(), COMMAND_KEYBINDINGS_CHANGED_CHANNEL, [state]);
+  safeBroadcastToWindows(
+    BrowserWindow.getAllWindows(),
+    COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
+    [state],
+  );
 }
 
 function refreshBrowserSidebarCommandAccelerators(): void {
@@ -357,7 +399,10 @@ interface RegisterIpcHandlersOptions {
     webContentsId: number,
     layout: WorkbenchLayoutSnapshot,
   ) => WindowSessionBootstrap;
-  onUpdateWindowSessionBounds?: (webContentsId: number, bounds: WindowSessionBounds) => void;
+  onUpdateWindowSessionBounds?: (
+    webContentsId: number,
+    bounds: WindowSessionBounds,
+  ) => void;
   desktopNotificationManager?: DesktopNotificationManager;
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
@@ -367,13 +412,20 @@ interface RegisterIpcHandlersOptions {
   rendererClientRouter?: RendererClientRouter;
 }
 
-export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
+export function registerIpcHandlers(
+  options: RegisterIpcHandlersOptions = {},
+): void {
   ensureBrowserSidebarEventBridge();
 
-  const gitBranchWatches = new Map<number, { cwd: string; dispose: () => void }>();
+  const gitBranchWatches = new Map<
+    number,
+    { cwd: string; dispose: () => void }
+  >();
   const gitBranchWatchCleanupBound = new Set<number>();
 
-  const focusNotificationOriginWindow = (window: BrowserWindow | null): void => {
+  const focusNotificationOriginWindow = (
+    window: BrowserWindow | null,
+  ): void => {
     if (!window || window.isDestroyed()) {
       return;
     }
@@ -392,10 +444,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   };
 
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
-    options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents).clientId ?? null;
+    options.rendererClientRouter?.ensureClient(
+      event.sender as RendererClientWebContents,
+    ).clientId ?? null;
 
-  const createGitCommitMessageGenerator = (hostId: string | undefined) =>
-    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
+  const createGitCommitMessageGenerator =
+    (hostId: string | undefined) =>
+    async ({
+      cwd,
+      prompt,
+      signal,
+    }: {
+      cwd: string;
+      prompt: string;
+      signal?: AbortSignal;
+    }) => {
       if (signal?.aborted) return null;
       const message = await codexService.generateCommitMessage({
         hostId,
@@ -405,8 +468,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       return signal?.aborted ? null : message;
     };
 
-  const createGitPullRequestMessageGenerator = (hostId: string | undefined) =>
-    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
+  const createGitPullRequestMessageGenerator =
+    (hostId: string | undefined) =>
+    async ({
+      cwd,
+      prompt,
+      signal,
+    }: {
+      cwd: string;
+      prompt: string;
+      signal?: AbortSignal;
+    }) => {
       if (signal?.aborted) return null;
       const message = await codexService.generatePullRequestMessage({
         hostId,
@@ -419,10 +491,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   const broadcastRendererClientMessage = (
     channel: string,
     args: readonly unknown[],
-    optionsOverride?: { sourceClientId?: string | null; includeSource?: boolean },
+    optionsOverride?: {
+      sourceClientId?: string | null;
+      includeSource?: boolean;
+    },
   ) => {
     if (options.rendererClientRouter) {
-      return options.rendererClientRouter.broadcast(channel, args, optionsOverride);
+      return options.rendererClientRouter.broadcast(
+        channel,
+        args,
+        optionsOverride,
+      );
     }
 
     return safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args);
@@ -434,15 +513,23 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   codexService.on("hostMessage", (message) => {
     broadcastCodexHostMessageToRendererClients(
       options.rendererClientRouter,
-      (channel, args) => safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args),
+      (channel, args) =>
+        safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args),
       message,
     );
   });
-  codexService.on("rendererOwnerHostMessage", (event: { targetClientId: string; message: unknown }) => {
-    sendRendererOwnerHostMessage(options.rendererClientRouter, event);
-  });
+  codexService.on(
+    "rendererOwnerHostMessage",
+    (event: { targetClientId: string; message: unknown }) => {
+      sendRendererOwnerHostMessage(options.rendererClientRouter, event);
+    },
+  );
   codexService.on("threadSearchIndexUpdated", (event) => {
-    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:threads:palette:index-updated", [event]);
+    safeBroadcastToWindows(
+      BrowserWindow.getAllWindows(),
+      "codex:threads:palette:index-updated",
+      [event],
+    );
   });
 
   registerHandle("diagnostics:renderer-log", (_, input) => {
@@ -456,26 +543,45 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("codex:renderer-client:id", (event) =>
-    resolveRendererClientId(event)
+    resolveRendererClientId(event),
   );
-  registerHandle("codex:renderer-client:response", (event, response) =>
-    options.rendererClientRouter?.handleResponse(event.sender as RendererClientWebContents, response) ?? false
+  registerHandle(
+    "codex:renderer-client:response",
+    (event, response) =>
+      options.rendererClientRouter?.handleResponse(
+        event.sender as RendererClientWebContents,
+        response,
+      ) ?? false,
   );
   options.rendererClientRouter?.addClientDisposedListener((event) => {
     codexService.handleRendererClientDisposed(event.clientId);
   });
   registerHandle("codex:thread-owner:stream-state:publish", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
-    return publishRendererThreadOwnerStreamState(codexService, sourceClientId, input);
+    return publishRendererThreadOwnerStreamState(
+      codexService,
+      sourceClientId,
+      input,
+    );
   });
   registerHandle("codex:thread-owner:notification:ack", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
-    return ackRendererThreadOwnerNotification(codexService, sourceClientId, input);
+    return ackRendererThreadOwnerNotification(
+      codexService,
+      sourceClientId,
+      input,
+    );
   });
-  registerHandle("codex:thread-owner:app-server-request", async (event, input) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return await codexService.handleRendererOwnerAppServerRequest(sourceClientId, input);
-  });
+  registerHandle(
+    "codex:thread-owner:app-server-request",
+    async (event, input) => {
+      const sourceClientId = resolveRendererClientId(event);
+      return await codexService.handleRendererOwnerAppServerRequest(
+        sourceClientId,
+        input,
+      );
+    },
+  );
   registerHandle("codex:thread-follower:action", async (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
     return await runThreadFollowerActionThroughOwner(
@@ -486,13 +592,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     );
   });
   registerHandle("codex:dynamic-tool-call:respond", (_, requestId: string) =>
-    codexService.respondToDynamicToolCall(requestId)
+    codexService.respondToDynamicToolCall(requestId),
   );
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
   registerHandle("persisted-atom:update", (_, update) => {
     const state = updatePersistedAtom(update);
-    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "persisted-atom:updated", [update]);
+    safeBroadcastToWindows(
+      BrowserWindow.getAllWindows(),
+      "persisted-atom:updated",
+      [update],
+    );
     return state;
   });
 
@@ -500,27 +610,27 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("projects:list", () => projectsStore.listProjects());
 
   registerHandle("projects:get", (_, projectId: string) =>
-    projectsStore.getProject(projectId)
+    projectsStore.getProject(projectId),
   );
 
   registerHandle("projects:create", (_, input) =>
-    projectsStore.createProject(input)
+    projectsStore.createProject(input),
   );
 
   registerHandle("projects:update", (_, projectId: string, updates) =>
-    projectsStore.updateProject(projectId, updates)
+    projectsStore.updateProject(projectId, updates),
   );
 
   registerHandle("projects:reorder", (_, input) =>
-    projectsStore.reorderProjects(input)
+    projectsStore.reorderProjects(input),
   );
 
   registerHandle("projects:set-pinned", (_, projectId: string, input) =>
-    projectsStore.setProjectPinned(projectId, input)
+    projectsStore.setProjectPinned(projectId, input),
   );
 
   registerHandle("projects:set-pinned-order", (_, input) =>
-    projectsStore.setPinnedProjectOrder(input)
+    projectsStore.setPinnedProjectOrder(input),
   );
 
   registerHandle("projects:pick-source-root", async (event) => {
@@ -533,67 +643,93 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("workspace:pick-directory", async (event, input) => {
     return showDirectoryPicker(event, {
       title: typeof input?.title === "string" ? input.title : "Choose folder",
-      properties: input?.createDirectory === true
-        ? ["openDirectory", "createDirectory"]
-        : ["openDirectory"],
+      properties:
+        input?.createDirectory === true
+          ? ["openDirectory", "createDirectory"]
+          : ["openDirectory"],
     });
   });
 
   registerHandle("projects:delete", (_, projectId: string) =>
-    projectsStore.deleteProject(projectId)
+    projectsStore.deleteProject(projectId),
   );
 
   // Project sessions
-  registerHandle("project-sessions:list", (_, projectId: string | null, options) => {
-    const startedAt = getDevRuntimeMetricStart();
-    const sessions = projectSessionService.listProjectSessions(projectId, options);
-    const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
-    logDevRuntimeMetric("ipc.project_sessions_list", {
-      projectId,
-      includeArchived: options?.includeArchived === true,
-      sessionCount: sessions.length,
-      tabCount: sessions.reduce((sum, session) => sum + session.tabs.length, 0),
-      linkedThreadCount: sessions.filter((session) => session.thread !== null).length,
-      approxPayloadBytes,
-      durationMs: getDevRuntimeMetricDurationMs(startedAt),
-    });
-    recordDevRuntimeMetricCounter("ipc.project_sessions_list.burst_window", {
-      projectId,
-      includeArchived: options?.includeArchived === true,
-      approxPayloadBytes,
-    }, {
-      groupBy: ["projectId", "includeArchived"],
-      windowMs: 1_000,
-      burstThreshold: 5,
-      burstMetric: "ipc.project_sessions_list.burst",
-    });
-    return sessions;
-  });
+  registerHandle(
+    "project-sessions:list",
+    (_, projectId: string | null, options) => {
+      const startedAt = getDevRuntimeMetricStart();
+      const sessions = projectSessionService.listProjectSessions(
+        projectId,
+        options,
+      );
+      const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
+      logDevRuntimeMetric("ipc.project_sessions_list", {
+        projectId,
+        includeArchived: options?.includeArchived === true,
+        sessionCount: sessions.length,
+        tabCount: sessions.reduce(
+          (sum, session) => sum + session.tabs.length,
+          0,
+        ),
+        linkedThreadCount: sessions.filter((session) => session.thread !== null)
+          .length,
+        approxPayloadBytes,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      recordDevRuntimeMetricCounter(
+        "ipc.project_sessions_list.burst_window",
+        {
+          projectId,
+          includeArchived: options?.includeArchived === true,
+          approxPayloadBytes,
+        },
+        {
+          groupBy: ["projectId", "includeArchived"],
+          windowMs: 1_000,
+          burstThreshold: 5,
+          burstMetric: "ipc.project_sessions_list.burst",
+        },
+      );
+      return sessions;
+    },
+  );
 
-  registerHandle("project-sessions:list-summaries", (_, projectId: string | null, options) => {
-    const startedAt = getDevRuntimeMetricStart();
-    const sessions = projectSessionService.listProjectSessionSummaries(projectId, options);
-    const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
-    logDevRuntimeMetric("ipc.project_sessions_list_summaries", {
-      projectId,
-      includeArchived: options?.includeArchived === true,
-      sessionCount: sessions.length,
-      linkedThreadCount: sessions.filter((session) => session.thread !== null).length,
-      approxPayloadBytes,
-      durationMs: getDevRuntimeMetricDurationMs(startedAt),
-    });
-    recordDevRuntimeMetricCounter("ipc.project_sessions_list_summaries.burst_window", {
-      projectId,
-      includeArchived: options?.includeArchived === true,
-      approxPayloadBytes,
-    }, {
-      groupBy: ["projectId", "includeArchived"],
-      windowMs: 1_000,
-      burstThreshold: 10,
-      burstMetric: "ipc.project_sessions_list_summaries.burst",
-    });
-    return sessions;
-  });
+  registerHandle(
+    "project-sessions:list-summaries",
+    (_, projectId: string | null, options) => {
+      const startedAt = getDevRuntimeMetricStart();
+      const sessions = projectSessionService.listProjectSessionSummaries(
+        projectId,
+        options,
+      );
+      const approxPayloadBytes = approximateJsonPayloadBytes(sessions);
+      logDevRuntimeMetric("ipc.project_sessions_list_summaries", {
+        projectId,
+        includeArchived: options?.includeArchived === true,
+        sessionCount: sessions.length,
+        linkedThreadCount: sessions.filter((session) => session.thread !== null)
+          .length,
+        approxPayloadBytes,
+        durationMs: getDevRuntimeMetricDurationMs(startedAt),
+      });
+      recordDevRuntimeMetricCounter(
+        "ipc.project_sessions_list_summaries.burst_window",
+        {
+          projectId,
+          includeArchived: options?.includeArchived === true,
+          approxPayloadBytes,
+        },
+        {
+          groupBy: ["projectId", "includeArchived"],
+          windowMs: 1_000,
+          burstThreshold: 10,
+          burstMetric: "ipc.project_sessions_list_summaries.burst",
+        },
+      );
+      return sessions;
+    },
+  );
 
   registerHandle("project-sessions:get", (_, sessionId: string) => {
     const startedAt = getDevRuntimeMetricStart();
@@ -610,16 +746,27 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("project-sessions:create", (_, input) => {
     const session = projectSessionService.createProjectSession(input);
-    dbNotifier.notifyProjectSessionsChanged(session.projectId, "create", session.id);
+    dbNotifier.notifyProjectSessionsChanged(
+      session.projectId,
+      "create",
+      session.id,
+    );
     return session;
   });
 
   registerHandle("project-sessions:update", (_, sessionId: string, input) => {
     const existing = projectSessionService.getProjectSession(sessionId);
     if (!existing) return null;
-    const session = projectSessionService.updateProjectSession(sessionId, input);
+    const session = projectSessionService.updateProjectSession(
+      sessionId,
+      input,
+    );
     if (session) {
-      dbNotifier.notifyProjectSessionsChanged(session.projectId, "update", session.id);
+      dbNotifier.notifyProjectSessionsChanged(
+        session.projectId,
+        "update",
+        session.id,
+      );
     }
     return session;
   });
@@ -628,41 +775,72 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     renameProjectSessionChat(sessionId, input, {
       getProjectSession: projectSessionService.getProjectSession,
       updateProjectSession: projectSessionService.updateProjectSession,
-      setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
+      setThreadName: (threadId, rawTitle) =>
+        codexService.setThreadName(threadId, rawTitle),
       notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
-        dbNotifier.notifyProjectSessionsChanged(projectId, changeType, sessionId);
+        dbNotifier.notifyProjectSessionsChanged(
+          projectId,
+          changeType,
+          sessionId,
+        );
       },
-    })
+    }),
   );
 
   registerHandle("project-sessions:delete", (_, sessionId: string) => {
     const existing = projectSessionService.getProjectSession(sessionId);
     const success = projectSessionService.deleteProjectSession(sessionId);
     if (success && existing) {
-      dbNotifier.notifyProjectSessionsChanged(existing.projectId, "delete", sessionId);
+      dbNotifier.notifyProjectSessionsChanged(
+        existing.projectId,
+        "delete",
+        sessionId,
+      );
     }
     return success;
   });
 
-  registerHandle("project-sessions:reorder", (_, projectId: string, orderedSessionIds: string[]) => {
-    const sessions = projectSessionService.reorderProjectSessions(projectId, orderedSessionIds);
-    dbNotifier.notifyProjectSessionsChanged(projectId, "reorder");
-    return sessions;
-  });
+  registerHandle(
+    "project-sessions:reorder",
+    (_, projectId: string, orderedSessionIds: string[]) => {
+      const sessions = projectSessionService.reorderProjectSessions(
+        projectId,
+        orderedSessionIds,
+      );
+      dbNotifier.notifyProjectSessionsChanged(projectId, "reorder");
+      return sessions;
+    },
+  );
 
-  registerHandle("project-sessions:set-pinned", (_, sessionId: string, input) => {
-    const session = projectSessionService.setProjectSessionPinned(sessionId, input);
-    if (session) {
-      dbNotifier.notifyProjectSessionsChanged(session.projectId, "pin", session.id);
-    }
-    return session;
-  });
+  registerHandle(
+    "project-sessions:set-pinned",
+    (_, sessionId: string, input) => {
+      const session = projectSessionService.setProjectSessionPinned(
+        sessionId,
+        input,
+      );
+      if (session) {
+        dbNotifier.notifyProjectSessionsChanged(
+          session.projectId,
+          "pin",
+          session.id,
+        );
+      }
+      return session;
+    },
+  );
 
-  registerHandle("project-sessions:set-pinned-order", (_, projectId: string, input) => {
-    const sessions = projectSessionService.setPinnedProjectSessionOrder(projectId, input);
-    dbNotifier.notifyProjectSessionsChanged(projectId, "pin");
-    return sessions;
-  });
+  registerHandle(
+    "project-sessions:set-pinned-order",
+    (_, projectId: string, input) => {
+      const sessions = projectSessionService.setPinnedProjectSessionOrder(
+        projectId,
+        input,
+      );
+      dbNotifier.notifyProjectSessionsChanged(projectId, "pin");
+      return sessions;
+    },
+  );
 
   registerHandle("project-sessions:archive", async (_, sessionId: string) => {
     const existing = projectSessionService.getProjectSession(sessionId);
@@ -672,7 +850,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
     const session = projectSessionService.archiveProjectSession(sessionId);
     if (session) {
-      dbNotifier.notifyProjectSessionsChanged(session.projectId, "archive", session.id);
+      dbNotifier.notifyProjectSessionsChanged(
+        session.projectId,
+        "archive",
+        session.id,
+      );
     }
     return session;
   });
@@ -685,80 +867,120 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
     const session = projectSessionService.unarchiveProjectSession(sessionId);
     if (session) {
-      dbNotifier.notifyProjectSessionsChanged(session.projectId, "unarchive", session.id);
+      dbNotifier.notifyProjectSessionsChanged(
+        session.projectId,
+        "unarchive",
+        session.id,
+      );
     }
     return session;
   });
 
-  registerHandle("project-sessions:mark-unread", (_, sessionId: string, input) => {
-    const session = projectSessionService.markProjectSessionUnread(sessionId, input);
-    if (session) {
-      dbNotifier.notifyProjectSessionsChanged(session.projectId, "unread", session.id);
-    }
-    return session;
-  });
+  registerHandle(
+    "project-sessions:mark-unread",
+    (_, sessionId: string, input) => {
+      const session = projectSessionService.markProjectSessionUnread(
+        sessionId,
+        input,
+      );
+      if (session) {
+        dbNotifier.notifyProjectSessionsChanged(
+          session.projectId,
+          "unread",
+          session.id,
+        );
+      }
+      return session;
+    },
+  );
 
-  registerHandle("project-sessions:fork", async (_, sessionId: string, input) => {
-    const result = await codexService.forkProjectSessionThread(sessionId, input);
-    dbNotifier.notifyProjectSessionsChanged(result.session.projectId, "create", result.session.id);
-    return result;
-  });
+  registerHandle(
+    "project-sessions:fork",
+    async (_, sessionId: string, input) => {
+      const result = await codexService.forkProjectSessionThread(
+        sessionId,
+        input,
+      );
+      dbNotifier.notifyProjectSessionsChanged(
+        result.session.projectId,
+        "create",
+        result.session.id,
+      );
+      return result;
+    },
+  );
 
   registerHandle("project-session-tabs:create", (_, input) =>
-    projectSessionService.createProjectSessionTab(input)
+    projectSessionService.createProjectSessionTab(input),
   );
 
   registerHandle("project-session-tabs:update", (_, tabId: string, input) =>
-    projectSessionService.updateProjectSessionTab(tabId, input)
+    projectSessionService.updateProjectSessionTab(tabId, input),
   );
 
-  registerHandle("project-session-panels:update", (_, sessionId: string, panelId, input) =>
-    projectSessionService.updateProjectSessionPanel(sessionId, panelId, input)
+  registerHandle(
+    "project-session-panels:update",
+    (_, sessionId: string, panelId, input) =>
+      projectSessionService.updateProjectSessionPanel(
+        sessionId,
+        panelId,
+        input,
+      ),
   );
 
   registerHandle("project-session-panels:split", (_, input) =>
-    projectSessionService.splitProjectSessionPanelGroup(input)
+    projectSessionService.splitProjectSessionPanelGroup(input),
   );
 
   registerHandle("project-session-panels:ensure-right-leaf", (_, input) =>
-    projectSessionService.ensureProjectSessionPanelLeafToRight(input)
+    projectSessionService.ensureProjectSessionPanelLeafToRight(input),
   );
 
   registerHandle("project-session-panels:merge", (_, input) =>
-    projectSessionService.mergeProjectSessionPanelGroup(input)
+    projectSessionService.mergeProjectSessionPanelGroup(input),
   );
 
   registerHandle("project-session-panels:activate", (_, input) =>
-    projectSessionService.activateProjectSessionPanelGroup(input)
+    projectSessionService.activateProjectSessionPanelGroup(input),
   );
 
   registerHandle("project-session-panels:resize", (_, input) =>
-    projectSessionService.resizeProjectSessionPanelGroup(input)
+    projectSessionService.resizeProjectSessionPanelGroup(input),
   );
 
   registerHandle("project-session-panels:maximize", (_, input) =>
-    projectSessionService.maximizeProjectSessionPanelGroup(input)
+    projectSessionService.maximizeProjectSessionPanelGroup(input),
   );
 
-  registerHandle("project-session-tabs:state:update", (_, tabId: string, stateKey: number, state) =>
-    projectSessionService.updateProjectSessionTabState(tabId, stateKey, state)
+  registerHandle(
+    "project-session-tabs:state:update",
+    (_, tabId: string, stateKey: number, state) =>
+      projectSessionService.updateProjectSessionTabState(
+        tabId,
+        stateKey,
+        state,
+      ),
   );
 
   registerHandle("project-session-tabs:delete", (_, input) =>
-    projectSessionService.deleteProjectSessionTab(input)
+    projectSessionService.deleteProjectSessionTab(input),
   );
 
   registerHandle("project-session-tabs:reorder", (_, input) =>
-    projectSessionService.reorderProjectSessionTabs(input)
+    projectSessionService.reorderProjectSessionTabs(input),
   );
 
   registerHandle("project-session-tabs:move", (_, input) =>
-    projectSessionService.moveProjectSessionTab(input)
+    projectSessionService.moveProjectSessionTab(input),
   );
 
   registerHandle("project-session-threads:attach", (_, input) => {
     const link = projectSessionService.upsertProjectSessionThreadLink(input);
-    dbNotifier.notifyProjectSessionsChanged(link.projectId, "link", link.sessionId);
+    dbNotifier.notifyProjectSessionsChanged(
+      link.projectId,
+      "link",
+      link.sessionId,
+    );
     return link;
   });
 
@@ -766,7 +988,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     const existing = projectSessionService.getProjectSession(sessionId);
     const success = projectSessionService.detachProjectSessionThread(sessionId);
     if (success && existing) {
-      dbNotifier.notifyProjectSessionsChanged(existing.projectId, "link", sessionId);
+      dbNotifier.notifyProjectSessionsChanged(
+        existing.projectId,
+        "link",
+        sessionId,
+      );
     }
     return success;
   });
@@ -813,52 +1039,78 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return results;
   });
 
-  registerHandle("card:create", async (_, projectId, columnId, input, sessionId?, placement?) => {
-    const envelope = await cardMutationWriter.createCard(projectId, columnId, input, sessionId, placement);
-    return envelope.result;
-  });
+  registerHandle(
+    "card:create",
+    async (_, projectId, columnId, input, sessionId?, placement?) => {
+      const envelope = await cardMutationWriter.createCard(
+        projectId,
+        columnId,
+        input,
+        sessionId,
+        placement,
+      );
+      return envelope.result;
+    },
+  );
 
-  registerHandle("card:update", async (_, projectId, columnId, cardId, updates, sessionId?, expectedRevision?) => {
-    const startedAt = performance.now();
-    const envelope = await cardMutationWriter.updateCard(
+  registerHandle(
+    "card:update",
+    async (
+      _,
       projectId,
-      columnId || undefined,
+      columnId,
       cardId,
       updates,
-      sessionId,
-      expectedRevision,
-    );
-    const result = envelope.result;
-    ipcPayloadLogger.info("card update ack served", {
-      channel: "card:update",
-      projectId,
-      cardId,
-      status: result.status,
-      changedFields: result.status === "updated" ? result.changedFields : undefined,
-      descriptionBytes: typeof updates.description === "string"
-        ? Buffer.byteLength(updates.description, "utf8")
-        : undefined,
-      approxPayloadBytes: approximateJsonPayloadBytes(result),
-      durationMs: Math.round(performance.now() - startedAt),
-      workerDurationMs: envelope.metrics.workerDurationMs,
-      queueWaitMs: envelope.metrics.queueWaitMs,
-      transactionMs: envelope.metrics.transactionMs,
-      mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
-      revisionKind: envelope.metrics.revisionKind,
-    });
-    return result;
-  });
-
-  registerHandle("card:description:update:start", async (_, input) =>
-    await startCardDescriptionStaging(input)
+      sessionId?,
+      expectedRevision?,
+    ) => {
+      const startedAt = performance.now();
+      const envelope = await cardMutationWriter.updateCard(
+        projectId,
+        columnId || undefined,
+        cardId,
+        updates,
+        sessionId,
+        expectedRevision,
+      );
+      const result = envelope.result;
+      ipcPayloadLogger.info("card update ack served", {
+        channel: "card:update",
+        projectId,
+        cardId,
+        status: result.status,
+        changedFields:
+          result.status === "updated" ? result.changedFields : undefined,
+        descriptionBytes:
+          typeof updates.description === "string"
+            ? Buffer.byteLength(updates.description, "utf8")
+            : undefined,
+        approxPayloadBytes: approximateJsonPayloadBytes(result),
+        durationMs: Math.round(performance.now() - startedAt),
+        workerDurationMs: envelope.metrics.workerDurationMs,
+        queueWaitMs: envelope.metrics.queueWaitMs,
+        transactionMs: envelope.metrics.transactionMs,
+        mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
+        revisionKind: envelope.metrics.revisionKind,
+      });
+      return result;
+    },
   );
 
-  registerHandle("card:description:update:chunk", async (_, stagingId, chunk) =>
-    await appendCardDescriptionChunk(stagingId, chunk)
+  registerHandle(
+    "card:description:update:start",
+    async (_, input) => await startCardDescriptionStaging(input),
   );
 
-  registerHandle("card:description:update:abort", async (_, stagingId) =>
-    await abortCardDescriptionStaging(stagingId)
+  registerHandle(
+    "card:description:update:chunk",
+    async (_, stagingId, chunk) =>
+      await appendCardDescriptionChunk(stagingId, chunk),
+  );
+
+  registerHandle(
+    "card:description:update:abort",
+    async (_, stagingId) => await abortCardDescriptionStaging(stagingId),
   );
 
   registerHandle("card:description:update:finish", async (_, stagingId) => {
@@ -894,14 +1146,28 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
   });
 
-  registerHandle("card:get", (_, projectId: string, cardId: string, status?: string) =>
-    cardsStore.getCard(projectId, cardId, status as Parameters<typeof cardsStore.getCard>[2])
+  registerHandle(
+    "card:get",
+    (_, projectId: string, cardId: string, status?: string) =>
+      cardsStore.getCard(
+        projectId,
+        cardId,
+        status as Parameters<typeof cardsStore.getCard>[2],
+      ),
   );
 
-  registerHandle("card:delete", async (_, projectId, columnId, cardId, sessionId?) => {
-    const envelope = await cardMutationWriter.deleteCard(projectId, columnId || undefined, cardId, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "card:delete",
+    async (_, projectId, columnId, cardId, sessionId?) => {
+      const envelope = await cardMutationWriter.deleteCard(
+        projectId,
+        columnId || undefined,
+        cardId,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
 
   registerHandle("card:move", async (_, input) => {
     const { result } = await cardMutationWriter.moveCard(input);
@@ -915,77 +1181,167 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("card:move-to-project", async (_, input) => {
     const { result } = await cardMutationWriter.moveCardToProject(input);
-    if (result === "wrong_column") throw new Error("Card is no longer in the expected column");
+    if (result === "wrong_column")
+      throw new Error("Card is no longer in the expected column");
     if (result === "not_found") throw new Error("Card not found");
-    if (result === "target_project_not_found") throw new Error("Target project not found");
+    if (result === "target_project_not_found")
+      throw new Error("Target project not found");
     return result;
   });
 
-  registerHandle("card:import-block-drop", async (_, projectId: string, input, sessionId?: string) => {
-    const envelope = await cardMutationWriter.importBlockDropAsCards(projectId, input, sessionId);
-    return envelope.result;
-  });
-
-  registerHandle("card:move-drop-to-editor", async (_, projectId: string, input, sessionId?: string) => {
-    const envelope = await cardMutationWriter.moveCardDropToEditor(projectId, input, sessionId);
-    return envelope.result;
-  });
-
-  registerHandle("calendar:occurrences", (_, projectId: string, windowStart: Date, windowEnd: Date, searchQuery?: string) =>
-    cardOccurrences.listCalendarOccurrences(projectId, windowStart, windowEnd, searchQuery).then((occurrences) => ({ occurrences }))
+  registerHandle(
+    "card:import-block-drop",
+    async (_, projectId: string, input, sessionId?: string) => {
+      const envelope = await cardMutationWriter.importBlockDropAsCards(
+        projectId,
+        input,
+        sessionId,
+      );
+      return envelope.result;
+    },
   );
 
-  registerHandle("card:occurrence:complete", async (_, projectId: string, input, sessionId?: string) => {
-    const envelope = await cardMutationWriter.completeCardOccurrence(projectId, input, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "card:move-drop-to-editor",
+    async (_, projectId: string, input, sessionId?: string) => {
+      const envelope = await cardMutationWriter.moveCardDropToEditor(
+        projectId,
+        input,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
 
-  registerHandle("card:occurrence:skip", async (_, projectId: string, input, sessionId?: string) => {
-    const envelope = await cardMutationWriter.skipCardOccurrence(projectId, input, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "calendar:occurrences",
+    (
+      _,
+      projectId: string,
+      windowStart: Date,
+      windowEnd: Date,
+      searchQuery?: string,
+    ) =>
+      cardOccurrences
+        .listCalendarOccurrences(projectId, windowStart, windowEnd, searchQuery)
+        .then((occurrences) => ({ occurrences })),
+  );
 
-  registerHandle("card:occurrence:update", async (_, projectId: string, input, sessionId?: string) => {
-    const envelope = await cardMutationWriter.updateCardOccurrence(projectId, input, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "card:occurrence:complete",
+    async (_, projectId: string, input, sessionId?: string) => {
+      const envelope = await cardMutationWriter.completeCardOccurrence(
+        projectId,
+        input,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
+
+  registerHandle(
+    "card:occurrence:skip",
+    async (_, projectId: string, input, sessionId?: string) => {
+      const envelope = await cardMutationWriter.skipCardOccurrence(
+        projectId,
+        input,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
+
+  registerHandle(
+    "card:occurrence:update",
+    async (_, projectId: string, input, sessionId?: string) => {
+      const envelope = await cardMutationWriter.updateCardOccurrence(
+        projectId,
+        input,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
 
   // History
-  registerHandle("history:recent", (_, projectId: string, sessionId?: string) => {
-    const entries = historyStore.getRecentHistory(projectId);
-    const state = historyStore.getUndoRedoState(projectId, sessionId);
-    return { ...state, entries };
-  });
+  registerHandle(
+    "history:recent",
+    (_, projectId: string, sessionId?: string) => {
+      const entries = historyStore.getRecentHistory(projectId);
+      const state = historyStore.getUndoRedoState(projectId, sessionId);
+      return { ...state, entries };
+    },
+  );
 
   registerHandle("history:card", (_, projectId: string, cardId: string) => {
     const entries = historyStore.getCardHistoryPanelEntries(projectId, cardId);
     return { entries };
   });
 
-  registerHandle("history:card-version-preview", async (_, projectId: string, cardId: string, historyId: number) => {
-    const { result } = await cardMutationWriter.getCardHistoryVersionPreview(projectId, cardId, historyId);
-    return result;
-  });
+  registerHandle(
+    "history:card-version-preview",
+    async (_, projectId: string, cardId: string, historyId: number) => {
+      const { result } = await cardMutationWriter.getCardHistoryVersionPreview(
+        projectId,
+        cardId,
+        historyId,
+      );
+      return result;
+    },
+  );
 
-  registerHandle("history:undo", async (_, projectId: string, sessionId?: string) => {
-    const envelope = await cardMutationWriter.undoLatest(projectId, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "history:undo",
+    async (_, projectId: string, sessionId?: string) => {
+      const envelope = await cardMutationWriter.undoLatest(
+        projectId,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
 
-  registerHandle("history:redo", async (_, projectId: string, sessionId?: string) => {
-    const envelope = await cardMutationWriter.redoLatest(projectId, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "history:redo",
+    async (_, projectId: string, sessionId?: string) => {
+      const envelope = await cardMutationWriter.redoLatest(
+        projectId,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
 
-  registerHandle("history:revert", async (_, projectId: string, historyId: number, sessionId?: string) => {
-    const envelope = await cardMutationWriter.revertEntry(projectId, historyId, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "history:revert",
+    async (_, projectId: string, historyId: number, sessionId?: string) => {
+      const envelope = await cardMutationWriter.revertEntry(
+        projectId,
+        historyId,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
 
-  registerHandle("history:restore", async (_, projectId: string, cardId: string, historyId: number, sessionId?: string) => {
-    const envelope = await cardMutationWriter.restoreToEntry(projectId, cardId, historyId, sessionId);
-    return envelope.result;
-  });
+  registerHandle(
+    "history:restore",
+    async (
+      _,
+      projectId: string,
+      cardId: string,
+      historyId: number,
+      sessionId?: string,
+    ) => {
+      const envelope = await cardMutationWriter.restoreToEntry(
+        projectId,
+        cardId,
+        historyId,
+        sessionId,
+      );
+      return envelope.result;
+    },
+  );
 
   // Database introspection
   registerHandle("db:schema", (_event, projectId: string) => {
@@ -993,24 +1349,30 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return sqlInspection.getSchema();
   });
 
-  registerHandle("db:query", (_, projectId: string, sql: string, params?: unknown[]) => {
-    void projectId;
-    return sqlInspection.executeReadOnlyQuery(sql, params as (string | number | null)[] | undefined);
-  });
+  registerHandle(
+    "db:query",
+    (_, projectId: string, sql: string, params?: unknown[]) => {
+      void projectId;
+      return sqlInspection.executeReadOnlyQuery(
+        sql,
+        params as (string | number | null)[] | undefined,
+      );
+    },
+  );
 
   // Backups
   registerHandle("backup:list", () => backupService.listBackups());
 
   registerHandle("backup:create", (_, input) =>
-    backupService.createBackup({ trigger: "manual", label: input?.label })
+    backupService.createBackup({ trigger: "manual", label: input?.label }),
   );
 
   registerHandle("backup:delete", (_, backupId: string) =>
-    backupService.deleteBackup(backupId)
+    backupService.deleteBackup(backupId),
   );
 
   registerHandle("backup:restore", (_, input) =>
-    backupService.restoreBackup(input)
+    backupService.restoreBackup(input),
   );
 
   registerHandle("settings:backup:get", () => getBackupSettings());
@@ -1028,25 +1390,27 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("settings:history:get", () => getHistorySettings());
 
   registerHandle("settings:history:update", (_, input) =>
-    updateHistorySettings(input)
+    updateHistorySettings(input),
   );
 
   registerHandle("settings:diagnostics:get", () => getDiagnosticsSettings());
 
   registerHandle("settings:diagnostics:update", (_, input) =>
-    updateDiagnosticsSettings(input)
+    updateDiagnosticsSettings(input),
   );
 
   registerHandle("settings:telemetry:get", () => getTelemetrySettings());
 
   registerHandle("settings:telemetry:update", (_, input) =>
-    updateTelemetrySettings(input)
+    updateTelemetrySettings(input),
   );
 
-  registerHandle("settings:thread-notifications:get", () => getThreadNotificationSettings());
+  registerHandle("settings:thread-notifications:get", () =>
+    getThreadNotificationSettings(),
+  );
 
   registerHandle("settings:thread-notifications:update", (_, input) =>
-    updateThreadNotificationSettings(input)
+    updateThreadNotificationSettings(input),
   );
 
   registerHandle("desktop-notification:show", (event, notification) => {
@@ -1055,31 +1419,46 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
 
     const originWindow = BrowserWindow.fromWebContents(event.sender);
-    options.desktopNotificationManager.showNotification(notification, event.sender, (action) => {
-      if (action.actionType === "open") {
-        focusNotificationOriginWindow(originWindow);
-      }
+    options.desktopNotificationManager.showNotification(
+      notification,
+      event.sender,
+      (action) => {
+        if (action.actionType === "open") {
+          focusNotificationOriginWindow(originWindow);
+        }
 
-      safeSendToWebContents(event.sender, "desktop-notification:action", [{
-        ...action,
-        conversationId: notification.conversationId ?? null,
-        requestId: notification.requestId ?? null,
-      }]);
-    });
+        safeSendToWebContents(event.sender, "desktop-notification:action", [
+          {
+            ...action,
+            conversationId: notification.conversationId ?? null,
+            requestId: notification.requestId ?? null,
+          },
+        ]);
+      },
+    );
   });
 
   registerHandle("desktop-notification:hide", (_, conversationId: string) => {
-    options.desktopNotificationManager?.dismissByConversationId(conversationId ?? null);
+    options.desktopNotificationManager?.dismissByConversationId(
+      conversationId ?? null,
+    );
   });
 
   registerHandle("electron-window:focus:get", (event) => {
     return BrowserWindow.fromWebContents(event.sender)?.isFocused() ?? false;
   });
 
-  registerHandle("native-context-menu:show", async (event, items: NativeContextMenuItem[], menuOptions?: NativeContextMenuOptions) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    return await showNativeContextMenu(window, items, menuOptions);
-  });
+  registerHandle(
+    "native-context-menu:show",
+    async (
+      event,
+      items: NativeContextMenuItem[],
+      menuOptions?: NativeContextMenuOptions,
+    ) => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      return await showNativeContextMenu(window, items, menuOptions);
+    },
+  );
 
   registerHandle("settings:app-updates:get", () => getAppUpdateSettings());
 
@@ -1089,10 +1468,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return settings;
   });
 
-  registerHandle("settings:window-restore:get", () => getWindowRestoreSettings());
+  registerHandle("settings:window-restore:get", () =>
+    getWindowRestoreSettings(),
+  );
 
   registerHandle("settings:window-restore:update", (_, input) =>
-    updateWindowRestoreSettings(input)
+    updateWindowRestoreSettings(input),
   );
 
   registerHandle("codex-command-keymap-state", () => getCommandKeymapState());
@@ -1115,85 +1496,88 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("global-dictation-capture-fn-hotkey", () => null);
 
-  registerHandle("app:update:status", () =>
-    options.onGetAppUpdateStatus?.() ?? {
-      status: "unsupported",
-      supported: false,
-      currentVersion: app.getVersion(),
-      availableVersion: null,
-      releaseName: null,
-      releaseDate: null,
-      releaseNotes: null,
-      progressPercent: null,
-      transferredBytes: null,
-      totalBytes: null,
-      checkedAt: null,
-      message: "App updates are unavailable.",
-    } satisfies AppUpdateStatus
+  registerHandle(
+    "app:update:status",
+    () =>
+      options.onGetAppUpdateStatus?.() ??
+      ({
+        status: "unsupported",
+        supported: false,
+        currentVersion: app.getVersion(),
+        availableVersion: null,
+        releaseName: null,
+        releaseDate: null,
+        releaseNotes: null,
+        progressPercent: null,
+        transferredBytes: null,
+        totalBytes: null,
+        checkedAt: null,
+        message: "App updates are unavailable.",
+      } satisfies AppUpdateStatus),
   );
 
-  registerHandle("app:update:check", async () =>
-    options.onCheckForAppUpdate?.() ?? {
-      status: "unsupported",
-      supported: false,
-      currentVersion: app.getVersion(),
-      availableVersion: null,
-      releaseName: null,
-      releaseDate: null,
-      releaseNotes: null,
-      progressPercent: null,
-      transferredBytes: null,
-      totalBytes: null,
-      checkedAt: null,
-      message: "App updates are unavailable.",
-    } satisfies AppUpdateStatus
+  registerHandle(
+    "app:update:check",
+    async () =>
+      options.onCheckForAppUpdate?.() ??
+      ({
+        status: "unsupported",
+        supported: false,
+        currentVersion: app.getVersion(),
+        availableVersion: null,
+        releaseName: null,
+        releaseDate: null,
+        releaseNotes: null,
+        progressPercent: null,
+        transferredBytes: null,
+        totalBytes: null,
+        checkedAt: null,
+        message: "App updates are unavailable.",
+      } satisfies AppUpdateStatus),
   );
 
-  registerHandle("app:update:install", () => options.onInstallAppUpdate?.() ?? false);
+  registerHandle(
+    "app:update:install",
+    () => options.onInstallAppUpdate?.() ?? false,
+  );
 
   registerHandle("shell:open-file-link", (_, target, openerId) =>
-    openFileLinkTarget(target, openerId)
+    openFileLinkTarget(target, openerId),
   );
 
   registerHandle("workspace-directory-entries", (_, input) =>
-    listWorkspaceDirectoryEntries(input)
+    listWorkspaceDirectoryEntries(input),
   );
 
   registerHandle("remote-workspace-directory-entries", (_, input) =>
-    listWorkspaceDirectoryEntries(input)
+    listWorkspaceDirectoryEntries(input),
   );
 
-  registerHandle("read-file", (_, input) =>
-    readWorkspaceFile(input)
-  );
+  registerHandle("read-file", (_, input) => readWorkspaceFile(input));
 
   registerHandle("read-file-metadata", (_, input) =>
-    readWorkspaceFileMetadata(input)
+    readWorkspaceFileMetadata(input),
   );
 
   registerHandle("read-file-binary", (_, input) =>
-    readWorkspaceFileBinary(input)
+    readWorkspaceFileBinary(input),
   );
 
-  registerHandle("write-file", (_, input) =>
-    writeWorkspaceFile(input)
-  );
+  registerHandle("write-file", (_, input) => writeWorkspaceFile(input));
 
-  registerHandle("paths-exist", (_, input) =>
-    readWorkspacePathsExist(input)
-  );
+  registerHandle("paths-exist", (_, input) => readWorkspacePathsExist(input));
 
   registerHandle("open-file", (_, target, openerId) =>
-    openFileLinkTarget(target, openerId)
+    openFileLinkTarget(target, openerId),
   );
 
   // Canvas
   registerHandle("canvas:get", (_, projectId: string) =>
-    canvasService.getCanvas(projectId)
+    canvasService.getCanvas(projectId),
   );
 
   registerHandle("canvas:save", (_, projectId: string, data) =>
-    canvasService.saveCanvas(projectId, data)
+    canvasService.saveCanvas(projectId, data),
   );
 
   registerHandle("window:show-emoji-panel", () => {
@@ -1215,41 +1599,56 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return options.onBootstrapWindowSession(event.sender.id);
   });
 
-  registerHandle("window-sessions:save-layout", (
-    event,
-    layout: WorkbenchLayoutSnapshot,
-  ) => {
-    if (!options.onSaveWindowSessionLayout) {
-      throw new Error("Window session state is unavailable");
-    }
-    return options.onSaveWindowSessionLayout(event.sender.id, layout);
-  });
+  registerHandle(
+    "window-sessions:save-layout",
+    (event, layout: WorkbenchLayoutSnapshot) => {
+      if (!options.onSaveWindowSessionLayout) {
+        throw new Error("Window session state is unavailable");
+      }
+      return options.onSaveWindowSessionLayout(event.sender.id, layout);
+    },
+  );
 
-  registerHandle("window-sessions:update-bounds", (event, bounds: WindowSessionBounds) => {
-    options.onUpdateWindowSessionBounds?.(event.sender.id, bounds);
-  });
+  registerHandle(
+    "window-sessions:update-bounds",
+    (event, bounds: WindowSessionBounds) => {
+      options.onUpdateWindowSessionBounds?.(event.sender.id, bounds);
+    },
+  );
 
   registerHandle("git:branch:state", (_, cwd: string) => {
     return readGitBranchState(cwd);
   });
 
-  registerHandle("git:branch:checkout", (_, input: { cwd: string; branch: string }) => {
-    return checkoutGitBranch(input);
-  });
+  registerHandle(
+    "git:branch:checkout",
+    (_, input: { cwd: string; branch: string }) => {
+      return checkoutGitBranch(input);
+    },
+  );
 
-  registerHandle("git:branch:create", (_, input: { cwd: string; branch: string }) => {
-    return createAndCheckoutGitBranch(input);
-  });
+  registerHandle(
+    "git:branch:create",
+    (_, input: { cwd: string; branch: string }) => {
+      return createAndCheckoutGitBranch(input);
+    },
+  );
 
-  registerHandle("git:review:snapshot", (_, input: {
-    cwd: string;
-    source: "unstaged" | "staged" | "branch" | "commit";
-    baseRef?: string | null;
-    commitSha?: string | null;
-    hideWhitespace?: boolean;
-  }) => {
-    return readGitReviewSnapshot(input);
-  });
+  registerHandle(
+    "git:review:snapshot",
+    (
+      _,
+      input: {
+        cwd: string;
+        source: "unstaged" | "staged" | "branch" | "commit";
+        baseRef?: string | null;
+        commitSha?: string | null;
+        hideWhitespace?: boolean;
+      },
+    ) => {
+      return readGitReviewSnapshot(input);
+    },
+  );
 
   registerHandle("git:review:summary", (_, input) => {
     return readGitReviewSummary(input);
@@ -1284,7 +1683,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("git:review:patch", (_, input) => {
-    return applyGitReviewPatch(input);
+    return readGitReviewPatch(input);
   });
 
   registerHandle("git:review:blame-file", (_, input) => {
@@ -1311,7 +1710,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("git:action:pull-request-message:generate", (_, input) => {
     return generateGitPullRequestMessage(input, {
-      generatePullRequestMessage: createGitPullRequestMessageGenerator(input.hostId),
+      generatePullRequestMessage: createGitPullRequestMessageGenerator(
+        input.hostId,
+      ),
     });
   });
 
@@ -1395,7 +1796,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         stopGitBranchWatch(webContentsId);
         return;
       }
-      safeSendToWebContents(sender, "git:branch:changed", [{ cwd: normalizedCwd }]);
+      safeSendToWebContents(sender, "git:branch:changed", [
+        { cwd: normalizedCwd },
+      ]);
     });
 
     if (sender.isDestroyed()) {
@@ -1428,51 +1831,79 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
   });
 
-  registerHandle("clipboard:write-image", async (_, input: { source?: string }) => {
-    if (typeof input?.source !== "string") {
-      return { ok: false, message: "Could not copy image." } as const;
-    }
+  registerHandle(
+    "clipboard:write-image",
+    async (_, input: { source?: string }) => {
+      if (typeof input?.source !== "string") {
+        return { ok: false, message: "Could not copy image." } as const;
+      }
 
-    return writeImageToClipboard(input.source);
-  });
-
-  registerHandle("clipboard:inspect-paste", () =>
-    inspectClipboardPasteItems()
+      return writeImageToClipboard(input.source);
+    },
   );
 
-  registerHandle("composer:pick-files", async (_, input?: { imagesOnly?: boolean; title?: string }) => {
-    const imagesOnly = input?.imagesOnly === true;
-    const result = await dialog.showOpenDialog({
-      title: typeof input?.title === "string" ? input.title : imagesOnly ? "Select photos" : "Select files",
-      properties: ["openFile", "multiSelections"],
-      ...(imagesOnly
-        ? {
-            filters: [
-              {
-                name: "Images",
-                extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic", "heif"],
-              },
-            ],
-          }
-        : {}),
-    });
-    if (result.canceled || result.filePaths.length === 0) return [];
-    return prepareComposerPickedFiles(result.filePaths);
-  });
+  registerHandle("clipboard:inspect-paste", () => inspectClipboardPasteItems());
+
+  registerHandle(
+    "composer:pick-files",
+    async (_, input?: { imagesOnly?: boolean; title?: string }) => {
+      const imagesOnly = input?.imagesOnly === true;
+      const result = await dialog.showOpenDialog({
+        title:
+          typeof input?.title === "string"
+            ? input.title
+            : imagesOnly
+              ? "Select photos"
+              : "Select files",
+        properties: ["openFile", "multiSelections"],
+        ...(imagesOnly
+          ? {
+              filters: [
+                {
+                  name: "Images",
+                  extensions: [
+                    "png",
+                    "jpg",
+                    "jpeg",
+                    "gif",
+                    "webp",
+                    "bmp",
+                    "tiff",
+                    "tif",
+                    "heic",
+                    "heif",
+                  ],
+                },
+              ],
+            }
+          : {}),
+      });
+      if (result.canceled || result.filePaths.length === 0) return [];
+      return prepareComposerPickedFiles(result.filePaths);
+    },
+  );
 
   // Browser sidebar
-  registerHandle("browser-sidebar-command", async (_event, command: BrowserSidebarCommand) =>
-    browserSidebarService.handleCommand(command)
+  registerHandle(
+    "browser-sidebar-command",
+    async (_event, command: BrowserSidebarCommand) =>
+      browserSidebarService.handleCommand(command),
   );
 
-  registerHandle("browser-browsing-data-clear", async (_event, kind: BrowserBrowsingDataKind) =>
-    browserSidebarService.clearBrowsingData(kind)
+  registerHandle(
+    "browser-browsing-data-clear",
+    async (_event, kind: BrowserBrowsingDataKind) =>
+      browserSidebarService.clearBrowsingData(kind),
   );
-  registerHandle("browser-sidebar-webview-host-created", async (_event, event: BrowserSidebarWebviewHostCreated) =>
-    browserSidebarService.handleWebviewHostCreated(event)
+  registerHandle(
+    "browser-sidebar-webview-host-created",
+    async (_event, event: BrowserSidebarWebviewHostCreated) =>
+      browserSidebarService.handleWebviewHostCreated(event),
   );
-  registerHandle("browser-sidebar-webview-destroyed", async (_event, event: BrowserSidebarWebviewDestroyed) =>
-    browserSidebarService.handleWebviewDestroyed(event)
+  registerHandle(
+    "browser-sidebar-webview-destroyed",
+    async (_event, event: BrowserSidebarWebviewDestroyed) =>
+      browserSidebarService.handleWebviewDestroyed(event),
   );
 
   // Terminal
@@ -1505,7 +1936,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("terminal-session:snapshot", (_, sessionId: string) =>
-    terminalManager.getSessionSnapshot(sessionId)
+    terminalManager.getSessionSnapshot(sessionId),
   );
 
   registerHandle("terminal-resize", (event, sessionId: string, size) => {
@@ -1523,26 +1954,36 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("thread-terminal-snapshot", (_, threadId: string) =>
-    terminalManager.getThreadSnapshot(threadId)
+    terminalManager.getThreadSnapshot(threadId),
   );
 
   // Codex
-  registerHandle("codex:connection:status", () => codexService.getConnectionState());
+  registerHandle("codex:connection:status", () =>
+    codexService.getConnectionState(),
+  );
 
-  registerHandle("codex:account:read", () => codexService.readAccountSnapshot());
+  registerHandle("codex:account:read", () =>
+    codexService.readAccountSnapshot(),
+  );
 
-  registerHandle("codex:dictation:state:read", () => codexService.readDictationStateSnapshot());
+  registerHandle("codex:dictation:state:read", () =>
+    codexService.readDictationStateSnapshot(),
+  );
 
-  registerHandle("codex:account:login:start", (_, input) => codexService.startAccountLogin(input));
+  registerHandle("codex:account:login:start", (_, input) =>
+    codexService.startAccountLogin(input),
+  );
 
   registerHandle("codex:account:login:cancel", (_, loginId: string) =>
-    codexService.cancelAccountLogin(loginId)
+    codexService.cancelAccountLogin(loginId),
   );
 
   registerHandle("codex:account:logout", () => codexService.logoutAccount());
 
-  registerHandle("codex:threads:list", (_, projectId: string, opts?: { includeArchived?: boolean }) =>
-    codexService.listProjectThreads(projectId, opts)
+  registerHandle(
+    "codex:threads:list",
+    (_, projectId: string, opts?: { includeArchived?: boolean }) =>
+      codexService.listProjectThreads(projectId, opts),
   );
 
   registerHandle("codex:sidebar:snapshot", async (_, input) => {
@@ -1579,77 +2020,101 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       approxPayloadBytes,
       durationMs: getDevRuntimeMetricDurationMs(startedAt),
     });
-    recordDevRuntimeMetricCounter("ipc.codex_sidebar_sync.burst_window", {
-      policy: input?.policy ?? "stale",
-      reason: input?.reason ?? "manual",
-      includeArchived: input?.includeArchived === true,
-      approxPayloadBytes,
-    }, {
-      groupBy: ["policy", "reason", "includeArchived"],
-      windowMs: 1_000,
-      burstThreshold: 5,
-      burstMetric: "ipc.codex_sidebar_sync.burst",
-    });
+    recordDevRuntimeMetricCounter(
+      "ipc.codex_sidebar_sync.burst_window",
+      {
+        policy: input?.policy ?? "stale",
+        reason: input?.reason ?? "manual",
+        includeArchived: input?.includeArchived === true,
+        approxPayloadBytes,
+      },
+      {
+        groupBy: ["policy", "reason", "includeArchived"],
+        windowMs: 1_000,
+        burstThreshold: 5,
+        burstMetric: "ipc.codex_sidebar_sync.burst",
+      },
+    );
     return result;
   });
 
   registerHandle("codex:threads:pinned:list", () =>
-    codexService.listPinnedThreads()
+    codexService.listPinnedThreads(),
   );
 
   registerHandle("codex:threads:pinned:set", (_, threadId: string, input) =>
-    codexService.setThreadPinned(threadId, input.pinned)
+    codexService.setThreadPinned(threadId, input.pinned),
   );
 
   registerHandle("codex:thread:ensure-session", (_, threadId: string) =>
-    codexService.ensureSidebarThreadSession(threadId)
+    codexService.ensureSidebarThreadSession(threadId),
   );
 
   registerHandle("codex:threads:palette:list", (_, input) =>
-    codexService.listCommandPaletteThreads(input)
+    codexService.listCommandPaletteThreads(input),
   );
 
   registerHandle("codex:threads:palette:search-content", (_, input) =>
-    codexService.searchCommandPaletteThreadContent(input)
+    codexService.searchCommandPaletteThreadContent(input),
   );
 
   registerHandle("codex:thread:summary:get", (_, threadId: string) =>
-    codexService.resolveThreadSummary(threadId)
+    codexService.resolveThreadSummary(threadId),
   );
 
   registerHandle("codex:scheduled-automations:list", () =>
-    codexScheduledAutomationsStore.listCodexScheduledAutomations()
+    codexScheduledAutomationsStore.listCodexScheduledAutomations(),
   );
 
   registerHandle("codex:scheduled-automations:upsert", (_, input) => {
-    const automation = codexScheduledAutomationsStore.upsertCodexScheduledAutomation(input);
-    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [{
-      automationId: automation.id,
-      targetThreadId: automation.targetThreadId,
-      reason: "upsert",
-    }]);
+    const automation =
+      codexScheduledAutomationsStore.upsertCodexScheduledAutomation(input);
+    safeBroadcastToWindows(
+      BrowserWindow.getAllWindows(),
+      "codex:scheduled-automations:changed",
+      [
+        {
+          automationId: automation.id,
+          targetThreadId: automation.targetThreadId,
+          reason: "upsert",
+        },
+      ],
+    );
     return automation;
   });
 
-  registerHandle("codex:scheduled-automations:delete", (_, automationId: string) => {
-    const existing = codexScheduledAutomationsStore.getCodexScheduledAutomation(automationId);
-    const deleted = codexScheduledAutomationsStore.deleteCodexScheduledAutomation(automationId);
-    if (deleted) {
-      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [{
-        automationId: existing?.id ?? automationId,
-        targetThreadId: existing?.targetThreadId ?? null,
-        reason: "delete",
-      }]);
-    }
-    return deleted;
-  });
-
-  registerHandle("codex:model:list", () =>
-    codexService.listModels()
+  registerHandle(
+    "codex:scheduled-automations:delete",
+    (_, automationId: string) => {
+      const existing =
+        codexScheduledAutomationsStore.getCodexScheduledAutomation(
+          automationId,
+        );
+      const deleted =
+        codexScheduledAutomationsStore.deleteCodexScheduledAutomation(
+          automationId,
+        );
+      if (deleted) {
+        safeBroadcastToWindows(
+          BrowserWindow.getAllWindows(),
+          "codex:scheduled-automations:changed",
+          [
+            {
+              automationId: existing?.id ?? automationId,
+              targetThreadId: existing?.targetThreadId ?? null,
+              reason: "delete",
+            },
+          ],
+        );
+      }
+      return deleted;
+    },
   );
 
+  registerHandle("codex:model:list", () => codexService.listModels());
+
   registerHandle("codex:collaboration-mode:list", () =>
-    codexService.listCollaborationModes()
+    codexService.listCollaborationModes(),
   );
 
   registerHandle(
@@ -1661,12 +2126,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         sessionId: string;
         prompt: string;
         promptInput?: CodexPromptInput;
-        threadGoalDraft?: { objective: string; attachmentDirectory?: string | null };
+        threadGoalDraft?: {
+          objective: string;
+          attachmentDirectory?: string | null;
+        };
         threadName?: string;
         skipAutoTitleGeneration?: boolean;
         model?: string;
         serviceTier?: null | "fast";
-        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
+        permissionMode?:
+          "auto" | "guardian-approvals" | "full-access" | "custom";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         collaborationMode?: "default" | "plan";
         runInTarget?: "localProject" | "newWorktree" | "cloud";
@@ -1692,91 +2161,101 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         promptInput?: CodexPromptInput;
         model?: string;
         serviceTier?: null | "fast";
-        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
+        permissionMode?:
+          "auto" | "guardian-approvals" | "full-access" | "custom";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         collaborationMode?: "default" | "plan";
       },
-    ) =>
-      codexService.startSideChat(input),
+    ) => codexService.startSideChat(input),
   );
 
   registerHandle("codex:thread:side-chat:discard", (_, threadId: string) =>
-    codexService.discardSideChat(threadId)
+    codexService.discardSideChat(threadId),
   );
 
-  registerHandle("worktrees:list", () =>
-    codexService.listManagedWorktrees()
-  );
+  registerHandle("worktrees:list", () => codexService.listManagedWorktrees());
 
   registerHandle("worktrees:environments:list", (_, projectId: string) =>
-    codexService.listWorktreeEnvironments(projectId)
+    codexService.listWorktreeEnvironments(projectId),
   );
 
-  registerHandle("worktrees:environments:configs:list", (_, projectId: string) =>
-    codexService.listWorktreeEnvironmentConfigs(projectId)
+  registerHandle(
+    "worktrees:environments:configs:list",
+    (_, projectId: string) =>
+      codexService.listWorktreeEnvironmentConfigs(projectId),
   );
 
-  registerHandle("worktrees:environments:config:read", (_, projectId: string, configPath?: string | null) =>
-    codexService.readWorktreeEnvironmentConfig(projectId, configPath)
+  registerHandle(
+    "worktrees:environments:config:read",
+    (_, projectId: string, configPath?: string | null) =>
+      codexService.readWorktreeEnvironmentConfig(projectId, configPath),
   );
 
   registerHandle("worktrees:environments:config:save", (_, input) =>
-    codexService.saveWorktreeEnvironmentConfig(input)
+    codexService.saveWorktreeEnvironmentConfig(input),
   );
 
   registerHandle("worktrees:delete", (_, threadId: string) =>
-    codexService.deleteManagedWorktree(threadId)
+    codexService.deleteManagedWorktree(threadId),
   );
 
   registerHandle("codex:thread:snapshot:request", (_, threadId: string) =>
-    codexService.requestConversationSnapshot(threadId)
+    codexService.requestConversationSnapshot(threadId),
   );
 
   registerHandle("codex:thread:resume:request", (_, threadId: string) =>
-    codexService.requestRendererConversationResume(threadId)
+    codexService.requestRendererConversationResume(threadId),
   );
 
-  registerHandle("codex:thread:background-subagents:hydrate", (_, input: CodexBackgroundSubagentThreadsHydrateInput) =>
-    codexService.hydrateBackgroundSubagentThreads(input)
+  registerHandle(
+    "codex:thread:background-subagents:hydrate",
+    (_, input: CodexBackgroundSubagentThreadsHydrateInput) =>
+      codexService.hydrateBackgroundSubagentThreads(input),
   );
 
   registerHandle("codex:subagent-thread:opened", (_, threadId: string) =>
-    codexService.markSubagentThreadOpened(threadId)
+    codexService.markSubagentThreadOpened(threadId),
   );
 
   registerHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>
-    codexService.releaseConversationResumeBuffer(threadId)
+    codexService.releaseConversationResumeBuffer(threadId),
   );
 
-  registerHandle("codex:thread:view-active:set", (event, input: { threadId?: unknown; active?: unknown }) => {
-    if (typeof input.threadId !== "string") return false;
-    const clientId = resolveRendererClientId(event);
-    if (!clientId) return false;
-    codexService.setRendererConversationViewActive(input.threadId, clientId, input.active === true);
-    return true;
-  });
+  registerHandle(
+    "codex:thread:view-active:set",
+    (event, input: { threadId?: unknown; active?: unknown }) => {
+      if (typeof input.threadId !== "string") return false;
+      const clientId = resolveRendererClientId(event);
+      if (!clientId) return false;
+      codexService.setRendererConversationViewActive(
+        input.threadId,
+        clientId,
+        input.active === true,
+      );
+      return true;
+    },
+  );
 
   registerHandle("codex:thread:turns:load-older", (_, threadId: string) =>
-    codexService.loadOlderThreadTurns(threadId)
+    codexService.loadOlderThreadTurns(threadId),
   );
   registerHandle("codex:thread:turns:load-complete", (_, threadId: string) =>
-    codexService.loadCompleteThreadHistory(threadId)
+    codexService.loadCompleteThreadHistory(threadId),
   );
 
   registerHandle("codex:thread:name:set", (_, threadId: string, name: string) =>
-    codexService.setThreadName(threadId, name)
+    codexService.setThreadName(threadId, name),
   );
 
-  registerHandle("codex:thread:name:set-generated", (_, threadId: string, name: string) =>
-    codexService.setGeneratedThreadName(threadId, name)
+  registerHandle(
+    "codex:thread:name:set-generated",
+    (_, threadId: string, name: string) =>
+      codexService.setGeneratedThreadName(threadId, name),
   );
 
   registerHandle(
     "codex:thread:title:generate",
-    (
-      _,
-      input: { hostId: string; prompt: string; cwd: string | null },
-    ) => {
+    (_, input: { hostId: string; prompt: string; cwd: string | null }) => {
       void input.hostId;
       return codexService.generateThreadTitle({
         prompt: input.prompt,
@@ -1786,17 +2265,20 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle("codex:thread:archive", (_, threadId: string) =>
-    codexService.archiveThread(threadId)
+    codexService.archiveThread(threadId),
   );
 
   registerHandle("codex:thread:unarchive", (_, threadId: string) =>
-    codexService.unarchiveThread(threadId)
+    codexService.unarchiveThread(threadId),
   );
 
   registerHandle(
     "codex:thread:collaboration-mode:set",
     (_, threadId: string, collaborationMode: "default" | "plan") =>
-      codexService.setConversationCollaborationMode(threadId, collaborationMode),
+      codexService.setConversationCollaborationMode(
+        threadId,
+        collaborationMode,
+      ),
   );
 
   registerHandle(
@@ -1821,7 +2303,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         model?: string;
         serviceTier?: null | "fast";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
+        permissionMode?:
+          "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
         promptInput?: CodexPromptInput;
       },
@@ -1831,7 +2314,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle("codex:review:start", (_, input) =>
-    codexService.startReview(input)
+    codexService.startReview(input),
   );
 
   registerHandle(
@@ -1844,12 +2327,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         model?: string;
         serviceTier?: null | "fast";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
+        permissionMode?:
+          "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
         promptInput?: CodexPromptInput;
       },
-    ) =>
-      codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),
+    ) => codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),
   );
 
   registerHandle(
@@ -1871,135 +2354,168 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle("codex:thread:compact:start", (_, threadId: string) =>
-    codexService.startThreadCompaction(threadId)
+    codexService.startThreadCompaction(threadId),
   );
 
   registerHandle("codex:thread:goal:get", (_, threadId: string) =>
-    codexService.getThreadGoal(threadId)
+    codexService.getThreadGoal(threadId),
   );
 
-  registerHandle("codex:thread:goal:set", (_, params: CodexThreadGoalSetActionInput) =>
-    codexService.setThreadGoal(params)
+  registerHandle(
+    "codex:thread:goal:set",
+    (_, params: CodexThreadGoalSetActionInput) =>
+      codexService.setThreadGoal(params),
   );
 
   registerHandle("codex:thread:goal:clear", (_, threadId: string) =>
-    codexService.clearThreadGoal(threadId)
+    codexService.clearThreadGoal(threadId),
   );
 
   registerHandle("codex:thread:goal:materialize-draft", (_, draft) =>
     materializeThreadGoalDraft({
       attachmentsRoot: getThreadGoalAttachmentsRoot(app.getPath("userData")),
       draft,
-    })
+    }),
   );
 
-  registerHandle("codex:thread:goal:materialized-cleanup", (_, attachmentDirectory) =>
-    removeOwnedThreadGoalAttachmentDirectory(
-      attachmentDirectory,
-      getThreadGoalAttachmentsRoot(app.getPath("userData")),
-    )
+  registerHandle(
+    "codex:thread:goal:materialized-cleanup",
+    (_, attachmentDirectory) =>
+      removeOwnedThreadGoalAttachmentDirectory(
+        attachmentDirectory,
+        getThreadGoalAttachmentsRoot(app.getPath("userData")),
+      ),
   );
 
   registerHandle("codex:thread:goal:editable-objective:read", (_, objective) =>
     readThreadGoalEditableObjective({
       attachmentsRoot: getThreadGoalAttachmentsRoot(app.getPath("userData")),
       objective,
-    })
-  );
-
-  registerHandle("codex:thread:memory-mode:set", (_, threadId: string, mode: "enabled" | "disabled") =>
-    codexService.setThreadMemoryMode({ threadId, mode })
-  );
-
-  registerHandle("codex:feedback:upload", (_, params) =>
-    codexService.uploadFeedback(params)
+    }),
   );
 
   registerHandle(
-    "codex:turn:steer",
-    (_, input) => codexService.steerTurn(input),
+    "codex:thread:memory-mode:set",
+    (_, threadId: string, mode: "enabled" | "disabled") =>
+      codexService.setThreadMemoryMode({ threadId, mode }),
   );
 
-  registerHandle("codex:turn:interrupt", (_, threadId: string, turnId?: string) =>
-    codexService.interruptTurn(threadId, turnId)
+  registerHandle("codex:feedback:upload", (_, params) =>
+    codexService.uploadFeedback(params),
   );
 
-  registerHandle("codex:thread:background-terminals:clean", (_, threadId: string) =>
-    codexService.cleanBackgroundTerminals(threadId)
+  registerHandle("codex:turn:steer", (_, input) =>
+    codexService.steerTurn(input),
   );
 
-  registerHandle("codex:thread:background-terminals:clean-silent", (_, threadId: string) =>
-    codexService.cleanBackgroundTerminalsSilently(threadId)
+  registerHandle(
+    "codex:turn:interrupt",
+    (_, threadId: string, turnId?: string) =>
+      codexService.interruptTurn(threadId, turnId),
   );
 
-  registerHandle("codex:thread:background-terminals:list", (_, threadId: string) =>
-    codexService.listBackgroundTerminals(threadId)
+  registerHandle(
+    "codex:thread:background-terminals:clean",
+    (_, threadId: string) => codexService.cleanBackgroundTerminals(threadId),
   );
 
-  registerHandle("codex:thread:background-processes:list", (_, input: {
-    threadId: string;
-    observedTerminals?: ThreadBackgroundTerminal[];
-  }) =>
-    codexService.listBackgroundProcessRows(input)
+  registerHandle(
+    "codex:thread:background-terminals:clean-silent",
+    (_, threadId: string) =>
+      codexService.cleanBackgroundTerminalsSilently(threadId),
   );
 
-  registerHandle("codex:thread:background-processes:run-action", async (event, input: CodexBackgroundProcessRunActionInput) => {
-    const sender = event.sender;
-    codexService.registerBackgroundProcessRunAction(input);
-    await terminalManager.runAction(sender, {
-      sessionId: input.terminalSessionId,
-      conversationId: input.threadId,
-      cwd: input.cwd,
-      command: input.command,
-      title: input.command,
-    }, (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-    });
-    return codexService.listBackgroundProcessRows({
-      threadId: input.threadId,
-      observedTerminals: [],
-    });
-  });
+  registerHandle(
+    "codex:thread:background-terminals:list",
+    (_, threadId: string) => codexService.listBackgroundTerminals(threadId),
+  );
 
-  registerHandle("codex:thread:background-terminals:terminate", (_, input: { threadId: string; processId: string }) =>
-    codexService.terminateBackgroundTerminal(input)
+  registerHandle(
+    "codex:thread:background-processes:list",
+    (
+      _,
+      input: {
+        threadId: string;
+        observedTerminals?: ThreadBackgroundTerminal[];
+      },
+    ) => codexService.listBackgroundProcessRows(input),
+  );
+
+  registerHandle(
+    "codex:thread:background-processes:run-action",
+    async (event, input: CodexBackgroundProcessRunActionInput) => {
+      const sender = event.sender;
+      codexService.registerBackgroundProcessRunAction(input);
+      await terminalManager.runAction(
+        sender,
+        {
+          sessionId: input.terminalSessionId,
+          conversationId: input.threadId,
+          cwd: input.cwd,
+          command: input.command,
+          title: input.command,
+        },
+        (channel, payload) => {
+          sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+        },
+      );
+      return codexService.listBackgroundProcessRows({
+        threadId: input.threadId,
+        observedTerminals: [],
+      });
+    },
+  );
+
+  registerHandle(
+    "codex:thread:background-terminals:terminate",
+    (_, input: { threadId: string; processId: string }) =>
+      codexService.terminateBackgroundTerminal(input),
   );
 
   registerHandle("codex:mcp-resource:read", (_, params) =>
-    codexService.readMcpResource(params)
+    codexService.readMcpResource(params),
   );
 
   registerHandle("codex:mcp-apps:list", (_, threadId?: string | null) =>
-    codexService.listMcpApps(threadId)
+    codexService.listMcpApps(threadId),
   );
 
-  registerHandle("codex:mcp-server-statuses:list", (_, threadId?: string | null) =>
-    codexService.listMcpServerStatuses(threadId)
+  registerHandle(
+    "codex:mcp-server-statuses:list",
+    (_, threadId?: string | null) =>
+      codexService.listMcpServerStatuses(threadId),
   );
 
   registerHandle("codex:approval:respond", (_, requestId: string, decision) =>
-    codexService.respondToApproval(requestId, decision)
+    codexService.respondToApproval(requestId, decision),
   );
 
   registerHandle("codex:user-input:respond", (_, requestId: string, answers) =>
-    codexService.respondToUserInput(requestId, answers)
+    codexService.respondToUserInput(requestId, answers),
   );
 
-  registerHandle("codex:mcp-elicitation:respond", (_, requestId: string, response) =>
-    codexService.respondToMcpServerElicitation(requestId, response)
+  registerHandle(
+    "codex:mcp-elicitation:respond",
+    (_, requestId: string, response) =>
+      codexService.respondToMcpServerElicitation(requestId, response),
   );
 
-  registerHandle("codex:permission-request:respond", (_, requestId: string, response) =>
-    codexService.respondToPermissionRequest(requestId, response)
+  registerHandle(
+    "codex:permission-request:respond",
+    (_, requestId: string, response) =>
+      codexService.respondToPermissionRequest(requestId, response),
   );
 
-  registerHandle("codex:permission:mode:set", async (
-    _,
-    projectId: string,
-    mode: "auto" | "guardian-approvals" | "full-access" | "custom",
-  ) => {
-    return await codexService.setProjectPermissionMode(projectId, mode);
-  });
+  registerHandle(
+    "codex:permission:mode:set",
+    async (
+      _,
+      projectId: string,
+      mode: "auto" | "guardian-approvals" | "full-access" | "custom",
+    ) => {
+      return await codexService.setProjectPermissionMode(projectId, mode);
+    },
+  );
 
   registerHandle("codex:permission:mode:get", async (_, projectId: string) => {
     return await codexService.getProjectPermissionMode(projectId);
@@ -2009,11 +2525,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return await codexService.getPermissionState(projectId);
   });
 
-  registerHandle("codex:permission:config-value:set", async (_, projectId: string, keyPath: string, value: unknown) => {
-    return await codexService.setPermissionConfigValue(projectId, keyPath, value);
-  });
+  registerHandle(
+    "codex:permission:config-value:set",
+    async (_, projectId: string, keyPath: string, value: unknown) => {
+      return await codexService.setPermissionConfigValue(
+        projectId,
+        keyPath,
+        value,
+      );
+    },
+  );
 
-  registerHandle("codex:permission:custom-description:get", async (_, projectId: string) => {
-    return await codexService.getCustomPermissionModeDescription(projectId);
-  });
+  registerHandle(
+    "codex:permission:custom-description:get",
+    async (_, projectId: string) => {
+      return await codexService.getCustomPermissionModeDescription(projectId);
+    },
+  );
 }

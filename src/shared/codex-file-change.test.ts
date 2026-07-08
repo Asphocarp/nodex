@@ -194,6 +194,38 @@ describe("codex file change turn diff synthesis", () => {
     expect(diff?.includes("--- a/src/app.ts\n+++ b/src/app.ts") ?? false).toBeTrue();
   });
 
+  test("keeps binary-looking add payloads out of textual unified diffs", () => {
+    const change = buildCodexFileChangeFromProtocol({
+      path: "assets/logo.png",
+      kind: "add",
+      diff: "\u0000PNG\r\n\u001a\nbinary-data",
+    });
+    const changes = change ? buildCodexFileChangeMap([change]) : {};
+    const rows = buildCodexFileChangePatchRows(changes);
+    const turnDiff = buildCodexTurnDiffFromPatchBatches([{ cwd: "/repo", changes: change ? [change] : [] }]);
+
+    expect(change?.type ?? "").toBe("nonRenderable");
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.unifiedDiff).toBe(null);
+    expect(rows[0]?.safety?.skipReason ?? "").toBe("binary");
+    expect(turnDiff).toBe("");
+  });
+
+  test("keeps oversized add payloads as metadata-only patch rows", () => {
+    const change = buildCodexFileChangeFromProtocol({
+      path: "logs/debug.txt",
+      kind: "add",
+      diff: "a".repeat(1024 * 1024 + 1),
+    });
+    const changes = change ? buildCodexFileChangeMap([change]) : {};
+    const summary = summarizeCodexFileChangePatch(changes);
+
+    expect(change?.type ?? "").toBe("nonRenderable");
+    expect(change?.type === "nonRenderable" ? change.safety.skipReason : "").toBe("tooLarge");
+    expect(summary?.fileCount ?? 0).toBe(1);
+    expect(summary?.hasChanges ?? false).toBeTrue();
+  });
+
   test("filters non-canonical patch map entries before rendering", () => {
     const malformedMap = {
       "src/good.ts": { type: "add", content: "ok\n" },

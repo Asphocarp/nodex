@@ -6,7 +6,13 @@ import type {
   CodexFileChangePatch,
   CodexItemStatus,
   CodexTurnDiffPatchBatch,
+  ReviewFileSafety,
+  ReviewSkipReason,
 } from "./types";
+import {
+  classifyReviewTextPayload,
+  REVIEW_RENDERABLE_TEXT_MAX_BYTES,
+} from "./review-file-safety";
 
 export type CodexFileChangeDisplayStatus = "applied" | "pending" | "rejected" | "streaming" | "stopped";
 export type CodexFileChangePatchAction = "create" | "delete" | "edit";
@@ -25,6 +31,7 @@ export interface CodexFileChangePatchRow {
   patch: CodexFileChangePatch;
   unifiedDiff: string | null;
   summary: CodexUnifiedDiffSummary | null;
+  safety: ReviewFileSafety | null;
   openLine?: number;
 }
 
@@ -47,6 +54,40 @@ function normalizeContentLines(value: string): string[] {
   return lines[lines.length - 1] === "" ? lines.slice(0, -1) : lines;
 }
 
+function isReviewFileSafety(value: unknown): value is ReviewFileSafety {
+  if (typeof value !== "object" || value === null) return false;
+  const safety = value as Partial<ReviewFileSafety>;
+  const skipReason = safety.skipReason as ReviewSkipReason | null | undefined;
+  return typeof safety.binary === "boolean"
+    && typeof safety.tooLarge === "boolean"
+    && typeof safety.invalidText === "boolean"
+    && typeof safety.renderable === "boolean"
+    && (safety.sizeBytes === null || typeof safety.sizeBytes === "number")
+    && (safety.mimeType === null || typeof safety.mimeType === "string")
+    && (
+      skipReason === null
+      || skipReason === "binary"
+      || skipReason === "tooLarge"
+      || skipReason === "invalidText"
+      || skipReason === "unsupported"
+    );
+}
+
+function buildNonRenderableCodexFileChange(input: {
+  path: string;
+  kind: CodexFileChangeKind;
+  movePath?: string | null;
+  safety: ReviewFileSafety;
+}): CodexFileChange {
+  return {
+    path: input.path,
+    type: "nonRenderable",
+    originalType: input.kind,
+    movePath: input.movePath ?? null,
+    safety: input.safety,
+  };
+}
+
 export function buildCodexFileChangeFromProtocol(input: {
   path: string;
   kind: CodexFileChangeKind;
@@ -55,6 +96,20 @@ export function buildCodexFileChangeFromProtocol(input: {
 }): CodexFileChange | null {
   const path = input.path.trim();
   if (path.length === 0) return null;
+  const safety = classifyReviewTextPayload({
+    path,
+    text: input.diff,
+    maxBytes: REVIEW_RENDERABLE_TEXT_MAX_BYTES,
+  });
+
+  if (!safety.renderable) {
+    return buildNonRenderableCodexFileChange({
+      path,
+      kind: input.kind,
+      movePath: input.movePath ?? null,
+      safety,
+    });
+  }
 
   if (input.kind === "add") {
     return {
@@ -95,6 +150,15 @@ export function toCodexFileChangePatch(change: CodexFileChange): CodexFileChange
     };
   }
 
+  if (change.type === "nonRenderable") {
+    return {
+      type: "nonRenderable",
+      originalType: change.originalType,
+      movePath: change.movePath,
+      safety: change.safety,
+    };
+  }
+
   return {
     type: "update",
     unifiedDiff: change.unifiedDiff,
@@ -119,6 +183,16 @@ export function materializeCodexFileChange(path: string, change: CodexFileChange
     };
   }
 
+  if (change.type === "nonRenderable") {
+    return {
+      path,
+      type: "nonRenderable",
+      originalType: change.originalType,
+      movePath: change.movePath,
+      safety: change.safety,
+    };
+  }
+
   return {
     path,
     type: "update",
@@ -140,6 +214,13 @@ export function isCodexFileChangePatch(value: unknown): value is CodexFileChange
   const patch = value as Partial<CodexFileChangePatch>;
   if (patch.type === "add" || patch.type === "delete") return typeof patch.content === "string";
   if (patch.type === "update") return typeof patch.unifiedDiff === "string";
+  if (patch.type === "nonRenderable") {
+    return (
+      patch.originalType === "add"
+      || patch.originalType === "delete"
+      || patch.originalType === "update"
+    ) && isReviewFileSafety(patch.safety);
+  }
   return false;
 }
 
@@ -200,6 +281,7 @@ export function buildCodexFileChangeUnifiedDiff(
   const path = typeof pathOrChange === "string" ? pathOrChange : pathOrChange.path;
   const change = typeof pathOrChange === "string" ? maybeChange : toCodexFileChangePatch(pathOrChange);
   if (!change) return null;
+  if (change.type === "nonRenderable") return null;
 
   if (change.type === "update") {
     const previousPath = path;
@@ -312,8 +394,9 @@ export function summarizeCodexUnifiedDiff(
 export function resolveCodexFileChangePatchAction(
   change: CodexFileChange | CodexFileChangePatch,
 ): CodexFileChangePatchAction {
-  if (change.type === "add") return "create";
-  if (change.type === "delete") return "delete";
+  const type = change.type === "nonRenderable" ? change.originalType : change.type;
+  if (type === "add") return "create";
+  if (type === "delete") return "delete";
   return "edit";
 }
 
@@ -333,6 +416,7 @@ export function buildCodexFileChangePatchRows(
       patch,
       unifiedDiff,
       summary,
+      safety: patch.type === "nonRenderable" ? patch.safety : null,
       openLine: summary?.openLine,
     };
   });
@@ -368,6 +452,13 @@ export function isCodexFileChange(value: unknown): value is CodexFileChange {
   if (typeof change.path !== "string" || change.path.trim().length === 0) return false;
   if (change.type === "add" || change.type === "delete") return typeof change.content === "string";
   if (change.type === "update") return typeof change.unifiedDiff === "string" && change.unifiedDiff.trim().length > 0;
+  if (change.type === "nonRenderable") {
+    return (
+      change.originalType === "add"
+      || change.originalType === "delete"
+      || change.originalType === "update"
+    ) && isReviewFileSafety(change.safety);
+  }
   return false;
 }
 

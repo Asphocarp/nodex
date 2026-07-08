@@ -6,7 +6,8 @@ export interface ReviewFileTreeEntry {
 }
 
 export type ReviewFileTreeNodeType = "folder" | "file";
-export type ReviewFileTreeRowGitStatus = "added" | "modified" | "deleted" | null;
+export type ReviewFileTreeRowGitStatus =
+  "added" | "modified" | "deleted" | null;
 
 interface ReviewFileTreeBaseNode {
   id: string;
@@ -21,14 +22,15 @@ interface ReviewFileTreeFolderNode extends ReviewFileTreeBaseNode {
   childIds: string[];
 }
 
-interface ReviewFileTreeFileNode<TEntry extends ReviewFileTreeEntry> extends ReviewFileTreeBaseNode {
+interface ReviewFileTreeFileNode<
+  TEntry extends ReviewFileTreeEntry,
+> extends ReviewFileTreeBaseNode {
   type: "file";
   entry: TEntry;
 }
 
 export type ReviewFileTreeNode<TEntry extends ReviewFileTreeEntry> =
-  | ReviewFileTreeFolderNode
-  | ReviewFileTreeFileNode<TEntry>;
+  ReviewFileTreeFolderNode | ReviewFileTreeFileNode<TEntry>;
 
 export interface ReviewFileTreeFlattenedPart {
   id: string;
@@ -76,7 +78,9 @@ export interface ReviewFileTreeVisibleStateOptions {
   lockedPaths?: ReadonlySet<string>;
 }
 
-export interface ReviewFileTreeVisibleState<TEntry extends ReviewFileTreeEntry> {
+export interface ReviewFileTreeVisibleState<
+  TEntry extends ReviewFileTreeEntry,
+> {
   model: ReviewFileTreeModel<TEntry>;
   rows: ReviewFileTreeRow<TEntry>[];
   filteredEntries: TEntry[];
@@ -103,7 +107,10 @@ interface ReviewFileTreeNodeDecorationState {
 
 const REVIEW_FILE_TREE_ROOT_ID = "root";
 
-function splitReviewPath(path: string): { hasLeadingSlash: boolean; segments: string[] } {
+function splitReviewPath(path: string): {
+  hasLeadingSlash: boolean;
+  segments: string[];
+} {
   const normalizedPath = path.replace(/\\/g, "/");
   const hasLeadingSlash = normalizedPath.startsWith("/");
   const trimmedPath = normalizedPath.replace(/^\/+/, "").replace(/\/+$/, "");
@@ -118,7 +125,11 @@ function joinReviewPath(hasLeadingSlash: boolean, segments: string[]): string {
   return `${hasLeadingSlash ? "/" : ""}${segments.join("/")}`;
 }
 
-function createFolderNode(path: string, name: string, parentId: string | null): ReviewFileTreeFolderNode {
+function createFolderNode(
+  path: string,
+  name: string,
+  parentId: string | null,
+): ReviewFileTreeFolderNode {
   return {
     id: `d:${path}`,
     type: "folder",
@@ -145,7 +156,10 @@ function createFileNode<TEntry extends ReviewFileTreeEntry>(
   };
 }
 
-function appendUniqueChild(folder: ReviewFileTreeFolderNode, childId: string): void {
+function appendUniqueChild(
+  folder: ReviewFileTreeFolderNode,
+  childId: string,
+): void {
   if (folder.childIds.includes(childId)) return;
   folder.childIds.push(childId);
 }
@@ -183,9 +197,22 @@ function collectDefaultExpandedPaths<TEntry extends ReviewFileTreeEntry>(
   return expandedPaths;
 }
 
-function mapGitStatus(status: GitReviewFileStatus | null | undefined): ReviewFileTreeRowGitStatus {
-  if (status === "added" || status === "deleted" || status === "modified") {
-    return status;
+function mapGitStatus(
+  status: GitReviewFileStatus | null | undefined,
+): ReviewFileTreeRowGitStatus {
+  if (status === "added" || status === "copied" || status === "untracked") {
+    return "added";
+  }
+  if (status === "deleted") {
+    return "deleted";
+  }
+  if (
+    status === "modified" ||
+    status === "renamed" ||
+    status === "type-changed" ||
+    status === "unmerged"
+  ) {
+    return "modified";
   }
   return null;
 }
@@ -227,7 +254,10 @@ function buildDecorationByNodeId<TEntry extends ReviewFileTreeEntry>(
   gitStatusByPath: ReadonlyMap<string, GitReviewFileStatus | null>,
   lockedPaths: ReadonlySet<string>,
 ): Map<string, ReviewFileTreeNodeDecorationState> {
-  const decorationByNodeId = new Map<string, ReviewFileTreeNodeDecorationState>();
+  const decorationByNodeId = new Map<
+    string,
+    ReviewFileTreeNodeDecorationState
+  >();
 
   const visit = (nodeId: string): ReviewFileTreeNodeDecorationState => {
     const cached = decorationByNodeId.get(nodeId);
@@ -284,7 +314,10 @@ export function buildReviewFileTreeModel<TEntry extends ReviewFileTreeEntry>(
   const pathToId = new Map<string, string>();
   const idToPath = new Map<string, string>();
   const rootNode = createFolderNode("", "", null);
-  nodesById.set(REVIEW_FILE_TREE_ROOT_ID, { ...rootNode, id: REVIEW_FILE_TREE_ROOT_ID });
+  nodesById.set(REVIEW_FILE_TREE_ROOT_ID, {
+    ...rootNode,
+    id: REVIEW_FILE_TREE_ROOT_ID,
+  });
   idToPath.set(REVIEW_FILE_TREE_ROOT_ID, "");
 
   for (const entry of entries) {
@@ -356,7 +389,11 @@ export function buildReviewFileTreeRows<TEntry extends ReviewFileTreeEntry>(
     gitStatusByPath,
     lockedPaths,
   } = input;
-  const decorationByNodeId = buildDecorationByNodeId(model, gitStatusByPath, lockedPaths);
+  const decorationByNodeId = buildDecorationByNodeId(
+    model,
+    gitStatusByPath,
+    lockedPaths,
+  );
 
   const visitChildren = (
     childIds: string[],
@@ -374,8 +411,9 @@ export function buildReviewFileTreeRows<TEntry extends ReviewFileTreeEntry>(
           containsGitChange: false,
           isLocked: false,
         };
-        const isSearchMatch = normalizedQuery.length > 0
-          && childNode.path.toLowerCase().includes(normalizedQuery);
+        const isSearchMatch =
+          normalizedQuery.length > 0 &&
+          childNode.path.toLowerCase().includes(normalizedQuery);
         rows.push({
           id: childNode.id,
           type: "file",
@@ -401,21 +439,22 @@ export function buildReviewFileTreeRows<TEntry extends ReviewFileTreeEntry>(
         return;
       }
 
-      const {
-        deepestFolder,
-        flattenedParts,
-        hasLeadingSlash,
-      } = flattenFolderRow(model.nodesById, childNode);
-      const isExpanded = forceExpandAll || expandedPaths.has(deepestFolder.path);
+      const { deepestFolder, flattenedParts, hasLeadingSlash } =
+        flattenFolderRow(model.nodesById, childNode);
+      const isExpanded =
+        forceExpandAll || expandedPaths.has(deepestFolder.path);
       const decoration = decorationByNodeId.get(deepestFolder.id) ?? {
         gitStatus: null,
         containsGitChange: false,
         isLocked: false,
       };
-      const flattenedSearchTarget = flattenedParts.map((part) => part.label).join("/");
-      const isSearchMatch = normalizedQuery.length > 0
-        && (deepestFolder.path.toLowerCase().includes(normalizedQuery)
-          || flattenedSearchTarget.toLowerCase().includes(normalizedQuery));
+      const flattenedSearchTarget = flattenedParts
+        .map((part) => part.label)
+        .join("/");
+      const isSearchMatch =
+        normalizedQuery.length > 0 &&
+        (deepestFolder.path.toLowerCase().includes(normalizedQuery) ||
+          flattenedSearchTarget.toLowerCase().includes(normalizedQuery));
       rows.push({
         id: deepestFolder.id,
         type: "folder",
@@ -440,7 +479,10 @@ export function buildReviewFileTreeRows<TEntry extends ReviewFileTreeEntry>(
       });
 
       if (!isExpanded || deepestFolder.childIds.length === 0) return;
-      visitChildren(deepestFolder.childIds, level + 1, [...ancestorIds, deepestFolder.id]);
+      visitChildren(deepestFolder.childIds, level + 1, [
+        ...ancestorIds,
+        deepestFolder.id,
+      ]);
     });
   };
 
@@ -448,14 +490,19 @@ export function buildReviewFileTreeRows<TEntry extends ReviewFileTreeEntry>(
   return rows;
 }
 
-export function buildReviewFileTreeVisibleState<TEntry extends ReviewFileTreeEntry>(
+export function buildReviewFileTreeVisibleState<
+  TEntry extends ReviewFileTreeEntry,
+>(
   entries: readonly TEntry[],
   options: ReviewFileTreeVisibleStateOptions,
 ): ReviewFileTreeVisibleState<TEntry> {
   const normalizedQuery = options.fileFilterQuery.trim().toLowerCase();
-  const filteredEntries = normalizedQuery.length === 0
-    ? [...entries]
-    : entries.filter((entry) => entry.displayPath.toLowerCase().includes(normalizedQuery));
+  const filteredEntries =
+    normalizedQuery.length === 0
+      ? [...entries]
+      : entries.filter((entry) =>
+          entry.displayPath.toLowerCase().includes(normalizedQuery),
+        );
   const model = buildReviewFileTreeModel(filteredEntries);
   const selectedTreeItemId = options.selectedTreeItemId ?? null;
   const focusedTreeItemId = options.focusedTreeItemId ?? selectedTreeItemId;
@@ -479,16 +526,15 @@ export function buildReviewFileTreeVisibleState<TEntry extends ReviewFileTreeEnt
   };
 }
 
-export function buildReviewFileTreeDefaultExpandedPaths<TEntry extends ReviewFileTreeEntry>(
-  entries: readonly TEntry[],
-): string[] {
+export function buildReviewFileTreeDefaultExpandedPaths<
+  TEntry extends ReviewFileTreeEntry,
+>(entries: readonly TEntry[]): string[] {
   return buildReviewFileTreeModel(entries).defaultExpandedPaths;
 }
 
-export function buildReviewFileTreeExpandedPathsForSelection<TEntry extends ReviewFileTreeEntry>(
-  model: ReviewFileTreeModel<TEntry>,
-  selectedPath: string | null,
-): string[] {
+export function buildReviewFileTreeExpandedPathsForSelection<
+  TEntry extends ReviewFileTreeEntry,
+>(model: ReviewFileTreeModel<TEntry>, selectedPath: string | null): string[] {
   if (!selectedPath) return [];
   const selectedId = model.pathToId.get(selectedPath) ?? null;
   if (!selectedId) return [];
@@ -497,23 +543,23 @@ export function buildReviewFileTreeExpandedPathsForSelection<TEntry extends Revi
   return getFolderAncestorPaths(model.nodesById, selectedNode.parentId);
 }
 
-export function resolveReviewFileTreeItemIdForPath<TEntry extends ReviewFileTreeEntry>(
-  model: ReviewFileTreeModel<TEntry>,
-  path: string | null,
-): string | null {
+export function resolveReviewFileTreeItemIdForPath<
+  TEntry extends ReviewFileTreeEntry,
+>(model: ReviewFileTreeModel<TEntry>, path: string | null): string | null {
   if (!path) return null;
   return model.pathToId.get(path) ?? null;
 }
 
-export function resolveReviewFileTreePathForItemId<TEntry extends ReviewFileTreeEntry>(
-  model: ReviewFileTreeModel<TEntry>,
-  itemId: string | null,
-): string | null {
+export function resolveReviewFileTreePathForItemId<
+  TEntry extends ReviewFileTreeEntry,
+>(model: ReviewFileTreeModel<TEntry>, itemId: string | null): string | null {
   if (!itemId) return null;
   return model.idToPath.get(itemId) ?? null;
 }
 
-export function resolveReviewFileTreeSelectedVisibleIndex<TEntry extends ReviewFileTreeEntry>(
+export function resolveReviewFileTreeSelectedVisibleIndex<
+  TEntry extends ReviewFileTreeEntry,
+>(
   rows: readonly ReviewFileTreeRow<TEntry>[],
   selectedTreeItemId: string | null,
 ): number {

@@ -12,12 +12,17 @@ import type {
 } from "../../../../lib/types";
 import { NodexTooltipProvider } from "../../../../components/ui/tooltip";
 import { buildCodexFileChangeMap } from "../../../../../shared/codex-file-change";
+import { buildReviewFileSafety } from "../../../../../shared/review-file-safety";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { TestQueryProvider } from "../../../../test/query";
-import type { ThreadPlanSidePanelTarget, ThreadStageActions } from "../../thread-stage-types";
+import type {
+  ThreadPlanSidePanelTarget,
+  ThreadStageActions,
+} from "../../thread-stage-types";
 
 let invokeCalls: unknown[][] = [];
-let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
+let mockInvokeImpl:
+  ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
 mock.module("../../../../lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
@@ -45,11 +50,12 @@ mock.module("../shared/user-message-attachments", () => ({
     onOpenChange: (open: boolean) => void;
     src: string;
     alt?: string;
-  }) => open ? (
-    <div data-testid="summary-image-preview">
-      <img src={src} alt={alt ?? ""} />
-    </div>
-  ) : null,
+  }) =>
+    open ? (
+      <div data-testid="summary-image-preview">
+        <img src={src} alt={alt ?? ""} />
+      </div>
+    ) : null,
 }));
 
 function renderSummary(ui: ReactElement) {
@@ -67,20 +73,32 @@ async function clickAndSettle(target: Element): Promise<void> {
   });
 }
 
-function makeSnapshot(source: GitReviewSource, additions: number, deletions: number): GitReviewSnapshot {
+function makeSnapshot(
+  source: GitReviewSource,
+  additions: number,
+  deletions: number,
+): GitReviewSnapshot {
   return {
     cwd: "/repo/project",
     source,
     patch: "",
-    files: additions > 0 || deletions > 0
-      ? [{
-          path: `${source}.ts`,
-          previousPath: null,
-          status: "modified",
-          additions,
-          deletions,
-        }]
-      : [],
+    files:
+      additions > 0 || deletions > 0
+        ? [
+            {
+              path: `${source}.ts`,
+              previousPath: null,
+              status: "modified",
+              rawStatus: null,
+              oldOid: null,
+              newOid: null,
+              revision: `test:${source}:${additions}:${deletions}`,
+              additions,
+              deletions,
+              safety: buildReviewFileSafety(),
+            },
+          ]
+        : [],
     isGitRepository: true,
     baseRef: "main",
     currentBranch: "feature/summary-panel",
@@ -89,14 +107,22 @@ function makeSnapshot(source: GitReviewSource, additions: number, deletions: num
   };
 }
 
-function makeDetachedSnapshot(source: GitReviewSource, additions: number, deletions: number): GitReviewSnapshot {
+function makeDetachedSnapshot(
+  source: GitReviewSource,
+  additions: number,
+  deletions: number,
+): GitReviewSnapshot {
   return {
     ...makeSnapshot(source, additions, deletions),
     currentBranch: null,
   };
 }
 
-function makeDefaultBranchSnapshot(source: GitReviewSource, additions: number, deletions: number): GitReviewSnapshot {
+function makeDefaultBranchSnapshot(
+  source: GitReviewSource,
+  additions: number,
+  deletions: number,
+): GitReviewSnapshot {
   return {
     ...makeSnapshot(source, additions, deletions),
     currentBranch: "main",
@@ -106,11 +132,17 @@ function makeDefaultBranchSnapshot(source: GitReviewSource, additions: number, d
 
 function getBranchSetupInput(expectedValuePart: string): HTMLInputElement {
   const inputs = Array.from(
-    document.body.querySelectorAll<HTMLInputElement>('input[aria-label="Branch name"]'),
+    document.body.querySelectorAll<HTMLInputElement>(
+      'input[aria-label="Branch name"]',
+    ),
   );
-  const input = inputs.find((candidate) => candidate.value.includes(expectedValuePart));
+  const input = inputs.find((candidate) =>
+    candidate.value.includes(expectedValuePart),
+  );
   if (!input) {
-    throw new Error(`Expected branch setup input containing ${expectedValuePart}.`);
+    throw new Error(
+      `Expected branch setup input containing ${expectedValuePart}.`,
+    );
   }
 
   return input;
@@ -170,16 +202,25 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   afterEach(async () => {
-    await settleAsyncRender();
+    await act(async () => {
+      for (let index = 0; index < 3; index += 1) {
+        await settleAsyncRender();
+      }
+    });
     await act(async () => {
       cleanup();
       await Promise.resolve();
     });
-    await settleAsyncRender();
+    await act(async () => {
+      for (let index = 0; index < 3; index += 1) {
+        await settleAsyncRender();
+      }
+    });
   });
 
   test("renders the pinned summary without authenticated quota content", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -193,8 +234,12 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const outer = view.container.querySelector('[data-thread-summary-panel-mode="pinned"]');
-    const motionShell = outer?.querySelector(".origin-top-right") as HTMLElement | null;
+    const outer = view.container.querySelector(
+      '[data-thread-summary-panel-mode="pinned"]',
+    );
+    const motionShell = outer?.querySelector(
+      ".origin-top-right",
+    ) as HTMLElement | null;
     const widthShell = motionShell?.firstElementChild as HTMLElement | null;
     expect(outer !== null).toBeTrue();
     expect(motionShell?.style.opacity).toBe("1");
@@ -206,7 +251,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("keeps the hidden Codex shell without running panel side effects", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -222,19 +268,28 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await settleAsyncRender();
 
-    const outer = view.container.querySelector('[data-thread-summary-panel-open="false"]');
-    const motionShell = outer?.querySelector(".origin-top-right") as HTMLElement | null;
+    const outer = view.container.querySelector(
+      '[data-thread-summary-panel-open="false"]',
+    );
+    const motionShell = outer?.querySelector(
+      ".origin-top-right",
+    ) as HTMLElement | null;
     const widthShell = motionShell?.firstElementChild as HTMLElement | null;
     expect(textContent(view.container).includes("Rate limits")).toBeFalse();
     expect(invokeCalls.length).toBe(0);
     expect(motionShell?.style.opacity).toBe("0");
     expect(motionShell?.style.transform).toBe("translateX(100%) scale(0.8)");
     expect(widthShell?.style.width).toBe("300px");
-    expect(Boolean(view.container.querySelector("[data-testid='thread-summary-panel']"))).toBeTrue();
+    expect(
+      Boolean(
+        view.container.querySelector("[data-testid='thread-summary-panel']"),
+      ),
+    ).toBeTrue();
   });
 
   test("uses the Codex instant invisible branch while overlay popover is open", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -249,15 +304,20 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const outer = view.container.querySelector("[data-thread-summary-panel-hide-immediately='true']");
+    const outer = view.container.querySelector(
+      "[data-thread-summary-panel-hide-immediately='true']",
+    );
     const motionShell = outer?.querySelector(".origin-top-right");
     expect(Boolean(outer)).toBeTrue();
     expect((motionShell as HTMLElement | null)?.style.opacity).toBe("0");
-    expect((motionShell as HTMLElement | null)?.style.transform).toBe("translateX(100%) scale(0.8)");
+    expect((motionShell as HTMLElement | null)?.style.transform).toBe(
+      "translateX(100%) scale(0.8)",
+    );
   });
 
   test("renders the right-panel summary as a dismissible popover", async () => {
-    const { ThreadSummaryPanelPopover } = await import("./thread-floating-summary-panel");
+    const { ThreadSummaryPanelPopover } =
+      await import("./thread-floating-summary-panel");
     const view = renderSummary(
       <ThreadSummaryPanelPopover
         activeThreadId="thread-1"
@@ -275,7 +335,9 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await clickAndSettle(trigger);
     await waitFor(() => {
-      const popover = view.container.ownerDocument.body.querySelector('[data-thread-summary-panel-mode="popover"]');
+      const popover = view.container.ownerDocument.body.querySelector(
+        '[data-thread-summary-panel-mode="popover"]',
+      );
       expect(Boolean(popover)).toBeTrue();
     });
     expect(trigger.getAttribute("aria-pressed")).toBe("true");
@@ -288,13 +350,16 @@ describe("ThreadFloatingSummaryPanel", () => {
       await settleAsyncRender();
     });
     await waitFor(() => {
-      const popover = view.container.ownerDocument.body.querySelector('[data-thread-summary-panel-mode="popover"]');
+      const popover = view.container.ownerDocument.body.querySelector(
+        '[data-thread-summary-panel-mode="popover"]',
+      );
       expect(Boolean(popover)).toBeFalse();
     });
   });
 
   test("renders git branch and combined diff stats from IPC snapshots", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
       if (channel === "git:branch:state") {
         return {
@@ -328,8 +393,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     await settleAsyncRender();
     await waitFor(() => {
       const content = textContent(view.container);
-      if (!content.includes("feature/summary-panel") || !content.includes("+10") || !content.includes("-11")) {
-        throw new Error(`Expected branch and combined diff stats, saw: ${content}`);
+      if (
+        !content.includes("feature/summary-panel") ||
+        !content.includes("+10") ||
+        !content.includes("-11")
+      ) {
+        throw new Error(
+          `Expected branch and combined diff stats, saw: ${content}`,
+        );
       }
     });
 
@@ -345,15 +416,22 @@ describe("ThreadFloatingSummaryPanel", () => {
       await settleAsyncRender();
     });
 
-    const searchInput = view.container.ownerDocument.body.querySelector('input[placeholder="Search branches"]');
+    const searchInput = view.container.ownerDocument.body.querySelector(
+      'input[placeholder="Search branches"]',
+    );
     expect(searchInput !== null).toBeTrue();
 
-    expect(invokeCalls.some((call) => call[0] === "git:review:snapshot")).toBeTrue();
-    expect(invokeCalls.some((call) => call[0] === "git:branch:state")).toBeTrue();
+    expect(
+      invokeCalls.some((call) => call[0] === "git:review:snapshot"),
+    ).toBeTrue();
+    expect(
+      invokeCalls.some((call) => call[0] === "git:branch:state"),
+    ).toBeTrue();
   });
 
   test("opens the Review surface from the Changes row using the primary git source", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openedSources: GitReviewSource[] = [];
     mockInvokeImpl = async (channel: string, input?: unknown) => {
       if (channel === "git:branch:state") {
@@ -381,14 +459,20 @@ describe("ThreadFloatingSummaryPanel", () => {
         cwd="/repo/project"
         projectWorkspacePath="/repo/project"
         turns={[]}
-        actions={{
-          onOpenSummaryGitReview: ({ source }) => {
-            openedSources.push(source);
-          },
-        } as Partial<ThreadStageActions> as ThreadStageActions}
+        actions={
+          {
+            onOpenSummaryGitReview: ({ source }) => {
+              openedSources.push(source);
+            },
+          } as Partial<ThreadStageActions> as ThreadStageActions
+        }
         onErrorMessage={() => undefined}
       />,
     );
+
+    await act(async () => {
+      await settleAsyncRender();
+    });
 
     await waitFor(() => {
       if (!textContent(view.container).includes("+5")) {
@@ -403,7 +487,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("opens the native commit workflow from the Environment git action row", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openedSources: GitReviewSource[] = [];
     const commitInputs: unknown[] = [];
     const actionStatus: GitActionStatusResult = {
@@ -462,11 +547,13 @@ describe("ThreadFloatingSummaryPanel", () => {
         cwd="/repo/project"
         projectWorkspacePath="/repo/project"
         turns={[]}
-        actions={{
-          onOpenSummaryGitReview: ({ source }) => {
-            openedSources.push(source);
-          },
-        } as Partial<ThreadStageActions> as ThreadStageActions}
+        actions={
+          {
+            onOpenSummaryGitReview: ({ source }) => {
+              openedSources.push(source);
+            },
+          } as Partial<ThreadStageActions> as ThreadStageActions
+        }
         onErrorMessage={() => undefined}
       />,
     );
@@ -478,9 +565,11 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await act(async () => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBeTrue();
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
@@ -493,7 +582,9 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await act(async () => {
-      const textarea = view.getByLabelText("Commit message") as HTMLTextAreaElement;
+      const textarea = view.getByLabelText(
+        "Commit message",
+      ) as HTMLTextAreaElement;
       textarea.value = "Update summary panel";
       fireEvent.input(textarea);
       await settleAsyncRender();
@@ -519,22 +610,27 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const commitInput = commitInputs[0] as Record<string, unknown>;
     expect(typeof commitInput.operationId).toBe("string");
-    expect(JSON.stringify({
-      ...commitInput,
-      operationId: "<operation>",
-    })).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      hostId: "local",
-      message: "Update summary panel",
-      includeUnstaged: true,
-      nextStep: "commit",
-      operationId: "<operation>",
-    }));
+    expect(
+      JSON.stringify({
+        ...commitInput,
+        operationId: "<operation>",
+      }),
+    ).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        hostId: "local",
+        message: "Update summary panel",
+        includeUnstaged: true,
+        nextStep: "commit",
+        operationId: "<operation>",
+      }),
+    );
     expect(JSON.stringify(openedSources)).toBe(JSON.stringify([]));
   });
 
   test("renders a create-branch row for detached Git checkouts", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const actionStatus: GitActionStatusResult = {
       cwd: "/repo/project",
       isGitRepository: true,
@@ -590,7 +686,9 @@ describe("ThreadFloatingSummaryPanel", () => {
       }
     });
 
-    const createBranchRow = view.getByText("Create branch").closest("[role='button']");
+    const createBranchRow = view
+      .getByText("Create branch")
+      .closest("[role='button']");
     expect(Boolean(createBranchRow)).toBeTrue();
 
     await act(async () => {
@@ -599,11 +697,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     const branchNameInput = getBranchSetupInput("review-detached-worktree");
-    expect(branchNameInput.value.includes("review-detached-worktree")).toBeTrue();
+    expect(
+      branchNameInput.value.includes("review-detached-worktree"),
+    ).toBeTrue();
   });
 
   test("creates a branch before opening the detached commit workflow", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const branchCreateInputs: unknown[] = [];
     let branchCreated = false;
     const readStatus = (): GitActionStatusResult => ({
@@ -651,9 +752,13 @@ describe("ThreadFloatingSummaryPanel", () => {
       if (channel !== "git:review:snapshot") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "staged") {
-        return branchCreated ? makeSnapshot(source, 2, 0) : makeDetachedSnapshot(source, 2, 0);
+        return branchCreated
+          ? makeSnapshot(source, 2, 0)
+          : makeDetachedSnapshot(source, 2, 0);
       }
-      return branchCreated ? makeSnapshot(source, 0, 0) : makeDetachedSnapshot(source, 0, 0);
+      return branchCreated
+        ? makeSnapshot(source, 0, 0)
+        : makeDetachedSnapshot(source, 0, 0);
     };
 
     const view = renderSummary(
@@ -676,9 +781,11 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await act(async () => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBeTrue();
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
@@ -702,10 +809,12 @@ describe("ThreadFloatingSummaryPanel", () => {
       }
     });
 
-    expect(JSON.stringify(branchCreateInputs[0])).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      branch: "nodex/detached-fix",
-    }));
+    expect(JSON.stringify(branchCreateInputs[0])).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        branch: "nodex/detached-fix",
+      }),
+    );
 
     await waitFor(() => {
       if (!view.getByLabelText("Commit message")) {
@@ -715,7 +824,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("renders a create-branch action for managed worktrees on the default branch", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const actionStatus: GitActionStatusResult = {
       cwd: "/repo/project",
       isGitRepository: true,
@@ -771,8 +881,14 @@ describe("ThreadFloatingSummaryPanel", () => {
       }
     });
 
-    const rows = Array.from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"));
-    const createBranchRows = rows.filter((row) => textContent(row).includes("Create branch"));
+    const rows = Array.from(
+      view
+        .getByTestId("thread-summary-panel")
+        .querySelectorAll<HTMLElement>("[role='button']"),
+    );
+    const createBranchRows = rows.filter((row) =>
+      textContent(row).includes("Create branch"),
+    );
     const branchRows = rows.filter((row) => textContent(row).includes("main"));
     expect(createBranchRows.length).toBe(1);
     expect(branchRows.length > 0).toBeTrue();
@@ -783,11 +899,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     const branchNameInput = getBranchSetupInput("default-branch-worktree");
-    expect(branchNameInput.value.includes("default-branch-worktree")).toBeTrue();
+    expect(
+      branchNameInput.value.includes("default-branch-worktree"),
+    ).toBeTrue();
   });
 
   test("creates a branch before opening the managed default-branch push workflow", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const branchCreateInputs: unknown[] = [];
     let branchCreated = false;
     const readStatus = (): GitActionStatusResult => ({
@@ -814,7 +933,9 @@ describe("ThreadFloatingSummaryPanel", () => {
           cwd: "/repo/project",
           currentBranch: branchCreated ? "nodex/default-worktree" : "main",
           defaultBranch: "main",
-          branches: branchCreated ? ["main", "nodex/default-worktree"] : ["main"],
+          branches: branchCreated
+            ? ["main", "nodex/default-worktree"]
+            : ["main"],
           errorMessage: null,
         };
       }
@@ -835,9 +956,13 @@ describe("ThreadFloatingSummaryPanel", () => {
       if (channel !== "git:review:snapshot") return null;
       const source = (input as { source: GitReviewSource }).source;
       if (source === "branch") {
-        return branchCreated ? makeSnapshot(source, 3, 0) : makeDefaultBranchSnapshot(source, 3, 0);
+        return branchCreated
+          ? makeSnapshot(source, 3, 0)
+          : makeDefaultBranchSnapshot(source, 3, 0);
       }
-      return branchCreated ? makeSnapshot(source, 0, 0) : makeDefaultBranchSnapshot(source, 0, 0);
+      return branchCreated
+        ? makeSnapshot(source, 0, 0)
+        : makeDefaultBranchSnapshot(source, 0, 0);
     };
 
     const view = renderSummary(
@@ -861,9 +986,11 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await act(async () => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBeTrue();
       expect(commitRow?.getAttribute("title")).toBe("Create branch");
       fireEvent.click(commitRow as HTMLElement);
@@ -884,17 +1011,25 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await waitFor(() => {
       if (branchCreateInputs.length !== 1) {
-        throw new Error("Expected branch creation before default-branch push workflow.");
+        throw new Error(
+          "Expected branch creation before default-branch push workflow.",
+        );
       }
     });
 
-    expect(JSON.stringify(branchCreateInputs[0])).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      branch: "nodex/default-worktree",
-    }));
+    expect(JSON.stringify(branchCreateInputs[0])).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        branch: "nodex/default-worktree",
+      }),
+    );
 
     await waitFor(() => {
-      if (!textContent(view.baseElement).includes("Push nodex/default-worktree and set upstream.")) {
+      if (
+        !textContent(view.baseElement).includes(
+          "Push nodex/default-worktree and set upstream.",
+        )
+      ) {
         throw new Error("Expected push workflow dialog after branch setup.");
       }
       expect(Boolean(view.getByRole("button", { name: "Push" }))).toBeTrue();
@@ -902,7 +1037,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("shows the reference no-changes blocker on the Environment git action row", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const actionStatus: GitActionStatusResult = {
       cwd: "/repo/project",
       isGitRepository: true,
@@ -951,9 +1087,11 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     await waitFor(() => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       if (commitRow?.getAttribute("title") !== "No changes to commit") {
         throw new Error("Expected the no-changes blocker title.");
       }
@@ -962,7 +1100,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("shows the reference nothing-to-push blocker on the Environment git action row", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const actionStatus: GitActionStatusResult = {
       cwd: "/repo/project",
       isGitRepository: true,
@@ -1012,9 +1151,11 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     await waitFor(() => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       if (commitRow?.getAttribute("title") !== "No new commits to push") {
         throw new Error("Expected the push blocker title.");
       }
@@ -1023,7 +1164,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("allows blank commit messages so the native workflow can generate one", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const generateInputs: unknown[] = [];
     const commitInputs: unknown[] = [];
     const actionStatus: GitActionStatusResult = {
@@ -1104,17 +1246,23 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await act(async () => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBeTrue();
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
 
     await waitFor(() => {
-      const textarea = view.getByLabelText("Commit message") as HTMLTextAreaElement;
-      expect(textarea.getAttribute("placeholder")).toBe("Commit message (leave blank to generate)…");
+      const textarea = view.getByLabelText(
+        "Commit message",
+      ) as HTMLTextAreaElement;
+      expect(textarea.getAttribute("placeholder")).toBe(
+        "Commit message (leave blank to generate)…",
+      );
       const commitButton = view.getByRole("button", { name: "Commit" });
       if (commitButton.hasAttribute("disabled")) {
         throw new Error("Expected blank commit action to be enabled.");
@@ -1128,43 +1276,56 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await waitFor(() => {
       if (generateInputs.length !== 1) {
-        throw new Error("Expected blank commit workflow to generate a commit message first.");
+        throw new Error(
+          "Expected blank commit workflow to generate a commit message first.",
+        );
       }
       if (commitInputs.length !== 1) {
-        throw new Error("Expected blank commit workflow to call git action IPC.");
+        throw new Error(
+          "Expected blank commit workflow to call git action IPC.",
+        );
       }
     });
 
     const generateInput = generateInputs[0] as Record<string, unknown>;
     expect(typeof generateInput.operationId).toBe("string");
-    expect(JSON.stringify({
-      ...generateInput,
-      operationId: "<operation>",
-    })).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      hostId: "local",
-      draftMessage: "",
-      includeUnstaged: true,
-      operationId: "<operation>",
-    }));
+    expect(
+      JSON.stringify({
+        ...generateInput,
+        operationId: "<operation>",
+      }),
+    ).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        hostId: "local",
+        draftMessage: "",
+        includeUnstaged: true,
+        operationId: "<operation>",
+      }),
+    );
 
     const commitInput = commitInputs[0] as Record<string, unknown>;
     expect(typeof commitInput.operationId).toBe("string");
-    expect(JSON.stringify({
-      ...commitInput,
-      operationId: "<operation>",
-    })).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      hostId: "local",
-      message: "Generated summary panel",
-      includeUnstaged: false,
-      nextStep: "commit",
-      operationId: "<operation>",
-    }));
+    expect(
+      JSON.stringify({
+        ...commitInput,
+        operationId: "<operation>",
+      }),
+    ).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        hostId: "local",
+        message: "Generated summary panel",
+        includeUnstaged: false,
+        nextStep: "commit",
+        operationId: "<operation>",
+      }),
+    );
   });
 
   test("offers push as a commit modal action when branch commits are ready", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const pushInputs: unknown[] = [];
     const actionStatus: GitActionStatusResult = {
       cwd: "/repo/project",
@@ -1230,14 +1391,18 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await waitFor(() => {
       if (!textContent(view.container).includes("+5")) {
-        throw new Error("Expected staged and branch git summary stats to load.");
+        throw new Error(
+          "Expected staged and branch git summary stats to load.",
+        );
       }
     });
 
     await act(async () => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBeTrue();
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
@@ -1245,7 +1410,9 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await waitFor(() => {
       expect(Boolean(view.getByRole("button", { name: "Commit" }))).toBeTrue();
-      expect(Boolean(view.getByRole("button", { name: "Commit and push" }))).toBeTrue();
+      expect(
+        Boolean(view.getByRole("button", { name: "Commit and push" })),
+      ).toBeTrue();
       expect(Boolean(view.getByRole("button", { name: "Push" }))).toBeTrue();
     });
 
@@ -1266,7 +1433,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("shows generated-message and commit phases for blank commit messages", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const commitInputs: unknown[] = [];
     let resolveGeneration: (value: unknown) => void = () => undefined;
     let resolveCommit: (value: unknown) => void = () => undefined;
@@ -1338,9 +1506,11 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await act(async () => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBeTrue();
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
@@ -1352,8 +1522,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await waitFor(() => {
-      if (!textContent(view.getByTestId("thread-summary-panel")).includes("Generating messages…")) {
-        throw new Error("Expected summary row to show the generated-message phase.");
+      if (
+        !textContent(view.getByTestId("thread-summary-panel")).includes(
+          "Generating messages…",
+        )
+      ) {
+        throw new Error(
+          "Expected summary row to show the generated-message phase.",
+        );
       }
     });
 
@@ -1370,10 +1546,18 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await waitFor(() => {
       if (commitInputs.length !== 1) {
-        throw new Error("Expected generated commit message to continue into commit IPC.");
+        throw new Error(
+          "Expected generated commit message to continue into commit IPC.",
+        );
       }
-      if (!textContent(view.getByTestId("thread-summary-panel")).includes("Committing…")) {
-        throw new Error("Expected summary row to show the commit phase after generation.");
+      if (
+        !textContent(view.getByTestId("thread-summary-panel")).includes(
+          "Committing…",
+        )
+      ) {
+        throw new Error(
+          "Expected summary row to show the commit phase after generation.",
+        );
       }
     });
 
@@ -1391,7 +1575,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("shows the git workflow phase and cancels the active operation from the summary row", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const commitInputs: unknown[] = [];
     const cancelInputs: unknown[] = [];
     let resolveCommit: (value: unknown) => void = () => undefined;
@@ -1462,16 +1647,20 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await act(async () => {
-      const commitRow = Array
-        .from(view.getByTestId("thread-summary-panel").querySelectorAll<HTMLElement>("[role='button']"))
-        .find((row) => textContent(row).includes("Commit or push"));
+      const commitRow = Array.from(
+        view
+          .getByTestId("thread-summary-panel")
+          .querySelectorAll<HTMLElement>("[role='button']"),
+      ).find((row) => textContent(row).includes("Commit or push"));
       expect(Boolean(commitRow)).toBeTrue();
       fireEvent.click(commitRow as HTMLElement);
       await settleAsyncRender();
     });
 
     await act(async () => {
-      const textarea = view.getByLabelText("Commit message") as HTMLTextAreaElement;
+      const textarea = view.getByLabelText(
+        "Commit message",
+      ) as HTMLTextAreaElement;
       textarea.value = "Update summary panel";
       fireEvent.input(textarea);
       await settleAsyncRender();
@@ -1483,13 +1672,18 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await waitFor(() => {
-      if (!textContent(view.getByTestId("thread-summary-panel")).includes("Committing…")) {
+      if (
+        !textContent(view.getByTestId("thread-summary-panel")).includes(
+          "Committing…",
+        )
+      ) {
         throw new Error("Expected summary row to show the commit phase.");
       }
     });
 
     await act(async () => {
-      const cancelButton = view.getByTestId("thread-summary-panel")
+      const cancelButton = view
+        .getByTestId("thread-summary-panel")
         .querySelector<HTMLButtonElement>('[aria-label="Cancel git action"]');
       expect(Boolean(cancelButton)).toBeTrue();
       fireEvent.click(cancelButton as HTMLButtonElement);
@@ -1518,7 +1712,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("opens the native create-pull-request workflow from the Environment PR row", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openedSources: GitReviewSource[] = [];
     const messageGenerateInputs: unknown[] = [];
     const createPullRequestInputs: unknown[] = [];
@@ -1604,17 +1799,21 @@ describe("ThreadFloatingSummaryPanel", () => {
         cwd="/repo/project"
         projectWorkspacePath="/repo/project"
         turns={[]}
-        actions={{
-          onOpenSummaryGitReview: ({ source }) => {
-            openedSources.push(source);
-          },
-        } as Partial<ThreadStageActions> as ThreadStageActions}
+        actions={
+          {
+            onOpenSummaryGitReview: ({ source }) => {
+              openedSources.push(source);
+            },
+          } as Partial<ThreadStageActions> as ThreadStageActions
+        }
         onErrorMessage={() => undefined}
       />,
     );
 
     await waitFor(() => {
-      const createPullRequestRow = view.getByText("Create pull request").closest("[role='button']");
+      const createPullRequestRow = view
+        .getByText("Create pull request")
+        .closest("[role='button']");
       if (createPullRequestRow?.getAttribute("aria-disabled") === "true") {
         throw new Error("Expected create pull request row to become enabled.");
       }
@@ -1638,36 +1837,46 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await waitFor(() => {
       if (messageGenerateInputs.length !== 1) {
-        throw new Error("Expected blank PR title/body to be generated before creating the PR.");
+        throw new Error(
+          "Expected blank PR title/body to be generated before creating the PR.",
+        );
       }
       if (createPullRequestInputs.length !== 1) {
         throw new Error("Expected gh-pr-create to be called.");
       }
     });
 
-    expect(JSON.stringify(messageGenerateInputs[0])).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      hostId: "local",
-      title: "",
-      body: "",
-      headBranch: "feature/summary-panel",
-      baseBranch: "main",
-      operationId: (messageGenerateInputs[0] as { operationId: string }).operationId,
-    }));
-    expect(typeof (messageGenerateInputs[0] as { operationId: unknown }).operationId).toBe("string");
-    expect(JSON.stringify(createPullRequestInputs[0])).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      title: "Generated PR title",
-      body: "Generated PR body",
-      base: "main",
-      head: "feature/summary-panel",
-      draft: false,
-    }));
+    expect(JSON.stringify(messageGenerateInputs[0])).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        hostId: "local",
+        title: "",
+        body: "",
+        headBranch: "feature/summary-panel",
+        baseBranch: "main",
+        operationId: (messageGenerateInputs[0] as { operationId: string })
+          .operationId,
+      }),
+    );
+    expect(
+      typeof (messageGenerateInputs[0] as { operationId: unknown }).operationId,
+    ).toBe("string");
+    expect(JSON.stringify(createPullRequestInputs[0])).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        title: "Generated PR title",
+        body: "Generated PR body",
+        base: "main",
+        head: "feature/summary-panel",
+        draft: false,
+      }),
+    );
     expect(JSON.stringify(openedSources)).toBe(JSON.stringify([]));
   });
 
   test("creates a branch before opening the managed default-branch create-pr workflow", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const branchCreateInputs: unknown[] = [];
     let branchCreated = false;
     const readStatus = (): GitActionStatusResult => ({
@@ -1694,7 +1903,9 @@ describe("ThreadFloatingSummaryPanel", () => {
           cwd: "/repo/project",
           currentBranch: branchCreated ? "nodex/default-pr-worktree" : "main",
           defaultBranch: "main",
-          branches: branchCreated ? ["main", "nodex/default-pr-worktree"] : ["main"],
+          branches: branchCreated
+            ? ["main", "nodex/default-pr-worktree"]
+            : ["main"],
           errorMessage: null,
         };
       }
@@ -1728,7 +1939,9 @@ describe("ThreadFloatingSummaryPanel", () => {
       }
       if (channel !== "git:review:snapshot") return null;
       const source = (input as { source: GitReviewSource }).source;
-      return branchCreated ? makeSnapshot(source, 0, 0) : makeDefaultBranchSnapshot(source, 0, 0);
+      return branchCreated
+        ? makeSnapshot(source, 0, 0)
+        : makeDefaultBranchSnapshot(source, 0, 0);
     };
 
     const view = renderSummary(
@@ -1746,9 +1959,13 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     await waitFor(() => {
-      const createPullRequestRow = view.getByText("Create pull request").closest("[role='button']");
+      const createPullRequestRow = view
+        .getByText("Create pull request")
+        .closest("[role='button']");
       if (createPullRequestRow?.getAttribute("title") !== "Create branch") {
-        throw new Error("Expected create pull request to require branch setup.");
+        throw new Error(
+          "Expected create pull request to require branch setup.",
+        );
       }
     });
 
@@ -1778,14 +1995,17 @@ describe("ThreadFloatingSummaryPanel", () => {
       }
     });
 
-    expect(JSON.stringify(branchCreateInputs[0])).toBe(JSON.stringify({
-      cwd: "/repo/project",
-      branch: "nodex/default-pr-worktree",
-    }));
+    expect(JSON.stringify(branchCreateInputs[0])).toBe(
+      JSON.stringify({
+        cwd: "/repo/project",
+        branch: "nodex/default-pr-worktree",
+      }),
+    );
   });
 
   test("renders available Codex summary sections in source order", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const turns = [
       {
         turnId: "turn-plan",
@@ -1799,7 +2019,8 @@ describe("ThreadFloatingSummaryPanel", () => {
             semanticKind: "proposedPlan",
             status: "completed",
             role: "assistant",
-            markdownText: "# Summary panel parity\n\n- Inspect shell\n- Wire summary",
+            markdownText:
+              "# Summary panel parity\n\n- Inspect shell\n- Wire summary",
           },
         ],
         status: "completed",
@@ -1810,12 +2031,14 @@ describe("ThreadFloatingSummaryPanel", () => {
             itemId: "file",
             type: "fileChange",
             fileChange: {
-              changes: buildCodexFileChangeMap([{
-                path: "src/renderer/app.tsx",
-                type: "update",
-                movePath: null,
-                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-              }]),
+              changes: buildCodexFileChangeMap([
+                {
+                  path: "src/renderer/app.tsx",
+                  type: "update",
+                  movePath: null,
+                  unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+                },
+              ]),
             },
           },
           {
@@ -1837,14 +2060,16 @@ describe("ThreadFloatingSummaryPanel", () => {
               tool: "spawnAgent",
               status: "completed",
               receiverThreadIds: ["child-1"],
-              receiverThreads: [{
-                threadId: "child-1",
-                thread: {
-                  nickname: "Scout",
-                  model: "gpt-5-codex",
-                  agentRole: "explorer",
+              receiverThreads: [
+                {
+                  threadId: "child-1",
+                  thread: {
+                    nickname: "Scout",
+                    model: "gpt-5-codex",
+                    agentRole: "explorer",
+                  },
                 },
-              }],
+              ],
               agentsStates: {
                 "child-1": {
                   status: "running",
@@ -1882,32 +2107,38 @@ describe("ThreadFloatingSummaryPanel", () => {
         turns={turns}
         childMemberships={[makeSubagentMembership()]}
         knownConversationsById={{}}
-        backgroundTerminalRows={[{
-          id: "terminal-1",
-          turnId: "turn-terminal-1",
-          command: "bun test",
-          cwd: "/repo/project",
-          previewLine: "3 pass",
-        }]}
+        backgroundTerminalRows={[
+          {
+            id: "terminal-1",
+            turnId: "turn-terminal-1",
+            command: "bun test",
+            cwd: "/repo/project",
+            previewLine: "3 pass",
+          },
+        ]}
         scheduledAutomation={{
           id: "automation-1",
           name: "Review release notes",
           scheduleSummary: "Every weekday",
           nextRunLabel: "tomorrow at 9:00 AM",
         }}
-        sideChatRows={[{
-          id: "side-chat-1",
-          title: "Investigate layout",
-          status: "Open",
-        }]}
-        browserRows={[{
-          id: "browser-1",
-          title: "Release notes",
-          displayUrl: "example.com",
-          url: "https://example.com/release-notes",
-          faviconUrl: null,
-          isAgentWorking: false,
-        }]}
+        sideChatRows={[
+          {
+            id: "side-chat-1",
+            title: "Investigate layout",
+            status: "Open",
+          },
+        ]}
+        browserRows={[
+          {
+            id: "browser-1",
+            title: "Release notes",
+            displayUrl: "example.com",
+            url: "https://example.com/release-notes",
+            faviconUrl: null,
+            isAgentWorking: false,
+          },
+        ]}
         onErrorMessage={() => undefined}
       />,
     );
@@ -1929,7 +2160,12 @@ describe("ThreadFloatingSummaryPanel", () => {
     ];
     const indexes = orderedTitles.map((title) => content.indexOf(title));
     expect(indexes.every((index) => index >= 0)).toBeTrue();
-    expect(indexes.join(",")).toBe(indexes.slice().sort((left, right) => left - right).join(","));
+    expect(indexes.join(",")).toBe(
+      indexes
+        .slice()
+        .sort((left, right) => left - right)
+        .join(","),
+    );
     expect(content.includes("Automations")).toBeFalse();
     expect(content.includes("Review release notes")).toBeTrue();
     expect(content.includes("Every weekday")).toBeTrue();
@@ -1940,14 +2176,19 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(content.includes("Scout")).toBeTrue();
     expect(content.includes("Investigate layout")).toBeTrue();
     expect(content.includes("Release notes")).toBeTrue();
-    expect(view.container.querySelector('[aria-label="Context7"]') !== null).toBeTrue();
-    expect(view.container.querySelector('[aria-label="Web search"]') !== null).toBeTrue();
+    expect(
+      view.container.querySelector('[aria-label="Context7"]') !== null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector('[aria-label="Web search"]') !== null,
+    ).toBeTrue();
     expect(content.includes("bun test")).toBeTrue();
     expect(content.includes("Environment")).toBeFalse();
   });
 
   test("opens the scheduled automation row with the reference action payload", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openedAutomations: unknown[] = [];
     const actions = {
       onOpenSummaryScheduledAutomation: (input) => {
@@ -1981,14 +2222,16 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await clickAndSettle(row);
 
-    const payload = openedAutomations[0] as { automationId?: string; title?: string } | undefined;
+    const payload = openedAutomations[0] as
+      { automationId?: string; title?: string } | undefined;
     expect(openedAutomations.length).toBe(1);
     expect(payload?.automationId).toBe("automation-1");
     expect(payload?.title).toBe("Review release notes");
   });
 
   test("opens auxiliary rows and exposes the process manager action", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openedSideChats: unknown[] = [];
     const openedBrowsers: unknown[] = [];
     const openedTerminals: unknown[] = [];
@@ -2016,29 +2259,35 @@ describe("ThreadFloatingSummaryPanel", () => {
         cwd={null}
         projectWorkspacePath={null}
         turns={[]}
-        backgroundTerminalRows={[{
-          id: "terminal-1",
-          turnId: "turn-terminal-1",
-          command: "bun dev",
-          cwd: "/repo/project",
-          previewLine: null,
-        }]}
-        sideChatRows={[{
-          id: "side-chat-1",
-          title: "Investigate layout",
-          panelId: "right",
-          leafId: "leaf-a",
-        }]}
-        browserRows={[{
-          id: "browser-1",
-          title: "Release notes",
-          displayUrl: "example.com",
-          url: "https://example.com/release-notes",
-          faviconUrl: null,
-          isAgentWorking: false,
-          panelId: "bottom",
-          leafId: null,
-        }]}
+        backgroundTerminalRows={[
+          {
+            id: "terminal-1",
+            turnId: "turn-terminal-1",
+            command: "bun dev",
+            cwd: "/repo/project",
+            previewLine: null,
+          },
+        ]}
+        sideChatRows={[
+          {
+            id: "side-chat-1",
+            title: "Investigate layout",
+            panelId: "right",
+            leafId: "leaf-a",
+          },
+        ]}
+        browserRows={[
+          {
+            id: "browser-1",
+            title: "Release notes",
+            displayUrl: "example.com",
+            url: "https://example.com/release-notes",
+            faviconUrl: null,
+            isAgentWorking: false,
+            panelId: "bottom",
+            leafId: null,
+          },
+        ]}
         actions={actions}
         onErrorMessage={() => undefined}
       />,
@@ -2046,15 +2295,20 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Investigate layout" }));
-      fireEvent.click(view.getByRole("button", { name: "Release notes example.com" }));
+      fireEvent.click(
+        view.getByRole("button", { name: "Release notes example.com" }),
+      );
       fireEvent.click(view.getByRole("button", { name: "bun dev" }));
       fireEvent.click(view.getByRole("button", { name: "View all processes" }));
       await settleAsyncRender();
     });
 
-    const sideChatCall = openedSideChats[0] as { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
-    const browserCall = openedBrowsers[0] as { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
-    const terminalCall = openedTerminals[0] as { id?: string; turnId?: string; command?: string } | undefined;
+    const sideChatCall = openedSideChats[0] as
+      { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
+    const browserCall = openedBrowsers[0] as
+      { rowId?: string; panelId?: string; leafId?: string | null } | undefined;
+    const terminalCall = openedTerminals[0] as
+      { id?: string; turnId?: string; command?: string } | undefined;
     expect(openedSideChats.length).toBe(1);
     expect(sideChatCall?.rowId).toBe("side-chat-1");
     expect(sideChatCall?.panelId).toBe("right");
@@ -2069,11 +2323,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(terminalCall?.command).toBe("bun dev");
     expect(String(processManagerOpenCount)).toBe("1");
     expect(textContent(view.container).includes("Tasks")).toBeTrue();
-    expect(textContent(view.container).includes("Background tasks")).toBeFalse();
+    expect(
+      textContent(view.container).includes("Background tasks"),
+    ).toBeFalse();
   });
 
   test("uses the response-in-progress icon for active side chat rows", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const actions = {
       onOpenSummarySideChatRow: () => undefined,
     } as Partial<ThreadStageActions> as ThreadStageActions;
@@ -2086,17 +2343,20 @@ describe("ThreadFloatingSummaryPanel", () => {
         cwd={null}
         projectWorkspacePath={null}
         turns={[]}
-        sideChatRows={[{
-          id: "side-chat-active",
-          title: "Investigate layout",
-          isResponseInProgress: true,
-          panelId: "right",
-        }, {
-          id: "side-chat-idle",
-          title: "Compare bundle",
-          isResponseInProgress: false,
-          panelId: "right",
-        }]}
+        sideChatRows={[
+          {
+            id: "side-chat-active",
+            title: "Investigate layout",
+            isResponseInProgress: true,
+            panelId: "right",
+          },
+          {
+            id: "side-chat-idle",
+            title: "Compare bundle",
+            isResponseInProgress: false,
+            panelId: "right",
+          },
+        ]}
         actions={actions}
         onErrorMessage={() => undefined}
       />,
@@ -2109,7 +2369,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("renders the Computer Use PiP as a headerless toggle row when state and action exist", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const toggles: boolean[] = [];
     const actions = {
       onOpenSummaryBrowserRow: () => undefined,
@@ -2127,23 +2388,27 @@ describe("ThreadFloatingSummaryPanel", () => {
         projectWorkspacePath={null}
         turns={[]}
         computerUsePip={{ visible: false }}
-        backgroundTerminalRows={[{
-          id: "terminal-1",
-          turnId: "turn-terminal-1",
-          command: "bun dev",
-          cwd: "/repo/project",
-          previewLine: null,
-        }]}
-        browserRows={[{
-          id: "browser-1",
-          title: "Release notes",
-          displayUrl: "example.com",
-          url: "https://example.com/release-notes",
-          faviconUrl: null,
-          isAgentWorking: false,
-          panelId: "bottom",
-          leafId: null,
-        }]}
+        backgroundTerminalRows={[
+          {
+            id: "terminal-1",
+            turnId: "turn-terminal-1",
+            command: "bun dev",
+            cwd: "/repo/project",
+            previewLine: null,
+          },
+        ]}
+        browserRows={[
+          {
+            id: "browser-1",
+            title: "Release notes",
+            displayUrl: "example.com",
+            url: "https://example.com/release-notes",
+            faviconUrl: null,
+            isAgentWorking: false,
+            panelId: "bottom",
+            leafId: null,
+          },
+        ]}
         actions={actions}
         onErrorMessage={() => undefined}
       />,
@@ -2171,7 +2436,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("does not render the Computer Use PiP row without a toggle action", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2190,7 +2456,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("renders browser rows with Codex-style URL, favicon, and working metadata", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
         mounted
@@ -2199,33 +2466,50 @@ describe("ThreadFloatingSummaryPanel", () => {
         cwd={null}
         projectWorkspacePath={null}
         turns={[]}
-        browserRows={[{
-          id: "browser-1",
-          title: "Release notes",
-          displayUrl: "example.com",
-          url: "https://www.example.com/release-notes",
-          faviconUrl: "https://www.example.com/favicon.ico",
-          isAgentWorking: true,
-          panelId: "right",
-          leafId: "leaf-browser",
-        }]}
-        actions={{
-          onOpenSummaryBrowserRow: () => undefined,
-        } as Partial<ThreadStageActions> as ThreadStageActions}
+        browserRows={[
+          {
+            id: "browser-1",
+            title: "Release notes",
+            displayUrl: "example.com",
+            url: "https://www.example.com/release-notes",
+            faviconUrl: "https://www.example.com/favicon.ico",
+            isAgentWorking: true,
+            panelId: "right",
+            leafId: "leaf-browser",
+          },
+        ]}
+        actions={
+          {
+            onOpenSummaryBrowserRow: () => undefined,
+          } as Partial<ThreadStageActions> as ThreadStageActions
+        }
         onErrorMessage={() => undefined}
       />,
     );
 
-    const browserButton = view.getByRole("button", { name: "Release notes example.com" });
-    expect(browserButton.getAttribute("title") ?? "").toBe("Release notes\nhttps://www.example.com/release-notes");
-    expect(Boolean(view.container.querySelector('img[src="https://www.example.com/favicon.ico"]'))).toBeTrue();
-    expect(Boolean(browserButton.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    const browserButton = view.getByRole("button", {
+      name: "Release notes example.com",
+    });
+    expect(browserButton.getAttribute("title") ?? "").toBe(
+      "Release notes\nhttps://www.example.com/release-notes",
+    );
+    expect(
+      Boolean(
+        view.container.querySelector(
+          'img[src="https://www.example.com/favicon.ico"]',
+        ),
+      ),
+    ).toBeTrue();
+    expect(
+      Boolean(browserButton.querySelector(".loading-shimmer-pure-text")),
+    ).toBeTrue();
     expect(Boolean(browserButton.querySelector("svg.animate-spin"))).toBeTrue();
     expect(textContent(view.container).includes("Right panel")).toBeFalse();
   });
 
   test("renders the start-in row as a summary-panel dropdown trigger", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
       if (channel !== "git:review:snapshot") return null;
       return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
@@ -2282,7 +2566,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("renders the Sources section with the reference empty state", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2302,24 +2587,31 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(content.includes("Sources")).toBeTrue();
     expect(content.includes("No sources yet")).toBeTrue();
     expect(content.includes("Environment")).toBeFalse();
-    expect(view.container.querySelector('[aria-label="Sources"]') === null).toBeTrue();
+    expect(
+      view.container.querySelector('[aria-label="Sources"]') === null,
+    ).toBeTrue();
   });
 
   test("renders search-only sources as a non-openable icon", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
-    const turns = [{
-      items: [{
-        itemId: "web-search",
-        type: "webSearch",
-        semanticKind: "webSearch",
-        rawItem: {
-          type: "webSearch",
-          query: "Codex app-server",
-          action: { type: "search", query: "Codex app-server" },
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "web-search",
+            type: "webSearch",
+            semanticKind: "webSearch",
+            rawItem: {
+              type: "webSearch",
+              query: "Codex app-server",
+              action: { type: "search", query: "Codex app-server" },
+            },
+          },
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2333,12 +2625,18 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    expect(view.container.querySelector('button[aria-label="Web search"]') === null).toBeTrue();
-    expect(view.container.querySelector('[role="img"][aria-label="Web search"]') !== null).toBeTrue();
+    expect(
+      view.container.querySelector('button[aria-label="Web search"]') === null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector('[role="img"][aria-label="Web search"]') !==
+        null,
+    ).toBeTrue();
   });
 
   test("opens page sources externally", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const windowOpenCalls: unknown[][] = [];
     const originalWindowOpen = window.open;
     window.open = ((...args: unknown[]) => {
@@ -2347,19 +2645,26 @@ describe("ThreadFloatingSummaryPanel", () => {
     }) as typeof window.open;
 
     try {
-      const turns = [{
-        items: [{
-          itemId: "web-page",
-          type: "webSearch",
-          semanticKind: "webSearch",
-          rawItem: {
-            type: "webSearch",
-            query: "Codex app-server",
-            action: { type: "openPage", url: "https://www.example.com/docs" },
-          },
-        }],
-        status: "completed",
-      }] as unknown as CodexConversationTurn[];
+      const turns = [
+        {
+          items: [
+            {
+              itemId: "web-page",
+              type: "webSearch",
+              semanticKind: "webSearch",
+              rawItem: {
+                type: "webSearch",
+                query: "Codex app-server",
+                action: {
+                  type: "openPage",
+                  url: "https://www.example.com/docs",
+                },
+              },
+            },
+          ],
+          status: "completed",
+        },
+      ] as unknown as CodexConversationTurn[];
 
       const view = renderSummary(
         <ThreadFloatingSummaryPanel
@@ -2373,12 +2678,18 @@ describe("ThreadFloatingSummaryPanel", () => {
         />,
       );
 
-      const sourceButton = view.container.querySelector('button[aria-label="example.com/docs"]') as HTMLElement | null;
+      const sourceButton = view.container.querySelector(
+        'button[aria-label="example.com/docs"]',
+      ) as HTMLElement | null;
       expect(Boolean(sourceButton)).toBeTrue();
       await clickAndSettle(sourceButton as HTMLElement);
 
       expect(JSON.stringify(windowOpenCalls[0])).toBe(
-        JSON.stringify(["https://www.example.com/docs", "_blank", "noopener,noreferrer"]),
+        JSON.stringify([
+          "https://www.example.com/docs",
+          "_blank",
+          "noopener,noreferrer",
+        ]),
       );
     } finally {
       window.open = originalWindowOpen;
@@ -2386,50 +2697,57 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("opens MCP app sources in the side panel when a renderable resource is already available", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openCalls: unknown[] = [];
     const actions = {
       onOpenMcpAppSidePanel: async (input: unknown) => {
         openCalls.push(input);
       },
     } as Partial<ThreadStageActions> as ThreadStageActions;
-    const turns = [{
-      threadId: "thread-1",
-      turnId: "turn-1",
-      items: [{
+    const turns = [
+      {
         threadId: "thread-1",
         turnId: "turn-1",
-        itemId: "mcp-app",
-        type: "mcpToolCall",
-        semanticKind: "mcpToolCall",
-        mcpToolCall: {
-          callId: "call-1",
-          functionName: "docs__search",
-          invocation: {
-            server: "docs",
-            tool: "search",
-            arguments: {},
-          },
-          result: {
-            type: "success",
-            content: [{
-              type: "embedded_resource",
-              resource: {
-                uri: "ui://docs/search.html",
-                mimeType: "text/html;profile=mcp-app",
-                text: "<main>Docs app</main>",
+        items: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "mcp-app",
+            type: "mcpToolCall",
+            semanticKind: "mcpToolCall",
+            mcpToolCall: {
+              callId: "call-1",
+              functionName: "docs__search",
+              invocation: {
+                server: "docs",
+                tool: "search",
+                arguments: {},
               },
-            }],
-            structuredContent: null,
-            meta: { "openai/outputTemplate": "ui://docs/search.html" },
-            raw: { content: [], structuredContent: null },
+              result: {
+                type: "success",
+                content: [
+                  {
+                    type: "embedded_resource",
+                    resource: {
+                      uri: "ui://docs/search.html",
+                      mimeType: "text/html;profile=mcp-app",
+                      text: "<main>Docs app</main>",
+                    },
+                  },
+                ],
+                structuredContent: null,
+                meta: { "openai/outputTemplate": "ui://docs/search.html" },
+                raw: { content: [], structuredContent: null },
+              },
+              durationMs: null,
+              completed: true,
+            },
           },
-          durationMs: null,
-          completed: true,
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2444,33 +2762,42 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const sourceButton = view.container.querySelector('button[aria-label="Docs"]') as HTMLElement | null;
+    const sourceButton = view.container.querySelector(
+      'button[aria-label="Docs"]',
+    ) as HTMLElement | null;
     expect(Boolean(sourceButton)).toBeTrue();
     await clickAndSettle(sourceButton as HTMLElement);
 
-    const call = openCalls[0] as {
-      mcpAppId?: string;
-      capabilityId?: string;
-      resource?: { html?: string };
-    } | undefined;
+    const call = openCalls[0] as
+      | {
+          mcpAppId?: string;
+          capabilityId?: string;
+          resource?: { html?: string };
+        }
+      | undefined;
     expect(openCalls.length).toBe(1);
     expect(call?.mcpAppId).toBe("docs:ui://docs/search.html");
-    expect(call?.capabilityId).toBe("mcp-capability:thread-1:docs:search:call-1");
+    expect(call?.capabilityId).toBe(
+      "mcp-capability:thread-1:docs:search:call-1",
+    );
     expect(call?.resource?.html).toBe("<main>Docs app</main>");
   });
 
   test("resolves MCP app source resources before opening the side panel", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openCalls: unknown[] = [];
     mockInvokeImpl = async (channel) => {
       if (channel === "codex:mcp-server-statuses:list") return [];
       if (channel === "codex:mcp-resource:read") {
         return {
-          contents: [{
-            uri: "ui://docs/search.html",
-            mimeType: "text/html;profile=mcp-app",
-            text: "<main>Fetched Docs app</main>",
-          }],
+          contents: [
+            {
+              uri: "ui://docs/search.html",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<main>Fetched Docs app</main>",
+            },
+          ],
         };
       }
       return null;
@@ -2480,36 +2807,40 @@ describe("ThreadFloatingSummaryPanel", () => {
         openCalls.push(input);
       },
     } as Partial<ThreadStageActions> as ThreadStageActions;
-    const turns = [{
-      threadId: "thread-1",
-      turnId: "turn-1",
-      items: [{
+    const turns = [
+      {
         threadId: "thread-1",
         turnId: "turn-1",
-        itemId: "mcp-app",
-        type: "mcpToolCall",
-        semanticKind: "mcpToolCall",
-        mcpToolCall: {
-          callId: "call-1",
-          functionName: "docs__search",
-          invocation: {
-            server: "docs",
-            tool: "search",
-            arguments: {},
+        items: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "mcp-app",
+            type: "mcpToolCall",
+            semanticKind: "mcpToolCall",
+            mcpToolCall: {
+              callId: "call-1",
+              functionName: "docs__search",
+              invocation: {
+                server: "docs",
+                tool: "search",
+                arguments: {},
+              },
+              result: {
+                type: "success",
+                content: [],
+                structuredContent: null,
+                meta: { "openai/outputTemplate": "ui://docs/search.html" },
+                raw: { content: [], structuredContent: null },
+              },
+              durationMs: null,
+              completed: true,
+            },
           },
-          result: {
-            type: "success",
-            content: [],
-            structuredContent: null,
-            meta: { "openai/outputTemplate": "ui://docs/search.html" },
-            raw: { content: [], structuredContent: null },
-          },
-          durationMs: null,
-          completed: true,
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2525,47 +2856,58 @@ describe("ThreadFloatingSummaryPanel", () => {
     );
 
     await waitFor(() => {
-      const sourceButton = view.container.querySelector('button[aria-label="Docs"]');
+      const sourceButton = view.container.querySelector(
+        'button[aria-label="Docs"]',
+      );
       if (!sourceButton) throw new Error("Expected resolved MCP source button");
     });
 
-    const sourceButton = view.container.querySelector('button[aria-label="Docs"]') as HTMLElement | null;
+    const sourceButton = view.container.querySelector(
+      'button[aria-label="Docs"]',
+    ) as HTMLElement | null;
     await clickAndSettle(sourceButton as HTMLElement);
 
-    const call = openCalls[0] as {
-      mcpAppId?: string;
-      resource?: { html?: string };
-    } | undefined;
+    const call = openCalls[0] as
+      | {
+          mcpAppId?: string;
+          resource?: { html?: string };
+        }
+      | undefined;
     expect(openCalls.length).toBe(1);
     expect(call?.mcpAppId).toBe("docs:ui://docs/search.html");
     expect(call?.resource?.html).toBe("<main>Fetched Docs app</main>");
   });
 
   test("opens the summary panel plan row in the plan side panel", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openCalls: unknown[] = [];
     const actions = {
       onOpenPlanInSidePanel: (input: ThreadPlanSidePanelTarget) => {
         openCalls.push(input);
       },
     } as Partial<ThreadStageActions> as ThreadStageActions;
-    const turns = [{
-      threadId: "thread-1",
-      turnId: "turn-plan",
-      items: [{
+    const turns = [
+      {
         threadId: "thread-1",
         turnId: "turn-plan",
-        itemId: "plan-item",
-        type: "plan",
-        kind: "plan",
-        semanticKind: "proposedPlan",
+        items: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-plan",
+            itemId: "plan-item",
+            type: "plan",
+            kind: "plan",
+            semanticKind: "proposedPlan",
+            status: "completed",
+            role: "assistant",
+            markdownText: "# Summary panel parity\n\nFull plan body",
+            cwd: "/repo/project",
+          },
+        ],
         status: "completed",
-        role: "assistant",
-        markdownText: "# Summary panel parity\n\nFull plan body",
-        cwd: "/repo/project",
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2580,19 +2922,23 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const row = view.getByText("Summary panel parity").closest("[role='button']") as HTMLElement | null;
+    const row = view
+      .getByText("Summary panel parity")
+      .closest("[role='button']") as HTMLElement | null;
     expect(Boolean(row)).toBeTrue();
     await clickAndSettle(row as HTMLElement);
 
-    const call = openCalls[0] as {
-      planKey?: string;
-      threadId?: string;
-      turnId?: string;
-      itemId?: string;
-      content?: string;
-      cwd?: string | null;
-      hideCodeBlocks?: boolean;
-    } | undefined;
+    const call = openCalls[0] as
+      | {
+          planKey?: string;
+          threadId?: string;
+          turnId?: string;
+          itemId?: string;
+          content?: string;
+          cwd?: string | null;
+          hideCodeBlocks?: boolean;
+        }
+      | undefined;
     expect(openCalls.length).toBe(1);
     expect(call?.planKey).toBe("turn-plan");
     expect(call?.threadId).toBe("thread-1");
@@ -2604,22 +2950,29 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("does not render changed files as summary panel outputs", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
-    const turns = [{
-      items: [{
-        itemId: "file",
-        type: "fileChange",
-        fileChange: {
-          changes: buildCodexFileChangeMap([{
-            path: "src/renderer/app.tsx",
-            type: "update",
-            movePath: null,
-            unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-          }]),
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "file",
+            type: "fileChange",
+            fileChange: {
+              changes: buildCodexFileChangeMap([
+                {
+                  path: "src/renderer/app.tsx",
+                  type: "update",
+                  movePath: null,
+                  unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+                },
+              ]),
+            },
+          },
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2639,25 +2992,30 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("suppresses outputs when the active thread is in a git environment", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
       if (channel !== "git:review:snapshot") return null;
       return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
     };
-    const turns = [{
-      items: [{
-        itemId: "generated-image",
-        type: "imageGeneration",
-        rawItem: {
-          id: "generated-image",
-          type: "imageGeneration",
-          status: "completed",
-          result: "",
-          savedPath: "/repo/project/generated-one.png",
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "generated-image",
+            type: "imageGeneration",
+            rawItem: {
+              id: "generated-image",
+              type: "imageGeneration",
+              status: "completed",
+              result: "",
+              savedPath: "/repo/project/generated-one.png",
+            },
+          },
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2676,7 +3034,10 @@ describe("ThreadFloatingSummaryPanel", () => {
     });
 
     await waitFor(() => {
-      if (invokeCalls.filter((call) => call[0] === "git:review:snapshot").length < 3) {
+      if (
+        invokeCalls.filter((call) => call[0] === "git:review:snapshot").length <
+        3
+      ) {
         throw new Error("Expected git snapshots to load.");
       }
       const content = textContent(view.container);
@@ -2687,44 +3048,56 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("keeps outputs visible for projectless threads with a git cwd", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     mockInvokeImpl = async (channel: string, input?: unknown) => {
       if (channel !== "git:review:snapshot") return null;
       return makeSnapshot((input as { source: GitReviewSource }).source, 0, 0);
     };
-    const turns = [{
-      items: [{
-        itemId: "generated-image",
-        type: "imageGeneration",
-        rawItem: {
-          id: "generated-image",
-          type: "imageGeneration",
-          status: "completed",
-          result: "",
-          savedPath: "/repo/project/generated-one.png",
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "generated-image",
+            type: "imageGeneration",
+            rawItem: {
+              id: "generated-image",
+              type: "imageGeneration",
+              status: "completed",
+              result: "",
+              savedPath: "/repo/project/generated-one.png",
+            },
+          },
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
-    const view = renderSummary(
-      <ThreadFloatingSummaryPanel
-        mounted
-        open
-        activeThreadId="thread-1"
-        activeThreadProjectless
-        cwd="/repo/project"
-        projectWorkspacePath="/repo/project"
-        turns={turns}
-        onErrorMessage={() => undefined}
-      />,
-    );
+    let renderedView = undefined as unknown as ReturnType<typeof renderSummary>;
+    await act(async () => {
+      renderedView = renderSummary(
+        <ThreadFloatingSummaryPanel
+          mounted
+          open
+          activeThreadId="thread-1"
+          activeThreadProjectless
+          cwd="/repo/project"
+          projectWorkspacePath="/repo/project"
+          turns={turns}
+          onErrorMessage={() => undefined}
+        />,
+      );
+      await settleAsyncRender();
+    });
 
     await waitFor(() => {
-      if (invokeCalls.filter((call) => call[0] === "git:review:snapshot").length < 3) {
+      if (
+        invokeCalls.filter((call) => call[0] === "git:review:snapshot").length <
+        3
+      ) {
         throw new Error("Expected git snapshots to load.");
       }
-      const content = textContent(view.container);
+      const content = textContent(renderedView.container);
       expect(content.includes("Environment")).toBeFalse();
       expect(content.includes("Outputs")).toBeTrue();
       expect(content.includes("Generated image 1")).toBeTrue();
@@ -2732,21 +3105,26 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("opens generated image output rows in the image preview dialog", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
-    const turns = [{
-      items: [{
-        itemId: "generated-image",
-        type: "imageGeneration",
-        rawItem: {
-          id: "generated-image",
-          type: "imageGeneration",
-          status: "completed",
-          result: "",
-          savedPath: "/repo/project/generated-one.png",
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "generated-image",
+            type: "imageGeneration",
+            rawItem: {
+              id: "generated-image",
+              type: "imageGeneration",
+              status: "completed",
+              result: "",
+              savedPath: "/repo/project/generated-one.png",
+            },
+          },
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2760,7 +3138,9 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const outputRow = view.getByText("Generated image 1").closest("[role='button']") as HTMLElement | null;
+    const outputRow = view
+      .getByText("Generated image 1")
+      .closest("[role='button']") as HTMLElement | null;
     expect(Boolean(outputRow)).toBeTrue();
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
@@ -2774,14 +3154,16 @@ describe("ThreadFloatingSummaryPanel", () => {
     }
     expect(previewImage.alt).toBe("Generated image 1");
     expect(previewImage.src).toBe("file:///repo/project/generated-one.png");
-    expect(invokeCalls.some((call) =>
-      call[0] === "shell:open-file-link"
-    )).toBeFalse();
+    expect(
+      invokeCalls.some((call) => call[0] === "shell:open-file-link"),
+    ).toBeFalse();
   });
 
   test("opens non-image summary panel output rows through the side panel opener first", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
-    mockInvokeImpl = async (channel: string) => channel === "shell:open-file-link";
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
+    mockInvokeImpl = async (channel: string) =>
+      channel === "shell:open-file-link";
     const openedOutputs: unknown[] = [];
     const actions = {
       onOpenSummaryOutputInSidePanel: async (target) => {
@@ -2789,19 +3171,24 @@ describe("ThreadFloatingSummaryPanel", () => {
         return true;
       },
     } as Partial<ThreadStageActions> as ThreadStageActions;
-    const turns = [{
-      items: [{
-        itemId: "assistant",
-        type: "agentMessage",
-        markdownText: "Saved report at 【/repo/project/dist/report.txt†L1】.",
-        rawItem: {
-          id: "assistant",
-          type: "agentMessage",
-          text: "Saved report at 【/repo/project/dist/report.txt†L1】.",
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "assistant",
+            type: "agentMessage",
+            markdownText:
+              "Saved report at 【/repo/project/dist/report.txt†L1】.",
+            rawItem: {
+              id: "assistant",
+              type: "agentMessage",
+              text: "Saved report at 【/repo/project/dist/report.txt†L1】.",
+            },
+          },
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2816,39 +3203,54 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const outputRow = view.getByText("report.txt").closest("[role='button']") as HTMLElement | null;
+    const outputRow = view
+      .getByText("report.txt")
+      .closest("[role='button']") as HTMLElement | null;
     expect(Boolean(outputRow)).toBeTrue();
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
       await settleAsyncRender();
     });
 
-    expect(JSON.stringify(openedOutputs)).toBe(JSON.stringify([{
-      path: "/repo/project/dist/report.txt",
-      title: "report.txt",
-    }]));
-    expect(invokeCalls.some((call) => call[0] === "shell:open-file-link")).toBeFalse();
+    expect(JSON.stringify(openedOutputs)).toBe(
+      JSON.stringify([
+        {
+          path: "/repo/project/dist/report.txt",
+          title: "report.txt",
+        },
+      ]),
+    );
+    expect(
+      invokeCalls.some((call) => call[0] === "shell:open-file-link"),
+    ).toBeFalse();
   });
 
   test("falls back to the desktop file opener when summary output side panel open is unavailable", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
-    mockInvokeImpl = async (channel: string) => channel === "shell:open-file-link";
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
+    mockInvokeImpl = async (channel: string) =>
+      channel === "shell:open-file-link";
     const actions = {
       onOpenSummaryOutputInSidePanel: async () => false,
     } as Partial<ThreadStageActions> as ThreadStageActions;
-    const turns = [{
-      items: [{
-        itemId: "assistant",
-        type: "agentMessage",
-        markdownText: "Saved report at 【/repo/project/dist/report.txt†L1】.",
-        rawItem: {
-          id: "assistant",
-          type: "agentMessage",
-          text: "Saved report at 【/repo/project/dist/report.txt†L1】.",
-        },
-      }],
-      status: "completed",
-    }] as unknown as CodexConversationTurn[];
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "assistant",
+            type: "agentMessage",
+            markdownText:
+              "Saved report at 【/repo/project/dist/report.txt†L1】.",
+            rawItem: {
+              id: "assistant",
+              type: "agentMessage",
+              text: "Saved report at 【/repo/project/dist/report.txt†L1】.",
+            },
+          },
+        ],
+        status: "completed",
+      },
+    ] as unknown as CodexConversationTurn[];
 
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -2863,22 +3265,28 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const outputRow = view.getByText("report.txt").closest("[role='button']") as HTMLElement | null;
+    const outputRow = view
+      .getByText("report.txt")
+      .closest("[role='button']") as HTMLElement | null;
     expect(Boolean(outputRow)).toBeTrue();
     await act(async () => {
       fireEvent.click(outputRow as HTMLElement);
       await settleAsyncRender();
     });
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "shell:open-file-link"
-      && JSON.stringify(call).includes("/repo/project/dist/report.txt")
-      && JSON.stringify(call).includes("fileManager")
-    )).toBeTrue();
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "shell:open-file-link" &&
+          JSON.stringify(call).includes("/repo/project/dist/report.txt") &&
+          JSON.stringify(call).includes("fileManager"),
+      ),
+    ).toBeTrue();
   });
 
   test("opens URL summary panel output rows through the browser opener", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const originalOpen = window.open;
     const openedUrls: string[] = [];
     Object.defineProperty(window, "open", {
@@ -2891,50 +3299,52 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     try {
       const driveUrl = "https://docs.google.com/document/d/doc-123/edit";
-      const turns = [{
-        items: [
-          {
-            itemId: "drive-tool",
-            type: "mcpToolCall",
-            mcpToolCall: {
-              callId: "drive-tool",
-              functionName: "google-drive__create_document",
-              pluginId: null,
-              mcpAppResourceUri: null,
-              invocation: {
-                server: "google-drive",
-                tool: "create_document",
-                arguments: {},
-              },
-              result: {
-                type: "success",
-                content: [],
-                structuredContent: {
-                  title: "Reference Roadmap",
-                  document_url: driveUrl,
+      const turns = [
+        {
+          items: [
+            {
+              itemId: "drive-tool",
+              type: "mcpToolCall",
+              mcpToolCall: {
+                callId: "drive-tool",
+                functionName: "google-drive__create_document",
+                pluginId: null,
+                mcpAppResourceUri: null,
+                invocation: {
+                  server: "google-drive",
+                  tool: "create_document",
+                  arguments: {},
                 },
-                raw: {
+                result: {
+                  type: "success",
                   content: [],
                   structuredContent: {
                     title: "Reference Roadmap",
                     document_url: driveUrl,
                   },
+                  raw: {
+                    content: [],
+                    structuredContent: {
+                      title: "Reference Roadmap",
+                      document_url: driveUrl,
+                    },
+                  },
                 },
+                durationMs: null,
+                completed: true,
               },
-              durationMs: null,
-              completed: true,
             },
-          },
-          {
-            itemId: "assistant",
-            type: "agentMessage",
-            kind: "assistantMessage",
-            semanticKind: "assistantMessage",
-            markdownText: `Created [Draft](${driveUrl}).`,
-          },
-        ],
-        status: "completed",
-      }] as unknown as CodexConversationTurn[];
+            {
+              itemId: "assistant",
+              type: "agentMessage",
+              kind: "assistantMessage",
+              semanticKind: "assistantMessage",
+              markdownText: `Created [Draft](${driveUrl}).`,
+            },
+          ],
+          status: "completed",
+        },
+      ] as unknown as CodexConversationTurn[];
 
       const view = renderSummary(
         <ThreadFloatingSummaryPanel
@@ -2948,7 +3358,9 @@ describe("ThreadFloatingSummaryPanel", () => {
         />,
       );
 
-      const outputRow = view.getByText("Reference Roadmap").closest("[role='button']") as HTMLElement | null;
+      const outputRow = view
+        .getByText("Reference Roadmap")
+        .closest("[role='button']") as HTMLElement | null;
       expect(Boolean(outputRow)).toBeTrue();
       await act(async () => {
         fireEvent.click(outputRow as HTMLElement);
@@ -2956,7 +3368,9 @@ describe("ThreadFloatingSummaryPanel", () => {
       });
 
       expect(openedUrls.join(",")).toBe(driveUrl);
-      expect(invokeCalls.some((call) => call[0] === "shell:open-file-link")).toBeFalse();
+      expect(
+        invokeCalls.some((call) => call[0] === "shell:open-file-link"),
+      ).toBeFalse();
     } finally {
       Object.defineProperty(window, "open", {
         configurable: true,
@@ -2966,7 +3380,8 @@ describe("ThreadFloatingSummaryPanel", () => {
   });
 
   test("opens background subagent rows with subagent opener context", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const turns = [
       {
         turnId: "turn-parent",
@@ -2980,14 +3395,16 @@ describe("ThreadFloatingSummaryPanel", () => {
               tool: "spawnAgent",
               status: "completed",
               receiverThreadIds: ["child-1"],
-              receiverThreads: [{
-                threadId: "child-1",
-                thread: {
-                  nickname: "Scout",
-                  model: "gpt-5.3-codex",
-                  agentRole: "explorer",
+              receiverThreads: [
+                {
+                  threadId: "child-1",
+                  thread: {
+                    nickname: "Scout",
+                    model: "gpt-5.3-codex",
+                    agentRole: "explorer",
+                  },
                 },
-              }],
+              ],
               agentsStates: {
                 "child-1": {
                   status: "running",
@@ -3012,20 +3429,24 @@ describe("ThreadFloatingSummaryPanel", () => {
         childMemberships={[makeSubagentMembership({ displayName: "@Scout" })]}
         knownConversationsById={{
           "child-1": makeSubagentConversation({
-            turns: [{
-              turnId: "child-turn",
-              status: "inProgress",
-              diff: "@@ -1 +1,2 @@\n-old\n+new\n+another",
-              items: [{
-                itemId: "reasoning",
-                type: "reasoning",
-                semanticKind: "reasoning",
-                markdownText: "**Checking files.**",
-                rawItem: {
-                  summary: [{ text: "**Checking files.**" }],
-                },
-              }],
-            }] as unknown as CodexConversationTurn[],
+            turns: [
+              {
+                turnId: "child-turn",
+                status: "inProgress",
+                diff: "@@ -1 +1,2 @@\n-old\n+new\n+another",
+                items: [
+                  {
+                    itemId: "reasoning",
+                    type: "reasoning",
+                    semanticKind: "reasoning",
+                    markdownText: "**Checking files.**",
+                    rawItem: {
+                      summary: [{ text: "**Checking files.**" }],
+                    },
+                  },
+                ],
+              },
+            ] as unknown as CodexConversationTurn[],
           }),
         }}
         onOpenThread={(threadId, context) => {
@@ -3035,25 +3456,29 @@ describe("ThreadFloatingSummaryPanel", () => {
       />,
     );
 
-    const row = view.getByText("Scout").closest("[role='button']") as HTMLElement | null;
+    const row = view
+      .getByText("Scout")
+      .closest("[role='button']") as HTMLElement | null;
     expect(Boolean(row)).toBeTrue();
     await clickAndSettle(row as HTMLElement);
 
-    const call = openCalls[0] as {
-      threadId?: string;
-      context?: {
-        subagent?: {
-          conversationId?: string;
-          displayName?: string;
-          agentRole?: string | null;
-          showInlineActivity?: boolean;
-          spawnModel?: string | null;
-          status?: string;
-          statusSummary?: string | null;
-          diffStats?: { linesAdded?: number; linesRemoved?: number } | null;
-        };
-      };
-    } | undefined;
+    const call = openCalls[0] as
+      | {
+          threadId?: string;
+          context?: {
+            subagent?: {
+              conversationId?: string;
+              displayName?: string;
+              agentRole?: string | null;
+              showInlineActivity?: boolean;
+              spawnModel?: string | null;
+              status?: string;
+              statusSummary?: string | null;
+              diffStats?: { linesAdded?: number; linesRemoved?: number } | null;
+            };
+          };
+        }
+      | undefined;
     expect(openCalls.length).toBe(1);
     expect(call?.threadId).toBe("child-1");
     expect(call?.context?.subagent?.conversationId).toBe("child-1");
@@ -3062,11 +3487,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(call?.context?.subagent?.spawnModel).toBe("gpt-5.3-codex");
     expect(call?.context?.subagent?.status).toBe("active");
     expect(call?.context?.subagent?.statusSummary).toBe("checking files");
-    expect(`${call?.context?.subagent?.diffStats?.linesAdded ?? -1}:${call?.context?.subagent?.diffStats?.linesRemoved ?? -1}`).toBe("2:1");
+    expect(
+      `${call?.context?.subagent?.diffStats?.linesAdded ?? -1}:${call?.context?.subagent?.diffStats?.linesRemoved ?? -1}`,
+    ).toBe("2:1");
   });
 
   test("renders inline subagents as compact strip and lists only non-inline rows", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const openCalls: unknown[] = [];
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
@@ -3127,12 +3555,14 @@ describe("ThreadFloatingSummaryPanel", () => {
             statusType: "active",
             threadName: "Listed active",
             agentNickname: "Listed active",
-            turns: [{
-              turnId: "listed-active-turn",
-              status: "inProgress",
-              diff: "@@ -1 +1,2 @@\n-old\n+new\n+another",
-              items: [],
-            }] as unknown as CodexConversationTurn[],
+            turns: [
+              {
+                turnId: "listed-active-turn",
+                status: "inProgress",
+                diff: "@@ -1 +1,2 @@\n-old\n+new\n+another",
+                items: [],
+              },
+            ] as unknown as CodexConversationTurn[],
           }),
           "listed-waiting": makeSubagentConversation({
             threadId: "listed-waiting",
@@ -3159,29 +3589,53 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(Boolean(content.includes("Done"))).toBeFalse();
     expect(Boolean(content.includes("+2"))).toBeTrue();
     expect(Boolean(content.includes("-1"))).toBeTrue();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="inline-active"]') !== null).toBeTrue();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="inline-waiting"]') !== null).toBeTrue();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="inline-done"]') === null).toBeTrue();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="listed-active"]') !== null).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-subagent-avatar-seed="inline-active"]',
+      ) !== null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-subagent-avatar-seed="inline-waiting"]',
+      ) !== null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-subagent-avatar-seed="inline-done"]',
+      ) === null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-subagent-avatar-seed="listed-active"]',
+      ) !== null,
+    ).toBeTrue();
 
     await clickAndSettle(view.getByRole("button", { name: "Inline active" }));
-    const call = openCalls[0] as {
-      threadId?: string;
-      context?: { subagent?: { conversationId?: string; showInlineActivity?: boolean } };
-    } | undefined;
+    const call = openCalls[0] as
+      | {
+          threadId?: string;
+          context?: {
+            subagent?: {
+              conversationId?: string;
+              showInlineActivity?: boolean;
+            };
+          };
+        }
+      | undefined;
     expect(call?.threadId).toBe("inline-active");
     expect(call?.context?.subagent?.conversationId).toBe("inline-active");
     expect(call?.context?.subagent?.showInlineActivity).toBeTrue();
   });
 
   test("uses the last four done inline subagents when no inline subagent is working", async () => {
-    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const { ThreadFloatingSummaryPanel } =
+      await import("./thread-floating-summary-panel");
     const memberships = [1, 2, 3, 4, 5].map((index) =>
       makeSubagentMembership({
         threadId: `done-inline-${index}`,
         displayName: `Done inline ${index}`,
         showInlineActivity: true,
-      })
+      }),
     );
     const knownConversationsById = Object.fromEntries(
       memberships.map((membership, index) => [
@@ -3211,8 +3665,20 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const content = textContent(view.container);
     expect(Boolean(content.includes("5 done"))).toBeTrue();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="done-inline-1"]') === null).toBeTrue();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="done-inline-2"]') !== null).toBeTrue();
-    expect(view.container.querySelector('[data-subagent-avatar-seed="done-inline-5"]') !== null).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-subagent-avatar-seed="done-inline-1"]',
+      ) === null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-subagent-avatar-seed="done-inline-2"]',
+      ) !== null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-subagent-avatar-seed="done-inline-5"]',
+      ) !== null,
+    ).toBeTrue();
   });
 });

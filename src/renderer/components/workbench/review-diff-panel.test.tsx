@@ -1,16 +1,22 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createElement, type ComponentProps } from "react";
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { render, settleAsyncRender as settleBaseAsyncRender, textContent } from "../../test/dom";
+import { render, textContent } from "../../test/dom";
 import {
   __resetNodexToastStoreForTests,
   NodexToastProvider,
 } from "../ui/toast";
 import { NodexTooltipProvider } from "../ui/tooltip";
 import { NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT } from "../../lib/diff-presentation";
+import { buildReviewFileTreeVisibleState } from "@/lib/review-file-tree-model";
 import type { CodexConversationSnapshot } from "@/lib/types";
+import { buildReviewFileSafety } from "../../../shared/review-file-safety";
 import { ReviewDiffPanel } from "./review-diff-panel";
-import type { FileDiffMetadata, FileDiffProps, MultiFileDiffProps } from "@pierre/diffs/react";
+import type {
+  FileDiffMetadata,
+  FileDiffProps,
+  MultiFileDiffProps,
+} from "@pierre/diffs/react";
 
 const invokeCalls: unknown[][] = [];
 const clipboardWrites: string[] = [];
@@ -22,13 +28,17 @@ function stripPatchPath(value: string): string {
 }
 
 function isDomElement(value: unknown): value is HTMLElement {
-  return typeof value === "object"
-    && value !== null
-    && "nodeType" in value
-    && (value as { nodeType?: unknown }).nodeType === Node.ELEMENT_NODE;
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "nodeType" in value &&
+    (value as { nodeType?: unknown }).nodeType === Node.ELEMENT_NODE
+  );
 }
 
-function parsePatchFilesForTest(patch: string): Array<{ files: FileDiffMetadata[] }> {
+function parsePatchFilesForTest(
+  patch: string,
+): Array<{ files: FileDiffMetadata[] }> {
   const normalizedPatch = patch.trim();
   if (normalizedPatch.length === 0) return [];
 
@@ -40,22 +50,35 @@ function parsePatchFilesForTest(patch: string): Array<{ files: FileDiffMetadata[
 
   return filePatches.map((filePatch) => {
     const lines = filePatch.split("\n");
-    const previousHeader = lines.find((line) => line.startsWith("--- ")) ?? null;
+    const previousHeader =
+      lines.find((line) => line.startsWith("--- ")) ?? null;
     const nextHeader = lines.find((line) => line.startsWith("+++ ")) ?? null;
     const previousPath = previousHeader
-      ? stripPatchPath(previousHeader.slice(4).trim().replace(/^\/dev\/null$/, ""))
+      ? stripPatchPath(
+          previousHeader
+            .slice(4)
+            .trim()
+            .replace(/^\/dev\/null$/, ""),
+        )
       : "";
     const nextPath = nextHeader
-      ? stripPatchPath(nextHeader.slice(4).trim().replace(/^\/dev\/null$/, ""))
+      ? stripPatchPath(
+          nextHeader
+            .slice(4)
+            .trim()
+            .replace(/^\/dev\/null$/, ""),
+        )
       : "";
 
-    const hunks = lines.reduce<Array<{
-      header: string;
-      additionStart: number;
-      deletionStart: number;
-      additionLines: number;
-      deletionLines: number;
-    }>>((acc, line) => {
+    const hunks = lines.reduce<
+      Array<{
+        header: string;
+        additionStart: number;
+        deletionStart: number;
+        additionLines: number;
+        deletionLines: number;
+      }>
+    >((acc, line) => {
       if (!line.startsWith("@@ ")) return acc;
       const match = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
       acc.push({
@@ -90,7 +113,12 @@ function parsePatchFilesForTest(patch: string): Array<{ files: FileDiffMetadata[
     const fileDiff = {
       name: nextPath || previousPath || "file.ts",
       prevName: previousPath || null,
-      type: previousPath.length === 0 ? "add" : nextPath.length === 0 ? "delete" : "modify",
+      type:
+        previousPath.length === 0
+          ? "add"
+          : nextPath.length === 0
+            ? "delete"
+            : "modify",
       hunks,
       additionLines: hunks.reduce((sum, hunk) => sum + hunk.additionLines, 0),
       deletionLines: hunks.reduce((sum, hunk) => sum + hunk.deletionLines, 0),
@@ -100,30 +128,38 @@ function parsePatchFilesForTest(patch: string): Array<{ files: FileDiffMetadata[
   });
 }
 
-function parseAddedPatchFileWithLineArraysForTest(): Array<{ files: FileDiffMetadata[] }> {
-  return [{
-    files: [{
-      name: "src/created.ts",
-      prevName: null,
-      type: "add",
-      hunks: [{
-        header: "@@ -0,0 +1,2 @@",
-        deletionStart: 0,
-        deletionCount: 0,
-        deletionLines: 0,
-        deletionLineIndex: 0,
-        additionStart: 1,
-        additionCount: 2,
-        additionLines: 2,
-        additionLineIndex: 0,
-      }],
-      additionLines: [
-        "export const created = true;\n",
-        "export const source = \"patch\";\n",
+function parseAddedPatchFileWithLineArraysForTest(): Array<{
+  files: FileDiffMetadata[];
+}> {
+  return [
+    {
+      files: [
+        {
+          name: "src/created.ts",
+          prevName: null,
+          type: "add",
+          hunks: [
+            {
+              header: "@@ -0,0 +1,2 @@",
+              deletionStart: 0,
+              deletionCount: 0,
+              deletionLines: 0,
+              deletionLineIndex: 0,
+              additionStart: 1,
+              additionCount: 2,
+              additionLines: 2,
+              additionLineIndex: 0,
+            },
+          ],
+          additionLines: [
+            "export const created = true;\n",
+            'export const source = "patch";\n',
+          ],
+          deletionLines: [],
+        } as unknown as FileDiffMetadata,
       ],
-      deletionLines: [],
-    } as unknown as FileDiffMetadata],
-  }];
+    },
+  ];
 }
 
 function countTestFileDiffLines(value: unknown): string {
@@ -135,7 +171,11 @@ function countTestFileDiffLines(value: unknown): string {
 function testDiffOptionValue(options: unknown, key: string): string {
   if (typeof options !== "object" || options === null) return "";
   const value = (options as Record<string, unknown>)[key];
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return String(value);
   }
   return "";
@@ -146,57 +186,166 @@ const reviewDiffPanelTestDeps = {
   invoke: async (...args: unknown[]) => {
     invokeCalls.push(args);
     if (!mockInvokeImpl) return null;
-    return mockInvokeImpl(...args);
+    const result = await mockInvokeImpl(...args);
+    if (result !== null) {
+      if (
+        args[0] !== "git:review:diff" ||
+        typeof result !== "object" ||
+        result === null
+      ) {
+        return result;
+      }
+      const diffResult = result as {
+        cwd?: string;
+        source?: "unstaged" | "staged" | "branch" | "commit";
+        patch?: string;
+        files?: ReturnType<typeof buildGitSummary>[];
+      };
+      if (
+        typeof diffResult.patch !== "string" ||
+        diffResult.files?.some((file) => "diff" in file) === true
+      ) {
+        return result;
+      }
+      return buildGitDiffResultForTest({
+        cwd: diffResult.cwd,
+        source: diffResult.source,
+        patch: diffResult.patch,
+        files: diffResult.files,
+      });
+    }
+
+    if (args[0] !== "git:review:snapshot") return result;
+    const legacyResult = await mockInvokeImpl("git:review:diff", args[1]);
+    if (typeof legacyResult !== "object" || legacyResult === null)
+      return result;
+
+    const legacySnapshot = legacyResult as {
+      cwd?: string;
+      source?: "unstaged" | "staged" | "branch" | "commit";
+      patch?: string;
+      files?: ReturnType<typeof buildGitSummary>[];
+      isGitRepository?: boolean;
+      baseRef?: string | null;
+      currentBranch?: string | null;
+      defaultBranch?: string | null;
+      errorMessage?: string | null;
+    };
+    return {
+      cwd: legacySnapshot.cwd ?? "/tmp/codex",
+      source: legacySnapshot.source ?? "unstaged",
+      patch: "",
+      files:
+        legacySnapshot.files && legacySnapshot.files.length > 0
+          ? legacySnapshot.files
+          : buildGitSummariesFromPatch(legacySnapshot.patch ?? ""),
+      isGitRepository: legacySnapshot.isGitRepository ?? true,
+      baseRef: legacySnapshot.baseRef ?? null,
+      currentBranch: legacySnapshot.currentBranch ?? "feature",
+      defaultBranch: legacySnapshot.defaultBranch ?? "main",
+      errorMessage: legacySnapshot.errorMessage ?? null,
+    };
   },
   useTheme: () => ({
     theme: "light" as const,
     resolved: "light" as const,
-    setTheme: () => { },
+    setTheme: () => {},
   }),
   FileDiff: <LAnnotation,>(props: FileDiffProps<LAnnotation>) => {
-    const { className, fileDiff, options, lineAnnotations, renderAnnotation, selectedLines } = props;
-    lastFileDiffProps = props as unknown as FileDiffProps<unknown>;
-    return createElement("div", {
+    const {
       className,
-      "data-file-diff": fileDiff.name ?? "file",
-      "data-file-additions": countTestFileDiffLines((fileDiff as { additionLines?: unknown }).additionLines),
-      "data-file-deletions": countTestFileDiffLines((fileDiff as { deletionLines?: unknown }).deletionLines),
-      "data-line-annotations": String(lineAnnotations?.length ?? 0),
-      "data-selected-lines": selectedLines ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}` : "",
-      "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
-      "data-collapsed-context-threshold": testDiffOptionValue(options, "collapsedContextThreshold"),
-      "data-expansion-line-count": testDiffOptionValue(options, "expansionLineCount"),
-      "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
-      "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
-    }, lineAnnotations?.map((annotation, index) =>
-      createElement("div", {
-        key: index,
-        "data-rendered-line-annotation": `${annotation.side}:${annotation.lineNumber}`,
-      }, renderAnnotation?.(annotation)),
-    ));
+      fileDiff,
+      options,
+      lineAnnotations,
+      renderAnnotation,
+      selectedLines,
+    } = props;
+    lastFileDiffProps = props as unknown as FileDiffProps<unknown>;
+    return createElement(
+      "div",
+      {
+        className,
+        "data-file-diff": fileDiff.name ?? "file",
+        "data-file-additions": countTestFileDiffLines(
+          (fileDiff as { additionLines?: unknown }).additionLines,
+        ),
+        "data-file-deletions": countTestFileDiffLines(
+          (fileDiff as { deletionLines?: unknown }).deletionLines,
+        ),
+        "data-line-annotations": String(lineAnnotations?.length ?? 0),
+        "data-selected-lines": selectedLines
+          ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}`
+          : "",
+        "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
+        "data-collapsed-context-threshold": testDiffOptionValue(
+          options,
+          "collapsedContextThreshold",
+        ),
+        "data-expansion-line-count": testDiffOptionValue(
+          options,
+          "expansionLineCount",
+        ),
+        "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
+        "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
+      },
+      lineAnnotations?.map((annotation, index) =>
+        createElement(
+          "div",
+          {
+            key: index,
+            "data-rendered-line-annotation": `${annotation.side}:${annotation.lineNumber}`,
+          },
+          renderAnnotation?.(annotation),
+        ),
+      ),
+    );
   },
   MultiFileDiff: <LAnnotation,>(props: MultiFileDiffProps<LAnnotation>) => {
-    const { className, oldFile, newFile, options, lineAnnotations, renderAnnotation, selectedLines } = props;
-    return createElement("div", {
+    const {
       className,
-      "data-multi-file-diff": "true",
-      "data-old-file-name": oldFile.name,
-      "data-new-file-name": newFile.name,
-      "data-old-file-contents": oldFile.contents,
-      "data-new-file-contents": newFile.contents,
-      "data-line-annotations": String(lineAnnotations?.length ?? 0),
-      "data-selected-lines": selectedLines ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}` : "",
-      "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
-      "data-collapsed-context-threshold": testDiffOptionValue(options, "collapsedContextThreshold"),
-      "data-expansion-line-count": testDiffOptionValue(options, "expansionLineCount"),
-      "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
-      "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
-    }, lineAnnotations?.map((annotation, index) =>
-      createElement("div", {
-        key: index,
-        "data-rendered-line-annotation": `${annotation.side}:${annotation.lineNumber}`,
-      }, renderAnnotation?.(annotation)),
-    ));
+      oldFile,
+      newFile,
+      options,
+      lineAnnotations,
+      renderAnnotation,
+      selectedLines,
+    } = props;
+    return createElement(
+      "div",
+      {
+        className,
+        "data-multi-file-diff": "true",
+        "data-old-file-name": oldFile.name,
+        "data-new-file-name": newFile.name,
+        "data-old-file-contents": oldFile.contents,
+        "data-new-file-contents": newFile.contents,
+        "data-line-annotations": String(lineAnnotations?.length ?? 0),
+        "data-selected-lines": selectedLines
+          ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}`
+          : "",
+        "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
+        "data-collapsed-context-threshold": testDiffOptionValue(
+          options,
+          "collapsedContextThreshold",
+        ),
+        "data-expansion-line-count": testDiffOptionValue(
+          options,
+          "expansionLineCount",
+        ),
+        "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
+        "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
+      },
+      lineAnnotations?.map((annotation, index) =>
+        createElement(
+          "div",
+          {
+            key: index,
+            "data-rendered-line-annotation": `${annotation.side}:${annotation.lineNumber}`,
+          },
+          renderAnnotation?.(annotation),
+        ),
+      ),
+    );
   },
 };
 
@@ -312,13 +461,85 @@ function buildFileTypePatch(): string {
   ].join("\n");
 }
 
-function buildGitSummary(path: string, status: "modified" | "added" | "deleted" | "renamed" = "modified") {
+function buildGitSummary(
+  path: string,
+  status: "modified" | "added" | "deleted" | "renamed" = "modified",
+) {
   return {
     path,
     previousPath: null,
     status,
+    rawStatus: null,
+    oldOid: null,
+    newOid: null,
+    revision: `test:${status}:${path}`,
     additions: 1,
     deletions: 0,
+    safety: buildReviewFileSafety(),
+  };
+}
+
+function splitTestPatchFileDiffs(patch: string): string[] {
+  return patch
+    .trim()
+    .split(/^diff --git /m)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.length > 0)
+    .map((chunk) => `diff --git ${chunk}`);
+}
+
+function extractTestPatchPath(filePatch: string, index: number): string {
+  const header = /^diff --git a\/(.+?) b\/(.+)$/m.exec(filePatch);
+  return header?.[2] ?? `src/file-${index + 1}.ts`;
+}
+
+function buildGitSummariesFromPatch(patch: string) {
+  return splitTestPatchFileDiffs(patch).map((filePatch, index) =>
+    buildGitSummary(extractTestPatchPath(filePatch, index)),
+  );
+}
+
+function buildGitDiffResultForTest(input: {
+  cwd?: string;
+  source?: "unstaged" | "staged" | "branch" | "commit";
+  patch: string;
+  files?: ReturnType<typeof buildGitSummary>[];
+}) {
+  const filePatches = splitTestPatchFileDiffs(input.patch);
+  const summaries = input.files ?? buildGitSummariesFromPatch(input.patch);
+  const files = summaries.map((file, index) => {
+    const diff = filePatches[index] ?? "";
+    return {
+      ...file,
+      diff,
+      loadStatus: file.safety.renderable
+        ? ("loaded" as const)
+        : file.safety.skipReason === "binary"
+          ? ("binary" as const)
+          : ("unsupported" as const),
+      renderKey: `${file.previousPath ?? ""}->${file.path}:${file.revision ?? ""}:${diff.length}`,
+      diffBytes: diff.length,
+      diffError: null,
+      canApplyPatchActions: file.safety.renderable && diff.trim().length > 0,
+      changedBytes: diff.length,
+      tooLarge: false,
+      tooLargeReason: null,
+    };
+  });
+
+  return {
+    cwd: input.cwd ?? "/tmp/codex",
+    source: input.source ?? "unstaged",
+    patch: files
+      .map((file) => file.diff)
+      .filter(Boolean)
+      .join("\n"),
+    files,
+    isGitRepository: true,
+    baseRef: null,
+    currentBranch: "feature",
+    defaultBranch: "main",
+    errorMessage: null,
   };
 }
 
@@ -339,7 +560,9 @@ beforeEach(() => {
 });
 
 async function loadReviewDiffPanelModule() {
-  function TestReviewDiffPanel(props: Omit<ComponentProps<typeof ReviewDiffPanel>, "deps">) {
+  function TestReviewDiffPanel(
+    props: Omit<ComponentProps<typeof ReviewDiffPanel>, "deps">,
+  ) {
     return <ReviewDiffPanel {...props} deps={reviewDiffPanelTestDeps} />;
   }
 
@@ -354,7 +577,10 @@ async function waitForReviewTree(container: HTMLElement): Promise<void> {
   });
 }
 
-async function waitForReviewTreePath(container: HTMLElement, path: string): Promise<HTMLElement> {
+async function waitForReviewTreePath(
+  container: HTMLElement,
+  path: string,
+): Promise<HTMLElement> {
   let row: Element | null = null;
   await waitFor(() => {
     row = container.querySelector(`[data-review-tree-path="${path}"]`);
@@ -368,11 +594,16 @@ async function waitForReviewTreePath(container: HTMLElement, path: string): Prom
   return row;
 }
 
-async function waitForMenuItem(baseElement: HTMLElement, text: string): Promise<HTMLElement> {
+async function waitForMenuItem(
+  baseElement: HTMLElement,
+  text: string,
+): Promise<HTMLElement> {
   let item: Element | null = null;
   await waitFor(() => {
-    item = Array.from(baseElement.ownerDocument.querySelectorAll('[role="menuitem"]'))
-      .find((node) => node.textContent?.includes(text) === true) ?? null;
+    item =
+      Array.from(
+        baseElement.ownerDocument.querySelectorAll('[role="menuitem"]'),
+      ).find((node) => node.textContent?.includes(text) === true) ?? null;
     if (!item) {
       throw new Error(`Expected menu item containing ${text}.`);
     }
@@ -381,6 +612,35 @@ async function waitForMenuItem(baseElement: HTMLElement, text: string): Promise<
     throw new Error(`Expected menu item containing ${text}.`);
   }
   return item;
+}
+
+async function openReviewOptionsMenu(view: {
+  getByLabelText: (text: string) => HTMLElement;
+}): Promise<void> {
+  await act(async () => {
+    fireEvent.pointerDown(view.getByLabelText("Review options"), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+}
+
+async function clickReviewMenuItem(menuItem: HTMLElement): Promise<void> {
+  await act(async () => {
+    fireEvent.click(menuItem);
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+}
+
+async function dispatchReviewEvent(callback: () => void): Promise<void> {
+  await act(async () => {
+    callback();
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
 }
 
 async function waitForGitReviewDiffCall(): Promise<void> {
@@ -392,16 +652,38 @@ async function waitForGitReviewDiffCall(): Promise<void> {
   await settleAsyncRender();
 }
 
+async function waitForGitReviewSnapshotCall(): Promise<void> {
+  await waitFor(() => {
+    if (!invokeCalls.some((call) => call[0] === "git:review:snapshot")) {
+      throw new Error("Expected git review snapshot call.");
+    }
+  });
+  await settleAsyncRender();
+}
+
+async function waitForGitReviewPatchCall(): Promise<void> {
+  await waitFor(() => {
+    if (!invokeCalls.some((call) => call[0] === "git:review:patch")) {
+      throw new Error("Expected git review patch call.");
+    }
+  });
+  await settleAsyncRender();
+}
+
 async function waitPastGitReviewBatchDelay(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 25));
+  await settleAsyncRender();
 }
 
 async function settleAsyncRender(): Promise<void> {
-  await settleBaseAsyncRender();
   await act(async () => {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 25));
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
   });
-  await settleBaseAsyncRender();
 }
 
 describe("review diff panel", () => {
@@ -421,7 +703,9 @@ describe("review diff panel", () => {
 
     expect(getByText("Last turn").textContent).toBe("Last turn");
     expect(textContent(container).includes("example.ts")).toBeTrue();
-    expect(container.querySelector('[data-file-diff="src/example.ts"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-file-diff="src/example.ts"]'),
+    ).not.toBeNull();
   });
 
   test("passes Codex review diff options to rendered file diffs", async () => {
@@ -438,14 +722,22 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    const renderedFileDiff = container.querySelector('[data-file-diff="src/example.ts"]');
+    const renderedFileDiff = container.querySelector(
+      '[data-file-diff="src/example.ts"]',
+    );
     expect(renderedFileDiff).not.toBeNull();
-    expect(renderedFileDiff?.getAttribute("data-hunk-separators")).toBe("line-info");
-    expect(renderedFileDiff?.getAttribute("data-collapsed-context-threshold")).toBe("1");
+    expect(renderedFileDiff?.getAttribute("data-hunk-separators")).toBe(
+      "line-info",
+    );
+    expect(
+      renderedFileDiff?.getAttribute("data-collapsed-context-threshold"),
+    ).toBe("1");
     expect(renderedFileDiff?.getAttribute("data-expansion-line-count")).toBe(
       String(NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT),
     );
-    expect(renderedFileDiff?.getAttribute("data-line-diff-type")).toBe("word-alt");
+    expect(renderedFileDiff?.getAttribute("data-line-diff-type")).toBe(
+      "word-alt",
+    );
     expect(renderedFileDiff?.getAttribute("data-diff-indicators")).toBe("bars");
   });
 
@@ -469,12 +761,48 @@ describe("review diff panel", () => {
     await waitForReviewTreePath(view.container, "src/workbench.tsx");
     await waitForReviewTreePath(view.container, "src/model.ts");
 
-    expect(Boolean(view.container.querySelector('.codex-review-diff-card[data-review-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]'))).toBeTrue();
-    expect(Boolean(view.container.querySelector('.codex-review-diff-card[data-review-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]'))).toBeTrue();
-    expect(Boolean(view.container.querySelector('.codex-review-diff-card[data-review-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]'))).toBeTrue();
-    expect(Boolean(view.container.querySelector('button[data-review-tree-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]'))).toBeTrue();
-    expect(Boolean(view.container.querySelector('button[data-review-tree-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]'))).toBeTrue();
-    expect(Boolean(view.container.querySelector('button[data-review-tree-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]'))).toBeTrue();
+    expect(
+      Boolean(
+        view.container.querySelector(
+          '.codex-review-diff-card[data-review-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]',
+        ),
+      ),
+    ).toBeTrue();
+    expect(
+      Boolean(
+        view.container.querySelector(
+          '.codex-review-diff-card[data-review-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]',
+        ),
+      ),
+    ).toBeTrue();
+    expect(
+      Boolean(
+        view.container.querySelector(
+          '.codex-review-diff-card[data-review-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]',
+        ),
+      ),
+    ).toBeTrue();
+    expect(
+      Boolean(
+        view.container.querySelector(
+          'button[data-review-tree-path="docs/README.md"] [data-icon-token="markdown"] use[href="#file-tree-builtin-markdown"]',
+        ),
+      ),
+    ).toBeTrue();
+    expect(
+      Boolean(
+        view.container.querySelector(
+          'button[data-review-tree-path="src/workbench.tsx"] [data-icon-token="react"] use[href="#file-tree-builtin-react"]',
+        ),
+      ),
+    ).toBeTrue();
+    expect(
+      Boolean(
+        view.container.querySelector(
+          'button[data-review-tree-path="src/model.ts"] [data-icon-token="typescript"] use[href="#file-tree-builtin-typescript"]',
+        ),
+      ),
+    ).toBeTrue();
   });
 
   test("folds repeated diff sections for the same path into one review entry", async () => {
@@ -495,10 +823,18 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitForReviewTreePath(view.container, "src/example.ts");
 
-    const reviewRows = view.container.querySelectorAll('.codex-review-diff-card[data-review-path="src/example.ts"]');
-    const treeRows = view.container.querySelectorAll('[data-item-type="file"][data-review-tree-path="src/example.ts"]');
-    const renderedFileDiffs = view.container.querySelectorAll('[data-file-diff="src/example.ts"]');
-    const rowStats = reviewRows[0]?.querySelector('span[data-thread-find-skip="true"]');
+    const reviewRows = view.container.querySelectorAll(
+      '.codex-review-diff-card[data-review-path="src/example.ts"]',
+    );
+    const treeRows = view.container.querySelectorAll(
+      '[data-item-type="file"][data-review-tree-path="src/example.ts"]',
+    );
+    const renderedFileDiffs = view.container.querySelectorAll(
+      '[data-file-diff="src/example.ts"]',
+    );
+    const rowStats = reviewRows[0]?.querySelector(
+      'span[data-thread-find-skip="true"]',
+    );
 
     expect(reviewRows.length).toBe(1);
     expect(treeRows.length).toBe(1);
@@ -511,7 +847,8 @@ describe("review diff panel", () => {
   test("prefers the raw completed turn-diff item over stale last-turn diff text", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     const conversation = buildConversation();
-    conversation.turns[0]!.diff = "diff --git a/src/stale.ts b/src/stale.ts\n--- a/src/stale.ts\n+++ b/src/stale.ts\n@@ -1 +1 @@\n-old\n+stale\n";
+    conversation.turns[0]!.diff =
+      "diff --git a/src/stale.ts b/src/stale.ts\n--- a/src/stale.ts\n+++ b/src/stale.ts\n@@ -1 +1 @@\n-old\n+stale\n";
     conversation.turns[0]!.items = [
       {
         threadId: "thr_review",
@@ -526,7 +863,8 @@ describe("review diff panel", () => {
         sequence: 0,
         rawItem: {
           type: "turn-diff",
-          unifiedDiff: "diff --git a/src/raw-canonical.ts b/src/raw-canonical.ts\n--- a/src/raw-canonical.ts\n+++ b/src/raw-canonical.ts\n@@ -1 +1 @@\n-old\n+canonical\n",
+          unifiedDiff:
+            "diff --git a/src/raw-canonical.ts b/src/raw-canonical.ts\n--- a/src/raw-canonical.ts\n+++ b/src/raw-canonical.ts\n@@ -1 +1 @@\n-old\n+canonical\n",
         },
         createdAt: 1,
         updatedAt: 1,
@@ -544,8 +882,12 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    expect(view.container.querySelector('[data-file-diff="src/raw-canonical.ts"]')).not.toBeNull();
-    expect(view.container.querySelector('[data-file-diff="src/stale.ts"]')).toBe(null);
+    expect(
+      view.container.querySelector('[data-file-diff="src/raw-canonical.ts"]'),
+    ).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-file-diff="src/stale.ts"]'),
+    ).toBe(null);
   });
 
   test("renders Codex review toolbar and file-row icon chrome", async () => {
@@ -562,42 +904,86 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    const jumpIconPath = view.getByLabelText("Jump to file").querySelector("svg path")?.getAttribute("d") ?? "";
-    const commitIconPath = view.getByLabelText("Commit or push").querySelector("svg path")?.getAttribute("d") ?? "";
-    const createPrIconPath = view.getByLabelText("Create PR").querySelector("svg path")?.getAttribute("d") ?? "";
-    const fileTreeTogglePath = view.getByLabelText("Show files").querySelector("svg path")?.getAttribute("d") ?? "";
+    const jumpIconPath =
+      view
+        .getByLabelText("Jump to file")
+        .querySelector("svg path")
+        ?.getAttribute("d") ?? "";
+    const commitIconPath =
+      view
+        .getByLabelText("Commit or push")
+        .querySelector("svg path")
+        ?.getAttribute("d") ?? "";
+    const createPrIconPath =
+      view
+        .getByLabelText("Create PR")
+        .querySelector("svg path")
+        ?.getAttribute("d") ?? "";
+    const fileTreeTogglePath =
+      view
+        .getByLabelText("Show files")
+        .querySelector("svg path")
+        ?.getAttribute("d") ?? "";
 
     expect(jumpIconPath.startsWith("M13.75 10.76")).toBeTrue();
     expect(commitIconPath.startsWith("M15.0001 14.9967")).toBeTrue();
     expect(createPrIconPath.startsWith("M2.54004 0")).toBeTrue();
     expect(fileTreeTogglePath.includes("15.833-3.333")).toBeTrue();
-    expect(textContent(view.getByLabelText("Commit or push")).includes("Commit or push")).toBeTrue();
-    expect(textContent(view.getByLabelText("Create PR")).includes("Create PR")).toBeTrue();
+    expect(
+      textContent(view.getByLabelText("Commit or push")).includes(
+        "Commit or push",
+      ),
+    ).toBeTrue();
+    expect(
+      textContent(view.getByLabelText("Create PR")).includes("Create PR"),
+    ).toBeTrue();
 
-    const fileRow = view.container.querySelector('.codex-review-diff-card[data-review-path="src/example.ts"]');
+    const fileRow = view.container.querySelector(
+      '.codex-review-diff-card[data-review-path="src/example.ts"]',
+    );
     if (!fileRow) {
       throw new Error("Expected Codex review file diff row.");
     }
-    const toggleButton = fileRow.querySelector('button[aria-label="Toggle file diff"][data-app-action-review-file-toggle]');
+    const toggleButton = fileRow.querySelector(
+      'button[aria-label="Toggle file diff"][data-app-action-review-file-toggle]',
+    );
     const openButton = fileRow.querySelector('button[aria-label="Open in"]');
     if (!toggleButton || !openButton) {
       throw new Error("Expected Codex review row action buttons.");
     }
 
-    expect(toggleButton.getAttribute("data-app-action-review-file-expanded")).toBe("true");
-    expect((toggleButton.querySelector("svg path")?.getAttribute("d") ?? "").startsWith("M7.52925 3.7793")).toBeTrue();
+    expect(
+      toggleButton.getAttribute("data-app-action-review-file-expanded"),
+    ).toBe("true");
+    expect(
+      (
+        toggleButton.querySelector("svg path")?.getAttribute("d") ?? ""
+      ).startsWith("M7.52925 3.7793"),
+    ).toBeTrue();
     expect((openButton.textContent ?? "").trim()).toBe("");
-    expect((openButton.querySelector("svg path")?.getAttribute("d") ?? "").startsWith("M4.30164 12.197")).toBeTrue();
+    expect(
+      (
+        openButton.querySelector("svg path")?.getAttribute("d") ?? ""
+      ).startsWith("M4.30164 12.197"),
+    ).toBeTrue();
 
-    const rowStats = fileRow.querySelector('span[data-thread-find-skip="true"]');
+    const rowStats = fileRow.querySelector(
+      'span[data-thread-find-skip="true"]',
+    );
     if (!isDomElement(rowStats)) {
       throw new Error("Expected Codex review row diff stats.");
     }
     expect(rowStats.className.includes("text-xs")).toBeFalse();
     expect(rowStats.className.includes("tabular-nums")).toBeTrue();
-    expect(rowStats.querySelector(".text-token-git-decoration-added-resource-foreground")?.className.includes("items-center") ?? false).toBeTrue();
+    expect(
+      rowStats
+        .querySelector(".text-token-git-decoration-added-resource-foreground")
+        ?.className.includes("items-center") ?? false,
+    ).toBeTrue();
 
-    const aggregateStats = Array.from(view.container.querySelectorAll('span[data-thread-find-skip="true"]'))
+    const aggregateStats = Array.from(
+      view.container.querySelectorAll('span[data-thread-find-skip="true"]'),
+    )
       .filter(isDomElement)
       .find((element) => !element.closest("[data-review-path]"));
     if (!aggregateStats) {
@@ -621,7 +1007,8 @@ describe("review diff panel", () => {
             threadId: "thr_review",
             turnId: "turn_selected",
             entryId: "turn-diff:turn_selected",
-            patch: "diff --git a/src/selected.ts b/src/selected.ts\nindex 1111111..2222222 100644\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-export const selected = false;\n+export const selected = true;\n",
+            patch:
+              "diff --git a/src/selected.ts b/src/selected.ts\nindex 1111111..2222222 100644\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-export const selected = false;\n+export const selected = true;\n",
             cwd: "/tmp/codex",
             showRevertButton: true,
           }}
@@ -633,7 +1020,9 @@ describe("review diff panel", () => {
 
     expect(getByText("Last turn").textContent).toBe("Last turn");
     expect(textContent(container).includes("selected.ts")).toBeTrue();
-    expect(container.querySelector('[data-file-diff="src/selected.ts"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-file-diff="src/selected.ts"]'),
+    ).not.toBeNull();
   });
 
   test("uses selected turn diff source and focuses the target path", async () => {
@@ -656,7 +1045,8 @@ describe("review diff panel", () => {
               threadId: "thr_review",
               turnId: "turn_1",
               entryId: "turn-diff:turn_1",
-              patch: "diff --git a/src/selected.ts b/src/selected.ts\nindex 1111111..2222222 100644\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-export const selected = false;\n+export const selected = true;\n",
+              patch:
+                "diff --git a/src/selected.ts b/src/selected.ts\nindex 1111111..2222222 100644\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-export const selected = false;\n+export const selected = true;\n",
               cwd: "/tmp/codex",
               showRevertButton: true,
               path: "src/selected.ts",
@@ -669,7 +1059,9 @@ describe("review diff panel", () => {
       await waitFor(() => {
         expect(scrollTargets.includes("src/selected.ts")).toBeTrue();
       });
-      expect(container.querySelector('[data-review-path="src/selected.ts"]')).not.toBeNull();
+      expect(
+        container.querySelector('[data-review-path="src/selected.ts"]'),
+      ).not.toBeNull();
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
@@ -688,7 +1080,8 @@ describe("review diff panel", () => {
             threadId: "thr_review",
             turnId: "turn_1",
             entryId: "turn-diff:turn_1",
-            patch: "diff --git a/src/selected.ts b/src/selected.ts\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-old\n+new\n",
+            patch:
+              "diff --git a/src/selected.ts b/src/selected.ts\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-old\n+new\n",
             cwd: "/tmp/codex",
             showRevertButton: true,
             path: "src/example.ts",
@@ -702,7 +1095,9 @@ describe("review diff panel", () => {
 
     expect(textContent(container).includes("example.ts")).toBeTrue();
     expect(textContent(container).includes("selected.ts")).toBeFalse();
-    expect(container.querySelector('[data-review-path="src/example.ts"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-review-path="src/example.ts"]'),
+    ).not.toBeNull();
   });
 
   test("opens the file tree when requested", async () => {
@@ -718,14 +1113,24 @@ describe("review diff panel", () => {
     );
 
     await settleAsyncRender();
-    fireEvent.click(view.getByLabelText("Show files"));
+    await dispatchReviewEvent(() => {
+      fireEvent.click(view.getByLabelText("Show files"));
+    });
 
-    expect(view.getByPlaceholderText("Filter files…").getAttribute("placeholder")).toBe("Filter files…");
+    expect(
+      view.getByPlaceholderText("Filter files…").getAttribute("placeholder"),
+    ).toBe("Filter files…");
     expect(textContent(view.container).includes("src")).toBeTrue();
     expect(textContent(view.container).includes("example.ts")).toBeTrue();
-    expect(view.container.querySelector('[data-item-type="folder"]')).not.toBeNull();
-    expect(view.container.querySelector('[data-item-type="file"]')).not.toBeNull();
-    const separator = view.container.querySelector('[role="separator"][aria-orientation="vertical"]');
+    expect(
+      view.container.querySelector('[data-item-type="folder"]'),
+    ).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-item-type="file"]'),
+    ).not.toBeNull();
+    const separator = view.container.querySelector(
+      '[role="separator"][aria-orientation="vertical"]',
+    );
     expect(separator).not.toBeNull();
   });
 
@@ -745,11 +1150,14 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitForReviewTree(view.container);
 
-    fireEvent.click(view.getByLabelText("Hide files"));
-    await settleAsyncRender();
+    await dispatchReviewEvent(() => {
+      fireEvent.click(view.getByLabelText("Hide files"));
+    });
 
     expect(view.queryByPlaceholderText("Filter files…")).toBe(null);
-    expect(view.container.querySelector('[data-file-diff="src/example.ts"]')).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-file-diff="src/example.ts"]'),
+    ).not.toBeNull();
   });
 
   test("virtualizes the review file tree with codex-style host attrs", async () => {
@@ -784,19 +1192,35 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitForReviewTree(view.container);
     await waitFor(() => {
-      if (!view.container.querySelector('[data-file-tree-virtualized-root="true"]')) {
-        throw new Error("Expected the review file tree to render the virtualized shell.");
+      if (
+        !view.container.querySelector(
+          '[data-file-tree-virtualized-root="true"]',
+        )
+      ) {
+        throw new Error(
+          "Expected the review file tree to render the virtualized shell.",
+        );
       }
     });
 
-    const virtualizedRoot = view.container.querySelector('[data-file-tree-virtualized-root="true"]');
-    const virtualizedScroll = view.container.querySelector('[data-file-tree-virtualized-scroll="true"]');
-    const virtualizedList = view.container.querySelector('[data-file-tree-virtualized-list="true"]');
+    const virtualizedRoot = view.container.querySelector(
+      '[data-file-tree-virtualized-root="true"]',
+    );
+    const virtualizedScroll = view.container.querySelector(
+      '[data-file-tree-virtualized-scroll="true"]',
+    );
+    const virtualizedList = view.container.querySelector(
+      '[data-file-tree-virtualized-list="true"]',
+    );
     if (!virtualizedRoot || !virtualizedScroll || !virtualizedList) {
-      throw new Error("Expected the review file tree to render the virtualized shell.");
+      throw new Error(
+        "Expected the review file tree to render the virtualized shell.",
+      );
     }
 
-    const renderedTreeRows = view.container.querySelectorAll('[data-review-tree-item="true"]');
+    const renderedTreeRows = view.container.querySelectorAll(
+      '[data-review-tree-item="true"]',
+    );
     expect(renderedTreeRows.length < 120).toBeTrue();
   });
 
@@ -816,15 +1240,31 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     const folderRow = await waitForReviewTreePath(view.container, "src");
-    fireEvent.click(folderRow);
-    await settleAsyncRender();
-    const collapsedTreeRows = Array.from(view.container.querySelectorAll('[data-review-tree-item="true"]'));
-    expect(collapsedTreeRows.some((node) => node.getAttribute("data-review-tree-path") === "src/example.ts")).toBeFalse();
+    await dispatchReviewEvent(() => {
+      fireEvent.click(folderRow);
+    });
+    const collapsedTreeRows = Array.from(
+      view.container.querySelectorAll('[data-review-tree-item="true"]'),
+    );
+    expect(
+      collapsedTreeRows.some(
+        (node) =>
+          node.getAttribute("data-review-tree-path") === "src/example.ts",
+      ),
+    ).toBeFalse();
 
-    fireEvent.click(folderRow);
-    await settleAsyncRender();
-    const expandedTreeRows = Array.from(view.container.querySelectorAll('[data-review-tree-item="true"]'));
-    expect(expandedTreeRows.some((node) => node.getAttribute("data-review-tree-path") === "src/example.ts")).toBeTrue();
+    await dispatchReviewEvent(() => {
+      fireEvent.click(folderRow);
+    });
+    const expandedTreeRows = Array.from(
+      view.container.querySelectorAll('[data-review-tree-item="true"]'),
+    );
+    expect(
+      expandedTreeRows.some(
+        (node) =>
+          node.getAttribute("data-review-tree-path") === "src/example.ts",
+      ),
+    ).toBeTrue();
   });
 
   test("tracks folder selection and focus with tree item ids", async () => {
@@ -844,53 +1284,40 @@ describe("review diff panel", () => {
 
     const folderRow = await waitForReviewTreePath(view.container, "src");
 
-    fireEvent.click(folderRow);
-    await settleAsyncRender();
+    await dispatchReviewEvent(() => {
+      fireEvent.click(folderRow);
+    });
 
     expect(folderRow.getAttribute("data-item-selected")).toBe("true");
     expect(folderRow.getAttribute("data-item-focused")).toBe("true");
   });
 
   test("keeps ancestor folders visible when filtering the review file tree", async () => {
-    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
-    mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
-      return {
-        cwd: "/tmp/storybook/virtualized-tree",
-        source: "unstaged",
-        patch: buildMultiFilePatch(24, true),
-        files: [],
-        isGitRepository: true,
-        baseRef: null,
-        currentBranch: "feature",
-        defaultBranch: "main",
-        errorMessage: null,
-      };
-    };
-
-    const view = render(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/storybook/virtualized-tree"
-          initialSource="unstaged"
-          initialFileTreeOpen
-        />
-      </NodexTooltipProvider>,
+    const state = buildReviewFileTreeVisibleState(
+      [
+        {
+          key: "src/domain-01/feature-01/file-001.ts",
+          displayPath: "src/domain-01/feature-01/file-001.ts",
+        },
+        {
+          key: "src/domain-02/feature-02/file-002.ts",
+          displayPath: "src/domain-02/feature-02/file-002.ts",
+        },
+      ],
+      {
+        fileFilterQuery: "file-001.ts",
+        expandedPaths: new Set(),
+      },
     );
+    const visiblePaths = state.rows.map((row) => row.path).join("|");
 
-    await settleAsyncRender();
-    await settleAsyncRender();
-    await waitForReviewTree(view.container);
-
-    fireEvent.input(view.getByPlaceholderText("Filter files…"), {
-      target: { value: "file-001.ts" },
-    });
-    await settleAsyncRender();
-
-    expect(textContent(view.container).includes("domain-01")).toBeTrue();
-    expect(textContent(view.container).includes("feature-01")).toBeTrue();
-    expect(textContent(view.container).includes("file-001.ts")).toBeTrue();
+    expect(visiblePaths.includes("src")).toBeTrue();
+    expect(visiblePaths.includes("src/domain-01")).toBeTrue();
+    expect(visiblePaths.includes("src/domain-01/feature-01")).toBeTrue();
+    expect(
+      visiblePaths.includes("src/domain-01/feature-01/file-001.ts"),
+    ).toBeTrue();
+    expect(visiblePaths.includes("domain-02")).toBeFalse();
   });
 
   test("keeps folder change metadata without rendering modified status markers", async () => {
@@ -900,7 +1327,8 @@ describe("review diff panel", () => {
       return {
         cwd: "/tmp/storybook/status-tree",
         source: "unstaged",
-        patch: "diff --git a/src/workbench.tsx b/src/workbench.tsx\nindex 1111111..2222222 100644\n--- a/src/workbench.tsx\n+++ b/src/workbench.tsx\n@@ -1 +1,2 @@\n export const workbench = true;\n+export const status = 'modified';\n",
+        patch:
+          "diff --git a/src/workbench.tsx b/src/workbench.tsx\nindex 1111111..2222222 100644\n--- a/src/workbench.tsx\n+++ b/src/workbench.tsx\n@@ -1 +1,2 @@\n export const workbench = true;\n+export const status = 'modified';\n",
         files: [buildGitSummary("src/workbench.tsx", "modified")],
         isGitRepository: true,
         baseRef: null,
@@ -925,11 +1353,75 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     const folderRow = await waitForReviewTreePath(view.container, "src");
-    const fileRow = await waitForReviewTreePath(view.container, "src/workbench.tsx");
+    const fileRow = await waitForReviewTreePath(
+      view.container,
+      "src/workbench.tsx",
+    );
 
-    expect(folderRow.getAttribute("data-item-contains-git-change")).toBe("true");
+    expect(folderRow.getAttribute("data-item-contains-git-change")).toBe(
+      "true",
+    );
     expect(folderRow.querySelector('[data-item-section="git"]')).toBe(null);
     expect(fileRow.querySelector('[data-item-section="git"]')).toBe(null);
+  });
+
+  test("renders binary metadata rows without invoking textual diff renderers", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    mockInvokeImpl = async (channel: unknown) => {
+      if (channel !== "git:review:diff") return null;
+      return {
+        cwd: "/tmp/storybook/binary",
+        source: "unstaged",
+        patch: "",
+        files: [
+          {
+            path: "assets/logo.png",
+            previousPath: null,
+            status: "added",
+            additions: null,
+            deletions: null,
+            safety: buildReviewFileSafety({
+              binary: true,
+              sizeBytes: 24,
+              mimeType: "image/png",
+            }),
+          },
+        ],
+        isGitRepository: true,
+        baseRef: null,
+        currentBranch: "feature",
+        defaultBranch: "main",
+        errorMessage: null,
+      };
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/storybook/binary"
+          initialSource="unstaged"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    await waitForGitReviewSnapshotCall();
+    await waitFor(() => {
+      if (
+        !view.container.querySelector('[data-review-diff-placeholder="binary"]')
+      ) {
+        throw new Error("Expected binary placeholder to render.");
+      }
+    });
+
+    expect(
+      textContent(view.container).includes("Binary file changed"),
+    ).toBeTrue();
+    expect(view.container.querySelector("[data-file-diff]")).toBe(null);
+    expect(view.container.querySelector('[data-multi-file-diff="true"]')).toBe(
+      null,
+    );
   });
 
   test("renders A/D markers for added and deleted files", async () => {
@@ -983,8 +1475,12 @@ describe("review diff panel", () => {
     await waitForReviewTreePath(view.container, "src/added.ts");
     await waitForReviewTreePath(view.container, "src/deleted.ts");
 
-    const addedStatus = view.container.querySelector('[data-item-type="file"][data-review-tree-path="src/added.ts"] [data-item-section="git"]');
-    const deletedStatus = view.container.querySelector('[data-item-type="file"][data-review-tree-path="src/deleted.ts"] [data-item-section="git"]');
+    const addedStatus = view.container.querySelector(
+      '[data-item-type="file"][data-review-tree-path="src/added.ts"] [data-item-section="git"]',
+    );
+    const deletedStatus = view.container.querySelector(
+      '[data-item-type="file"][data-review-tree-path="src/deleted.ts"] [data-item-section="git"]',
+    );
     if (!addedStatus || !deletedStatus) {
       throw new Error("Expected added and deleted file status slots.");
     }
@@ -1031,7 +1527,8 @@ describe("review diff panel", () => {
       return {
         cwd: "/tmp/codex",
         source: "unstaged",
-        patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+        patch:
+          "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
         files: [],
         isGitRepository: true,
         baseRef: null,
@@ -1051,9 +1548,12 @@ describe("review diff panel", () => {
     );
 
     await settleAsyncRender();
-    fireEvent.pointerDown(view.getByLabelText("Review source"), {
-      button: 0,
-      ctrlKey: false,
+    await act(async () => {
+      fireEvent.pointerDown(view.getByLabelText("Review source"), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await Promise.resolve();
     });
     await settleAsyncRender();
     const menuText = textContent(view.baseElement);
@@ -1063,22 +1563,29 @@ describe("review diff panel", () => {
     expect(menuText.includes("Branch")).toBeTrue();
     expect(menuText.includes("Last turn")).toBeTrue();
     expect(menuText.includes("Review uncommitted changes")).toBeFalse();
-    const unstagedItem = await waitForMenuItem(view.baseElement as HTMLElement, "Unstaged");
-    fireEvent.click(unstagedItem);
-    await settleAsyncRender();
+    const unstagedItem = await waitForMenuItem(
+      view.baseElement as HTMLElement,
+      "Unstaged",
+    );
+    await clickReviewMenuItem(unstagedItem);
 
-    await waitForGitReviewDiffCall();
-    expect(invokeCalls.some((call) => call[0] === "git:review:diff")).toBeTrue();
-    expect(invokeCalls.some((call) => call[0] === "codex:review:start")).toBeFalse();
+    await waitForGitReviewSnapshotCall();
+    expect(
+      invokeCalls.some((call) => call[0] === "git:review:diff"),
+    ).toBeTrue();
+    expect(
+      invokeCalls.some((call) => call[0] === "codex:review:start"),
+    ).toBeFalse();
   });
 
   test("renders Codex staged empty state and switches to branch diff from its action", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown, input: unknown) => {
       if (channel !== "git:review:diff") return null;
-      const source = typeof input === "object" && input !== null && "source" in input
-        ? (input as { source?: string }).source
-        : "staged";
+      const source =
+        typeof input === "object" && input !== null && "source" in input
+          ? (input as { source?: string }).source
+          : "staged";
       return {
         cwd: "/tmp/codex",
         source,
@@ -1103,40 +1610,55 @@ describe("review diff panel", () => {
       </NodexTooltipProvider>,
     );
 
-    await waitForGitReviewDiffCall();
+    await waitForGitReviewSnapshotCall();
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("No staged changes")).toBeTrue();
-    expect(textContent(view.container).includes("Accept edits to stage them")).toBeTrue();
+    expect(
+      textContent(view.container).includes("No staged changes"),
+    ).toBeTrue();
+    expect(
+      textContent(view.container).includes("Accept edits to stage them"),
+    ).toBeTrue();
     expect(textContent(view.container).includes("View branch diff")).toBeTrue();
-    expect(view.getByPlaceholderText("Filter files…").getAttribute("placeholder")).toBe("Filter files…");
-    expect(textContent(view.container).includes("No matching files")).toBeTrue();
+    expect(
+      view.getByPlaceholderText("Filter files…").getAttribute("placeholder"),
+    ).toBe("Filter files…");
+    expect(
+      textContent(view.container).includes("No matching files"),
+    ).toBeTrue();
 
-    fireEvent.click(view.getByText("View branch diff"));
+    await dispatchReviewEvent(() => {
+      fireEvent.click(view.getByText("View branch diff"));
+    });
     await waitFor(() => {
       const hasBranchDiffRequest = invokeCalls.some((call) => {
-        if (call[0] !== "git:review:diff") return false;
+        if (call[0] !== "git:review:snapshot") return false;
         const input = call[1];
-        return typeof input === "object"
-          && input !== null
-          && "source" in input
-          && (input as { source?: unknown }).source === "branch";
+        return (
+          typeof input === "object" &&
+          input !== null &&
+          "source" in input &&
+          (input as { source?: unknown }).source === "branch"
+        );
       });
       if (!hasBranchDiffRequest) {
-        throw new Error("Expected branch review diff request.");
+        throw new Error("Expected branch review snapshot request.");
       }
     });
 
-    expect(invokeCalls.some((call) => call[0] === "codex:review:start")).toBeFalse();
+    expect(
+      invokeCalls.some((call) => call[0] === "codex:review:start"),
+    ).toBeFalse();
   });
 
   test("renders Codex unstaged empty state copy", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown, input: unknown) => {
       if (channel !== "git:review:diff") return null;
-      const source = typeof input === "object" && input !== null && "source" in input
-        ? (input as { source?: string }).source
-        : "unstaged";
+      const source =
+        typeof input === "object" && input !== null && "source" in input
+          ? (input as { source?: string }).source
+          : "unstaged";
       return {
         cwd: "/tmp/codex",
         source,
@@ -1160,18 +1682,27 @@ describe("review diff panel", () => {
       </NodexTooltipProvider>,
     );
 
-    await waitForGitReviewDiffCall();
+    await waitForGitReviewSnapshotCall();
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("No unstaged changes")).toBeTrue();
-    expect(textContent(view.container).includes("Code changes will appear here")).toBeTrue();
+    expect(
+      textContent(view.container).includes("No unstaged changes"),
+    ).toBeTrue();
+    expect(
+      textContent(view.container).includes("Code changes will appear here"),
+    ).toBeTrue();
     expect(textContent(view.container).includes("View branch diff")).toBeTrue();
-    expect(textContent(view.container).includes("The latest diffs are no longer available.")).toBeFalse();
+    expect(
+      textContent(view.container).includes(
+        "The latest diffs are no longer available.",
+      ),
+    ).toBeFalse();
   });
 
   test("renders Codex last-turn committed-or-reverted empty state when a stale diff has no files", async () => {
     const conversation = buildConversation();
-    conversation.turns[0]!.diff = "diff payload retained but no renderable file entries";
+    conversation.turns[0]!.diff =
+      "diff payload retained but no renderable file entries";
 
     const view = render(
       <NodexTooltipProvider>
@@ -1188,10 +1719,24 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("No file changes yet")).toBeTrue();
-    expect(textContent(view.container).includes("The last turn was committed or reverted.")).toBeTrue();
-    expect(textContent(view.container).includes("The latest diffs are no longer available.")).toBeFalse();
-    expect(textContent(view.container).includes("Changes in this project will appear here.")).toBeFalse();
+    expect(
+      textContent(view.container).includes("No file changes yet"),
+    ).toBeTrue();
+    expect(
+      textContent(view.container).includes(
+        "The last turn was committed or reverted.",
+      ),
+    ).toBeTrue();
+    expect(
+      textContent(view.container).includes(
+        "The latest diffs are no longer available.",
+      ),
+    ).toBeFalse();
+    expect(
+      textContent(view.container).includes(
+        "Changes in this project will appear here.",
+      ),
+    ).toBeFalse();
     expect(textContent(view.container).includes("View branch diff")).toBeTrue();
   });
 
@@ -1211,10 +1756,23 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("No file changes yet")).toBeTrue();
-    expect(textContent(view.container).includes("The latest diffs are no longer available.")).toBeTrue();
-    expect(textContent(view.container).includes("The last turn was committed or reverted.")).toBeFalse();
-    const illustrationPath = view.container.querySelector('svg[viewBox="0 0 66 73"] path')?.getAttribute("d") ?? "";
+    expect(
+      textContent(view.container).includes("No file changes yet"),
+    ).toBeTrue();
+    expect(
+      textContent(view.container).includes(
+        "The latest diffs are no longer available.",
+      ),
+    ).toBeTrue();
+    expect(
+      textContent(view.container).includes(
+        "The last turn was committed or reverted.",
+      ),
+    ).toBeFalse();
+    const illustrationPath =
+      view.container
+        .querySelector('svg[viewBox="0 0 66 73"] path')
+        ?.getAttribute("d") ?? "";
     expect(illustrationPath.startsWith("M20.4622 0.247806")).toBeTrue();
   });
 
@@ -1226,7 +1784,8 @@ describe("review diff panel", () => {
       return {
         cwd: "/tmp/codex",
         source: "unstaged",
-        patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+        patch:
+          "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
         files: [],
         isGitRepository: true,
         baseRef: null,
@@ -1249,28 +1808,44 @@ describe("review diff panel", () => {
     );
 
     await settleAsyncRender();
-    fireEvent.pointerDown(view.getByLabelText("Review options"), {
-      button: 0,
-      ctrlKey: false,
-    });
-    await settleAsyncRender();
+    await waitForGitReviewDiffCall();
+    await openReviewOptionsMenu(view);
 
-    expect(Boolean(view.baseElement.textContent?.includes("Review uncommitted changes"))).toBeFalse();
-    expect(Boolean(view.baseElement.textContent?.includes("Review against a base branch"))).toBeFalse();
-    expect(Boolean(view.baseElement.textContent?.includes("Copy git apply command"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Enable word wrap"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Disable word diffs"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Enable rich preview"))).toBeTrue();
-    expect(Boolean(view.baseElement.textContent?.includes("Don't load full files"))).toBeTrue();
+    expect(
+      Boolean(
+        view.baseElement.textContent?.includes("Review uncommitted changes"),
+      ),
+    ).toBeFalse();
+    expect(
+      Boolean(
+        view.baseElement.textContent?.includes("Review against a base branch"),
+      ),
+    ).toBeFalse();
+    expect(
+      Boolean(view.baseElement.textContent?.includes("Copy git apply command")),
+    ).toBeTrue();
+    expect(
+      Boolean(view.baseElement.textContent?.includes("Enable word wrap")),
+    ).toBeTrue();
+    expect(
+      Boolean(view.baseElement.textContent?.includes("Disable word diffs")),
+    ).toBeTrue();
+    expect(
+      Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
+    ).toBeTrue();
+    expect(
+      Boolean(view.baseElement.textContent?.includes("Don't load full files")),
+    ).toBeTrue();
   });
 
   test("prefers the explicit project workspace path for git-backed review sources", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown, payload: unknown) => {
       if (channel !== "git:review:diff") return null;
-      const cwd = typeof payload === "object" && payload !== null && "cwd" in payload
-        ? (payload as { cwd: string }).cwd
-        : "";
+      const cwd =
+        typeof payload === "object" && payload !== null && "cwd" in payload
+          ? (payload as { cwd: string }).cwd
+          : "";
       return {
         cwd,
         source: "unstaged",
@@ -1295,16 +1870,19 @@ describe("review diff panel", () => {
     );
 
     await settleAsyncRender();
-    await waitForGitReviewDiffCall();
+    await waitForGitReviewSnapshotCall();
 
-    const snapshotCall = invokeCalls.find((call) => call[0] === "git:review:diff");
+    const snapshotCall = invokeCalls.find(
+      (call) => call[0] === "git:review:snapshot",
+    );
     if (!snapshotCall) {
       throw new Error("Expected git-backed review to request a snapshot.");
     }
     const payload = snapshotCall[1];
-    const cwd = typeof payload === "object" && payload !== null && "cwd" in payload
-      ? (payload as { cwd: string }).cwd
-      : "";
+    const cwd =
+      typeof payload === "object" && payload !== null && "cwd" in payload
+        ? (payload as { cwd: string }).cwd
+        : "";
     expect(cwd).toBe("/tmp/storybook/large-diff");
   });
 
@@ -1315,7 +1893,8 @@ describe("review diff panel", () => {
         return {
           cwd: "/tmp/codex",
           source: "unstaged",
-          patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+          patch:
+            "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
           files: [buildGitSummary("src/git.ts")],
           isGitRepository: true,
           baseRef: null,
@@ -1356,20 +1935,20 @@ describe("review diff panel", () => {
       }
     });
 
-    expect(invokeCalls.some((call) => call[0] === "git:review:file-contents")).toBeTrue();
-    fireEvent.pointerDown(view.getByLabelText("Review options"), {
-      button: 0,
-      ctrlKey: false,
-    });
-    await settleAsyncRender();
-    expect(Boolean(view.baseElement.textContent?.includes("Enable rich preview"))).toBeTrue();
+    expect(
+      invokeCalls.some((call) => call[0] === "git:review:file-contents"),
+    ).toBeTrue();
+    await openReviewOptionsMenu(view);
+    expect(
+      Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
+    ).toBeTrue();
   });
 
   test("builds last-turn added file full contents from the patch without reading the workspace file", async () => {
     mockInvokeImpl = async (channel: unknown) => {
       if (channel === "read-file") {
         return {
-          content: "export const source = \"workspace\";\n",
+          content: 'export const source = "workspace";\n',
           binary: false,
           truncated: false,
         };
@@ -1384,7 +1963,7 @@ describe("review diff panel", () => {
       "+++ b/src/created.ts",
       "@@ -0,0 +1,2 @@",
       "+export const created = true;",
-      "+export const source = \"patch\";",
+      '+export const source = "patch";',
       "",
     ].join("\n");
 
@@ -1404,13 +1983,19 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitFor(() => {
       if (!view.container.querySelector('[data-multi-file-diff="true"]')) {
-        throw new Error("Expected added last-turn file to use full-file diff rendering.");
+        throw new Error(
+          "Expected added last-turn file to use full-file diff rendering.",
+        );
       }
     });
 
-    const fullDiff = view.container.querySelector('[data-multi-file-diff="true"]');
+    const fullDiff = view.container.querySelector(
+      '[data-multi-file-diff="true"]',
+    );
     expect(fullDiff?.getAttribute("data-old-file-contents")).toBe("");
-    expect(fullDiff?.getAttribute("data-new-file-contents")).toBe("export const created = true;\nexport const source = \"patch\";\n");
+    expect(fullDiff?.getAttribute("data-new-file-contents")).toBe(
+      'export const created = true;\nexport const source = "patch";\n',
+    );
     expect(invokeCalls.some((call) => call[0] === "read-file")).toBeFalse();
   });
 
@@ -1444,7 +2029,12 @@ describe("review diff panel", () => {
     view.unmount();
     await waitPastGitReviewBatchDelay();
 
-    expect(invokeCalls.some((call) => call[0] === "git:review:diff")).toBeFalse();
+    expect(
+      invokeCalls.some((call) => call[0] === "git:review:snapshot"),
+    ).toBeFalse();
+    expect(
+      invokeCalls.some((call) => call[0] === "git:review:diff"),
+    ).toBeFalse();
   });
 
   test("starts commit and pull-request prompts from the parity action buttons", async () => {
@@ -1454,7 +2044,8 @@ describe("review diff panel", () => {
         return {
           cwd: "/tmp/codex",
           source: "unstaged",
-          patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+          patch:
+            "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
           files: [],
           isGitRepository: true,
           baseRef: null,
@@ -1487,13 +2078,20 @@ describe("review diff panel", () => {
         throw new Error("Expected Create PR to become enabled.");
       }
     });
-    fireEvent.click(view.getByLabelText("Commit or push"));
-    fireEvent.click(view.getByLabelText("Create PR"));
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Commit or push"));
+      fireEvent.click(view.getByLabelText("Create PR"));
+      await Promise.resolve();
+    });
     await settleAsyncRender();
 
-    const turnStartCalls = invokeCalls.filter((call) => call[0] === "codex:turn:start");
+    const turnStartCalls = invokeCalls.filter(
+      (call) => call[0] === "codex:turn:start",
+    );
     expect(turnStartCalls.length).toBe(2);
-    expect(String(turnStartCalls[0]?.[2]).includes("Commit or push")).toBeTrue();
+    expect(
+      String(turnStartCalls[0]?.[2]).includes("Commit or push"),
+    ).toBeTrue();
     expect(String(turnStartCalls[1]?.[2]).includes("pull request")).toBeTrue();
   });
 
@@ -1504,7 +2102,8 @@ describe("review diff panel", () => {
       return {
         cwd: "/tmp/codex",
         source: "unstaged",
-        patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+        patch:
+          "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
         files: [],
         isGitRepository: true,
         baseRef: null,
@@ -1525,11 +2124,8 @@ describe("review diff panel", () => {
     );
 
     await settleAsyncRender();
-    fireEvent.pointerDown(view.getByLabelText("Review options"), {
-      button: 0,
-      ctrlKey: false,
-    });
-    await settleAsyncRender();
+    await waitForGitReviewDiffCall();
+    await openReviewOptionsMenu(view);
     await waitFor(() => {
       const menuItems = Array.from(
         view.baseElement.ownerDocument.querySelectorAll('[role="menuitem"]'),
@@ -1542,26 +2138,64 @@ describe("review diff panel", () => {
     const menuItems = Array.from(
       view.baseElement.ownerDocument.querySelectorAll('[role="menuitem"]'),
     ) as HTMLElement[];
-    const optionLabels = menuItems.map((node) => (node.textContent ?? "").trim());
+    const optionLabels = menuItems.map((node) =>
+      (node.textContent ?? "").trim(),
+    );
 
-    expect(optionLabels.join("|")).toBe("Refresh|Enable word wrap|Collapse all diffs|Don't load full files|Enable rich preview|Disable word diffs|Hide white space|Copy git apply command");
-    expect(menuItems.every((node) => node.querySelector("svg") !== null)).toBeTrue();
-    expect(menuItems.some((node) => node.textContent?.includes("Review uncommitted changes"))).toBeFalse();
-    expect(menuItems.some((node) => node.textContent?.includes("Review against a base branch"))).toBeFalse();
-    expect(menuItems.some((node) => node.textContent?.includes("Wrap lines"))).toBeFalse();
-    expect(menuItems.some((node) => node.textContent?.includes("Hide whitespace"))).toBeFalse();
-    expect(menuItems.some((node) => node.textContent?.includes("Unified"))).toBeFalse();
+    expect(optionLabels.join("|")).toBe(
+      "Refresh|Enable word wrap|Collapse all diffs|Don't load full files|Enable rich preview|Disable word diffs|Hide white space|Copy git apply command",
+    );
+    expect(
+      menuItems.every((node) => node.querySelector("svg") !== null),
+    ).toBeTrue();
+    expect(
+      menuItems.some((node) =>
+        node.textContent?.includes("Review uncommitted changes"),
+      ),
+    ).toBeFalse();
+    expect(
+      menuItems.some((node) =>
+        node.textContent?.includes("Review against a base branch"),
+      ),
+    ).toBeFalse();
+    expect(
+      menuItems.some((node) => node.textContent?.includes("Wrap lines")),
+    ).toBeFalse();
+    expect(
+      menuItems.some((node) => node.textContent?.includes("Hide whitespace")),
+    ).toBeFalse();
+    expect(
+      menuItems.some((node) => node.textContent?.includes("Unified")),
+    ).toBeFalse();
     expect(view.getByLabelText("Switch to split diff").tagName).toBe("BUTTON");
   });
 
   test("copies the git apply command from the review options menu", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const patch =
+      "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n";
     mockInvokeImpl = async (channel: unknown) => {
+      if (channel === "git:review:patch") {
+        return {
+          cwd: "/tmp/codex",
+          source: "unstaged",
+          diff: {
+            type: "success",
+            unifiedDiff: patch,
+            unifiedDiffBytes: patch.length,
+          },
+          isGitRepository: true,
+          baseRef: null,
+          currentBranch: "feature",
+          defaultBranch: "main",
+          errorMessage: null,
+        };
+      }
       if (channel !== "git:review:diff") return null;
       return {
         cwd: "/tmp/codex",
         source: "unstaged",
-        patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+        patch,
         files: [],
         isGitRepository: true,
         baseRef: null,
@@ -1584,18 +2218,23 @@ describe("review diff panel", () => {
     );
 
     await settleAsyncRender();
-    fireEvent.pointerDown(view.getByLabelText("Review options"), {
-      button: 0,
-      ctrlKey: false,
-    });
-    await settleAsyncRender();
-    fireEvent.click(await waitForMenuItem(view.baseElement, "Copy git apply command"));
-    await settleAsyncRender();
+    await waitForGitReviewSnapshotCall();
+    await openReviewOptionsMenu(view);
+    await clickReviewMenuItem(
+      await waitForMenuItem(view.baseElement, "Copy git apply command"),
+    );
+    await waitForGitReviewPatchCall();
 
     expect(clipboardWrites.length).toBe(1);
     const copiedCommand = clipboardWrites[0] ?? "";
-    expect(copiedCommand.startsWith(" (cd \"$(git rev-parse --show-toplevel)\" && git apply --3way <<'EOF'")).toBeTrue();
-    expect(copiedCommand.includes("diff --git a/src/git.ts b/src/git.ts")).toBeTrue();
+    expect(
+      copiedCommand.startsWith(
+        " (cd \"$(git rev-parse --show-toplevel)\" && git apply --3way <<'EOF'",
+      ),
+    ).toBeTrue();
+    expect(
+      copiedCommand.includes("diff --git a/src/git.ts b/src/git.ts"),
+    ).toBeTrue();
     expect(copiedCommand.endsWith("EOF\n)")).toBeTrue();
   });
 
@@ -1632,31 +2271,50 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    fireEvent.pointerDown(view.getByLabelText("Jump to file"), {
-      button: 0,
-      ctrlKey: false,
+    await dispatchReviewEvent(() => {
+      fireEvent.pointerDown(view.getByLabelText("Jump to file"), {
+        button: 0,
+        ctrlKey: false,
+      });
     });
-    await settleAsyncRender();
-    const jumpInput = view.baseElement.ownerDocument.querySelector('input[aria-label="Jump to file"]');
+    const jumpInput = view.baseElement.ownerDocument.querySelector(
+      'input[aria-label="Jump to file"]',
+    );
     if (!isDomElement(jumpInput)) {
       throw new Error("Expected jump-to-file input.");
     }
-    fireEvent.input(jumpInput, {
-      target: { value: "file-003" },
+    await dispatchReviewEvent(() => {
+      fireEvent.input(jumpInput, {
+        target: { value: "file-003" },
+      });
     });
-    const fileItem = await waitForMenuItem(view.baseElement as HTMLElement, "file-003.ts");
+    const fileItem = await waitForMenuItem(
+      view.baseElement as HTMLElement,
+      "file-003.ts",
+    );
     const fileItemText = textContent(fileItem);
     expect(fileItemText.includes("file-003.ts")).toBeTrue();
     expect(fileItemText.includes("src")).toBeTrue();
-    expect(fileItem.querySelector(".text-token-description-foreground")?.textContent).toBe("src");
-    fireEvent.click(fileItem);
-    await settleAsyncRender();
+    expect(
+      fileItem.querySelector(".text-token-description-foreground")?.textContent,
+    ).toBe("src");
+    await dispatchReviewEvent(() => {
+      fireEvent.click(fileItem);
+    });
 
-    expect(view.container.querySelector('[data-review-path="src/file-003.ts"]')).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-review-path="src/file-003.ts"]'),
+    ).not.toBeNull();
+    await settleAsyncRender();
+    await settleAsyncRender();
   });
 
   test("keeps file filtering separate from review search matching", async () => {
-    const { buildReviewSearchMatches, filterReviewFiles, buildReviewVisibleFiles } = await import("@/lib/review-diff-model");
+    const {
+      buildReviewSearchMatches,
+      filterReviewFiles,
+      buildReviewVisibleFiles,
+    } = await import("@/lib/review-diff-model");
 
     const files = [
       {
@@ -1680,14 +2338,21 @@ describe("review diff panel", () => {
     ];
 
     expect(filterReviewFiles(files as never, "").length).toBe(1);
-    expect(buildReviewSearchMatches(files as never, "review", {}).length).toBe(1);
-    expect(buildReviewVisibleFiles(files as never, null, false, true, 20).length).toBe(1);
+    expect(buildReviewSearchMatches(files as never, "review", {}).length).toBe(
+      1,
+    );
+    expect(
+      buildReviewVisibleFiles(files as never, null, false, true, 20).length,
+    ).toBe(1);
   });
 
   test("shows the codex large-diff banner in capped mode", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
 
-    const manyDiffLines = Array.from({ length: 9_100 }, (_, index) => `+line ${index}`).join("\n");
+    const manyDiffLines = Array.from(
+      { length: 9_100 },
+      (_, index) => `+line ${index}`,
+    ).join("\n");
     const conversation = {
       ...buildConversation(),
       turns: [
@@ -1709,8 +2374,11 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Large diff detected")).toBeTrue();
-    expect(textContent(view.container).includes("showing one file at a time")).toBeTrue();
+    expect(
+      textContent(view.container).includes(
+        "This diff is large, showing one file at a time",
+      ),
+    ).toBeTrue();
   });
 
   test("renders code-comment directives as anchored review annotations", async () => {
@@ -1724,7 +2392,8 @@ describe("review diff panel", () => {
         type: "message",
         kind: "assistantMessage",
         role: "assistant",
-        markdownText: '::code-comment{title="Check value" body="This line needs a stronger invariant." file="src/example.ts" start=2 end=2 priority=1}',
+        markdownText:
+          '::code-comment{title="Check value" body="This line needs a stronger invariant." file="src/example.ts" start=2 end=2 priority=1}',
         createdAt: 1,
         updatedAt: 1,
       },
@@ -1742,9 +2411,18 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Check value")).toBeTrue();
-    expect(textContent(view.container).includes("Comment on line R2")).toBeTrue();
-    expect(view.container.querySelector('[data-review-code-comments="true"]') === null).toBeTrue();
-    expect(view.container.querySelector('[data-rendered-line-annotation="additions:2"]')).not.toBeNull();
+    expect(
+      textContent(view.container).includes("Comment on line R2"),
+    ).toBeTrue();
+    expect(
+      view.container.querySelector('[data-review-code-comments="true"]') ===
+        null,
+    ).toBeTrue();
+    expect(
+      view.container.querySelector(
+        '[data-rendered-line-annotation="additions:2"]',
+      ),
+    ).not.toBeNull();
   });
 
   test("creates a local comment draft from the diff gutter utility callback", async () => {
@@ -1763,27 +2441,52 @@ describe("review diff panel", () => {
 
     expect(lastFileDiffProps?.options).not.toBeNull();
     await act(async () => {
-      (lastFileDiffProps?.options as { onLineSelectionChange?: (range: { side: "additions"; start: number; end: number }) => void })
-        ?.onLineSelectionChange?.({ side: "additions", start: 2, end: 2 });
+      (
+        lastFileDiffProps?.options as {
+          onLineSelectionChange?: (range: {
+            side: "additions";
+            start: number;
+            end: number;
+          }) => void;
+        }
+      )?.onLineSelectionChange?.({ side: "additions", start: 2, end: 2 });
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    expect(view.container.querySelector("[data-file-diff]")?.getAttribute("data-selected-lines")).toBe("additions:2-:2");
+    expect(
+      view.container
+        .querySelector("[data-file-diff]")
+        ?.getAttribute("data-selected-lines"),
+    ).toBe("additions:2-:2");
 
     await act(async () => {
-      (lastFileDiffProps?.options as { onGutterUtilityClick?: (range: { side: "additions"; start: number; end: number }) => void })
-        ?.onGutterUtilityClick?.({ side: "additions", start: 2, end: 2 });
+      (
+        lastFileDiffProps?.options as {
+          onGutterUtilityClick?: (range: {
+            side: "additions";
+            start: number;
+            end: number;
+          }) => void;
+        }
+      )?.onGutterUtilityClick?.({ side: "additions", start: 2, end: 2 });
       await Promise.resolve();
     });
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Local comment")).toBeTrue();
-    expect(textContent(view.container).includes("Comment on line R2")).toBeTrue();
-    expect(view.container.querySelector('[data-placeholder="Request change"]')).not.toBeNull();
+    expect(
+      textContent(view.container).includes("Comment on line R2"),
+    ).toBeTrue();
+    expect(
+      view.container.querySelector('[data-placeholder="Request change"]'),
+    ).not.toBeNull();
     expect(textContent(view.container).includes("Cancel")).toBeTrue();
     expect(textContent(view.container).includes("Comment")).toBeTrue();
-    expect(view.container.querySelector("[data-file-diff]")?.getAttribute("data-selected-lines")).toBe("");
+    expect(
+      view.container
+        .querySelector("[data-file-diff]")
+        ?.getAttribute("data-selected-lines"),
+    ).toBe("");
   });
-
 });

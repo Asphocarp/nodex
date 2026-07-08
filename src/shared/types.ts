@@ -39,7 +39,8 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode as CodexAppServerThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 
-export type Priority = "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
+export type Priority =
+  "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
 
 export type Estimate = "xs" | "s" | "m" | "l" | "xl";
 export type ResourceBlockKind = "text" | "file" | "folder";
@@ -60,8 +61,7 @@ import type { CardStatus } from "./card-status";
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
 
 export type RecurrenceEndCondition =
-  | { type: "never" }
-  | { type: "untilDate"; untilDate: string };
+  { type: "never" } | { type: "untilDate"; untilDate: string };
 
 export interface RecurrenceConfig {
   frequency: RecurrenceFrequency;
@@ -86,10 +86,7 @@ export interface OccurrenceTimingUpdates {
 }
 
 export type OccurrenceActionSource =
-  | "calendar"
-  | "card-stage"
-  | "notification"
-  | "api";
+  "calendar" | "card-stage" | "notification" | "api";
 
 export interface CalendarOccurrence extends Card {
   cardId: string;
@@ -408,21 +405,18 @@ export interface ProjectPinnedOrderInput {
   orderedProjectIds: string[];
 }
 
-export type ProjectSessionDbView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
+export type ProjectSessionDbView =
+  "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 
 export type ProjectSessionTabKind =
-  | "db_view"
-  | "card_stage"
-  | "terminal"
-  | "browser"
-  | "review"
-  | "files";
+  "db_view" | "card_stage" | "terminal" | "browser" | "review" | "files";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
   "review",
 ] as const satisfies readonly ProjectSessionTabKind[];
 
-export type ProjectSessionSingletonTabKind = typeof PROJECT_SESSION_SINGLETON_TAB_KINDS[number];
+export type ProjectSessionSingletonTabKind =
+  (typeof PROJECT_SESSION_SINGLETON_TAB_KINDS)[number];
 
 export interface ProjectSessionDbViewTabConfig {
   projectId: string;
@@ -654,7 +648,8 @@ export interface ProjectSessionSplitBranch {
   ratio: number;
 }
 
-export type ProjectSessionPanelNode = ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
+export type ProjectSessionPanelNode =
+  ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
 
 export interface ProjectSessionPanelLayoutV2 {
   version: 2;
@@ -1067,7 +1062,8 @@ export interface WorktreeEnvironmentDefinition {
   actions: WorktreeEnvironmentActionDefinition[];
 }
 
-export type WorktreeEnvironmentConfigState = "success" | "parseError" | "readError";
+export type WorktreeEnvironmentConfigState =
+  "success" | "parseError" | "readError";
 
 export interface WorktreeEnvironmentConfigRecord {
   configPath: string;
@@ -1176,7 +1172,8 @@ export interface UpdateThreadNotificationSettingsInput {
   questionsEnabled: boolean;
 }
 
-export type DesktopNotificationKind = "turn-complete" | "permission" | "question";
+export type DesktopNotificationKind =
+  "turn-complete" | "permission" | "question";
 
 export interface DesktopNotificationAction {
   id: string;
@@ -1260,7 +1257,8 @@ export interface CanvasData {
   updated: string;
 }
 
-export type CodexThreadStatusType = "notLoaded" | "idle" | "systemError" | "active";
+export type CodexThreadStatusType =
+  "notLoaded" | "idle" | "systemError" | "active";
 export type CodexThreadActiveFlag = "waitingOnApproval" | "waitingOnUserInput";
 export type CodexThreadRuntimeStatus = CodexAppServerThreadStatus;
 
@@ -1293,8 +1291,7 @@ export interface CodexRateLimitsSnapshot {
 }
 
 export type CodexAccountIdentity =
-  | { type: "apiKey" }
-  | { type: "chatgpt"; email: string; planType: string };
+  { type: "apiKey" } | { type: "chatgpt"; email: string; planType: string };
 
 export interface CodexAccountSnapshot {
   account: CodexAccountIdentity | null;
@@ -1374,7 +1371,8 @@ export interface CodexScheduledAutomationChangedEvent {
   reason: "upsert" | "delete";
 }
 
-export type CodexConversationResumeState = "needs_resume" | "resuming" | "resumed";
+export type CodexConversationResumeState =
+  "needs_resume" | "resuming" | "resumed";
 
 export interface CodexConversationSource {
   parentThreadId: string | null;
@@ -1382,8 +1380,10 @@ export interface CodexConversationSource {
   sideConversationParentNavigationPath?: string | null;
 }
 
-export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
-export type CodexThreadDetailLevel = "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_EXECUTION";
+export type CodexReasoningEffort =
+  "minimal" | "low" | "medium" | "high" | "xhigh";
+export type CodexThreadDetailLevel =
+  "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_EXECUTION";
 export type CodexServiceTier = "fast" | null;
 export type CodexApprovalPolicy = CodexAppServerAskForApproval;
 export type CodexApprovalsReviewer = CodexAppServerApprovalsReviewer;
@@ -1642,8 +1642,10 @@ export interface CodexOwnerAppServerRequestInput {
   };
 }
 
-export type CodexPermissionPreset = "read-only" | "auto" | "guardian-approvals" | "full-access";
-export type CodexPermissionMode = "auto" | "guardian-approvals" | "full-access" | "custom";
+export type CodexPermissionPreset =
+  "read-only" | "auto" | "guardian-approvals" | "full-access";
+export type CodexPermissionMode =
+  "auto" | "guardian-approvals" | "full-access" | "custom";
 
 export interface CodexPermissionConfigTarget {
   source: "user" | "project" | "none";
@@ -1663,7 +1665,8 @@ export interface CodexPermissionState {
   customDescription: string | null;
 }
 
-export type CodexTurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
+export type CodexTurnStatus =
+  "inProgress" | "completed" | "interrupted" | "failed";
 
 export interface CodexTokenUsageBreakdown {
   totalTokens: number;
@@ -1751,12 +1754,27 @@ export type CodexSemanticItemKind =
   | "planImplementation"
   | "systemEvent";
 
-export type CodexToolCallSubtype = "mcp" | "dynamic" | "webSearch" | "generic" | "command" | "fileChange";
-export type CodexItemStatus = "inProgress" | "completed" | "failed" | "declined" | "interrupted";
+export type CodexToolCallSubtype =
+  "mcp" | "dynamic" | "webSearch" | "generic" | "command" | "fileChange";
+export type CodexItemStatus =
+  "inProgress" | "completed" | "failed" | "declined" | "interrupted";
 export type CodexTranscriptEntryKind = CodexItemNormalizedKind;
 export type CodexTranscriptEntryStatus = CodexItemStatus;
-export type CodexTranscriptEntrySource = "live" | "bootstrap" | "replay" | "optimistic";
+export type CodexTranscriptEntrySource =
+  "live" | "bootstrap" | "replay" | "optimistic";
 export type CodexFileChangeKind = "add" | "delete" | "update";
+export type ReviewSkipReason =
+  "binary" | "tooLarge" | "invalidText" | "unsupported";
+
+export interface ReviewFileSafety {
+  binary: boolean;
+  tooLarge: boolean;
+  invalidText: boolean;
+  renderable: boolean;
+  sizeBytes: number | null;
+  mimeType: string | null;
+  skipReason: ReviewSkipReason | null;
+}
 
 export interface CodexUserFileAttachment {
   type: "file";
@@ -1775,28 +1793,43 @@ export interface CodexUserImageAttachment {
 }
 
 export type CodexUserAttachment =
-  | CodexUserFileAttachment
-  | CodexUserImageAttachment;
+  CodexUserFileAttachment | CodexUserImageAttachment;
 
 export type ProtocolThreadItem = CodexAppServerThreadItem;
-export type ProtocolCommandExecutionItem = Extract<ProtocolThreadItem, { type: "commandExecution" }>;
-export type ProtocolMcpToolCallItem = Extract<ProtocolThreadItem, { type: "mcpToolCall" }>;
-export type ProtocolDynamicToolCallItem = Extract<ProtocolThreadItem, { type: "dynamicToolCall" }>;
-export type ProtocolDynamicToolCallOutputContentItem = CodexAppServerDynamicToolCallOutputContentItem;
+export type ProtocolCommandExecutionItem = Extract<
+  ProtocolThreadItem,
+  { type: "commandExecution" }
+>;
+export type ProtocolMcpToolCallItem = Extract<
+  ProtocolThreadItem,
+  { type: "mcpToolCall" }
+>;
+export type ProtocolDynamicToolCallItem = Extract<
+  ProtocolThreadItem,
+  { type: "dynamicToolCall" }
+>;
+export type ProtocolDynamicToolCallOutputContentItem =
+  CodexAppServerDynamicToolCallOutputContentItem;
 export type ProtocolDynamicToolCallParams = CodexAppServerDynamicToolCallParams;
-export type ProtocolDynamicToolCallResponse = CodexAppServerDynamicToolCallResponse;
+export type ProtocolDynamicToolCallResponse =
+  CodexAppServerDynamicToolCallResponse;
 export type ProtocolCommandAction = CodexAppServerCommandAction;
 export type ProtocolMcpToolCallResult = CodexAppServerMcpToolCallResult;
 export type ProtocolMcpToolCallError = CodexAppServerMcpToolCallError;
 export type ProtocolMcpResourceReadParams = CodexAppServerMcpResourceReadParams;
-export type ProtocolMcpResourceReadResponse = CodexAppServerMcpResourceReadResponse;
+export type ProtocolMcpResourceReadResponse =
+  CodexAppServerMcpResourceReadResponse;
 export type ProtocolMcpServerStatus = CodexAppServerMcpServerStatus;
-export type ProtocolListMcpServerStatusResponse = CodexAppServerListMcpServerStatusResponse;
+export type ProtocolListMcpServerStatusResponse =
+  CodexAppServerListMcpServerStatusResponse;
 export type ProtocolAppInfo = CodexAppServerAppInfo;
-export type ProtocolCommandExecutionApprovalParams = CodexAppServerCommandExecutionRequestApprovalParams;
-export type ProtocolCommandExecutionOutputDeltaNotification = CodexAppServerCommandExecutionOutputDeltaNotification;
+export type ProtocolCommandExecutionApprovalParams =
+  CodexAppServerCommandExecutionRequestApprovalParams;
+export type ProtocolCommandExecutionOutputDeltaNotification =
+  CodexAppServerCommandExecutionOutputDeltaNotification;
 export type ProtocolExecPolicyAmendment = CodexAppServerExecPolicyAmendment;
-export type ProtocolNetworkApprovalContext = CodexAppServerNetworkApprovalContext;
+export type ProtocolNetworkApprovalContext =
+  CodexAppServerNetworkApprovalContext;
 
 export type CodexCommandAction = ProtocolCommandAction;
 
@@ -1830,6 +1863,13 @@ export type CodexFileChange =
       type: "update";
       unifiedDiff: string;
       movePath: string | null;
+    }
+  | {
+      path: string;
+      type: "nonRenderable";
+      originalType: CodexFileChangeKind;
+      movePath: string | null;
+      safety: ReviewFileSafety;
     };
 
 export type CodexFileChangePatch =
@@ -1845,6 +1885,12 @@ export type CodexFileChangePatch =
       type: "update";
       unifiedDiff: string;
       movePath: string | null;
+    }
+  | {
+      type: "nonRenderable";
+      originalType: CodexFileChangeKind;
+      movePath: string | null;
+      safety: ReviewFileSafety;
     };
 
 export type CodexFileChangeMap = Record<string, CodexFileChangePatch>;
@@ -2165,7 +2211,8 @@ export interface CodexPlanImplementationServerRequest {
   createdAt: number;
 }
 
-export type CodexPlanImplementationRequest = CodexPlanImplementationServerRequest;
+export type CodexPlanImplementationRequest =
+  CodexPlanImplementationServerRequest;
 
 export interface CodexMcpElicitationOption {
   value: string;
@@ -2192,7 +2239,8 @@ export interface CodexMcpServerElicitationRequest {
 }
 
 export type CodexMcpServerElicitationAction = "accept" | "decline" | "cancel";
-export type CodexMcpServerElicitationResponse = CodexAppServerMcpServerElicitationRequestResponse;
+export type CodexMcpServerElicitationResponse =
+  CodexAppServerMcpServerElicitationRequestResponse;
 
 export interface CodexPermissionRequest {
   type: "permissionRequest";
@@ -2209,7 +2257,8 @@ export interface CodexPermissionRequest {
   createdAt: number;
 }
 
-export type CodexPermissionRequestResponse = CodexAppServerPermissionsRequestApprovalResponse;
+export type CodexPermissionRequestResponse =
+  CodexAppServerPermissionsRequestApprovalResponse;
 
 export interface CodexPendingSteer {
   steerId: string;
@@ -2239,7 +2288,8 @@ export interface CodexBackgroundTerminalRow {
   previewLine: string | null;
 }
 
-export type CodexBackgroundProcessRecordSource = "app-server" | "terminal-action";
+export type CodexBackgroundProcessRecordSource =
+  "app-server" | "terminal-action";
 
 export type CodexBackgroundProcessStatus = "running" | "not-found";
 
@@ -2276,14 +2326,19 @@ export interface CodexBackgroundProcessRunActionInput {
 }
 
 export type ReviewDiffSourceKind =
-  | "last-turn"
-  | "unstaged"
-  | "staged"
-  | "branch"
-  | "commit"
-  | "pull-request";
+  "last-turn" | "unstaged" | "staged" | "branch" | "commit" | "pull-request";
 
 export type GitReviewSource = "unstaged" | "staged" | "branch" | "commit";
+
+export interface GitReviewSnapshotRequest {
+  cwd: string;
+  source: GitReviewSource;
+  baseRef?: string | null;
+  commitSha?: string | null;
+  hideWhitespace?: boolean;
+  operationSource?: string | null;
+  requestId?: string | null;
+}
 
 export interface GitReviewBranchCommitsRequest {
   cwd: string;
@@ -2330,14 +2385,24 @@ export interface ReviewPanelTabStateV1 {
   expandedPaths: string[];
 }
 
-export type GitReviewFileStatus = "modified" | "added" | "deleted" | "renamed";
+export type GitReviewFileStatus =
+  | "modified"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "type-changed"
+  | "unmerged"
+  | "untracked";
 
 export type ReviewDiffLoadStatus =
   | "loading"
   | "loaded"
   | "load-failed"
   | "timed-out"
-  | "diff-too-large";
+  | "diff-too-large"
+  | "binary"
+  | "unsupported";
 
 export type GitApplyPatchTarget = "staged" | "unstaged";
 
@@ -2347,8 +2412,13 @@ export interface GitReviewFileSummary {
   path: string;
   previousPath: string | null;
   status: GitReviewFileStatus;
-  additions: number;
-  deletions: number;
+  rawStatus: string | null;
+  oldOid: string | null;
+  newOid: string | null;
+  revision: string | null;
+  additions: number | null;
+  deletions: number | null;
+  safety: ReviewFileSafety;
 }
 
 export interface GitReviewSnapshot {
@@ -2367,7 +2437,6 @@ export interface ReviewDiffEntry extends GitReviewFileSummary {
   diff: string;
   loadStatus: ReviewDiffLoadStatus;
   renderKey: string;
-  revision: string | null;
   diffBytes: number;
   diffError: string | null;
   canApplyPatchActions: boolean;
@@ -2395,6 +2464,40 @@ export interface ReviewDiffResult {
   source: GitReviewSource;
   patch: string;
   files: ReviewDiffEntry[];
+  isGitRepository: boolean;
+  baseRef: string | null;
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  errorMessage: string | null;
+}
+
+export interface GitReviewPatchRequest {
+  cwd: string;
+  source: GitReviewSource;
+  baseRef?: string | null;
+  baseBranch?: string | null;
+  commitSha?: string | null;
+  hostConfig?: Record<string, unknown> | null;
+  operationSource?: string | null;
+  requestId?: string | null;
+}
+
+export type GitReviewPatchDiff =
+  | {
+      type: "success";
+      unifiedDiff: string;
+      unifiedDiffBytes: number;
+    }
+  | {
+      type: "error";
+      errorMessage: string | null;
+      outputLimitExceeded: boolean;
+    };
+
+export interface GitReviewPatchResult {
+  cwd: string;
+  source: GitReviewSource;
+  diff: GitReviewPatchDiff;
   isGitRepository: boolean;
   baseRef: string | null;
   currentBranch: string | null;
@@ -2571,6 +2674,9 @@ export interface GitReviewFileContents {
   newText: string | null;
   oldExists: boolean;
   newExists: boolean;
+  oldStatus: ReviewDiffLoadStatus;
+  newStatus: ReviewDiffLoadStatus;
+  safety: ReviewFileSafety;
   errorMessage: string | null;
 }
 
@@ -2634,11 +2740,7 @@ export interface GitReviewBlameResult {
 }
 
 export type GhCliAvailability =
-  | "available"
-  | "missing-gh"
-  | "not-authenticated"
-  | "missing-remote"
-  | "error";
+  "available" | "missing-gh" | "not-authenticated" | "missing-remote" | "error";
 
 export interface GhCliStatusResult {
   cwd: string;
@@ -2751,9 +2853,7 @@ export interface GhPrReplyCommentInput extends GhPrBaseCommentInput {
 }
 
 export type GhPrCommentInput =
-  | GhPrIssueCommentInput
-  | GhPrInlineCommentInput
-  | GhPrReplyCommentInput;
+  GhPrIssueCommentInput | GhPrInlineCommentInput | GhPrReplyCommentInput;
 
 export interface GhPrCommentResult {
   cwd: string;
@@ -2860,11 +2960,7 @@ export interface CodexConversationStateUpdate {
 }
 
 export type CodexThreadStartProgressPhase =
-  | "creatingWorktree"
-  | "runningSetup"
-  | "startingThread"
-  | "ready"
-  | "failed";
+  "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
 
 export type CodexThreadStartProgressStream = "info" | "stdout" | "stderr";
 
@@ -2883,7 +2979,11 @@ export type CodexEvent =
     }
   | { type: "turn"; turn: CodexTurnSummary }
   | { type: "approvalRequested"; request: CodexApprovalRequest }
-  | { type: "approvalResolved"; requestId: string; decision: CodexApprovalDecision }
+  | {
+      type: "approvalResolved";
+      requestId: string;
+      decision: CodexApprovalDecision;
+    }
   | { type: "userInputRequested"; request: CodexUserInputRequest }
   | { type: "userInputResolved"; requestId: string }
   | {
@@ -2902,9 +3002,7 @@ export type CodexEvent =
   | { type: "error"; message: string; detail?: string };
 
 export type CodexPendingThreadRequest =
-  | CodexApprovalRequest
-  | CodexUserInputRequest
-  | CodexPlanImplementationRequest;
+  CodexApprovalRequest | CodexUserInputRequest | CodexPlanImplementationRequest;
 
 export type CodexSharedObject =
   | {
@@ -3182,13 +3280,12 @@ export type CodexThreadOwnerNotificationMethod =
   | "model/rerouted"
   | "error";
 
-export type CodexMcpNotificationMessage =
-  {
-    type: "mcpNotification";
-    hostId: string;
-    method: "item/commandExecution/outputDelta";
-    params: ProtocolCommandExecutionOutputDeltaNotification;
-  };
+export type CodexMcpNotificationMessage = {
+  type: "mcpNotification";
+  hostId: string;
+  method: "item/commandExecution/outputDelta";
+  params: ProtocolCommandExecutionOutputDeltaNotification;
+};
 
 export type CodexHostMessage =
   | {
