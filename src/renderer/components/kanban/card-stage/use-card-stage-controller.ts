@@ -116,6 +116,7 @@ interface UseCardStageControllerResult {
   handleScroll: () => void;
   handleTitleChange: (value: string) => void;
   handleTitleBlur: () => void;
+  handleDescriptionPendingChange: () => void;
   handleDescriptionChange: (value: string) => void;
   handleDescriptionBlur: () => void;
   handlePriorityChange: (next: Priority | null) => void;
@@ -611,6 +612,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
 
       const titleDirty = draftDirtyRef.current.title;
       const descriptionDirty = draftDirtyRef.current.description;
+      const descriptionHasPendingEditorChange = descriptionFlushHandleRef.current?.hasPendingChange() ?? false;
       const assigneeDirty = draftDirtyRef.current.assignee;
       const agentStatusDirty = draftDirtyRef.current.agentStatus;
 
@@ -618,7 +620,10 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
         draftDirtyRef.current.title = false;
         setTitle((current) => (current === card.title ? current : card.title));
       }
-      if (!descriptionDirty || state.description === card.description) {
+      if (
+        !descriptionHasPendingEditorChange
+        && (!descriptionDirty || state.description === card.description)
+      ) {
         draftDirtyRef.current.description = false;
         latestDescriptionRef.current = card.description ?? "";
         lastPersistedDescriptionRef.current = card.description ?? "";
@@ -945,6 +950,10 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     },
     [card, columnId, enqueueDescriptionSave, markDraftDirty, onPatch],
   );
+
+  const handleDescriptionPendingChange = useCallback(() => {
+    markDraftDirty("description");
+  }, [markDraftDirty]);
 
   const flushDescriptionSave = useCallback((value: string) => {
     if (descriptionSaveTimerRef.current) {
@@ -1452,6 +1461,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     handleScroll,
     handleTitleChange,
     handleTitleBlur,
+    handleDescriptionPendingChange,
     handleDescriptionChange,
     handleDescriptionBlur,
     handlePriorityChange,

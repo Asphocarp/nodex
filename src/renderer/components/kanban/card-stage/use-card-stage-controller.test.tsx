@@ -297,6 +297,42 @@ describe("useCardStageController", () => {
     result.view.unmount();
   });
 
+  test("pending raw editor description transaction keeps same-card props from replacing local draft", async () => {
+    resetCardDraftStoreForTest();
+    const baseCard = buildCard({ revision: 1 });
+    const props = buildProps({ card: baseCard });
+    const result = renderController(props);
+    await settleAsyncRender();
+
+    result.controller.descriptionFlushHandleRef.current = {
+      flushPendingChange: () => "Local body",
+      hasPendingChange: () => true,
+    };
+
+    act(() => {
+      result.controller.handleDescriptionPendingChange();
+    });
+
+    result.rerender(buildProps({
+      ...props,
+      card: buildCard({
+        description: "Remote body",
+        revision: 2,
+      }),
+    }));
+    await settleAsyncRender();
+
+    expect(result.controller.description).toBe("Persisted body");
+
+    act(() => {
+      result.controller.handleDescriptionChange("Local body");
+    });
+    await settleAsyncRender();
+
+    expect(result.controller.description).toBe("Local body");
+    result.view.unmount();
+  });
+
   test("conflict overwrite sends the current flushed description draft", async () => {
     resetCardDraftStoreForTest();
     const updatesSeen: Partial<CardInput>[] = [];

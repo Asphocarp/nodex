@@ -52,11 +52,12 @@ After a successful worker ack, main republishes the captured `BoardChangeEvent[]
 
 ### Dirty-First Change Handling
 
-`NfmEditor` no longer serializes the full document inside the BlockNote `onChange` handler. Instead, ordinary editor changes call the serialized change emitter's `schedule()` method. Scheduling only records that there is pending work and resets the debounce timer.
+`NfmEditor` no longer serializes the full document inside the BlockNote `onChange` handler. Instead, ordinary editor changes notify Card Stage that a local transaction is pending, then call the serialized change emitter's `schedule()` method. Scheduling only records that there is pending work and resets the debounce timer.
 
 This keeps the per-transaction path small:
 
 - ignore changes while external sync/drop suppression is active
+- mark the Card Stage description draft dirty before serialization finishes
 - mark the editor as pending
 - restart the debounce timer
 
@@ -85,6 +86,8 @@ This avoids stale pending work being emitted after the editor has been replaced 
 
 Before an external content sync calls `replaceBlocks`, it must compare the incoming persisted NFM against the editor's current serialized NFM. If they are equal, the editor should only advance its emitted-content bookkeeping and skip the replacement. This keeps save acknowledgements, same-revision hydrations, and equivalent cache replies from replacing the ProseMirror document and disturbing selection or focus.
 
+If the editor is focused, composing IME text, or holding a pending serialized change, external content sync must defer instead of cancelling the pending emitter or replacing the document. The active editor owns the local draft. A deferred inbound value may replay only after the editor is safe and the local document still matches the baseline captured at deferral; if a local pending/composition edit caused the defer, the local draft wins and remote divergence is handled by the existing save conflict/overwrite flow.
+
 ### Discrete Immediate Operations
 
 Some editor operations need durable NFM immediately. These paths cancel or flush pending work and serialize synchronously as part of the operation:
@@ -95,9 +98,9 @@ Some editor operations need durable NFM immediately. These paths cancel or flush
 - card import drop
 - projected-card drop into the editor
 - inline-view card drop import
-- external content sync
+- safe external content sync
 
-The rule is: if an operation is discrete, structural, or needs a precise before/after document snapshot, it must not wait for the draft debounce.
+The rule is: if an operation is discrete, structural, or needs a precise before/after document snapshot, it must not wait for the draft debounce. External content sync is the exception: it may be structural, but it must first prove that no active local edit window owns the editor.
 
 ## Card Stage Flush Interface
 
@@ -227,6 +230,8 @@ The durable write layer is separate from both renderer timers. Card Stage may en
 - Explicit lifecycle reads must call `flushPendingChange()` before reading `description`.
 - Equal serialized output must not re-emit.
 - Equal incoming external content must not call `replaceBlocks`.
+- Focused, composing, or pending `NfmEditor` instances must not accept external `replaceBlocks`.
+- Old save acknowledgements matching `lastEmittedContent` must not cancel a newer pending local emit.
 - Suppressed external sync/drop paths must not emit user changes.
 - Card Stage save/has-changes logic must read the latest description ref, not stale React state.
 - Save requests must not clear freeform dirty flags until the returned card matches the current draft.
@@ -262,6 +267,8 @@ Card Stage behavior is covered by `use-card-stage-controller.test.tsx` and compo
 - panel-tab deactivation flushes and persists pending description content
 - inactive retained Card Stages do not own shared close/persist/session refs
 - equal external content does not trigger an editor document replacement
+- active focused/pending NFM editors defer different external content without cancelling pending emission
+- same-card prop sync does not overwrite description state while the raw editor has an unserialized pending change
 - scoped draft overlays still update matching Kanban previews
 - `CardStage` passes the flush handle into `NfmEditor`
 
@@ -283,7 +290,7 @@ Use this decision rule:
 
 - If the operation is ordinary text input, schedule serialized emission.
 - If the operation changes document structure, moves blocks, imports cards, sends blocks elsewhere, toggles raw view, saves, closes, or switches cards, flush or serialize immediately before reading durable NFM.
-- If the operation is programmatic external sync, cancel pending user-style emission and update the editor under suppression.
+- If the operation is programmatic external sync, replace under suppression only after checking that the editor is not focused, composing, or pending.
 
 When adding a new Card Stage path that reads `description`, ask whether a pending editor transaction could exist. If yes, call the flush handle first and read from `latestDescriptionRef`.
 

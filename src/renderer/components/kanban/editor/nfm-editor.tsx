@@ -34,7 +34,11 @@ import {
 } from "@/components/ui/popover";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import { createNfmSerializedChangeEmitter } from "./nfm-serialized-change-emitter";
-import { shouldReplaceNfmExternalContent } from "./nfm-external-content-sync";
+import {
+  resolveNfmDeferredExternalContentSyncDecision,
+  resolveNfmExternalContentSyncDecision,
+  type NfmDeferredExternalContentSync,
+} from "./nfm-external-content-sync";
 import type { Card, CodexPromptInput } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
 import { NfmSlashMenu } from "./nfm-slash-menu";
@@ -198,12 +202,25 @@ interface ActiveChipEdit {
   anchorRect: DOMRect;
 }
 
+interface ExternalSyncActivity {
+  hasPendingLocalChange: boolean;
+  isComposing: boolean;
+  isFocusedWithinEditor: boolean;
+  hasActiveLocalEdit: boolean;
+}
+
+interface NfmEditorFocusRuntime {
+  isFocused?: () => boolean;
+  isWithinEditor?: (element: Element) => boolean;
+}
+
 interface NfmEditorProps {
   projectId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
   content: string;
   onChange: (nfm: string) => void;
+  onPendingChange?: () => void;
   onBlur: () => void;
   flushHandleRef?: MutableRefObject<CardStageDescriptionFlushHandle | null>;
   sourceCardContext?: {
@@ -517,6 +534,7 @@ export function NfmEditor({
   projectWorkspacePath,
   content,
   onChange,
+  onPendingChange,
   onBlur,
   flushHandleRef,
   sourceCardContext,
@@ -578,6 +596,11 @@ export function NfmEditor({
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  const onPendingChangeRef = useRef(onPendingChange);
+  useEffect(() => {
+    onPendingChangeRef.current = onPendingChange;
+  }, [onPendingChange]);
 
   const onBlurRef = useRef(onBlur);
   useEffect(() => {
@@ -872,6 +895,129 @@ export function NfmEditor({
   const cancelScheduledSerializedEmit = useCallback(() => {
     serializedChangeEmitterRef.current?.cancel();
   }, []);
+
+  const isComposingRef = useRef(false);
+  const deferredExternalContentSyncRef = useRef<NfmDeferredExternalContentSync | null>(null);
+  const queuedExternalReplaceIdRef = useRef(0);
+
+  const getExternalSyncActivity = useCallback((): ExternalSyncActivity => {
+    const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
+    const hasPendingLocalChange = serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
+    const isComposing = isComposingRef.current;
+    const activeElement = document.activeElement;
+    const isFocusedWithinEditor = Boolean(
+      runtimeEditor.isFocused?.()
+      || (activeElement instanceof Element && runtimeEditor.isWithinEditor?.(activeElement)),
+    );
+
+    return {
+      hasPendingLocalChange,
+      isComposing,
+      isFocusedWithinEditor,
+      hasActiveLocalEdit: hasPendingLocalChange || isComposing || isFocusedWithinEditor,
+    };
+  }, [editor]);
+
+  const scheduleExternalContentReplacement = useCallback((nextContent: string) => {
+    if (!editor) return () => undefined;
+
+    cancelScheduledSerializedEmit();
+    deferredExternalContentSyncRef.current = null;
+    const replaceId = queuedExternalReplaceIdRef.current + 1;
+    queuedExternalReplaceIdRef.current = replaceId;
+
+    // Clean up previous toggle localStorage entries
+    for (const id of toggleBlockIdsRef.current) {
+      localStorage.removeItem(`toggle-${id}`);
+    }
+    toggleBlockIdsRef.current = [];
+
+    // Compute replacement blocks synchronously (localStorage must be populated
+    // before replaceBlocks so BlockNote reads correct toggle initial states).
+    let nextBlocks: typeof editor.document | undefined;
+
+    if (!nextContent.trim()) {
+      nextBlocks = [];
+    } else {
+      const blocks = parseNfm(nextContent);
+      const toggleStates = new Map<string, boolean>();
+      const bnBlocks = nfmToBlockNote(blocks, toggleStates);
+
+      // Pre-populate localStorage for toggle state restoration
+      for (const [id, isOpen] of toggleStates) {
+        localStorage.setItem(`toggle-${id}`, isOpen ? "true" : "false");
+        toggleBlockIdsRef.current.push(id);
+      }
+
+      if (bnBlocks.length > 0) {
+        nextBlocks = bnBlocks;
+      }
+    }
+
+    if (nextBlocks === undefined) return () => undefined;
+
+    // Defer replaceBlocks to a microtask so Tiptap's ReactRenderer.flushSync
+    // (for custom block node views like toggleListInlineView) does not collide
+    // with React's active commit phase. Microtasks run before the next paint,
+    // so the update is invisible to users.
+    queueMicrotask(() => {
+      if (queuedExternalReplaceIdRef.current !== replaceId) return;
+      suppressExternalContentSyncRef.current = true;
+      try {
+        editor.transact((tr) => {
+          tr.setMeta("addToHistory", false);
+          editor.replaceBlocks(editor.document, nextBlocks);
+        });
+        lastEmittedRef.current = nextContent;
+      } finally {
+        suppressExternalContentSyncRef.current = false;
+      }
+    });
+
+    return () => {
+      if (queuedExternalReplaceIdRef.current === replaceId) {
+        queuedExternalReplaceIdRef.current += 1;
+      }
+    };
+  }, [cancelScheduledSerializedEmit, editor]);
+
+  const reconcileDeferredExternalContentSync = useCallback(() => {
+    const deferred = deferredExternalContentSyncRef.current;
+    if (!deferred) return;
+    const activity = getExternalSyncActivity();
+    const currentSerializedContent = activity.hasActiveLocalEdit
+      ? ""
+      : serializeCurrentEditorContentRef.current();
+    const decision = resolveNfmDeferredExternalContentSyncDecision({
+      deferred,
+      currentSerializedContent,
+      hasActiveLocalEdit: activity.hasActiveLocalEdit,
+    });
+
+    if (decision.action === "keep-deferred") {
+      return;
+    }
+
+    if (decision.action === "skip") {
+      deferredExternalContentSyncRef.current = null;
+      if (decision.cancelPending) {
+        cancelScheduledSerializedEmit();
+      }
+      lastEmittedRef.current = deferred.content;
+      return;
+    }
+
+    if (decision.action === "drop") {
+      deferredExternalContentSyncRef.current = null;
+      return;
+    }
+
+    scheduleExternalContentReplacement(deferred.content);
+  }, [
+    cancelScheduledSerializedEmit,
+    getExternalSyncActivity,
+    scheduleExternalContentReplacement,
+  ]);
 
   useEffect(() => {
     if (!flushHandleRef) return;
@@ -1308,6 +1454,7 @@ export function NfmEditor({
       return;
     }
 
+    onPendingChangeRef.current?.();
     scheduleSerializedEmit();
   }, [cancelScheduledSerializedEmit, editor, scheduleSerializedEmit]);
 
@@ -1396,73 +1543,42 @@ export function NfmEditor({
     const previousContent = prevContentRef.current;
     if (content === previousContent) return;
     prevContentRef.current = content;
-    cancelScheduledSerializedEmit();
-
-    const shouldReplace = shouldReplaceNfmExternalContent({
+    const currentSerializedContent = serializeCurrentEditorContentRef.current();
+    const activity = getExternalSyncActivity();
+    const decision = resolveNfmExternalContentSyncDecision({
       incomingContent: content,
       previousContent,
       lastEmittedContent: lastEmittedRef.current,
-      currentSerializedContent: serializeCurrentEditorContentRef.current(),
+      currentSerializedContent,
+      hasActiveLocalEdit: activity.hasActiveLocalEdit,
     });
 
-    if (!shouldReplace) {
+    if (decision.action === "skip") {
+      if (decision.cancelPending) {
+        cancelScheduledSerializedEmit();
+      }
+      deferredExternalContentSyncRef.current = null;
       lastEmittedRef.current = content;
       return;
     }
 
-    // Clean up previous toggle localStorage entries
-    for (const id of toggleBlockIdsRef.current) {
-      localStorage.removeItem(`toggle-${id}`);
-    }
-    toggleBlockIdsRef.current = [];
-
-    // Compute replacement blocks synchronously (localStorage must be populated
-    // before replaceBlocks so BlockNote reads correct toggle initial states).
-    let nextBlocks: typeof editor.document | undefined;
-
-    if (!content.trim()) {
-      nextBlocks = [];
-    } else {
-      const blocks = parseNfm(content);
-      const toggleStates = new Map<string, boolean>();
-      const bnBlocks = nfmToBlockNote(blocks, toggleStates);
-
-      // Pre-populate localStorage for toggle state restoration
-      for (const [id, isOpen] of toggleStates) {
-        localStorage.setItem(`toggle-${id}`, isOpen ? "true" : "false");
-        toggleBlockIdsRef.current.push(id);
-      }
-
-      if (bnBlocks.length > 0) {
-        nextBlocks = bnBlocks;
-      }
+    if (decision.action === "defer") {
+      deferredExternalContentSyncRef.current = {
+        content,
+        baselineSerializedContent: currentSerializedContent,
+        shouldReplayWhenSafe: !activity.hasPendingLocalChange && !activity.isComposing,
+      };
+      return;
     }
 
-    if (nextBlocks === undefined) return;
-
-    // Defer replaceBlocks to a microtask so Tiptap's ReactRenderer.flushSync
-    // (for custom block node views like toggleListInlineView) does not collide
-    // with React's active commit phase. Microtasks run before the next paint,
-    // so the update is invisible to users.
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      suppressExternalContentSyncRef.current = true;
-      try {
-        editor.transact((tr) => {
-          tr.setMeta("addToHistory", false);
-          editor.replaceBlocks(editor.document, nextBlocks);
-        });
-        lastEmittedRef.current = content;
-      } finally {
-        suppressExternalContentSyncRef.current = false;
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cancelScheduledSerializedEmit, content, editor]);
+    return scheduleExternalContentReplacement(content);
+  }, [
+    cancelScheduledSerializedEmit,
+    content,
+    editor,
+    getExternalSyncActivity,
+    scheduleExternalContentReplacement,
+  ]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1485,6 +1601,52 @@ export function NfmEditor({
   }, [editor, syncSearchStats]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleCompositionStart = () => {
+      isComposingRef.current = true;
+    };
+    const handleCompositionEnd = () => {
+      isComposingRef.current = false;
+      queueMicrotask(reconcileDeferredExternalContentSync);
+    };
+    const handleBeforeInput = (event: InputEvent) => {
+      if (event.isComposing) {
+        isComposingRef.current = true;
+      }
+    };
+
+    el.addEventListener("compositionstart", handleCompositionStart, true);
+    el.addEventListener("compositionend", handleCompositionEnd, true);
+    el.addEventListener("beforeinput", handleBeforeInput, true);
+    return () => {
+      el.removeEventListener("compositionstart", handleCompositionStart, true);
+      el.removeEventListener("compositionend", handleCompositionEnd, true);
+      el.removeEventListener("beforeinput", handleBeforeInput, true);
+    };
+  }, [reconcileDeferredExternalContentSync]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !editor) return;
+
+    const handleFocusOut = (event: FocusEvent) => {
+      const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
+      if (event.relatedTarget instanceof Element && runtimeEditor.isWithinEditor?.(event.relatedTarget)) {
+        return;
+      }
+
+      queueMicrotask(reconcileDeferredExternalContentSync);
+    };
+
+    el.addEventListener("focusout", handleFocusOut, true);
+    return () => {
+      el.removeEventListener("focusout", handleFocusOut, true);
+    };
+  }, [editor, reconcileDeferredExternalContentSync]);
 
   // Detect toggle button clicks (which don't create ProseMirror transactions)
   // and trigger save so toggle open/closed state is persisted via ▶/▼ markers

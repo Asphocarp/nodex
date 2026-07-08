@@ -27,6 +27,7 @@ interface CardStageDescriptionEditorProps {
   content: string;
   showRawContent: boolean;
   onChange: (value: string) => void;
+  onPendingChange: () => void;
   onBlur: () => void;
   flushHandleRef: MutableRefObject<CardStageDescriptionFlushHandle | null>;
   sessionId?: string | null;
@@ -51,6 +52,7 @@ const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
   content,
   showRawContent,
   onChange,
+  onPendingChange,
   onBlur,
   flushHandleRef,
   sessionId,
@@ -77,6 +79,7 @@ const CardStageDescriptionEditor = memo(function CardStageDescriptionEditor({
       projectWorkspacePath={projectWorkspacePath}
       content={content}
       onChange={onChange}
+      onPendingChange={onPendingChange}
       onBlur={onBlur}
       flushHandleRef={flushHandleRef}
       sourceCardContext={{
@@ -221,6 +224,7 @@ export function CardStage(props: CardStageProps) {
                   content={controller.description}
                   showRawContent={controller.showRawContent}
                   onChange={controller.handleDescriptionChange}
+                  onPendingChange={controller.handleDescriptionPendingChange}
                   onBlur={controller.handleDescriptionBlur}
                   flushHandleRef={controller.descriptionFlushHandleRef}
                   sessionId={props.sessionId}
