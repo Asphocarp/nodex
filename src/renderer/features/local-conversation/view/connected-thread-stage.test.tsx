@@ -244,7 +244,10 @@ function buildActions(): ThreadStageActions {
   };
 }
 
-async function renderStage(summary: CodexThreadSummary, options: { backgroundAgentDetail?: boolean } = {}) {
+async function renderStage(
+  summary: CodexThreadSummary,
+  options: { backgroundAgentDetail?: boolean; threadViewportActive?: boolean } = {},
+) {
   const {
     __resetLocalConversationStoreForTests,
     LocalConversationProvider,
@@ -277,6 +280,7 @@ async function renderStage(summary: CodexThreadSummary, options: { backgroundAge
             composerEnterBehavior="enter"
             searchOpenTick={0}
             backgroundAgentDetail={options.backgroundAgentDetail === true}
+            threadViewportActive={options.threadViewportActive}
             actions={buildActions()}
           />
         </LocalConversationProvider>
@@ -535,6 +539,51 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       await settleAsyncRender();
     });
 
+    expect(
+      invokeCalls.some((call) =>
+        call.channel === "codex:thread:resume:request" &&
+      call.threadId === "thread_active"),
+    ).toBeTrue();
+  });
+
+  test("does not mark or resume hidden idle thread viewports", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    await renderStage(buildThreadSummary(false), { threadViewportActive: false });
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(
+      invokeCalls.some((call) => call.channel === "codex:thread:view-active:set"),
+    ).toBeFalse();
+    expect(
+      invokeCalls.some((call) => call.channel === "codex:thread:resume:request"),
+    ).toBeFalse();
+  });
+
+  test("keeps resume and view-active behavior for hidden active threads", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    await renderStage({
+      ...buildThreadSummary(false),
+      statusType: "active",
+      statusActiveFlags: ["waitingOnApproval"],
+    }, { threadViewportActive: false });
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(
+      invokeCalls.some((call) =>
+        call.channel === "codex:thread:view-active:set" &&
+        call.threadId === "thread_active" &&
+        call.active === true),
+    ).toBeTrue();
     expect(
       invokeCalls.some((call) =>
         call.channel === "codex:thread:resume:request" &&

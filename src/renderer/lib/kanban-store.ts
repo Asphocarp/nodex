@@ -14,6 +14,7 @@ import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 const MUTATION_COOLDOWN_MS = 500;
+const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 
 export interface IndexedCard extends CardSummary {
   columnId: string;
@@ -48,6 +49,11 @@ export interface KanbanStoreDependencies {
   invoke: InvokeFn;
   subscribeBoardChanges: SubscribeBoardChangesFn;
   now: NowFn;
+}
+
+export interface EnsureFreshBoardOptions {
+  maxAgeMs?: number;
+  force?: boolean;
 }
 
 export interface LocalOverlayOptions {
@@ -143,6 +149,10 @@ class KanbanProjectStore {
 
   private lastMutationAt = 0;
 
+  private lastFetchedAt = 0;
+
+  private stale = true;
+
   constructor(
     private readonly projectId: string,
     private readonly dependencies: KanbanStoreDependencies,
@@ -154,7 +164,7 @@ class KanbanProjectStore {
     this.listeners.add(listener);
     if (this.listeners.size === 1) {
       this.ensureRealtimeSubscription();
-      void this.fetchBoard();
+      void this.ensureFreshBoard();
     }
 
     return () => {
@@ -180,11 +190,14 @@ class KanbanProjectStore {
       try {
         const board = (await this.dependencies.invoke("board:summary:get", this.projectId)) as BoardSummary;
         this.baseBoard = board;
+        this.lastFetchedAt = this.dependencies.now();
+        this.stale = false;
         this.recomputeSnapshot({
           loading: false,
           error: null,
         });
       } catch (error) {
+        this.stale = true;
         this.recomputeSnapshot({
           loading: false,
           error: toError(error).message,
@@ -195,6 +208,16 @@ class KanbanProjectStore {
     })();
 
     return this.inFlightFetch;
+  };
+
+  ensureFreshBoard = async (options: EnsureFreshBoardOptions = {}): Promise<void> => {
+    const maxAgeMs = options.maxAgeMs ?? DEFAULT_BOARD_FRESHNESS_MS;
+    const boardIsFresh = this.baseBoard !== null
+      && !this.stale
+      && this.dependencies.now() - this.lastFetchedAt <= maxAgeMs;
+    if (!options.force && boardIsFresh) return;
+
+    await this.fetchBoard();
   };
 
   refreshBoard = async (): Promise<void> => {
@@ -503,6 +526,8 @@ class KanbanProjectStore {
         if (nextBoard) {
           if (nextBoard !== this.baseBoard) {
             this.baseBoard = nextBoard;
+            this.lastFetchedAt = this.dependencies.now();
+            this.stale = false;
             this.recomputeSnapshot();
           }
           return;
@@ -551,4 +576,11 @@ const sharedKanbanStoreRegistry = createKanbanStoreRegistry();
 
 export function getKanbanProjectStore(projectId: string): KanbanProjectStore {
   return sharedKanbanStoreRegistry.getStore(projectId);
+}
+
+export function ensureFreshKanbanProjectBoard(
+  projectId: string,
+  options?: EnsureFreshBoardOptions,
+): Promise<void> {
+  return getKanbanProjectStore(projectId).ensureFreshBoard(options);
 }

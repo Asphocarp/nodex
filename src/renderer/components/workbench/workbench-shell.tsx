@@ -15,6 +15,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
 import {
   ArrowLeft,
@@ -128,6 +129,7 @@ import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { invoke } from "@/lib/api";
 import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automations";
 import { useKanban } from "@/lib/use-kanban";
+import { ensureFreshKanbanProjectBoard } from "@/lib/kanban-store";
 import { useCardDetail } from "@/lib/card-detail-store";
 import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
 import { cn } from "@/lib/utils";
@@ -166,6 +168,14 @@ import {
 } from "@/lib/sidebar-project-group-collapse-action";
 import { ThreadHeaderPortalProvider } from "@/lib/thread-header-portal";
 import {
+  getCachedProjectSessionDetail,
+  prefetchProjectSessionDetail,
+  projectSessionToSummary,
+  seedProjectSessionDetail,
+  seedProjectSessionDetails,
+  setProjectSessionSummaries,
+} from "@/lib/project-session-query-cache";
+import {
   CODEX_SHELL_MEDIUM_WIDTH_PX,
   CODEX_SHELL_NARROW_WIDTH_PX,
   resolveCodexAnimatedPanelSize,
@@ -184,6 +194,7 @@ import {
   findProjectSessionPanelLeafForTab,
   getProjectSessionPanelActiveLeaf,
   listProjectSessionPanelLeaves,
+  makeProjectSessionPanelLayout,
 } from "../../../shared/project-session-panel-layout";
 import { resolveCodexSubagentDisplayName } from "../../../shared/codex-subagent-display";
 import type { BrowserSidebarBrowserUseStateSnapshot } from "../../../shared/browser-sidebar";
@@ -232,6 +243,7 @@ import type {
   ProjectSessionDbView,
   ProjectSessionForkResult,
   ProjectSessionPanelEnsureRightLeafResult,
+  ProjectSessionPanelState,
   ProjectSessionSummary,
   ProjectSessionTab,
   ProjectSessionTabConfig,
@@ -696,6 +708,25 @@ function applyProjectSessionSummaryToLoadedSession(
   };
 }
 
+function makeSummaryOnlyProjectSession(summary: ProjectSessionSummary): ProjectSession {
+  const makePanel = (panelId: PanelId): ProjectSessionPanelState => ({
+    collapsed: true,
+    layout: makeProjectSessionPanelLayout([], null),
+    size: panelId === "right"
+      ? { widthPx: 600, fullWidth: false }
+      : { heightPx: 280 },
+  });
+
+  return {
+    ...summary,
+    panels: {
+      right: makePanel("right"),
+      bottom: makePanel("bottom"),
+    },
+    tabs: [],
+  };
+}
+
 function mergeLoadedProjectSessionSummaries(
   current: ProjectSession[],
   summaries: ProjectSessionSummary[],
@@ -704,7 +735,7 @@ function mergeLoadedProjectSessionSummaries(
   return sortProjectSessionsForSidebar(
     summaries.flatMap((summary): ProjectSession[] => {
       const loaded = loadedById.get(summary.id);
-      return loaded ? [applyProjectSessionSummaryToLoadedSession(loaded, summary)] : [];
+      return [loaded ? applyProjectSessionSummaryToLoadedSession(loaded, summary) : makeSummaryOnlyProjectSession(summary)];
     }),
   );
 }
@@ -1016,6 +1047,16 @@ function findDbViewTabForProject(session: ProjectSession, projectId: string): Pr
     && "projectId" in tab.config
     && tab.config.projectId === projectId
   ) ?? null;
+}
+
+function listSessionDbViewTargetProjectIds(session: ProjectSession): string[] {
+  const projectIds = new Set<string>();
+  for (const tab of session.tabs) {
+    if (tab.kind !== "db_view") continue;
+    if (!("projectId" in tab.config)) continue;
+    projectIds.add(tab.config.projectId);
+  }
+  return [...projectIds];
 }
 
 function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId): boolean {
@@ -1769,6 +1810,7 @@ export function WorkbenchShell({
   onNavigationStateChange,
   commandKeymapState,
 }: WorkbenchShellProps) {
+  const queryClient = useQueryClient();
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
@@ -2423,10 +2465,6 @@ export function WorkbenchShell({
   }, [keyboardShortcutsSettingsOpenTick]);
 
   useEffect(() => {
-    void activeProjectKanban.refresh();
-  }, [activeProjectKanban.refresh, activeProject?.id, activeSession?.id]);
-
-  useEffect(() => {
     if (!selectedTurnDiffReviewTarget) return;
     if (activeSession?.thread?.threadId === selectedTurnDiffReviewTarget.threadId) return;
     setSelectedTurnDiffReviewTarget(null);
@@ -2458,13 +2496,15 @@ export function WorkbenchShell({
 
   const refreshProjectSessions = useCallback(async (projectId: string | null) => {
     const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
+    seedProjectSessionDetails(queryClient, sessions);
+    setProjectSessionSummaries(queryClient, projectId, sessions.map(projectSessionToSummary));
     if (projectId === null) {
       setProjectlessSessions(sessions);
       return sessions;
     }
     setSessionsByProject((current) => ({ ...current, [projectId]: sessions }));
     return sessions;
-  }, []);
+  }, [queryClient]);
 
   const refreshProjectSessionSummaries = useCallback(async (projectId: string | null) => {
     const key = projectId ?? "__projectless__";
@@ -2473,6 +2513,7 @@ export function WorkbenchShell({
 
     const request = (async () => {
       const summaries = (await invoke("project-sessions:list-summaries", projectId)) as ProjectSessionSummary[];
+      setProjectSessionSummaries(queryClient, projectId, summaries);
       if (projectId === null) {
         setProjectlessSessions((current) => mergeLoadedProjectSessionSummaries(current, summaries));
         return summaries;
@@ -2505,6 +2546,7 @@ export function WorkbenchShell({
   }, [drainPendingSidebarSessionScopes, refreshProjectSessionSummaries]);
 
   const mergeSessionInState = useCallback((session: ProjectSession) => {
+    seedProjectSessionDetail(queryClient, session);
     if (session.projectId === null) {
       setProjectlessSessions((current) => sortProjectSessionsForSidebar(
         current.some((candidate) => candidate.id === session.id)
@@ -2525,7 +2567,54 @@ export function WorkbenchShell({
         ),
       };
     });
+  }, [queryClient]);
+
+  const warmProjectSessionDbViewBoards = useCallback((session: ProjectSession) => {
+    for (const projectId of listSessionDbViewTargetProjectIds(session)) {
+      void ensureFreshKanbanProjectBoard(projectId).catch(() => undefined);
+    }
   }, []);
+
+  const prefetchSidebarSession = useCallback((item: CodexSidebarThreadItem) => {
+    if (item.disabled) return;
+
+    const session = item.sessionId
+      ? knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null
+      : knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null;
+    const sessionId = item.sessionId ?? session?.id ?? null;
+    if (!sessionId) return;
+
+    const cached = getCachedProjectSessionDetail(queryClient, sessionId);
+    if (cached) {
+      warmProjectSessionDbViewBoards(cached);
+      return;
+    }
+
+    void prefetchProjectSessionDetail(queryClient, sessionId)
+      .then((detail) => {
+        if (detail) warmProjectSessionDbViewBoards(detail);
+      })
+      .catch(() => undefined);
+  }, [knownSessions, queryClient, warmProjectSessionDbViewBoards]);
+
+  useEffect(() => {
+    if (!activeSession) return;
+
+    const cached = getCachedProjectSessionDetail(queryClient, activeSession.id);
+    if (cached) {
+      mergeSessionInState(cached);
+      warmProjectSessionDbViewBoards(cached);
+      return;
+    }
+
+    void prefetchProjectSessionDetail(queryClient, activeSession.id)
+      .then((detail) => {
+        if (!detail) return;
+        mergeSessionInState(detail);
+        warmProjectSessionDbViewBoards(detail);
+      })
+      .catch(() => undefined);
+  }, [activeSession?.id, mergeSessionInState, queryClient, warmProjectSessionDbViewBoards]);
 
   const resolveSessionHasGitRepository = useCallback(async (session: ProjectSession): Promise<boolean> => {
     if (!canForkSessionLocally(session)) return false;
@@ -2548,17 +2637,16 @@ export function WorkbenchShell({
     setLoadingSessions(true);
     setSessionError(null);
     try {
-      const entries = await Promise.all(
-        projects.map(async (project) => [project.id, await refreshProjectSessions(project.id)] as const),
-      );
-      setSessionsByProject(Object.fromEntries(entries));
-      await refreshProjectSessions(null);
+      await Promise.all([
+        ...projects.map((project) => refreshProjectSessionSummaries(project.id)),
+        refreshProjectSessionSummaries(null),
+      ]);
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Unable to load project sessions");
     } finally {
       setLoadingSessions(false);
     }
-  }, [projects, refreshProjectSessions]);
+  }, [projects, refreshProjectSessionSummaries]);
 
   useEffect(() => {
     void refreshAllSessions();
@@ -2675,25 +2763,28 @@ export function WorkbenchShell({
   }, [buildSnapshotForSession, recordShellNavigation, sessionsByProject, setDbProject]);
 
   const selectSession = useCallback((session: ProjectSession) => {
-    recordShellNavigation(buildSnapshotForSession(session, session.projectId ?? activeProjectId));
+    const cachedSession = getCachedProjectSessionDetail(queryClient, session.id);
+    const targetSession = cachedSession ?? session;
+    warmProjectSessionDbViewBoards(targetSession);
+    recordShellNavigation(buildSnapshotForSession(targetSession, targetSession.projectId ?? activeProjectId));
     startTransition(() => {
-      setActiveSessionId(session.id);
-      if (session.projectId !== null) {
-        const projectId = session.projectId;
+      setActiveSessionId(targetSession.id);
+      if (targetSession.projectId !== null) {
+        const projectId = targetSession.projectId;
         setActiveProjectId(projectId);
         setDbProject(projectId);
         setExpandedProjectIds((current) => new Set([...current, projectId]));
       }
     });
-    if (session.unread) {
-      void invoke("project-sessions:mark-unread", session.id, { unread: false })
+    if (targetSession.unread) {
+      void invoke("project-sessions:mark-unread", targetSession.id, { unread: false })
         .then((updated) => {
           if (!updated) return;
           mergeSessionInState(updated as ProjectSession);
         })
         .catch(() => undefined);
     }
-  }, [activeProjectId, buildSnapshotForSession, mergeSessionInState, recordShellNavigation, setDbProject]);
+  }, [activeProjectId, buildSnapshotForSession, queryClient, recordShellNavigation, setDbProject, warmProjectSessionDbViewBoards]);
 
   useEffect(() => {
     if (!pendingSessionOpen) return;
@@ -4938,12 +5029,17 @@ export function WorkbenchShell({
     options?: { select?: boolean },
   ) => {
     const sessions = sessionsByProject[projectId] ?? await refreshProjectSessions(projectId);
-    const reusableSession = sessions.find((candidate) => !candidate.thread && candidate.tabs.length === 0) ?? null;
     const shouldSelect = options?.select !== false;
 
-    if (reusableSession) {
-      if (shouldSelect) selectSession(reusableSession);
-      return reusableSession;
+    for (const candidate of sessions) {
+      if (candidate.thread || candidate.tabs.length > 0) continue;
+
+      const detail = getCachedProjectSessionDetail(queryClient, candidate.id)
+        ?? await prefetchProjectSessionDetail(queryClient, candidate.id);
+      if (!detail || detail.thread || detail.tabs.length > 0) continue;
+
+      if (shouldSelect) selectSession(detail);
+      return detail;
     }
 
     const session = (await invoke("project-sessions:create", {
@@ -4953,7 +5049,7 @@ export function WorkbenchShell({
     await refreshProjectSessions(projectId);
     if (shouldSelect) selectSession(session);
     return session;
-  }, [refreshProjectSessions, selectSession, sessionsByProject]);
+  }, [queryClient, refreshProjectSessions, selectSession, sessionsByProject]);
 
   const startNewChatInProject = useCallback(async (projectId: string) => {
     const session = await ensureBlankSessionForProject(projectId);
@@ -7564,6 +7660,7 @@ export function WorkbenchShell({
               onToggleProjectExpanded={toggleProjectExpanded}
               onSelectProject={selectProject}
               onSelectSidebarThread={selectSidebarThread}
+              onPreviewSidebarThread={prefetchSidebarSession}
               onOpenSessionContextMenu={openSessionContextMenu}
               onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
               onArchiveSidebarThread={archiveSidebarThreadItem}
@@ -7635,6 +7732,7 @@ export function WorkbenchShell({
                   onToggleProjectExpanded={toggleProjectExpanded}
                   onSelectProject={selectProject}
                   onSelectSidebarThread={selectSidebarThread}
+                  onPreviewSidebarThread={prefetchSidebarSession}
                   onOpenSessionContextMenu={openSessionContextMenu}
                   onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
                   onArchiveSidebarThread={archiveSidebarThreadItem}
@@ -7706,6 +7804,7 @@ export function WorkbenchShell({
                         session={activeSession}
                         project={activeProject}
                         projects={projects}
+                        threadViewportActive={!rightPanelFullWidth}
                         onRefreshProjectSessions={refreshProjectSessions}
                         onEnsureBlankSessionForProject={ensureBlankSessionForProject}
                         onRequestProjectPickerOpen={onRequestProjectPickerOpen}
@@ -8155,6 +8254,7 @@ function SidebarThreadOrganizerSections({
   onToggleProjectExpanded,
   onSelectProject,
   onSelectSidebarThread,
+  onPreviewSidebarThread,
   onOpenSessionContextMenu,
   onSessionTitleDoubleClick,
   onArchiveSidebarThread,
@@ -8187,6 +8287,7 @@ function SidebarThreadOrganizerSections({
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
+  onPreviewSidebarThread?: (item: CodexSidebarThreadItem) => void;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
@@ -8484,6 +8585,7 @@ function SidebarThreadOrganizerSections({
         onSelect={() => {
           void onSelectSidebarThread(item);
         }}
+        onPreview={() => onPreviewSidebarThread?.(item)}
         onOpenContextMenu={session && onOpenSessionContextMenu
           ? (_item, event) => onOpenSessionContextMenu(session, event)
           : undefined}
@@ -8503,6 +8605,7 @@ function SidebarThreadOrganizerSections({
     onOpenSessionContextMenu,
     onArchiveSidebarThread,
     onSelectSidebarThread,
+    onPreviewSidebarThread,
     onSessionTitleDoubleClick,
     onToggleSessionPinned,
     onToggleSidebarThreadPinned,
@@ -8724,6 +8827,7 @@ function ProjectSessionSidebar({
   onToggleProjectExpanded,
   onSelectProject,
   onSelectSidebarThread,
+  onPreviewSidebarThread,
   onOpenSessionContextMenu,
   onSessionTitleDoubleClick,
   onArchiveSidebarThread,
@@ -8775,6 +8879,7 @@ function ProjectSessionSidebar({
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
+  onPreviewSidebarThread?: (item: CodexSidebarThreadItem) => void;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
@@ -8959,6 +9064,7 @@ function ProjectSessionSidebar({
                   onToggleProjectExpanded={onToggleProjectExpanded}
                   onSelectProject={onSelectProject}
                   onSelectSidebarThread={onSelectSidebarThread}
+                  onPreviewSidebarThread={onPreviewSidebarThread}
                   onOpenSessionContextMenu={onOpenSessionContextMenu}
                   onSessionTitleDoubleClick={onSessionTitleDoubleClick}
                   onArchiveSidebarThread={onArchiveSidebarThread}
@@ -9246,6 +9352,7 @@ function SessionThreadPage({
   session,
   project,
   projects,
+  threadViewportActive,
   onRefreshProjectSessions,
   onEnsureBlankSessionForProject,
   onRequestProjectPickerOpen,
@@ -9290,6 +9397,7 @@ function SessionThreadPage({
   session: ProjectSession;
   project: Project | null;
   projects: Project[];
+  threadViewportActive: boolean;
   onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
   onRequestProjectPickerOpen: () => void;
@@ -9531,6 +9639,7 @@ function SessionThreadPage({
         rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
         rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+        threadViewportActive={threadViewportActive}
         actions={actions}
       />
     </div>

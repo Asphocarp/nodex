@@ -2504,7 +2504,9 @@ describe("workbench session shell", () => {
     expect(text.includes("Alpha")).toBeTrue();
     expect(text.includes("Database View")).toBeTrue();
     expect(text.includes("DB:alpha:kanban")).toBeTrue();
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeFalse();
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:list-summaries" && call[1] === "alpha")).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBeTrue();
   });
 
   test("renders the Codex-style top new-chat row", async () => {
@@ -3285,14 +3287,18 @@ describe("workbench session shell", () => {
       });
       await settleAsyncRender();
 
-      const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
       expect(promptCalls.length).toBe(0);
-      expect(invokeCalls.some((call) =>
-        call[0] === "project-sessions:create"
-        && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", noThreadFallbackTitle: "New thread" })
-      )).toBeTrue();
-      expect(JSON.stringify(props?.newThreadTarget).includes('"projectId":"beta"')).toBeTrue();
-      expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:beta:created"')).toBeTrue();
+      await waitFor(() => {
+        expect(invokeCalls.some((call) =>
+          call[0] === "project-sessions:create"
+          && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", noThreadFallbackTitle: "New thread" })
+        )).toBeTrue();
+      });
+      await waitFor(() => {
+        const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+        expect(JSON.stringify(latestProps?.newThreadTarget).includes('"projectId":"beta"')).toBeTrue();
+        expect(JSON.stringify(latestProps?.newThreadTarget).includes('"sessionId":"session:beta:created"')).toBeTrue();
+      });
     } finally {
       window.prompt = originalPrompt;
     }
@@ -3704,9 +3710,11 @@ describe("workbench session shell", () => {
     });
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create" && JSON.stringify(call[1]).includes('"projectId":"beta"'))).toBeFalse();
-    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:beta:blank"')).toBeTrue();
+    await waitFor(() => {
+      const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+      expect(JSON.stringify(latestProps?.newThreadTarget).includes('"sessionId":"session:beta:blank"')).toBeTrue();
+    });
   });
 
   test("opens settings as a full-window route shell from the sidebar settings button", async () => {
@@ -3770,7 +3778,9 @@ describe("workbench session shell", () => {
 
       const rightPanel = screen.getByTestId("session-right-panel");
       expect(rightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
-      expect(rightPanel.getAttribute("style")?.includes("width: 850px")).toBeTrue();
+      await waitFor(() => {
+        expect(rightPanel.getAttribute("style")?.includes("width: 850px")).toBeTrue();
+      });
 
       const settingsButton = screen.container.querySelector('button[title="Settings"]');
       if (!(settingsButton instanceof HTMLElement)) {
@@ -5132,7 +5142,9 @@ describe("workbench session shell", () => {
     expect(headerCenterSurface.getAttribute("aria-hidden")).toBe(null);
     expect(headerCenterSurface.className.includes("invisible")).toBeFalse();
     expect(headerShellSlot?.className.includes("no-drag")).toBeTrue();
-    expect(headerShellSlot?.getAttribute("style")?.includes("width: 372px")).toBeTrue();
+    await waitFor(() => {
+      expect(headerShellSlot?.getAttribute("style")?.includes("width: 372px")).toBeTrue();
+    });
     expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
     expect(globalHeader?.contains(expandButton)).toBeFalse();
@@ -5197,7 +5209,9 @@ describe("workbench session shell", () => {
     separator.setPointerCapture = (pointerId: number) => {
       capturedPointerId = pointerId;
     };
-    expect(rightPanel.getAttribute("style")?.includes("width: 372px")).toBeTrue();
+    await waitFor(() => {
+      expect(rightPanel.getAttribute("style")?.includes("width: 372px")).toBeTrue();
+    });
 
     try {
       await act(async () => {
@@ -5207,7 +5221,9 @@ describe("workbench session shell", () => {
       });
 
       expect(capturedPointerId).toBe(7);
-      expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
+      await waitFor(() => {
+        expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
+      });
       expect(invokeCalls.some((call) =>
         call[0] === "project-session-panels:update"
         && call[1] === "session:alpha:build"
@@ -5252,7 +5268,9 @@ describe("workbench session shell", () => {
         await Promise.resolve();
       });
 
-      expect(rightPanel.getAttribute("style")?.includes("width: 1148px")).toBeTrue();
+      await waitFor(() => {
+        expect(rightPanel.getAttribute("style")?.includes("width: 1148px")).toBeTrue();
+      });
     } finally {
       await releasePointerDrag();
     }
@@ -5324,7 +5342,9 @@ describe("workbench session shell", () => {
         await Promise.resolve();
       });
 
-      expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
+      await waitFor(() => {
+        expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
+      });
     } finally {
       await releasePointerDrag();
     }
@@ -8921,7 +8941,9 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(screen.setDbProjectCalls.includes("beta")).toBeTrue();
-    expect(textContent(screen.container).includes("DB:beta:kanban")).toBeTrue();
+    await waitFor(() => {
+      expect(textContent(screen.container).includes("DB:beta:kanban")).toBeTrue();
+    });
   });
 
   test("clicking Hide sidebar suppresses immediate edge auto-reveal", async () => {
@@ -9226,7 +9248,9 @@ describe("workbench session shell", () => {
 
     expect(backButton.hasAttribute("disabled")).toBeFalse();
     expect(forwardButton.hasAttribute("disabled")).toBeTrue();
-    expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+    await waitFor(() => {
+      expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+    });
 
     await act(async () => {
       fireEvent.click(backButton);
@@ -9246,7 +9270,9 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+    await waitFor(() => {
+      expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+    });
   });
 
   test("window navigation command requests use the same shell history path", async () => {
@@ -9295,7 +9321,9 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+    await waitFor(() => {
+      expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+    });
   });
 
   test("window navigation restores right-panel tab selection", async () => {

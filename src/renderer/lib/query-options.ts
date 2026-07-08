@@ -15,6 +15,8 @@ import type {
   ProtocolMcpResourceReadResponse,
   ProtocolMcpServerStatus,
   Project,
+  ProjectSession,
+  ProjectSessionSummary,
   ThreadNotificationSettings,
   WindowRestoreSettings,
   WorktreeEnvironmentConfigRecord,
@@ -50,6 +52,22 @@ export function boardByProjectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.boards.byProject(projectId),
     queryFn: () => invoke("board:summary:get", projectId) as Promise<BoardSummary>,
+  });
+}
+
+export function projectSessionSummariesQueryOptions(projectId: string | null) {
+  return queryOptions({
+    queryKey: queryKeys.projectSessions.summaries(projectId),
+    queryFn: () => invoke("project-sessions:list-summaries", projectId) as Promise<ProjectSessionSummary[]>,
+    staleTime: 30_000,
+  });
+}
+
+export function projectSessionDetailQueryOptions(sessionId: string) {
+  return queryOptions({
+    queryKey: queryKeys.projectSessions.detail(sessionId),
+    queryFn: () => invoke("project-sessions:get", sessionId) as Promise<ProjectSession | null>,
+    staleTime: 30_000,
   });
 }
 

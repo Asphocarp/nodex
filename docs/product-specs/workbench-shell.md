@@ -36,12 +36,14 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
   - `project_session_threads`: optional session-to-thread attachments; canonical thread metadata lives in `codex_threads`.
   - Session lists return a derived `displayTitle`; attached sessions prefer `codex_threads.thread_name`/preview and only fall back to `no_thread_fallback_title`.
 - Window-local shell state owns active project, active session, settings route visibility, and transient focus history. App-window Back/Forward history is owned by `WorkbenchShell`, because that component owns active project/session selection plus right/bottom panel layout application.
+- Renderer server-state cache owns the hot project-session read path: sidebar rows come from project/projectless summaries, recently selected or hovered sessions hydrate one full detail by session id, and mutations that return a full session seed that detail cache. Full project-session list reads are reserved for slow paths that need every tab/layout in a scope.
 - Renderer-local side chat state owns temporary tab identity, loading/ready/expired status, and panel placement. The backing app-server thread stays in the main-process conversation cache only while live and is discarded when the tab closes.
 - Existing projects are migrated by converting legacy Overview rows into ordinary pinned `Database View` sessions, or by creating one such session when a project has no legacy row. Existing cards, project data, history, and legacy card thread rows are migrated into `codex_threads` plus `project_session_threads`.
 - Old stage-rail/window layout snapshots are best-effort inputs for active project/session defaults only; they are not authoritative shared session data.
 
 ## Navigation
 - Session switching changes the thread page plus the right and bottom panel tab groups.
+- Recent session switching should reveal cached summary/detail state immediately, including cross-project sessions. Warm full-width `DB View` sessions should reuse cached session detail and a fresh-enough target project board summary rather than reloading the whole project session list or forcing a board fetch solely because the session id changed.
 - App-window Back/Forward controls are available as titlebar buttons, command palette commands, `Cmd/Ctrl+[` and `Cmd/Ctrl+]`, desktop mouse Back/Forward buttons, and the macOS application menu; all routes enter the same shell-owned navigation executor. The command ids are `navigateBack` and `navigateForward`, labels are `Back` and `Forward`, and the disabled state follows the shell-local back/forward stacks.
 - Each history snapshot stores the visible workbench context: active project id, active session id, active DB view, right/bottom active tab ids, right/bottom collapsed state, and right-panel full-width state. Settings routes, command palette state, task search, and browser-sidebar webview history stay outside this stack.
 - Tab switching persists through the owning panel's v1 leaf layout.
@@ -51,8 +53,9 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Tab reorder persists through `project_session_tabs.order` scoped by `panel_id` and updates that panel's leaf tab id order.
 - Closing a durable tab removes that session tab. Terminal backend exit, including a user typing `exit`, removes the owning terminal tab through the same durable tab close path. Closing a preview tab drops only the renderer-local preview and collapses that panel if it has no durable tabs. A `Database View` tab follows the same close rules as any other durable tab and is closable only when another tab exists in the same session.
 - Closing a side-chat tab removes the tab immediately and sends a best-effort discard request in the background. If the backing temporary thread is missing, the tab renders an expired panel with `Start new side chat`, which recreates from the saved parent thread id and replaces the expired tab with the new temporary thread.
-- The shell uses `startTransition` for session/tab changes that may mount expensive tab bodies.
+- The shell uses `startTransition` for session/tab changes that may mount expensive tab bodies, while the sidebar active row selection updates from summary state without waiting for full session detail.
 - React keys should reset only the active session/tab body that changed; switching projects or sessions must not force unrelated global stores to remount.
+- When a full-width right-panel tab collapses the thread viewport to zero width, the hidden thread page must not mark the thread view active or request resume unless the thread has active runtime/request state that still needs running controls or live output.
 
 ## Keyboard Model
 - Existing global command palette, settings, undo/redo, and editor shortcuts remain in force.

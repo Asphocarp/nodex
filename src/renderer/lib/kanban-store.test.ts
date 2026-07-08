@@ -194,6 +194,117 @@ describe("kanban store", () => {
     expect(indexedCard?.descriptionPreview).toBe("Initial description");
   });
 
+  test("first subscribe with a fresh base board does not refetch", async () => {
+    const board = createBoard();
+    let invokeCalls = 0;
+    let currentTime = 1_000;
+
+    const registry = createKanbanStoreRegistry({
+      invoke: async () => {
+        invokeCalls += 1;
+        return board;
+      },
+      subscribeBoardChanges: () => () => {},
+      now: () => currentTime,
+    });
+
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+    expect(invokeCalls).toBe(1);
+
+    currentTime = 2_000;
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    expect(invokeCalls).toBe(1);
+    unsubscribe();
+  });
+
+  test("stale subscribe refreshes in the background without clearing the current board", async () => {
+    const boards = [createBoard("Initial"), createBoard("Refreshed")];
+    let invokeCalls = 0;
+    let currentTime = 1_000;
+
+    const registry = createKanbanStoreRegistry({
+      invoke: async () => {
+        const board = boards[invokeCalls] ?? boards[boards.length - 1]!;
+        invokeCalls += 1;
+        return board;
+      },
+      subscribeBoardChanges: () => () => {},
+      now: () => currentTime,
+    });
+
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Initial");
+
+    currentTime = 32_000;
+    const unsubscribe = store.subscribe(() => {});
+    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Initial");
+
+    await waitForMicrotasks();
+    expect(invokeCalls).toBe(2);
+    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Refreshed");
+    unsubscribe();
+  });
+
+  test("force ensureFreshBoard refreshes even when the board is fresh", async () => {
+    const boards = [createBoard("Initial"), createBoard("Forced")];
+    let invokeCalls = 0;
+
+    const registry = createKanbanStoreRegistry({
+      invoke: async () => {
+        const board = boards[invokeCalls] ?? boards[boards.length - 1]!;
+        invokeCalls += 1;
+        return board;
+      },
+      subscribeBoardChanges: () => () => {},
+      now: () => 1_000,
+    });
+
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+    await store.ensureFreshBoard({ force: true });
+
+    expect(invokeCalls).toBe(2);
+    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Forced");
+  });
+
+  test("summary patch events update the board without a broad refetch", async () => {
+    const callbacks: { onBoardChange?: (event: BoardChangeEvent) => void } = {};
+    let boardFetchCount = 0;
+
+    const registry = createKanbanStoreRegistry({
+      invoke: async () => {
+        boardFetchCount += 1;
+        return createBoard();
+      },
+      subscribeBoardChanges: (_projectId, callback) => {
+        callbacks.onBoardChange = callback;
+        return () => {};
+      },
+    });
+
+    const store = registry.getStore("default");
+    const unsubscribe = store.subscribe(() => {});
+    await waitForMicrotasks();
+
+    callbacks.onBoardChange?.({
+      projectId: "default",
+      changeType: "update",
+      columnId: "draft",
+      status: "draft",
+      cardId: "card-1",
+      summary: createCardSummary("Patched from event"),
+    });
+    await waitForMicrotasks();
+
+    expect(boardFetchCount).toBe(1);
+    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Patched from event");
+    unsubscribe();
+  });
+
   test("applies local optimistic overlays to board and card index", async () => {
     const board = createBoard();
     const registry = createKanbanStoreRegistry({

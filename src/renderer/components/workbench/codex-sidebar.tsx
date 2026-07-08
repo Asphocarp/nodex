@@ -844,6 +844,7 @@ export function CodexSidebarThreadRow({
   hoverCardOpen,
   onHoverCardOpenChange,
   onSelect,
+  onPreview,
   onArchive,
   onOpenContextMenu,
   onRenameFromTitleDoubleClick,
@@ -858,6 +859,7 @@ export function CodexSidebarThreadRow({
   hoverCardOpen?: boolean;
   onHoverCardOpenChange?: (open: boolean) => void;
   onSelect: () => void;
+  onPreview?: () => void;
   onArchive?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onOpenContextMenu?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
   onRenameFromTitleDoubleClick?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
@@ -943,6 +945,12 @@ export function CodexSidebarThreadRow({
         tabIndex={0}
         aria-current={active ? "page" : undefined}
         aria-disabled={item.disabled || undefined}
+        onPointerEnter={() => {
+          if (!item.disabled) onPreview?.();
+        }}
+        onFocus={() => {
+          if (!item.disabled) onPreview?.();
+        }}
         onClick={onSelect}
         onContextMenu={(event) => {
           if (!canOpenContextMenu) return;

@@ -21,6 +21,7 @@ import {
   buildSidebarThreadSyncModel,
   type CodexSidebarThreadSyncModel,
 } from "./codex-sidebar-thread-sync";
+import { invalidateProjectSessionScope } from "./project-session-query-cache";
 
 const EMPTY_SIDEBAR_SNAPSHOT: CodexSidebarSnapshot = {
   items: [],
@@ -170,6 +171,7 @@ export function useSidebarThreadSyncModel(input: {
 
   useEffect(() => {
     const handleProjectSessionChange = (event: ProjectSessionsChangeEvent) => {
+      void invalidateProjectSessionScope(queryClient, event).catch(() => undefined);
       const snapshot = queryClient.getQueryData<CodexSidebarSnapshot>(queryKeys.codexSidebar.snapshot())
         ?? query.data
         ?? EMPTY_SIDEBAR_SNAPSHOT;

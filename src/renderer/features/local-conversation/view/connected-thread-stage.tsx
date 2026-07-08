@@ -131,6 +131,7 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   summaryPanelOpen?: boolean;
   summaryPanelHideImmediately?: boolean;
   summaryPanelContentShift?: number;
+  threadViewportActive?: boolean;
 }
 
 function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
@@ -604,6 +605,7 @@ export function ConnectedThreadStage({
   summaryPanelOpen = false,
   summaryPanelHideImmediately = false,
   summaryPanelContentShift = 0,
+  threadViewportActive = true,
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -617,6 +619,10 @@ export function ConnectedThreadStage({
   const threadHeaderPortalTarget = useThreadHeaderPortalTarget();
   const resumeState = useConversationResumeState(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
+  const requests = useConversationRequests(activeThreadId);
+  const statusType = useConversationStatusType(activeThreadId);
+  const statusActiveFlags = useConversationStatusActiveFlags(activeThreadId);
+  const primaryRequest = useConversationPrimaryRequest(activeThreadId);
   const turns = useConversationTurns(activeThreadId);
   const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
@@ -632,6 +638,14 @@ export function ConnectedThreadStage({
     summaryFields.managedWorktreePath
     ?? input.activeThreadSummary?.managedWorktreePath,
   );
+  const activeThreadHasRuntimeWork = Boolean(
+    (statusType ?? input.activeThreadSummary?.statusType) === "active"
+    || statusActiveFlags.length > 0
+    || (input.activeThreadSummary?.statusActiveFlags.length ?? 0) > 0
+    || requests.length > 0
+    || primaryRequest,
+  );
+  const threadLifecycleActive = threadViewportActive || activeThreadHasRuntimeWork;
   const summaryPanelContentProps = useMemo(
     () => ({
       activeThreadId,
@@ -677,12 +691,13 @@ export function ConnectedThreadStage({
   );
   useEffect(() => {
     if (!activeThreadId) return;
+    if (!threadLifecycleActive) return;
 
     void setLocalConversationThreadViewActive(activeThreadId, true).catch(() => {});
     return () => {
       void setLocalConversationThreadViewActive(activeThreadId, false).catch(() => {});
     };
-  }, [activeThreadId]);
+  }, [activeThreadId, threadLifecycleActive]);
 
   useEffect(() => {
     if (!backgroundAgentDetail || !activeThreadId) return;
@@ -697,6 +712,9 @@ export function ConnectedThreadStage({
     if (isActiveThreadArchived) {
       return;
     }
+    if (!threadLifecycleActive) {
+      return;
+    }
 
     const nextResumeState = resumeState ?? "needs_resume";
     if (nextResumeState === "resuming" || nextResumeState === "resumed") {
@@ -704,7 +722,14 @@ export function ConnectedThreadStage({
     }
 
     void requestLocalConversationResume(input.activeThreadId).catch(() => {});
-  }, [isActiveThreadArchived, isSideChat, resumeState, input.activeThreadId, input.isNewThreadTab]);
+  }, [
+    isActiveThreadArchived,
+    isSideChat,
+    resumeState,
+    input.activeThreadId,
+    input.isNewThreadTab,
+    threadLifecycleActive,
+  ]);
 
   if (isNewThreadHome) {
     return (
