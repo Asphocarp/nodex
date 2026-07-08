@@ -113,6 +113,7 @@ interface KanbanBoardProps {
   cardStageCardId: string | undefined;
   activePanelCardStageCardIds?: ReadonlySet<string>;
   cardStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  scrollStateKey?: string | null;
 }
 
 export function KanbanBoard({
@@ -124,6 +125,7 @@ export function KanbanBoard({
   cardStageCardId,
   activePanelCardStageCardIds,
   cardStageCloseRef,
+  scrollStateKey,
 }: KanbanBoardProps) {
   // History hooks
   const {
@@ -988,7 +990,7 @@ export function KanbanBoard({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <KanbanBoardScrollContainer ref={boardScrollContainerRef}>
+      <KanbanBoardScrollContainer ref={boardScrollContainerRef} scrollStateKey={scrollStateKey}>
         {/* Board container - Notion-style scroll with sticky headers */}
         <div className="flex w-max min-w-full px-4">
           {filteredBoard.columns.map((column) => (

@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   parseBranchSelectorState,
@@ -12,7 +12,7 @@ import {
   writeCardStageContentWidthPreference,
   writeCardStageShowRawContentPreference,
 } from "@/lib/card-stage-layout";
-import { loadScrollPosition, saveScrollPosition } from "@/lib/card-stage-scroll";
+import { loadScrollPosition, rememberScrollPosition, saveScrollPosition } from "@/lib/card-stage-scroll";
 import {
   DESCRIPTION_SAVE_DEBOUNCE_MS,
   FIELD_SAVE_DEBOUNCE_MS,
@@ -93,6 +93,7 @@ interface UseCardStageControllerResult {
   contentBodyClassName: string;
   contentShellClassName: string;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  setScrollContainerRef: (node: HTMLDivElement | null) => void;
   descriptionFlushHandleRef: React.MutableRefObject<CardStageDescriptionFlushHandle | null>;
   tagInputRef: React.RefObject<HTMLInputElement | null>;
   tagDropdownRef: React.RefObject<HTMLDivElement | null>;
@@ -241,6 +242,10 @@ function buildCardStageSessionSnapshot(
   };
 }
 
+function elementHasLayoutBox(element: HTMLElement): boolean {
+  return element.isConnected && element.getClientRects().length > 0;
+}
+
 export function useCardStageController(props: CardStageProps): UseCardStageControllerResult {
   const {
     onClose,
@@ -321,11 +326,13 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   const titleSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const assigneeSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const agentStatusSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const descriptionFlushHandleRef = useRef<CardStageDescriptionFlushHandle | null>(null);
-  const prevRestoreCardRef = useRef<string | null>(null);
+  const lastScrollRestoreCardRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const previousActivePanelTabRef = useRef(isActivePanelTab);
+  const lastKnownScrollTopRef = useRef<{ cardId: string; scrollTop: number } | null>(null);
+  const scrollRestoreVersionRef = useRef(0);
   const draftDirtyRef = useRef<DraftDirtyState>({
     title: false,
     description: false,
@@ -593,6 +600,84 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     setCardDraftOverlay(projectId, card.id, overlay);
   }, [agentStatus, assignee, card, description, projectId, title]);
 
+  const rememberScrollTopForCard = useCallback((cardId: string | null, scrollTop: number) => {
+    if (!cardId) return;
+    lastKnownScrollTopRef.current = { cardId, scrollTop };
+    rememberScrollPosition(projectId, cardId, scrollTop);
+  }, [projectId]);
+
+  const saveScrollTopForCard = useCallback((cardId: string | null, scrollTop: number) => {
+    if (!cardId) return;
+    lastKnownScrollTopRef.current = { cardId, scrollTop };
+    saveScrollPosition(projectId, cardId, scrollTop);
+  }, [projectId]);
+
+  const readCurrentScrollTopForCard = useCallback((cardId: string, element: HTMLDivElement | null) => {
+    if (element && elementHasLayoutBox(element)) {
+      return element.scrollTop;
+    }
+
+    const lastKnown = lastKnownScrollTopRef.current;
+    if (lastKnown?.cardId === cardId) return lastKnown.scrollTop;
+    if (element && element.scrollTop > 0) return element.scrollTop;
+    return null;
+  }, []);
+
+  const saveCurrentScrollPosition = useCallback(() => {
+    const cardId = currentCardIdRef.current;
+    const element = scrollContainerRef.current;
+    if (!cardId) return;
+    const scrollTop = readCurrentScrollTopForCard(cardId, element);
+    if (scrollTop === null) return;
+    saveScrollTopForCard(cardId, scrollTop);
+  }, [readCurrentScrollTopForCard, saveScrollTopForCard]);
+
+  const restoreScrollPositionForCard = useCallback((
+    cardId: string,
+    options: { resetWhenMissing: boolean },
+  ) => {
+    const element = scrollContainerRef.current;
+    if (!element) return;
+
+    scrollRestoreVersionRef.current += 1;
+    const restoreVersion = scrollRestoreVersionRef.current;
+    const saved = loadScrollPosition(projectId, cardId);
+    if (saved === null) {
+      if (options.resetWhenMissing) element.scrollTop = 0;
+      return;
+    }
+
+    element.scrollTop = saved;
+    lastKnownScrollTopRef.current = { cardId, scrollTop: saved };
+
+    if (typeof requestAnimationFrame !== "function") return;
+    let remainingFrames = 2;
+    const retryRestore = () => {
+      if (scrollRestoreVersionRef.current !== restoreVersion) return;
+      const currentCardId = currentCardIdRef.current;
+      if (currentCardId !== null && currentCardId !== cardId) return;
+      const currentElement = scrollContainerRef.current;
+      if (!currentElement) return;
+      currentElement.scrollTop = saved;
+      lastKnownScrollTopRef.current = { cardId, scrollTop: saved };
+      remainingFrames -= 1;
+      if (remainingFrames > 0) requestAnimationFrame(retryRestore);
+    };
+    requestAnimationFrame(retryRestore);
+  }, [projectId]);
+
+  const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
+    const previousNode = scrollContainerRef.current;
+    if (previousNode && previousNode !== node) {
+      saveCurrentScrollPosition();
+    }
+
+    scrollContainerRef.current = node;
+    const cardId = currentCardIdRef.current;
+    if (!node || !cardId) return;
+    restoreScrollPositionForCard(cardId, { resetWhenMissing: false });
+  }, [restoreScrollPositionForCard, saveCurrentScrollPosition]);
+
   useEffect(() => {
     const cardId = card?.id ?? null;
     if (updateConflict && updateConflict.cardId !== cardId) {
@@ -666,8 +751,9 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     descriptionSaveQueueRef.current.pending = null;
     clearAllDraftDirty();
 
-    if (prevCardId && scrollContainerRef.current) {
-      saveScrollPosition(projectId, prevCardId, scrollContainerRef.current.scrollTop);
+    if (prevCardId) {
+      const scrollTop = readCurrentScrollTopForCard(prevCardId, scrollContainerRef.current);
+      if (scrollTop !== null) saveScrollTopForCard(prevCardId, scrollTop);
     }
 
     const prevCard = prevCardRef.current;
@@ -741,47 +827,45 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     columnId,
     runUpdate,
     projectId,
+    readCurrentScrollTopForCard,
+    saveScrollTopForCard,
     schedule.applyRecurrenceState,
     schedule.applyScheduleState,
     updateConflict,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const cardId = card?.id ?? null;
-    if (!cardId || cardId === prevRestoreCardRef.current) return;
-    prevRestoreCardRef.current = cardId;
+    if (!cardId) return;
 
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const saved = loadScrollPosition(projectId, cardId);
-    if (!saved) {
-      el.scrollTop = 0;
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!scrollContainerRef.current) return;
-        scrollContainerRef.current.scrollTop = saved;
-      });
-    });
-  }, [card?.id, projectId]);
+    const resetWhenMissing = lastScrollRestoreCardRef.current !== cardId;
+    lastScrollRestoreCardRef.current = cardId;
+    restoreScrollPositionForCard(cardId, { resetWhenMissing });
+  }, [card?.id, restoreScrollPositionForCard]);
 
   const handleScroll = useCallback(() => {
+    const cardId = currentCardIdRef.current;
+    const element = scrollContainerRef.current;
+    if (!cardId || !element) return;
+
+    const scrollTop = element.scrollTop;
+    rememberScrollTopForCard(cardId, scrollTop);
     if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
     scrollSaveTimerRef.current = setTimeout(() => {
-      const cardId = currentCardIdRef.current;
-      const el = scrollContainerRef.current;
-      if (cardId && el) saveScrollPosition(projectId, cardId, el.scrollTop);
+      saveScrollTopForCard(cardId, scrollTop);
+      scrollSaveTimerRef.current = null;
     }, SCROLL_SAVE_DEBOUNCE_MS);
-  }, [projectId]);
+  }, [rememberScrollTopForCard, saveScrollTopForCard]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
-      if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
+      if (scrollSaveTimerRef.current) {
+        clearTimeout(scrollSaveTimerRef.current);
+        scrollSaveTimerRef.current = null;
+      }
+      saveCurrentScrollPosition();
     };
-  }, []);
+  }, [saveCurrentScrollPosition]);
 
   const hasChanges = useCallback(() => {
     if (!card) return false;
@@ -1026,13 +1110,17 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     flushDescriptionEditorChange();
     cancelPendingFieldSaves();
 
-    if (card && scrollContainerRef.current) {
-      saveScrollPosition(projectId, card.id, scrollContainerRef.current.scrollTop);
-    }
+    saveCurrentScrollPosition();
 
     if (!hasChanges()) return;
     await handleSave();
-  }, [cancelPendingFieldSaves, card, flushDescriptionEditorChange, projectId, hasChanges, handleSave]);
+  }, [
+    cancelPendingFieldSaves,
+    flushDescriptionEditorChange,
+    hasChanges,
+    handleSave,
+    saveCurrentScrollPosition,
+  ]);
 
   const handleClose = useCallback(async () => {
     await handlePersist();
@@ -1439,6 +1527,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     contentBodyClassName,
     contentShellClassName,
     scrollContainerRef,
+    setScrollContainerRef,
     descriptionFlushHandleRef,
     tagInputRef,
     tagDropdownRef,

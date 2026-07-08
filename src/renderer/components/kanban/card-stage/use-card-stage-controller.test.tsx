@@ -8,6 +8,11 @@ import {
   getCardDraftOverlay,
   resetCardDraftStoreForTest,
 } from "@/lib/card-draft-store";
+import {
+  forgetScrollPosition,
+  loadScrollPosition,
+  saveScrollPosition,
+} from "@/lib/card-stage-scroll";
 import { render, settleAsyncRender } from "@/test/dom";
 
 type CardStageController = ReturnType<typeof useCardStageController>;
@@ -116,6 +121,30 @@ function renderController(props: CardStageProps) {
       return controller;
     },
   };
+}
+
+function readCardStageStoredScroll(projectId: string, cardId: string): number | null {
+  const raw = localStorage.getItem("nodex-card-stage-scroll-v1");
+  if (!raw) return null;
+  const parsed = JSON.parse(raw) as Record<string, number>;
+  return parsed[`card-stage:${projectId}:${cardId}`] ?? null;
+}
+
+async function withQueuedAnimationFrames<T>(run: (flushFrame: () => void) => T | Promise<T>): Promise<T> {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const callbacks: FrameRequestCallback[] = [];
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    callbacks.push(callback);
+    return callbacks.length;
+  }) as typeof requestAnimationFrame;
+
+  try {
+    return await run(() => {
+      callbacks.shift()?.(0);
+    });
+  } finally {
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+  }
 }
 
 describe("useCardStageController", () => {
@@ -422,6 +451,90 @@ describe("useCardStageController", () => {
     expect(hiddenCloseCount).toBe(0);
     expect(activeCloseCount).toBe(1);
     view.unmount();
+  });
+
+  test("flushes the latest scroll when unmounted before the debounce fires", async () => {
+    resetCardDraftStoreForTest();
+    forgetScrollPosition("project-1", "card-1");
+    const result = renderController(buildProps());
+    await settleAsyncRender();
+
+    const scrollContainer = document.createElement("div");
+    act(() => {
+      result.controller.setScrollContainerRef(scrollContainer);
+      scrollContainer.scrollTop = 184;
+      result.controller.handleScroll();
+      result.view.unmount();
+    });
+
+    expect(loadScrollPosition("project-1", "card-1")).toBe(184);
+    expect(readCardStageStoredScroll("project-1", "card-1")).toBe(184);
+  });
+
+  test("restores the same card scroll when the scroll container remounts", async () => {
+    resetCardDraftStoreForTest();
+    forgetScrollPosition("project-1", "card-1");
+    saveScrollPosition("project-1", "card-1", 240);
+
+    await withQueuedAnimationFrames(async (flushFrame) => {
+      const result = renderController(buildProps());
+      await settleAsyncRender();
+      const firstScrollContainer = document.createElement("div");
+
+      act(() => {
+        result.controller.setScrollContainerRef(firstScrollContainer);
+      });
+      expect(firstScrollContainer.scrollTop).toBe(240);
+      firstScrollContainer.scrollTop = 0;
+      flushFrame();
+      expect(firstScrollContainer.scrollTop).toBe(240);
+
+      act(() => {
+        firstScrollContainer.scrollTop = 316;
+        result.controller.handleScroll();
+        result.controller.setScrollContainerRef(null);
+      });
+
+      const secondScrollContainer = document.createElement("div");
+      act(() => {
+        result.controller.setScrollContainerRef(secondScrollContainer);
+      });
+      expect(secondScrollContainer.scrollTop).toBe(316);
+      secondScrollContainer.scrollTop = 0;
+      flushFrame();
+      flushFrame();
+      expect(secondScrollContainer.scrollTop).toBe(316);
+
+      result.view.unmount();
+    });
+  });
+
+  test("deactivating a retained panel tab does not reset mounted scroll", async () => {
+    resetCardDraftStoreForTest();
+    forgetScrollPosition("project-1", "card-1");
+    saveScrollPosition("project-1", "card-1", 240);
+    const props = buildProps({ isActivePanelTab: true });
+    const result = renderController(props);
+    await settleAsyncRender();
+    const scrollContainer = document.createElement("div");
+
+    act(() => {
+      result.controller.setScrollContainerRef(scrollContainer);
+    });
+    expect(scrollContainer.scrollTop).toBe(240);
+
+    act(() => {
+      scrollContainer.scrollTop = 372;
+      result.controller.handleScroll();
+      result.rerender(buildProps({
+        ...props,
+        isActivePanelTab: false,
+      }));
+    });
+
+    expect(scrollContainer.scrollTop).toBe(372);
+    expect(loadScrollPosition("project-1", "card-1")).toBe(372);
+    result.view.unmount();
   });
 
   test("deactivating a panel tab persists pending description editor content", async () => {

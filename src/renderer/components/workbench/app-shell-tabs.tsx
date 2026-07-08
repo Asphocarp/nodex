@@ -54,7 +54,7 @@ export interface AppShellTabItem {
   contextLabel?: string;
   icon?: ComponentType<{ className?: string }>;
   closable?: boolean;
-  keepMounted?: boolean;
+  retentionMode?: "layout";
   preview?: boolean;
   reorderable?: boolean;
   splittable?: boolean;
@@ -194,8 +194,8 @@ export function AppShellTabs({
   const dndSessionId = panelTabDnd?.sessionId;
   const dndPanelId = panelTabDnd?.panelId;
   const dndLeafId = panelTabDnd?.leafId;
-  const retainedTabs = tabs.filter((tab) => tab.keepMounted === true);
-  const activeTabIsRetained = activeTab?.keepMounted === true;
+  const retainedTabs = tabs.filter((tab) => tab.retentionMode === "layout");
+  const activeTabIsRetained = activeTab?.retentionMode === "layout";
   const activeTabDomId = activeTab?.id ?? null;
   const previousActiveTabIdRef = useRef(activeTabDomId);
   const panelTabs = activeTab
@@ -425,12 +425,17 @@ export function AppShellTabs({
         id={isActive ? panelId : undefined}
         aria-label={isActive ? makeAppShellTabAccessibleLabel(tab) : undefined}
         aria-hidden={isActive ? undefined : "true"}
-        hidden={isActive ? undefined : true}
+        inert={isActive ? undefined : true}
         data-app-shell-tab-panel-controller={isActive ? (panelTabDnd?.panelId ?? controllerId) : undefined}
         data-tab-id={isActive ? dataTabId : undefined}
         data-app-shell-tabpanel-preview={isActive && tab.preview ? "true" : undefined}
         data-app-shell-tabpanel-retained={!isActive && retained ? tab.id : undefined}
-        className={cn("relative h-full min-h-0", !isActive && "hidden")}
+        className={cn(
+          "h-full min-h-0",
+          isActive
+            ? "relative"
+            : "invisible pointer-events-none absolute inset-0 overflow-hidden",
+        )}
         onPointerDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
         onKeyDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
       >
@@ -536,8 +541,8 @@ export function AppShellTabs({
         </div>
 
         {activeTab ? (
-          <div ref={bodyRef} className="relative min-h-0 flex-1">
-            {panelTabs.map((tab) => renderPanel(tab, tab.id === activeTab.id, tab.keepMounted === true))}
+          <div ref={bodyRef} className="relative min-h-0 flex-1 overflow-hidden">
+            {panelTabs.map((tab) => renderPanel(tab, tab.id === activeTab.id, tab.retentionMode === "layout"))}
           </div>
         ) : null}
       </div>

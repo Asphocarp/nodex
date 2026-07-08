@@ -39,6 +39,7 @@ interface MainViewHostProps {
     titleSnapshot?: string,
     options?: OpenCardStageOptions,
   ) => void;
+  scrollStateKey?: string | null;
 }
 
 export function MainViewHost({
@@ -58,6 +59,7 @@ export function MainViewHost({
   onCalendarAnchorDateChange,
   onReminderHandled,
   openCardStage,
+  scrollStateKey,
 }: MainViewHostProps) {
   if (view === "kanban") {
     return (
@@ -70,6 +72,7 @@ export function MainViewHost({
         cardStageCardId={cardStageCardId}
         activePanelCardStageCardIds={activePanelCardStageCardIds}
         cardStageCloseRef={cardStageCloseRef}
+        scrollStateKey={scrollStateKey}
       />
     );
   }
@@ -84,6 +87,7 @@ export function MainViewHost({
         openCardStage={openCardStage}
         cardStageCardId={cardStageCardId}
         cardStageCloseRef={cardStageCloseRef}
+        scrollStateKey={scrollStateKey}
       />
     );
   }
@@ -113,6 +117,7 @@ export function MainViewHost({
         createRequestId={calendarCreateRequestId}
         onCalendarAnchorDateChange={onCalendarAnchorDateChange}
         onReminderHandled={onReminderHandled}
+        scrollStateKey={scrollStateKey}
       />
     );
   }
@@ -123,6 +128,7 @@ export function MainViewHost({
       searchQuery={searchQuery}
       dbViewPrefs={dbViewPrefs}
       openCardStage={openCardStage}
+      scrollStateKey={scrollStateKey}
     />
   );
 }

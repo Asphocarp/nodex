@@ -162,7 +162,7 @@ export function CardStage(props: CardStageProps) {
         data-card-stage-heading-navigation-portal-target="true"
       >
         <div
-          ref={controller.scrollContainerRef}
+          ref={controller.setScrollContainerRef}
           onScroll={controller.handleScroll}
           className="scrollbar-token h-full min-h-0 overflow-y-auto"
           data-testid={CARD_STAGE_SCROLL_CONTAINER_TEST_ID}

@@ -1,4 +1,5 @@
 import {
+  Activity,
   Fragment,
   forwardRef,
   startTransition,
@@ -413,6 +414,7 @@ const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
 const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
 const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 126;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
+const RETAINED_SESSION_CAP = 4;
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 type SidebarResizePhase = "live" | "end" | "reset";
 type SidebarResizeSurface = "inline" | "floating";
@@ -582,6 +584,27 @@ interface CardStageHistoryModalContext {
   projectId: string;
   cardId: string;
   cardTitle?: string;
+}
+
+interface RetainedSessionEntry {
+  sessionId: string;
+  lastActiveAtMs: number;
+}
+
+interface BuildRetainedSessionEntriesInput {
+  activeSessionId: string | null;
+  activeSession: ProjectSession | null;
+  previousEntries: readonly RetainedSessionEntry[];
+  knownSessionIds: ReadonlySet<string>;
+  getSessionDetail: (sessionId: string) => ProjectSession | null | undefined;
+  nowMs: number;
+  cap: number;
+}
+
+interface ShouldSynchronouslyRevealSessionInput {
+  sessionId: string;
+  cachedSession: ProjectSession | null | undefined;
+  retainedEntries: readonly RetainedSessionEntry[];
 }
 
 type ProjectSessionTabDraft = Pick<ProjectSessionTabCreateInput, "kind" | "title" | "config">;
@@ -915,6 +938,35 @@ export function WorkbenchStageToolbar({
   );
 }
 
+function isBunTestRuntime(): boolean {
+  const runtime = globalThis as typeof globalThis & {
+    Bun?: unknown;
+    process?: { argv?: string[] };
+  };
+  if (typeof runtime.Bun === "undefined") return false;
+
+  const argv = runtime.process?.argv ?? [];
+  return argv.some((item) => item.includes("bun")) && argv.some((item) => item.includes("test"));
+}
+
+function RetainedActivity({
+  mode,
+  children,
+}: {
+  mode: "visible" | "hidden";
+  children: ReactNode;
+}) {
+  if (isBunTestRuntime()) {
+    return (
+      <div hidden={mode === "hidden"} aria-hidden={mode === "hidden" ? "true" : undefined}>
+        {children}
+      </div>
+    );
+  }
+
+  return <Activity mode={mode}>{children}</Activity>;
+}
+
 function readInitialExpandedProjects(projects: Project[], activeProjectId: string): Set<string> {
   const initial = new Set<string>();
   if (activeProjectId) initial.add(activeProjectId);
@@ -943,6 +995,105 @@ type PanelGroupTabsByPanel = Record<PanelId, {
   itemsByLeafId: Record<string, AppShellTabItem[]>;
   activeTabIdsByLeafId: Record<string, string | null>;
 }>;
+
+interface SessionPanelRenderModel {
+  rightPanel: ProjectSessionPanelState;
+  bottomPanel: ProjectSessionPanelState;
+  rightActiveLeafId: string;
+  bottomActiveLeafId: string;
+  rightRenderableTabs: ProjectSessionRenderableTab[];
+  bottomRenderableTabs: ProjectSessionRenderableTab[];
+  rightActiveTabId: string | null;
+  bottomActiveTabId: string | null;
+  rightPanelCollapsed: boolean;
+  bottomPanelCollapsed: boolean;
+  sidePanelOpen: boolean;
+  bottomPanelOpen: boolean;
+  rightPanelFullWidth: boolean;
+  rightActiveRenderableTab: ProjectSessionRenderableTab | null;
+  threadPlanSidePanelState: ThreadPlanSidePanelState | null;
+  renderableTabsByPanelLeaf: Record<PanelId, Record<string, ProjectSessionRenderableTab[]>>;
+  activeTabIdsByPanelLeaf: Record<PanelId, Record<string, string | null>>;
+  browserRetentionTabs: ProjectSessionTab[];
+  visibleBrowserTabIds: ReadonlySet<string>;
+}
+
+interface SessionPanelRenderModelInput {
+  session: ProjectSession;
+  previewTabsByPanel: Record<string, ProjectSessionPreviewTab>;
+  sideChatTabsBySession: Record<string, SideChatPanelTab[]>;
+  sideChatActiveTabByPanel: Record<string, string>;
+  mcpAppTabsBySession: Record<string, McpAppPanelTab[]>;
+  mcpAppActiveTabByPanel: Record<string, string>;
+  planTabsBySession: Record<string, PlanPanelTab[]>;
+  planActiveTabByPanel: Record<string, string>;
+  backgroundAgentTabsBySession: Record<string, BackgroundAgentPanelTab[]>;
+  backgroundAgentActiveTabByPanel: Record<string, string>;
+  processOutputTabsBySession: Record<string, ProcessOutputPanelTab[]>;
+  processOutputActiveTabByPanel: Record<string, string>;
+  panelCollapsedOverrides: Record<string, boolean>;
+  activePlanKeyBySession: Record<string, string>;
+}
+
+function isRetainableProjectSession(
+  session: ProjectSession | null | undefined,
+  knownSessionIds: ReadonlySet<string>,
+): session is ProjectSession {
+  if (!session) return false;
+  if (!knownSessionIds.has(session.id)) return false;
+  if (session.archived) return false;
+  if (!Array.isArray(session.tabs)) return false;
+  return typeof session.panels === "object" && session.panels !== null;
+}
+
+function buildRetainedSessionEntries({
+  activeSessionId,
+  activeSession,
+  previousEntries,
+  knownSessionIds,
+  getSessionDetail,
+  nowMs,
+  cap,
+}: BuildRetainedSessionEntriesInput): RetainedSessionEntry[] {
+  const previousEntriesById = new Map(previousEntries.map((entry) => [entry.sessionId, entry]));
+  const orderedSessionIds = activeSessionId
+    ? [
+        activeSessionId,
+        ...previousEntries
+          .map((entry) => entry.sessionId)
+          .filter((sessionId) => sessionId !== activeSessionId),
+      ]
+    : previousEntries.map((entry) => entry.sessionId);
+  const seenSessionIds = new Set<string>();
+  const nextEntries: RetainedSessionEntry[] = [];
+
+  for (const sessionId of orderedSessionIds) {
+    if (seenSessionIds.has(sessionId)) continue;
+    seenSessionIds.add(sessionId);
+
+    const detail = activeSession?.id === sessionId ? activeSession : getSessionDetail(sessionId);
+    if (!isRetainableProjectSession(detail, knownSessionIds)) continue;
+
+    nextEntries.push({
+      sessionId,
+      lastActiveAtMs: sessionId === activeSessionId
+        ? nowMs
+        : previousEntriesById.get(sessionId)?.lastActiveAtMs ?? nowMs,
+    });
+    if (nextEntries.length >= cap) break;
+  }
+
+  return nextEntries;
+}
+
+export function shouldSynchronouslyRevealSession({
+  sessionId,
+  cachedSession,
+  retainedEntries,
+}: ShouldSynchronouslyRevealSessionInput): boolean {
+  if (!cachedSession) return false;
+  return retainedEntries.some((entry) => entry.sessionId === sessionId);
+}
 
 const PANEL_FOCUS_AREA_SELECTOR = "[data-app-shell-focus-area=\"right-panel\"], [data-app-shell-focus-area=\"bottom-panel\"]";
 const PANEL_GROUP_LEAF_SELECTOR = "[data-panel-group-leaf-id]";
@@ -1356,6 +1507,215 @@ function getRenderablePanelPreviewTab(
   if (!previewTab) return null;
   if (hasDurablePanelTabInLeaf(session, panelId, leafId, previewTab.id)) return null;
   return previewTab;
+}
+
+function resolveActiveRenderableTabId(
+  renderableTabs: readonly ProjectSessionRenderableTab[],
+  fallbackActiveTabId: string | null,
+  activeTabCandidates: readonly (string | null)[],
+): string | null {
+  for (const candidate of activeTabCandidates) {
+    if (!candidate) continue;
+    if (renderableTabs.some((tab) => tab.id === candidate)) return candidate;
+  }
+  if (fallbackActiveTabId && renderableTabs.some((tab) => tab.id === fallbackActiveTabId)) {
+    return fallbackActiveTabId;
+  }
+  return renderableTabs[0]?.id ?? null;
+}
+
+function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): SessionPanelRenderModel {
+  const {
+    session,
+    previewTabsByPanel,
+    sideChatTabsBySession,
+    sideChatActiveTabByPanel,
+    mcpAppTabsBySession,
+    mcpAppActiveTabByPanel,
+    planTabsBySession,
+    planActiveTabByPanel,
+    backgroundAgentTabsBySession,
+    backgroundAgentActiveTabByPanel,
+    processOutputTabsBySession,
+    processOutputActiveTabByPanel,
+    panelCollapsedOverrides,
+    activePlanKeyBySession,
+  } = input;
+  const rightPanel = session.panels.right;
+  const bottomPanel = session.panels.bottom;
+  const rightActiveLeafId = resolveSessionPanelActiveLeafId(session, "right");
+  const bottomActiveLeafId = resolveSessionPanelActiveLeafId(session, "bottom");
+  const renderableTabsByPanelLeaf: Record<PanelId, Record<string, ProjectSessionRenderableTab[]>> = {
+    right: {},
+    bottom: {},
+  };
+  const activeTabIdsByPanelLeaf: Record<PanelId, Record<string, string | null>> = {
+    right: {},
+    bottom: {},
+  };
+  const durableById = new Map(session.tabs.map((tab) => [tab.id, tab]));
+
+  for (const panelId of ["right", "bottom"] as const) {
+    const panel = session.panels[panelId];
+    const activeLeafId = panelId === "right" ? rightActiveLeafId : bottomActiveLeafId;
+    for (const leaf of listProjectSessionPanelLeaves(panel.layout)) {
+      const durableTabs = leaf.tabIds.flatMap((tabId) => {
+        const tab = durableById.get(tabId);
+        return tab && tab.panelId === panelId ? [tab] : [];
+      });
+      const sideChatTabs = (sideChatTabsBySession[session.id] ?? []).filter((tab) =>
+        tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+      );
+      const mcpAppTabs = (mcpAppTabsBySession[session.id] ?? []).filter((tab) =>
+        tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+      );
+      const planTabs = (planTabsBySession[session.id] ?? []).filter((tab) =>
+        tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+      );
+      const backgroundAgentTabs = (backgroundAgentTabsBySession[session.id] ?? []).filter((tab) =>
+        tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+      );
+      const processOutputTabs = (processOutputTabsBySession[session.id] ?? []).filter((tab) =>
+        tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+      );
+      const previewTab = getRenderablePanelPreviewTab(session, panelId, leaf.id, previewTabsByPanel);
+      const renderableTabs: ProjectSessionRenderableTab[] = previewTab
+        ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs, previewTab]
+        : [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs];
+      const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(session.id, panelId, leaf.id)]
+        ?? (leaf.id === activeLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(session.id, panelId)] : null)
+        ?? null;
+      const mcpAppActiveTabId = mcpAppActiveTabByPanel[makeMcpAppPanelKey(session.id, panelId, leaf.id)]
+        ?? (leaf.id === activeLeafId ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(session.id, panelId)] : null)
+        ?? null;
+      const planActiveTabId = planActiveTabByPanel[makePlanPanelKey(session.id, panelId, leaf.id)]
+        ?? (leaf.id === activeLeafId ? planActiveTabByPanel[makePlanPanelKey(session.id, panelId)] : null)
+        ?? null;
+      const backgroundAgentActiveTabId =
+        backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(session.id, panelId, leaf.id)]
+        ?? (leaf.id === activeLeafId
+          ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(session.id, panelId)]
+          : null)
+        ?? null;
+      const processOutputActiveTabId =
+        processOutputActiveTabByPanel[makeProcessOutputPanelKey(session.id, panelId, leaf.id)]
+        ?? (leaf.id === activeLeafId
+          ? processOutputActiveTabByPanel[makeProcessOutputPanelKey(session.id, panelId)]
+          : null)
+        ?? null;
+
+      renderableTabsByPanelLeaf[panelId][leaf.id] = renderableTabs;
+      activeTabIdsByPanelLeaf[panelId][leaf.id] = resolveActiveRenderableTabId(
+        renderableTabs,
+        leaf.activeTabId,
+        [
+          previewTab?.id ?? null,
+          planActiveTabId,
+          mcpAppActiveTabId,
+          sideChatActiveTabId,
+          backgroundAgentActiveTabId,
+          processOutputActiveTabId,
+        ],
+      );
+    }
+  }
+
+  const rightRenderableTabs = renderableTabsByPanelLeaf.right[rightActiveLeafId] ?? [];
+  const bottomRenderableTabs = renderableTabsByPanelLeaf.bottom[bottomActiveLeafId] ?? [];
+  const rightActiveTabId = activeTabIdsByPanelLeaf.right[rightActiveLeafId] ?? null;
+  const bottomActiveTabId = activeTabIdsByPanelLeaf.bottom[bottomActiveLeafId] ?? null;
+  const rightPanelCollapsed =
+    panelCollapsedOverrides[makePanelPreviewKey(session.id, "right")] ?? rightPanel.collapsed;
+  const bottomPanelCollapsed =
+    panelCollapsedOverrides[makePanelPreviewKey(session.id, "bottom")] ?? bottomPanel.collapsed;
+  const sidePanelOpen = !rightPanelCollapsed;
+  const bottomPanelOpen = !bottomPanelCollapsed;
+  const rightPanelFullWidth = sidePanelOpen && (rightPanel.size.fullWidth ?? false);
+  const rightActiveRenderableTab = rightActiveTabId
+    ? rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? null
+    : null;
+  const browserRetentionTabs = [
+    ...session.tabs.filter((tab) => tab.kind === "browser"),
+    ...Object.values(previewTabsByPanel).filter((tab): tab is ProjectSessionTab & { preview: true } =>
+      tab.sessionId === session.id && tab.kind === "browser" && typeof tab.projectId === "string"
+    ),
+  ];
+  const browserTabIds = new Set(browserRetentionTabs.map((tab) => tab.id));
+  const visibleBrowserTabIds = new Set<string>();
+  const collectVisibleBrowserTabIds = (panelId: PanelId, panelOpen: boolean) => {
+    if (!panelOpen) return;
+    const layout = session.panels[panelId].layout;
+    const leafIds = layout.maximizedLeafId
+      ? [layout.maximizedLeafId]
+      : listProjectSessionPanelLeaves(layout).map((leaf) => leaf.id);
+    for (const leafId of leafIds) {
+      const tabId = activeTabIdsByPanelLeaf[panelId][leafId];
+      if (tabId && browserTabIds.has(tabId)) visibleBrowserTabIds.add(tabId);
+    }
+  };
+  collectVisibleBrowserTabIds("right", sidePanelOpen);
+  collectVisibleBrowserTabIds("bottom", bottomPanelOpen);
+
+  return {
+    rightPanel,
+    bottomPanel,
+    rightActiveLeafId,
+    bottomActiveLeafId,
+    rightRenderableTabs,
+    bottomRenderableTabs,
+    rightActiveTabId,
+    bottomActiveTabId,
+    rightPanelCollapsed,
+    bottomPanelCollapsed,
+    sidePanelOpen,
+    bottomPanelOpen,
+    rightPanelFullWidth,
+    rightActiveRenderableTab,
+    threadPlanSidePanelState: {
+      rightPanelEnabled: session.projectId !== null,
+      activePlanKey: activePlanKeyBySession[session.id] ?? null,
+      activeRightPanelTabId: sidePanelOpen ? rightActiveTabId : null,
+    },
+    renderableTabsByPanelLeaf,
+    activeTabIdsByPanelLeaf,
+    browserRetentionTabs,
+    visibleBrowserTabIds,
+  };
+}
+
+function collectPanelCardStageCardIdsByProject(
+  session: ProjectSession,
+  model: SessionPanelRenderModel,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const byProject = new Map<string, Set<string>>();
+  const collectPanelVisibleCardStageCards = (panelId: PanelId, panelOpen: boolean) => {
+    if (!panelOpen) return;
+
+    const layout = session.panels[panelId].layout;
+    const leafIds = layout.maximizedLeafId
+      ? [layout.maximizedLeafId]
+      : listProjectSessionPanelLeaves(layout).map((leaf) => leaf.id);
+
+    for (const leafId of leafIds) {
+      const activeTabId = model.activeTabIdsByPanelLeaf[panelId][leafId] ?? null;
+      const activeTab = activeTabId
+        ? model.renderableTabsByPanelLeaf[panelId][leafId]?.find((tab) => tab.id === activeTabId) ?? null
+        : null;
+      if (!activeTab || isTransientPanelTab(activeTab)) continue;
+      if (isProjectSessionFilesPreviewTab(activeTab)) continue;
+
+      const cardRef = readCardStagePanelTabCardRef(activeTab);
+      if (!cardRef) continue;
+
+      const cardIds = byProject.get(cardRef.projectId) ?? new Set<string>();
+      cardIds.add(cardRef.cardId);
+      byProject.set(cardRef.projectId, cardIds);
+    }
+  };
+
+  collectPanelVisibleCardStageCards("right", model.sidePanelOpen);
+  collectPanelVisibleCardStageCards("bottom", model.bottomPanelOpen);
+  return byProject;
 }
 
 function makeSideChatPanelKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
@@ -1840,6 +2200,7 @@ export function WorkbenchShell({
   const [pendingProcessOutputOpen, setPendingProcessOutputOpen] = useState<ProcessOutputPanelTarget | null>(null);
   const [activePlanKeyBySession, setActivePlanKeyBySession] = useState<Record<string, string>>({});
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
+  const [retainedSessionEntries, setRetainedSessionEntries] = useState<RetainedSessionEntry[]>([]);
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [bottomPanelDragHeight, setBottomPanelDragHeight] = useState<number | null>(null);
@@ -1954,6 +2315,9 @@ export function WorkbenchShell({
     ?? projectlessSessions.find((session) => session.id === activeSessionId)
     ?? null;
   const activeSession = selectedActiveSession ?? activeSessions[0] ?? null;
+  const activeRenderSession = activeSession
+    ? getCachedProjectSessionDetail(queryClient, activeSession.id) ?? activeSession
+    : null;
   const scheduledAutomationsQuery = useCodexScheduledAutomations();
   const refreshProjectSessionSummariesRef =
     useRef<((projectId: string | null) => Promise<ProjectSessionSummary[]>) | null>(null);
@@ -2016,6 +2380,10 @@ export function WorkbenchShell({
     () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
     [projectlessSessions, sessionsByProject],
   );
+  const knownSessionIds = useMemo(
+    () => new Set(knownSessions.map((session) => session.id)),
+    [knownSessions],
+  );
   const processManagerThreads = useMemo<CodexBackgroundTerminalProcessThreadRef[]>(() => {
     const seen = new Set<string>();
     const refs: CodexBackgroundTerminalProcessThreadRef[] = [];
@@ -2059,129 +2427,45 @@ export function WorkbenchShell({
   });
   const [cardStageHistoryModal, setCardStageHistoryModal] = useState<CardStageHistoryModalContext | null>(null);
   const [openPanelNewTabMenuKey, setOpenPanelNewTabMenuKey] = useState<string | null>(null);
-  const rightPanel = activeSession?.panels.right ?? null;
-  const bottomPanel = activeSession?.panels.bottom ?? null;
-  const rightPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "right") ?? [];
-  const bottomPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "bottom") ?? [];
-  const rightActiveLeafId = activeSession ? resolveSessionPanelActiveLeafId(activeSession, "right") : "main";
-  const bottomActiveLeafId = activeSession ? resolveSessionPanelActiveLeafId(activeSession, "bottom") : "main";
-  const rightPreviewTab = activeSession
-    ? getRenderablePanelPreviewTab(activeSession, "right", rightActiveLeafId, previewTabsByPanel)
-    : null;
-  const bottomPreviewTab = activeSession
-    ? getRenderablePanelPreviewTab(activeSession, "bottom", bottomActiveLeafId, previewTabsByPanel)
-    : null;
-  const activeSessionSideChatTabs = activeSession ? sideChatTabsBySession[activeSession.id] ?? [] : [];
-  const rightSideChatTabs = activeSessionSideChatTabs.filter((tab) => tab.panelId === "right");
-  const bottomSideChatTabs = activeSessionSideChatTabs.filter((tab) => tab.panelId === "bottom");
-  const activeSessionMcpAppTabs = activeSession ? mcpAppTabsBySession[activeSession.id] ?? [] : [];
-  const rightMcpAppTabs = activeSessionMcpAppTabs.filter((tab) => tab.panelId === "right");
-  const bottomMcpAppTabs = activeSessionMcpAppTabs.filter((tab) => tab.panelId === "bottom");
-  const activeSessionPlanTabs = activeSession ? planTabsBySession[activeSession.id] ?? [] : [];
-  const rightPlanTabs = activeSessionPlanTabs.filter((tab) => tab.panelId === "right");
-  const activeSessionBackgroundAgentTabs = activeSession ? backgroundAgentTabsBySession[activeSession.id] ?? [] : [];
-  const rightBackgroundAgentTabs = activeSessionBackgroundAgentTabs.filter((tab) => tab.panelId === "right");
-  const activeSessionProcessOutputTabs = activeSession ? processOutputTabsBySession[activeSession.id] ?? [] : [];
-  const rightProcessOutputTabs = activeSessionProcessOutputTabs.filter((tab) => tab.panelId === "right");
-  const rightRenderableTabs: ProjectSessionRenderableTab[] = rightPreviewTab
-    ? [
-        ...rightPanelTabs,
-        ...rightSideChatTabs,
-        ...rightMcpAppTabs,
-        ...rightPlanTabs,
-        ...rightBackgroundAgentTabs,
-        ...rightProcessOutputTabs,
-        rightPreviewTab,
-      ]
-    : [
-        ...rightPanelTabs,
-        ...rightSideChatTabs,
-        ...rightMcpAppTabs,
-        ...rightPlanTabs,
-        ...rightBackgroundAgentTabs,
-        ...rightProcessOutputTabs,
-      ];
-  const bottomRenderableTabs: ProjectSessionRenderableTab[] = bottomPreviewTab
-    ? [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs, bottomPreviewTab]
-    : [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs];
-  const rightSideChatActiveTabId = activeSession
-    ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "right", rightActiveLeafId)]
-      ?? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "right")]
-      ?? null
-    : null;
-  const bottomSideChatActiveTabId = activeSession
-    ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "bottom", bottomActiveLeafId)]
-      ?? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "bottom")]
-      ?? null
-    : null;
-  const rightMcpAppActiveTabId = activeSession
-    ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "right", rightActiveLeafId)]
-      ?? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "right")]
-      ?? null
-    : null;
-  const rightPlanActiveTabId = activeSession
-    ? planActiveTabByPanel[makePlanPanelKey(activeSession.id, "right", rightActiveLeafId)]
-      ?? planActiveTabByPanel[makePlanPanelKey(activeSession.id, "right")]
-      ?? null
-    : null;
-  const rightBackgroundAgentActiveTabId = activeSession
-    ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, "right", rightActiveLeafId)]
-      ?? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, "right")]
-      ?? null
-    : null;
-  const rightProcessOutputActiveTabId = activeSession
-    ? processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, "right", rightActiveLeafId)]
-      ?? processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, "right")]
-      ?? null
-    : null;
-  const bottomMcpAppActiveTabId = activeSession
-    ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom", bottomActiveLeafId)]
-      ?? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom")]
-      ?? null
-    : null;
-  const rightActiveTabId = rightPreviewTab?.id
-    ?? (rightPlanActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightPlanActiveTabId)
-      ? rightPlanActiveTabId
-      : null)
-    ?? (rightMcpAppActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightMcpAppActiveTabId)
-      ? rightMcpAppActiveTabId
-      : null)
-    ?? (rightSideChatActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightSideChatActiveTabId)
-      ? rightSideChatActiveTabId
-      : null)
-    ?? (rightBackgroundAgentActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightBackgroundAgentActiveTabId)
-      ? rightBackgroundAgentActiveTabId
-      : null)
-    ?? (rightProcessOutputActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightProcessOutputActiveTabId)
-      ? rightProcessOutputActiveTabId
-      : rightPanel ? getProjectSessionPanelActiveLeaf(rightPanel.layout).activeTabId : null)
-    ?? rightRenderableTabs[0]?.id
-    ?? null;
-  const bottomActiveTabId = bottomPreviewTab?.id
-    ?? (bottomMcpAppActiveTabId && bottomRenderableTabs.some((tab) => tab.id === bottomMcpAppActiveTabId)
-      ? bottomMcpAppActiveTabId
-      : null)
-    ?? (bottomSideChatActiveTabId && bottomRenderableTabs.some((tab) => tab.id === bottomSideChatActiveTabId)
-      ? bottomSideChatActiveTabId
-      : bottomPanel ? getProjectSessionPanelActiveLeaf(bottomPanel.layout).activeTabId : null)
-    ?? bottomRenderableTabs[0]?.id
-    ?? null;
-  const rightPanelCollapsed = activeSession
-    ? panelCollapsedOverrides[makePanelPreviewKey(activeSession.id, "right")] ?? rightPanel?.collapsed ?? true
-    : true;
-  const bottomPanelCollapsed = activeSession
-    ? panelCollapsedOverrides[makePanelPreviewKey(activeSession.id, "bottom")] ?? bottomPanel?.collapsed ?? true
-    : true;
-  const sidePanelOpen = activeSession ? !rightPanelCollapsed : false;
-  const bottomPanelOpen = activeSession ? !bottomPanelCollapsed : false;
-  const threadPlanSidePanelState = useMemo<ThreadPlanSidePanelState | null>(() => {
-    if (!activeSession) return null;
-    return {
-      rightPanelEnabled: activeSession.projectId !== null,
-      activePlanKey: activePlanKeyBySession[activeSession.id] ?? null,
-      activeRightPanelTabId: sidePanelOpen ? rightActiveTabId : null,
-    };
-  }, [activePlanKeyBySession, activeSession, rightActiveTabId, sidePanelOpen]);
+  const activeSessionPanelModel = useMemo(() => activeRenderSession ? buildSessionPanelRenderModel({
+    session: activeRenderSession,
+    previewTabsByPanel,
+    sideChatTabsBySession,
+    sideChatActiveTabByPanel,
+    mcpAppTabsBySession,
+    mcpAppActiveTabByPanel,
+    planTabsBySession,
+    planActiveTabByPanel,
+    backgroundAgentTabsBySession,
+    backgroundAgentActiveTabByPanel,
+    processOutputTabsBySession,
+    processOutputActiveTabByPanel,
+    panelCollapsedOverrides,
+    activePlanKeyBySession,
+  }) : null, [
+    activePlanKeyBySession,
+    activeRenderSession,
+    backgroundAgentActiveTabByPanel,
+    backgroundAgentTabsBySession,
+    mcpAppActiveTabByPanel,
+    mcpAppTabsBySession,
+    panelCollapsedOverrides,
+    planActiveTabByPanel,
+    planTabsBySession,
+    previewTabsByPanel,
+    processOutputActiveTabByPanel,
+    processOutputTabsBySession,
+    sideChatActiveTabByPanel,
+    sideChatTabsBySession,
+  ]);
+  const rightPanel = activeSessionPanelModel?.rightPanel ?? null;
+  const bottomPanel = activeSessionPanelModel?.bottomPanel ?? null;
+  const rightActiveTabId = activeSessionPanelModel?.rightActiveTabId ?? null;
+  const bottomActiveTabId = activeSessionPanelModel?.bottomActiveTabId ?? null;
+  const rightPanelCollapsed = activeSessionPanelModel?.rightPanelCollapsed ?? true;
+  const bottomPanelCollapsed = activeSessionPanelModel?.bottomPanelCollapsed ?? true;
+  const sidePanelOpen = activeSessionPanelModel?.sidePanelOpen ?? false;
+  const bottomPanelOpen = activeSessionPanelModel?.bottomPanelOpen ?? false;
   useEffect(() => {
     setCardStageHistoryModal((current) => {
       if (!current) return current;
@@ -2218,12 +2502,8 @@ export function WorkbenchShell({
       : null,
     [cardStageHistoryModal, projects],
   );
-  const rightPanelFullWidth = Boolean(
-    activeSession && sidePanelOpen && (rightPanel?.size.fullWidth ?? false),
-  );
-  const rightActiveRenderableTab = rightActiveTabId
-    ? rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? null
-    : null;
+  const rightPanelFullWidth = activeSessionPanelModel?.rightPanelFullWidth ?? false;
+  const rightActiveRenderableTab = activeSessionPanelModel?.rightActiveRenderableTab ?? null;
   const rightPanelComposerOverlayEnabled = Boolean(
     activeSession?.thread
     && sidePanelOpen
@@ -2358,14 +2638,6 @@ export function WorkbenchShell({
     toast.danger(message);
   }, []);
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
-  const availableRightPanelActions = useMemo(
-    () => filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? [], "right"),
-    [activeSession?.tabs],
-  );
-  const availableBottomPanelActions = useMemo(
-    () => filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? [], "bottom"),
-    [activeSession?.tabs],
-  );
   const safeHeaderLeftWidth = isMacPlatform
     ? MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX
     : NON_MAC_SAFE_HEADER_LEFT_PX;
@@ -2616,6 +2888,52 @@ export function WorkbenchShell({
       .catch(() => undefined);
   }, [activeSession?.id, mergeSessionInState, queryClient, warmProjectSessionDbViewBoards]);
 
+  useEffect(() => {
+    setRetainedSessionEntries((current) => {
+      const next = buildRetainedSessionEntries({
+        activeSessionId: activeRenderSession?.id ?? null,
+        activeSession: activeRenderSession,
+        previousEntries: current,
+        knownSessionIds,
+        getSessionDetail: (sessionId) => getCachedProjectSessionDetail(queryClient, sessionId),
+        nowMs: Date.now(),
+        cap: RETAINED_SESSION_CAP,
+      });
+
+      if (
+        next.length === current.length
+        && next.every((entry, index) =>
+          entry.sessionId === current[index]?.sessionId
+          && entry.lastActiveAtMs === current[index]?.lastActiveAtMs
+        )
+      ) {
+        return current;
+      }
+
+      return next;
+    });
+  }, [activeRenderSession, knownSessionIds, queryClient]);
+
+  const retainedSessionRenderEntries = useMemo(() => {
+    const entries: Array<{ session: ProjectSession; isActive: boolean }> = [];
+    if (activeRenderSession) {
+      entries.push({ session: activeRenderSession, isActive: true });
+    }
+
+    const activeId = activeRenderSession?.id ?? null;
+    for (const entry of retainedSessionEntries) {
+      if (entry.sessionId === activeId) continue;
+      if (!knownSessionIds.has(entry.sessionId)) continue;
+
+      const detail = getCachedProjectSessionDetail(queryClient, entry.sessionId);
+      if (!isRetainableProjectSession(detail, knownSessionIds)) continue;
+      entries.push({ session: detail, isActive: false });
+      if (entries.length >= RETAINED_SESSION_CAP) break;
+    }
+
+    return entries;
+  }, [activeRenderSession, knownSessionIds, queryClient, retainedSessionEntries]);
+
   const resolveSessionHasGitRepository = useCallback(async (session: ProjectSession): Promise<boolean> => {
     if (!canForkSessionLocally(session)) return false;
     const cwd = session.thread?.cwd?.trim();
@@ -2767,7 +3085,8 @@ export function WorkbenchShell({
     const targetSession = cachedSession ?? session;
     warmProjectSessionDbViewBoards(targetSession);
     recordShellNavigation(buildSnapshotForSession(targetSession, targetSession.projectId ?? activeProjectId));
-    startTransition(() => {
+
+    const revealSession = () => {
       setActiveSessionId(targetSession.id);
       if (targetSession.projectId !== null) {
         const projectId = targetSession.projectId;
@@ -2775,7 +3094,18 @@ export function WorkbenchShell({
         setDbProject(projectId);
         setExpandedProjectIds((current) => new Set([...current, projectId]));
       }
-    });
+    };
+
+    if (shouldSynchronouslyRevealSession({
+      sessionId: targetSession.id,
+      cachedSession,
+      retainedEntries: retainedSessionEntries,
+    })) {
+      revealSession();
+    } else {
+      startTransition(revealSession);
+    }
+
     if (targetSession.unread) {
       void invoke("project-sessions:mark-unread", targetSession.id, { unread: false })
         .then((updated) => {
@@ -2784,7 +3114,15 @@ export function WorkbenchShell({
         })
         .catch(() => undefined);
     }
-  }, [activeProjectId, buildSnapshotForSession, queryClient, recordShellNavigation, setDbProject, warmProjectSessionDbViewBoards]);
+  }, [
+    activeProjectId,
+    buildSnapshotForSession,
+    queryClient,
+    recordShellNavigation,
+    retainedSessionEntries,
+    setDbProject,
+    warmProjectSessionDbViewBoards,
+  ]);
 
   useEffect(() => {
     if (!pendingSessionOpen) return;
@@ -6176,125 +6514,28 @@ export function WorkbenchShell({
   }, [activeSession, bottomPanelHeight, sessionContentHeight, setActivePanelCollapsed, updateActivePanel]);
 
   const activePanelCardStageCardIdsByProject = useMemo<ReadonlyMap<string, ReadonlySet<string>>>(() => {
-    const byProject = new Map<string, Set<string>>();
-    if (!activeSession) return byProject;
+    if (!activeRenderSession || !activeSessionPanelModel) return new Map();
+    return collectPanelCardStageCardIdsByProject(activeRenderSession, activeSessionPanelModel);
+  }, [activeRenderSession, activeSessionPanelModel]);
 
-    const durableById = new Map(activeSession.tabs.map((tab) => [tab.id, tab]));
-    const collectPanelVisibleCardStageCards = (panelId: PanelId, panelOpen: boolean) => {
-      if (!panelOpen) return;
-
-      const panel = activeSession.panels[panelId];
-      const panelActiveLeafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
-      const leaves = listProjectSessionPanelLeaves(panel.layout);
-      const visibleLeaves = panel.layout.maximizedLeafId
-        ? leaves.filter((leaf) => leaf.id === panel.layout.maximizedLeafId)
-        : leaves;
-
-      for (const leaf of visibleLeaves) {
-        const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leaf.id, previewTabsByPanel);
-
-        const durableTabs = leaf.tabIds.flatMap((tabId) => {
-          const tab = durableById.get(tabId);
-          return tab && tab.panelId === panelId ? [tab] : [];
-        });
-        const sideChatTabs = (sideChatTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
-        );
-        const mcpAppTabs = (mcpAppTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
-        );
-        const planTabs = (planTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
-        );
-        const backgroundAgentTabs = (backgroundAgentTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
-        );
-        const renderableTabs: ProjectSessionRenderableTab[] = [
-          ...durableTabs,
-          ...sideChatTabs,
-          ...mcpAppTabs,
-          ...planTabs,
-          ...backgroundAgentTabs,
-          ...(previewTab ? [previewTab] : []),
-        ];
-        const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === panelActiveLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId)] : null)
-          ?? null;
-        const mcpAppActiveTabId = mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === panelActiveLeafId ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId)] : null)
-          ?? null;
-        const planActiveTabId = planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === panelActiveLeafId ? planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId)] : null)
-          ?? null;
-        const backgroundAgentActiveTabId =
-          backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === panelActiveLeafId
-            ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId)]
-            : null)
-          ?? null;
-        const activeTabId = previewTab?.id
-          ?? (planActiveTabId && renderableTabs.some((tab) => tab.id === planActiveTabId)
-            ? planActiveTabId
-            : null)
-          ?? (mcpAppActiveTabId && renderableTabs.some((tab) => tab.id === mcpAppActiveTabId)
-            ? mcpAppActiveTabId
-            : null)
-          ?? (sideChatActiveTabId && renderableTabs.some((tab) => tab.id === sideChatActiveTabId)
-            ? sideChatActiveTabId
-            : null)
-          ?? (backgroundAgentActiveTabId && renderableTabs.some((tab) => tab.id === backgroundAgentActiveTabId)
-            ? backgroundAgentActiveTabId
-            : leaf.activeTabId)
-          ?? renderableTabs[0]?.id
-          ?? null;
-        const activeTab = activeTabId ? renderableTabs.find((tab) => tab.id === activeTabId) : null;
-        if (!activeTab || isTransientPanelTab(activeTab)) continue;
-        if (isProjectSessionFilesPreviewTab(activeTab)) continue;
-
-        const cardRef = readCardStagePanelTabCardRef(activeTab);
-        if (!cardRef) continue;
-
-        const cardIds = byProject.get(cardRef.projectId) ?? new Set<string>();
-        cardIds.add(cardRef.cardId);
-        byProject.set(cardRef.projectId, cardIds);
-      }
-    };
-
-    collectPanelVisibleCardStageCards("right", sidePanelOpen);
-    collectPanelVisibleCardStageCards("bottom", bottomPanelOpen);
-    return byProject;
-  }, [
-    activeSession,
-    backgroundAgentActiveTabByPanel,
-    backgroundAgentTabsBySession,
-    bottomPanelOpen,
-    mcpAppActiveTabByPanel,
-    mcpAppTabsBySession,
-    planActiveTabByPanel,
-    planTabsBySession,
-    previewTabsByPanel,
-    sideChatActiveTabByPanel,
-    sideChatTabsBySession,
-    sidePanelOpen,
-  ]);
-
-  const panelGroupTabs = useMemo<PanelGroupTabsByPanel>(() => {
-    const empty = {
-      right: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
-      bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
-    } satisfies PanelGroupTabsByPanel;
-    if (!activeSession) return empty;
+  const buildPanelGroupTabsForSession = useCallback((
+    session: ProjectSession,
+    model: SessionPanelRenderModel,
+    visibleCardStageCardIdsByProject: ReadonlyMap<string, ReadonlySet<string>>,
+    browserBoundsSyncTriggerByPanel: Partial<Record<PanelId, MotionValue<number>>> = {},
+    sessionIsActive = false,
+  ): PanelGroupTabsByPanel => {
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
-      const chromeContext = resolveProjectTargetTabChromeContext(tab, activeSession, projects);
+      const chromeContext = resolveProjectTargetTabChromeContext(tab, session, projects);
       const transientPanelTab = isTransientPanelTab(tab);
-      const keepMounted = !transientPanelTab && tab.kind === "card_stage";
+      const retentionMode = !transientPanelTab && tab.kind === "card_stage" ? "layout" : undefined;
       const title = !transientPanelTab
         && tab.kind === "terminal"
         && "terminalSessionId" in tab.config
         ? terminalSessionStore.resolveTitle(
             tab.config.terminalSessionId,
             tab.title,
-            resolveTerminalTabIndex(activeSession, tab),
+            resolveTerminalTabIndex(session, tab),
           )
         : tab.title;
 
@@ -6328,11 +6569,11 @@ export function WorkbenchShell({
               ? true
               : isBackgroundAgentPanelTab(tab)
                 ? true
-                : isProcessOutputPanelTab(tab)
-                  ? true
-                  : tab.preview === true || activeSession.tabs.length > 1,
+          : isProcessOutputPanelTab(tab)
+            ? true
+            : tab.preview === true || session.tabs.length > 1,
         preview: transientPanelTab ? undefined : tab.preview,
-        keepMounted,
+        retentionMode,
         reorderable: transientPanelTab ? false : tab.preview === true ? false : true,
         splittable: !transientPanelTab && tab.preview !== true,
         contextMenuItems: !transientPanelTab && tab.kind === "browser"
@@ -6358,9 +6599,9 @@ export function WorkbenchShell({
           if (isSideChatPanelTab(tab)) {
             return (
               <SideChatSessionTab
-                key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
+                key={`${session.id}:${tab.id}:${tab.stateKey}`}
                 tab={tab}
-                activeSession={activeSession}
+                activeSession={session}
                 projects={projects}
                 onRefreshSessions={refreshProjectSessions}
                 onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
@@ -6371,25 +6612,25 @@ export function WorkbenchShell({
                 onOpenThread={openAttachedThreadSession}
                 onOpenTurnDiffReview={openTurnDiffReview}
                 onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
-                turnDiffHoverPreviewDisabled={sidePanelOpen}
+                turnDiffHoverPreviewDisabled={model.sidePanelOpen}
               />
             );
           }
           if (isMcpAppPanelTab(tab)) {
-            return <McpAppSessionTab key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
+            return <McpAppSessionTab key={`${session.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
           }
           if (isPlanPanelTab(tab)) {
-            return <PlanSidePanelTab key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} content={tab.content} />;
+            return <PlanSidePanelTab key={`${session.id}:${tab.id}:${tab.stateKey}`} content={tab.content} />;
           }
           if (isProcessOutputPanelTab(tab)) {
-            return <ProcessOutputPanelTabView key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
+            return <ProcessOutputPanelTabView key={`${session.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
           }
           if (isBackgroundAgentPanelTab(tab)) {
             return (
               <BackgroundAgentSessionTab
-                key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
+                key={`${session.id}:${tab.id}:${tab.stateKey}`}
                 tab={tab}
-                activeSession={activeSession}
+                activeSession={session}
                 projects={projects}
                 onRefreshSessions={refreshProjectSessions}
                 onOpenMcpAppSidePanel={openMcpAppSidePanel}
@@ -6399,22 +6640,22 @@ export function WorkbenchShell({
                 onOpenThread={openAttachedThreadSession}
                 onOpenTurnDiffReview={openTurnDiffReview}
                 onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
-                turnDiffHoverPreviewDisabled={sidePanelOpen}
+                turnDiffHoverPreviewDisabled={model.sidePanelOpen}
               />
             );
           }
           return (
             <ProjectSessionTabPanel
-              key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
+              key={`${session.id}:${tab.id}:${tab.stateKey}`}
               tab={tab}
-              activeSession={activeSession}
+              activeSession={session}
               projects={projects}
               activeView={activeView}
               activeSearchQuery={activeSearchQuery}
               activeDbViewPrefs={activeDbViewPrefs}
               searchByProject={searchByProject}
               dbViewPrefsByProject={dbViewPrefsByProject}
-              activePanelCardStageCardIdsByProject={activePanelCardStageCardIdsByProject}
+              activePanelCardStageCardIdsByProject={visibleCardStageCardIdsByProject}
               cardStageCloseRef={cardStageCloseRef}
               cardStagePersistRef={cardStagePersistRef}
               cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
@@ -6435,89 +6676,24 @@ export function WorkbenchShell({
               onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
               selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
               summaryGitReviewRequest={summaryGitReviewRequest}
-              browserBoundsSyncTrigger={tab.panelId === "bottom"
-                ? bottomPanelMotion.animatedSize
-                : rightPanelMotion.animatedSize}
-              isActivePanelTab={panelContext.active}
+              browserBoundsSyncTrigger={browserBoundsSyncTriggerByPanel[tab.panelId]}
+              isActivePanelTab={sessionIsActive && panelContext.active}
             />
           );
         },
       };
     };
-    const durableById = new Map(activeSession.tabs.map((tab) => [tab.id, tab]));
     const buildPanelTabs = (panelId: PanelId) => {
-      const panel = activeSession.panels[panelId];
+      const panel = session.panels[panelId];
       const leaves = listProjectSessionPanelLeaves(panel.layout);
-      const activeLeafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
       const itemsByLeafId: Record<string, AppShellTabItem[]> = {};
       const activeTabIdsByLeafId: Record<string, string | null> = {};
 
       for (const leaf of leaves) {
-        const durableTabs = leaf.tabIds.flatMap((tabId) => {
-          const tab = durableById.get(tabId);
-          return tab && tab.panelId === panelId ? [tab] : [];
-        });
-        const sideChatTabs = (sideChatTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
-        );
-        const mcpAppTabs = (mcpAppTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
-        );
-        const planTabs = (planTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
-        );
-        const backgroundAgentTabs = (backgroundAgentTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
-        );
-        const processOutputTabs = (processOutputTabsBySession[activeSession.id] ?? []).filter((tab) =>
-          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
-        );
-        const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leaf.id, previewTabsByPanel);
-        const renderableTabs: ProjectSessionRenderableTab[] = previewTab
-          ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs, previewTab]
-          : [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs];
-        const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === activeLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId)] : null)
-          ?? null;
-        const mcpAppActiveTabId = mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === activeLeafId ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId)] : null)
-          ?? null;
-        const planActiveTabId = planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === activeLeafId ? planActiveTabByPanel[makePlanPanelKey(activeSession.id, panelId)] : null)
-          ?? null;
-        const backgroundAgentActiveTabId =
-          backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === activeLeafId
-            ? backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(activeSession.id, panelId)]
-            : null)
-          ?? null;
-        const processOutputActiveTabId =
-          processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, panelId, leaf.id)]
-          ?? (leaf.id === activeLeafId
-            ? processOutputActiveTabByPanel[makeProcessOutputPanelKey(activeSession.id, panelId)]
-            : null)
-          ?? null;
-        const activeTabId = previewTab?.id
-          ?? (planActiveTabId && renderableTabs.some((tab) => tab.id === planActiveTabId)
-            ? planActiveTabId
-            : null)
-          ?? (mcpAppActiveTabId && renderableTabs.some((tab) => tab.id === mcpAppActiveTabId)
-            ? mcpAppActiveTabId
-            : null)
-          ?? (sideChatActiveTabId && renderableTabs.some((tab) => tab.id === sideChatActiveTabId)
-            ? sideChatActiveTabId
-            : null)
-          ?? (backgroundAgentActiveTabId && renderableTabs.some((tab) => tab.id === backgroundAgentActiveTabId)
-            ? backgroundAgentActiveTabId
-            : null)
-          ?? (processOutputActiveTabId && renderableTabs.some((tab) => tab.id === processOutputActiveTabId)
-            ? processOutputActiveTabId
-            : leaf.activeTabId)
-          ?? renderableTabs[0]?.id
-          ?? null;
+        const renderableTabs = model.renderableTabsByPanelLeaf[panelId][leaf.id] ?? [];
 
         itemsByLeafId[leaf.id] = renderableTabs.map(makeItem);
-        activeTabIdsByLeafId[leaf.id] = activeTabId;
+        activeTabIdsByLeafId[leaf.id] = model.activeTabIdsByPanelLeaf[panelId][leaf.id] ?? null;
       }
 
       return { itemsByLeafId, activeTabIdsByLeafId };
@@ -6529,13 +6705,8 @@ export function WorkbenchShell({
     };
   }, [
     activeDbViewPrefs,
-    activePanelCardStageCardIdsByProject,
     activeSearchQuery,
-    activeSession,
     activeView,
-    backgroundAgentActiveTabByPanel,
-    backgroundAgentTabsBySession,
-    bottomPanelMotion.animatedSize,
     cardStageCloseRef,
     cardStageHistoryModal,
     cardStagePersistRef,
@@ -6566,36 +6737,58 @@ export function WorkbenchShell({
     recreateSideChatPanelTab,
     refreshProjectSessions,
     reloadBrowserTab,
-    rightPanelMotion.animatedSize,
     taskSearchOpenTick,
     dbViewPrefsByProject,
     searchByProject,
     setDbViewPrefs,
     setSearchQuery,
-    sideChatActiveTabByPanel,
-    sideChatTabsBySession,
     selectedTurnDiffReviewTarget,
     summaryGitReviewRequest,
     terminalSessionVersion,
     toggleCardStageHistoryModal,
-    previewTabsByPanel,
+  ]);
+
+  const panelGroupTabs = useMemo<PanelGroupTabsByPanel>(() => {
+    if (!activeRenderSession || !activeSessionPanelModel) {
+      return {
+        right: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
+        bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
+      };
+    }
+    return buildPanelGroupTabsForSession(
+      activeRenderSession,
+      activeSessionPanelModel,
+      activePanelCardStageCardIdsByProject,
+      {
+        right: rightPanelMotion.animatedSize,
+        bottom: bottomPanelMotion.animatedSize,
+      },
+      true,
+    );
+  }, [
+    activePanelCardStageCardIdsByProject,
+    activeRenderSession,
+    activeSessionPanelModel,
+    bottomPanelMotion.animatedSize,
+    buildPanelGroupTabsForSession,
+    rightPanelMotion.animatedSize,
   ]);
 
   panelGroupTabsRef.current = panelGroupTabs;
 
   useEffect(() => {
-    if (!activeSession) return;
-    const activeSessionPrefix = `${activeSession.id}:`;
+    if (!activeRenderSession) return;
+    const activeSessionPrefix = `${activeRenderSession.id}:`;
     const currentKeys = new Set<string>();
 
     for (const panelId of ["right", "bottom"] as const) {
       const panelTabs = panelGroupTabs[panelId];
       for (const [leafId, tabs] of Object.entries(panelTabs.itemsByLeafId)) {
-        const key = makePanelLeafStateKey(activeSession.id, panelId, leafId);
+        const key = makePanelLeafStateKey(activeRenderSession.id, panelId, leafId);
         currentKeys.add(key);
         const visibleTabIds = new Set(tabs.map((tab) => tab.id));
         const activeTabId = panelTabs.activeTabIdsByLeafId[leafId] ?? null;
-        const durableLeaf = findProjectSessionPanelLeaf(activeSession.panels[panelId].layout, leafId);
+        const durableLeaf = findProjectSessionPanelLeaf(activeRenderSession.panels[panelId].layout, leafId);
         const durableMru = durableLeaf?.mruTabIds ?? [];
         const currentMru = panelTabMruByLeafRef.current[key] ?? [];
         const prunedMru = uniqueStringList([...currentMru, ...durableMru])
@@ -6618,37 +6811,10 @@ export function WorkbenchShell({
       if (currentKeys.has(key)) continue;
       delete panelTabMruByLeafRef.current[key];
     }
-  }, [activeSession, panelGroupTabs]);
+  }, [activeRenderSession, panelGroupTabs]);
 
-  const browserRetentionTabs = useMemo<ProjectSessionTab[]>(() => {
-    if (!activeSession) return [];
-    const durableBrowserTabs = activeSession.tabs.filter((tab) => tab.kind === "browser");
-    const previewBrowserTabs = Object.values(previewTabsByPanel).filter((tab): tab is ProjectSessionTab & { preview: true } =>
-      tab.sessionId === activeSession.id && tab.kind === "browser" && typeof tab.projectId === "string"
-    );
-    return [...durableBrowserTabs, ...previewBrowserTabs];
-  }, [activeSession, previewTabsByPanel]);
-
-  const visibleBrowserTabIds = useMemo<ReadonlySet<string>>(() => {
-    const visibleIds = new Set<string>();
-    if (!activeSession) return visibleIds;
-    const browserTabIds = new Set(browserRetentionTabs.map((tab) => tab.id));
-    const collectPanelVisibleTabs = (panelId: PanelId, panelOpen: boolean) => {
-      if (!panelOpen) return;
-      const layout = activeSession.panels[panelId].layout;
-      const leafIds = layout.maximizedLeafId
-        ? [layout.maximizedLeafId]
-        : listProjectSessionPanelLeaves(layout).map((leaf) => leaf.id);
-      for (const leafId of leafIds) {
-        const tabId = panelGroupTabs[panelId].activeTabIdsByLeafId[leafId];
-        if (tabId && browserTabIds.has(tabId)) visibleIds.add(tabId);
-      }
-    };
-
-    collectPanelVisibleTabs("right", sidePanelOpen);
-    collectPanelVisibleTabs("bottom", bottomPanelOpen);
-    return visibleIds;
-  }, [activeSession, bottomPanelOpen, browserRetentionTabs, panelGroupTabs, sidePanelOpen]);
+  const browserRetentionTabs = activeSessionPanelModel?.browserRetentionTabs ?? [];
+  const visibleBrowserTabIds = activeSessionPanelModel?.visibleBrowserTabIds ?? new Set<string>();
 
   const applySidebarCollapsed = useCallback((collapsed: boolean) => {
     if (setSidebarCollapsed) {
@@ -7212,11 +7378,10 @@ export function WorkbenchShell({
     </>
   );
 
-  const renderPanelNewTabButton = (panelId: PanelId, leafId: string) => {
-    if (!activeSession) return null;
-    const actions = panelId === "right" ? availableRightPanelActions : availableBottomPanelActions;
+  const renderPanelNewTabButton = (session: ProjectSession, panelId: PanelId, leafId: string) => {
+    const actions = filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, session.tabs, panelId);
     const title = panelId === "right" ? "Open side panel tab" : "Open bottom panel tab";
-    const menuKey = `${activeSession.id}:${panelId}:${leafId}:new-tab`;
+    const menuKey = `${session.id}:${panelId}:${leafId}:new-tab`;
     return (
       <NodexDropdownMenu
         open={openPanelNewTabMenuKey === menuKey}
@@ -7243,8 +7408,8 @@ export function WorkbenchShell({
             && !isNodexPanelOptionAction(actions[index - 1] ?? action);
           const item = (() => {
             const shouldCreateCurrentProjectDbView = action.kind === "db_view"
-              && activeSession.projectId !== null
-              && !findDbViewTabForProject(activeSession, activeSession.projectId);
+              && session.projectId !== null
+              && !findDbViewTabForProject(session, session.projectId);
             if (shouldCreateCurrentProjectDbView) {
               return (
                 <NodexDropdownItem
@@ -7277,7 +7442,7 @@ export function WorkbenchShell({
                     scope={scope}
                     ariaLabel={ariaLabel}
                     placeholder={placeholder}
-                    currentProjectId={activeSession.projectId}
+                    currentProjectId={session.projectId}
                     onClose={() => {
                       setOpenPanelNewTabMenuKey(null);
                     }}
@@ -7544,6 +7709,397 @@ export function WorkbenchShell({
     />
   );
 
+  const renderRetainedSessionActivity = (entry: { session: ProjectSession; isActive: boolean }) => {
+    const { session, isActive } = entry;
+    const model = isActive && activeSessionPanelModel
+      ? activeSessionPanelModel
+      : buildSessionPanelRenderModel({
+          session,
+          previewTabsByPanel,
+          sideChatTabsBySession,
+          sideChatActiveTabByPanel,
+          mcpAppTabsBySession,
+          mcpAppActiveTabByPanel,
+          planTabsBySession,
+          planActiveTabByPanel,
+          backgroundAgentTabsBySession,
+          backgroundAgentActiveTabByPanel,
+          processOutputTabsBySession,
+          processOutputActiveTabByPanel,
+          panelCollapsedOverrides,
+          activePlanKeyBySession,
+        });
+    const visibleCardStageCardIdsByProject = isActive
+      ? activePanelCardStageCardIdsByProject
+      : collectPanelCardStageCardIdsByProject(session, model);
+    const sessionPanelGroupTabs = isActive
+      ? panelGroupTabs
+      : buildPanelGroupTabsForSession(session, model, visibleCardStageCardIdsByProject, {}, false);
+    const sessionRegularRightPanelWidth = isActive
+      ? regularRightPanelWidth
+      : clampRegularRightPanelWidth(model.rightPanel.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH, rightPanelSizingWidth);
+    const sessionBottomPanelHeight = isActive
+      ? bottomPanelHeight
+      : clampBottomPanelHeight(model.bottomPanel.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT, sessionContentHeight);
+    const sessionRightPanelTargetWidth = isActive
+      ? rightPanelTargetWidth
+      : model.rightPanelFullWidth
+        ? Math.max(rightPanelSizingWidth, sessionRegularRightPanelWidth)
+        : sessionRegularRightPanelWidth;
+    const sessionRightPanelMounted = isActive ? rightPanelMotion.mounted : model.sidePanelOpen;
+    const sessionBottomPanelMounted = isActive ? bottomPanelMotion.mounted : model.bottomPanelOpen;
+    const sessionRightPanelOpacity = isActive ? rightPanelMotion.opacity : 1;
+    const sessionBottomPanelOpacity = isActive ? bottomPanelMotion.opacity : 1;
+    const sessionRightPanelWidth = isActive ? rightPanelMotion.animatedSize : sessionRightPanelTargetWidth;
+    const sessionBottomPanelHeightStyle = isActive ? bottomPanelMotion.animatedSize : sessionBottomPanelHeight;
+    const sessionFrameBorderVisible = isActive
+      ? appShellMainContentFrameBorderVisible
+      : resolveCodexMainContentFrameBorder({
+          rightPanelOpen: model.sidePanelOpen,
+          headerEdgeScroll: false,
+        });
+    const sessionProject = session.projectId
+      ? projects.find((project) => project.id === session.projectId) ?? activeProject
+      : activeProject;
+    const sessionThreadSummaryPanelMounted = isActive ? threadSummaryPanelMounted : false;
+    const sessionThreadSummaryPanelOpen = isActive ? threadSummaryPanelOpen : false;
+    const sessionThreadSummaryPanelHideImmediately = isActive ? threadSummaryPanelHideImmediately : false;
+    const sessionThreadSummaryPanelContentShift = isActive ? threadSummaryPanelContentShift : 0;
+    const sessionRightPanelComposerOverlayEnabled = isActive && rightPanelComposerOverlayEnabled;
+    const sessionThreadPlanSidePanelState = isActive ? model.threadPlanSidePanelState : null;
+    const sessionAvailableRightPanelActions = filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, session.tabs, "right");
+    const sessionAvailableBottomPanelActions = filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, session.tabs, "bottom");
+    const sessionPanelTabScrollEndPaddingPx = isActive ? panelTabScrollEndPaddingPx : 0;
+
+    return (
+      <RetainedActivity key={session.id} mode={isActive ? "visible" : "hidden"}>
+        <div
+          ref={isActive ? setSessionContentRef : undefined}
+          aria-hidden={isActive ? undefined : "true"}
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+          data-retained-session-id={session.id}
+          data-retained-session-active={isActive ? "true" : "false"}
+        >
+          <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <section
+              data-testid="session-thread-page"
+              data-session-thread-page-hidden={model.rightPanelFullWidth ? "true" : "false"}
+              data-app-shell-main-content-layout={appShellMainContentLayout}
+              aria-hidden={model.rightPanelFullWidth ? "true" : undefined}
+              className={cn(
+                "app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col",
+                model.rightPanelFullWidth ? "w-0 flex-none overflow-hidden" : "flex-1",
+              )}
+            >
+              <div
+                className={cn(
+                  "app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t",
+                  sessionFrameBorderVisible
+                    ? "border-token-border-default"
+                    : "border-transparent",
+                )}
+              >
+                <div
+                  aria-hidden="true"
+                  data-app-shell-main-content-top-fade="full-bleed"
+                  className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-20 h-4 bg-gradient-to-b from-token-main-surface-primary opacity-0 transition-opacity duration-200 browser:hidden"
+                />
+                {isActive && sessionError ? (
+                  <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
+                ) : null}
+                {isActive || session.thread ? (
+                  <ThreadHeaderPortalProvider target={isActive ? threadHeaderPortalElement : null}>
+                    <SessionThreadPage
+                      session={session}
+                      project={sessionProject}
+                      projects={projects}
+                      threadViewportActive={isActive && !model.rightPanelFullWidth}
+                      onRefreshProjectSessions={refreshProjectSessions}
+                      onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+                      onRequestProjectPickerOpen={onRequestProjectPickerOpen}
+                      onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+                      threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                      composerEnterBehavior={composerEnterBehavior}
+                      onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+                      onOpenThread={openAttachedThreadSession}
+                      onOpenTurnDiffReview={openTurnDiffReview}
+                      onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                      onOpenSummaryGitReview={openSummaryGitReview}
+                      turnDiffHoverPreviewDisabled={model.sidePanelOpen}
+                      onForkSessionFromTurn={forkSessionFromTurn}
+                      accountActions={codexAccountActions}
+                      worktreeStartMode={worktreeStartMode}
+                      worktreeBranchPrefix={worktreeAutoBranchPrefix}
+                      searchOpenTick={isActive ? threadSearchOpenTick : 0}
+                      summaryPanelMounted={sessionThreadSummaryPanelMounted}
+                      summaryPanelOpen={sessionThreadSummaryPanelOpen}
+                      summaryPanelHideImmediately={sessionThreadSummaryPanelHideImmediately}
+                      summaryPanelContentShift={sessionThreadSummaryPanelContentShift}
+                      summarySideChatRows={isActive ? threadSummarySideChatRows : []}
+                      summaryBrowserRows={isActive ? threadSummaryBrowserRows : []}
+                      summaryScheduledAutomation={isActive ? threadSummaryScheduledAutomation : null}
+                      summaryComputerUsePip={isActive ? remoteHostedPipSummaryControl.summaryComputerUsePip : null}
+                      onOpenSummarySideChatRow={openSummarySideChatRow}
+                      onOpenSummaryBrowserRow={openSummaryBrowserRow}
+                      onOpenSummaryScheduledAutomation={openSummaryScheduledAutomation}
+                      onOpenSummaryOutputInSidePanel={openSummaryOutputInSidePanel}
+                      onOpenProcessManager={openSummaryProcessManager}
+                      onOpenBackgroundTerminalOutput={openSummaryBackgroundTerminalOutput}
+                      onToggleSummaryComputerUsePip={remoteHostedPipSummaryControl.onToggleSummaryComputerUsePip}
+                      rightPanelComposerOverlayEnabled={sessionRightPanelComposerOverlayEnabled}
+                      rightPanelComposerOverlayTarget={isActive ? rightPanelComposerOverlayTarget : null}
+                      onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
+                      onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                      onOpenPlanInSidePanel={openPlanSidePanel}
+                      onClosePlanSidePanel={closePlanSidePanel}
+                      planSidePanelState={sessionThreadPlanSidePanelState}
+                      onRequestRenameThread={() => {
+                        openRenameSessionDialog(session);
+                      }}
+                    />
+                  </ThreadHeaderPortalProvider>
+                ) : null}
+              </div>
+            </section>
+
+            {sessionRightPanelMounted ? (
+              <motion.aside
+                data-app-shell-focus-area="right-panel"
+                data-testid={isActive ? "session-right-panel" : undefined}
+                data-right-panel-width-mode={model.rightPanelFullWidth ? "full" : "regular"}
+                className={cn(
+                  "relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible",
+                  APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
+                )}
+                style={{
+                  opacity: sessionRightPanelOpacity,
+                  width: sessionRightPanelWidth,
+                }}
+              >
+                {isActive && model.sidePanelOpen && !model.rightPanelFullWidth ? (
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize right panel"
+                    className="group absolute top-0 bottom-0 left-0 z-40 flex w-4 -translate-x-2 cursor-col-resize touch-none select-none active:cursor-col-resize"
+                    onPointerDown={resizeRightPanel}
+                  >
+                    <div className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
+                  </div>
+                ) : null}
+
+                <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
+                  <div
+                    ref={isActive ? setRightPanelComposerOverlayTarget : undefined}
+                    data-right-panel-composer-overlay-host="true"
+                    className={cn(
+                      "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",
+                      !model.rightPanelFullWidth && "border-l border-token-border",
+                    )}
+                    style={{
+                      width: sessionRightPanelTargetWidth,
+                      minWidth: sessionRightPanelTargetWidth,
+                      "--thread-content-top-inset": "calc(var(--spacing) * 8)",
+                    } as React.CSSProperties}
+                  >
+                    <PanelGroupTree
+                      sessionId={session.id}
+                      panelId="right"
+                      layout={model.rightPanel.layout}
+                      tabItemsByLeafId={sessionPanelGroupTabs.right.itemsByLeafId}
+                      activeTabIdsByLeafId={sessionPanelGroupTabs.right.activeTabIdsByLeafId}
+                      renderAfterTabs={(leafId) => isActive ? renderPanelNewTabButton(session, "right", leafId) : null}
+                      renderAfterList={() => isActive ? rightPanelHeaderAfterList : null}
+                      headerStartInsetPx={isActive ? rightPanelHeaderStartInsetWidth : 0}
+                      tabScrollEndPaddingPx={sessionPanelTabScrollEndPaddingPx}
+                      renderEmptyLeaf={(leafId) => (
+                        <EmptyRightPane
+                          actions={sessionAvailableRightPanelActions}
+                          projects={projects}
+                          isMac={isMacPlatform}
+                          commandKeymapState={commandKeymapState}
+                          currentProjectId={session.projectId}
+                          currentProjectDbViewExists={
+                            session.projectId !== null
+                            && Boolean(findDbViewTabForProject(session, session.projectId))
+                          }
+                          onAction={(kind) => {
+                            if (!isActive) return;
+                            if (kind === "side_chat") {
+                              void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
+                              return;
+                            }
+                            if (!isProjectSessionTabKind(kind)) return;
+                            if (isPreviewableProjectSessionTabKind(kind)) {
+                              void openPreviewTab(kind, "right", leafId);
+                              return;
+                            }
+                            void (async () => {
+                              await activatePanelGroup("right", leafId);
+                              await createManualTab(kind, "right", leafId);
+                            })();
+                          }}
+                          onOpenDestination={async (destination) => {
+                            if (!isActive) return;
+                            await openPanelDestinationFromPicker(destination, "right", leafId);
+                          }}
+                        />
+                      )}
+                      onSelectTab={(leafId, tabId) => {
+                        if (isActive) void selectPanelTab("right", tabId, leafId);
+                      }}
+                      onCloseTab={(leafId, tabId) => {
+                        if (isActive) void closePanelTab("right", tabId, leafId);
+                      }}
+                      onDirectCloseTab={(leafId, tabId) => {
+                        if (isActive) void closePanelTab("right", tabId, leafId);
+                      }}
+                      onPinTab={(leafId, tabId) => {
+                        if (isActive) void pinPreviewTab("right", tabId, leafId);
+                      }}
+                      onReorderTab={(leafId, tabId, targetIndex) => {
+                        if (isActive) void reorderTabs("right", tabId, targetIndex, leafId);
+                      }}
+                      onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) => {
+                        if (isActive) void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget);
+                      }}
+                      onSplitGroup={(leafId, side, tabId) => {
+                        if (isActive) void splitPanelGroup("right", leafId, side, tabId);
+                      }}
+                      onFocusGroup={(leafId) => {
+                        if (isActive) rememberFocusedPanelGroup("right", leafId);
+                      }}
+                      onActivateGroup={(leafId, tabId) => {
+                        if (isActive) void activatePanelGroup("right", leafId, tabId);
+                      }}
+                      onResizeGroup={(branchId, ratio) => {
+                        if (isActive) void resizePanelGroup("right", branchId, ratio);
+                      }}
+                    />
+                  </div>
+                </div>
+              </motion.aside>
+            ) : null}
+          </div>
+
+          {sessionBottomPanelMounted ? (
+            <motion.section
+              data-app-shell-focus-area="bottom-panel"
+              data-testid={isActive ? "session-bottom-panel" : undefined}
+              className="relative min-h-0 w-full shrink-0 overflow-visible"
+              style={{
+                opacity: sessionBottomPanelOpacity,
+                height: sessionBottomPanelHeightStyle,
+              }}
+            >
+              {isActive && model.bottomPanelOpen ? (
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="Resize bottom panel"
+                  className="group absolute top-0 left-0 right-0 z-40 flex h-4 -translate-y-2 cursor-row-resize touch-none select-none active:cursor-row-resize"
+                  onPointerDown={resizeBottomPanel}
+                >
+                  <div className="pointer-events-none mx-auto h-px w-full bg-linear-to-r from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
+                </div>
+              ) : null}
+              <div className="absolute inset-0 min-h-0 overflow-hidden">
+                <div
+                  className="absolute inset-x-0 top-0 min-h-0 border-t border-token-border bg-token-main-surface-primary"
+                  style={{
+                    height: sessionBottomPanelHeight,
+                    minHeight: sessionBottomPanelHeight,
+                  }}
+                >
+                  <PanelGroupTree
+                    sessionId={session.id}
+                    panelId="bottom"
+                    layout={model.bottomPanel.layout}
+                    tabItemsByLeafId={sessionPanelGroupTabs.bottom.itemsByLeafId}
+                    activeTabIdsByLeafId={sessionPanelGroupTabs.bottom.activeTabIdsByLeafId}
+                    renderAfterTabs={(leafId) => isActive ? renderPanelNewTabButton(session, "bottom", leafId) : null}
+                    tabScrollEndPaddingPx={sessionPanelTabScrollEndPaddingPx}
+                    headerEndInsetPx={isActive ? bottomPanelGlobalHeaderInsetWidth : 0}
+                    renderEmptyLeaf={(leafId) => (
+                      <EmptyRightPane
+                        actions={sessionAvailableBottomPanelActions}
+                        projects={projects}
+                        isMac={isMacPlatform}
+                        commandKeymapState={commandKeymapState}
+                        currentProjectId={session.projectId}
+                        currentProjectDbViewExists={false}
+                        onAction={(kind) => {
+                          if (!isActive) return;
+                          if (kind === "side_chat") {
+                            void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
+                            return;
+                          }
+                          if (!isProjectSessionTabKind(kind)) return;
+                          if (isPreviewableProjectSessionTabKind(kind)) {
+                            void openPreviewTab(kind, "bottom", leafId);
+                            return;
+                          }
+                          void (async () => {
+                            await activatePanelGroup("bottom", leafId);
+                            await createManualTab(kind, "bottom", leafId);
+                          })();
+                        }}
+                        onOpenDestination={async (destination) => {
+                          if (!isActive) return;
+                          await openPanelDestinationFromPicker(destination, "bottom", leafId);
+                        }}
+                      />
+                    )}
+                    onSelectTab={(leafId, tabId) => {
+                      if (isActive) void selectPanelTab("bottom", tabId, leafId);
+                    }}
+                    onCloseTab={(leafId, tabId) => {
+                      if (isActive) void closePanelTab("bottom", tabId, leafId);
+                    }}
+                    onDirectCloseTab={(leafId, tabId) => {
+                      if (isActive) void closePanelTab("bottom", tabId, leafId);
+                    }}
+                    onPinTab={(leafId, tabId) => {
+                      if (isActive) void pinPreviewTab("bottom", tabId, leafId);
+                    }}
+                    onReorderTab={(leafId, tabId, targetIndex) => {
+                      if (isActive) void reorderTabs("bottom", tabId, targetIndex, leafId);
+                    }}
+                    onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) => {
+                      if (isActive) void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget);
+                    }}
+                    onSplitGroup={(leafId, side, tabId) => {
+                      if (isActive) void splitPanelGroup("bottom", leafId, side, tabId);
+                    }}
+                    onFocusGroup={(leafId) => {
+                      if (isActive) rememberFocusedPanelGroup("bottom", leafId);
+                    }}
+                    onActivateGroup={(leafId, tabId) => {
+                      if (isActive) void activatePanelGroup("bottom", leafId, tabId);
+                    }}
+                    onResizeGroup={(branchId, ratio) => {
+                      if (isActive) void resizePanelGroup("bottom", branchId, ratio);
+                    }}
+                  />
+                  {isActive && bottomPanelGlobalHeaderControls ? (
+                    <div
+                      data-testid="bottom-panel-global-header-actions"
+                      className="pointer-events-none absolute top-0 right-0 z-30 flex h-toolbar items-center justify-end pr-2"
+                    >
+                      <div className="pointer-events-none flex h-full items-center gap-1">
+                        {bottomPanelGlobalHeaderControls}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </motion.section>
+          ) : null}
+        </div>
+      </RetainedActivity>
+    );
+  };
+
   return (
     <HeaderActionProvider actions={settingsPath || automationsPath ? null : headerActions}>
       <NodexTooltipProvider>
@@ -7573,9 +8129,9 @@ export function WorkbenchShell({
               zoom: "var(--codex-window-zoom, 1)",
             } as MotionStyle}
           >
-            {activeSession ? (
+            {activeRenderSession ? (
               <BrowserSidebarHiddenWebviewHosts
-                sessionId={activeSession.id}
+                sessionId={activeRenderSession.id}
                 tabs={browserRetentionTabs}
                 visibleTabIds={visibleBrowserTabIds}
               />
@@ -7771,278 +8327,8 @@ export function WorkbenchShell({
               realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
             )}
           >
-            {activeSession ? (
-              <div ref={setSessionContentRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                  <section
-                    data-testid="session-thread-page"
-                    data-session-thread-page-hidden={rightPanelFullWidth ? "true" : "false"}
-                    data-app-shell-main-content-layout={appShellMainContentLayout}
-                    aria-hidden={rightPanelFullWidth ? "true" : undefined}
-                    className={cn(
-                      "app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col",
-                      rightPanelFullWidth ? "w-0 flex-none overflow-hidden" : "flex-1",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t",
-                        appShellMainContentFrameBorderVisible
-                          ? "border-token-border-default"
-                          : "border-transparent",
-                      )}
-                    >
-                      <div
-                        aria-hidden="true"
-                        data-app-shell-main-content-top-fade="full-bleed"
-                        className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-20 h-4 bg-gradient-to-b from-token-main-surface-primary opacity-0 transition-opacity duration-200 browser:hidden"
-                      />
-                      {sessionError ? (
-                        <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
-                      ) : null}
-                      <SessionThreadPage
-                        session={activeSession}
-                        project={activeProject}
-                        projects={projects}
-                        threadViewportActive={!rightPanelFullWidth}
-                        onRefreshProjectSessions={refreshProjectSessions}
-                        onEnsureBlankSessionForProject={ensureBlankSessionForProject}
-                        onRequestProjectPickerOpen={onRequestProjectPickerOpen}
-                        onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
-                        threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
-                        composerEnterBehavior={composerEnterBehavior}
-                        onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
-                        onOpenThread={openAttachedThreadSession}
-                        onOpenTurnDiffReview={openTurnDiffReview}
-                        onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
-                        onOpenSummaryGitReview={openSummaryGitReview}
-                        turnDiffHoverPreviewDisabled={sidePanelOpen}
-                        onForkSessionFromTurn={forkSessionFromTurn}
-                        accountActions={codexAccountActions}
-                        worktreeStartMode={worktreeStartMode}
-                        worktreeBranchPrefix={worktreeAutoBranchPrefix}
-                        searchOpenTick={threadSearchOpenTick}
-                        summaryPanelMounted={threadSummaryPanelMounted}
-                        summaryPanelOpen={threadSummaryPanelOpen}
-                        summaryPanelHideImmediately={threadSummaryPanelHideImmediately}
-                        summaryPanelContentShift={threadSummaryPanelContentShift}
-                        summarySideChatRows={threadSummarySideChatRows}
-                        summaryBrowserRows={threadSummaryBrowserRows}
-                        summaryScheduledAutomation={threadSummaryScheduledAutomation}
-                        summaryComputerUsePip={remoteHostedPipSummaryControl.summaryComputerUsePip}
-                        onOpenSummarySideChatRow={openSummarySideChatRow}
-                        onOpenSummaryBrowserRow={openSummaryBrowserRow}
-                        onOpenSummaryScheduledAutomation={openSummaryScheduledAutomation}
-                        onOpenSummaryOutputInSidePanel={openSummaryOutputInSidePanel}
-                        onOpenProcessManager={openSummaryProcessManager}
-                        onOpenBackgroundTerminalOutput={openSummaryBackgroundTerminalOutput}
-                        onToggleSummaryComputerUsePip={remoteHostedPipSummaryControl.onToggleSummaryComputerUsePip}
-                        rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
-                        rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
-                        onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
-                        onOpenMcpAppSidePanel={openMcpAppSidePanel}
-                        onOpenPlanInSidePanel={openPlanSidePanel}
-                        onClosePlanSidePanel={closePlanSidePanel}
-                        planSidePanelState={threadPlanSidePanelState}
-                        onRequestRenameThread={() => {
-                          openRenameSessionDialog(activeSession);
-                        }}
-                      />
-                    </div>
-                  </section>
-
-                  {rightPanelMotion.mounted ? (
-                    <motion.aside
-                      data-app-shell-focus-area="right-panel"
-                      data-testid="session-right-panel"
-                      data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
-                      className={cn(
-                        "relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible",
-                        APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
-                      )}
-                      style={{
-                        opacity: rightPanelMotion.opacity,
-                        width: rightPanelMotion.animatedSize,
-                      }}
-                    >
-                      {sidePanelOpen && !rightPanelFullWidth ? (
-                        <div
-                          role="separator"
-                          aria-orientation="vertical"
-                          aria-label="Resize right panel"
-                          className="group absolute top-0 bottom-0 left-0 z-40 flex w-4 -translate-x-2 cursor-col-resize touch-none select-none active:cursor-col-resize"
-                          onPointerDown={resizeRightPanel}
-                        >
-                          <div className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
-                        </div>
-                      ) : null}
-
-                      <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
-                        <div
-                          ref={setRightPanelComposerOverlayTarget}
-                          data-right-panel-composer-overlay-host="true"
-                          className={cn(
-                            "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",
-                            !rightPanelFullWidth && "border-l border-token-border",
-                          )}
-                          style={{
-                            width: rightPanelTargetWidth,
-                            minWidth: rightPanelTargetWidth,
-                            "--thread-content-top-inset": "calc(var(--spacing) * 8)",
-                          } as React.CSSProperties}
-                        >
-                          <PanelGroupTree
-                            sessionId={activeSession.id}
-                            panelId="right"
-                            layout={activeSession.panels.right.layout}
-                            tabItemsByLeafId={panelGroupTabs.right.itemsByLeafId}
-                            activeTabIdsByLeafId={panelGroupTabs.right.activeTabIdsByLeafId}
-                            renderAfterTabs={(leafId) => renderPanelNewTabButton("right", leafId)}
-                            renderAfterList={() => rightPanelHeaderAfterList}
-                            headerStartInsetPx={rightPanelHeaderStartInsetWidth}
-                            tabScrollEndPaddingPx={panelTabScrollEndPaddingPx}
-                            renderEmptyLeaf={(leafId) => (
-                              <EmptyRightPane
-                                actions={availableRightPanelActions}
-                                projects={projects}
-                                isMac={isMacPlatform}
-                                commandKeymapState={commandKeymapState}
-                                currentProjectId={activeSession.projectId}
-                                currentProjectDbViewExists={
-                                  activeSession.projectId !== null
-                                  && Boolean(findDbViewTabForProject(activeSession, activeSession.projectId))
-                                }
-                                onAction={(kind) => {
-                                  if (kind === "side_chat") {
-                                    void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
-                                    return;
-                                  }
-                                  if (!isProjectSessionTabKind(kind)) return;
-                                  if (isPreviewableProjectSessionTabKind(kind)) {
-                                    void openPreviewTab(kind, "right", leafId);
-                                    return;
-                                  }
-                                  void (async () => {
-                                    await activatePanelGroup("right", leafId);
-                                    await createManualTab(kind, "right", leafId);
-                                  })();
-                                }}
-                                onOpenDestination={async (destination) => {
-                                  await openPanelDestinationFromPicker(destination, "right", leafId);
-                                }}
-                              />
-                            )}
-                            onSelectTab={(leafId, tabId) => void selectPanelTab("right", tabId, leafId)}
-                            onCloseTab={(leafId, tabId) => void closePanelTab("right", tabId, leafId)}
-                            onDirectCloseTab={(leafId, tabId) => void closePanelTab("right", tabId, leafId)}
-                            onPinTab={(leafId, tabId) => void pinPreviewTab("right", tabId, leafId)}
-                            onReorderTab={(leafId, tabId, targetIndex) => void reorderTabs("right", tabId, targetIndex, leafId)}
-                            onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>
-                              void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget)}
-                            onSplitGroup={(leafId, side, tabId) => void splitPanelGroup("right", leafId, side, tabId)}
-                            onFocusGroup={(leafId) => rememberFocusedPanelGroup("right", leafId)}
-                            onActivateGroup={(leafId, tabId) => void activatePanelGroup("right", leafId, tabId)}
-                            onResizeGroup={(branchId, ratio) => void resizePanelGroup("right", branchId, ratio)}
-                          />
-                        </div>
-                      </div>
-                    </motion.aside>
-                  ) : null}
-                </div>
-
-                {bottomPanelMotion.mounted ? (
-                  <motion.section
-                    data-app-shell-focus-area="bottom-panel"
-                    data-testid="session-bottom-panel"
-                    className="relative min-h-0 w-full shrink-0 overflow-visible"
-                    style={{
-                      opacity: bottomPanelMotion.opacity,
-                      height: bottomPanelMotion.animatedSize,
-                    }}
-                  >
-                    {bottomPanelOpen ? (
-                      <div
-                        role="separator"
-                        aria-orientation="horizontal"
-                        aria-label="Resize bottom panel"
-                        className="group absolute top-0 left-0 right-0 z-40 flex h-4 -translate-y-2 cursor-row-resize touch-none select-none active:cursor-row-resize"
-                        onPointerDown={resizeBottomPanel}
-                      >
-                        <div className="pointer-events-none mx-auto h-px w-full bg-linear-to-r from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
-                      </div>
-                    ) : null}
-                    <div className="absolute inset-0 min-h-0 overflow-hidden">
-                      <div
-                        className="absolute inset-x-0 top-0 min-h-0 border-t border-token-border bg-token-main-surface-primary"
-                        style={{
-                          height: bottomPanelHeight,
-                          minHeight: bottomPanelHeight,
-                        }}
-                      >
-                        <PanelGroupTree
-                          sessionId={activeSession.id}
-                          panelId="bottom"
-                          layout={activeSession.panels.bottom.layout}
-                          tabItemsByLeafId={panelGroupTabs.bottom.itemsByLeafId}
-                          activeTabIdsByLeafId={panelGroupTabs.bottom.activeTabIdsByLeafId}
-                          renderAfterTabs={(leafId) => renderPanelNewTabButton("bottom", leafId)}
-                          tabScrollEndPaddingPx={panelTabScrollEndPaddingPx}
-                          headerEndInsetPx={bottomPanelGlobalHeaderInsetWidth}
-                          renderEmptyLeaf={(leafId) => (
-                            <EmptyRightPane
-                              actions={availableBottomPanelActions}
-                              projects={projects}
-                              isMac={isMacPlatform}
-                              commandKeymapState={commandKeymapState}
-                              currentProjectId={activeSession.projectId}
-                              currentProjectDbViewExists={false}
-                              onAction={(kind) => {
-                                if (kind === "side_chat") {
-                                  void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
-                                  return;
-                                }
-                                if (!isProjectSessionTabKind(kind)) return;
-                                if (isPreviewableProjectSessionTabKind(kind)) {
-                                  void openPreviewTab(kind, "bottom", leafId);
-                                  return;
-                                }
-                                void (async () => {
-                                  await activatePanelGroup("bottom", leafId);
-                                  await createManualTab(kind, "bottom", leafId);
-                                })();
-                              }}
-                              onOpenDestination={async (destination) => {
-                                await openPanelDestinationFromPicker(destination, "bottom", leafId);
-                              }}
-                            />
-                          )}
-                          onSelectTab={(leafId, tabId) => void selectPanelTab("bottom", tabId, leafId)}
-                          onCloseTab={(leafId, tabId) => void closePanelTab("bottom", tabId, leafId)}
-                          onDirectCloseTab={(leafId, tabId) => void closePanelTab("bottom", tabId, leafId)}
-                          onPinTab={(leafId, tabId) => void pinPreviewTab("bottom", tabId, leafId)}
-                          onReorderTab={(leafId, tabId, targetIndex) => void reorderTabs("bottom", tabId, targetIndex, leafId)}
-                          onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>
-                            void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget)}
-                          onSplitGroup={(leafId, side, tabId) => void splitPanelGroup("bottom", leafId, side, tabId)}
-                          onFocusGroup={(leafId) => rememberFocusedPanelGroup("bottom", leafId)}
-                          onActivateGroup={(leafId, tabId) => void activatePanelGroup("bottom", leafId, tabId)}
-                          onResizeGroup={(branchId, ratio) => void resizePanelGroup("bottom", branchId, ratio)}
-                        />
-                        {bottomPanelGlobalHeaderControls ? (
-                          <div
-                            data-testid="bottom-panel-global-header-actions"
-                            className="pointer-events-none absolute top-0 right-0 z-30 flex h-toolbar items-center justify-end pr-2"
-                          >
-                            <div className="pointer-events-none flex h-full items-center gap-1">
-                              {bottomPanelGlobalHeaderControls}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </motion.section>
-                ) : null}
-              </div>
+            {retainedSessionRenderEntries.length > 0 ? (
+              retainedSessionRenderEntries.map(renderRetainedSessionActivity)
             ) : (
               <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
                 Select a project session.
@@ -10149,6 +10435,7 @@ function ProjectSessionTabPanel({
   if (tab.kind === "db_view" && "view" in tab.config) {
     return (
       <DbViewSessionTab
+        sessionId={activeSession.id}
         tab={tab}
         projects={projects}
         activeView={activeView}
@@ -10288,6 +10575,7 @@ function ProjectSessionTabPanel({
 }
 
 function DbViewSessionTab({
+  sessionId,
   tab,
   projects,
   activeView,
@@ -10305,6 +10593,7 @@ function DbViewSessionTab({
   onOpenCardTab,
   onRefreshSessions,
 }: {
+  sessionId: string;
   tab: ProjectSessionTab;
   projects: Project[];
   activeView: WorkbenchView;
@@ -10351,6 +10640,9 @@ function DbViewSessionTab({
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const calendarVisibleDays = useMemo(() => resolveCalendarVisibleDays(calendarState), [calendarState]);
   const calendarDayCount = resolveCalendarVisibleDayCount(calendarState.range);
+  const scrollStateKey = view === "calendar"
+    ? `db-view:${sessionId}:${tab.id}:${config.projectId}:${view}:${calendarState.range}`
+    : `db-view:${sessionId}:${tab.id}:${config.projectId}:${view}`;
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
   const searchQuery = searchByProject[config.projectId] ?? (config.projectId === tab.projectId ? activeSearchQuery : "");
@@ -10496,6 +10788,7 @@ function DbViewSessionTab({
           calendarCreateRequestId={calendarCreateRequestId}
           onCalendarAnchorDateChange={handleCalendarAnchorDateChange}
           onReminderHandled={onReminderHandled}
+          scrollStateKey={scrollStateKey}
           openCardStage={(projectId, cardId, titleSnapshot, options) => {
             void onOpenCardTab(projectId, cardId, titleSnapshot, {
               sourceTabId: tab.id,
@@ -10551,12 +10844,7 @@ function CardStageSessionTab({
   isActivePanelTab: boolean;
 }) {
   const kanban = useKanban({ projectId: tab.config.projectId, sessionId: tab.id });
-  const refreshBoard = kanban.refresh;
   const codexControl = useCodexAppServerControl(tab.config.projectId);
-
-  useEffect(() => {
-    void refreshBoard();
-  }, [refreshBoard]);
 
   const cardSummary = kanban.cardIndex.get(tab.config.cardId) ?? null;
   const detail = useCardDetail(

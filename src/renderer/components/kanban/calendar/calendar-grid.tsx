@@ -48,6 +48,10 @@ import {
   type CalendarMoveDragSession,
   type CalendarMoveDropTarget,
 } from "./calendar-event-move-drag";
+import {
+  readRetainedScrollPosition,
+  useRetainedScrollPosition,
+} from "@/lib/retained-scroll-position";
 
 interface ScheduledCard extends Omit<CardType, "scheduledStart" | "scheduledEnd"> {
   cardId?: string;
@@ -143,6 +147,7 @@ interface CalendarGridProps {
   onNavigateNext: () => void;
   allDayLaneHeight: number;
   onAllDayLaneHeightChange: (height: number) => void;
+  scrollStateKey?: string | null;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -279,6 +284,7 @@ export function CalendarGrid({
   onNavigateNext,
   allDayLaneHeight,
   onAllDayLaneHeightChange,
+  scrollStateKey,
 }: CalendarGridProps) {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [creatorState, setCreatorState] = useState<CreatorState | null>(null);
@@ -312,6 +318,10 @@ export function CalendarGrid({
   const dayColWidthRef = useRef(0);
   const [visualOffsetPx, setVisualOffsetPx] = useState(0);
   const [visualBufferDays, setVisualBufferDays] = useState(1);
+  const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(scrollStateKey ?? null, {
+    axis: "vertical",
+    retryFrames: 2,
+  });
 
   const setEventPreviewSynced = useCallback((nextPreview: CalendarEventPreviewState | null) => {
     eventPreviewRef.current = nextPreview;
@@ -395,11 +405,12 @@ export function CalendarGrid({
 
   const setScrollRef = useCallback(
     (node: HTMLDivElement | null) => {
+      retainedScroll.ref(node);
       scrollRef.current = node;
       if (!node) return;
       updateLayoutMetrics();
     },
-    [updateLayoutMetrics],
+    [retainedScroll.ref, updateLayoutMetrics],
   );
 
   useEffect(() => {
@@ -1343,6 +1354,10 @@ export function CalendarGrid({
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || scrollInitRef.current) return;
+    if (scrollStateKey && readRetainedScrollPosition(scrollStateKey)) {
+      scrollInitRef.current = true;
+      return;
+    }
 
     requestAnimationFrame(() => {
       const node = scrollRef.current;
@@ -1357,7 +1372,7 @@ export function CalendarGrid({
       node.scrollTop = Math.min(8 * hourHeight, maxScrollTop);
       scrollInitRef.current = true;
     });
-  }, [hourHeight]);
+  }, [hourHeight, scrollStateKey]);
 
   const renderBufferDays = dayColWidth > 0 ? visualBufferDays : 0;
   const renderDays = useMemo(() => {
@@ -1437,6 +1452,7 @@ export function CalendarGrid({
         ref={setScrollRef}
         data-testid="calendar-grid-scroll"
         className="relative min-h-0 flex-1 overflow-auto"
+        onScroll={retainedScroll.onScroll}
         onWheel={handleWheel}
       >
         {activeMoveDragEventId && moveDropRegion === "outside" && (

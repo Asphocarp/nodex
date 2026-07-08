@@ -27,6 +27,7 @@ import {
   type DbViewPrefs,
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
+import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
 import type { SidebarPinnedOrganizationMode } from "@/lib/use-workbench-state";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
@@ -315,7 +316,31 @@ mock.module("@/lib/api", () => ({
 mock.module("./main-view-host", () => ({
   MainViewHost: (props: Record<string, unknown>) => {
     (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps = props;
-    return createElement("div", { "data-main-view-host": "true" }, `DB:${String(props.projectId)}:${String(props.view)}`);
+    const [localSearch, setLocalSearch] = useState("");
+    const projectId = String(props.projectId);
+    const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(
+      typeof props.scrollStateKey === "string" ? props.scrollStateKey : null,
+    );
+    return createElement(
+      "div",
+      { "data-main-view-host": "true" },
+      `DB:${projectId}:${String(props.view)}`,
+      createElement("input", {
+        "aria-label": `Mock DB search ${projectId}`,
+        value: localSearch,
+        onInput: (event: { currentTarget: { value: string } }) => setLocalSearch(event.currentTarget.value),
+      }),
+      createElement(
+        "div",
+        {
+          "data-testid": `mock-db-scroll-${projectId}`,
+          ref: retainedScroll.ref,
+          onScroll: retainedScroll.onScroll,
+          style: { height: 40, width: 40, overflow: "auto" },
+        },
+        createElement("div", { style: { height: 400, width: 400 } }),
+      ),
+    );
   },
 }));
 
@@ -508,6 +533,13 @@ mock.module("@/features/local-conversation", () => ({
   ),
   ConnectedThreadStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps = props;
+    const propsByThreadId = ((globalThis as {
+      __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
+    }).__mockConnectedThreadStagePropsByThreadId ??= {});
+    const activeThreadId = typeof props.activeThreadId === "string" ? props.activeThreadId : null;
+    if (activeThreadId) {
+      propsByThreadId[activeThreadId] = props;
+    }
     const headerPortalTarget = useThreadHeaderPortalTarget();
     const summary = props.activeThreadSummary as { threadName?: string | null; threadPreview?: string | null } | null | undefined;
     const threadTitle = summary?.threadName ?? summary?.threadPreview ?? (props.isNewThreadTab ? "New thread" : "No thread");
@@ -744,11 +776,13 @@ mock.module("./workbench-shell-deps", () => ({
 
 let WorkbenchShell: (typeof import("./workbench-shell"))["WorkbenchShell"];
 let resolveCardStageSessionTabOrder: (typeof import("./workbench-shell"))["resolveCardStageSessionTabOrder"];
+let shouldSynchronouslyRevealSession: (typeof import("./workbench-shell"))["shouldSynchronouslyRevealSession"];
 
 beforeAll(async () => {
   const workbenchShellModule = await import("./workbench-shell");
   WorkbenchShell = workbenchShellModule.WorkbenchShell;
   resolveCardStageSessionTabOrder = workbenchShellModule.resolveCardStageSessionTabOrder;
+  shouldSynchronouslyRevealSession = workbenchShellModule.shouldSynchronouslyRevealSession;
 });
 
 function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): Project {
@@ -2202,6 +2236,9 @@ beforeEach(() => {
   sessionStorage.clear();
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+  delete (globalThis as {
+    __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
+  }).__mockConnectedThreadStagePropsByThreadId;
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
   delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
   delete (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
@@ -2480,6 +2517,32 @@ async function moveSidebarPointer(clientX: number, clientY = 80): Promise<void> 
   await settleAsyncRender();
 }
 
+function getRetainedSessionIds(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("[data-retained-session-id]"))
+    .map((element) => element.getAttribute("data-retained-session-id") ?? "");
+}
+
+function getActiveRetainedSessionRoot(container: HTMLElement): HTMLElement {
+  const root = container.querySelector<HTMLElement>('[data-retained-session-active="true"]');
+  if (!root) throw new Error("Expected an active retained session root");
+  return root;
+}
+
+async function selectSidebarSession(container: HTMLElement, title: string): Promise<void> {
+  await act(async () => {
+    fireEvent.click(getThreadRow(container, title));
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+  await settleAsyncRender();
+}
+
+function getConnectedThreadStagePropsByThreadId(threadId: string): Record<string, unknown> | undefined {
+  return (globalThis as {
+    __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
+  }).__mockConnectedThreadStagePropsByThreadId?.[threadId];
+}
+
 describe("workbench session shell", () => {
   test("keeps card-stage session tab ordering scoped to session ids", () => {
     const order = resolveCardStageSessionTabOrder(
@@ -2495,6 +2558,30 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(order)).toBe(JSON.stringify(["second", "first"]));
   });
 
+  test("only reveals retained cached sessions synchronously", () => {
+    const cachedSession = makeSession({ id: "session:alpha:warm" });
+    const retainedEntries = [
+      { sessionId: "session:alpha:warm", lastActiveAtMs: 2 },
+      { sessionId: "session:alpha:other", lastActiveAtMs: 1 },
+    ];
+
+    expect(shouldSynchronouslyRevealSession({
+      sessionId: cachedSession.id,
+      cachedSession,
+      retainedEntries,
+    })).toBeTrue();
+    expect(shouldSynchronouslyRevealSession({
+      sessionId: cachedSession.id,
+      cachedSession: null,
+      retainedEntries,
+    })).toBeFalse();
+    expect(shouldSynchronouslyRevealSession({
+      sessionId: "session:alpha:cold-prefetch",
+      cachedSession,
+      retainedEntries,
+    })).toBeFalse();
+  });
+
   test("loads project sessions and renders the Database View DB tab", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -2507,6 +2594,183 @@ describe("workbench session shell", () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeFalse();
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list-summaries" && call[1] === "alpha")).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBeTrue();
+  });
+
+  test("switches warm recent DB sessions across projects without cold list fetches or DB remount", async () => {
+    const alphaHome = makeSession({
+      id: "session:alpha:home",
+      title: "Alpha Home",
+      order: 0,
+      rightFullWidth: true,
+    });
+    const alphaWork = makeSession({
+      id: "session:alpha:work",
+      title: "Alpha Work",
+      order: 1,
+      rightFullWidth: true,
+      tabs: [
+        {
+          id: "session:alpha:work:db",
+          sessionId: "session:alpha:work",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          config: { projectId: "alpha", view: "list" },
+        },
+      ],
+      rightLayout: makePanelLayout(["session:alpha:work:db"], "session:alpha:work:db"),
+    });
+    const betaWork = makeSession({
+      id: "session:beta:work",
+      projectId: "beta",
+      title: "Beta Work",
+      order: 0,
+      rightFullWidth: true,
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha"), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [alphaHome, alphaWork],
+        beta: [betaWork],
+      },
+      initialActiveProjectSessionId: alphaHome.id,
+      sidebar: { collapsed: false, width: 300 },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await waitFor(() => {
+      expect(getRetainedSessionIds(screen.container).includes(alphaHome.id)).toBeTrue();
+    });
+
+    const alphaSearch = within(getActiveRetainedSessionRoot(screen.container))
+      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
+    const alphaScroll = within(getActiveRetainedSessionRoot(screen.container))
+      .getByTestId("mock-db-scroll-alpha");
+    await act(async () => {
+      fireEvent.input(alphaSearch, { target: { value: "status:hot" } });
+      alphaScroll.scrollTop = 136;
+      alphaScroll.scrollLeft = 28;
+      fireEvent.scroll(alphaScroll);
+      await Promise.resolve();
+    });
+    expect(alphaSearch.value).toBe("status:hot");
+    expect(alphaScroll.scrollTop).toBe(136);
+    expect(alphaScroll.scrollLeft).toBe(28);
+
+    invokeCalls = [];
+    await selectSidebarSession(screen.container, "Alpha Work");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Beta"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await selectSidebarSession(screen.container, "Beta Work");
+    await selectSidebarSession(screen.container, "Alpha Home");
+
+    const detailGets = invokeCalls
+      .filter((call) => call[0] === "project-sessions:get")
+      .map((call) => String(call[1]));
+    expect(JSON.stringify(detailGets)).toBe(JSON.stringify([
+      "session:alpha:work",
+      "session:beta:work",
+    ]));
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:list")).toBeFalse();
+    expect(invokeCalls.some((call) => call[0] === "board:summary:get" && call[1] === "alpha")).toBeFalse();
+
+    const restoredAlphaSearch = within(getActiveRetainedSessionRoot(screen.container))
+      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
+    const restoredAlphaScroll = within(getActiveRetainedSessionRoot(screen.container))
+      .getByTestId("mock-db-scroll-alpha");
+    expect(restoredAlphaSearch.value).toBe("status:hot");
+    expect(restoredAlphaScroll.scrollTop).toBe(136);
+    expect(restoredAlphaScroll.scrollLeft).toBe(28);
+  });
+
+  test("caps retained session Activity entries at the active session plus three recent warm sessions", async () => {
+    const sessions = [1, 2, 3, 4, 5].map((index) =>
+      makeSession({
+        id: `session:alpha:retained-${index}`,
+        title: `Retained ${index}`,
+        order: index - 1,
+        rightFullWidth: true,
+      })
+    );
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: sessions },
+      initialActiveProjectSessionId: "session:alpha:retained-1",
+      sidebar: { collapsed: false, width: 300 },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const firstSearch = within(getActiveRetainedSessionRoot(screen.container))
+      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
+    await act(async () => {
+      fireEvent.input(firstSearch, { target: { value: "evict me" } });
+      await Promise.resolve();
+    });
+    expect(firstSearch.value).toBe("evict me");
+
+    await selectSidebarSession(screen.container, "Retained 2");
+    await selectSidebarSession(screen.container, "Retained 3");
+    await selectSidebarSession(screen.container, "Retained 4");
+    await selectSidebarSession(screen.container, "Retained 5");
+
+    expect(JSON.stringify(getRetainedSessionIds(screen.container))).toBe(JSON.stringify([
+      "session:alpha:retained-5",
+      "session:alpha:retained-4",
+      "session:alpha:retained-3",
+      "session:alpha:retained-2",
+    ]));
+
+    await selectSidebarSession(screen.container, "Retained 1");
+    const remountedSearch = within(getActiveRetainedSessionRoot(screen.container))
+      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
+    expect(remountedSearch.value).toBe("");
+  });
+
+  test("passes inactive thread viewport state to full-width retained sessions", async () => {
+    const first = makeAttachedSession({
+      id: "session:alpha:thread-a",
+      threadId: "thread-a",
+      title: "Thread A",
+      order: 0,
+      rightFullWidth: true,
+    });
+    const second = makeAttachedSession({
+      id: "session:alpha:thread-b",
+      threadId: "thread-b",
+      title: "Thread B",
+      order: 1,
+      rightFullWidth: true,
+    });
+    const namedFirst = {
+      ...first,
+      thread: first.thread ? { ...first.thread, threadName: "Thread A" } : null,
+    };
+    const namedSecond = {
+      ...second,
+      thread: second.thread ? { ...second.thread, threadName: "Thread B" } : null,
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [namedFirst, namedSecond] },
+      initialActiveProjectSessionId: first.id,
+      sidebar: { collapsed: false, width: 300 },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(getConnectedThreadStagePropsByThreadId("thread-a")?.threadViewportActive).toBe(false);
+
+    await selectSidebarSession(screen.container, "Thread B");
+
+    expect(screen.getByTestId("thread-stage-title").textContent).toBe("Thread B");
+    expect(getConnectedThreadStagePropsByThreadId("thread-a")?.threadViewportActive).toBe(false);
+    expect(getConnectedThreadStagePropsByThreadId("thread-b")?.threadViewportActive).toBe(false);
+    expect(JSON.stringify(getRetainedSessionIds(screen.container))).toBe(JSON.stringify([
+      "session:alpha:thread-b",
+      "session:alpha:thread-a",
+    ]));
   });
 
   test("renders the Codex-style top new-chat row", async () => {
@@ -2641,6 +2905,10 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
+    await selectSidebarSession(screen.container, "Archive target");
+    await selectSidebarSession(screen.container, "Database View");
+    expect(getRetainedSessionIds(screen.container).includes("session:alpha:archive-target")).toBeTrue();
+
     const row = getThreadRow(screen.container, "Archive target");
     const archiveButton = within(row).getByRole("button", { name: "Archive chat" });
     expect(archiveButton.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 20 20");
@@ -2649,8 +2917,10 @@ describe("workbench session shell", () => {
       fireEvent.click(archiveButton);
       await Promise.resolve();
     });
+    await settleAsyncRender();
 
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive target"]')).toBe(null);
+    expect(getRetainedSessionIds(screen.container).includes("session:alpha:archive-target")).toBeFalse();
     expect(invokeCalls.some((call) =>
       call[0] === "project-sessions:archive"
       && call[1] === "session:alpha:archive-target"

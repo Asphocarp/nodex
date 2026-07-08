@@ -2,9 +2,10 @@ const STORAGE_KEY = "nodex-card-stage-scroll-v1";
 const MAX_ENTRIES = 200;
 
 type ScrollMap = Record<string, number>;
+const hotScrollPositions = new Map<string, number>();
 
 function makeKey(projectId: string, cardId: string): string {
-  return `${projectId}:${cardId}`;
+  return `card-stage:${projectId}:${cardId}`;
 }
 
 function readMap(): ScrollMap {
@@ -35,11 +36,30 @@ function writeMap(map: ScrollMap): void {
   }
 }
 
+function rememberHotScrollPosition(key: string, scrollTop: number): void {
+  hotScrollPositions.delete(key);
+  hotScrollPositions.set(key, scrollTop);
+  while (hotScrollPositions.size > MAX_ENTRIES) {
+    const oldestKey = hotScrollPositions.keys().next().value;
+    if (typeof oldestKey !== "string") return;
+    hotScrollPositions.delete(oldestKey);
+  }
+}
+
+export function rememberScrollPosition(
+  projectId: string,
+  cardId: string,
+  scrollTop: number,
+): void {
+  rememberHotScrollPosition(makeKey(projectId, cardId), scrollTop);
+}
+
 export function saveScrollPosition(
   projectId: string,
   cardId: string,
   scrollTop: number,
 ): void {
+  rememberScrollPosition(projectId, cardId, scrollTop);
   const map = readMap();
   map[makeKey(projectId, cardId)] = scrollTop;
   writeMap(map);
@@ -49,6 +69,19 @@ export function loadScrollPosition(
   projectId: string,
   cardId: string,
 ): number | null {
+  const key = makeKey(projectId, cardId);
+  const hotValue = hotScrollPositions.get(key);
+  if (typeof hotValue === "number") return hotValue;
+
   const map = readMap();
-  return map[makeKey(projectId, cardId)] ?? null;
+  return map[key] ?? null;
+}
+
+export function forgetScrollPosition(projectId: string, cardId: string): void {
+  const key = makeKey(projectId, cardId);
+  hotScrollPositions.delete(key);
+
+  const map = readMap();
+  delete map[key];
+  writeMap(map);
 }

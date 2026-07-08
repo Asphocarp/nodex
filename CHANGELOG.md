@@ -93,7 +93,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
-- Fixed recent Workbench session switching so sidebar rows use lightweight summaries, warmed session details and DB View boards are reused across projects, and hidden full-width right-panel thread pages no longer resume idle threads.
+- Fixed recent Workbench session switching so sidebar rows use lightweight summaries, warmed session details and DB View boards are reused across projects, DB View scroll restores before paint, Card Stage tab switches keep mounted scroll/editor state, and hidden full-width right-panel thread pages no longer resume idle threads.
 - Fixed Review so Git-backed diffs load metadata before file bodies, binary and oversized files render as metadata placeholders instead of decoded text, and non-renderable file bodies are skipped during diff rendering, full-file loading, and search.
 - Fixed Thread pages opening slowly after sidebar reconciliation by keeping thread metadata updates out of project-session change fanout and refreshing sidebar session rows with lightweight summaries instead of full panel/tab payloads.
 - Fixed reopened Thread pages getting stuck loading by resuming renderer-owned streams from the live renderer cursor, replaying resume buffers consistently, and promoting background subagent threads to full streaming only after their right-panel detail tab opens.

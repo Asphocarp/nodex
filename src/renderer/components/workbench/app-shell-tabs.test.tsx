@@ -216,13 +216,13 @@ describe("AppShellTabs", () => {
       {
         id: "one",
         title: "One",
-        keepMounted: true,
+        retentionMode: "layout",
         renderPanel: () => <RetainedPanel id="one" />,
       },
       {
         id: "two",
         title: "Two",
-        keepMounted: true,
+        retentionMode: "layout",
         renderPanel: () => <RetainedPanel id="two" />,
       },
     ];
@@ -241,7 +241,10 @@ describe("AppShellTabs", () => {
     expect(unmounts.length).toBe(0);
     expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
     expect(textContent(view.getByRole("tabpanel"))).toBe("Retained one");
-    expect(view.container.querySelector('[data-app-shell-tabpanel-retained="two"]')?.hasAttribute("hidden")).toBeTrue();
+    const inactiveTwo = view.container.querySelector('[data-app-shell-tabpanel-retained="two"]');
+    expect(inactiveTwo?.hasAttribute("hidden")).toBeFalse();
+    expect(inactiveTwo?.getAttribute("aria-hidden")).toBe("true");
+    expect(inactiveTwo?.hasAttribute("inert")).toBeTrue();
 
     view.rerender(renderTabs("two"));
 
@@ -249,7 +252,51 @@ describe("AppShellTabs", () => {
     expect(unmounts.length).toBe(0);
     expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
     expect(textContent(view.getByRole("tabpanel"))).toBe("Retained two");
-    expect(view.container.querySelector('[data-app-shell-tabpanel-retained="one"]')?.hasAttribute("hidden")).toBeTrue();
+    const inactiveOne = view.container.querySelector('[data-app-shell-tabpanel-retained="one"]');
+    expect(inactiveOne?.hasAttribute("hidden")).toBeFalse();
+    expect(inactiveOne?.getAttribute("aria-hidden")).toBe("true");
+    expect(inactiveOne?.hasAttribute("inert")).toBeTrue();
+  });
+
+  test("preserves retained panel scroll while switching tabs", () => {
+    function ScrollPanel({ id }: { id: string }) {
+      return (
+        <div data-testid={`retained-scroll-${id}`} style={{ height: 40, overflow: "auto" }}>
+          <div style={{ height: 400 }} />
+        </div>
+      );
+    }
+    const tabs: AppShellTabItem[] = [
+      {
+        id: "one",
+        title: "One",
+        retentionMode: "layout",
+        renderPanel: () => <ScrollPanel id="one" />,
+      },
+      {
+        id: "two",
+        title: "Two",
+        retentionMode: "layout",
+        renderPanel: () => <ScrollPanel id="two" />,
+      },
+    ];
+    const renderTabs = (activeTabId: string) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelect={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderTabs("one"));
+    const firstScroll = view.getByTestId("retained-scroll-one");
+
+    firstScroll.scrollTop = 132;
+    view.rerender(renderTabs("two"));
+    view.rerender(renderTabs("one"));
+
+    expect(view.getByTestId("retained-scroll-one").scrollTop).toBe(132);
   });
 
   test("keeps a retained preview mounted when promoted with the same id", () => {
@@ -268,7 +315,7 @@ describe("AppShellTabs", () => {
       {
         id: "preview-card",
         title: "Card",
-        keepMounted: true,
+        retentionMode: "layout",
         preview,
         renderPanel: () => <FocusablePanel id="preview-card" />,
       },
@@ -299,18 +346,18 @@ describe("AppShellTabs", () => {
     expect(view.container.querySelector('[data-app-shell-tabpanel-retained="preview-card"]')).toBe(null);
   });
 
-  test("blurs focus left inside a hidden retained panel after active tab changes", () => {
+  test("blurs focus left inside an inactive retained panel after active tab changes", () => {
     const tabs: AppShellTabItem[] = [
       {
         id: "one",
         title: "One",
-        keepMounted: true,
+        retentionMode: "layout",
         renderPanel: () => <input aria-label="Editor one" />,
       },
       {
         id: "two",
         title: "Two",
-        keepMounted: true,
+        retentionMode: "layout",
         renderPanel: () => <input aria-label="Editor two" />,
       },
     ];
@@ -332,7 +379,9 @@ describe("AppShellTabs", () => {
     view.rerender(renderTabs("two"));
 
     expect(document.activeElement === firstEditor).toBeFalse();
-    expect(view.container.querySelector('[data-app-shell-tabpanel-retained="one"]')?.hasAttribute("hidden")).toBeTrue();
+    const inactiveOne = view.container.querySelector('[data-app-shell-tabpanel-retained="one"]');
+    expect(inactiveOne?.hasAttribute("hidden")).toBeFalse();
+    expect(inactiveOne?.hasAttribute("inert")).toBeTrue();
   });
 
   test("renders body overlays inside the tabpanel instead of the tab header", () => {

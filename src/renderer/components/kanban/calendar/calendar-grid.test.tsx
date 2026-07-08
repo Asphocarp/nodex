@@ -7,6 +7,10 @@ import {
 } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";
 import { CalendarGrid } from "./calendar-grid";
+import {
+  forgetRetainedScrollPosition,
+  rememberRetainedScrollPosition,
+} from "@/lib/retained-scroll-position";
 
 const clientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
 const clientHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
@@ -126,6 +130,40 @@ function dispatchShiftWheel(target: Element, deltaY = 1000): boolean {
 
 afterEach(() => {
   restoreElementMetrics();
+});
+
+describe("CalendarGrid retained scroll", () => {
+  test("restores saved scroll instead of applying the default 8am position", async () => {
+    installCalendarGridMetrics();
+    const key = "test:calendar-grid:saved-scroll";
+    forgetRetainedScrollPosition(key);
+    const source = document.createElement("div");
+    source.scrollTop = 777;
+    rememberRetainedScrollPosition(key, source);
+
+    const view = renderCalendarGrid({ scrollStateKey: key });
+    const scroller = view.getByTestId("calendar-grid-scroll");
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 2000 });
+
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(scroller.scrollTop).toBe(777);
+  });
+
+  test("keeps the default initial timeline position when no saved scroll exists", async () => {
+    installCalendarGridMetrics();
+    const key = "test:calendar-grid:default-scroll";
+    forgetRetainedScrollPosition(key);
+
+    const view = renderCalendarGrid({ scrollStateKey: key });
+    const scroller = view.getByTestId("calendar-grid-scroll");
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 2000 });
+
+    await settleAsyncRender();
+
+    expect(scroller.scrollTop === 0).toBeFalse();
+  });
 });
 
 describe("CalendarGrid Shift+Wheel navigation", () => {

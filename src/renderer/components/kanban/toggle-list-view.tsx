@@ -26,9 +26,16 @@ interface ToggleListViewProps {
     titleSnapshot?: string,
     options?: OpenCardStageOptions,
   ) => void;
+  scrollStateKey?: string | null;
 }
 
-export function ToggleListView({ projectId, searchQuery, dbViewPrefs, openCardStage }: ToggleListViewProps) {
+export function ToggleListView({
+  projectId,
+  searchQuery,
+  dbViewPrefs,
+  openCardStage,
+  scrollStateKey,
+}: ToggleListViewProps) {
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const { board, loading, error, updateCard, moveCard } = useKanban({ projectId });
   const viewPrefs = dbViewPrefs ?? getDefaultDbViewPrefs("toggle-list");
@@ -133,7 +140,7 @@ export function ToggleListView({ projectId, searchQuery, dbViewPrefs, openCardSt
   }
 
   return (
-    <ToggleListScrollContainer>
+    <ToggleListScrollContainer scrollStateKey={scrollStateKey}>
       <div className="px-4">
         <section className="nodex-toggle-list-editor-shell rounded-lg border border-(--border) bg-(--card) px-3.5 pt-3 pb-4">
           <ToggleListCardEditor

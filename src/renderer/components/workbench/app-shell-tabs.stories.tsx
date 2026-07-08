@@ -251,6 +251,107 @@ export const CardStagePreviewTab: Story = {
   },
 };
 
+const retainedCardStageNotes = [
+  "Preserve the discussion around the database view cache boundary.",
+  "Keep the card editor mounted when switching between right-panel card tabs.",
+  "Flush draft and scroll snapshots on deactivation for fallback restores.",
+  "Avoid measuring hidden session content through global panel refs.",
+  "Keep browser webview visibility owned by the browser manager.",
+  "Use the summary rows only for sidebar selection and labels.",
+  "Let board freshness follow project events, mutation recovery, and manual refresh.",
+  "Keep scroll retention local to the renderer hot state.",
+  "Retain only the bounded MRU sessions to avoid unbounded memory growth.",
+  "Restore DB View scroll before paint when the tab remounts.",
+  "Let Card Stage tab switches use the browser's native mounted scroll state.",
+  "Park inactive retained tabs with visibility and inert semantics.",
+];
+
+export const RetainedCardStageTabs: Story = {
+  render: () => <RetainedCardStageTabsStory />,
+};
+
+function RetainedCardStageTabsStory() {
+  const [activeTabId, setActiveTabId] = useState("retained:planning");
+  const tabs: AppShellTabItem[] = [
+    makeRetainedCardStageStoryTab({
+      id: "retained:planning",
+      title: "Session hot switch plan",
+      accent: "bg-sky-500",
+    }),
+    makeRetainedCardStageStoryTab({
+      id: "retained:editor",
+      title: "Card editor scroll draft",
+      accent: "bg-emerald-500",
+    }),
+  ];
+
+  return (
+    <NodexTooltipProvider>
+      <div className="h-screen bg-token-main-surface-primary text-token-foreground">
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelect={setActiveTabId}
+          onCloseTab={() => undefined}
+          onPinTab={() => undefined}
+          onMoveTab={() => undefined}
+          onSplitTab={() => undefined}
+        />
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+function makeRetainedCardStageStoryTab({
+  id,
+  title,
+  accent,
+}: {
+  id: string;
+  title: string;
+  accent: string;
+}): AppShellTabItem {
+  return {
+    id,
+    title,
+    icon: SquareKanban,
+    closable: true,
+    reorderable: true,
+    splittable: true,
+    retentionMode: "layout",
+    renderPanel: (_closeTab, { active }) => (
+      <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary text-token-foreground">
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-token-border px-3">
+          <span className={`size-2 rounded-full ${accent}`} aria-hidden="true" />
+          <span className="truncate text-sm font-medium">{title}</span>
+          <span className="ml-auto text-xs text-token-description-foreground">
+            {active ? "Active" : "Retained"}
+          </span>
+        </div>
+        <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto px-7 py-6">
+          <div className="mx-auto flex max-w-2xl flex-col gap-4">
+            <div className="rounded-lg border border-token-border bg-token-main-surface-secondary p-4">
+              <div className="text-xs font-medium uppercase text-token-description-foreground">
+                Card Stage body
+              </div>
+              <div className="mt-2 text-lg font-semibold">{title}</div>
+              <p className="mt-2 text-sm leading-6 text-token-description-foreground">
+                Scroll this panel, switch to the other retained card tab, then return. The panel stays
+                mounted and keeps native scroll without waiting for a fallback restore.
+              </p>
+            </div>
+            {retainedCardStageNotes.map((note) => (
+              <div key={`${id}:${note}`} className="rounded-md border border-token-border p-4">
+                <div className="text-sm leading-6 text-token-foreground">{note}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    ),
+  };
+}
+
 export const ContextMenuTabStates: Story = {
   render: () => {
     const tabs: AppShellTabItem[] = [

@@ -41,6 +41,7 @@ interface CalendarViewProps {
   visibleDays: Date[];
   createRequestId: number;
   onCalendarAnchorDateChange: (update: (anchorDate: Date) => Date) => void;
+  scrollStateKey?: string | null;
 }
 
 const ALL_DAY_HEIGHT_STORAGE_KEY = "nodex-calendar-all-day-heights";
@@ -128,6 +129,7 @@ export function CalendarView({
   visibleDays,
   createRequestId,
   onCalendarAnchorDateChange,
+  scrollStateKey,
 }: CalendarViewProps) {
   const {
     board,
@@ -510,6 +512,7 @@ export function CalendarView({
         onNavigateNext={handleShiftWheelNext}
         allDayLaneHeight={allDayLaneHeight}
         onAllDayLaneHeightChange={handleAllDayLaneHeightChange}
+        scrollStateKey={scrollStateKey}
       />
     </div>
   );

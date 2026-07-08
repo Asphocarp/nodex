@@ -207,9 +207,9 @@ Opening another card while a Card Stage is already active must close or persist 
 
 This prevents a pending editor change from being dropped when the active card changes and the editor receives new external content.
 
-Durable Card Stage panel tabs stay mounted while their panel leaf stays mounted, so switching between card tabs with focused panel-tab shortcuts preserves the BlockNote/ProseMirror editor instance, cursor, undo stack, and plugin state. Deactivating a Card Stage must call the same persist path used by close flows, but it must not call `onLeaveCard` or close the tab. Only the active Card Stage may publish shared `closeRef`, `persistRef`, and session-snapshot refs; inactive retained stages must stay hidden and ref-passive.
+Durable Card Stage panel tabs stay mounted while their panel leaf stays mounted, so switching between card tabs with focused panel-tab shortcuts preserves the BlockNote/ProseMirror editor instance, cursor, undo stack, plugin state, and native scroll position. Inactive retained Card Stage panels must be parked with layout-preserving visibility/inert semantics instead of `hidden` / `display:none`; scroll snapshots are only the fallback for reveal/remount paths. Deactivating a Card Stage must call the same persist path used by close flows, but it must not call `onLeaveCard` or close the tab. Only the active Card Stage may publish shared `closeRef`, `persistRef`, and session-snapshot refs; inactive retained stages must stay ref-passive.
 
-Preview-to-durable Card Stage promotion reuses the preview tab id. Treat that as the same editor identity: the promotion must not blur the NFM editor, remount the panel body, or clear ProseMirror selection. Active Card Stage previews should use the same retained panel wrapper as durable Card Stage tabs while they remain the renderer-local preview; switching away still clears the preview instead of keeping preview bodies around. Focus cleanup belongs at the tab-shell boundary and should only blur focus stranded inside hidden retained panels after the active tab id actually changes.
+Preview-to-durable Card Stage promotion reuses the preview tab id. Treat that as the same editor identity: the promotion must not blur the NFM editor, remount the panel body, or clear ProseMirror selection. Active Card Stage previews should use the same retained panel wrapper as durable Card Stage tabs while they remain the renderer-local preview; switching away still clears the preview instead of keeping preview bodies around. Focus cleanup belongs at the tab-shell boundary and should only blur focus stranded inside inactive retained panels after the active tab id actually changes.
 
 ## Persistence Timing
 
@@ -238,7 +238,7 @@ The durable write layer is separate from both renderer timers. Card Stage may en
 - Card-domain durable writes must go through `CardMutationWriter`; there must be no synchronous Electron main-process card write fallback.
 - Description-only Card Stage autosaves must use staged `card:description:update:*`, not JSON `card:update`.
 - Active Card Stage editors must not use board-summary revision changes to automatically rehydrate and replace the full description.
-- Durable Card Stage tab switches must not remount the retained editor body while the tab remains open in the mounted panel leaf.
+- Durable Card Stage tab switches must not remount the retained editor body or reset native scroll while the tab remains open in the mounted panel leaf.
 - Preview-to-durable Card Stage promotion must preserve focus and selection because it keeps the same client tab id and retained wrapper identity.
 - Freeform text edits must not call `onPatch`.
 - Kanban preview overlays must remain scoped by project/card.
@@ -265,6 +265,7 @@ Card Stage behavior is covered by `use-card-stage-controller.test.tsx` and compo
 - description save-in-flight keeps stale card props from replacing the local draft
 - conflict overwrite flushes and sends the current editor description
 - panel-tab deactivation flushes and persists pending description content
+- retained Card Stage tab switches preserve mounted scroll immediately
 - inactive retained Card Stages do not own shared close/persist/session refs
 - equal external content does not trigger an editor document replacement
 - active focused/pending NFM editors defer different external content without cancelling pending emission

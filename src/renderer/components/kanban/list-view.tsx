@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { StatusChip } from "@/lib/status-chip";
+import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
 
 // Card with column info attached
 interface CardWithColumn extends CardSummary {
@@ -98,6 +99,7 @@ interface ListViewProps {
   ) => void;
   cardStageCardId: string | undefined;
   cardStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  scrollStateKey?: string | null;
 }
 
 export function ListView({
@@ -108,6 +110,7 @@ export function ListView({
   openCardStage,
   cardStageCardId,
   cardStageCloseRef,
+  scrollStateKey,
 }: ListViewProps) {
   const {
     board,
@@ -115,6 +118,10 @@ export function ListView({
     error,
   } = useKanban({ projectId });
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(scrollStateKey ?? null, {
+    axis: "both",
+    retryFrames: 2,
+  });
 
   // Column widths state (index 0 is title which uses flex)
   const [columnWidths, setColumnWidths] = useState<number[]>(
@@ -307,7 +314,11 @@ export function ListView({
 
   return (
     <>
-      <div className="h-full overflow-auto px-4 pb-4">
+      <div
+        ref={retainedScroll.ref}
+        className="h-full overflow-auto px-4 pb-4"
+        onScroll={retainedScroll.onScroll}
+      >
         <table className="w-full table-fixed border-collapse">
           <colgroup>
             {COLUMNS.map((col, i) => (
