@@ -337,12 +337,17 @@ import {
 } from "./codex-sidebar";
 import { RenameChatDialog } from "./rename-chat-dialog";
 import {
+  replaceVisibleOrder,
+  SidebarDropIndicator,
   SidebarProjectDndProvider,
   SidebarProjectSortableContext,
+  usePinnedProjectDroppable,
+  useSidebarGroupReorderController,
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
 import {
   sortSidebarThreadKeysForDisplay,
+  type CodexSidebarProjectGroup,
   type CodexSidebarThreadSyncModel,
 } from "@/lib/codex-sidebar-thread-sync";
 import { useSidebarThreadSyncModel } from "@/lib/use-sidebar-thread-sync-model";
@@ -421,9 +426,6 @@ const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
 const NODEX_PANEL_OPTION_ACTION_KIND_SET = new Set<ProjectSessionTab["kind"]>(
   NODEX_PANEL_OPTION_ACTION_ORDER,
 );
-const NOOP_WORKBENCH_SIDEBAR_GROUP_DND_CONTROLLER: SidebarGroupDndController = {
-  handleDragEnd: () => undefined,
-};
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "kanban", label: "Board", icon: SquareKanban },
   { id: "list", label: "Table", icon: Table2 },
@@ -1740,7 +1742,9 @@ export function WorkbenchShell({
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
+  onReorderProjects,
   onSetProjectPinned,
+  onSetPinnedProjectOrder,
   onRequestProjectPickerOpen,
   projectPickerOpenTick = 0,
   taskSearchOpenTick = 0,
@@ -7577,7 +7581,9 @@ export function WorkbenchShell({
               }}
               onUpdateProject={onUpdateProject ?? (async () => null)}
               onDeleteProject={onDeleteProject ?? (async () => false)}
+              onReorderProjects={onReorderProjects}
               onSetProjectPinned={onSetProjectPinned}
+              onSetPinnedProjectOrder={onSetPinnedProjectOrder}
               onOpenSettings={openSettings}
               account={codexAccount}
               connection={codexConnection}
@@ -7646,7 +7652,9 @@ export function WorkbenchShell({
                   }}
                   onUpdateProject={onUpdateProject ?? (async () => null)}
                   onDeleteProject={onDeleteProject ?? (async () => false)}
+                  onReorderProjects={onReorderProjects}
                   onSetProjectPinned={onSetProjectPinned}
+                  onSetPinnedProjectOrder={onSetPinnedProjectOrder}
                   onOpenSettings={openSettings}
                   account={codexAccount}
                   connection={codexConnection}
@@ -8070,6 +8078,65 @@ function CodexSidebarPaginatedItems<T>({
   return <>{children(pagination, pager)}</>;
 }
 
+function SidebarProjectGroupRowsContent({
+  visibleItems,
+  pager,
+  emptyText,
+  loading,
+  reorderGroups,
+  renderProjectGroup,
+}: {
+  visibleItems: CodexSidebarProjectGroup[];
+  pager: ReactNode;
+  emptyText: string;
+  loading: boolean;
+  reorderGroups: (nextVisibleGroupIds: string[]) => void | Promise<void>;
+  renderProjectGroup: (
+    group: CodexSidebarProjectGroup,
+    controller: SidebarGroupDndController,
+  ) => ReactNode;
+}) {
+  const visibleGroupIds = useMemo(
+    () => visibleItems.map((group) => group.project.id),
+    [visibleItems],
+  );
+  const visibleGroupById = useMemo(
+    () => new Map(visibleItems.map((group) => [group.project.id, group] as const)),
+    [visibleItems],
+  );
+  const reorder = useSidebarGroupReorderController({
+    groupIds: visibleGroupIds,
+    reorderGroups,
+  });
+  const orderedVisibleItems = useMemo(
+    () => reorder.groupIds
+      .map((projectId) => visibleGroupById.get(projectId))
+      .filter((group): group is CodexSidebarProjectGroup => Boolean(group)),
+    [reorder.groupIds, visibleGroupById],
+  );
+
+  return (
+    <div className="isolate flex flex-col [contain:layout]">
+      <SidebarProjectSortableContext groupIds={reorder.groupIds}>
+        <div className="flex flex-col" role="list" aria-label="Projects">
+          {orderedVisibleItems.length > 0 ? orderedVisibleItems.map((group, index) => (
+            <Fragment key={group.project.id}>
+              {reorder.dropIndicatorIndex === index ? <SidebarDropIndicator /> : null}
+              {renderProjectGroup(group, reorder.controller)}
+            </Fragment>
+          )) : (
+            <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
+              {loading ? "Loading projects..." : emptyText}
+            </div>
+          )}
+          {reorder.dropIndicatorIndex === orderedVisibleItems.length ? <SidebarDropIndicator /> : null}
+          {pager}
+        </div>
+      </SidebarProjectSortableContext>
+    </div>
+  );
+}
+
 function SidebarThreadOrganizerSections({
   activeProjectId,
   activeSessionId,
@@ -8098,7 +8165,9 @@ function SidebarThreadOrganizerSections({
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
+  onReorderProjects,
   onSetProjectPinned,
+  onSetPinnedProjectOrder,
   sidebarArchiveSuppressedKeys,
 }: {
   activeProjectId: string;
@@ -8128,7 +8197,9 @@ function SidebarThreadOrganizerSections({
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
   sidebarArchiveSuppressedKeys: ReadonlySet<string>;
 }) {
   const [chatsCollapsed, setChatsCollapsed] = useState(false);
@@ -8136,6 +8207,7 @@ function SidebarThreadOrganizerSections({
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
   const [previouslyExpandedProjectGroupIds, setPreviouslyExpandedProjectGroupIds] = useState<string[]>([]);
+  const pinnedProjectDropTarget = usePinnedProjectDroppable();
   const sessionsById = useMemo(() => {
     const entries = [
       ...Object.values(sessionsByProject).flat(),
@@ -8254,9 +8326,22 @@ function SidebarThreadOrganizerSections({
     const entries = projectGroups.map(({ project }) => [project.id, project.name] as const);
     return new Map(entries);
   }, [projectGroups]);
-  const pinnedProjectGroups = useMemo(
-    () => projectGroups.filter((group) => group.project.pinned),
+  const projectOrderIds = useMemo(
+    () => projectGroups.map((group) => group.project.id),
     [projectGroups],
+  );
+  const pinnedProjectGroups = useMemo(
+    () => projectGroups
+      .filter((group) => group.project.pinned)
+      .sort((left, right) =>
+        (left.project.pinnedOrder ?? Number.MAX_SAFE_INTEGER)
+        - (right.project.pinnedOrder ?? Number.MAX_SAFE_INTEGER)
+      ),
+    [projectGroups],
+  );
+  const pinnedProjectIds = useMemo(
+    () => pinnedProjectGroups.map((group) => group.project.id),
+    [pinnedProjectGroups],
   );
   const unpinnedProjectGroups = useMemo(
     () => projectGroups.filter((group) => !group.project.pinned),
@@ -8300,6 +8385,36 @@ function SidebarThreadOrganizerSections({
     previouslyExpandedProjectGroupIds,
     visibleProjectGroupIds,
   ]);
+  const reorderVisibleProjectGroups = useCallback((
+    visibleGroupIds: string[],
+    nextVisibleGroupIds: string[],
+  ) => {
+    const orderedProjectIds = replaceVisibleOrder(
+      projectOrderIds,
+      visibleGroupIds,
+      nextVisibleGroupIds,
+    );
+    return onReorderProjects({ orderedProjectIds })
+      .then(() => undefined)
+      .catch(() => {
+        toast.danger("Failed to reorder projects");
+      });
+  }, [onReorderProjects, projectOrderIds]);
+  const reorderVisiblePinnedProjectGroups = useCallback((
+    visibleGroupIds: string[],
+    nextVisibleGroupIds: string[],
+  ) => {
+    const orderedProjectIds = replaceVisibleOrder(
+      pinnedProjectIds,
+      visibleGroupIds,
+      nextVisibleGroupIds,
+    );
+    return onSetPinnedProjectOrder({ orderedProjectIds })
+      .then(() => undefined)
+      .catch(() => {
+        toast.danger("Failed to reorder pinned projects");
+      });
+  }, [onSetPinnedProjectOrder, pinnedProjectIds]);
   const hasVisiblePinnedStandaloneThreads = pinnedStandaloneThreadKeys.some((threadKey) =>
     !sidebarArchiveSuppressedKeys.has(threadKey)
   );
@@ -8435,6 +8550,7 @@ function SidebarThreadOrganizerSections({
   const renderProjectGroupRows = (
     groups: typeof projectGroups,
     options: {
+      reorderScope: "projects" | "pinned";
       expanded: boolean;
       onExpandedChange: (expanded: boolean) => void;
       emptyText?: string;
@@ -8448,85 +8564,99 @@ function SidebarThreadOrganizerSections({
       onExpandedChange={options.onExpandedChange}
       forcedVisibleKey={activeProjectId}
     >
-      {(pagination, pager) => (
-        <div className="isolate flex flex-col [contain:layout]">
-          <SidebarProjectSortableContext groupIds={pagination.visibleItems.map((group) => group.project.id)}>
-            <div className="flex flex-col" role="list" aria-label="Projects">
-              {pagination.visibleItems.length > 0 ? pagination.visibleItems.map(({ project, threadKeys }) => {
-                const expanded = expandedProjectIds.has(project.id);
-                const threadListExpanded = expandedProjectThreadListIds.has(project.id);
-                return (
-                  <CodexProjectRow
-                    key={project.id}
-                    project={project}
-                    active={activeSessionId === null && activeProjectId === project.id}
-                    expanded={expanded}
-                    groupDndController={NOOP_WORKBENCH_SIDEBAR_GROUP_DND_CONTROLLER}
-                    allowProjectReorder
-                    onActivate={() => onToggleProjectExpanded(project.id)}
-                    onSelectProject={() => onSelectProject(project.id)}
-                    onStartNewChat={() => void onStartNewChatInProject(project.id)}
-                    onUpdateProject={onUpdateProject}
-                    onDeleteProject={onDeleteProject}
-                    onSetProjectPinned={onSetProjectPinned}
+      {(pagination, pager) => {
+        const visibleGroupIds = pagination.visibleItems.map((group) => group.project.id);
+        return (
+          <SidebarProjectGroupRowsContent
+            visibleItems={pagination.visibleItems}
+            pager={pager}
+            emptyText={options.emptyText ?? "No projects"}
+            loading={loadingSessions}
+            reorderGroups={(nextVisibleGroupIds) => {
+              if (options.reorderScope === "pinned") {
+                return reorderVisiblePinnedProjectGroups(visibleGroupIds, nextVisibleGroupIds);
+              }
+              return reorderVisibleProjectGroups(visibleGroupIds, nextVisibleGroupIds);
+            }}
+            renderProjectGroup={({ project, threadKeys }, groupDndController) => {
+              const expanded = expandedProjectIds.has(project.id);
+              const threadListExpanded = expandedProjectThreadListIds.has(project.id);
+              return (
+                <CodexProjectRow
+                  key={project.id}
+                  project={project}
+                  active={activeSessionId === null && activeProjectId === project.id}
+                  expanded={expanded}
+                  groupDndController={groupDndController}
+                  allowProjectReorder
+                  onActivate={() => onToggleProjectExpanded(project.id)}
+                  onSelectProject={() => onSelectProject(project.id)}
+                  onStartNewChat={() => void onStartNewChatInProject(project.id)}
+                  onUpdateProject={onUpdateProject}
+                  onDeleteProject={onDeleteProject}
+                  onSetProjectPinned={onSetProjectPinned}
+                >
+                  <CodexSidebarPaginatedItems
+                    items={threadKeys}
+                    getKey={(threadKey) => threadKey}
+                    maxItems={CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS}
+                    expanded={threadListExpanded}
+                    onExpandedChange={(nextExpanded) => setProjectThreadListExpanded(project.id, nextExpanded)}
+                    forcedVisibleKey={activeThreadKey}
+                    suppressedKeys={sidebarArchiveSuppressedKeys}
+                    pagerClassName={CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS}
                   >
-                    <CodexSidebarPaginatedItems
-                      items={threadKeys}
-                      getKey={(threadKey) => threadKey}
-                      maxItems={CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS}
-                      expanded={threadListExpanded}
-                      onExpandedChange={(nextExpanded) => setProjectThreadListExpanded(project.id, nextExpanded)}
-                      forcedVisibleKey={activeThreadKey}
-                      suppressedKeys={sidebarArchiveSuppressedKeys}
-                      pagerClassName={CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS}
-                    >
-                      {(threadPagination, threadPager) => (
-                        <CodexProjectSessionList project={project} showAll={threadListExpanded}>
-                          {threadPagination.visibleItems.length > 0 ? threadPagination.visibleItems.map((threadKey) => renderThreadRow(threadKey, {
-                            hoverCardProjectLabel: project.name,
-                          })) : (
-                            <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
-                              {loadingSessions ? "Loading chats..." : "No chats"}
-                            </div>
-                          )}
-                          {threadPager}
-                        </CodexProjectSessionList>
-                      )}
-                    </CodexSidebarPaginatedItems>
-                  </CodexProjectRow>
-                );
-              }) : (
-                <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
-                  {loadingSessions ? "Loading projects..." : options.emptyText ?? "No projects"}
-                </div>
-              )}
-              {pager}
-            </div>
-          </SidebarProjectSortableContext>
-        </div>
-      )}
+                    {(threadPagination, threadPager) => (
+                      <CodexProjectSessionList project={project} showAll={threadListExpanded}>
+                        {threadPagination.visibleItems.length > 0 ? threadPagination.visibleItems.map((threadKey) => renderThreadRow(threadKey, {
+                          hoverCardProjectLabel: project.name,
+                        })) : (
+                          <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
+                            {loadingSessions ? "Loading chats..." : "No chats"}
+                          </div>
+                        )}
+                        {threadPager}
+                      </CodexProjectSessionList>
+                    )}
+                  </CodexSidebarPaginatedItems>
+                </CodexProjectRow>
+              );
+            }}
+          />
+        );
+      }}
     </CodexSidebarPaginatedItems>
   );
 
   const renderPinnedSection = () => {
-    if (!hasVisiblePinnedSectionItems) return null;
+    if (!hasVisiblePinnedSectionItems && !pinnedProjectDropTarget.projectDragActive) return null;
 
     return (
-      <CodexSidebarSection
-        heading="Pinned"
-        collapsed={pinnedThreadsSectionCollapsed}
-        onToggle={onTogglePinnedThreadsSectionCollapsed}
-      >
-        {pinnedStandaloneThreadKeys.length > 0
-          ? renderThreadList(pinnedStandaloneThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
-          : null}
-        {pinnedProjectGroups.length > 0
-          ? renderProjectGroupRows(pinnedProjectGroups, {
-            expanded: pinnedProjectsExpanded,
-            onExpandedChange: setPinnedProjectsExpanded,
-          })
-          : null}
-      </CodexSidebarSection>
+      <div ref={pinnedProjectDropTarget.setNodeRef} className="relative">
+        {hasVisiblePinnedSectionItems ? (
+          <CodexSidebarSection
+            heading="Pinned"
+            collapsed={pinnedThreadsSectionCollapsed}
+            onToggle={onTogglePinnedThreadsSectionCollapsed}
+          >
+            {pinnedStandaloneThreadKeys.length > 0
+              ? renderThreadList(pinnedStandaloneThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
+              : null}
+            {pinnedProjectGroups.length > 0
+              ? renderProjectGroupRows(pinnedProjectGroups, {
+                reorderScope: "pinned",
+                expanded: pinnedProjectsExpanded,
+                onExpandedChange: setPinnedProjectsExpanded,
+              })
+              : null}
+          </CodexSidebarSection>
+        ) : (
+          <div className="px-row-x">
+            <SidebarDropIndicator />
+            <div className="h-2" />
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -8549,6 +8679,7 @@ function SidebarThreadOrganizerSections({
         )}
       >
         {renderProjectGroupRows(unpinnedProjectGroups, {
+          reorderScope: "projects",
           expanded: projectsExpanded,
           onExpandedChange: setProjectsExpanded,
         })}
@@ -8606,7 +8737,9 @@ function ProjectSessionSidebar({
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
+  onReorderProjects,
   onSetProjectPinned,
+  onSetPinnedProjectOrder,
   onOpenSettings,
   account,
   connection,
@@ -8655,7 +8788,9 @@ function ProjectSessionSidebar({
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
   onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
   onOpenSettings: () => void;
   account: CodexAccountSnapshot | null;
   connection: CodexConnectionState;
@@ -8834,7 +8969,9 @@ function ProjectSessionSidebar({
                   onCreateProject={onCreateProject}
                   onUpdateProject={onUpdateProject}
                   onDeleteProject={onDeleteProject}
+                  onReorderProjects={onReorderProjects}
                   onSetProjectPinned={onSetProjectPinned}
+                  onSetPinnedProjectOrder={onSetPinnedProjectOrder}
                   sidebarArchiveSuppressedKeys={sidebarArchiveSuppressedKeys}
                 />
               </SidebarProjectDndProvider>
