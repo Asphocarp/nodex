@@ -218,6 +218,7 @@ const EMPTY_CONVERSATION_SUMMARY_FIELDS = {
   cwd: null,
   managedWorktreePath: null,
   projectlessOutputDirectory: null,
+  projectlessWorkspaceBrowserRoot: null,
   archived: false,
   createdAt: 0,
   updatedAt: 0,
@@ -1292,6 +1293,7 @@ interface ConversationSummaryFields {
   cwd: string | null;
   managedWorktreePath: string | null;
   projectlessOutputDirectory: string | null;
+  projectlessWorkspaceBrowserRoot: string | null;
   archived: boolean;
   createdAt: number;
   updatedAt: number;
@@ -1382,6 +1384,7 @@ function areConversationSummaryFieldsEqual(
     && left.cwd === right.cwd
     && left.managedWorktreePath === right.managedWorktreePath
     && left.projectlessOutputDirectory === right.projectlessOutputDirectory
+    && left.projectlessWorkspaceBrowserRoot === right.projectlessWorkspaceBrowserRoot
     && left.archived === right.archived
     && left.createdAt === right.createdAt
     && left.updatedAt === right.updatedAt
@@ -9485,6 +9488,7 @@ export function useConversationSummaryFields(
         cwd: conversation.cwd,
         managedWorktreePath: conversation.managedWorktreePath ?? null,
         projectlessOutputDirectory: conversation.projectlessOutputDirectory ?? null,
+        projectlessWorkspaceBrowserRoot: conversation.projectlessWorkspaceBrowserRoot ?? null,
         archived: conversation.archived,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,

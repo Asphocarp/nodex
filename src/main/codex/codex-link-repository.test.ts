@@ -177,24 +177,29 @@ describe("codex-link-repository", () => {
         threadId: "thr_projectless",
         threadName: "Projectless thread",
         projectlessOutputDirectory: "output",
+        projectlessWorkspaceBrowserRoot: "workspace",
         statusType: "idle",
       });
 
       expect(projectOnly.projectId).toBe(projectId);
       expect(projectless.projectId ?? null).toBe(null);
       expect(projectless.projectlessOutputDirectory ?? null).toBe("output");
+      expect(projectless.projectlessWorkspaceBrowserRoot ?? null).toBe("workspace");
 
       const preserved = upsertCodexThread({
         threadId: "thr_projectless",
         threadName: "Projectless thread refreshed",
       });
       expect(preserved.projectlessOutputDirectory ?? null).toBe("output");
+      expect(preserved.projectlessWorkspaceBrowserRoot ?? null).toBe("workspace");
 
       const cleared = upsertCodexThread({
         threadId: "thr_projectless",
         projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
       });
       expect(cleared.projectlessOutputDirectory ?? null).toBe(null);
+      expect(cleared.projectlessWorkspaceBrowserRoot ?? null).toBe(null);
 
       const byProject = listCodexProjectThreads(projectId);
       expect(byProject.length).toBe(1);

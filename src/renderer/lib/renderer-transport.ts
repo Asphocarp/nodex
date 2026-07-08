@@ -31,6 +31,9 @@ export interface RendererTransport {
   subscribeCodexScheduledAutomationChanges: (
     callback: (event: import("../../shared/types").CodexScheduledAutomationChangedEvent) => void,
   ) => () => void;
+  subscribeCodexAutomationRunsUpdates: (
+    callback: (event: import("../../shared/types").CodexAutomationRunsUpdatedEvent) => void,
+  ) => () => void;
   subscribePersistedAtomUpdates: (
     callback: (update: import("../../shared/ipc-api").PersistedAtomUpdate) => void,
   ) => () => void;

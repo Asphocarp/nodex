@@ -16,6 +16,7 @@ describe("codex app meta thread tool specs", () => {
     expect(namespace?.type).toBe("namespace");
     expect(namespace?.name).toBe("codex_app");
     expect(JSON.stringify(toolNames)).toBe(JSON.stringify([
+      "automation_update",
       "create_thread",
       "fork_thread",
       "get_handoff_status",
@@ -34,10 +35,39 @@ describe("codex app meta thread tool specs", () => {
     const createThread = tools.find((spec) => spec.name === "create_thread");
     const readThread = tools.find((spec) => spec.name === "read_thread");
     const sendMessage = tools.find((spec) => spec.name === "send_message_to_thread");
+    const automationUpdate = tools.find((spec) => spec.name === "automation_update");
 
     expect(JSON.stringify((createThread?.inputSchema as Record<string, unknown>).required)).toBe(JSON.stringify(["prompt", "target"]));
     expect(JSON.stringify((readThread?.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}).includes("maxOutputCharsPerItem")).toBeTrue();
     expect(JSON.stringify((sendMessage?.inputSchema as Record<string, unknown>).required)).toBe(JSON.stringify(["threadId", "prompt"]));
+    const automationSchema = automationUpdate?.inputSchema as {
+      anyOf?: Array<{
+        properties?: Record<string, { enum?: string[] } | unknown>;
+      }>;
+    };
+    const automationBranches = automationSchema.anyOf ?? [];
+    const automationModes = [...new Set(automationBranches.flatMap((branch) => {
+      const mode = branch.properties?.mode as { enum?: string[] } | undefined;
+      return mode?.enum ?? [];
+    }))].sort();
+    const hasHeartbeatBranch = automationBranches.some((branch) => {
+      const kind = branch.properties?.kind as { enum?: string[] } | undefined;
+      return kind?.enum?.[0] === "heartbeat";
+    });
+    const hasSetupPathBranch = automationBranches.some((branch) => (
+      branch.properties?.localEnvironmentConfigPath !== undefined
+    ));
+
+    expect(JSON.stringify(automationModes)).toBe(JSON.stringify([
+      "create",
+      "delete",
+      "suggested_create",
+      "suggested_update",
+      "update",
+      "view",
+    ].sort()));
+    expect(hasHeartbeatBranch).toBeTrue();
+    expect(hasSetupPathBranch).toBeTrue();
   });
 
   test("wraps dynamic tool responses in app-server content items", () => {

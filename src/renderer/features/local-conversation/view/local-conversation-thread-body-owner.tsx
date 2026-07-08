@@ -840,6 +840,7 @@ export function LocalConversationThreadBodyOwner({
           onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
           onOpenSideChat={actions.onOpenSideChat}
           onOpenThread={actions.onOpenThread}
+          onOpenSummaryScheduledAutomation={actions.onOpenSummaryScheduledAutomation}
           onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
           onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
           onClosePlanSidePanel={actions.onClosePlanSidePanel}
@@ -932,6 +933,7 @@ export function LocalConversationThreadBodyOwner({
                 onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
                 onOpenSideChat={actions.onOpenSideChat}
                 onOpenThread={actions.onOpenThread}
+                onOpenSummaryScheduledAutomation={actions.onOpenSummaryScheduledAutomation}
                 onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
                 onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
                 onClosePlanSidePanel={actions.onClosePlanSidePanel}

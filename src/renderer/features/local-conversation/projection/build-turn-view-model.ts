@@ -1,4 +1,5 @@
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
+import { stripCodexRemarkDirectiveLines } from "../../../../shared/codex-remark-directives";
 import { buildAgentRenderUnits, materializeAgentRenderUnits } from "./group-exploration-blocks";
 import type {
   ThreadAssistantActionsBlockModel,
@@ -240,7 +241,7 @@ function buildAssistantMessageActionsModel(
 ): ThreadAssistantMessageActionsModel | null {
   if (!assistantItem || assistantItem.type !== "assistantMessage") return null;
 
-  const copyText = assistantItem.entry.markdownText?.trim() ?? "";
+  const copyText = stripCodexRemarkDirectiveLines(assistantItem.entry.markdownText);
   const hasCopyableContent = copyText.length > 0;
   const isCompleted = !input.isStreamingTurn && assistantItem.status !== "inProgress";
   const canFork = isCompleted && Boolean(input.canForkTurn);

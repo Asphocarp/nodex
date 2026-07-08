@@ -173,19 +173,28 @@ describe("ThreadSummaryPanelSection", () => {
     const originalClearTimeout = window.clearTimeout;
     let nextTimerId = 1;
     const scheduled = new Map<number, () => void>();
-    window.setTimeout = ((callback: TimeoutCallback, delay?: number) => {
-      expect(delay).toBe(THREAD_SUMMARY_PANEL_SECTION_AUTO_COLLAPSE_MS);
-      const timerId = nextTimerId;
-      nextTimerId += 1;
-      scheduled.set(timerId, () => {
-        if (typeof callback === "function") callback();
-      });
-      return timerId as unknown as ReturnType<typeof window.setTimeout>;
-    }) as typeof window.setTimeout;
-    window.clearTimeout = ((timerId?: number) => {
-      if (timerId == null) return;
-      scheduled.delete(timerId);
-    }) as typeof window.clearTimeout;
+
+    const installTimerMock = () => {
+      window.setTimeout = ((callback: TimeoutCallback, delay?: number) => {
+        expect(delay).toBe(THREAD_SUMMARY_PANEL_SECTION_AUTO_COLLAPSE_MS);
+        const timerId = nextTimerId;
+        nextTimerId += 1;
+        scheduled.set(timerId, () => {
+          if (typeof callback === "function") callback();
+        });
+        return timerId as unknown as ReturnType<typeof window.setTimeout>;
+      }) as typeof window.setTimeout;
+      window.clearTimeout = ((timerId?: number) => {
+        if (timerId == null) return;
+        scheduled.delete(timerId);
+      }) as typeof window.clearTimeout;
+    };
+    const restoreTimerMock = () => {
+      window.setTimeout = originalSetTimeout;
+      window.clearTimeout = originalClearTimeout;
+    };
+
+    installTimerMock();
 
     const collapseKey = "test-auto-collapse";
     const cancelKey = "test-auto-collapse-cancel";
@@ -200,6 +209,7 @@ describe("ThreadSummaryPanelSection", () => {
       );
 
       expect(scheduled.size).toBe(1);
+      restoreTimerMock();
       act(() => {
         Array.from(scheduled.values())[0]?.();
       });
@@ -209,6 +219,7 @@ describe("ThreadSummaryPanelSection", () => {
 
       view.unmount();
       scheduled.clear();
+      installTimerMock();
       const cancelView = renderReducedMotion(
         <ThreadSummaryPanelSection sectionKey={cancelKey} title="Subagents" autoCollapse>
           <div>Keep visible</div>
@@ -216,14 +227,16 @@ describe("ThreadSummaryPanelSection", () => {
       );
 
       expect(scheduled.size).toBe(1);
-      fireEvent.click(cancelView.getByText("Keep visible"));
+      act(() => {
+        fireEvent.click(cancelView.getByText("Keep visible"));
+      });
+      restoreTimerMock();
 
       expect(scheduled.size).toBe(0);
       expect(cancelView.getByRole("button").getAttribute("aria-expanded")).toBe("true");
       expect(textContent(cancelView.container).includes("Keep visible")).toBeTrue();
     } finally {
-      window.setTimeout = originalSetTimeout;
-      window.clearTimeout = originalClearTimeout;
+      restoreTimerMock();
     }
   });
 });

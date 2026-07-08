@@ -63,13 +63,13 @@ All notable changes to this project will be documented in this file.
 - macOS window titles now use `Nodex` instead of a workspace name.
 - Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project primary source; cards can request a terminal but no longer own terminal tabs or PTY identity.
 - Card Stage local run-folder selection now uses the shared workspace directory picker instead of the legacy PTY picker channel.
-- Refined the project/session sidebar chrome, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for a denser shell layout.
+- Refined the project/session sidebar chrome, moved project folder selection into each project row actions menu, and added Search, Plugins, and Scheduled rows for a denser shell layout.
 - Refined project session panel groups so empty non-final groups close automatically, each group's new-tab button sits directly after its tabs, and right-panel expand/restore plus bottom-panel close controls sit at the far-right edge of the whole panel.
 - Refined the project session shell side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, tab creation lives in each panel group header, right-panel expand/restore lives in the panel-global header rail, and the unused attach/detach thread toolbar button is removed.
 - Refined project session thread headers to use the thread title as the session header and hide the redundant header separator while the right panel is closed.
 - Existing thread composers no longer show the lower run-target/status row under the prompt; that row remains available on new-chat composers.
 - Added a top-right thread summary surface for attached local conversation sessions, with a pinned-summary toggle/icon, a right-panel-open `Toggle summary` popover, toolbar-safe under-header pinned placement, and hover-revealed section chevrons.
-- Added a Workbench Automations route that opens from the sidebar, command palette, and scheduled summary rows to inspect local scheduled task metadata.
+- Added a Workbench Scheduled route that opens from the sidebar, command palette, and scheduled summary rows with task/template tabs, a searchable system template catalog, searchable Current/Paused task rows, row status/actions, project-folder and local-environment pickers, app-server-backed model/reasoning selection, run-now notifications, chat/template personalization entry points, split create controls, in-app delete/discard confirmations, previous-run history actions, run-state sync across Scheduled, Inbox, and sidebar rows, conversation `automation_update` cards for suggested and direct scheduled-task mutations, and a right-side detail rail for creating and editing local scheduled tasks.
 - Added a Workbench Process Manager dialog that opens from the command palette, `Ctrl+Alt+M`, and summary Tasks rows to inspect and stop running thread background terminals.
 - Centralized workbench top-right header controls through a header action registry so panel toggles and adjacent panel-header actions keep consistent spacing and reserved width.
 - Collapsed sidebar titlebar chrome now uses a measured left header rail, compact `New chat` button, and thread title alignment after the macOS traffic-light safe area.
@@ -93,6 +93,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
+- Fixed Scheduled edit navigation so valid pending detail edits save before switching tabs, opening another scheduled task, running toolbar actions, or opening a previous run chat.
 - Fixed recent Workbench session switching so sidebar rows use lightweight summaries, warmed session details and DB View boards are reused across projects, DB View scroll restores before paint, Card Stage tab switches keep mounted scroll/editor state, and hidden full-width right-panel thread pages no longer resume idle threads.
 - Fixed Review so Git-backed diffs load metadata before file bodies, binary and oversized files render as metadata placeholders instead of decoded text, and non-renderable file bodies are skipped during diff rendering, full-file loading, and search.
 - Fixed Thread pages opening slowly after sidebar reconciliation by keeping thread metadata updates out of project-session change fanout and refreshing sidebar session rows with lightweight summaries instead of full panel/tab payloads.

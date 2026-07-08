@@ -129,6 +129,7 @@ interface DbProjectSessionThread {
   cwd: string | null;
   managed_worktree_path: string | null;
   projectless_output_directory: string | null;
+  projectless_workspace_browser_root: string | null;
   status_type: string;
   status_active_flags_json: string;
   archived: number;
@@ -161,6 +162,7 @@ interface DbProjectSessionSummaryRow {
   thread_cwd: string | null;
   thread_managed_worktree_path: string | null;
   thread_projectless_output_directory: string | null;
+  thread_projectless_workspace_browser_root: string | null;
   thread_status_type: string | null;
   thread_status_active_flags_json: string | null;
   thread_archived: number | null;
@@ -310,6 +312,7 @@ function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
     cwd: row.cwd || undefined,
     managedWorktreePath: row.managed_worktree_path,
     projectlessOutputDirectory: row.projectless_output_directory,
+    projectlessWorkspaceBrowserRoot: row.projectless_workspace_browser_root,
     statusType: row.status_type,
     statusActiveFlags: parseStatusActiveFlags(row.status_active_flags_json),
     archived: row.archived === 1,
@@ -334,6 +337,7 @@ function rowToSummaryThread(row: DbProjectSessionSummaryRow): ProjectSessionThre
     cwd: row.thread_cwd,
     managed_worktree_path: row.thread_managed_worktree_path,
     projectless_output_directory: row.thread_projectless_output_directory,
+    projectless_workspace_browser_root: row.thread_projectless_workspace_browser_root,
     status_type: row.thread_status_type ?? "notLoaded",
     status_active_flags_json: row.thread_status_active_flags_json ?? "[]",
     archived: row.thread_archived ?? 0,
@@ -387,6 +391,7 @@ function buildSession(row: DbProjectSession): ProjectSession {
         t.cwd,
         t.managed_worktree_path,
         t.projectless_output_directory,
+        t.projectless_workspace_browser_root,
         t.status_type,
         t.status_active_flags_json,
         t.archived,
@@ -519,6 +524,7 @@ function projectSessionSummarySelectSql(whereSql: string): string {
       t.cwd AS thread_cwd,
       t.managed_worktree_path AS thread_managed_worktree_path,
       t.projectless_output_directory AS thread_projectless_output_directory,
+      t.projectless_workspace_browser_root AS thread_projectless_workspace_browser_root,
       t.status_type AS thread_status_type,
       t.status_active_flags_json AS thread_status_active_flags_json,
       t.archived AS thread_archived,
@@ -593,6 +599,7 @@ export function getProjectSessionThreadLink(threadId: string): ProjectSessionThr
         t.cwd,
         t.managed_worktree_path,
         t.projectless_output_directory,
+        t.projectless_workspace_browser_root,
         t.status_type,
         t.status_active_flags_json,
         t.archived,
@@ -1532,6 +1539,7 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
       ? (parsed.managedWorktreePath ?? null)
       : (existing?.managedWorktreePath ?? null),
     projectlessOutputDirectory: parsed.projectlessOutputDirectory ?? existing?.projectlessOutputDirectory ?? null,
+    projectlessWorkspaceBrowserRoot: parsed.projectlessWorkspaceBrowserRoot ?? existing?.projectlessWorkspaceBrowserRoot ?? null,
     statusType: parsed.statusType as CodexThreadStatusType | undefined,
     statusActiveFlags: parsed.statusActiveFlags as CodexThreadActiveFlag[] | undefined,
     archived: parsed.archived ?? existing?.archived ?? false,

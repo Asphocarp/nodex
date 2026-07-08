@@ -54,6 +54,9 @@ describe("schema initialization", () => {
       52,
       53,
       54,
+      55,
+      56,
+      57,
     ];
     const expectedTargetsAfter = (version: number) => JSON.stringify(
       supportedTargets.filter((target) => target > version),
@@ -85,6 +88,8 @@ describe("schema initialization", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(51))).toBe(expectedTargetsAfter(51));
     expect(JSON.stringify(getSchemaMigrationTargets(52))).toBe(expectedTargetsAfter(52));
     expect(JSON.stringify(getSchemaMigrationTargets(53))).toBe(expectedTargetsAfter(53));
+    expect(JSON.stringify(getSchemaMigrationTargets(54))).toBe(expectedTargetsAfter(54));
+    expect(JSON.stringify(getSchemaMigrationTargets(55))).toBe(expectedTargetsAfter(55));
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -260,8 +265,15 @@ describe("schema initialization", () => {
       expect(scheduledAutomationColumnNames.includes("kind")).toBeTrue();
       expect(scheduledAutomationColumnNames.includes("status")).toBeTrue();
       expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("prompt")).toBeTrue();
       expect(scheduledAutomationColumnNames.includes("rrule")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("model")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("reasoning_effort")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("cwds_json")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("execution_environment")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("local_environment_config_path")).toBeTrue();
       expect(scheduledAutomationColumnNames.includes("next_run_at")).toBeTrue();
+      expect(scheduledAutomationColumnNames.includes("last_run_at")).toBeTrue();
       const scheduledAutomationTableSql = db.prepare(`
         SELECT sql
         FROM sqlite_master
@@ -275,6 +287,26 @@ describe("schema initialization", () => {
           AND name = 'idx_codex_scheduled_automations_target'
       `).get();
       expect(scheduledAutomationIndex !== undefined).toBeTrue();
+
+      const automationRunColumnNames = tableColumnNames(db, "codex_automation_runs");
+      expect(automationRunColumnNames.includes("thread_id")).toBeTrue();
+      expect(automationRunColumnNames.includes("automation_id")).toBeTrue();
+      expect(automationRunColumnNames.includes("status")).toBeTrue();
+      expect(automationRunColumnNames.includes("read_at")).toBeTrue();
+      expect(automationRunColumnNames.includes("thread_title")).toBeTrue();
+      expect(automationRunColumnNames.includes("source_cwd")).toBeTrue();
+      expect(automationRunColumnNames.includes("inbox_title")).toBeTrue();
+      expect(automationRunColumnNames.includes("inbox_summary")).toBeTrue();
+      expect(automationRunColumnNames.includes("archived_user_message")).toBeTrue();
+      expect(automationRunColumnNames.includes("archived_assistant_message")).toBeTrue();
+      expect(automationRunColumnNames.includes("archived_reason")).toBeTrue();
+      const automationRunIndex = db.prepare(`
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND name = 'idx_codex_automation_runs_automation_status_created'
+      `).get();
+      expect(automationRunIndex !== undefined).toBeTrue();
 
       const backgroundProcessColumnNames = tableColumnNames(db, "codex_background_processes");
       expect(backgroundProcessColumnNames.includes("process_record_id")).toBeTrue();
@@ -2932,19 +2964,22 @@ describe("schema initialization", () => {
         expect(columnNames.includes("agent_role")).toBeTrue();
         expect(columnNames.includes("managed_worktree_path")).toBeTrue();
         expect(columnNames.includes("projectless_output_directory")).toBeTrue();
-        const row = migrated.prepare("SELECT thread_name, thread_source, agent_nickname, agent_role, projectless_output_directory FROM codex_threads WHERE thread_id = 'thread-1'")
+        expect(columnNames.includes("projectless_workspace_browser_root")).toBeTrue();
+        const row = migrated.prepare("SELECT thread_name, thread_source, agent_nickname, agent_role, projectless_output_directory, projectless_workspace_browser_root FROM codex_threads WHERE thread_id = 'thread-1'")
           .get() as {
             thread_name: string;
             thread_source: string | null;
             agent_nickname: string | null;
             agent_role: string | null;
             projectless_output_directory: string | null;
+            projectless_workspace_browser_root: string | null;
           } | undefined;
         expect(row?.thread_name).toBe("Existing thread");
         expect(row?.thread_source).toBe(null);
         expect(row?.agent_nickname).toBe(null);
         expect(row?.agent_role).toBe(null);
         expect(row?.projectless_output_directory).toBe(null);
+        expect(row?.projectless_workspace_browser_root).toBe(null);
       } finally {
         migrated.close();
       }
@@ -3000,8 +3035,15 @@ describe("schema initialization", () => {
         expect(scheduledAutomationColumnNames.includes("status")).toBeTrue();
         expect(scheduledAutomationColumnNames.includes("target_thread_id")).toBeTrue();
         expect(scheduledAutomationColumnNames.includes("name")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("prompt")).toBeTrue();
         expect(scheduledAutomationColumnNames.includes("rrule")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("model")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("reasoning_effort")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("cwds_json")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("execution_environment")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("local_environment_config_path")).toBeTrue();
         expect(scheduledAutomationColumnNames.includes("next_run_at")).toBeTrue();
+        expect(scheduledAutomationColumnNames.includes("last_run_at")).toBeTrue();
 
         const scheduledAutomationTableSql = migrated.prepare(`
           SELECT sql
@@ -3017,6 +3059,12 @@ describe("schema initialization", () => {
             AND name = 'idx_codex_scheduled_automations_target'
         `).get();
         expect(scheduledAutomationIndex !== undefined).toBeTrue();
+
+        const automationRunColumnNames = tableColumnNames(migrated, "codex_automation_runs");
+        expect(automationRunColumnNames.includes("thread_id")).toBeTrue();
+        expect(automationRunColumnNames.includes("automation_id")).toBeTrue();
+        expect(automationRunColumnNames.includes("status")).toBeTrue();
+        expect(automationRunColumnNames.includes("read_at")).toBeTrue();
 
         const codexThreadColumnNames = tableColumnNames(migrated, "codex_threads");
         expect(codexThreadColumnNames.includes("thread_source")).toBeTrue();

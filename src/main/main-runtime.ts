@@ -41,6 +41,10 @@ import {
   getPort,
 } from "./local-store/config";
 import { codexService } from "./codex/codex-service";
+import {
+  startCodexScheduledAutomationScheduler,
+  type CodexScheduledAutomationScheduler,
+} from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { parseCardDeepLink, parseSessionDeepLink } from "../shared/card-deeplink";
 import {
@@ -123,6 +127,7 @@ let appInitializationStep: AppInitializationStep = { phase: "app_waiting" };
 let latestDatabaseMigrationProgress: DatabaseMigrationProgress | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateService: AppUpdateService | null = null;
+let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let mediaPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
@@ -912,6 +917,8 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     },
   });
 
+  startRuntimeScheduledAutomationScheduler();
+
   powerMonitor.on("resume", () => {
     void runReminderTick((payload) => {
       if (!Notification.isSupported()) return;
@@ -964,6 +971,24 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
 
   setAppInitializationStep({ phase: "done" });
   maybeStartAutomaticAppUpdateChecks();
+}
+
+function startRuntimeScheduledAutomationScheduler(): void {
+  if (runtimeShutdownStarted) return;
+  if (scheduledAutomationScheduler) return;
+
+  scheduledAutomationScheduler = startCodexScheduledAutomationScheduler({
+    runAutomation: async (automation, context) => {
+      await codexService.runScheduledAutomation(automation, context);
+    },
+    onAutomationRunsUpdated: () => {
+      codexService.notifyAutomationRunsUpdated({
+        automationId: null,
+        threadId: null,
+        reason: "settle",
+      });
+    },
+  });
 }
 
 export interface MainRuntimeStartupContext {
@@ -1034,6 +1059,8 @@ function shutdownMainRuntime(): void {
     clearTimeout(cardReadModelBackfillTimer);
     cardReadModelBackfillTimer = null;
   }
+  scheduledAutomationScheduler?.dispose();
+  scheduledAutomationScheduler = null;
   terminalManager.killAll();
   cardMutationWriter.shutdown();
   void codexService.shutdown();
@@ -1115,6 +1142,12 @@ export async function runMainAppStartup(
   registerIpcHandlers({
     rendererClientRouter,
     desktopNotificationManager,
+    onHeartbeatAutomationsEnabledChanged: (input) => {
+      scheduledAutomationScheduler?.setHeartbeatAutomationsEnabled(input.enabled);
+    },
+    onHeartbeatAutomationThreadStateChanged: (input) => {
+      scheduledAutomationScheduler?.setHeartbeatThreadRendererState(input);
+    },
     onCreateWindow: (seed) => {
       openNewWindow(seed);
     },

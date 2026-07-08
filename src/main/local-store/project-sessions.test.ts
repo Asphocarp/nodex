@@ -692,6 +692,7 @@ describe("project session service", () => {
         cwd: "/tmp/project",
         managedWorktreePath: "/tmp/project/.worktrees/thread-1",
         projectlessOutputDirectory: "output",
+        projectlessWorkspaceBrowserRoot: "workspace",
         statusType: "running",
         statusActiveFlags: ["streaming"],
         archived: false,
@@ -704,6 +705,7 @@ describe("project session service", () => {
       expect(attached.threadName).toBe("Thread One");
       expect(attached.managedWorktreePath).toBe("/tmp/project/.worktrees/thread-1");
       expect(attached.projectlessOutputDirectory ?? null).toBe("output");
+      expect(attached.projectlessWorkspaceBrowserRoot ?? null).toBe("workspace");
       expect(JSON.stringify(attached.statusActiveFlags)).toBe(JSON.stringify(["streaming"]));
       expect(getProjectSession(session.id)?.displayTitle).toBe("Thread One");
 
@@ -717,6 +719,7 @@ describe("project session service", () => {
       expect(updated.parentThreadId ?? null).toBe(null);
       expect(updated.threadPreview).toBe("Follow-up");
       expect(updated.projectlessOutputDirectory ?? null).toBe(null);
+      expect(updated.projectlessWorkspaceBrowserRoot ?? null).toBe(null);
       expect(getProjectSession(session.id)?.displayTitle).toBe("Follow-up");
       const owners = listProjectSessionThreadOwners("thread-2");
       expect(owners.length).toBe(1);

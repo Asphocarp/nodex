@@ -1637,7 +1637,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   useEffect(() => {
     const composerIntent = model.composerIntent;
     const threadId = model.conversation?.threadId ?? model.body.threadId;
-    if (!composerIntent || !threadId) return;
+    const newThreadSessionId = model.isNewThreadTab ? model.newThreadTarget?.sessionId ?? null : null;
+    if (!composerIntent || (!threadId && !newThreadSessionId)) return;
 
     const restoredAttachments = buildComposerAttachmentStateFromPromptInput(composerIntent.promptInput);
     incrementAttachmentGeneration();
@@ -1645,21 +1646,31 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     setImageAttachments(restoredAttachments.imageAttachments);
     setPastedTextAttachments(restoredAttachments.pastedTextAttachments);
     setSkillMentions(restoredAttachments.skillMentions);
-    clearReviewDiffCommentAttachments(threadId);
-    for (const attachment of restoredAttachments.commentAttachments) {
-      addReviewDiffCommentAttachment(threadId, attachment);
+    if (threadId) {
+      clearReviewDiffCommentAttachments(threadId);
+      for (const attachment of restoredAttachments.commentAttachments) {
+        addReviewDiffCommentAttachment(threadId, attachment);
+      }
     }
     promptForm.setFieldValue("prompt", composerIntent.prompt);
     requestAnimationFrame(() => {
       promptEditorRef.current?.focusAtEnd();
     });
-    actions.onConsumeComposerIntent(threadId, composerIntent.focusNonce);
+    if (threadId) {
+      actions.onConsumeComposerIntent(threadId, composerIntent.focusNonce);
+      return;
+    }
+    if (newThreadSessionId) {
+      actions.onConsumeNewThreadComposerIntent?.(newThreadSessionId, composerIntent.focusNonce);
+    }
   }, [
     actions,
     incrementAttachmentGeneration,
     model.body.threadId,
     model.composerIntent,
     model.conversation?.threadId,
+    model.isNewThreadTab,
+    model.newThreadTarget?.sessionId,
     promptForm,
   ]);
 

@@ -98,6 +98,7 @@ export const queryKeys = {
   },
   localEnvironments: {
     all: () => ["localEnvironments"] as const,
+    options: (projectId: string) => ["localEnvironments", "options", projectId] as const,
     configs: (projectId: string) => ["localEnvironments", "configs", projectId] as const,
     config: (projectId: string, configPath?: string | null) =>
       ["localEnvironments", "config", projectId, normalizeNullable(configPath)] as const,
@@ -113,9 +114,17 @@ export const queryKeys = {
     snapshot: () => ["codexSidebar", "snapshot"] as const,
     pinnedThreads: () => ["codexSidebar", "pinnedThreads"] as const,
   },
+  codexModels: {
+    all: () => ["codexModels"] as const,
+    list: () => ["codexModels", "list"] as const,
+  },
   codexScheduledAutomations: {
     all: () => ["codexScheduledAutomations"] as const,
     list: () => ["codexScheduledAutomations", "list"] as const,
+  },
+  codexAutomationRuns: {
+    all: () => ["codexAutomationRuns"] as const,
+    inbox: (limit: number) => ["codexAutomationRuns", "inbox", limit] as const,
   },
   codexBackgroundTerminals: {
     all: () => ["codexBackgroundTerminals"] as const,

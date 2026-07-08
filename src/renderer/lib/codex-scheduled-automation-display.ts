@@ -1,25 +1,12 @@
 import type { CodexScheduledAutomation } from "./types";
+import { parseCodexScheduledAutomationRruleFields } from "./codex-scheduled-automation-rrule";
 
 const WEEKDAY_CODES = ["MO", "TU", "WE", "TH", "FR"];
-
-function parseRrule(rrule: string): Map<string, string> {
-  const normalized = rrule.trim().replace(/^RRULE:/i, "");
-  const fields = new Map<string, string>();
-  for (const part of normalized.split(";")) {
-    const separatorIndex = part.indexOf("=");
-    if (separatorIndex <= 0) continue;
-    const key = part.slice(0, separatorIndex).trim().toUpperCase();
-    const value = part.slice(separatorIndex + 1).trim().toUpperCase();
-    if (!key || !value) continue;
-    fields.set(key, value);
-  }
-  return fields;
-}
 
 export function formatCodexScheduledAutomationRruleSummary(rrule: string | null): string | null {
   if (!rrule) return null;
 
-  const fields = parseRrule(rrule);
+  const fields = parseCodexScheduledAutomationRruleFields(rrule);
   const frequency = fields.get("FREQ");
   const interval = Number.parseInt(fields.get("INTERVAL") ?? "1", 10);
   const normalizedInterval = Number.isFinite(interval) && interval > 1 ? interval : 1;

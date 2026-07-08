@@ -11,6 +11,7 @@ import type {
 import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
 import {
   invoke,
+  subscribeCodexAutomationRunsUpdates,
   subscribeCodexHostMessages,
   subscribeProjectChanges,
   subscribeProjectSessionChanges,
@@ -164,6 +165,10 @@ export function useSidebarThreadSyncModel(input: {
     const reason = resolveSidebarSyncReasonForHostMessage(message);
     if (reason) scheduleHostMessageSync(reason);
   }), [applySidebarSyncResult, scheduleHostMessageSync]);
+
+  useEffect(() => subscribeCodexAutomationRunsUpdates(() => {
+    void syncSidebarThreads("stale", "host-message").catch(() => undefined);
+  }), [syncSidebarThreads]);
 
   useEffect(() => subscribeProjectChanges(() => {
     void syncSidebarThreads("force", "project-change").catch(() => undefined);

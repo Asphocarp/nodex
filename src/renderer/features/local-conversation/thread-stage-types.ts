@@ -35,6 +35,8 @@ import type {
   CodexThreadSummary,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexScheduledAutomationCreateInput,
+  CodexScheduledAutomationUpdateInput,
   CodexTurnDiffReviewTarget,
   GitReviewSource,
   PanelId,
@@ -93,8 +95,11 @@ export interface ThreadSummaryPanelScheduledAutomationRow {
 }
 
 export interface ThreadSummaryPanelScheduledAutomationOpenInput {
-  automationId: string;
+  automationId?: string | null;
+  createInput?: CodexScheduledAutomationCreateInput | null;
+  mode?: "open" | "suggested-create" | "suggested-update";
   title: string;
+  updateInput?: CodexScheduledAutomationUpdateInput | null;
 }
 
 export interface ThreadSummaryPanelGitReviewOpenInput {
@@ -204,6 +209,7 @@ export interface ThreadStageRouteInput {
   summaryComputerUsePip?: ThreadSummaryPanelComputerUsePipState | null;
   planSidePanelState?: ThreadPlanSidePanelState | null;
   composerIntent: CodexComposerIntent | null;
+  newThreadComposerIntent?: CodexComposerIntent | null;
   primaryRequest: CodexConversationLiveRequest | null;
   sideChatContext?: {
     parentThreadId: string;
@@ -307,6 +313,7 @@ export interface ThreadStageActions {
   onOpenTurnDiffReview: (target: CodexTurnDiffReviewTarget) => void;
   onOpenTurnDiffFileInSidePanel?: (target: ThreadTurnDiffFileSidePanelTarget) => void | Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
+  onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string, context?: ThreadOpenThreadContext) => void | Promise<void>;
   onStopBackgroundAgents?: (threadIds: readonly string[]) => Promise<void>;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
@@ -913,6 +920,7 @@ export interface ThreadFooterModel {
   isQueueingEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
   composerIntent: CodexComposerIntent | null;
+  newThreadComposerIntent?: CodexComposerIntent | null;
   dictation: CodexDictationStateSnapshot;
   composerIdeContext?: {
     isConnected: boolean;

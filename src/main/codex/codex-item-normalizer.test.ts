@@ -676,6 +676,65 @@ describe("codex-item-normalizer", () => {
     expect(item?.userInputAnswers?.q1?.[0]).toBe("2");
   });
 
+  test("normalizes automation_update dynamic tool calls with markdown fallback text", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-automation-update",
+        type: "dynamicToolCall",
+        namespace: "codex_app",
+        tool: "automation_update",
+        status: "completed",
+        success: true,
+        arguments: {
+          mode: "delete",
+          id: "automation-release",
+        },
+        contentItems: [
+          { type: "inputText", text: "Deleted automation in the app." },
+          {
+            type: "inputText",
+            text: JSON.stringify({
+              automationId: "automation-release",
+              mode: "delete",
+              deleteStatus: "not_found",
+            }),
+          },
+        ],
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    expect(item?.semanticKind).toBe("dynamicToolCall");
+    expect(item?.markdownText).toBe("Scheduled task update\n\nMode: delete\nAutomation ID: automation-release");
+  });
+
+  test("normalizes render-only automation_update cards with pending markdown fallback text", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-automation-update-render-only",
+        type: "dynamicToolCall",
+        namespace: "codex_app",
+        tool: "automation_update",
+        status: "completed",
+        success: true,
+        arguments: {
+          mode: "suggested_create",
+          name: "Review release notes",
+        },
+        contentItems: [
+          { type: "inputText", text: "Rendered automation card in the app." },
+        ],
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    expect(item?.markdownText).toBe("Scheduled task update\n\nMode: pending\nAutomation ID: pending");
+  });
+
   test("keeps unknown item variants visible with fallback content", () => {
     const item = normalizeThreadItem(
       {

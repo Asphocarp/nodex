@@ -3,12 +3,15 @@ import type { CodexDynamicToolCallView } from "../../../../../lib/types";
 import {
   buildDynamicToolCallSummaryPartKey,
   continuesCodexAppLiveActivityBetweenCalls,
+  extractDynamicToolTextContent,
   getDynamicToolRegistryEntry,
   isDynamicToolStandaloneInConversation,
   isDynamicToolSummaryOnlyInConversationGroup,
   parseCodexAppHandoffResult,
+  parseAutomationUpdateToolResult,
   resolveCodexAppMetaThreadToolLabel,
   resolveCodexAppHandoffRenderState,
+  resolveAutomationUpdateRenderState,
   resolveDynamicToolFallbackLabel,
   resolveDynamicToolLabel,
 } from "./dynamic-tool-call-utils";
@@ -37,6 +40,91 @@ describe("dynamic tool registry", () => {
       tool: "get_handoff_status",
       arguments: { operationId: "operation-1" },
     }))).toBeTrue();
+  });
+
+  test("registers automation_update as a standalone scheduled task card renderer", () => {
+    const call = dynamicCall({
+      tool: "automation_update",
+      arguments: {
+        mode: "suggested_create",
+        kind: "cron",
+        status: "ACTIVE",
+        name: "Review release notes",
+        prompt: "Review release notes and summarize risks.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        cwds: "/repo/nodex",
+        executionEnvironment: "worktree",
+        localEnvironmentConfigPath: null,
+        model: "gpt-5-codex",
+        reasoningEffort: "medium",
+      },
+    });
+    const entry = getDynamicToolRegistryEntry(call);
+    const state = resolveAutomationUpdateRenderState(call, "thread-current");
+
+    expect(entry?.rendererKind ?? "").toBe("automationUpdate");
+    expect(isDynamicToolStandaloneInConversation(call)).toBeTrue();
+    expect(state?.statusLabel ?? "").toBe("Proposed");
+    expect(state?.title ?? "").toBe("Review release notes");
+    expect(state?.subtitle ?? "").toBe("Daily");
+    expect(state?.canAccept ?? false).toBeTrue();
+    expect(state?.createInput?.cwds?.join(",") ?? "").toBe("/repo/nodex");
+    expect(state?.createInput?.executionEnvironment ?? "").toBe("worktree");
+  });
+
+  test("parses automation_update JSON result from later content items", () => {
+    const call = dynamicCall({
+      tool: "automation_update",
+      arguments: {
+        mode: "delete",
+        id: "automation-release",
+      },
+      contentItems: [
+        { type: "inputText", text: "Deleted automation in the app." },
+        {
+          type: "inputText",
+          text: JSON.stringify({
+            automationId: "automation-release",
+            mode: "delete",
+            deleteStatus: "not_found",
+            snapshot: {
+              kind: "cron",
+              name: "Release notes",
+              rrule: "FREQ=WEEKLY",
+            },
+          }),
+        },
+      ],
+    });
+    const result = parseAutomationUpdateToolResult(call);
+    const state = resolveAutomationUpdateRenderState(call);
+
+    expect(result?.automationId ?? "").toBe("automation-release");
+    expect(result?.mode ?? "").toBe("delete");
+    expect(result?.deleteStatus ?? "").toBe("not_found");
+    expect(state?.statusLabel ?? "").toBe("Missing");
+    expect(state?.title ?? "").toBe("Release notes");
+  });
+
+  test("keeps omitted automation_update local environment paths out of update payloads", () => {
+    const state = resolveAutomationUpdateRenderState(dynamicCall({
+      tool: "automation_update",
+      arguments: {
+        mode: "suggested_update",
+        id: "automation-release",
+        kind: "cron",
+        status: "ACTIVE",
+        name: "Release notes",
+        prompt: "Review release notes.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        cwds: ["/repo/nodex"],
+        executionEnvironment: "worktree",
+        model: "gpt-5-codex",
+        reasoningEffort: "medium",
+      },
+    }));
+
+    expect(Object.prototype.hasOwnProperty.call(state?.updateInput ?? {}, "localEnvironmentConfigPath")).toBeFalse();
   });
 
   test("keys completed summary parts through registry-specific keys", () => {
@@ -172,5 +260,23 @@ describe("dynamic tool registry", () => {
       tool: "inspect_project_graph",
       completed: true,
     }))).toBe("Inspect Project Graph");
+  });
+
+  test("extracts automation_update text as the Codex markdown fallback instead of raw JSON", () => {
+    const text = extractDynamicToolTextContent(dynamicCall({
+      tool: "automation_update",
+      contentItems: [
+        { type: "inputText", text: "Updated automation in the app." },
+        {
+          type: "inputText",
+          text: JSON.stringify({
+            automationId: "automation-review",
+            mode: "update",
+          }),
+        },
+      ],
+    })).join("\n");
+
+    expect(text).toBe("Scheduled task update\n\nMode: update\nAutomation ID: automation-review");
   });
 });

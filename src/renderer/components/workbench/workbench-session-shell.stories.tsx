@@ -705,6 +705,19 @@ function ReducedMotionProjectSessionShellStory(args: ShellStoryArgs) {
   return <ProjectSessionShellStory {...args} />;
 }
 
+function ScheduledRouteProjectSessionShellStory(args: ShellStoryArgs) {
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      document.querySelector<HTMLButtonElement>('[aria-label="Scheduled"]')?.click();
+    }, 0);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
+  return <ProjectSessionShellStory {...args} />;
+}
+
 function installStoryApi(
   sessionsByProject: Record<string, ProjectSession[]>,
   setSessionsByProject: Dispatch<SetStateAction<Record<string, ProjectSession[]>>>,
@@ -718,6 +731,12 @@ function installStoryApi(
         }
         if (channel === "board:summary:get") {
           return STORY_BOARD;
+        }
+        if (channel === "codex:scheduled-automations:list") {
+          return { items: [] };
+        }
+        if (channel === "codex:automation-runs:inbox-items") {
+          return { items: [] };
         }
         if (channel === "card:get") {
           const projectId = String(args[0] ?? "nodex");
@@ -1114,6 +1133,23 @@ export const ExpandedSidebarParity: Story = {
     docs: {
       description: {
         story: "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width and enabled Back/Forward chrome in the titlebar.",
+      },
+    },
+  },
+};
+
+export const ScheduledRouteShellHeader: Story = {
+  args: {
+    thread: "attached",
+    rightPanel: "full",
+    sidebar: "expanded",
+    sidebarWidth: 300,
+  },
+  render: (args) => <ScheduledRouteProjectSessionShellStory {...args} />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Scheduled route opened inside the normal Workbench shell: left titlebar chrome stays mounted while the Scheduled tabs and create controls occupy the global header center.",
       },
     },
   },

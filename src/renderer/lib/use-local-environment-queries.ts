@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "./api";
 import {
   localEnvironmentConfigsQueryOptions,
+  localEnvironmentOptionsQueryOptions,
   localEnvironmentSnapshotQueryOptions,
 } from "./query-options";
 import { queryKeys } from "./query-keys";
@@ -21,6 +22,17 @@ export function useLocalEnvironmentConfigs(
   const enabled = options.enabled !== false && projectId.trim().length > 0;
   return useQuery({
     ...localEnvironmentConfigsQueryOptions(projectId),
+    enabled,
+  });
+}
+
+export function useLocalEnvironmentOptions(
+  projectId: string,
+  options: QueryEnabledOptions = {},
+) {
+  const enabled = options.enabled !== false && projectId.trim().length > 0;
+  return useQuery({
+    ...localEnvironmentOptionsQueryOptions(projectId),
     enabled,
   });
 }
@@ -50,6 +62,10 @@ export function useSaveLocalEnvironmentConfigMutation() {
       );
       await queryClient.invalidateQueries({
         queryKey: queryKeys.localEnvironments.configs(snapshot.projectId),
+        exact: true,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.localEnvironments.options(snapshot.projectId),
         exact: true,
       });
     },

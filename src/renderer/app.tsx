@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
 import { LocalConversationProvider } from "@/features/local-conversation";
 import { DesktopNotificationController } from "@/features/local-conversation/desktop-notification-controller";
+import { HeartbeatAutomationController } from "@/features/local-conversation/heartbeat-automation-controller";
 import type {
   ContentSearchDomain,
   ContentSearchOpenRequest,
@@ -1154,6 +1155,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
         navigateToThreadTab(projectId, threadId);
       }}
       />
+      <HeartbeatAutomationController />
       <WorkbenchShell
       projects={projects}
       dbProjectId={resolvedDbProjectId}

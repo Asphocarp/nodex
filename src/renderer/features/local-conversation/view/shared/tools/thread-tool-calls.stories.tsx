@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CodexFileChange, CodexTranscriptEntry } from "@/lib/types";
 import type {
@@ -778,6 +779,15 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+
+function DynamicToolQueryStoryProvider({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  }));
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 export const CommandExecution: Story = {
   render: () => (
@@ -2262,6 +2272,81 @@ export const DynamicToolCallFallbackRows: Story = {
             contentText: "done",
           })} />
         </div>
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const DynamicToolCallAutomationUpdateCards: Story = {
+  render: () => (
+    <StorySurface
+      title="Dynamic Tool Call Automation Update Cards"
+      description="automation_update calls render Scheduled task cards with proposal and saved states."
+    >
+      <ConversationStorySurface>
+        <DynamicToolQueryStoryProvider>
+          <div className="flex flex-col gap-2">
+            <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+              id: "automation-suggested-create",
+              tool: "automation_update",
+              completed: true,
+              args: {
+                mode: "suggested_create",
+                kind: "cron",
+                status: "ACTIVE",
+                name: "Review release notes",
+                prompt: "Review release notes and summarize risks.",
+                rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+                cwds: "/Users/asc/repo/nodex",
+                executionEnvironment: "worktree",
+                localEnvironmentConfigPath: null,
+                model: "gpt-5-codex",
+                reasoningEffort: "medium",
+              },
+            })} />
+            <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+              id: "automation-suggested-update",
+              tool: "automation_update",
+              completed: true,
+              args: {
+                mode: "suggested_update",
+                id: "automation-standup",
+                kind: "cron",
+                status: "ACTIVE",
+                name: "Morning standup",
+                prompt: "Summarize overnight changes and blockers.",
+                rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0",
+                cwds: ["/Users/asc/repo/nodex"],
+                executionEnvironment: "worktree",
+                localEnvironmentConfigPath: null,
+                model: "gpt-5-codex",
+                reasoningEffort: "medium",
+              },
+            })} />
+            <DynamicToolCall
+              item={buildCodexAppMetaDynamicStoryItem({
+                id: "automation-created",
+                tool: "automation_update",
+                completed: true,
+                args: {
+                  mode: "create",
+                  kind: "cron",
+                  status: "ACTIVE",
+                  name: "Release notes",
+                  prompt: "Review release notes.",
+                  rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+                  cwds: ["/Users/asc/repo/nodex"],
+                  executionEnvironment: "worktree",
+                  localEnvironmentConfigPath: null,
+                  model: "gpt-5-codex",
+                  reasoningEffort: "medium",
+                },
+                contentText: "{\"automationId\":\"automation-release\",\"mode\":\"create\"}",
+              })}
+              onOpenSummaryScheduledAutomation={() => undefined}
+            />
+          </div>
+        </DynamicToolQueryStoryProvider>
       </ConversationStorySurface>
     </StorySurface>
   ),

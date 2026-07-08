@@ -26,6 +26,7 @@ interface DbCodexThread {
   cwd: string | null;
   managed_worktree_path: string | null;
   projectless_output_directory: string | null;
+  projectless_workspace_browser_root: string | null;
   status_type: string;
   status_active_flags_json: string;
   archived: number;
@@ -53,6 +54,7 @@ const CODEX_THREAD_SUMMARY_COLUMNS = `
   t.cwd,
   t.managed_worktree_path,
   t.projectless_output_directory,
+  t.projectless_workspace_browser_root,
   t.status_type,
   t.status_active_flags_json,
   t.archived,
@@ -75,6 +77,7 @@ export interface UpsertCodexThreadInput {
   cwd?: string | null;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
   statusType?: CodexThreadStatusType;
   statusActiveFlags?: CodexThreadActiveFlag[];
   archived?: boolean;
@@ -108,6 +111,7 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
     cwd: row.cwd,
     managedWorktreePath: row.managed_worktree_path,
     projectlessOutputDirectory: row.projectless_output_directory,
+    projectlessWorkspaceBrowserRoot: row.projectless_workspace_browser_root,
     statusType: isStatusType(row.status_type) ? row.status_type : "notLoaded",
     statusActiveFlags: parseStatusActiveFlags(row.status_active_flags_json),
     archived: row.archived === 1,
@@ -126,6 +130,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
   const hasAgentRoleInput = Object.prototype.hasOwnProperty.call(input, "agentRole");
   const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(input, "managedWorktreePath");
   const hasProjectlessOutputDirectoryInput = Object.prototype.hasOwnProperty.call(input, "projectlessOutputDirectory");
+  const hasProjectlessWorkspaceBrowserRootInput = Object.prototype.hasOwnProperty.call(input, "projectlessWorkspaceBrowserRoot");
   const projectId = hasProjectIdInput && input.projectId ? requireProjectId(input.projectId) : null;
   const nowMs = Date.now();
   const createdAt = Number.isFinite(input.createdAt) ? Number(input.createdAt) : nowMs;
@@ -146,6 +151,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       cwd,
       managed_worktree_path,
       projectless_output_directory,
+      projectless_workspace_browser_root,
       status_type,
       status_active_flags_json,
       archived,
@@ -153,7 +159,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       updated_at,
       linked_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
       project_id = CASE WHEN ? = 1 THEN excluded.project_id ELSE codex_threads.project_id END,
       thread_name = COALESCE(excluded.thread_name, codex_threads.thread_name),
@@ -166,6 +172,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       cwd = COALESCE(excluded.cwd, codex_threads.cwd),
       managed_worktree_path = CASE WHEN ? = 1 THEN excluded.managed_worktree_path ELSE codex_threads.managed_worktree_path END,
       projectless_output_directory = CASE WHEN ? = 1 THEN excluded.projectless_output_directory ELSE codex_threads.projectless_output_directory END,
+      projectless_workspace_browser_root = CASE WHEN ? = 1 THEN excluded.projectless_workspace_browser_root ELSE codex_threads.projectless_workspace_browser_root END,
       status_type = excluded.status_type,
       status_active_flags_json = excluded.status_active_flags_json,
       archived = excluded.archived,
@@ -184,6 +191,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     input.cwd ?? null,
     input.managedWorktreePath ?? null,
     input.projectlessOutputDirectory ?? null,
+    input.projectlessWorkspaceBrowserRoot ?? null,
     input.statusType ?? "notLoaded",
     JSON.stringify(input.statusActiveFlags ?? []),
     input.archived ? 1 : 0,
@@ -196,6 +204,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     hasAgentRoleInput ? 1 : 0,
     hasManagedWorktreePathInput ? 1 : 0,
     hasProjectlessOutputDirectoryInput ? 1 : 0,
+    hasProjectlessWorkspaceBrowserRootInput ? 1 : 0,
   );
   if (Object.prototype.hasOwnProperty.call(input, "pinned")) {
     setCodexThreadPinned(input.threadId, input.pinned === true);

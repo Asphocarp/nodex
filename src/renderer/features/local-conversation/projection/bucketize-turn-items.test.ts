@@ -402,6 +402,50 @@ describe("bucketizeTurnItems", () => {
     expect(assistantBlock?.type === "assistantMessage" && assistantBlock.assistantMessageActions?.copyText).toBe("Done");
   });
 
+  test("strips standalone remark directive lines from assistant copy text", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: [
+              "Done.",
+              "::inbox-item{title=\"Hidden\" summary=\"Hidden\"}",
+              "",
+              "Inline ::inbox-item{title=\"Keep\"}",
+            ].join("\n"),
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+      canForkTurn: true,
+    });
+
+    const assistantBlock = turn.trailingBlocks[0];
+    expect(assistantBlock?.type === "assistantMessage" && assistantBlock.assistantMessageActions?.copyText).toBe(
+      ["Done.", "", "Inline ::inbox-item{title=\"Keep\"}"].join("\n"),
+    );
+  });
+
   test("keeps the final assistant inline in agentItems when exec arrives later in the turn", () => {
     const buckets = bucketizeTurnItems({
       items: [

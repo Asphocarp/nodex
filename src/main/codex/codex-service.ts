@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
+import { open as openFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as path from "node:path";
@@ -88,6 +89,7 @@ import type {
   CommandPaletteThreadSummary,
   CodexAccountIdentity,
   CodexAccountSnapshot,
+  CodexAutomationRunsUpdatedEvent,
   CodexApprovalDecision,
   CodexApprovalRequest,
   CodexBackgroundProcessRow,
@@ -111,6 +113,8 @@ import type {
   CodexConnectionState,
   CodexDictationStateSnapshot,
   CodexEvent,
+  CodexHeartbeatAutomationCollaborationMode,
+  CodexHeartbeatAutomationPermissions,
   CodexHostMessage,
   CodexItemView,
   CodexMcpServerElicitationAction,
@@ -152,6 +156,15 @@ import type {
   CodexThreadStartProgressPhase,
   CodexThreadStartProgressStream,
   CodexThreadTokenUsage,
+  CodexScheduledAutomation,
+  CodexScheduledAutomationChangedEvent,
+  CodexScheduledAutomationCreateInput,
+  CodexScheduledAutomationDeleteStatus,
+  CodexScheduledAutomationExecutionEnvironment,
+  CodexScheduledAutomationReasoningEffort,
+  CodexScheduledAutomationStatus,
+  CodexScheduledAutomationUpdateInput,
+  CodexScheduledAutomationRunNowInput,
   CodexThreadStartForSessionInput,
   CodexThreadOwnerNotificationAckInput,
   CodexThreadOwnerStreamStatePublishInput,
@@ -182,6 +195,7 @@ import {
   getTerminalInteractionBufferKey,
   parseTerminalInteractionInput,
 } from "../../shared/codex-terminal-interaction";
+import { stripCodexRemarkDirectiveLines } from "../../shared/codex-remark-directives";
 import { parseInlineContent } from "../../shared/nfm";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
 import { buildCodexBackgroundProcessRow } from "./background-process-rows";
@@ -329,6 +343,7 @@ import {
   buildCodexAppDynamicToolFailure,
   buildCodexAppDynamicToolSuccess,
   buildCodexAppMetaThreadToolSpecs,
+  AUTOMATION_UPDATE_TOOL_NAME,
   CODEX_APP_HANDOFF_MAX_WAIT_MS,
   CODEX_APP_LOCAL_HOST_DISPLAY_NAME,
   CODEX_APP_LOCAL_HOST_ID,
@@ -345,6 +360,37 @@ import {
   makeCodexBackgroundProcessRecordId,
   upsertCodexBackgroundProcess,
 } from "../local-store/codex-background-processes";
+import {
+  createCodexScheduledAutomation,
+  deleteActiveHeartbeatAutomationForTargetThread,
+  deleteCodexScheduledAutomationWithStatus,
+  getCodexScheduledAutomation,
+  recordCodexScheduledAutomationNextRun,
+  recordCodexScheduledAutomationNextScheduledRun,
+  recordCodexScheduledAutomationRunDispatched,
+  updateCodexScheduledAutomation,
+} from "../local-store/codex-scheduled-automations";
+import {
+  archiveCodexAutomationRun,
+  captureCodexAutomationArchiveMessages,
+  deleteCodexAutomationRunsForAutomation,
+  getCodexAutomationRun,
+  insertCodexAutomationRunInProgress,
+  markCodexAutomationRunAccepted,
+  markCodexAutomationRunPendingReview,
+  replacePendingCodexAutomationRunThreadId,
+  setCodexAutomationRunInboxItem,
+  setCodexAutomationRunThreadTitle,
+} from "../local-store/codex-automation-runs";
+import {
+  CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
+  buildCodexScheduledAutomationHeartbeatPrompt,
+  buildCodexProjectlessThreadInstructions,
+  buildCodexScheduledAutomationRunPrompt,
+  parseCodexAutomationInboxItemDirective,
+  resolveCodexScheduledAutomationModelSettings,
+} from "../codex-scheduled-automation-runtime";
+import { computeCodexScheduledAutomationIntervalMs } from "../local-store/codex-scheduled-automation-schedule";
 import {
   CommandPaletteThreadSearchCoordinator,
   type CommandPaletteThreadSearchClient,
@@ -374,6 +420,10 @@ const CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS = new Set([
   "item/reasoning/textDelta",
   "item/commandExecution/outputDelta",
 ]);
+const CODEX_HEARTBEAT_TURN_COMPLETION_TIMEOUT_MS = 10 * 60_000;
+const CODEX_HEARTBEAT_ROLLOUT_TAIL_BYTES = 256 * 1024;
+const CODEX_HEARTBEAT_TERMINAL_ROLLOUT_EVENTS = new Set(["task_complete", "response_item", "event_msg"]);
+const CODEX_HEARTBEAT_ACTIVE_ROLLOUT_EVENTS = new Set(["response_item", "event_msg", "item", "unknown"]);
 const require = createRequire(import.meta.url);
 
 const CODEX_DYNAMIC_TOOL_SPECS = buildCodexAppMetaThreadToolSpecs();
@@ -381,7 +431,28 @@ const CODEX_DYNAMIC_TOOL_SPECS = buildCodexAppMetaThreadToolSpecs();
 interface ThreadRef {
   projectId: string | null;
   cwd: string | null;
+  managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
+}
+
+interface CodexScheduledAutomationHeartbeatRendererStateContext {
+  isEligible: boolean;
+  reason: string | null;
+  updatedAtMs?: number;
+}
+
+interface CodexScheduledAutomationHeartbeatRunContext {
+  automationsEnabled: boolean;
+  rendererState: CodexScheduledAutomationHeartbeatRendererStateContext | null;
+  collaborationMode: CodexHeartbeatAutomationCollaborationMode | null;
+  permissions: CodexHeartbeatAutomationPermissions | null;
+}
+
+interface CodexScheduledAutomationRunContext {
+  now?: number;
+  reason?: "scheduled" | "run-now";
+  heartbeat?: CodexScheduledAutomationHeartbeatRunContext;
 }
 
 interface SidebarThreadSyncMetadata {
@@ -530,6 +601,9 @@ function hasSidebarThreadSummaryChanged(
     || previous.threadPreview !== next.threadPreview
     || previous.modelProvider !== next.modelProvider
     || previous.cwd !== next.cwd
+    || previous.managedWorktreePath !== next.managedWorktreePath
+    || previous.projectlessOutputDirectory !== next.projectlessOutputDirectory
+    || previous.projectlessWorkspaceBrowserRoot !== next.projectlessWorkspaceBrowserRoot
     || previous.statusType !== next.statusType
     || previous.statusActiveFlags.join("\u0000") !== next.statusActiveFlags.join("\u0000")
     || previous.archived !== next.archived
@@ -561,10 +635,59 @@ interface PendingPermissionRequest {
   reject: (reason?: unknown) => void;
 }
 
+interface CodexAutomationPermissionContext {
+  config: ConfigReadResponse["config"];
+  origins: ConfigReadResponse["origins"];
+  requirements: ConfigRequirementsReadResponse["requirements"];
+}
+
 interface PendingDynamicToolCall {
   request: CodexServerRequest & { method: "item/tool/call"; params: DynamicToolCallParams };
   resolve: (value: DynamicToolCallResponse) => void;
   reject: (reason?: unknown) => void;
+}
+
+type AutomationUpdateMode =
+  | "view"
+  | "create"
+  | "suggested_create"
+  | "update"
+  | "suggested_update"
+  | "delete";
+
+type AutomationUpdateDestination = "local" | "worktree" | "thread";
+
+type ParsedAutomationUpdateArgs =
+  | { mode: "view"; id: string }
+  | { mode: "delete"; id: string }
+  | ParsedAutomationUpdateUpsertArgs;
+
+interface ParsedAutomationUpdateUpsertArgs {
+  mode: "create" | "suggested_create" | "update" | "suggested_update";
+  id?: string;
+  kind: "cron" | "heartbeat";
+  name: string;
+  prompt: string;
+  rrule: string;
+  status: CodexScheduledAutomationStatus;
+  cwds?: string[];
+  destination?: AutomationUpdateDestination;
+  executionEnvironment?: CodexScheduledAutomationExecutionEnvironment;
+  localEnvironmentConfigPath?: string | null;
+  model?: string | null;
+  reasoningEffort?: CodexScheduledAutomationReasoningEffort | null;
+  targetThreadId?: string;
+}
+
+interface AutomationUpdateToolResult {
+  automationId: string;
+  mode?: "create" | "update" | "delete";
+  deleteStatus?: "deleted" | "not_found";
+  snapshot?: {
+    kind: "cron" | "heartbeat";
+    name: string;
+    rrule: string | null;
+  } | null;
 }
 
 interface BufferedResumeNotification {
@@ -765,6 +888,11 @@ interface OutputDeltaUpdate {
   truncated?: boolean;
 }
 
+interface CodexAutomationArchiveMessages {
+  archivedUserMessage: string | null;
+  archivedAssistantMessage: string | null;
+}
+
 const FRAME_TEXT_DELTA_FLUSH_MS = 16;
 const FRAME_TEXT_DELTA_TARGET_CHARS_PER_FRAME = 24;
 const RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES = 8;
@@ -779,6 +907,7 @@ const INACTIVE_RENDERER_OWNER_MAX_RETAINED = 4;
 const INACTIVE_RENDERER_OWNER_RETRY_MS = 15_000;
 const ACTIVE_THREAD_GOAL_CONTINUATION_DELAY_MS = 250;
 const THREAD_TURNS_PAGE_SIZE = 5;
+const AUTOMATION_ARCHIVE_TURN_CAPTURE_LIMIT = 20;
 const THREAD_TURNS_PAGE_ITEMS_VIEW = "full" as const;
 const COMPLETE_TURN_PAGINATION: CodexConversationTurnPagination = {
   olderCursor: null,
@@ -793,6 +922,100 @@ const THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD = "thread-follower-comman
 const THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD = "thread-follower-file-approval-decision";
 const AUTOMATIC_APPROVAL_REVIEW_ITEM_ID_PREFIX = "automatic-approval-review";
 const AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE = "automaticApprovalReview";
+
+function normalizeAutomationArchiveText(value: string | null | undefined): string | null {
+  const trimmed = stripCodexRemarkDirectiveLines(value);
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function hasAutomationArchiveMessages(messages: CodexAutomationArchiveMessages): boolean {
+  return messages.archivedUserMessage !== null || messages.archivedAssistantMessage !== null;
+}
+
+function formatAutomationArchiveAttachment(attachment: CodexUserAttachment): string | null {
+  if (attachment.type === "image") {
+    return `image: ${attachment.source}`;
+  }
+
+  if (attachment.sourceKind === "skill") {
+    return `skill: ${attachment.label} (${attachment.path})`;
+  }
+
+  return `mention: ${attachment.label} (${attachment.path})`;
+}
+
+function readAutomationArchiveContentString(
+  candidate: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const value = normalizeNonEmptyString(candidate[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function formatAutomationArchiveRawContentEntry(entry: unknown): string | null {
+  const candidate = asRecord(entry);
+  if (!candidate) return null;
+
+  const type = normalizeNonEmptyString(candidate.type);
+  if (type === "text") {
+    return readAutomationArchiveContentString(candidate, ["text"]);
+  }
+
+  if (type === "image") {
+    const url = readAutomationArchiveContentString(candidate, ["url", "source"]);
+    return url ? `image: ${url}` : null;
+  }
+
+  if (type === "localImage") {
+    const imagePath = readAutomationArchiveContentString(candidate, ["path", "source"]);
+    return imagePath ? `localImage: ${imagePath}` : null;
+  }
+
+  if (type === "skill" || type === "mention") {
+    const name = readAutomationArchiveContentString(candidate, ["name"]);
+    const itemPath = readAutomationArchiveContentString(candidate, ["path"]);
+    if (!name || !itemPath) return null;
+    return `${type}: ${name} (${itemPath})`;
+  }
+
+  return null;
+}
+
+function formatAutomationArchiveRawUserMessage(entry: CodexTranscriptEntry): string | null {
+  const rawItem = asRecord(entry.rawItem);
+  const content = Array.isArray(rawItem?.content) ? rawItem.content : null;
+  if (!content) return null;
+
+  const lines = content
+    .map((item) => formatAutomationArchiveRawContentEntry(item))
+    .filter((line): line is string => Boolean(line));
+
+  if (lines.length === 0) return null;
+  return lines.join("\n");
+}
+
+function formatAutomationArchiveUserMessage(entry: CodexTranscriptEntry): string | null {
+  const rawMessage = formatAutomationArchiveRawUserMessage(entry);
+  if (rawMessage) return rawMessage;
+
+  const lines: string[] = [];
+  const text = normalizeAutomationArchiveText(entry.markdownText);
+  if (text) {
+    lines.push(text);
+  }
+
+  for (const attachment of entry.userAttachments ?? []) {
+    const formatted = formatAutomationArchiveAttachment(attachment);
+    if (!formatted) continue;
+    lines.push(formatted);
+  }
+
+  if (lines.length === 0) return null;
+  return lines.join("\n");
+}
 
 function truncateBufferedOutput(input: {
   existingText: string;
@@ -1158,6 +1381,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function normalizeNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function parseGeneratedCommitMessageResponse(value: unknown): string | null {
   const record = asRecord(value);
   const message = record?.message;
@@ -1335,6 +1564,7 @@ function sessionThreadLinkToSummary(link: ProjectSessionThreadLink): CodexThread
     cwd: link.cwd ?? null,
     managedWorktreePath: link.managedWorktreePath ?? null,
     projectlessOutputDirectory: link.projectlessOutputDirectory ?? null,
+    projectlessWorkspaceBrowserRoot: link.projectlessWorkspaceBrowserRoot ?? null,
     statusType: parsedStatus.statusType,
     statusActiveFlags: parsedStatus.statusActiveFlags,
     threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
@@ -1725,6 +1955,54 @@ function createTextUserInput(text: string): TurnStartParams["input"][number] {
     text,
     text_elements: [],
   };
+}
+
+function buildHeartbeatPermissionOverrides(
+  permissions: CodexHeartbeatAutomationPermissions,
+): Pick<TurnStartParams, "approvalPolicy" | "approvalsReviewer" | "sandboxPolicy"> {
+  return {
+    ...(permissions.approvalPolicy ? { approvalPolicy: permissions.approvalPolicy } : {}),
+    ...(permissions.approvalsReviewer ? { approvalsReviewer: permissions.approvalsReviewer } : {}),
+    ...(permissions.sandboxPolicy ? { sandboxPolicy: permissions.sandboxPolicy } : {}),
+  };
+}
+
+async function readLatestHeartbeatRolloutEvent(rolloutPath: string): Promise<string | null> {
+  let handle: Awaited<ReturnType<typeof openFile>> | null = null;
+  try {
+    handle = await openFile(rolloutPath, "r");
+    const stats = await handle.stat();
+    if (stats.size <= 0) return null;
+
+    const bytesToRead = Math.min(stats.size, CODEX_HEARTBEAT_ROLLOUT_TAIL_BYTES);
+    const buffer = Buffer.alloc(bytesToRead);
+    await handle.read(buffer, 0, bytesToRead, stats.size - bytesToRead);
+    const lines = buffer.toString("utf8").split("\n");
+    if (stats.size > bytesToRead) lines.shift();
+
+    let latestEvent: string | null = null;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        const record = asRecord(parsed);
+        const event = typeof record?.event === "string" ? record.event : null;
+        if (event && CODEX_HEARTBEAT_TERMINAL_ROLLOUT_EVENTS.has(event)) {
+          latestEvent = event;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return latestEvent;
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 type CodexUserInputItem = TurnStartParams["input"][number];
@@ -2590,6 +2868,38 @@ export class CodexService extends EventEmitter {
   private emitEvent(event: CodexEvent): void {
     this.emit("event", event);
     this.emitHostMessagesForEvent(event);
+  }
+
+  notifyAutomationRunsUpdated(event: CodexAutomationRunsUpdatedEvent): void {
+    this.emitEvent({ type: "automationRunsUpdated", event });
+  }
+
+  private notifyAutomationRunThreadUpdated(
+    threadId: string,
+    reason: CodexAutomationRunsUpdatedEvent["reason"],
+  ): void {
+    const run = getCodexAutomationRun(threadId);
+    this.notifyAutomationRunsUpdated({
+      automationId: run?.automationId ?? null,
+      threadId,
+      reason,
+    });
+  }
+
+  private markAutomationRunAcceptedForUserContinuation(threadId: string): void {
+    try {
+      const updated = markCodexAutomationRunAccepted(threadId);
+      if (updated) {
+        this.notifyAutomationRunThreadUpdated(threadId, "accepted");
+      }
+    } catch (error) {
+      if (!isUnavailableSqliteBindingError(error)) {
+        this.logger.warn("Failed to mark scheduled automation run accepted", {
+          threadId,
+          error,
+        });
+      }
+    }
   }
 
   private registerInternalNotificationHandler(handler: InternalNotificationHandler): () => void {
@@ -4868,6 +5178,45 @@ export class CodexService extends EventEmitter {
     return this.buildFallbackPermissionState(mode, workspaceRoots, permissionState);
   }
 
+  private async readAutomationPermissionContext(): Promise<CodexAutomationPermissionContext | null> {
+    try {
+      await this.ensureClientReady();
+      const [configResult, requirementsResult] = await Promise.all([
+        this.client.request<"config/read", ConfigReadResponse>("config/read", {
+          includeLayers: true,
+        } satisfies ConfigReadParams),
+        this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>("configRequirements/read", undefined),
+      ]);
+      return {
+        config: configResult.config,
+        origins: configResult.origins,
+        requirements: requirementsResult.requirements,
+      };
+    } catch (error) {
+      this.logger.warn("Failed to load scheduled automation permission config", {
+        error,
+      });
+      return null;
+    }
+  }
+
+  private resolveAutomationPermissionState(
+    context: CodexAutomationPermissionContext | null,
+    workspaceRoots: string[],
+  ): CodexPermissionState {
+    if (!context) {
+      return this.buildFallbackPermissionState("auto", workspaceRoots, null);
+    }
+
+    return resolveCodexPermissionState({
+      config: context.config,
+      origins: context.origins,
+      requirements: context.requirements,
+      defaultUserConfigPath: path.join(resolveCodexHomeDir(), "config.toml"),
+      workspaceRoots,
+    });
+  }
+
   private invalidatePermissionState(projectId: string | null): void {
     if (!projectId) return;
     this.permissionStateByProject.delete(projectId);
@@ -6323,6 +6672,867 @@ export class CodexService extends EventEmitter {
       .filter((option): option is CodexModelOption => option !== null);
   }
 
+  async runScheduledAutomationNow(input: CodexScheduledAutomationRunNowInput): Promise<void> {
+    await this.ensureClientReady();
+
+    const automation = getCodexScheduledAutomation(input.id);
+    if (!automation) {
+      throw new Error("Automation not found.");
+    }
+
+    if (automation.kind === "heartbeat") {
+      await this.runHeartbeatScheduledAutomation(automation, {
+        now: Date.now(),
+        reason: "run-now",
+        heartbeat: {
+          automationsEnabled: true,
+          rendererState: null,
+          collaborationMode: input.collaborationMode ?? null,
+          permissions: input.permissions ?? null,
+        },
+      });
+      return;
+    }
+
+    await this.runScheduledAutomation(automation, {
+      now: Date.now(),
+      reason: "run-now",
+    });
+  }
+
+  async runScheduledAutomation(
+    automation: CodexScheduledAutomation,
+    context: CodexScheduledAutomationRunContext = {},
+  ): Promise<void> {
+    await this.ensureClientReady();
+
+    if (automation.kind === "heartbeat") {
+      await this.runHeartbeatScheduledAutomation(automation, {
+        now: context.now ?? Date.now(),
+        reason: context.reason ?? "scheduled",
+        heartbeat: context.heartbeat,
+      });
+      return;
+    }
+
+    await this.runCronScheduledAutomation(automation, context.now ?? Date.now());
+  }
+
+  private async runHeartbeatScheduledAutomation(
+    automation: CodexScheduledAutomation,
+    context: Required<Pick<CodexScheduledAutomationRunContext, "now" | "reason">> & {
+      heartbeat?: CodexScheduledAutomationHeartbeatRunContext;
+    },
+  ): Promise<void> {
+    const targetThreadId = automation.targetThreadId?.trim() ?? "";
+    if (!targetThreadId) {
+      if (context.reason === "run-now") throw new Error("Heartbeat thread not found.");
+      this.recordHeartbeatRetry(automation, context.now);
+      return;
+    }
+
+    if (context.reason === "scheduled" && context.heartbeat?.automationsEnabled !== true) {
+      recordCodexScheduledAutomationNextScheduledRun(automation.id, context.now);
+      this.logger.debug("Heartbeat automation skipped: feature disabled", {
+        automationId: automation.id,
+        targetThreadId,
+      });
+      return;
+    }
+
+    const targetThreadResult = await this.readHeartbeatTargetThread(targetThreadId).catch(() => null);
+    if (!targetThreadResult) {
+      if (context.reason === "run-now") throw new Error("Heartbeat thread not found.");
+      this.recordHeartbeatRetry(automation, context.now);
+      this.logger.warn("Heartbeat automation skipped: thread missing", {
+        automationId: automation.id,
+        targetThreadId,
+      });
+      return;
+    }
+    const targetThread = targetThreadResult.thread;
+
+    const rendererBlockReason = this.resolveHeartbeatRendererBlockReason(context.heartbeat?.rendererState ?? null);
+    if (rendererBlockReason) {
+      if (context.reason === "run-now") throw new Error("Heartbeat thread is not eligible right now.");
+      this.recordHeartbeatRetry(automation, context.now);
+      this.logger.debug("Heartbeat automation blocked by renderer state", {
+        automationId: automation.id,
+        targetThreadId,
+        blockReason: rendererBlockReason,
+      });
+      return;
+    }
+
+    const collaborationMode = this.resolveHeartbeatCollaborationMode(context.heartbeat?.collaborationMode ?? null);
+    if (!collaborationMode) {
+      if (context.reason === "run-now") throw new Error("Heartbeat thread mode is still loading.");
+      this.recordHeartbeatRetry(automation, context.now);
+      this.logger.debug("Heartbeat automation waiting for renderer mode state", {
+        automationId: automation.id,
+        targetThreadId,
+      });
+      return;
+    }
+
+    const threadBlockReason = await this.resolveHeartbeatThreadBlockReason(
+      targetThread.threadRuntimeStatus ?? null,
+      targetThreadResult.rolloutPath,
+    );
+    if (threadBlockReason) {
+      if (context.reason === "run-now") throw new Error("Heartbeat thread is busy right now.");
+      this.recordHeartbeatRetry(automation, context.now);
+      this.logger.debug("Heartbeat automation blocked by thread state", {
+        automationId: automation.id,
+        targetThreadId,
+        blockReason: threadBlockReason,
+      });
+      return;
+    }
+
+    const cooldownAt = this.resolveHeartbeatCooldownAt(automation, targetThread);
+    if (context.reason === "scheduled" && cooldownAt !== null && cooldownAt > context.now) {
+      recordCodexScheduledAutomationNextRun(automation.id, cooldownAt, context.now);
+      this.logger.debug("Heartbeat automation skipped: not due yet", {
+        automationId: automation.id,
+        targetThreadId,
+        nextCooldownAt: cooldownAt,
+      });
+      return;
+    }
+
+    const dispatchedAutomation = recordCodexScheduledAutomationRunDispatched(automation.id, context.now);
+    if (!dispatchedAutomation) {
+      throw new Error("Automation not found.");
+    }
+
+    await this.startHeartbeatScheduledAutomationTurn({
+      automation,
+      targetThread,
+      now: context.now,
+      collaborationMode,
+      permissions: context.heartbeat?.permissions ?? null,
+      waitForCompletion: context.reason === "scheduled",
+    });
+  }
+
+  private recordHeartbeatRetry(
+    automation: CodexScheduledAutomation,
+    now: number,
+  ): void {
+    const nextScheduled = recordCodexScheduledAutomationNextScheduledRun(automation.id, now)?.nextRunAt ?? null;
+    const retryAt = nextScheduled === null
+      ? now + 60_000
+      : Math.min(nextScheduled, now + 60_000);
+    recordCodexScheduledAutomationNextRun(automation.id, retryAt, now);
+  }
+
+  private resolveHeartbeatRendererBlockReason(
+    state: CodexScheduledAutomationHeartbeatRendererStateContext | null,
+  ): string | null {
+    if (!state || state.isEligible) return null;
+    return state.reason?.trim() || "renderer_ineligible";
+  }
+
+  private async readHeartbeatTargetThread(
+    threadId: string,
+  ): Promise<{ thread: CodexThreadDetail; rolloutPath: string | null } | null> {
+    const result = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
+      threadId,
+      includeTurns: false,
+    });
+    this.upsertLinkFromThread(result.thread);
+    const thread = this.buildThreadDetailFromRead(result.thread);
+    if (!thread) return null;
+    const payload = asRecord(result.thread);
+    const rolloutPath = typeof payload?.path === "string" && payload.path.trim().length > 0
+      ? payload.path
+      : null;
+    return { thread, rolloutPath };
+  }
+
+  private async resolveHeartbeatThreadBlockReason(
+    status: CodexThreadRuntimeStatus | null,
+    rolloutPath: string | null,
+  ): Promise<string | null> {
+    if (status?.type !== "active") return null;
+    const activeFlags = status.activeFlags ?? [];
+    if (activeFlags.includes("waitingOnUserInput")) return "waiting_on_user_input";
+    if (activeFlags.includes("waitingOnApproval")) return "waiting_on_approval";
+    if (activeFlags.length > 0) return "active_with_flags";
+    if (!rolloutPath) return "active_without_rollout_path";
+
+    const latestEvent = await readLatestHeartbeatRolloutEvent(rolloutPath);
+    if (latestEvent === "task_complete") return null;
+    if (latestEvent && CODEX_HEARTBEAT_ACTIVE_ROLLOUT_EVENTS.has(latestEvent)) {
+      return "active_recent_rollout_activity";
+    }
+    return "active_without_terminal_event";
+  }
+
+  private resolveHeartbeatCooldownAt(
+    automation: CodexScheduledAutomation,
+    thread: CodexThreadDetail,
+  ): number | null {
+    const intervalMs = computeCodexScheduledAutomationIntervalMs(automation.rrule);
+    if (intervalMs === null) return null;
+
+    const candidates = [automation.lastRunAt, thread.updatedAt]
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    if (candidates.length === 0) return null;
+    return Math.max(...candidates) + intervalMs;
+  }
+
+  private resolveHeartbeatCollaborationMode(
+    mode: CodexHeartbeatAutomationCollaborationMode | null,
+  ): CodexAppServerCollaborationMode | null {
+    if (!mode) return null;
+    if (typeof mode === "string") {
+      return this.buildCollaborationModePayload({ collaborationMode: mode });
+    }
+
+    return {
+      mode: mode.mode,
+      settings: {
+        model: mode.settings.model,
+        reasoning_effort: mode.settings.reasoning_effort,
+        developer_instructions: mode.settings.developer_instructions,
+      },
+    };
+  }
+
+  private async startHeartbeatScheduledAutomationTurn(input: {
+    automation: CodexScheduledAutomation;
+    targetThread: CodexThreadDetail;
+    now: number;
+    collaborationMode: CodexAppServerCollaborationMode;
+    permissions: CodexHeartbeatAutomationPermissions | null;
+    waitForCompletion: boolean;
+  }): Promise<void> {
+    const resumedThread = await this.resumeHeartbeatTargetThread(input.targetThread);
+    const permissionOverrides = input.permissions
+      ? buildHeartbeatPermissionOverrides(input.permissions)
+      : await this.resolveHeartbeatPermissionOverrides(resumedThread.cwd);
+    const prompt = buildCodexScheduledAutomationHeartbeatPrompt(input.automation, input.now);
+    const turnStartParams: TurnStartParams = {
+      threadId: resumedThread.threadId,
+      input: [createTextUserInput(prompt)],
+      cwd: resumedThread.cwd,
+      ...permissionOverrides,
+      model: null,
+      effort: null,
+      serviceTier: null,
+      summary: "auto",
+      personality: null,
+      outputSchema: null,
+      collaborationMode: input.collaborationMode,
+    };
+    const turnStart = input.waitForCompletion
+      ? await this.startHeartbeatTurnAndWaitForCompletion(turnStartParams)
+      : await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+    const startedTurn = this.asTurnSummary(resumedThread.threadId, turnStart.turn);
+    if (!startedTurn) {
+      throw new Error("Codex turn/start returned an invalid turn payload");
+    }
+
+    const observedTurn: CodexTurnSummary = {
+      ...startedTurn,
+      turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+    };
+    this.mergeTurn(resumedThread.threadId, observedTurn);
+    this.seedTurnWithOptimisticUserMessage(
+      resumedThread.threadId,
+      observedTurn.turnId,
+      prompt,
+      undefined,
+    );
+    this.markThreadAsActive(resumedThread.threadId);
+    this.emitThreadStreamSnapshotFromRecord(resumedThread.threadId, "no-owner-fallback");
+  }
+
+  private async startHeartbeatTurnAndWaitForCompletion(
+    turnStartParams: TurnStartParams,
+  ): Promise<TurnStartResponse> {
+    let activeTurnId: string | null = null;
+    let cleanup = () => undefined;
+    const completion = new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback();
+      };
+      const timeout = setTimeout(() => {
+        settle(resolve);
+      }, CODEX_HEARTBEAT_TURN_COMPLETION_TIMEOUT_MS);
+      const unsubscribe = this.registerInternalNotificationHandler((notification) => {
+        if (
+          notification.method !== "turn/started" &&
+          notification.method !== "turn/completed" &&
+          notification.method !== "turn/interrupted" &&
+          notification.method !== "turn/failed"
+        ) {
+          return;
+        }
+
+        const payload = asRecord(notification.params);
+        if (parseEventThreadId(payload) !== turnStartParams.threadId) return;
+
+        const eventTurnId = parseEventTurnId(payload);
+        if (activeTurnId !== null && eventTurnId !== null && eventTurnId !== activeTurnId) return;
+        if (eventTurnId !== null) activeTurnId = eventTurnId;
+        if (notification.method === "turn/started") return;
+
+        const turn = asRecord(payload?.turn);
+        const status = typeof turn?.status === "string"
+          ? turn.status
+          : typeof payload?.status === "string"
+            ? payload.status
+            : notification.method === "turn/completed"
+              ? "completed"
+              : "failed";
+        if (status === "completed") {
+          settle(resolve);
+          return;
+        }
+
+        settle(() => reject(new Error("Heartbeat automation did not complete.")));
+      });
+      cleanup = () => {
+        clearTimeout(timeout);
+        unsubscribe();
+        cleanup = () => undefined;
+      };
+    });
+
+    try {
+      const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+      activeTurnId = parseTurnIdFromStartResult(turnStart);
+      await completion;
+      return turnStart;
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
+  }
+
+  private async resumeHeartbeatTargetThread(
+    thread: CodexThreadDetail,
+  ): Promise<{ threadId: string; cwd: string }> {
+    const result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", {
+      threadId: thread.threadId,
+      config: buildCodexThreadConfigOverrides(),
+    });
+    this.upsertLinkFromThread(result.thread);
+    const detail = this.buildThreadDetailFromRead(result.thread);
+    if (detail) {
+      this.setConversationRecordDetail(this.reconcileDetailTranscriptToTerminalTurnStatus(detail));
+    } else {
+      this.ensureConversationRecord(thread.threadId);
+    }
+    this.setThreadPermissionFields(thread.threadId, {
+      approvalPolicy: result.approvalPolicy,
+      approvalsReviewer: result.approvalsReviewer,
+      sandbox: result.sandbox,
+    });
+
+    return {
+      threadId: result.thread.id,
+      cwd: result.thread.cwd || result.cwd || thread.cwd || "/",
+    };
+  }
+
+  private async resolveHeartbeatPermissionOverrides(
+    cwd: string,
+  ): Promise<ReturnType<typeof buildTurnPermissionOverrides>> {
+    const permissionContext = await this.readAutomationPermissionContext();
+    const permissionState = this.resolveAutomationPermissionState(permissionContext, [cwd]);
+    return buildTurnPermissionOverrides({
+      permissionState,
+      workspaceRoots: [cwd],
+    });
+  }
+
+  private async runCronScheduledAutomation(
+    automation: CodexScheduledAutomation,
+    now: number,
+  ): Promise<void> {
+    const cwds = automation.cwds
+      .map((cwd) => cwd.trim())
+      .filter((cwd) => cwd.length > 0);
+    if (cwds.length === 0) {
+      this.logger.warn("Scheduled automation run skipped because no folders are configured", {
+        automationId: automation.id,
+      });
+      return;
+    }
+
+    const dispatchedAutomation = recordCodexScheduledAutomationRunDispatched(automation.id, now);
+    if (!dispatchedAutomation) {
+      throw new Error("Automation not found.");
+    }
+
+    let models: CodexModelOption[] = [];
+    try {
+      models = await this.listModels();
+    } catch (error) {
+      this.logger.warn("Failed to load models for scheduled automation run", {
+        automationId: automation.id,
+        error,
+      });
+    }
+    const modelSettings = resolveCodexScheduledAutomationModelSettings({
+      automation,
+      models,
+    });
+    const prompt = buildCodexScheduledAutomationRunPrompt(automation);
+    const errors: unknown[] = [];
+
+    for (const cwd of cwds) {
+      try {
+        await this.startCronScheduledAutomationRun({
+          automation,
+          cwd,
+          prompt,
+          model: modelSettings.model,
+          reasoningEffort: modelSettings.reasoningEffort,
+          now,
+        });
+      } catch (error) {
+        errors.push(error);
+        this.logger.warn("Scheduled automation run failed", {
+          automationId: automation.id,
+          cwd,
+          error,
+        });
+      }
+    }
+
+    if (errors.length > 0) {
+      throw errors[0];
+    }
+  }
+
+  private async startCronScheduledAutomationRun(input: {
+    automation: CodexScheduledAutomation;
+    cwd: string;
+    prompt: string;
+    model: string | null;
+    reasoningEffort: string | null;
+    now: number;
+  }): Promise<void> {
+    const pendingThreadId = `pending:${randomUUID()}`;
+    const pendingInserted = insertCodexAutomationRunInProgress({
+      threadId: pendingThreadId,
+      automationId: input.automation.id,
+      threadTitle: input.automation.name,
+      sourceCwd: input.cwd,
+      now: input.now,
+    });
+    if (pendingInserted) {
+      this.notifyAutomationRunsUpdated({
+        automationId: input.automation.id,
+        threadId: pendingThreadId,
+        reason: "pending-insert",
+      });
+    }
+
+    let link: CodexThreadSummary | null = null;
+    let threadStart: ThreadStartResponse | null = null;
+    let managedWorktreePath: string | null = null;
+    let projectlessOutputDirectory: string | null = null;
+    try {
+      const runLocation = await this.resolveCronScheduledAutomationRunLocation({
+        automation: input.automation,
+        sourceCwd: input.cwd,
+        now: input.now,
+      });
+      managedWorktreePath = runLocation.managedWorktreePath;
+      projectlessOutputDirectory = runLocation.projectlessOutputDirectory;
+      const permissionContext = await this.readAutomationPermissionContext();
+      const threadWorkspaceRoots = runLocation.projectlessOutputDirectory ? [] : [input.cwd];
+      const turnWorkspaceRoots = await this.resolveCronScheduledAutomationWorkspaceRoots({
+        automationId: input.automation.id,
+        sourceCwd: input.cwd,
+        runLocation,
+      });
+      const threadPermissionState = this.resolveAutomationPermissionState(
+        permissionContext,
+        threadWorkspaceRoots,
+      );
+      const turnPermissionState = this.resolveAutomationPermissionState(
+        permissionContext,
+        turnWorkspaceRoots,
+      );
+      const threadPermissionOverrides = buildThreadPermissionOverrides({
+        permissionState: threadPermissionState,
+      });
+      const turnPermissionOverrides = buildTurnPermissionOverrides({
+        permissionState: turnPermissionState,
+        workspaceRoots: turnWorkspaceRoots,
+      });
+      const developerInstructions = [
+        CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
+        runLocation.projectlessOutputDirectory
+          ? buildCodexProjectlessThreadInstructions({
+              cwd: runLocation.cwd,
+              outputDirectory: runLocation.projectlessOutputDirectory,
+              workspaceBrowserRoot: runLocation.projectlessWorkspaceBrowserRoot,
+            })
+          : null,
+      ].filter((line): line is string => line !== null).join("\n\n");
+      const threadStartParams: ThreadStartParams = {
+        cwd: runLocation.cwd,
+        model: input.model,
+        config: buildCodexThreadConfigOverrides(),
+        developerInstructions,
+        threadSource: "automation",
+        dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
+        experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
+        serviceTier: null,
+        ...threadPermissionOverrides,
+      };
+
+      this.beginThreadStartNotificationDeferral();
+      try {
+        threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
+        link = this.upsertLinkFromThread(threadStart.thread, {
+          projectId: null,
+          cwd: runLocation.cwd,
+          managedWorktreePath,
+          projectlessOutputDirectory,
+          projectlessWorkspaceBrowserRoot: runLocation.projectlessWorkspaceBrowserRoot,
+        }, runLocation.cwd);
+        if (!link) {
+          throw new Error("Codex thread/start returned an invalid thread payload");
+        }
+        await this.completeThreadStartNotificationDeferral(link.threadId);
+      } finally {
+        await this.endThreadStartNotificationDeferral();
+      }
+
+      this.setThreadPermissionFields(link.threadId, {
+        approvalPolicy: threadStart.approvalPolicy,
+        approvalsReviewer: threadStart.approvalsReviewer,
+        sandbox: threadStart.sandbox,
+      });
+      const replacedPendingRun = replacePendingCodexAutomationRunThreadId({
+        pendingThreadId,
+        threadId: link.threadId,
+        now: input.now,
+      });
+      if (replacedPendingRun) {
+        this.notifyAutomationRunsUpdated({
+          automationId: input.automation.id,
+          threadId: link.threadId,
+          reason: "pending-replace",
+        });
+      } else {
+        const realRunInserted = insertCodexAutomationRunInProgress({
+          threadId: link.threadId,
+          automationId: input.automation.id,
+          threadTitle: input.automation.name,
+          sourceCwd: input.cwd,
+          now: input.now,
+        });
+        if (realRunInserted) {
+          this.notifyAutomationRunsUpdated({
+            automationId: input.automation.id,
+            threadId: link.threadId,
+            reason: "pending-insert",
+          });
+        }
+      }
+      setCodexAutomationRunThreadTitle(link.threadId, input.automation.name, input.now);
+
+      try {
+        await this.client.request("thread/name/set", {
+          threadId: link.threadId,
+          name: input.automation.name,
+        });
+        this.applyThreadNameLocal(link.threadId, input.automation.name);
+      } catch (error) {
+        this.logger.warn("Failed to set scheduled automation thread title", {
+          automationId: input.automation.id,
+          threadId: link.threadId,
+          error,
+        });
+      }
+
+      const turnStartParams: TurnStartParams = {
+        threadId: link.threadId,
+        input: [createTextUserInput(input.prompt)],
+        cwd: runLocation.cwd,
+        ...turnPermissionOverrides,
+        model: input.model,
+        effort: input.reasoningEffort,
+        serviceTier: null,
+        summary: "auto",
+        personality: null,
+        outputSchema: null,
+        collaborationMode: null,
+      };
+      const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+      const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
+      if (!startedTurn) {
+        throw new Error("Codex turn/start returned an invalid turn payload");
+      }
+      const observedTurn: CodexTurnSummary = {
+        ...startedTurn,
+        turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+      };
+      this.mergeTurn(link.threadId, observedTurn);
+      this.seedTurnWithOptimisticUserMessage(
+        link.threadId,
+        observedTurn.turnId,
+        input.prompt,
+        undefined,
+      );
+      this.markThreadAsActive(link.threadId);
+      this.emitThreadStreamSnapshotFromRecord(link.threadId, "no-owner-fallback");
+    } catch (error) {
+      if (!link) {
+        const archived = archiveCodexAutomationRun(pendingThreadId, "auto", input.now);
+        if (archived) {
+          this.notifyAutomationRunsUpdated({
+            automationId: input.automation.id,
+            threadId: pendingThreadId,
+            reason: "archive",
+          });
+        }
+        if (managedWorktreePath) {
+          await removeManagedWorktree(managedWorktreePath).catch(() => undefined);
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async resolveCronScheduledAutomationRunLocation(input: {
+    automation: CodexScheduledAutomation;
+    sourceCwd: string;
+    now: number;
+  }): Promise<{
+    cwd: string;
+    workspaceRoots: string[];
+    managedWorktreePath: string | null;
+    projectlessOutputDirectory: string | null;
+    projectlessWorkspaceBrowserRoot: string | null;
+  }> {
+    if (input.sourceCwd === "~") {
+      return this.createProjectlessAutomationRunLocation({
+        automation: input.automation,
+        now: input.now,
+      });
+    }
+
+    if (input.automation.executionEnvironment !== "worktree") {
+      return {
+        cwd: input.sourceCwd,
+        workspaceRoots: [input.sourceCwd],
+        managedWorktreePath: null,
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+      };
+    }
+
+    const createdWorktree = await createManagedWorktree({
+      repositoryPath: input.sourceCwd,
+      serverDir: getLocalStoreDir(),
+      projectId: input.automation.id,
+      targetId: input.automation.id,
+      threadTitle: input.automation.name,
+      branchPrefix: null,
+      preferredBaseBranch: await this.resolveAutomationWorktreeStartingBranch(input.sourceCwd),
+      mode: "detachedHead",
+    });
+    const worktreePath = path.resolve(createdWorktree.cwd);
+
+    const selectedEnvironmentPath = input.automation.localEnvironmentConfigPath?.trim() || null;
+    if (selectedEnvironmentPath) {
+      try {
+        const environmentDefinition = await readWorktreeEnvironmentDefinition({
+          workspacePath: input.sourceCwd,
+          environmentPath: selectedEnvironmentPath,
+        });
+        if (environmentDefinition.setupScript) {
+          await runWorktreeSetupScript({
+            script: environmentDefinition.setupScript,
+            cwd: worktreePath,
+          });
+        }
+      } catch (error) {
+        await removeManagedWorktree(worktreePath).catch(() => undefined);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to set up scheduled automation worktree using environment '${selectedEnvironmentPath}': ${errorMessage}`,
+        );
+      }
+    }
+
+    return {
+      cwd: worktreePath,
+      workspaceRoots: [worktreePath, input.sourceCwd],
+      managedWorktreePath: worktreePath,
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+    };
+  }
+
+  private async resolveAutomationWorktreeStartingBranch(sourceCwd: string): Promise<string | null> {
+    return await this.readGitPath(sourceCwd, ["branch", "--show-current"]);
+  }
+
+  private async resolveCronScheduledAutomationWorkspaceRoots(input: {
+    automationId: string;
+    sourceCwd: string;
+    runLocation: {
+      cwd: string;
+      workspaceRoots: string[];
+      projectlessOutputDirectory: string | null;
+    };
+  }): Promise<string[]> {
+    if (input.runLocation.projectlessOutputDirectory) return [];
+
+    const roots = [
+      input.runLocation.cwd,
+      path.join(resolveCodexHomeDir(), "automations", input.automationId),
+      ...input.runLocation.workspaceRoots,
+      input.sourceCwd,
+    ];
+
+    const worktreeGitRoot = await this.readGitPath(input.runLocation.cwd, ["rev-parse", "--show-toplevel"]);
+    const sourceGitRoot = await this.readGitPath(input.sourceCwd, ["rev-parse", "--show-toplevel"]);
+    if (worktreeGitRoot) roots.push(worktreeGitRoot);
+    if (sourceGitRoot) roots.push(sourceGitRoot);
+
+    const commonDirCwd = worktreeGitRoot ?? sourceGitRoot ?? input.runLocation.cwd;
+    const gitCommonDir = await this.readGitPath(commonDirCwd, ["rev-parse", "--git-common-dir"]);
+    if (gitCommonDir) {
+      roots.push(path.isAbsolute(gitCommonDir) ? gitCommonDir : path.resolve(commonDirCwd, gitCommonDir));
+    } else if (sourceGitRoot) {
+      roots.push(path.join(sourceGitRoot, ".git"));
+    }
+
+    return this.uniqueResolvedPaths(roots);
+  }
+
+  private async readGitPath(cwd: string, args: string[]): Promise<string | null> {
+    const normalizedCwd = cwd.trim();
+    if (!normalizedCwd) return null;
+    if (!existsSync(normalizedCwd)) return null;
+
+    return await new Promise<string | null>((resolve) => {
+      const child = spawn("git", args, {
+        cwd: normalizedCwd,
+        env: process.env,
+        windowsHide: true,
+      });
+      let stdout = "";
+      const timeout = setTimeout(() => {
+        child.kill("SIGTERM");
+      }, 8_000);
+      timeout.unref();
+
+      child.stdout?.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.on("error", () => {
+        clearTimeout(timeout);
+        resolve(null);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        if (code !== 0) {
+          resolve(null);
+          return;
+        }
+
+        const normalized = stdout.trim();
+        resolve(normalized.length > 0 ? normalized : null);
+      });
+    });
+  }
+
+  private uniqueResolvedPaths(paths: string[]): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const candidate of paths) {
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      const resolved = path.resolve(trimmed);
+      if (seen.has(resolved)) continue;
+      seen.add(resolved);
+      result.push(resolved);
+    }
+    return result;
+  }
+
+  private createProjectlessAutomationRunLocation(input: {
+    automation: CodexScheduledAutomation;
+    now: number;
+  }): {
+    cwd: string;
+    workspaceRoots: string[];
+    managedWorktreePath: null;
+    projectlessOutputDirectory: string;
+    projectlessWorkspaceBrowserRoot: string;
+  } {
+    const workspaceRoot = path.join(resolveHomeDir(), "Documents", "Codex");
+    const date = new Date(input.now).toISOString().slice(0, 10);
+    const dateDirectory = path.join(workspaceRoot, date);
+    const directoryName = this.slugProjectlessAutomationPromptDirectoryName(input.automation);
+
+    mkdirSync(workspaceRoot, { recursive: true });
+    mkdirSync(dateDirectory, { recursive: true });
+
+    for (let index = 0; index < 100; index += 1) {
+      const candidateName = index === 0 ? directoryName : `${directoryName}-${index + 1}`;
+      const threadDirectory = path.join(dateDirectory, candidateName);
+      try {
+        mkdirSync(threadDirectory, { recursive: false });
+      } catch {
+        if (existsSync(threadDirectory)) continue;
+        throw new Error("Unable to create projectless automation directory.");
+      }
+      const cwd = path.join(threadDirectory, "work");
+      const projectlessOutputDirectory = path.join(threadDirectory, "outputs");
+      mkdirSync(cwd, { recursive: false });
+      mkdirSync(projectlessOutputDirectory, { recursive: false });
+      return {
+        cwd,
+        workspaceRoots: [],
+        managedWorktreePath: null,
+        projectlessOutputDirectory,
+        projectlessWorkspaceBrowserRoot: workspaceRoot,
+      };
+    }
+
+    const fallbackName = `${directoryName}-${randomUUID()}`;
+    const threadDirectory = path.join(dateDirectory, fallbackName);
+    const cwd = path.join(threadDirectory, "work");
+    const projectlessOutputDirectory = path.join(threadDirectory, "outputs");
+    mkdirSync(threadDirectory, { recursive: false });
+    mkdirSync(cwd, { recursive: false });
+    mkdirSync(projectlessOutputDirectory, { recursive: false });
+    return {
+      cwd,
+      workspaceRoots: [],
+      managedWorktreePath: null,
+      projectlessOutputDirectory,
+      projectlessWorkspaceBrowserRoot: workspaceRoot,
+    };
+  }
+
+  private slugProjectlessAutomationPromptDirectoryName(
+    automation: Pick<CodexScheduledAutomation, "prompt">,
+  ): string {
+    const words = automation.prompt.toLowerCase().match(/[a-z0-9]+/g);
+    if (!words || words.length === 0) return "new-chat";
+    return words.slice(0, 6).join("-").slice(0, 80);
+  }
+
   private async readConfigForDictation(): Promise<ConfigReadResponse> {
     return await this.client.request<"config/read", ConfigReadResponse>("config/read", {
       includeLayers: false,
@@ -6549,6 +7759,7 @@ export class CodexService extends EventEmitter {
       projectId: source.projectId,
       cwd: source.cwd,
       projectlessOutputDirectory: source.projectlessOutputDirectory ?? null,
+      projectlessWorkspaceBrowserRoot: source.projectlessWorkspaceBrowserRoot ?? null,
     };
   }
 
@@ -7645,6 +8856,60 @@ export class CodexService extends EventEmitter {
     return this.getMaybeConversationRecord(threadId)?.detail?.turns.find((turn) => turn.turnId === turnId) ?? null;
   }
 
+  private captureAutomationInboxItemFromTurn(threadId: string, turnId: string): void {
+    const markdown = this.findLatestAssistantMarkdownTextForTurn(threadId, turnId);
+    if (!markdown) return;
+
+    const directive = parseCodexAutomationInboxItemDirective(markdown);
+    if (!directive) return;
+
+    try {
+      const updated = setCodexAutomationRunInboxItem({
+        threadId,
+        inboxTitle: directive.title,
+        inboxSummary: directive.summary,
+      });
+      if (updated) {
+        this.notifyAutomationRunThreadUpdated(threadId, "turn-completed");
+      }
+    } catch (error) {
+      if (!isUnavailableSqliteBindingError(error)) {
+        this.logger.warn("Failed to persist scheduled automation inbox item directive", {
+          threadId,
+          turnId,
+          error,
+        });
+      }
+    }
+  }
+
+  private findLatestAssistantMarkdownTextForTurn(threadId: string, turnId: string): string | null {
+    const byItem = this.getMaybeConversationRecord(threadId)?.itemsByTurn.get(turnId);
+    if (byItem) {
+      for (const item of [...byItem.values()].reverse()) {
+        if (!this.isAssistantTextItem(item)) continue;
+        const markdown = normalizeNonEmptyString(item.markdownText);
+        if (markdown) return markdown;
+      }
+    }
+
+    for (const entry of this.getThreadTranscript(threadId).filter((candidate) => candidate.turnId === turnId).reverse()) {
+      if (!this.isAssistantTextItem(entry)) continue;
+      const markdown = normalizeNonEmptyString(entry.markdownText);
+      if (markdown) return markdown;
+    }
+
+    return null;
+  }
+
+  private isAssistantTextItem(
+    item: Pick<CodexItemView, "normalizedKind" | "semanticKind" | "role" | "markdownText">
+      | Pick<CodexTranscriptEntry, "kind" | "semanticKind" | "role" | "markdownText">,
+  ): boolean {
+    const kind = "normalizedKind" in item ? item.normalizedKind : item.kind;
+    return kind === "assistantMessage" || item.semanticKind === "assistantMessage" || item.role === "assistant";
+  }
+
   private getInterruptTargetTurnId(threadId: string): string | null {
     const turns = this.listKnownTurns(threadId);
     if (turns.length === 0) return null;
@@ -8483,7 +9748,9 @@ export class CodexService extends EventEmitter {
         ? {
             projectId: existing.projectId,
             cwd: existing.cwd,
+            managedWorktreePath: existing.managedWorktreePath ?? null,
             projectlessOutputDirectory: existing.projectlessOutputDirectory ?? null,
+            projectlessWorkspaceBrowserRoot: existing.projectlessWorkspaceBrowserRoot ?? null,
           }
         : null);
 
@@ -8491,6 +9758,11 @@ export class CodexService extends EventEmitter {
     const candidateProjectlessOutputDirectory =
       readStringField(candidate, "projectlessOutputDirectory")
       ?? readStringField(candidate, "projectless_output_directory");
+    const candidateProjectlessWorkspaceBrowserRoot =
+      readStringField(candidate, "projectlessWorkspaceBrowserRoot")
+      ?? readStringField(candidate, "projectless_workspace_browser_root")
+      ?? readStringField(candidate, "projectlessWorkspaceRoot")
+      ?? readStringField(candidate, "projectless_workspace_root");
 
     const subagentMetadata = extractCodexThreadSubagentMetadata(candidate);
     const parentThreadId = subagentMetadata.parentThreadId;
@@ -8505,9 +9777,19 @@ export class CodexService extends EventEmitter {
       cwd: typeof candidate.cwd === "string"
         ? candidate.cwd
         : (existing?.cwd ?? ref?.cwd ?? (fallbackCwd?.trim() || null)),
+      managedWorktreePath:
+        readStringField(candidate, "managedWorktreePath")
+        ?? readStringField(candidate, "managed_worktree_path")
+        ?? existing?.managedWorktreePath
+        ?? ref?.managedWorktreePath
+        ?? null,
       projectlessOutputDirectory: candidateProjectlessOutputDirectory
         ?? existing?.projectlessOutputDirectory
         ?? ref?.projectlessOutputDirectory
+        ?? null,
+      projectlessWorkspaceBrowserRoot: candidateProjectlessWorkspaceBrowserRoot
+        ?? existing?.projectlessWorkspaceBrowserRoot
+        ?? ref?.projectlessWorkspaceBrowserRoot
         ?? null,
       statusType: parsedStatus.statusType,
       statusActiveFlags: parsedStatus.statusActiveFlags,
@@ -8548,6 +9830,7 @@ export class CodexService extends EventEmitter {
       projectId: parentSummary?.projectId ?? null,
       cwd: parentSummary?.cwd ?? fallbackCwd,
       projectlessOutputDirectory: parentSummary?.projectlessOutputDirectory ?? null,
+      projectlessWorkspaceBrowserRoot: parentSummary?.projectlessWorkspaceBrowserRoot ?? null,
     };
     const summary = this.upsertLinkFromThread(thread, fallbackRef, fallbackCwd ?? parentSummary?.cwd ?? null);
     if (!summary) return null;
@@ -8588,6 +9871,13 @@ export class CodexService extends EventEmitter {
         readStringField(candidate, "projectlessOutputDirectory")
         ?? readStringField(candidate, "projectless_output_directory")
         ?? existing?.projectlessOutputDirectory
+        ?? null,
+      projectlessWorkspaceBrowserRoot:
+        readStringField(candidate, "projectlessWorkspaceBrowserRoot")
+        ?? readStringField(candidate, "projectless_workspace_browser_root")
+        ?? readStringField(candidate, "projectlessWorkspaceRoot")
+        ?? readStringField(candidate, "projectless_workspace_root")
+        ?? existing?.projectlessWorkspaceBrowserRoot
         ?? null,
       statusType: parsedStatus.statusType,
       statusActiveFlags: parsedStatus.statusActiveFlags,
@@ -9292,6 +10582,14 @@ export class CodexService extends EventEmitter {
         if (goal) {
           this.applyThreadGoalUpdated(link.threadId, goal);
         }
+      }
+      if (runLocation.runInTarget === "newWorktree") {
+        this.createHeartbeatAutomationForStartedWorktreeThread({
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          threadId: link.threadId,
+          heartbeatAutomation: input.heartbeatAutomation,
+        });
       }
       this.logger.info("Started first Codex turn for project session", {
         threadId: link.threadId,
@@ -10468,15 +11766,113 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
+  private deleteHeartbeatAutomationForArchivedThread(threadId: string): void {
+    try {
+      const deleted = deleteActiveHeartbeatAutomationForTargetThread(threadId);
+      if (!deleted) return;
+      this.logger.info("Deleted heartbeat automation for archived thread", {
+        automationId: deleted.id,
+        threadId,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to delete heartbeat automation for archived thread", {
+        threadId,
+        error,
+      });
+    }
+  }
+
   async archiveThread(threadId: string): Promise<boolean> {
     await this.ensureClientReady();
     await this.client.request("thread/archive", { threadId });
+    void this.captureAutomationArchiveMessages(threadId);
+    this.deleteHeartbeatAutomationForArchivedThread(threadId);
     updateCodexThreadArchived(threadId, true);
     setCodexThreadPinned(threadId, false);
     this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
     this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
     this.emitSidebarCatalogChangedForThread(threadId, "host-message");
     return true;
+  }
+
+  async captureAutomationArchiveMessages(threadId: string): Promise<boolean> {
+    const localMessages = this.resolveAutomationArchiveMessagesFromTranscript(this.getThreadTranscript(threadId));
+    if (hasAutomationArchiveMessages(localMessages)) {
+      return this.persistAutomationArchiveMessages(threadId, localMessages);
+    }
+
+    const fallbackMessages = await this.readAutomationArchiveMessagesFromThreadTurns(threadId);
+    if (!hasAutomationArchiveMessages(fallbackMessages)) return false;
+    return this.persistAutomationArchiveMessages(threadId, fallbackMessages);
+  }
+
+  private resolveAutomationArchiveMessagesFromTranscript(
+    transcript: readonly CodexTranscriptEntry[],
+  ): CodexAutomationArchiveMessages {
+    let archivedUserMessage: string | null = null;
+    let archivedAssistantMessage: string | null = null;
+
+    for (let index = transcript.length - 1; index >= 0; index -= 1) {
+      const entry = transcript[index];
+      if (!entry) continue;
+
+      if (archivedUserMessage === null && entry.kind === "userMessage") {
+        archivedUserMessage = formatAutomationArchiveUserMessage(entry);
+      }
+      if (archivedAssistantMessage === null && entry.kind === "assistantMessage") {
+        archivedAssistantMessage = normalizeAutomationArchiveText(entry.markdownText);
+      }
+      if (archivedUserMessage !== null && archivedAssistantMessage !== null) break;
+    }
+
+    return {
+      archivedUserMessage,
+      archivedAssistantMessage,
+    };
+  }
+
+  private async readAutomationArchiveMessagesFromThreadTurns(
+    threadId: string,
+  ): Promise<CodexAutomationArchiveMessages> {
+    try {
+      await this.ensureClientReady();
+      const page = await this.client.request<"thread/turns/list", ThreadTurnsListResponse>("thread/turns/list", {
+        threadId,
+        limit: AUTOMATION_ARCHIVE_TURN_CAPTURE_LIMIT,
+        sortDirection: "desc",
+        itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
+      });
+      const timeline = this.buildThreadTimelineFromTurns(threadId, [...page.data].reverse());
+      return this.resolveAutomationArchiveMessagesFromTranscript(timeline.transcript);
+    } catch (error) {
+      this.logger.warn("Failed to list thread turns for automation archive", {
+        threadId,
+        error,
+      });
+      return {
+        archivedUserMessage: null,
+        archivedAssistantMessage: null,
+      };
+    }
+  }
+
+  private persistAutomationArchiveMessages(
+    threadId: string,
+    messages: CodexAutomationArchiveMessages,
+  ): boolean {
+    try {
+      return captureCodexAutomationArchiveMessages({
+        threadId,
+        archivedUserMessage: messages.archivedUserMessage,
+        archivedAssistantMessage: messages.archivedAssistantMessage,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to capture automation archive messages", {
+        threadId,
+        error,
+      });
+      return false;
+    }
   }
 
   async unarchiveThread(threadId: string): Promise<CodexThreadSummary | null> {
@@ -10852,6 +12248,8 @@ export class CodexService extends EventEmitter {
       });
       turnStartResult = await startTurnRequest();
     }
+
+    this.markAutomationRunAcceptedForUserContinuation(threadId);
 
     const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
     if (startedTurn) {
@@ -11718,6 +13116,26 @@ export class CodexService extends EventEmitter {
     return buildCodexAppDynamicToolFailure(message);
   }
 
+  private buildAutomationUpdateToolResponse(result?: AutomationUpdateToolResult): DynamicToolCallResponse {
+    const text = result == null
+      ? "Rendered automation card in the app."
+      : result.mode === "create"
+        ? "Created automation in the app."
+        : result.mode === "update"
+          ? "Updated automation in the app."
+          : result.deleteStatus === "not_found"
+            ? "Automation already does not exist in the app."
+            : "Deleted automation in the app.";
+
+    return {
+      contentItems: [
+        { type: "inputText", text },
+        ...(result == null ? [] : [{ type: "inputText" as const, text: JSON.stringify(result) }]),
+      ],
+      success: true,
+    };
+  }
+
   private clampDynamicInt(value: unknown, fallback: number, min: number, max: number): number {
     if (typeof value !== "number" || !Number.isInteger(value)) return fallback;
     return Math.min(max, Math.max(min, value));
@@ -11738,6 +13156,433 @@ export class CodexService extends EventEmitter {
   private parseDynamicReasoningEffort(value: unknown): CodexReasoningEffort | undefined {
     if (value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
     return undefined;
+  }
+
+  private parseAutomationUpdateMode(value: unknown): AutomationUpdateMode | null {
+    if (
+      value === "view"
+      || value === "create"
+      || value === "suggested_create"
+      || value === "update"
+      || value === "suggested_update"
+      || value === "delete"
+    ) {
+      return value;
+    }
+    return null;
+  }
+
+  private parseAutomationUpdateStatus(value: unknown): CodexScheduledAutomationStatus | null {
+    if (value === "ACTIVE" || value === "PAUSED") return value;
+    return null;
+  }
+
+  private parseAutomationExecutionEnvironment(value: unknown): CodexScheduledAutomationExecutionEnvironment | null {
+    if (value === "local" || value === "worktree") return value;
+    return null;
+  }
+
+  private parseAutomationDestination(value: unknown): AutomationUpdateDestination | undefined {
+    if (value === undefined) return undefined;
+    if (value === "local" || value === "worktree" || value === "thread") return value;
+    throw new Error("destination is invalid");
+  }
+
+  private parseAutomationReasoningEffort(value: unknown): CodexScheduledAutomationReasoningEffort | null {
+    if (
+      value === "none"
+      || value === "minimal"
+      || value === "low"
+      || value === "medium"
+      || value === "high"
+      || value === "xhigh"
+      || value === "max"
+    ) {
+      return value;
+    }
+    return null;
+  }
+
+  private parseAutomationCwds(value: unknown): string[] | null {
+    const normalizeItems = (items: unknown[]): string[] => items
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index);
+
+    if (Array.isArray(value)) {
+      return normalizeItems(value);
+    }
+
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        return Array.isArray(parsed) ? normalizeItems(parsed) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    return normalizeItems(trimmed.split(","));
+  }
+
+  private parseAutomationLocalEnvironmentConfigPath(
+    args: Record<string, unknown>,
+  ): string | null | undefined {
+    if (!Object.prototype.hasOwnProperty.call(args, "localEnvironmentConfigPath")) return undefined;
+    const value = args.localEnvironmentConfigPath;
+    if (value === null) return null;
+    const normalized = this.parseDynamicString(value);
+    if (normalized) return normalized;
+    throw new Error("localEnvironmentConfigPath is invalid");
+  }
+
+  private parseAutomationUpdateArgs(args: Record<string, unknown>): ParsedAutomationUpdateArgs {
+    const mode = this.parseAutomationUpdateMode(args.mode);
+    if (!mode) throw new Error("mode is invalid");
+
+    if (mode === "view" || mode === "delete") {
+      const id = this.parseDynamicString(args.id);
+      if (!id) throw new Error("id is required");
+      return { mode, id };
+    }
+
+    const kind = args.kind;
+    if (kind !== "cron" && kind !== "heartbeat") throw new Error("kind is invalid");
+
+    const name = this.parseDynamicString(args.name);
+    const prompt = this.parseDynamicString(args.prompt);
+    const rrule = this.parseDynamicString(args.rrule);
+    const status = this.parseAutomationUpdateStatus(args.status);
+    if (!name) throw new Error("name is required");
+    if (!prompt) throw new Error("prompt is required");
+    if (!rrule) throw new Error("rrule is required");
+    if (!status) throw new Error("status is invalid");
+
+    const destination = this.parseAutomationDestination(args.destination);
+    const id = mode === "update" || mode === "suggested_update"
+      ? this.parseDynamicString(args.id)
+      : undefined;
+    if ((mode === "update" || mode === "suggested_update") && !id) {
+      throw new Error("id is required");
+    }
+
+    if (kind === "heartbeat") {
+      const targetThreadId = this.parseDynamicString(args.targetThreadId) ?? undefined;
+      if (!targetThreadId && destination !== "thread") {
+        throw new Error("Missing targetThreadId or destination=thread");
+      }
+      return {
+        mode,
+        id: id ?? undefined,
+        kind,
+        name,
+        prompt,
+        rrule,
+        status,
+        destination,
+        targetThreadId,
+      };
+    }
+
+    const cwds = this.parseAutomationCwds(args.cwds);
+    const executionEnvironment = this.parseAutomationExecutionEnvironment(args.executionEnvironment);
+    const model = this.parseDynamicString(args.model);
+    const reasoningEffort = this.parseAutomationReasoningEffort(args.reasoningEffort);
+    const localEnvironmentConfigPath = this.parseAutomationLocalEnvironmentConfigPath(args);
+    if (cwds === null) throw new Error("cwds is invalid");
+    if (!executionEnvironment) throw new Error("executionEnvironment is invalid");
+    if (!model) throw new Error("model is required");
+    if (!reasoningEffort) throw new Error("reasoningEffort is invalid");
+
+    return {
+      mode,
+      id: id ?? undefined,
+      kind,
+      name,
+      prompt,
+      rrule,
+      status,
+      cwds,
+      destination,
+      executionEnvironment,
+      localEnvironmentConfigPath,
+      model,
+      reasoningEffort,
+    };
+  }
+
+  private automationUpdateArgsUseUnsafeImmediateSetup(args: ParsedAutomationUpdateArgs): boolean {
+    if (args.mode !== "create" && args.mode !== "update") return false;
+    if (args.kind !== "cron" || args.executionEnvironment !== "worktree") return false;
+    if (args.mode === "create") return args.localEnvironmentConfigPath != null;
+    return args.localEnvironmentConfigPath === undefined || args.localEnvironmentConfigPath !== null;
+  }
+
+  private assertAutomationUpdateHeartbeatTargetIsLocalThread(
+    args: ParsedAutomationUpdateArgs,
+    currentThreadId: string,
+  ): void {
+    if (args.mode !== "create" && args.mode !== "update") return;
+    if (args.kind !== "heartbeat") return;
+
+    const targetThreadId = (args.targetThreadId ?? currentThreadId).trim();
+    if (!targetThreadId) {
+      throw new Error("Automations are only supported for local threads.");
+    }
+
+    if (targetThreadId === currentThreadId) return;
+    if (this.getThreadLinkSafely(targetThreadId)) return;
+    if (this.serializeThreadDetail(targetThreadId)) return;
+
+    throw new Error("Automations are only supported for local threads.");
+  }
+
+  private buildAutomationCreateInput(
+    args: ParsedAutomationUpdateUpsertArgs,
+    currentThreadId: string,
+  ): CodexScheduledAutomationCreateInput {
+    if (args.kind === "heartbeat") {
+      return {
+        kind: "heartbeat",
+        name: args.name,
+        prompt: args.prompt,
+        rrule: args.rrule,
+        targetThreadId: args.targetThreadId ?? currentThreadId,
+        model: null,
+        reasoningEffort: null,
+      };
+    }
+
+    return {
+      kind: "cron",
+      name: args.name,
+      prompt: args.prompt,
+      rrule: args.rrule,
+      cwds: args.cwds ?? [],
+      executionEnvironment: args.executionEnvironment ?? "worktree",
+      localEnvironmentConfigPath: args.localEnvironmentConfigPath ?? null,
+      model: args.model ?? null,
+      reasoningEffort: args.reasoningEffort ?? null,
+    };
+  }
+
+  private buildAutomationUpdateInput(
+    args: ParsedAutomationUpdateUpsertArgs & { id: string },
+    currentThreadId: string,
+  ): CodexScheduledAutomationUpdateInput {
+    if (args.kind === "heartbeat") {
+      return {
+        id: args.id,
+        kind: "heartbeat",
+        status: args.status,
+        name: args.name,
+        prompt: args.prompt,
+        rrule: args.rrule,
+        targetThreadId: args.targetThreadId ?? currentThreadId,
+        model: null,
+        reasoningEffort: null,
+      };
+    }
+
+    return {
+      id: args.id,
+      kind: "cron",
+      status: args.status,
+      name: args.name,
+      prompt: args.prompt,
+      rrule: args.rrule,
+      cwds: args.cwds ?? [],
+      executionEnvironment: args.executionEnvironment ?? "worktree",
+      ...(args.localEnvironmentConfigPath === undefined
+        ? {}
+        : { localEnvironmentConfigPath: args.localEnvironmentConfigPath }),
+      model: args.model ?? null,
+      reasoningEffort: args.reasoningEffort ?? null,
+    };
+  }
+
+  private emitScheduledAutomationChanged(event: CodexScheduledAutomationChangedEvent): void {
+    this.emitEvent({ type: "scheduledAutomationChanged", event });
+  }
+
+  private createHeartbeatAutomationForStartedWorktreeThread(input: {
+    projectId: string;
+    sessionId: string;
+    threadId: string;
+    heartbeatAutomation?: CodexThreadStartForSessionInput["heartbeatAutomation"];
+  }): void {
+    const seed = input.heartbeatAutomation;
+    if (!seed) return;
+
+    try {
+      const automation = createCodexScheduledAutomation({
+        kind: "heartbeat",
+        name: seed.name,
+        prompt: seed.prompt,
+        rrule: seed.rrule,
+        targetThreadId: input.threadId,
+        model: null,
+        reasoningEffort: null,
+      });
+      this.emitScheduledAutomationChanged({
+        automationId: automation.id,
+        targetThreadId: automation.targetThreadId,
+        reason: "upsert",
+      });
+    } catch (error) {
+      this.logger.warn("Started worktree chat but could not create heartbeat automation", {
+        threadId: input.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.emitThreadStartProgress({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        runInTarget: "newWorktree",
+        threadId: input.threadId,
+        phase: "startingThread",
+        message: "Started chat, but could not create the heartbeat.",
+        stream: "stderr",
+        outputDelta: "[stderr] Started chat, but could not create the heartbeat\n",
+      });
+    }
+  }
+
+  private buildAutomationDeleteFailureMessage(status: CodexScheduledAutomationDeleteStatus): string {
+    switch (status) {
+      case "invalid_id":
+        return "Automation id was invalid.";
+      case "store_unavailable":
+        return "Automation storage is unavailable.";
+      case "state_cleanup_failed":
+        return "Automation scheduling state could not be updated.";
+      case "remove_failed":
+        return "Automation still exists after the app tried to delete it.";
+      case "deleted":
+      case "not_found":
+        return "Automation was not deleted.";
+    }
+  }
+
+  private buildAutomationUpdateErrorMessage(error: unknown, mode: AutomationUpdateMode): string {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === "That thread already has an active heartbeat.") {
+      return "This thread already has an active heartbeat automation. Only one automation can be attached to this thread. Either update the existing automation, or confirm with the user what they would like you to do. Don't make a workaround cron automation unless the user explicitly asked for that.";
+    }
+    if (message === "Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.") {
+      return message;
+    }
+    if (message) return message;
+    return `Failed to ${mode} automation.`;
+  }
+
+  private async handleAutomationUpdateDynamicToolCall(
+    params: DynamicToolCallParams,
+    args: Record<string, unknown>,
+  ): Promise<DynamicToolCallResponse> {
+    let parsed: ParsedAutomationUpdateArgs;
+    try {
+      parsed = this.parseAutomationUpdateArgs(args);
+    } catch (error) {
+      return this.buildDynamicToolFailure(
+        `${AUTOMATION_UPDATE_TOOL_NAME} received invalid arguments: ${error instanceof Error ? error.message : String(error)}.`,
+      );
+    }
+
+    if (this.automationUpdateArgsUseUnsafeImmediateSetup(parsed)) {
+      return this.buildDynamicToolFailure(
+        "For safety, automations created by the model cannot immediately run a worktree local environment setup script. Use suggested_create or suggested_update so the user can review and approve the setup-capable automation, or set localEnvironmentConfigPath to null.",
+      );
+    }
+
+    try {
+      this.assertAutomationUpdateHeartbeatTargetIsLocalThread(parsed, params.threadId);
+
+      if (parsed.mode === "view" || parsed.mode === "suggested_create" || parsed.mode === "suggested_update") {
+        return this.buildAutomationUpdateToolResponse();
+      }
+
+      if (parsed.mode === "create") {
+        const automation = createCodexScheduledAutomation(
+          this.buildAutomationCreateInput(parsed, params.threadId),
+        );
+        this.emitScheduledAutomationChanged({
+          automationId: automation.id,
+          targetThreadId: automation.targetThreadId,
+          reason: "upsert",
+        });
+        return this.buildAutomationUpdateToolResponse({
+          automationId: automation.id,
+          mode: "create",
+        });
+      }
+
+      if (parsed.mode === "update") {
+        if (!parsed.id) throw new Error("id is required");
+        const automation = updateCodexScheduledAutomation(
+          this.buildAutomationUpdateInput({ ...parsed, id: parsed.id }, params.threadId),
+        );
+        if (!automation) {
+          throw new Error("Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.");
+        }
+        this.emitScheduledAutomationChanged({
+          automationId: automation.id,
+          targetThreadId: automation.targetThreadId,
+          reason: "upsert",
+        });
+        return this.buildAutomationUpdateToolResponse({
+          automationId: automation.id,
+          mode: "update",
+        });
+      }
+
+      if (parsed.mode === "delete") {
+        const automationId = parsed.id;
+        let existing: CodexScheduledAutomation | null = null;
+        try {
+          existing = getCodexScheduledAutomation(automationId);
+        } catch {
+          existing = null;
+        }
+        const result = deleteCodexScheduledAutomationWithStatus(automationId);
+        const success = result.status === "deleted" || result.status === "not_found";
+        if (!success) {
+          return this.buildDynamicToolFailure(this.buildAutomationDeleteFailureMessage(result.status));
+        }
+        const deletedRunCount = deleteCodexAutomationRunsForAutomation(automationId);
+        if (deletedRunCount > 0) {
+          this.notifyAutomationRunsUpdated({
+            automationId: existing?.id ?? automationId,
+            threadId: null,
+            reason: "delete",
+          });
+        }
+        this.emitScheduledAutomationChanged({
+          automationId: existing?.id ?? automationId,
+          targetThreadId: existing?.targetThreadId ?? null,
+          reason: "delete",
+        });
+        return this.buildAutomationUpdateToolResponse({
+          automationId,
+          mode: "delete",
+          deleteStatus: result.status === "not_found" ? "not_found" : "deleted",
+          snapshot: existing == null
+            ? null
+            : {
+                kind: existing.kind,
+                name: existing.name,
+                rrule: existing.rrule,
+              },
+        });
+      }
+
+      return this.buildAutomationUpdateToolResponse();
+    } catch (error) {
+      return this.buildDynamicToolFailure(this.buildAutomationUpdateErrorMessage(error, parsed.mode));
+    }
   }
 
   private async resolveDynamicThreadDetail(threadId: string): Promise<CodexThreadDetail> {
@@ -11881,6 +13726,7 @@ export class CodexService extends EventEmitter {
         status: item.dynamicToolCall.status,
         success: item.dynamicToolCall.success,
         durationMs: item.dynamicToolCall.durationMs,
+        text: item.markdownText ?? null,
       };
     }
 
@@ -12144,6 +13990,10 @@ export class CodexService extends EventEmitter {
     const args = asRecord(params.arguments) ?? {};
 
     try {
+      if (params.tool === AUTOMATION_UPDATE_TOOL_NAME) {
+        return await this.handleAutomationUpdateDynamicToolCall(params, args);
+      }
+
       if (params.tool === "read_thread_terminal") {
         return this.buildDynamicToolTextSuccess(
           this.buildDynamicReadThreadTerminalResponse(params.threadId),
@@ -12291,7 +14141,7 @@ export class CodexService extends EventEmitter {
         });
         const fallbackRef: ThreadRef | null = projectId
           ? { projectId, cwd }
-          : { projectId: null, cwd, projectlessOutputDirectory };
+          : { projectId: null, cwd, projectlessOutputDirectory, projectlessWorkspaceBrowserRoot: cwd };
         const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, fallbackRef, cwd);
         this.setConversationRecordDetail(detail);
         if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
@@ -12400,6 +14250,11 @@ export class CodexService extends EventEmitter {
   }
 
   private async handleServerRequestNow(request: CodexServerRequest): Promise<unknown> {
+    const requestMethod = String(request.method);
+    if (requestMethod === "inbox-items-create") {
+      return this.handleInboxItemsCreateRequest(request.params);
+    }
+
     if (request.method === "item/commandExecution/requestApproval") {
       return this.handleApprovalRequest(
         String(request.id),
@@ -12449,6 +14304,70 @@ export class CodexService extends EventEmitter {
 
   private handleCurrentTimeRead(): CurrentTimeReadResponse {
     return { currentTimeAt: Math.floor(Date.now() / 1_000) };
+  }
+
+  private handleInboxItemsCreateRequest(params: unknown): {
+    items: Array<{
+      id: string;
+      title: string | null;
+      description: string | null;
+      threadId: string | null;
+    }>;
+  } {
+    const payload = asRecord(params);
+    if (!payload || !Array.isArray(payload.items)) {
+      return { items: [] };
+    }
+
+    const conversationId = normalizeNonEmptyString(payload.conversationId);
+    const turnId = normalizeNonEmptyString(payload.turnId);
+    const fallbackId = conversationId ?? turnId ?? randomUUID();
+    const items: Array<{
+      id: string;
+      title: string | null;
+      description: string | null;
+      threadId: string | null;
+    }> = [];
+
+    for (const [index, candidate] of payload.items.entries()) {
+      const item = asRecord(candidate);
+      if (!item) continue;
+
+      const explicitId = normalizeNonEmptyString(item.id);
+      const id = explicitId ?? (payload.items.length > 1 ? `${fallbackId}-${index + 1}` : fallbackId);
+      const title = normalizeNonEmptyString(item.title);
+      const description =
+        normalizeNonEmptyString(item.description)
+        ?? normalizeNonEmptyString(item.summary)
+        ?? normalizeNonEmptyString(item.subtitle);
+      const threadId = normalizeNonEmptyString(item.threadId) ?? conversationId ?? id;
+
+      items.push({
+        id,
+        title,
+        description,
+        threadId,
+      });
+      try {
+        const updated = setCodexAutomationRunInboxItem({
+          threadId,
+          inboxTitle: title,
+          inboxSummary: description,
+        });
+        if (updated) {
+          this.notifyAutomationRunThreadUpdated(threadId, "turn-completed");
+        }
+      } catch (error) {
+        if (!isUnavailableSqliteBindingError(error)) {
+          this.logger.warn("Failed to persist scheduled automation inbox item", {
+            threadId,
+            error,
+          });
+        }
+      }
+    }
+
+    return { items };
   }
 
   private async handleApprovalRequest(
@@ -13585,6 +15504,7 @@ export class CodexService extends EventEmitter {
       const metadata = createSidebarThreadSyncMetadata();
       if (updated) markSidebarSyncScopeChanged(metadata, updated.projectId);
       if (archived) {
+        this.deleteHeartbeatAutomationForArchivedThread(payload.threadId);
         this.commandPaletteThreadSearchService.removeThread(payload.threadId);
         setCodexThreadPinned(payload.threadId, false);
         const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
@@ -13802,6 +15722,21 @@ export class CodexService extends EventEmitter {
             ? turnRecord.threadId
             : null;
       if (!threadId) return;
+      if (method === "turn/completed") {
+        try {
+          const updated = markCodexAutomationRunPendingReview(threadId);
+          if (updated) {
+            this.notifyAutomationRunThreadUpdated(threadId, "turn-completed");
+          }
+        } catch (error) {
+          if (!isUnavailableSqliteBindingError(error)) {
+            this.logger.warn("Failed to mark scheduled automation run pending review", {
+              threadId,
+              error,
+            });
+          }
+        }
+      }
 
       const ownerRouted = this.forwardNotificationToRendererOwner(method, payload);
       if (method !== "turn/started" && !ownerRouted) {
@@ -13844,6 +15779,9 @@ export class CodexService extends EventEmitter {
       }
       this.syncThreadStatusFromKnownTurns(threadId);
       this.reconcileTurnItemsToTerminalStatus(threadId, mergedTurn.turnId, mergedTurn.status);
+      if (method === "turn/completed") {
+        this.captureAutomationInboxItemFromTurn(threadId, mergedTurn.turnId);
+      }
       if (mergedTurn.status !== "inProgress") {
         this.restoreUnacceptedSteeringEntriesForTurn(
           threadId,

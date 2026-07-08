@@ -1,4 +1,17 @@
-import type { CodexConversationItem, CodexDynamicToolCallView } from "../../../../../lib/types";
+import { formatCodexScheduledAutomationRruleSummary } from "../../../../../lib/codex-scheduled-automation-display";
+import { formatDynamicToolCallMarkdownFallback } from "../../../../../../shared/codex-dynamic-tool-markdown";
+import type {
+  CodexConversationItem,
+  CodexDynamicToolCallView,
+  CodexScheduledAutomationCreateInput,
+  CodexScheduledAutomationDeleteResponse,
+  CodexScheduledAutomationExecutionEnvironment,
+  CodexScheduledAutomationKind,
+  CodexScheduledAutomationMutationResponse,
+  CodexScheduledAutomationReasoningEffort,
+  CodexScheduledAutomationStatus,
+  CodexScheduledAutomationUpdateInput,
+} from "../../../../../lib/types";
 import { humanizeIdentifier } from "./tool-call-utils";
 
 const CODEX_APP_NAMESPACE = "codex_app";
@@ -19,6 +32,7 @@ const DYNAMIC_TOOL_ACTIVE_FALLBACK_LABELS: Record<string, string> = {
 };
 
 export type DynamicToolRendererKind =
+  | "automationUpdate"
   | "chromeTabContext"
   | "codexAppThread"
   | "settings";
@@ -123,6 +137,378 @@ function parseInputTextJson(call: CodexDynamicToolCallView): Record<string, unkn
   } catch {
     return null;
   }
+}
+
+function parseAnyInputTextJson(call: CodexDynamicToolCallView): Record<string, unknown> | null {
+  for (const item of call.contentItems ?? []) {
+    if (item.type !== "inputText") continue;
+    const text = item.text.trim();
+    if (!text.startsWith("{")) continue;
+    try {
+      const parsed = asRecord(JSON.parse(text));
+      if (parsed) return parsed;
+    } catch {
+      // Keep scanning; dynamic tools often include human text before JSON.
+    }
+  }
+  return null;
+}
+
+type AutomationUpdateDirectiveMode =
+  | "create"
+  | "delete"
+  | "suggested-create"
+  | "suggested-update"
+  | "update"
+  | "view";
+
+type AutomationUpdateInputMode =
+  | "create"
+  | "delete"
+  | "suggested_create"
+  | "suggested_update"
+  | "update"
+  | "view";
+
+type AutomationUpdateResultMode = "create" | "delete" | "update";
+
+export interface AutomationUpdateToolResult {
+  automationId: string;
+  deleteStatus: "deleted" | "not_found" | null;
+  mode: AutomationUpdateResultMode | null;
+  snapshot: {
+    kind: CodexScheduledAutomationKind | null;
+    name: string | null;
+    rrule: string | null;
+  } | null;
+}
+
+export interface AutomationUpdateRenderState {
+  automationId: string | null;
+  canAccept: boolean;
+  createInput: CodexScheduledAutomationCreateInput | null;
+  disabledReason: string | null;
+  displayMode: AutomationUpdateDirectiveMode;
+  openLabel: string;
+  result: AutomationUpdateToolResult | null;
+  statusLabel: string;
+  subtitle: string | null;
+  title: string;
+  updateInput: CodexScheduledAutomationUpdateInput | null;
+}
+
+function normalizeAutomationUpdateMode(value: unknown): AutomationUpdateDirectiveMode | null {
+  switch (value) {
+    case "create":
+    case "delete":
+    case "update":
+    case "view":
+      return value;
+    case "suggested_create":
+    case "suggested-create":
+      return "suggested-create";
+    case "suggested_update":
+    case "suggested-update":
+      return "suggested-update";
+    default:
+      return null;
+  }
+}
+
+function normalizeAutomationUpdateInputMode(value: unknown): AutomationUpdateInputMode | null {
+  switch (value) {
+    case "create":
+    case "delete":
+    case "suggested_create":
+    case "suggested_update":
+    case "update":
+    case "view":
+      return value;
+    case "suggested-create":
+      return "suggested_create";
+    case "suggested-update":
+      return "suggested_update";
+    default:
+      return null;
+  }
+}
+
+function normalizeAutomationKind(value: unknown): CodexScheduledAutomationKind | null {
+  return value === "cron" || value === "heartbeat" ? value : null;
+}
+
+function normalizeAutomationStatus(value: unknown): CodexScheduledAutomationStatus | null {
+  return value === "ACTIVE" || value === "PAUSED" ? value : null;
+}
+
+function normalizeAutomationExecutionEnvironment(value: unknown): CodexScheduledAutomationExecutionEnvironment | null {
+  return value === "local" || value === "worktree" ? value : null;
+}
+
+function normalizeAutomationReasoningEffort(value: unknown): CodexScheduledAutomationReasoningEffort | null {
+  if (
+    value === "none"
+    || value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh"
+    || value === "max"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeNullableString(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return normalizeOptionalString(value);
+}
+
+function normalizeAutomationCwds(value: unknown): string[] | null {
+  const normalizeItems = (items: unknown[]): string[] => {
+    const seen = new Set<string>();
+    return items.flatMap((item) => {
+      if (typeof item !== "string") return [];
+      const normalized = item.trim();
+      if (!normalized || seen.has(normalized)) return [];
+      seen.add(normalized);
+      return [normalized];
+    });
+  };
+
+  if (Array.isArray(value)) return normalizeItems(value);
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      return Array.isArray(parsed) ? normalizeItems(parsed) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return normalizeItems(trimmed.split(","));
+}
+
+function parseAutomationUpdateToolResultSnapshot(value: unknown): AutomationUpdateToolResult["snapshot"] {
+  const snapshot = asRecord(value);
+  if (!snapshot) return null;
+  return {
+    kind: normalizeAutomationKind(snapshot.kind),
+    name: normalizeOptionalString(snapshot.name),
+    rrule: normalizeOptionalString(snapshot.rrule),
+  };
+}
+
+export function parseAutomationUpdateToolResult(call: CodexDynamicToolCallView): AutomationUpdateToolResult | null {
+  const parsed = parseAnyInputTextJson(call);
+  const automationId = normalizeOptionalString(parsed?.automationId);
+  if (!automationId) return null;
+  const mode = parsed?.mode === "create" || parsed?.mode === "update" || parsed?.mode === "delete"
+    ? parsed.mode
+    : null;
+  const deleteStatus = parsed?.deleteStatus === "deleted" || parsed?.deleteStatus === "not_found"
+    ? parsed.deleteStatus
+    : null;
+  return {
+    automationId,
+    mode,
+    deleteStatus,
+    snapshot: parseAutomationUpdateToolResultSnapshot(parsed?.snapshot),
+  };
+}
+
+function resolveAutomationUpdateStatusLabel(input: {
+  deleteStatus: AutomationUpdateToolResult["deleteStatus"];
+  mode: AutomationUpdateDirectiveMode;
+}): string {
+  switch (input.mode) {
+    case "create":
+      return "Created";
+    case "update":
+      return "Updated";
+    case "delete":
+      return input.deleteStatus === "not_found" ? "Missing" : "Deleted";
+    case "suggested-create":
+      return "Proposed";
+    case "suggested-update":
+      return "Proposed update";
+    case "view":
+      return "Scheduled task";
+  }
+}
+
+function resolveAutomationUpdateOpenLabel(mode: AutomationUpdateDirectiveMode): string {
+  if (mode === "suggested-create") return "Create scheduled task";
+  if (mode === "suggested-update") return "Apply changes";
+  return "Open";
+}
+
+function resolveAutomationUpdateDisplayMode(
+  argsMode: AutomationUpdateDirectiveMode,
+  result: AutomationUpdateToolResult | null,
+): AutomationUpdateDirectiveMode {
+  return result?.mode ?? argsMode;
+}
+
+function buildAutomationUpdateCreateInput(args: Record<string, unknown>, currentThreadId: string | null): CodexScheduledAutomationCreateInput | null {
+  const kind = normalizeAutomationKind(args.kind);
+  const name = normalizeOptionalString(args.name);
+  const prompt = normalizeOptionalString(args.prompt);
+  const rrule = normalizeOptionalString(args.rrule);
+  if (!kind || !name || !prompt || !rrule) return null;
+
+  if (kind === "heartbeat") {
+    const targetThreadId = normalizeOptionalString(args.targetThreadId)
+      ?? (args.destination === "thread" ? currentThreadId : null);
+    if (!targetThreadId) return null;
+    return {
+      kind,
+      targetThreadId,
+      name,
+      prompt,
+      rrule,
+      model: null,
+      reasoningEffort: null,
+    };
+  }
+
+  const cwds = normalizeAutomationCwds(args.cwds);
+  const executionEnvironment = normalizeAutomationExecutionEnvironment(args.executionEnvironment);
+  const model = normalizeOptionalString(args.model);
+  const reasoningEffort = normalizeAutomationReasoningEffort(args.reasoningEffort);
+  const localEnvironmentConfigPath = normalizeNullableString(args.localEnvironmentConfigPath);
+  if (cwds === null || !executionEnvironment || !model || !reasoningEffort) return null;
+  return {
+    kind,
+    name,
+    prompt,
+    rrule,
+    cwds,
+    executionEnvironment,
+    localEnvironmentConfigPath: localEnvironmentConfigPath ?? null,
+    model,
+    reasoningEffort,
+  };
+}
+
+function buildAutomationUpdateUpdateInput(args: Record<string, unknown>, currentThreadId: string | null): CodexScheduledAutomationUpdateInput | null {
+  const id = normalizeOptionalString(args.id);
+  const status = normalizeAutomationStatus(args.status);
+  const createInput = buildAutomationUpdateCreateInput(args, currentThreadId);
+  if (!id || !status || !createInput) return null;
+  const updateInput: CodexScheduledAutomationUpdateInput = {
+    ...createInput,
+    id,
+    status,
+  };
+  if (!Object.prototype.hasOwnProperty.call(args, "localEnvironmentConfigPath")) {
+    delete updateInput.localEnvironmentConfigPath;
+  }
+  return updateInput;
+}
+
+function resolveAutomationUpdateDisabledReason(input: {
+  mode: AutomationUpdateDirectiveMode;
+  createInput: CodexScheduledAutomationCreateInput | null;
+  updateInput: CodexScheduledAutomationUpdateInput | null;
+}): string | null {
+  if (input.mode === "suggested-create" && !input.createInput) return "This scheduled task proposal is missing required fields.";
+  if (input.mode === "suggested-update" && !input.updateInput) return "This scheduled task update is missing required fields.";
+  return null;
+}
+
+export function resolveAutomationUpdateRenderState(
+  call: CodexDynamicToolCallView,
+  currentThreadId: string | null = null,
+): AutomationUpdateRenderState | null {
+  if (call.namespace !== CODEX_APP_NAMESPACE || call.tool !== "automation_update") return null;
+  const args = asRecord(call.arguments);
+  if (!args) return null;
+  const argsMode = normalizeAutomationUpdateMode(args.mode);
+  const inputMode = normalizeAutomationUpdateInputMode(args.mode);
+  if (!argsMode || !inputMode) return null;
+
+  const result = call.success === true ? parseAutomationUpdateToolResult(call) : null;
+  const displayMode = resolveAutomationUpdateDisplayMode(argsMode, result);
+  const createInput = inputMode === "suggested_create" || inputMode === "create"
+    ? buildAutomationUpdateCreateInput(args, currentThreadId)
+    : null;
+  const updateInput = inputMode === "suggested_update" || inputMode === "update"
+    ? buildAutomationUpdateUpdateInput(args, currentThreadId)
+    : null;
+  const snapshot = result?.snapshot ?? null;
+  const title = normalizeOptionalString(args.name)
+    ?? snapshot?.name
+    ?? normalizeOptionalString(args.id)
+    ?? "Untitled scheduled task";
+  const rrule = normalizeOptionalString(args.rrule) ?? snapshot?.rrule ?? null;
+  const schedule = formatCodexScheduledAutomationRruleSummary(rrule) ?? "Custom schedule";
+  const statusLabel = resolveAutomationUpdateStatusLabel({
+    deleteStatus: result?.deleteStatus ?? null,
+    mode: displayMode,
+  });
+  const automationId = result?.automationId
+    ?? normalizeOptionalString(args.id)
+    ?? null;
+  const disabledReason = resolveAutomationUpdateDisabledReason({
+    mode: displayMode,
+    createInput,
+    updateInput,
+  });
+
+  return {
+    automationId,
+    canAccept: disabledReason === null && (displayMode === "suggested-create" || displayMode === "suggested-update"),
+    createInput,
+    disabledReason,
+    displayMode,
+    openLabel: resolveAutomationUpdateOpenLabel(displayMode),
+    result,
+    statusLabel,
+    subtitle: displayMode === "delete" ? null : schedule,
+    title,
+    updateInput,
+  };
+}
+
+export function applyAutomationUpdateMutationResult(
+  state: AutomationUpdateRenderState,
+  response: CodexScheduledAutomationMutationResponse | CodexScheduledAutomationDeleteResponse,
+): AutomationUpdateRenderState {
+  if ("item" in response && response.item) {
+    const resultMode: AutomationUpdateResultMode = state.displayMode === "suggested-update" ? "update" : "create";
+    return {
+      ...state,
+      automationId: response.item.id,
+      canAccept: false,
+      disabledReason: null,
+      displayMode: resultMode,
+      openLabel: "Open",
+      result: {
+        automationId: response.item.id,
+        deleteStatus: null,
+        mode: resultMode,
+        snapshot: null,
+      },
+      statusLabel: resolveAutomationUpdateStatusLabel({
+        deleteStatus: null,
+        mode: resultMode,
+      }),
+      subtitle: formatCodexScheduledAutomationRruleSummary(response.item.rrule) ?? state.subtitle,
+      title: response.item.name,
+    };
+  }
+  return state;
 }
 
 function parseCodexAppHandoffArguments(call: CodexDynamicToolCallView): { destinationHostId: string | null; threadId: string } | null {
@@ -282,7 +668,30 @@ function resolveCodexAppThreadSummaryKey(call: CodexDynamicToolCallView): string
   return resolveCodexAppThreadLabelKey(call);
 }
 
+function resolveAutomationUpdateLabel(call: CodexDynamicToolCallView): string | null {
+  if (!call.completed) return "Updating scheduled task";
+  if (call.success === false) return "Failed to update scheduled task";
+  const state = resolveAutomationUpdateRenderState(call);
+  if (!state) return null;
+  return state.statusLabel === "Scheduled task"
+    ? state.title
+    : `${state.statusLabel}: ${state.title}`;
+}
+
+function resolveAutomationUpdateSummaryKey(call: CodexDynamicToolCallView): string | null {
+  const state = resolveAutomationUpdateRenderState(call);
+  return state?.automationId ?? call.callId;
+}
+
 const DYNAMIC_TOOL_REGISTRY: DynamicToolRegistryEntry[] = [
+  {
+    namespace: CODEX_APP_NAMESPACE,
+    tool: "automation_update",
+    rendererKind: "automationUpdate",
+    standaloneInConversation: true,
+    resolveLabel: resolveAutomationUpdateLabel,
+    getCompletedSummaryPartKey: resolveAutomationUpdateSummaryKey,
+  },
   {
     namespace: CHROME_EXTENSION_NAMESPACE,
     tool: "get_tab_context",
@@ -487,6 +896,9 @@ export function buildDynamicToolCallSummaryPartKey(call: CodexDynamicToolCallVie
 }
 
 export function extractDynamicToolTextContent(call: CodexDynamicToolCallView): string[] {
+  const markdownFallback = formatDynamicToolCallMarkdownFallback(call);
+  if (markdownFallback) return [markdownFallback];
+
   return (call.contentItems ?? []).flatMap((item) => {
     if (item.type !== "inputText") return [];
     const text = item.text.trim();

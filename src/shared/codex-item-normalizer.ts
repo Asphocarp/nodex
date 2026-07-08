@@ -28,6 +28,7 @@ import {
   normalizeAutomaticApprovalReviewPayload,
   normalizeMultiAgentActionPayload,
 } from "./codex-transcript-special-items";
+import { formatDynamicToolCallMarkdownFallback } from "./codex-dynamic-tool-markdown";
 import { projectCodexReasoningSummary } from "./codex-reasoning-projection";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -883,6 +884,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
       error: candidate.success === false ? "Dynamic tool call failed" : undefined,
     });
     result.dynamicToolCall = buildDynamicToolCallView(candidate, result.itemId);
+    result.markdownText = formatDynamicToolCallMarkdownFallback(result.dynamicToolCall) ?? undefined;
     return applyFallbackContent(result, itemType);
   }
 

@@ -50,6 +50,7 @@ interface ThreadBlockRendererProps {
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
+  onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
   onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
@@ -73,6 +74,7 @@ export function ThreadBlockRenderer({
   onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
+  onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
   onOpenPlanInSidePanel,
   onClosePlanSidePanel,
@@ -128,6 +130,7 @@ export function ThreadBlockRenderer({
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
+        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
@@ -145,6 +148,7 @@ export function ThreadBlockRenderer({
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
+        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
@@ -162,6 +166,7 @@ export function ThreadBlockRenderer({
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
+        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
@@ -197,6 +202,7 @@ export function ThreadBlockRenderer({
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
+        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />

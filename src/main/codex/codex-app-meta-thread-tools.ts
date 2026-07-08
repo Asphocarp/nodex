@@ -19,6 +19,173 @@ const THINKING_SCHEMA = {
   enum: ["low", "medium", "high", "xhigh", "max"],
 };
 
+export const AUTOMATION_UPDATE_TOOL_NAME = "automation_update";
+const AUTOMATION_COMMON_REQUIRED_FIELDS = ["mode", "kind", "name", "prompt", "rrule", "status"];
+const AUTOMATION_UPDATE_REASONING_EFFORT_SCHEMA = {
+  type: "string",
+  description:
+    "Reasoning effort to use for cron automations. One of none, minimal, low, medium, high, xhigh, or max.",
+  enum: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+};
+const AUTOMATION_CWDS_SCHEMA = {
+  description:
+    "Cron automations only. Workspace directories for the automation; can be a JSON array or comma-separated string.",
+  anyOf: [
+    {
+      type: "array",
+      items: { type: "string" },
+    },
+    {
+      type: "string",
+    },
+  ],
+};
+const AUTOMATION_COMMON_PROPERTIES = {
+  name: {
+    type: "string",
+    description:
+      "Short human-readable automation name. If the user does not provide one, choose a concise name.",
+  },
+  prompt: {
+    type: "string",
+    description:
+      "The automation prompt. Describe only the task itself; do not include schedule, workspace, or thread details because those are provided separately. Keep it self-sufficient, include output expectations when useful, and do not ask it to write a file or announce nothing to do unless the user explicitly asked for that.",
+  },
+  rrule: {
+    type: "string",
+    description:
+      "RRULE schedule string. Interpret requested times in the user's locale. Cron automations use hourly interval or weekly schedules. Heartbeat automations attached to a thread can use minute-based intervals such as FREQ=MINUTELY;INTERVAL=30 or daily/weekly wall-clock schedules.",
+  },
+  status: {
+    type: "string",
+    description: "One of ACTIVE or PAUSED. Default to ACTIVE unless the user asks to start paused.",
+    enum: ["ACTIVE", "PAUSED"],
+  },
+};
+
+function buildAutomationViewOrDeleteSchema(mode: "view" | "delete") {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      mode: { type: "string", enum: [mode] },
+      id: {
+        type: "string",
+        description:
+          "Automation id. Required for mode=view, mode=update, mode=delete, and mode=suggested_update. Omit for mode=create and mode=suggested_create.",
+      },
+    },
+    required: ["mode", "id"],
+  };
+}
+
+function buildAutomationCronSchema(modes: string[], requiresId: boolean) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      mode: { type: "string", enum: modes },
+      ...(requiresId
+        ? {
+            id: {
+              type: "string",
+              description:
+                "Automation id. Required for mode=view, mode=update, mode=delete, and mode=suggested_update. Omit for mode=create and mode=suggested_create.",
+            },
+          }
+        : {}),
+      kind: {
+        type: "string",
+        enum: ["cron"],
+        description: "Use cron for standalone recurring jobs against workspaces.",
+      },
+      ...AUTOMATION_COMMON_PROPERTIES,
+      cwds: AUTOMATION_CWDS_SCHEMA,
+      destination: {
+        type: "string",
+        description: "Optional automation destination.",
+        enum: ["local", "worktree"],
+      },
+      executionEnvironment: {
+        type: "string",
+        description: "One of worktree or local. Cron automations only.",
+        enum: ["worktree", "local"],
+      },
+      localEnvironmentConfigPath: {
+        description:
+          "Optional local environment config path for worktree setup scripts. Immediate worktree create calls with a non-null value and immediate worktree update calls that preserve or set a setup config are rejected; use suggested_create/suggested_update for user review. Pass null to clear or run without setup. Cron automations only.",
+        anyOf: [{ type: "string" }, { type: "null" }],
+      },
+      model: {
+        type: "string",
+        description: "Model to use for cron automations.",
+      },
+      reasoningEffort: AUTOMATION_UPDATE_REASONING_EFFORT_SCHEMA,
+    },
+    required: [
+      ...AUTOMATION_COMMON_REQUIRED_FIELDS,
+      ...(requiresId ? ["id"] : []),
+      "cwds",
+      "executionEnvironment",
+      "model",
+      "reasoningEffort",
+    ],
+  };
+}
+
+function buildAutomationHeartbeatSchema(modes: string[], requiresId: boolean) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      mode: { type: "string", enum: modes },
+      ...(requiresId
+        ? {
+            id: {
+              type: "string",
+              description:
+                "Automation id. Required for mode=view, mode=update, mode=delete, and mode=suggested_update. Omit for mode=create and mode=suggested_create.",
+            },
+          }
+        : {}),
+      kind: {
+        type: "string",
+        enum: ["heartbeat"],
+        description:
+          "Use heartbeat when the user wants this thread to wake up later and continue the conversation.",
+      },
+      ...AUTOMATION_COMMON_PROPERTIES,
+      destination: {
+        type: "string",
+        description: "Optional automation destination. Use thread for heartbeat automations attached to the current local thread.",
+        enum: ["local", "worktree", "thread"],
+      },
+      targetThreadId: {
+        type: "string",
+        description:
+          "Target thread id for heartbeat automations. Prefer destination=thread for the current local thread instead of inventing or copying raw thread ids.",
+      },
+    },
+    required: [
+      ...AUTOMATION_COMMON_REQUIRED_FIELDS,
+      ...(requiresId ? ["id"] : []),
+    ],
+  };
+}
+
+function buildAutomationUpdateToolSchema() {
+  return {
+    anyOf: [
+      buildAutomationViewOrDeleteSchema("view"),
+      buildAutomationViewOrDeleteSchema("delete"),
+      buildAutomationCronSchema(["create", "suggested_create"], false),
+      buildAutomationHeartbeatSchema(["create", "suggested_create"], false),
+      buildAutomationCronSchema(["update", "suggested_update"], true),
+      buildAutomationHeartbeatSchema(["update", "suggested_update"], true),
+    ],
+  };
+}
+
 const STARTING_STATE_SCHEMA = {
   description: "Starting state for the new worktree.",
   anyOf: [
@@ -419,6 +586,13 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
         additionalProperties: false,
         properties: {},
       },
+    },
+    {
+      type: "function",
+      name: AUTOMATION_UPDATE_TOOL_NAME,
+      description:
+        "Create, update, view, or delete recurring automations in the Nodex app. Use this when the user asks for a scheduled task, automation, recurring run, repeated task, reminder, follow-up, monitor, or asks you to watch something, keep an eye on it, check back later, wake up later, notify them, or keep working later. Cron automations run as standalone jobs against workspaces. Heartbeat automations are proactive follow-ups attached to the current local thread. Prefer heartbeats for requests to continue this thread later, especially below one hour. Use suggested_create or suggested_update when proposing a worktree automation with a local environment setup config so the user can review it before it is saved. Never write raw automation directives by hand, show raw RRULE strings to the user, or create a workaround cron automation for a thread heartbeat unless the user explicitly asks for that. For requests about existing automations, inspect $NODEX_DIR/automations/*/automation.toml to find matching automation ids by name or prompt. Prefer updating an existing automation over creating a duplicate. For updates, preserve existing fields unless the user asks to change them, and call automation_update with the resolved id and full updated fields.",
+      inputSchema: buildAutomationUpdateToolSchema(),
     },
   ];
 

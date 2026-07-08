@@ -2237,6 +2237,13 @@ function subscribeCodexScheduledAutomationChanges(
   return () => {};
 }
 
+function subscribeCodexAutomationRunsUpdates(
+  callback: (event: import("./types").CodexAutomationRunsUpdatedEvent) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 function subscribePersistedAtomUpdates(
   callback: (
     update: import("../../shared/ipc-api").PersistedAtomUpdate,
@@ -2288,6 +2295,7 @@ export const browserRendererTransport = {
   subscribeCommandKeymapChanges,
   subscribeCommandPaletteThreadIndexUpdates,
   subscribeCodexScheduledAutomationChanges,
+  subscribeCodexAutomationRunsUpdates,
   subscribePersistedAtomUpdates,
   getWindowFocusState,
   subscribeWindowFocusChanges,

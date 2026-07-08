@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { render, textContent } from "../../../../../test/dom";
 import { DynamicToolCall } from "./dynamic-tool-call";
@@ -38,6 +40,19 @@ function buildDynamicEntry(overrides?: Partial<NonNullable<CodexTranscriptEntry[
     createdAt: 1,
     updatedAt: 1,
   };
+}
+
+function renderWithQueryClient(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>,
+  );
 }
 
 describe("DynamicToolCall", () => {
@@ -237,5 +252,90 @@ describe("DynamicToolCall", () => {
     );
 
     expect(textContent(container)).toBe("Updating scheduled task");
+  });
+
+  test("renders completed automation_update results as openable scheduled task cards", () => {
+    const opened: string[] = [];
+    const { container, getByRole } = renderWithQueryClient(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          tool: "automation_update",
+          arguments: {
+            mode: "create",
+            kind: "cron",
+            status: "ACTIVE",
+            name: "Release notes",
+            prompt: "Review release notes.",
+            rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+            cwds: ["/repo/nodex"],
+            executionEnvironment: "worktree",
+            localEnvironmentConfigPath: null,
+            model: "gpt-5-codex",
+            reasoningEffort: "medium",
+          },
+          contentItems: [
+            { type: "inputText", text: "Created automation in the app." },
+            { type: "inputText", text: "{\"automationId\":\"automation-release\",\"mode\":\"create\"}" },
+          ],
+        })}
+        onOpenSummaryScheduledAutomation={(input) => {
+          opened.push(`${input.automationId}:${input.title}`);
+        }}
+      />,
+    );
+
+    expect(textContent(container).includes("Release notes")).toBeTrue();
+    expect(textContent(container).includes("Created")).toBeTrue();
+    expect(textContent(container).includes("Daily")).toBeTrue();
+
+    fireEvent.click(getByRole("button", { name: /Release notes/i }));
+
+    expect(opened.join(",")).toBe("automation-release:Release notes");
+  });
+
+  test("opens suggested automation_update create cards as scheduled task side-panel proposals", () => {
+    const opened: string[] = [];
+    const item = {
+      ...buildDynamicEntry({
+        tool: "automation_update",
+        arguments: {
+          mode: "suggested_create",
+          kind: "cron",
+          status: "ACTIVE",
+          name: "Review release notes",
+          prompt: "Review release notes and summarize risks.",
+          rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+          cwds: "/repo/nodex",
+          executionEnvironment: "worktree",
+          localEnvironmentConfigPath: null,
+          model: "gpt-5-codex",
+          reasoningEffort: "medium",
+        },
+      }),
+      threadId: "thread-current",
+    };
+    const { container, getByRole } = renderWithQueryClient(
+      <DynamicToolCall
+        item={item}
+        onOpenSummaryScheduledAutomation={(input) => {
+          opened.push([
+            input.mode,
+            input.title,
+            input.createInput?.kind,
+            input.createInput?.name,
+            input.createInput?.cwds?.join(","),
+          ].join(":"));
+        }}
+      />,
+    );
+
+    expect(textContent(container).includes("Proposed")).toBeTrue();
+    expect(textContent(container).includes("Open")).toBeTrue();
+    expect(textContent(container).includes("Create scheduled task")).toBeFalse();
+    expect(textContent(container).includes("Cancel")).toBeFalse();
+
+    fireEvent.click(getByRole("button", { name: /Review release notes/i }));
+
+    expect(opened.join(",")).toBe("suggested-create:Review release notes:cron:Review release notes:/repo/nodex");
   });
 });

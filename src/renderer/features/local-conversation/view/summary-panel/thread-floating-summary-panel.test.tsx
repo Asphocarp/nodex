@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, mock, test as bunTest } from "bun:test";
 import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import type { ReactElement } from "react";
@@ -23,11 +23,36 @@ import type {
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl:
   ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
+let summaryPanelPendingDefaultsEnabled = false;
+const pendingByDefaultInvokeChannels = new Set([
+  "codex:mcp-resource:read",
+  "codex:mcp-server-statuses:list",
+  "git:action:status",
+  "git:branch:state",
+  "git:review:snapshot",
+  "gh-pr-status",
+]);
 
 mock.module("../../../../lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
-    return mockInvokeImpl?.(channel, ...args) ?? null;
+    if (mockInvokeImpl) {
+      const result = await mockInvokeImpl(channel, ...args);
+      if (
+        result !== null ||
+        !summaryPanelPendingDefaultsEnabled ||
+        !pendingByDefaultInvokeChannels.has(channel)
+      ) {
+        return result;
+      }
+    }
+    if (
+      summaryPanelPendingDefaultsEnabled &&
+      pendingByDefaultInvokeChannels.has(channel)
+    ) {
+      return await new Promise(() => undefined);
+    }
+    return null;
   },
   subscribeBoardChanges: () => () => undefined,
   subscribeProjectSessionChanges: () => () => undefined,
@@ -64,6 +89,19 @@ function renderSummary(ui: ReactElement) {
       <NodexTooltipProvider>{ui}</NodexTooltipProvider>
     </TestQueryProvider>,
   );
+}
+
+function test(name: string, run: () => void | Promise<void>) {
+  bunTest(name, async () => {
+    await run();
+    await settleSummaryPanelAsyncWork();
+  });
+}
+
+async function settleSummaryPanelAsyncWork(): Promise<void> {
+  for (let index = 0; index < 5; index += 1) {
+    await settleAsyncRender();
+  }
 }
 
 async function clickAndSettle(target: Element): Promise<void> {
@@ -196,26 +234,28 @@ function makeSubagentConversation(
 }
 
 describe("ThreadFloatingSummaryPanel", () => {
+  beforeAll(() => {
+    summaryPanelPendingDefaultsEnabled = true;
+  });
+
   beforeEach(() => {
     invokeCalls = [];
     mockInvokeImpl = null;
   });
 
   afterEach(async () => {
-    await act(async () => {
-      for (let index = 0; index < 3; index += 1) {
-        await settleAsyncRender();
-      }
-    });
+    await settleSummaryPanelAsyncWork();
     await act(async () => {
       cleanup();
       await Promise.resolve();
     });
-    await act(async () => {
-      for (let index = 0; index < 3; index += 1) {
-        await settleAsyncRender();
-      }
-    });
+    await settleSummaryPanelAsyncWork();
+  });
+
+  afterAll(() => {
+    summaryPanelPendingDefaultsEnabled = false;
+    invokeCalls = [];
+    mockInvokeImpl = null;
   });
 
   test("renders the pinned summary without authenticated quota content", async () => {

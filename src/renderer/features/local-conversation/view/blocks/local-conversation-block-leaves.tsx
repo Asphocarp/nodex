@@ -84,6 +84,7 @@ import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-sett
 import { logAssistantStreamingDebugState } from "../../../../lib/assistant-streaming-debug";
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../lib/utils";
+import { stripCodexRemarkDirectiveLines } from "../../../../../shared/codex-remark-directives";
 import type {
   ThreadAssistantMessageActionsModel,
   ThreadBlockModel,
@@ -112,6 +113,7 @@ export interface ThreadLeafBlockProps {
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
+  onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
   onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
@@ -132,6 +134,7 @@ export interface ThreadSpecialBlockProps {
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
+  onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
   onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
@@ -618,6 +621,7 @@ export function ThreadPendingMcpToolCallsBlock({
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
   onOpenThread,
+  onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
@@ -652,6 +656,7 @@ export function ThreadPendingMcpToolCallsBlock({
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
+        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         nestedInCollapsedActivity
@@ -818,6 +823,7 @@ export function ThreadDynamicToolCallGroupBlock({
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
   onOpenThread,
+  onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
@@ -856,6 +862,7 @@ export function ThreadDynamicToolCallGroupBlock({
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenThread={onOpenThread}
+        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
         onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         nestedInCollapsedActivity
@@ -900,6 +907,7 @@ function renderCollapsedActivityEntry({
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
   onOpenThread,
+  onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: {
@@ -911,6 +919,7 @@ function renderCollapsedActivityEntry({
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
+  onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   turnDiffHoverPreviewDisabled?: boolean;
 }) {
@@ -922,6 +931,7 @@ function renderCollapsedActivityEntry({
     onOpenTurnDiffReview,
     onOpenTurnDiffFileInSidePanel,
     onOpenThread,
+    onOpenSummaryScheduledAutomation,
     onOpenMcpAppSidePanel,
     turnDiffHoverPreviewDisabled,
   };
@@ -1057,6 +1067,7 @@ export function ThreadCollapsedToolActivityBlock({
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
   onOpenThread,
+  onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
@@ -1117,6 +1128,7 @@ export function ThreadCollapsedToolActivityBlock({
             onOpenTurnDiffReview,
             onOpenTurnDiffFileInSidePanel,
             onOpenThread,
+            onOpenSummaryScheduledAutomation,
             onOpenMcpAppSidePanel,
             turnDiffHoverPreviewDisabled,
           })}
@@ -1159,6 +1171,7 @@ export function ThreadToolSurfaceBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenThread,
+  onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
   nestedInCollapsedActivity = false,
 }: ThreadLeafBlockProps) {
@@ -1183,6 +1196,7 @@ export function ThreadToolSurfaceBlock({
       execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
       hideHeader={nestedInCollapsedActivity && block.type === "webSearch"}
       showExecSummaryIcon={!nestedInCollapsedActivity}
+      onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
       onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
@@ -1788,7 +1802,7 @@ export function ThreadAssistantBodyBlock({
   onForkFromTurn,
   assistantAfter,
 }: ThreadLeafBlockProps) {
-  const markdownText = block.entry.markdownText ?? "";
+  const markdownText = stripCodexRemarkDirectiveLines(block.entry.markdownText);
   const isAssistantItemStreaming = isStreamingTurn && block.entry.status === "inProgress";
   const assistantActions = block.assistantMessageActions;
 

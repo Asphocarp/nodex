@@ -27,9 +27,27 @@ import type {
   CodexReviewStartResponse,
   CodexRendererClientRequestMessage,
   CodexRendererClientResponseMessage,
-  CodexScheduledAutomation,
+  CodexAutomationRunsInboxResponse,
+  CodexAutomationRunArchiveInput,
+  CodexAutomationRunDeleteInput,
+  CodexAutomationRunsUpdatedEvent,
+  CodexAutomationRunUnarchiveInput,
+  CodexAutomationRunMarkAllReadInput,
+  CodexAutomationRunMarkAllReadResponse,
+  CodexAutomationRunMutationResponse,
+  CodexAutomationRunReadStateInput,
+  CodexAutomationInboxItem,
+  CodexHeartbeatAutomationThreadStateChangedInput,
+  CodexHeartbeatAutomationsEnabledChangedInput,
   CodexScheduledAutomationChangedEvent,
-  CodexScheduledAutomationUpsertInput,
+  CodexScheduledAutomationCreateInput,
+  CodexScheduledAutomationDeleteInput,
+  CodexScheduledAutomationDeleteResponse,
+  CodexScheduledAutomationListResponse,
+  CodexScheduledAutomationMutationResponse,
+  CodexScheduledAutomationRunNowInput,
+  CodexScheduledAutomationRunNowResponse,
+  CodexScheduledAutomationUpdateInput,
   CodexThreadFollowerActionInput,
   CodexThreadOwnerNotificationAckInput,
   CodexThreadOwnerStreamStatePublishInput,
@@ -1145,15 +1163,55 @@ export interface IpcApi {
   };
   "codex:scheduled-automations:list": {
     args: [];
-    result: CodexScheduledAutomation[];
+    result: CodexScheduledAutomationListResponse;
   };
-  "codex:scheduled-automations:upsert": {
-    args: [input: CodexScheduledAutomationUpsertInput];
-    result: CodexScheduledAutomation;
+  "codex:scheduled-automations:create": {
+    args: [input: CodexScheduledAutomationCreateInput];
+    result: CodexScheduledAutomationMutationResponse;
+  };
+  "codex:scheduled-automations:update": {
+    args: [input: CodexScheduledAutomationUpdateInput];
+    result: CodexScheduledAutomationMutationResponse;
   };
   "codex:scheduled-automations:delete": {
-    args: [automationId: string];
-    result: boolean;
+    args: [input: CodexScheduledAutomationDeleteInput];
+    result: CodexScheduledAutomationDeleteResponse;
+  };
+  "codex:scheduled-automations:run-now": {
+    args: [input: CodexScheduledAutomationRunNowInput];
+    result: CodexScheduledAutomationRunNowResponse;
+  };
+  "codex:scheduled-automations:heartbeat-enabled-changed": {
+    args: [input: CodexHeartbeatAutomationsEnabledChangedInput];
+    result: { success: boolean };
+  };
+  "codex:scheduled-automations:heartbeat-thread-state-changed": {
+    args: [input: CodexHeartbeatAutomationThreadStateChangedInput];
+    result: { success: boolean };
+  };
+  "codex:automation-runs:archive": {
+    args: [input: CodexAutomationRunArchiveInput];
+    result: CodexAutomationRunMutationResponse;
+  };
+  "codex:automation-runs:delete": {
+    args: [input: CodexAutomationRunDeleteInput];
+    result: CodexAutomationRunMutationResponse;
+  };
+  "codex:automation-runs:unarchive": {
+    args: [input: CodexAutomationRunUnarchiveInput];
+    result: CodexAutomationRunMutationResponse;
+  };
+  "codex:automation-runs:inbox-items": {
+    args: [limit?: number];
+    result: CodexAutomationRunsInboxResponse;
+  };
+  "codex:automation-runs:set-read-state": {
+    args: [input: CodexAutomationRunReadStateInput];
+    result: CodexAutomationInboxItem | null;
+  };
+  "codex:automation-runs:mark-all-read": {
+    args: [input: CodexAutomationRunMarkAllReadInput];
+    result: CodexAutomationRunMarkAllReadResponse;
   };
   "codex:model:list": {
     args: [];
@@ -1449,6 +1507,7 @@ export interface IpcEvents {
   "codex:renderer-client:request": CodexRendererClientRequestMessage;
   "codex:threads:palette:index-updated": CommandPaletteThreadIndexUpdatedEvent;
   "codex:scheduled-automations:changed": CodexScheduledAutomationChangedEvent;
+  "codex:automation-runs:updated": CodexAutomationRunsUpdatedEvent;
   "browser-sidebar-state": BrowserSidebarStateSnapshot;
   "browser-sidebar-local-servers": BrowserSidebarLocalServersSnapshot;
   "browser-sidebar-browser-use-state": BrowserSidebarBrowserUseStateSnapshot;

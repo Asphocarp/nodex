@@ -1,6 +1,7 @@
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationItem } from "../../../lib/types";
 import { hasCodexFileChangeEntries } from "../../../../shared/codex-file-change";
+import { stripCodexRemarkDirectiveLines } from "../../../../shared/codex-remark-directives";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import type {
   ThreadOpenSubagentStatus,
@@ -57,7 +58,7 @@ function stringifyValue(value: unknown): string {
 
 function resolveSearchableText(entry: CodexConversationItem): string {
   const segments = [
-    entry.markdownText ?? "",
+    resolveVisibleMarkdownText(entry) ?? "",
     entry.additionalDetails ?? "",
     entry.toolCall?.toolName ?? "",
     entry.toolCall?.server ?? "",
@@ -74,7 +75,15 @@ function resolveSearchableText(entry: CodexConversationItem): string {
   ]
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
-  return segments.join("\n").trim();
+  return stripCodexRemarkDirectiveLines(segments.join("\n"));
+}
+
+function resolveVisibleMarkdownText(entry: CodexConversationItem): string | undefined {
+  if (entry.kind !== "assistantMessage" && entry.semanticKind !== "assistantMessage") {
+    return entry.markdownText;
+  }
+
+  return stripCodexRemarkDirectiveLines(entry.markdownText);
 }
 
 function hasRenderableFileChangeEntry(entry: CodexConversationItem): boolean {

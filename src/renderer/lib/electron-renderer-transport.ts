@@ -115,6 +115,15 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
         callback(payload);
       });
     },
+    subscribeCodexAutomationRunsUpdates(
+      callback: (event: import("./types").CodexAutomationRunsUpdatedEvent) => void,
+    ) {
+      return bridge.on("codex:automation-runs:updated", (...args: unknown[]) => {
+        const payload = args[0] as import("./types").CodexAutomationRunsUpdatedEvent | undefined;
+        if (!payload || typeof payload.reason !== "string") return;
+        callback(payload);
+      });
+    },
     subscribePersistedAtomUpdates(callback: (update: PersistedAtomUpdate) => void) {
       return bridge.on("persisted-atom:updated", (...args: unknown[]) => {
         const payload = args[0] as PersistedAtomUpdate | undefined;

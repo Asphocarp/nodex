@@ -4,6 +4,7 @@ import {
   formatCodexReasoningEffortLabel,
   formatCodexThreadDetailLevelLabel,
   readCodexThreadSettings,
+  resolveCodexModelSelection,
   resolveCodexReasoningEffortOptions,
   resolveCodexThreadDetailLevel,
   resolveCodexThreadSettings,
@@ -116,6 +117,44 @@ describe("codex-thread-settings", () => {
     expect(settings.reasoningEffort).toBe("medium");
   });
 
+  test("resolves shared model selections from visible defaults", () => {
+    const selection = resolveCodexModelSelection({
+      model: "retired-model",
+      reasoningEffort: "max",
+      models: MODELS,
+      fallbackReasoningEffort: "medium",
+    });
+
+    expect(selection.model).toBe("gpt-5.3-codex");
+    expect(selection.reasoningEffort).toBe("high");
+  });
+
+  test("matches persisted model aliases against visible model entries", () => {
+    const selection = resolveCodexModelSelection({
+      model: "gpt-5.4-mini",
+      reasoningEffort: "high",
+      models: [
+        ...MODELS,
+        {
+          id: "mini-id",
+          model: "gpt-5.4-mini",
+          displayName: "GPT-5.4 Mini",
+          description: "Alias row",
+          hidden: false,
+          supportedReasoningEfforts: [
+            { reasoningEffort: "minimal", description: "Minimal" },
+            { reasoningEffort: "low", description: "Lower effort" },
+          ],
+          defaultReasoningEffort: "minimal",
+          isDefault: false,
+        },
+      ],
+    });
+
+    expect(selection.model).toBe("mini-id");
+    expect(selection.reasoningEffort).toBe("minimal");
+  });
+
   test("clamps unsupported reasoning effort when the selected model changes", () => {
     const settings = resolveCodexThreadSettings(
       {
@@ -155,6 +194,7 @@ describe("codex-thread-settings", () => {
         },
       ]),
     ).toBe("GPT-5.1-Codex-Max");
+    expect(formatCodexReasoningEffortLabel("low")).toBe("Light");
     expect(formatCodexReasoningEffortLabel("xhigh")).toBe("Extra High");
     expect(formatCodexThreadDetailLevelLabel("STEPS_EXECUTION")).toBe("Steps with code output");
     expect(resolveCodexThreadDetailLevel(undefined)).toBe("STEPS_COMMANDS");

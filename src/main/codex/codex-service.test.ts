@@ -15,6 +15,7 @@ import type {
   CodexPermissionMode,
   CodexPermissionState,
   CodexPromptInput,
+  CodexScheduledAutomation,
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
@@ -47,6 +48,17 @@ import {
   listProjectSessions,
   upsertProjectSessionThreadLink,
 } from "../local-store/project-sessions";
+import {
+  getCodexScheduledAutomation,
+  listCodexScheduledAutomations,
+  upsertCodexScheduledAutomation,
+} from "../local-store/codex-scheduled-automations";
+import {
+  archiveCodexAutomationRun,
+  getCodexAutomationRun,
+  insertCodexAutomationRunInProgress,
+  markCodexAutomationRunPendingReview,
+} from "../local-store/codex-automation-runs";
 import { CodexRpcError } from "./codex-app-server-client";
 import {
   getCodexThread,
@@ -176,6 +188,11 @@ interface TestableCodexService {
     runInEnvironmentPath?: string | null;
     worktreeStartMode?: "autoBranch" | "detachedHead";
     worktreeBranchPrefix?: string;
+    heartbeatAutomation?: {
+      name: string;
+      prompt: string;
+      rrule: string;
+    } | null;
   }) => Promise<CodexThreadDetail>;
   setThreadName: (threadId: string, name: string) => Promise<boolean>;
   setGeneratedThreadName: (threadId: string, name: string) => Promise<boolean>;
@@ -196,6 +213,23 @@ interface TestableCodexService {
   respondToUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<boolean>;
   setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
   getCustomPermissionModeDescription: (projectId: string) => string;
+  runScheduledAutomationNow: (
+    input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
+  ) => Promise<void>;
+  captureAutomationArchiveMessages: (threadId: string) => Promise<boolean>;
+  runScheduledAutomation: (
+    automation: CodexScheduledAutomation,
+    context: {
+      now?: number;
+      reason?: "scheduled" | "run-now";
+      heartbeat?: {
+        automationsEnabled: boolean;
+        rendererState: { isEligible: boolean; reason: string | null; updatedAtMs?: number } | null;
+        collaborationMode: import("../../shared/types").CodexHeartbeatAutomationCollaborationMode | null;
+        permissions: import("../../shared/types").CodexHeartbeatAutomationPermissions | null;
+      };
+    },
+  ) => Promise<void>;
   listManagedWorktrees: () => Promise<ManagedWorktreeRecord[]>;
   deleteManagedWorktree: (threadId: string) => Promise<boolean>;
   setConversationCollaborationMode: (
@@ -1954,6 +1988,1727 @@ function initializeGitRepository(repoPath: string): void {
   execFileSync("git", ["add", "README.md"], { cwd: repoPath });
   execFileSync("git", ["commit", "-m", "initial"], { cwd: repoPath });
 }
+
+describe("codex-service scheduled automations", () => {
+  test("runs a cron automation by starting an automation thread and first turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      const previousRunAt = Date.UTC(2026, 6, 7, 13, 20, 0);
+      const originalCodexHome = process.env.CODEX_HOME;
+      const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-automation-codex-home-"));
+      process.env.CODEX_HOME = codexHome;
+      const service = createService();
+      const runUpdateEvents: Array<Extract<CodexEvent, { type: "automationRunsUpdated" }>> = [];
+      service.on("event", (event) => {
+        if (event.type === "automationRunsUpdated") {
+          runUpdateEvents.push(event);
+        }
+      });
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const automation = upsertCodexScheduledAutomation({
+        id: "daily-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Daily report",
+        prompt: "Summarize the repo.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: "gpt-5",
+        reasoningEffort: "medium",
+        cwds: ["/tmp/codex"],
+        executionEnvironment: "local",
+        nextRunAt: now - 1_000,
+        lastRunAt: previousRunAt,
+        createdAt: 10,
+        updatedAt: 10,
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params?: unknown) => {
+        requests.push({ method, params });
+        if (method === "model/list") {
+          return {
+            data: [{
+              id: "gpt-5",
+              model: "gpt-5",
+              displayName: "GPT-5",
+              description: "",
+              hidden: false,
+              supportedReasoningEfforts: [
+                { reasoningEffort: "medium", description: "" },
+                { reasoningEffort: "high", description: "" },
+              ],
+              defaultReasoningEffort: "high",
+              isDefault: true,
+            }],
+          };
+        }
+        if (method === "config/read") {
+          return {
+            config: {
+              sandbox_mode: "workspace-write",
+              approval_policy: "on-request",
+              approvals_reviewer: "user",
+              sandbox_workspace_write: {
+                writable_roots: [],
+                network_access: false,
+                exclude_tmpdir_env_var: false,
+                exclude_slash_tmp: false,
+              },
+            },
+            origins: {},
+            layers: null,
+          };
+        }
+        if (method === "configRequirements/read") {
+          return { requirements: null };
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thread-automation",
+              sessionId: "session-automation",
+              status: { type: "idle" },
+              createdAt: now,
+              updatedAt: now,
+              cwd: "/tmp/codex",
+              modelProvider: "openai",
+              preview: "",
+              name: null,
+              threadSource: "automation",
+              turns: [],
+            },
+            model: "gpt-5",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd: "/tmp/codex",
+            runtimeWorkspaceRoots: ["/tmp/codex"],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: ["/tmp/codex"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "medium",
+            multiAgentMode: "explicitRequestOnly",
+          };
+        }
+        if (method === "thread/name/set") {
+          return {};
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn-automation",
+              status: "inProgress",
+              items: [],
+              startedAt: now,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        await (service as unknown as {
+          runScheduledAutomation: (
+            automation: CodexScheduledAutomation,
+            context: { now: number; reason: "run-now" },
+          ) => Promise<void>;
+          handleNotification: (method: string, params: unknown) => Promise<void>;
+        }).runScheduledAutomation(automation, { now, reason: "run-now" });
+
+        const threadStartRequest = requests.find((request) => request.method === "thread/start");
+        const threadStartParams = threadStartRequest?.params as {
+          cwd?: string | null;
+          model?: string | null;
+          developerInstructions?: string | null;
+          threadSource?: string | null;
+          dynamicTools?: unknown[];
+          sandbox?: string | null;
+          approvalPolicy?: string | null;
+          approvalsReviewer?: string | null;
+        } | undefined;
+        expect(threadStartParams?.cwd).toBe("/tmp/codex");
+        expect(threadStartParams?.model).toBe("gpt-5");
+        expect(threadStartParams?.threadSource).toBe("automation");
+        expect(threadStartParams?.sandbox).toBe("workspace-write");
+        expect(threadStartParams?.approvalPolicy).toBe("on-request");
+        expect(threadStartParams?.approvalsReviewer).toBe("user");
+        expect(threadStartParams?.developerInstructions?.includes("$CODEX_HOME/automations/<automation_id>/memory.md")).toBeTrue();
+        expect(threadStartParams?.developerInstructions?.includes("(create it if missing)")).toBeTrue();
+        expect(threadStartParams?.developerInstructions?.includes("Read it first (if present) to avoid repeating recent work")).toBeTrue();
+        expect(threadStartParams?.developerInstructions?.includes("Before returning the directive, write a concise summary")).toBeTrue();
+        expect(threadStartParams?.developerInstructions?.includes("Output exactly ONE inbox-item directive.")).toBeTrue();
+        expect((threadStartParams?.dynamicTools?.length ?? 0) > 0).toBeTrue();
+
+        const titleRequest = requests.find((request) => request.method === "thread/name/set");
+        const titleParams = titleRequest?.params as { threadId?: string; name?: string } | undefined;
+        expect(titleParams?.threadId).toBe("thread-automation");
+        expect(titleParams?.name).toBe("Daily report");
+
+        const turnStartRequest = requests.find((request) => request.method === "turn/start");
+        const turnStartParams = turnStartRequest?.params as {
+          threadId?: string;
+          model?: string | null;
+          effort?: string | null;
+          summary?: string | null;
+          input?: Array<{ type: string; text: string }>;
+          sandboxPolicy?: { type?: string; writableRoots?: string[] };
+        } | undefined;
+        expect(turnStartParams?.threadId).toBe("thread-automation");
+        expect(turnStartParams?.model).toBe("gpt-5");
+        expect(turnStartParams?.effort).toBe("medium");
+        expect(turnStartParams?.summary).toBe("auto");
+        expect(turnStartParams?.sandboxPolicy?.type).toBe("workspaceWrite");
+        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes("/tmp/codex")).toBeTrue();
+        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes(path.join(codexHome, "automations", "daily-report"))).toBeTrue();
+        expect(turnStartParams?.input?.[0]?.text.includes("Automation ID: daily-report")).toBeTrue();
+        expect(turnStartParams?.input?.[0]?.text.includes("Automation memory: $CODEX_HOME/automations/daily-report/memory.md")).toBeTrue();
+        const expectedLastRun = `${new Date(previousRunAt).toISOString()} (${previousRunAt})`;
+        expect(turnStartParams?.input?.[0]?.text.includes(`Last run: ${expectedLastRun}`)).toBeTrue();
+
+        const run = getCodexAutomationRun("thread-automation");
+        expect(run?.automationId).toBe("daily-report");
+        expect(run?.status).toBe("IN_PROGRESS");
+        expect(run?.threadTitle).toBe("Daily report");
+        expect(run?.sourceCwd).toBe("/tmp/codex");
+
+        await (service as unknown as {
+          handleNotification: (method: string, params: unknown) => Promise<void>;
+        }).handleNotification("turn/completed", {
+          threadId: "thread-automation",
+          turn: {
+            id: "turn-automation",
+            status: "completed",
+            items: [],
+            completedAt: now + 1_000,
+          },
+        });
+        expect(getCodexAutomationRun("thread-automation")?.status).toBe("PENDING_REVIEW");
+        expect(JSON.stringify(runUpdateEvents.map((event) => event.event.reason))).toBe(JSON.stringify([
+          "pending-insert",
+          "pending-replace",
+          "turn-completed",
+        ]));
+        expect(runUpdateEvents[0]?.event.automationId).toBe("daily-report");
+        expect(runUpdateEvents[0]?.event.threadId?.startsWith("pending:") ?? false).toBeTrue();
+        expect(runUpdateEvents[1]?.event.automationId).toBe("daily-report");
+        expect(runUpdateEvents[1]?.event.threadId).toBe("thread-automation");
+        expect(runUpdateEvents[2]?.event.automationId).toBe("daily-report");
+        expect(runUpdateEvents[2]?.event.threadId).toBe("thread-automation");
+      } finally {
+        if (originalCodexHome === undefined) {
+          delete process.env.CODEX_HOME;
+        } else {
+          process.env.CODEX_HOME = originalCodexHome;
+        }
+        fs.rmSync(codexHome, { recursive: true, force: true });
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("captures automation inbox item directives when an automation turn completes", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      upsertCodexScheduledAutomation({
+        id: "daily-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Daily report",
+        prompt: "Summarize the repo.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: null,
+        reasoningEffort: null,
+        cwds: ["/tmp/codex"],
+        executionEnvironment: "local",
+        nextRunAt: null,
+        lastRunAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertCodexAutomationRunInProgress({
+        threadId: "thread-inbox-directive",
+        automationId: "daily-report",
+        threadTitle: "Daily report",
+        sourceCwd: "/tmp/codex",
+        now,
+      });
+      const service = createService();
+      const runUpdateEvents: Array<Extract<CodexEvent, { type: "automationRunsUpdated" }>> = [];
+      service.on("event", (event) => {
+        if (event.type === "automationRunsUpdated") {
+          runUpdateEvents.push(event);
+        }
+      });
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+
+      try {
+        serviceInternals.setConversationRecordDetail({
+          ...makeThreadDetail("thread-inbox-directive"),
+          turns: [{
+            threadId: "thread-inbox-directive",
+            turnId: "turn-inbox-directive",
+            status: "inProgress",
+            itemIds: ["assistant-inbox-directive"],
+          }],
+          transcript: [{
+            threadId: "thread-inbox-directive",
+            turnId: "turn-inbox-directive",
+            entryId: "assistant-inbox-directive",
+            itemId: "assistant-inbox-directive",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            source: "live",
+            status: "inProgress",
+            markdownText: [
+              "Checked the repository and found no new failures.",
+              "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
+            ].join("\n"),
+            createdAt: now,
+            updatedAt: now,
+          }],
+        });
+
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thread-inbox-directive",
+          turn: {
+            id: "turn-inbox-directive",
+            status: "completed",
+          },
+        });
+
+        const run = getCodexAutomationRun("thread-inbox-directive");
+        expect(run?.status).toBe("PENDING_REVIEW");
+        expect(run?.inboxTitle).toBe("Daily report ready");
+        expect(run?.inboxSummary).toBe("Review the clean test summary");
+        expect(runUpdateEvents.some((event) =>
+          event.event.reason === "turn-completed"
+          && event.event.automationId === "daily-report"
+          && event.event.threadId === "thread-inbox-directive"
+        )).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("persists automation inbox items from inbox-items-create server requests", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      upsertCodexScheduledAutomation({
+        id: "daily-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Daily report",
+        prompt: "Summarize the repo.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: null,
+        reasoningEffort: null,
+        cwds: ["/tmp/codex"],
+        executionEnvironment: "local",
+        nextRunAt: null,
+        lastRunAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertCodexAutomationRunInProgress({
+        threadId: "thread-inbox-request",
+        automationId: "daily-report",
+        threadTitle: "Daily report",
+        sourceCwd: "/tmp/codex",
+        now,
+      });
+      const service = createService();
+      const runUpdateEvents: Array<Extract<CodexEvent, { type: "automationRunsUpdated" }>> = [];
+      service.on("event", (event) => {
+        if (event.type === "automationRunsUpdated") {
+          runUpdateEvents.push(event);
+        }
+      });
+      const serviceInternals = service as unknown as {
+        handleServerRequestNow: (request: { id: string; method: string; params: unknown }) => Promise<unknown>;
+      };
+
+      try {
+        const response = await serviceInternals.handleServerRequestNow({
+          id: "request-inbox",
+          method: "inbox-items-create",
+          params: {
+            conversationId: "thread-inbox-request",
+            turnId: "turn-inbox-request",
+            items: [{
+              title: "Daily report ready",
+              summary: "Review the clean test summary",
+            }],
+          },
+        });
+
+        const items = (response as { items?: unknown[] }).items ?? [];
+        const run = getCodexAutomationRun("thread-inbox-request");
+        expect(String(items.length)).toBe("1");
+        expect(run?.status).toBe("PENDING_REVIEW");
+        expect(run?.inboxTitle).toBe("Daily report ready");
+        expect(run?.inboxSummary).toBe("Review the clean test summary");
+        expect(runUpdateEvents.some((event) =>
+          event.event.reason === "turn-completed"
+          && event.event.automationId === "daily-report"
+          && event.event.threadId === "thread-inbox-request"
+        )).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("marks a reviewed automation run accepted when the user starts a follow-up turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      upsertCodexScheduledAutomation({
+        id: "daily-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Daily report",
+        prompt: "Summarize the repo.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: null,
+        reasoningEffort: null,
+        cwds: ["/tmp/codex"],
+        executionEnvironment: "local",
+        nextRunAt: null,
+        lastRunAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertCodexAutomationRunInProgress({
+        threadId: "thread-review-follow-up",
+        automationId: "daily-report",
+        threadTitle: "Daily report",
+        sourceCwd: "/tmp/codex",
+        now,
+      });
+      expect(markCodexAutomationRunPendingReview("thread-review-follow-up", now + 1)).toBeTrue();
+      insertCodexAutomationRunInProgress({
+        threadId: "thread-archived-follow-up",
+        automationId: "daily-report",
+        threadTitle: "Daily report archived",
+        sourceCwd: "/tmp/codex",
+        now,
+      });
+      expect(archiveCodexAutomationRun("thread-archived-follow-up", "manual", now + 2)).toBeTrue();
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thread-review-follow-up",
+        threadName: "Daily report",
+        threadPreview: "Ready for review",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        statusType: "idle",
+        statusActiveFlags: [],
+      });
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thread-archived-follow-up",
+        threadName: "Daily report archived",
+        threadPreview: "Archived",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        statusType: "idle",
+        statusActiveFlags: [],
+      });
+
+      const service = createService();
+      const runUpdateEvents: Array<Extract<CodexEvent, { type: "automationRunsUpdated" }>> = [];
+      service.on("event", (event) => {
+        if (event.type === "automationRunsUpdated") {
+          runUpdateEvents.push(event);
+        }
+      });
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn-review-follow-up",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        await service.startTurn("thread-review-follow-up", "Looks good, continue.");
+        await service.startTurn("thread-archived-follow-up", "This should not accept archived runs.");
+
+        const run = getCodexAutomationRun("thread-review-follow-up");
+        const archivedRun = getCodexAutomationRun("thread-archived-follow-up");
+        expect(run?.status).toBe("ACCEPTED");
+        expect(archivedRun?.status).toBe("ARCHIVED");
+        expect(runUpdateEvents.some((event) =>
+          event.event.reason === "accepted"
+          && event.event.automationId === "daily-report"
+          && event.event.threadId === "thread-review-follow-up"
+        )).toBeTrue();
+        expect(runUpdateEvents.some((event) =>
+          event.event.reason === "accepted"
+          && event.event.threadId === "thread-archived-follow-up"
+        )).toBeFalse();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("captures archive messages for automation runs from the local transcript", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      upsertCodexScheduledAutomation({
+        id: "daily-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Daily report",
+        prompt: "Summarize the repo.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: null,
+        reasoningEffort: null,
+        cwds: ["/tmp/codex"],
+        executionEnvironment: "local",
+        nextRunAt: null,
+        lastRunAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertCodexAutomationRunInProgress({
+        threadId: "thread-archive-capture",
+        automationId: "daily-report",
+        threadTitle: "Daily report",
+        sourceCwd: "/tmp/codex",
+        now,
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      };
+
+      try {
+        serviceInternals.setConversationRecordDetail({
+          ...makeThreadDetail("thread-archive-capture"),
+          turns: [{
+            threadId: "thread-archive-capture",
+            turnId: "turn-archive",
+            status: "completed",
+            itemIds: ["user-archive", "assistant-archive"],
+          }],
+          transcript: [
+            {
+              threadId: "thread-archive-capture",
+              turnId: "turn-archive",
+              entryId: "user-archive",
+              itemId: "user-archive",
+              type: "userMessage",
+              kind: "userMessage",
+              semanticKind: "userMessage",
+              role: "user",
+              source: "live",
+              status: "completed",
+              markdownText: "Please summarize the repo.",
+              userAttachments: [{
+                type: "file",
+                id: "user-archive:attachment:skill:0",
+                label: "Computer Use",
+                path: "/plugins/computer-use",
+                sourceKind: "skill",
+              }],
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              threadId: "thread-archive-capture",
+              turnId: "turn-archive",
+              entryId: "assistant-archive",
+              itemId: "assistant-archive",
+              type: "agentMessage",
+              kind: "assistantMessage",
+              semanticKind: "assistantMessage",
+              role: "assistant",
+              source: "live",
+              status: "completed",
+              markdownText: [
+                "Summary complete.",
+                "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
+              ].join("\n"),
+              createdAt: now + 1,
+              updatedAt: now + 1,
+            },
+          ],
+        });
+
+        expect(await service.captureAutomationArchiveMessages("thread-archive-capture")).toBeTrue();
+
+        const run = getCodexAutomationRun("thread-archive-capture");
+        expect(run?.archivedUserMessage).toBe("Please summarize the repo.\nskill: Computer Use (/plugins/computer-use)");
+        expect(run?.archivedAssistantMessage).toBe("Summary complete.");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("falls back to thread turns when capturing automation archive messages without a local transcript", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      upsertCodexScheduledAutomation({
+        id: "daily-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Daily report",
+        prompt: "Summarize the repo.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: null,
+        reasoningEffort: null,
+        cwds: ["/tmp/codex"],
+        executionEnvironment: "local",
+        nextRunAt: null,
+        lastRunAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      insertCodexAutomationRunInProgress({
+        threadId: "thread-archive-fallback",
+        automationId: "daily-report",
+        threadTitle: "Daily report",
+        sourceCwd: "/tmp/codex",
+        now,
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method !== "thread/turns/list") {
+          throw new Error(`Unexpected method: ${method}`);
+        }
+
+        return {
+          data: [
+            {
+              id: "turn-latest",
+              status: "completed",
+              itemsView: "full",
+              error: null,
+              startedAt: now + 3,
+              completedAt: now + 4,
+              durationMs: 1_000,
+              items: [
+                {
+                  id: "user-latest",
+                  type: "userMessage",
+                  content: [
+                    { type: "text", text: "Latest prompt" },
+                    { type: "mention", name: "notes.md", path: "/tmp/codex/notes.md" },
+                    { type: "localImage", path: "/tmp/codex/diagram.png" },
+                  ],
+                },
+                {
+                  id: "assistant-latest",
+                  type: "agentMessage",
+                  text: "Latest answer",
+                },
+              ],
+            },
+            {
+              id: "turn-older",
+              status: "completed",
+              itemsView: "full",
+              error: null,
+              startedAt: now + 1,
+              completedAt: now + 2,
+              durationMs: 1_000,
+              items: [
+                {
+                  id: "user-older",
+                  type: "userMessage",
+                  content: [{ type: "text", text: "Older prompt" }],
+                },
+                {
+                  id: "assistant-older",
+                  type: "agentMessage",
+                  text: "Older answer",
+                },
+              ],
+            },
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        };
+      };
+
+      try {
+        expect(await service.captureAutomationArchiveMessages("thread-archive-fallback")).toBeTrue();
+
+        const run = getCodexAutomationRun("thread-archive-fallback");
+        expect(run?.archivedUserMessage).toBe(
+          "Latest prompt\nmention: notes.md (/tmp/codex/notes.md)\nlocalImage: /tmp/codex/diagram.png",
+        );
+        expect(run?.archivedAssistantMessage).toBe("Latest answer");
+
+        const params = requests[0]?.params as {
+          threadId?: string;
+          limit?: number;
+          sortDirection?: string;
+          itemsView?: string;
+        };
+        expect(requests[0]?.method).toBe("thread/turns/list");
+        expect(params.threadId ?? "").toBe("thread-archive-fallback");
+        expect(params.limit ?? 0).toBe(20);
+        expect(params.sortDirection ?? "").toBe("desc");
+        expect(params.itemsView ?? "").toBe("full");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("runs a heartbeat automation now by resuming the target thread and starting a heartbeat turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      upsertCodexScheduledAutomation({
+        id: "heartbeat-follow-up",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-heartbeat-target",
+        name: "Follow up",
+        prompt: "Check whether the user needs another pass.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        model: null,
+        reasoningEffort: null,
+        cwds: [],
+        executionEnvironment: "local",
+        nextRunAt: now - 1_000,
+        lastRunAt: null,
+        createdAt: 10,
+        updatedAt: 10,
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const appServerThread = {
+        id: "thread-heartbeat-target",
+        sessionId: "session-heartbeat-target",
+        status: { type: "idle" },
+        createdAt: now,
+        updatedAt: now,
+        cwd: "/tmp/codex",
+        modelProvider: "openai",
+        preview: "",
+        name: "Target thread",
+        threadSource: null,
+        turns: [],
+      };
+      client.start = async () => undefined;
+      client.request = async (method: string, params?: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/read") {
+          return { thread: appServerThread };
+        }
+        if (method === "thread/resume") {
+          return {
+            thread: appServerThread,
+            model: "gpt-5",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd: "/tmp/codex",
+            runtimeWorkspaceRoots: ["/tmp/codex"],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: ["/tmp/codex"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "medium",
+            multiAgentMode: "explicitRequestOnly",
+            initialTurnsPage: null,
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn-heartbeat",
+              status: "inProgress",
+              items: [],
+              startedAt: now,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        await service.runScheduledAutomationNow({
+          id: "heartbeat-follow-up",
+          collaborationMode: {
+            mode: "plan",
+            settings: {
+              model: "gpt-5",
+              reasoning_effort: "medium",
+              developer_instructions: null,
+            },
+          },
+          permissions: {
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandboxPolicy: {
+              type: "workspaceWrite",
+              writableRoots: ["/tmp/codex"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+          },
+        });
+
+        const resumeRequest = requests.find((request) => request.method === "thread/resume");
+        const resumeParams = resumeRequest?.params as { threadId?: string } | undefined;
+        expect(resumeParams?.threadId).toBe("thread-heartbeat-target");
+
+        const turnStartRequest = requests.find((request) => request.method === "turn/start");
+        const turnStartParams = turnStartRequest?.params as {
+          threadId?: string;
+          cwd?: string;
+          model?: string | null;
+          effort?: string | null;
+          serviceTier?: string | null;
+          summary?: string | null;
+          input?: Array<{ type: string; text: string }>;
+          collaborationMode?: { mode?: string; settings?: { model?: string; reasoning_effort?: string | null } };
+          sandboxPolicy?: { type?: string; writableRoots?: string[] };
+        } | undefined;
+        expect(turnStartParams?.threadId).toBe("thread-heartbeat-target");
+        expect(turnStartParams?.cwd).toBe("/tmp/codex");
+        expect(turnStartParams?.model).toBe(null);
+        expect(turnStartParams?.effort).toBe(null);
+        expect(turnStartParams?.serviceTier).toBe(null);
+        expect(turnStartParams?.summary).toBe("auto");
+        expect(turnStartParams?.collaborationMode?.mode).toBe("plan");
+        expect(turnStartParams?.collaborationMode?.settings?.model).toBe("gpt-5");
+        expect(turnStartParams?.collaborationMode?.settings?.reasoning_effort).toBe("medium");
+        expect(turnStartParams?.sandboxPolicy?.type).toBe("workspaceWrite");
+        expect(turnStartParams?.sandboxPolicy?.writableRoots?.includes("/tmp/codex")).toBeTrue();
+        expect(turnStartParams?.input?.[0]?.text.includes("<heartbeat>")).toBeTrue();
+        expect(turnStartParams?.input?.[0]?.text.includes("<automation_id>heartbeat-follow-up</automation_id>")).toBeTrue();
+        expect(turnStartParams?.input?.[0]?.text.includes("Check whether the user needs another pass.")).toBeTrue();
+        expect(getCodexScheduledAutomation("heartbeat-follow-up")?.lastRunAt !== null).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("blocks heartbeat run-now on recent rollout activity but allows task-complete active threads", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      const rolloutDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-heartbeat-rollout-"));
+      const busyRolloutPath = path.join(rolloutDir, "busy.jsonl");
+      const completeRolloutPath = path.join(rolloutDir, "complete.jsonl");
+      fs.writeFileSync(
+        busyRolloutPath,
+        [
+          JSON.stringify({ event: "task_complete" }),
+          JSON.stringify({ event: "response_item" }),
+        ].join("\n"),
+      );
+      fs.writeFileSync(
+        completeRolloutPath,
+        [
+          JSON.stringify({ event: "response_item" }),
+          JSON.stringify({ event: "task_complete" }),
+        ].join("\n"),
+      );
+      upsertCodexScheduledAutomation({
+        id: "heartbeat-rollout-busy",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-rollout-busy",
+        name: "Busy rollout follow-up",
+        prompt: "Check whether the user needs another pass.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        model: null,
+        reasoningEffort: null,
+        cwds: [],
+        executionEnvironment: "local",
+        nextRunAt: now - 1_000,
+        lastRunAt: null,
+        createdAt: 10,
+        updatedAt: 10,
+      });
+      upsertCodexScheduledAutomation({
+        id: "heartbeat-rollout-complete",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-rollout-complete",
+        name: "Complete rollout follow-up",
+        prompt: "Check whether the user needs another pass.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        model: null,
+        reasoningEffort: null,
+        cwds: [],
+        executionEnvironment: "local",
+        nextRunAt: now - 1_000,
+        lastRunAt: null,
+        createdAt: 20,
+        updatedAt: 20,
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const threads = new Map<string, Record<string, unknown>>([
+        ["thread-rollout-busy", {
+          id: "thread-rollout-busy",
+          sessionId: "session-rollout-busy",
+          status: { type: "active", activeFlags: [] },
+          createdAt: now,
+          updatedAt: now,
+          cwd: "/tmp/codex",
+          modelProvider: "openai",
+          preview: "",
+          name: "Busy rollout target",
+          threadSource: null,
+          path: busyRolloutPath,
+          turns: [],
+        }],
+        ["thread-rollout-complete", {
+          id: "thread-rollout-complete",
+          sessionId: "session-rollout-complete",
+          status: { type: "active", activeFlags: [] },
+          createdAt: now,
+          updatedAt: now,
+          cwd: "/tmp/codex",
+          modelProvider: "openai",
+          preview: "",
+          name: "Complete rollout target",
+          threadSource: null,
+          path: completeRolloutPath,
+          turns: [],
+        }],
+      ]);
+      client.start = async () => undefined;
+      client.request = async (method: string, params?: unknown) => {
+        requests.push({ method, params });
+        const threadId = (params as { threadId?: string } | undefined)?.threadId ?? "";
+        if (method === "thread/read") {
+          const thread = threads.get(threadId);
+          if (!thread) throw new Error(`Unexpected thread read: ${threadId}`);
+          return { thread };
+        }
+        if (method === "thread/resume") {
+          const thread = threads.get(threadId);
+          if (!thread) throw new Error(`Unexpected thread resume: ${threadId}`);
+          return {
+            thread,
+            model: "gpt-5",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd: "/tmp/codex",
+            runtimeWorkspaceRoots: ["/tmp/codex"],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: ["/tmp/codex"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "medium",
+            multiAgentMode: "explicitRequestOnly",
+            initialTurnsPage: null,
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn-heartbeat-rollout-complete",
+              status: "inProgress",
+              items: [],
+              startedAt: now,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        let busyErrorMessage = "";
+        try {
+          await service.runScheduledAutomationNow({
+            id: "heartbeat-rollout-busy",
+            collaborationMode: {
+              mode: "plan",
+              settings: {
+                model: "gpt-5",
+                reasoning_effort: "medium",
+                developer_instructions: null,
+              },
+            },
+            permissions: {
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandboxPolicy: {
+                type: "workspaceWrite",
+                writableRoots: ["/tmp/codex"],
+                networkAccess: false,
+                excludeTmpdirEnvVar: false,
+                excludeSlashTmp: false,
+              },
+            },
+          });
+        } catch (error) {
+          busyErrorMessage = error instanceof Error ? error.message : String(error);
+        }
+        expect(busyErrorMessage).toBe("Heartbeat thread is busy right now.");
+        expect(requests.some((request) => request.method === "turn/start")).toBeFalse();
+
+        await service.runScheduledAutomationNow({
+          id: "heartbeat-rollout-complete",
+          collaborationMode: {
+            mode: "plan",
+            settings: {
+              model: "gpt-5",
+              reasoning_effort: "medium",
+              developer_instructions: null,
+            },
+          },
+          permissions: {
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandboxPolicy: {
+              type: "workspaceWrite",
+              writableRoots: ["/tmp/codex"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+          },
+        });
+
+        const turnStartRequest = requests.find((request) => request.method === "turn/start");
+        const turnStartParams = turnStartRequest?.params as { threadId?: string } | undefined;
+        expect(turnStartParams?.threadId).toBe("thread-rollout-complete");
+        expect(getCodexScheduledAutomation("heartbeat-rollout-complete")?.lastRunAt !== null).toBeTrue();
+      } finally {
+        fs.rmSync(rolloutDir, { recursive: true, force: true });
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("retries scheduled heartbeat automations when renderer state marks the thread ineligible", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      const automation = upsertCodexScheduledAutomation({
+        id: "heartbeat-retry",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-heartbeat-target",
+        name: "Follow up",
+        prompt: "Check whether the user needs another pass.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        model: null,
+        reasoningEffort: null,
+        cwds: [],
+        executionEnvironment: "local",
+        nextRunAt: now - 1_000,
+        lastRunAt: null,
+        createdAt: 10,
+        updatedAt: 10,
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method: string, params?: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/read") {
+          return {
+            thread: {
+              id: "thread-heartbeat-target",
+              sessionId: "session-heartbeat-target",
+              status: { type: "idle" },
+              createdAt: now,
+              updatedAt: now,
+              cwd: "/tmp/codex",
+              modelProvider: "openai",
+              preview: "",
+              name: "Target thread",
+              threadSource: null,
+              turns: [],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        await service.runScheduledAutomation(automation, {
+          now,
+          reason: "scheduled",
+          heartbeat: {
+            automationsEnabled: true,
+            rendererState: {
+              isEligible: false,
+              reason: "composer_busy",
+              updatedAtMs: now,
+            },
+            collaborationMode: {
+              mode: "plan",
+              settings: {
+                model: "gpt-5",
+                reasoning_effort: "medium",
+                developer_instructions: null,
+              },
+            },
+            permissions: null,
+          },
+        });
+
+        expect(requests.some((request) => request.method === "turn/start")).toBeFalse();
+        const retried = getCodexScheduledAutomation("heartbeat-retry");
+        expect(retried?.nextRunAt).toBe(now + 60_000);
+        expect(retried?.lastRunAt).toBe(null);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("defers scheduled heartbeat automations until the heartbeat cooldown elapses", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      const lastRunAt = now - 2 * 60_000;
+      const automation = upsertCodexScheduledAutomation({
+        id: "heartbeat-cooldown",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-heartbeat-target",
+        name: "Follow up",
+        prompt: "Check whether the user needs another pass.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        model: null,
+        reasoningEffort: null,
+        cwds: [],
+        executionEnvironment: "local",
+        nextRunAt: now - 1_000,
+        lastRunAt,
+        createdAt: 10,
+        updatedAt: 10,
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method: string, params?: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/read") {
+          return {
+            thread: {
+              id: "thread-heartbeat-target",
+              sessionId: "session-heartbeat-target",
+              status: { type: "idle" },
+              createdAt: now,
+              updatedAt: now - 10 * 60_000,
+              cwd: "/tmp/codex",
+              modelProvider: "openai",
+              preview: "",
+              name: "Target thread",
+              threadSource: null,
+              turns: [],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        await service.runScheduledAutomation(automation, {
+          now,
+          reason: "scheduled",
+          heartbeat: {
+            automationsEnabled: true,
+            rendererState: { isEligible: true, reason: null, updatedAtMs: now },
+            collaborationMode: {
+              mode: "plan",
+              settings: {
+                model: "gpt-5",
+                reasoning_effort: "medium",
+                developer_instructions: null,
+              },
+            },
+            permissions: null,
+          },
+        });
+
+        expect(requests.some((request) => request.method === "turn/start")).toBeFalse();
+        const deferred = getCodexScheduledAutomation("heartbeat-cooldown");
+        expect(deferred?.nextRunAt).toBe(lastRunAt + 5 * 60_000);
+        expect(deferred?.lastRunAt).toBe(lastRunAt);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("waits for scheduled heartbeat turns to complete", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      const automation = upsertCodexScheduledAutomation({
+        id: "heartbeat-wait",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-heartbeat-target",
+        name: "Follow up",
+        prompt: "Check whether the user needs another pass.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        model: null,
+        reasoningEffort: null,
+        cwds: [],
+        executionEnvironment: "local",
+        nextRunAt: now - 1_000,
+        lastRunAt: null,
+        createdAt: 10,
+        updatedAt: 10,
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        emit: (event: string, payload: unknown) => boolean;
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const appServerThread = {
+        id: "thread-heartbeat-target",
+        sessionId: "session-heartbeat-target",
+        status: { type: "idle" },
+        createdAt: now - 10 * 60_000,
+        updatedAt: now - 10 * 60_000,
+        cwd: "/tmp/codex",
+        modelProvider: "openai",
+        preview: "",
+        name: "Target thread",
+        threadSource: null,
+        turns: [],
+      };
+      let turnStartRequested = false;
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/read") {
+          return { thread: appServerThread };
+        }
+        if (method === "thread/resume") {
+          return {
+            thread: appServerThread,
+            model: "gpt-5",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd: "/tmp/codex",
+            runtimeWorkspaceRoots: ["/tmp/codex"],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: ["/tmp/codex"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "medium",
+            multiAgentMode: "explicitRequestOnly",
+            initialTurnsPage: null,
+          };
+        }
+        if (method === "turn/start") {
+          turnStartRequested = true;
+          return {
+            turn: {
+              id: "turn-heartbeat-wait",
+              status: "inProgress",
+              items: [],
+              startedAt: now,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        let resolved = false;
+        const runPromise = service.runScheduledAutomation(automation, {
+          now,
+          reason: "scheduled",
+          heartbeat: {
+            automationsEnabled: true,
+            rendererState: { isEligible: true, reason: null, updatedAtMs: now },
+            collaborationMode: {
+              mode: "plan",
+              settings: {
+                model: "gpt-5",
+                reasoning_effort: "medium",
+                developer_instructions: null,
+              },
+            },
+            permissions: {
+              approvalPolicy: "on-request",
+              approvalsReviewer: "user",
+              sandboxPolicy: {
+                type: "workspaceWrite",
+                writableRoots: ["/tmp/codex"],
+                networkAccess: false,
+                excludeTmpdirEnvVar: false,
+                excludeSlashTmp: false,
+              },
+            },
+          },
+        }).then(() => {
+          resolved = true;
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(turnStartRequested).toBeTrue();
+        expect(resolved).toBeFalse();
+
+        client.emit("notification", {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-heartbeat-target",
+            turn: {
+              id: "turn-heartbeat-wait",
+              status: "completed",
+              items: [],
+              completedAt: now + 1_000,
+            },
+          },
+        });
+        await runPromise;
+        expect(resolved).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("deletes active heartbeat automations when their target thread is archived", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexScheduledAutomation({
+        id: "heartbeat-archive-action",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-archive-action",
+        name: "Archive action heartbeat",
+        prompt: "Follow up.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        createdAt: 10,
+        updatedAt: 10,
+      });
+      upsertCodexScheduledAutomation({
+        id: "heartbeat-archive-notification",
+        kind: "heartbeat",
+        status: "ACTIVE",
+        targetThreadId: "thread-archive-notification",
+        name: "Archive notification heartbeat",
+        prompt: "Follow up.",
+        rrule: "FREQ=MINUTELY;INTERVAL=5",
+        createdAt: 20,
+        updatedAt: 20,
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/archive") return {};
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        await (service as unknown as {
+          archiveThread: (threadId: string) => Promise<boolean>;
+        }).archiveThread("thread-archive-action");
+        expect(getCodexScheduledAutomation("heartbeat-archive-action")).toBe(null);
+
+        await (service as unknown as {
+          handleNotification: (method: string, params: unknown) => Promise<void>;
+        }).handleNotification("thread/archived", {
+          threadId: "thread-archive-notification",
+        });
+        expect(getCodexScheduledAutomation("heartbeat-archive-notification")).toBe(null);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("runs a worktree cron automation in a managed worktree", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-automation-worktree-repo-"));
+      initializeGitRepository(repoPath);
+      execFileSync("git", ["checkout", "-b", "automation-source"], { cwd: repoPath });
+      fs.writeFileSync(path.join(repoPath, "FEATURE.md"), "# feature\n");
+      execFileSync("git", ["add", "FEATURE.md"], { cwd: repoPath });
+      execFileSync("git", ["commit", "-m", "feature"], { cwd: repoPath });
+      const sourceHead = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: repoPath,
+        encoding: "utf8",
+      }).trim();
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method: string, params?: unknown) => {
+        requests.push({ method, params });
+        if (method === "model/list") {
+          return {
+            data: [{
+              id: "gpt-5",
+              model: "gpt-5",
+              displayName: "GPT-5",
+              description: "",
+              hidden: false,
+              supportedReasoningEfforts: [{ reasoningEffort: "high", description: "" }],
+              defaultReasoningEffort: "high",
+              isDefault: true,
+            }],
+          };
+        }
+        if (method === "thread/start") {
+          const cwd = (params as { cwd?: string | null }).cwd ?? "";
+          return {
+            thread: {
+              id: "thread-worktree-automation",
+              status: { type: "idle" },
+              createdAt: now,
+              updatedAt: now,
+              cwd,
+              modelProvider: "openai",
+              preview: "",
+              name: null,
+              threadSource: "automation",
+              turns: [],
+            },
+            model: "gpt-5",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd,
+            runtimeWorkspaceRoots: [cwd],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: [cwd],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "high",
+            multiAgentMode: "explicitRequestOnly",
+          };
+        }
+        if (method === "thread/name/set") return {};
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn-worktree-automation",
+              status: "inProgress",
+              items: [],
+              startedAt: now,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      const automation = upsertCodexScheduledAutomation({
+        id: "worktree-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Worktree report",
+        prompt: "Summarize the repo.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: "gpt-5",
+        cwds: [repoPath],
+        executionEnvironment: "worktree",
+        createdAt: 10,
+        updatedAt: 10,
+      });
+
+      try {
+        await (service as unknown as {
+          runScheduledAutomation: (
+            automation: CodexScheduledAutomation,
+            context: { now: number; reason: "run-now" },
+          ) => Promise<void>;
+        }).runScheduledAutomation(automation, { now, reason: "run-now" });
+
+        const threadStartCwd = (requests.find((request) => request.method === "thread/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
+        const turnStartCwd = (requests.find((request) => request.method === "turn/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
+        expect(threadStartCwd.length > 0).toBeTrue();
+        expect(threadStartCwd === repoPath).toBeFalse();
+        expect(fs.existsSync(threadStartCwd)).toBeTrue();
+        expect(turnStartCwd).toBe(threadStartCwd);
+        const worktreeHead = execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: threadStartCwd,
+          encoding: "utf8",
+        }).trim();
+        expect(worktreeHead).toBe(sourceHead);
+
+        const linked = getCodexThread("thread-worktree-automation");
+        expect(linked?.cwd).toBe(threadStartCwd);
+        expect(linked?.managedWorktreePath).toBe(threadStartCwd);
+
+        const run = getCodexAutomationRun("thread-worktree-automation");
+        expect(run?.automationId).toBe("worktree-report");
+        expect(run?.sourceCwd).toBe(repoPath);
+      } finally {
+        await service.shutdown();
+        fs.rmSync(repoPath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("runs a projectless cron automation with split work and output directories", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      const previousHome = process.env.HOME;
+      const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-automation-home-"));
+      process.env.HOME = tempHome;
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method: string, params?: unknown) => {
+        requests.push({ method, params });
+        if (method === "model/list") {
+          return {
+            data: [{
+              id: "gpt-5",
+              model: "gpt-5",
+              displayName: "GPT-5",
+              description: "",
+              hidden: false,
+              supportedReasoningEfforts: [{ reasoningEffort: "high", description: "" }],
+              defaultReasoningEffort: "high",
+              isDefault: true,
+            }],
+          };
+        }
+        if (method === "thread/start") {
+          const cwd = (params as { cwd?: string | null }).cwd ?? "";
+          return {
+            thread: {
+              id: "thread-projectless-automation",
+              status: { type: "idle" },
+              createdAt: now,
+              updatedAt: now,
+              cwd,
+              modelProvider: "openai",
+              preview: "",
+              name: null,
+              threadSource: "automation",
+              turns: [],
+            },
+            model: "gpt-5",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd,
+            runtimeWorkspaceRoots: [],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: [],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "high",
+            multiAgentMode: "explicitRequestOnly",
+          };
+        }
+        if (method === "thread/name/set") return {};
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn-projectless-automation",
+              status: "inProgress",
+              items: [],
+              startedAt: now,
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      const automation = upsertCodexScheduledAutomation({
+        id: "projectless-report",
+        kind: "cron",
+        status: "ACTIVE",
+        targetThreadId: null,
+        name: "Projectless report",
+        prompt: "Draft a status update.",
+        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+        model: "gpt-5",
+        cwds: ["~"],
+        executionEnvironment: "worktree",
+        createdAt: 10,
+        updatedAt: 10,
+      });
+
+      try {
+        await (service as unknown as {
+          runScheduledAutomation: (
+            automation: CodexScheduledAutomation,
+            context: { now: number; reason: "run-now" },
+          ) => Promise<void>;
+        }).runScheduledAutomation(automation, { now, reason: "run-now" });
+
+        const threadStartParams = requests.find((request) => request.method === "thread/start")?.params as {
+          cwd?: string;
+          developerInstructions?: string | null;
+        } | undefined;
+        const expectedRoot = path.join(tempHome, "Documents", "Codex");
+        const expectedRunRoot = path.join(expectedRoot, "2026-07-08", "draft-a-status-update");
+        const expectedCwd = path.join(expectedRunRoot, "work");
+        const expectedOutputs = path.join(expectedRunRoot, "outputs");
+        expect(threadStartParams?.cwd).toBe(expectedCwd);
+        expect(fs.existsSync(expectedCwd)).toBeTrue();
+        expect(fs.existsSync(expectedOutputs)).toBeTrue();
+        expect(threadStartParams?.developerInstructions?.includes("### Projectless Chat")).toBeTrue();
+        expect(threadStartParams?.developerInstructions?.includes(expectedOutputs)).toBeTrue();
+
+        const turnStartParams = requests.find((request) => request.method === "turn/start")?.params as {
+          cwd?: string;
+          sandboxPolicy?: { writableRoots?: string[] };
+        } | undefined;
+        expect(turnStartParams?.cwd).toBe(expectedCwd);
+        expect(JSON.stringify(turnStartParams?.sandboxPolicy ?? {}).includes(expectedCwd)).toBeFalse();
+
+        const linked = getCodexThread("thread-projectless-automation");
+        expect(linked?.cwd).toBe(expectedCwd);
+        expect(linked?.projectId ?? null).toBe(null);
+        expect(linked?.projectlessOutputDirectory).toBe(expectedOutputs);
+        expect(linked?.projectlessWorkspaceBrowserRoot).toBe(expectedRoot);
+        expect(linked?.managedWorktreePath ?? null).toBe(null);
+
+        const run = getCodexAutomationRun("thread-projectless-automation");
+        expect(run?.automationId).toBe("projectless-report");
+        expect(run?.sourceCwd).toBe("~");
+      } finally {
+        await service.shutdown();
+        if (previousHome === undefined) {
+          delete process.env.HOME;
+        } else {
+          process.env.HOME = previousHome;
+        }
+        fs.rmSync(tempHome, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+});
 
 describe("codex-service rate limit polling", () => {
   test("polls rate limits every interval without rereading account", async () => {
@@ -10733,6 +12488,11 @@ describe("codex-service startThreadForSession", () => {
           runInTarget: "newWorktree",
           worktreeStartMode: "detachedHead",
           worktreeBranchPrefix: "nodex/",
+          heartbeatAutomation: {
+            name: "Follow up on worktree",
+            prompt: "Check whether the worktree still needs attention.",
+            rrule: "FREQ=HOURLY;INTERVAL=2",
+          },
           skipAutoTitleGeneration: true,
         });
 
@@ -10757,6 +12517,18 @@ describe("codex-service startThreadForSession", () => {
         expect(goalSetParams?.objective).toBe("Keep refining the worktree setup until tests pass");
         expect(goalSetParams?.status).toBe("active");
 
+        const heartbeat = listCodexScheduledAutomations().find((automation) =>
+          automation.kind === "heartbeat" && automation.targetThreadId === "thr_session_worktree"
+        );
+        if (!heartbeat) {
+          throw new Error("Expected worktree start to create a heartbeat automation");
+        }
+        expect(heartbeat.name).toBe("Follow up on worktree");
+        expect(heartbeat.prompt).toBe("Check whether the worktree still needs attention.");
+        expect(heartbeat.rrule).toBe("FREQ=HOURLY;INTERVAL=2");
+        expect(heartbeat.model).toBe(null);
+        expect(heartbeat.reasoningEffort).toBe(null);
+
         const progressEvents = events.filter(
           (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
         );
@@ -10774,6 +12546,119 @@ describe("codex-service startThreadForSession", () => {
           event.sessionId === session.id
           && event.runInTarget === "newWorktree"
           && event.threadId === "thr_session_worktree"
+          && event.phase === "ready"
+        )).toBeTrue();
+        expect(events.some((event) =>
+          event.type === "scheduledAutomationChanged"
+          && event.event.automationId === heartbeat.id
+          && event.event.targetThreadId === "thr_session_worktree"
+          && event.event.reason === "upsert"
+        )).toBeTrue();
+      } finally {
+        await service.shutdown();
+        fs.rmSync(repoPath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("keeps managed worktree start successful when heartbeat automation creation fails", async () => {
+    const ran = await withTempDatabase(async () => {
+      const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-worktree-heartbeat-fail-"));
+      initializeGitRepository(repoPath);
+      const project = createProject({ name: "Session Worktree Heartbeat Fail", sources: [repoPath] });
+      const session = createProjectSession({
+        projectId: project.id,
+        noThreadFallbackTitle: "Session worktree heartbeat fail",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const events: CodexEvent[] = [];
+
+      (service as unknown as {
+        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      }).on("event", (event) => {
+        events.push(event);
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_session_worktree_heartbeat_fail",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_worktree_heartbeat_fail",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      service.serializeThreadDetail = (threadId: string) => ({
+        threadId,
+        projectId: project.id,
+        source: null,
+        threadName: "Thread",
+        threadPreview: "",
+        modelProvider: "openai",
+        cwd: getProjectSession(session.id)?.thread?.cwd ?? "",
+        statusType: "active",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        linkedAt: new Date().toISOString(),
+        turns: [],
+        transcript: [],
+      });
+
+      try {
+        const detail = await service.startThreadForSession({
+          projectId: project.id,
+          sessionId: session.id,
+          prompt: "Start in worktree",
+          runInTarget: "newWorktree",
+          worktreeStartMode: "detachedHead",
+          heartbeatAutomation: {
+            name: "",
+            prompt: "This seed should fail validation.",
+            rrule: "FREQ=HOURLY;INTERVAL=2",
+          },
+          skipAutoTitleGeneration: true,
+        });
+
+        expect(detail.threadId).toBe("thr_session_worktree_heartbeat_fail");
+        expect(listCodexScheduledAutomations().length).toBe(0);
+        expect(events.some((event) =>
+          event.type === "threadStartProgress"
+          && event.runInTarget === "newWorktree"
+          && event.threadId === "thr_session_worktree_heartbeat_fail"
+          && event.phase === "startingThread"
+          && event.message === "Started chat, but could not create the heartbeat."
+          && event.outputDelta === "[stderr] Started chat, but could not create the heartbeat\n"
+        )).toBeTrue();
+        expect(events.some((event) =>
+          event.type === "threadStartProgress"
+          && event.threadId === "thr_session_worktree_heartbeat_fail"
           && event.phase === "ready"
         )).toBeTrue();
       } finally {
@@ -11884,6 +13769,286 @@ describe("codex-service approval fallback", () => {
     } finally {
       await service.shutdown();
     }
+  });
+
+  test("executes automation_update create, update, and delete through the scheduled automation store", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      };
+      const events: CodexEvent[] = [];
+      service.on("event", (event) => {
+        events.push(event);
+      });
+
+      const callAutomationUpdate = async (id: string, args: Record<string, unknown>) => {
+        return await serviceInternals.handleServerRequest({
+          id,
+          method: "item/tool/call",
+          params: {
+            threadId: "thr_automation_tool",
+            turnId: "turn_automation_tool",
+            callId: id,
+            namespace: "codex_app",
+            tool: "automation_update",
+            arguments: args,
+          },
+        }) as {
+          contentItems: Array<{ type: string; text?: string }>;
+          success: boolean;
+        };
+      };
+
+      try {
+        const createdResponse = await callAutomationUpdate("call_create_automation", {
+          mode: "create",
+          kind: "cron",
+          name: "Daily review",
+          prompt: "Summarize project status.",
+          rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+          status: "ACTIVE",
+          cwds: ["/tmp/codex"],
+          destination: "local",
+          executionEnvironment: "local",
+          model: "gpt-5.4",
+          reasoningEffort: "medium",
+        });
+        const createdResult = JSON.parse(createdResponse.contentItems[1]?.text ?? "{}") as {
+          automationId?: string;
+          mode?: string;
+        };
+        const automationId = createdResult.automationId ?? "";
+        const created = getCodexScheduledAutomation(automationId);
+
+        expect(createdResponse.success).toBeTrue();
+        expect(createdResponse.contentItems[0]?.text).toBe("Created automation in the app.");
+        expect(createdResult.mode).toBe("create");
+        expect(created?.name).toBe("Daily review");
+        expect(created?.status).toBe("ACTIVE");
+        expect(created?.executionEnvironment).toBe("local");
+
+        const updatedResponse = await callAutomationUpdate("call_update_automation", {
+          mode: "update",
+          id: automationId,
+          kind: "cron",
+          name: "Daily review paused",
+          prompt: "Summarize project blockers.",
+          rrule: "FREQ=DAILY;BYHOUR=10;BYMINUTE=30",
+          status: "PAUSED",
+          cwds: "/tmp/codex",
+          destination: "local",
+          executionEnvironment: "local",
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+        });
+        const updatedResult = JSON.parse(updatedResponse.contentItems[1]?.text ?? "{}") as {
+          automationId?: string;
+          mode?: string;
+        };
+        const updated = getCodexScheduledAutomation(automationId);
+
+        expect(updatedResponse.success).toBeTrue();
+        expect(updatedResponse.contentItems[0]?.text).toBe("Updated automation in the app.");
+        expect(updatedResult.automationId).toBe(automationId);
+        expect(updatedResult.mode).toBe("update");
+        expect(updated?.name).toBe("Daily review paused");
+        expect(updated?.status).toBe("PAUSED");
+        expect(updated?.reasoningEffort).toBe("high");
+
+        insertCodexAutomationRunInProgress({
+          threadId: "thread-tool-run",
+          automationId,
+          threadTitle: "Daily review paused",
+          sourceCwd: "/tmp/codex",
+          now: Date.UTC(2026, 6, 8, 13, 20, 0),
+        });
+
+        const deletedResponse = await callAutomationUpdate("call_delete_automation", {
+          mode: "delete",
+          id: automationId,
+        });
+        const deletedResult = JSON.parse(deletedResponse.contentItems[1]?.text ?? "{}") as {
+          automationId?: string;
+          mode?: string;
+          deleteStatus?: string;
+          snapshot?: { kind?: string; name?: string; rrule?: string | null } | null;
+        };
+        const deleted = getCodexScheduledAutomation(automationId);
+        const deletedRun = getCodexAutomationRun("thread-tool-run");
+        const scheduledEvents = events.filter(
+          (event): event is Extract<CodexEvent, { type: "scheduledAutomationChanged" }> => (
+            event.type === "scheduledAutomationChanged"
+          ),
+        );
+        const runUpdateEvents = events.filter(
+          (event): event is Extract<CodexEvent, { type: "automationRunsUpdated" }> => (
+            event.type === "automationRunsUpdated"
+          ),
+        );
+
+        expect(deletedResponse.success).toBeTrue();
+        expect(deletedResponse.contentItems[0]?.text).toBe("Deleted automation in the app.");
+        expect(deletedResult.automationId).toBe(automationId);
+        expect(deletedResult.mode).toBe("delete");
+        expect(deletedResult.deleteStatus).toBe("deleted");
+        expect(deletedResult.snapshot?.kind).toBe("cron");
+        expect(deletedResult.snapshot?.name).toBe("Daily review paused");
+        expect(deleted).toBe(null);
+        expect(deletedRun).toBe(null);
+        expect(scheduledEvents.map((event) => event.event.reason).join(",")).toBe("upsert,upsert,delete");
+        expect(scheduledEvents.at(-1)?.event.automationId).toBe(automationId);
+        expect(runUpdateEvents.map((event) => event.event.reason).join(",")).toBe("delete");
+        expect(runUpdateEvents[0]?.event.automationId).toBe(automationId);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("keeps automation_update suggested setup proposals render-only and blocks immediate setup-capable worktree creates", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      };
+      const callAutomationUpdate = async (id: string, mode: string) => {
+        return await serviceInternals.handleServerRequest({
+          id,
+          method: "item/tool/call",
+          params: {
+            threadId: "thr_automation_tool",
+            turnId: "turn_automation_tool",
+            callId: id,
+            namespace: "codex_app",
+            tool: "automation_update",
+            arguments: {
+              mode,
+              kind: "cron",
+              name: "Unsafe setup",
+              prompt: "Run setup-aware work.",
+              rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+              status: "ACTIVE",
+              cwds: ["/tmp/codex"],
+              destination: "worktree",
+              executionEnvironment: "worktree",
+              localEnvironmentConfigPath: ".codex/setup.toml",
+              model: "gpt-5.4",
+              reasoningEffort: "medium",
+            },
+          },
+        }) as {
+          contentItems: Array<{ type: string; text?: string }>;
+          success: boolean;
+        };
+      };
+
+      try {
+        const blocked = await callAutomationUpdate("call_blocked_setup", "create");
+        const suggested = await callAutomationUpdate("call_suggested_setup", "suggested_create");
+
+        expect(blocked.success).toBeFalse();
+        expect(blocked.contentItems[0]?.text).toBe("For safety, automations created by the model cannot immediately run a worktree local environment setup script. Use suggested_create or suggested_update so the user can review and approve the setup-capable automation, or set localEnvironmentConfigPath to null.");
+        expect(suggested.success).toBeTrue();
+        expect(suggested.contentItems.length).toBe(1);
+        expect(suggested.contentItems[0]?.text).toBe("Rendered automation card in the app.");
+        expect(getCodexScheduledAutomation("unsafe-setup")).toBe(null);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("requires automation_update heartbeat targets to be local threads for direct writes", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      };
+      const events: CodexEvent[] = [];
+      service.on("event", (event) => {
+        events.push(event);
+      });
+
+      const callAutomationUpdate = async (id: string, args: Record<string, unknown>) => {
+        return await serviceInternals.handleServerRequest({
+          id,
+          method: "item/tool/call",
+          params: {
+            threadId: "thr_current_local_tool",
+            turnId: "turn_automation_tool",
+            callId: id,
+            namespace: "codex_app",
+            tool: "automation_update",
+            arguments: args,
+          },
+        }) as {
+          contentItems: Array<{ type: string; text?: string }>;
+          success: boolean;
+        };
+      };
+
+      try {
+        const blocked = await callAutomationUpdate("call_remote_heartbeat", {
+          mode: "create",
+          kind: "heartbeat",
+          name: "Remote heartbeat",
+          prompt: "Continue that other thread.",
+          rrule: "FREQ=HOURLY;INTERVAL=1",
+          status: "ACTIVE",
+          destination: "thread",
+          targetThreadId: "thr_not_in_local_store",
+        });
+
+        upsertCodexThread({
+          projectId: defaultProjectId,
+          threadId: "thr_known_local_target",
+          threadName: "Known local target",
+          cwd: "/tmp/codex",
+          linkedAt: "2026-07-08T13:00:00.000Z",
+        });
+
+        const created = await callAutomationUpdate("call_local_heartbeat", {
+          mode: "create",
+          kind: "heartbeat",
+          name: "Local heartbeat",
+          prompt: "Continue the local thread.",
+          rrule: "FREQ=HOURLY;INTERVAL=1",
+          status: "ACTIVE",
+          destination: "thread",
+          targetThreadId: "thr_known_local_target",
+        });
+        const createdResult = JSON.parse(created.contentItems[1]?.text ?? "{}") as {
+          automationId?: string;
+          mode?: string;
+        };
+        const automation = getCodexScheduledAutomation(createdResult.automationId ?? "");
+        const scheduledEvents = events.filter(
+          (event): event is Extract<CodexEvent, { type: "scheduledAutomationChanged" }> => (
+            event.type === "scheduledAutomationChanged"
+          ),
+        );
+
+        expect(blocked.success).toBeFalse();
+        expect(blocked.contentItems[0]?.text).toBe("Automations are only supported for local threads.");
+        expect(listCodexScheduledAutomations().length).toBe(1);
+        expect(created.success).toBeTrue();
+        expect(created.contentItems[0]?.text).toBe("Created automation in the app.");
+        expect(createdResult.mode).toBe("create");
+        expect(automation?.kind).toBe("heartbeat");
+        expect(automation?.targetThreadId).toBe("thr_known_local_target");
+        expect(scheduledEvents.length).toBe(1);
+        expect(scheduledEvents[0]?.event.targetThreadId).toBe("thr_known_local_target");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
   });
 
   test("routes permissions request ingress and response through renderer owner from bundle 51920 and 38740", async () => {

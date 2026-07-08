@@ -3,7 +3,9 @@ import { invoke } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
   BoardSummary,
-  CodexScheduledAutomation,
+  CodexAutomationRunsInboxResponse,
+  CodexModelOption,
+  CodexScheduledAutomationListResponse,
   GitReviewBranchCommitsRequest,
   GitReviewBranchCommitsResult,
   GitReviewFileContents,
@@ -20,6 +22,7 @@ import type {
   ThreadNotificationSettings,
   WindowRestoreSettings,
   WorktreeEnvironmentConfigRecord,
+  WorktreeEnvironmentOption,
   WorktreeEnvironmentSettingsSnapshot,
   WorkspaceDirectoryEntriesInput,
   WorkspaceDirectoryEntriesResult,
@@ -103,8 +106,27 @@ export function commandKeymapStateQueryOptions() {
 export function codexScheduledAutomationsListQueryOptions() {
   return queryOptions({
     queryKey: queryKeys.codexScheduledAutomations.list(),
-    queryFn: () => invoke("codex:scheduled-automations:list") as Promise<CodexScheduledAutomation[]>,
+    queryFn: async () => {
+      const response = await invoke("codex:scheduled-automations:list") as CodexScheduledAutomationListResponse;
+      return response.items;
+    },
     staleTime: 30_000,
+  });
+}
+
+export function codexAutomationRunsInboxQueryOptions(limit = 200) {
+  return queryOptions({
+    queryKey: queryKeys.codexAutomationRuns.inbox(limit),
+    queryFn: () => invoke("codex:automation-runs:inbox-items", limit) as Promise<CodexAutomationRunsInboxResponse>,
+    staleTime: 30_000,
+  });
+}
+
+export function codexModelsListQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.codexModels.list(),
+    queryFn: () => invoke("codex:model:list") as Promise<CodexModelOption[]>,
+    staleTime: 60_000,
   });
 }
 
@@ -166,6 +188,14 @@ export function localEnvironmentConfigsQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.localEnvironments.configs(projectId),
     queryFn: () => invoke("worktrees:environments:configs:list", projectId) as Promise<WorktreeEnvironmentConfigRecord[]>,
+    enabled: projectId.trim().length > 0,
+  });
+}
+
+export function localEnvironmentOptionsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: queryKeys.localEnvironments.options(projectId),
+    queryFn: () => invoke("worktrees:environments:list", projectId) as Promise<WorktreeEnvironmentOption[]>,
     enabled: projectId.trim().length > 0,
   });
 }

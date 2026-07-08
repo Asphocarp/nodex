@@ -350,7 +350,8 @@ function ConnectedThreadStageFooter({
   const pendingSteers = useConversationPendingSteers(activeThreadId);
   const queuedFollowUps = useConversationQueuedFollowUps(activeThreadId);
   const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
-  const composerIntent = useComposerIntent(activeThreadId);
+  const activeThreadComposerIntent = useComposerIntent(activeThreadId);
+  const composerIntent = activeThreadId ? activeThreadComposerIntent : input.newThreadComposerIntent ?? null;
   const primaryRequest = useConversationPrimaryRequest(activeThreadId);
   const liveCollaborationMode = useConversationCollaborationMode(activeThreadId);
   const liveThreadSettings = useConversationThreadSettings(activeThreadId);
@@ -506,6 +507,7 @@ function ConnectedThreadStageFooter({
       isQueueingEnabled: input.isQueueingEnabled,
       composerEnterBehavior: input.composerEnterBehavior,
       composerIntent,
+      newThreadComposerIntent: input.newThreadComposerIntent ?? null,
       dictation,
     }),
     [
@@ -518,6 +520,7 @@ function ConnectedThreadStageFooter({
       childMemberships,
       conversationSnapshot,
       composerIntent,
+      input.newThreadComposerIntent,
       dictation,
       composerShell,
       cwd,

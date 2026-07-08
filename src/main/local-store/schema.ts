@@ -21,8 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 54;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54] as const;
+export const CURRENT_SCHEMA_VERSION = 57;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -50,6 +50,7 @@ const RESETTABLE_TABLES = [
   "history",
   "codex_thread_card_links",
   "codex_background_processes",
+  "codex_automation_runs",
   "codex_scheduled_automations",
   "codex_pinned_threads",
   "codex_threads",
@@ -251,6 +252,7 @@ function createLatestSchema(db: Database.Database): void {
       cwd TEXT,
       managed_worktree_path TEXT,
       projectless_output_directory TEXT,
+      projectless_workspace_browser_root TEXT,
       status_type TEXT NOT NULL DEFAULT 'notLoaded',
       status_active_flags_json TEXT NOT NULL DEFAULT '[]',
       archived INTEGER NOT NULL DEFAULT 0,
@@ -262,24 +264,55 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
       ON codex_threads(project_id, updated_at DESC);
 
-    CREATE TABLE IF NOT EXISTS codex_scheduled_automations (
-      automation_id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL,
-      target_thread_id TEXT,
-      name TEXT NOT NULL,
-      rrule TEXT,
-      next_run_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      CHECK (kind IN ('cron', 'heartbeat')),
-      CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED'))
-    ) WITHOUT ROWID;
+	    CREATE TABLE IF NOT EXISTS codex_scheduled_automations (
+	      automation_id TEXT PRIMARY KEY,
+	      kind TEXT NOT NULL,
+	      status TEXT NOT NULL,
+	      target_thread_id TEXT,
+	      name TEXT NOT NULL,
+	      prompt TEXT NOT NULL DEFAULT '',
+	      rrule TEXT,
+	      model TEXT,
+	      reasoning_effort TEXT,
+	      cwds_json TEXT NOT NULL DEFAULT '[]',
+	      execution_environment TEXT NOT NULL DEFAULT 'worktree',
+	      local_environment_config_path TEXT,
+	      next_run_at INTEGER,
+	      last_run_at INTEGER,
+	      created_at INTEGER NOT NULL,
+	      updated_at INTEGER NOT NULL,
+	      CHECK (kind IN ('cron', 'heartbeat')),
+	      CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED')),
+	      CHECK (execution_environment IN ('local', 'worktree')),
+	      CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))
+	    ) WITHOUT ROWID;
 
-    CREATE INDEX IF NOT EXISTS idx_codex_scheduled_automations_target
-      ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
+	    CREATE INDEX IF NOT EXISTS idx_codex_scheduled_automations_target
+	      ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
 
-    CREATE TABLE IF NOT EXISTS codex_background_processes (
+	    CREATE TABLE IF NOT EXISTS codex_automation_runs (
+	      thread_id TEXT PRIMARY KEY,
+	      automation_id TEXT NOT NULL,
+	      status TEXT NOT NULL,
+	      read_at INTEGER,
+	      thread_title TEXT,
+	      source_cwd TEXT,
+	      inbox_title TEXT,
+	      inbox_summary TEXT,
+	      archived_user_message TEXT,
+	      archived_assistant_message TEXT,
+	      archived_reason TEXT,
+	      created_at INTEGER NOT NULL,
+	      updated_at INTEGER NOT NULL,
+	      CHECK (status IN ('IN_PROGRESS', 'PENDING_REVIEW', 'ACCEPTED', 'ARCHIVED'))
+	    ) WITHOUT ROWID;
+
+	    CREATE INDEX IF NOT EXISTS idx_codex_automation_runs_automation_status_created
+	      ON codex_automation_runs(automation_id, status, created_at DESC);
+	    CREATE INDEX IF NOT EXISTS idx_codex_automation_runs_unread
+	      ON codex_automation_runs(read_at, status, updated_at);
+
+	    CREATE TABLE IF NOT EXISTS codex_background_processes (
       process_record_id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL,
       thread_title TEXT,
@@ -2176,6 +2209,100 @@ function migrateSchema53To54(db: Database.Database): void {
   setUserVersion(db, 54);
 }
 
+function migrateSchema54To55(db: Database.Database): void {
+  if (!tableExists(db, "codex_scheduled_automations")) {
+    db.exec(`
+      CREATE TABLE codex_scheduled_automations (
+        automation_id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        target_thread_id TEXT,
+        name TEXT NOT NULL,
+        prompt TEXT NOT NULL DEFAULT '',
+        rrule TEXT,
+        model TEXT,
+        reasoning_effort TEXT,
+        cwds_json TEXT NOT NULL DEFAULT '[]',
+        execution_environment TEXT NOT NULL DEFAULT 'worktree',
+        local_environment_config_path TEXT,
+        next_run_at INTEGER,
+        last_run_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        CHECK (kind IN ('cron', 'heartbeat')),
+        CHECK (status IN ('ACTIVE', 'PAUSED', 'DELETED')),
+        CHECK (execution_environment IN ('local', 'worktree')),
+        CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))
+      ) WITHOUT ROWID;
+
+      CREATE INDEX IF NOT EXISTS idx_codex_scheduled_automations_target
+        ON codex_scheduled_automations(target_thread_id, kind, status, created_at, automation_id);
+    `);
+    setUserVersion(db, 55);
+    return;
+  }
+
+  if (!tableHasColumn(db, "codex_scheduled_automations", "prompt")) {
+    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN prompt TEXT NOT NULL DEFAULT ''");
+  }
+  if (!tableHasColumn(db, "codex_scheduled_automations", "model")) {
+    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN model TEXT");
+  }
+  if (!tableHasColumn(db, "codex_scheduled_automations", "reasoning_effort")) {
+    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN reasoning_effort TEXT");
+  }
+  if (!tableHasColumn(db, "codex_scheduled_automations", "cwds_json")) {
+    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN cwds_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!tableHasColumn(db, "codex_scheduled_automations", "execution_environment")) {
+    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN execution_environment TEXT NOT NULL DEFAULT 'worktree'");
+  }
+  if (!tableHasColumn(db, "codex_scheduled_automations", "local_environment_config_path")) {
+    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN local_environment_config_path TEXT");
+  }
+  if (!tableHasColumn(db, "codex_scheduled_automations", "last_run_at")) {
+    db.exec("ALTER TABLE codex_scheduled_automations ADD COLUMN last_run_at INTEGER");
+  }
+
+  setUserVersion(db, 55);
+}
+
+function migrateSchema55To56(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS codex_automation_runs (
+      thread_id TEXT PRIMARY KEY,
+      automation_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      read_at INTEGER,
+      thread_title TEXT,
+      source_cwd TEXT,
+      inbox_title TEXT,
+      inbox_summary TEXT,
+      archived_user_message TEXT,
+      archived_assistant_message TEXT,
+      archived_reason TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (status IN ('IN_PROGRESS', 'PENDING_REVIEW', 'ACCEPTED', 'ARCHIVED'))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_automation_runs_automation_status_created
+      ON codex_automation_runs(automation_id, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_codex_automation_runs_unread
+      ON codex_automation_runs(read_at, status, updated_at);
+  `);
+
+  setUserVersion(db, 56);
+}
+
+function migrateSchema56To57(db: Database.Database): void {
+  if (tableExists(db, "codex_threads") && !tableHasColumn(db, "codex_threads", "projectless_workspace_browser_root")) {
+    db.exec("ALTER TABLE codex_threads ADD COLUMN projectless_workspace_browser_root TEXT");
+  }
+
+  setUserVersion(db, 57);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -2372,6 +2499,30 @@ function runMigrations(
       }
       migrateSchema53To54(db);
       fromVersion = 54;
+      continue;
+    }
+    if (target === 55) {
+      if (fromVersion !== 54) {
+        throw new Error(`Unsupported Nodex database migration target 55 from ${fromVersion}`);
+      }
+      migrateSchema54To55(db);
+      fromVersion = 55;
+      continue;
+    }
+    if (target === 56) {
+      if (fromVersion !== 55) {
+        throw new Error(`Unsupported Nodex database migration target 56 from ${fromVersion}`);
+      }
+      migrateSchema55To56(db);
+      fromVersion = 56;
+      continue;
+    }
+    if (target === 57) {
+      if (fromVersion !== 56) {
+        throw new Error(`Unsupported Nodex database migration target 57 from ${fromVersion}`);
+      }
+      migrateSchema56To57(db);
+      fromVersion = 57;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

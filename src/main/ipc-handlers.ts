@@ -18,7 +18,6 @@ import * as boardReadModel from "./local-store/board-read-model";
 import * as canvasService from "./local-store/canvas";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
-import * as codexScheduledAutomationsStore from "./local-store/codex-scheduled-automations";
 import * as historyStore from "./local-store/history";
 import {
   readPersistedAtomState,
@@ -50,7 +49,11 @@ import {
 import { resolveAssetPath } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
-import type { CodexBackgroundProcessRunActionInput } from "../shared/types";
+import type {
+  CodexBackgroundProcessRunActionInput,
+  CodexHeartbeatAutomationThreadStateChangedInput,
+  CodexHeartbeatAutomationsEnabledChangedInput,
+} from "../shared/types";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
   RendererClientRouter,
@@ -174,6 +177,7 @@ import {
   logDevRuntimeMetric,
   recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
+import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -410,6 +414,8 @@ interface RegisterIpcHandlersOptions {
   onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
+  onHeartbeatAutomationsEnabledChanged?: (input: CodexHeartbeatAutomationsEnabledChangedInput) => void;
+  onHeartbeatAutomationThreadStateChanged?: (input: CodexHeartbeatAutomationThreadStateChangedInput) => void;
 }
 
 export function registerIpcHandlers(
@@ -509,6 +515,12 @@ export function registerIpcHandlers(
 
   codexService.on("event", (event) => {
     broadcastRendererClientMessage("codex:event", [event]);
+    if (event.type === "scheduledAutomationChanged") {
+      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [event.event]);
+    }
+    if (event.type === "automationRunsUpdated") {
+      broadcastIpcEvent("codex:automation-runs:updated", event.event);
+    }
   });
   codexService.on("hostMessage", (message) => {
     broadcastCodexHostMessageToRendererClients(
@@ -2062,54 +2074,36 @@ export function registerIpcHandlers(
     codexService.resolveThreadSummary(threadId),
   );
 
-  registerHandle("codex:scheduled-automations:list", () =>
-    codexScheduledAutomationsStore.listCodexScheduledAutomations(),
-  );
-
-  registerHandle("codex:scheduled-automations:upsert", (_, input) => {
-    const automation =
-      codexScheduledAutomationsStore.upsertCodexScheduledAutomation(input);
+  const broadcastScheduledAutomationChanged = (
+    automationId: string,
+    targetThreadId: string | null,
+    reason: "upsert" | "delete",
+  ) => {
     safeBroadcastToWindows(
       BrowserWindow.getAllWindows(),
       "codex:scheduled-automations:changed",
       [
         {
-          automationId: automation.id,
-          targetThreadId: automation.targetThreadId,
-          reason: "upsert",
+          automationId,
+          targetThreadId,
+          reason,
         },
       ],
     );
-    return automation;
-  });
+  };
 
-  registerHandle(
-    "codex:scheduled-automations:delete",
-    (_, automationId: string) => {
-      const existing =
-        codexScheduledAutomationsStore.getCodexScheduledAutomation(
-          automationId,
-        );
-      const deleted =
-        codexScheduledAutomationsStore.deleteCodexScheduledAutomation(
-          automationId,
-        );
-      if (deleted) {
-        safeBroadcastToWindows(
-          BrowserWindow.getAllWindows(),
-          "codex:scheduled-automations:changed",
-          [
-            {
-              automationId: existing?.id ?? automationId,
-              targetThreadId: existing?.targetThreadId ?? null,
-              reason: "delete",
-            },
-          ],
-        );
-      }
-      return deleted;
+  registerCodexScheduledAutomationIpcHandlers({
+    registerHandle,
+    runScheduledAutomationNow: (input) => codexService.runScheduledAutomationNow(input),
+    captureAutomationArchiveMessages: (threadId) => codexService.captureAutomationArchiveMessages(threadId),
+    unarchiveThread: (threadId) => codexService.unarchiveThread(threadId),
+    broadcastScheduledAutomationChanged,
+    broadcastAutomationRunsUpdated: (event) => {
+      broadcastIpcEvent("codex:automation-runs:updated", event);
     },
-  );
+    onHeartbeatAutomationsEnabledChanged: options.onHeartbeatAutomationsEnabledChanged,
+    onHeartbeatAutomationThreadStateChanged: options.onHeartbeatAutomationThreadStateChanged,
+  });
 
   registerHandle("codex:model:list", () => codexService.listModels());
 
@@ -2142,6 +2136,11 @@ export function registerIpcHandlers(
         runInEnvironmentPath?: string | null;
         worktreeStartMode?: "autoBranch" | "detachedHead";
         worktreeBranchPrefix?: string;
+        heartbeatAutomation?: {
+          name: string;
+          prompt: string;
+          rrule: string;
+        } | null;
       },
     ) => {
       const detail = await codexService.startThreadForSession(input);

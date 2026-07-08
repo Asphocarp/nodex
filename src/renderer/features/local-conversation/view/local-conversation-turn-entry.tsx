@@ -37,6 +37,7 @@ interface LocalConversationTurnEntryProps {
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
+  onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
   onClosePlanSidePanel?: ThreadStageActions["onClosePlanSidePanel"];
@@ -64,6 +65,7 @@ function LocalConversationTurnEntryComponent({
   onOpenTurnDiffFileInSidePanel,
   onOpenSideChat,
   onOpenThread,
+  onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
   onOpenPlanInSidePanel,
   onClosePlanSidePanel,
@@ -115,8 +117,9 @@ function LocalConversationTurnEntryComponent({
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenSideChat={onOpenSideChat}
-        onOpenThread={onOpenThread}
-        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+      onOpenThread={onOpenThread}
+      onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
+      onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         onOpenPlanInSidePanel={onOpenPlanInSidePanel}
         onClosePlanSidePanel={onClosePlanSidePanel}
         planSidePanelState={planSidePanelState}

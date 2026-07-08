@@ -151,6 +151,12 @@ export function subscribeCodexScheduledAutomationChanges(
   return resolveRendererTransport().subscribeCodexScheduledAutomationChanges(callback);
 }
 
+export function subscribeCodexAutomationRunsUpdates(
+  callback: (event: import("./types").CodexAutomationRunsUpdatedEvent) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexAutomationRunsUpdates(callback);
+}
+
 export function getWindowFocusState(): Promise<boolean> {
   return resolveRendererTransport().getWindowFocusState();
 }

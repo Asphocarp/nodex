@@ -702,6 +702,7 @@ export interface ProjectSessionThreadLink {
   cwd?: string;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
   statusType: string;
   statusActiveFlags: string[];
   archived: boolean;
@@ -881,6 +882,7 @@ export interface ProjectSessionThreadLinkInput {
   cwd?: string | null;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
   statusType?: string;
   statusActiveFlags?: string[];
   archived?: boolean;
@@ -1324,6 +1326,7 @@ export interface CodexThreadSummary {
   cwd: string | null;
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
   approvalPolicy?: CodexApprovalPolicy | null;
   approvalsReviewer?: CodexApprovalsReviewer | null;
   sandbox?: CodexSandboxPolicy | null;
@@ -1340,6 +1343,15 @@ export interface CodexThreadSummary {
 
 export type CodexScheduledAutomationKind = "cron" | "heartbeat";
 export type CodexScheduledAutomationStatus = "ACTIVE" | "PAUSED" | "DELETED";
+export type CodexScheduledAutomationExecutionEnvironment = "local" | "worktree";
+export type CodexScheduledAutomationReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 export interface CodexScheduledAutomation {
   id: string;
@@ -1347,28 +1359,193 @@ export interface CodexScheduledAutomation {
   status: CodexScheduledAutomationStatus;
   targetThreadId: string | null;
   name: string;
+  prompt: string;
   rrule: string | null;
+  model: string | null;
+  reasoningEffort: CodexScheduledAutomationReasoningEffort | null;
+  cwds: string[];
+  executionEnvironment: CodexScheduledAutomationExecutionEnvironment;
+  localEnvironmentConfigPath: string | null;
   nextRunAt: number | null;
+  lastRunAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
 
-export interface CodexScheduledAutomationUpsertInput {
-  id: string;
+export interface CodexScheduledAutomationCreateInput {
   kind: CodexScheduledAutomationKind;
-  status: CodexScheduledAutomationStatus;
   targetThreadId?: string | null;
   name: string;
+  prompt?: string | null;
   rrule?: string | null;
-  nextRunAt?: number | null;
-  createdAt?: number;
-  updatedAt?: number;
+  model?: string | null;
+  reasoningEffort?: CodexScheduledAutomationReasoningEffort | null;
+  cwds?: string[];
+  executionEnvironment?: CodexScheduledAutomationExecutionEnvironment | null;
+  localEnvironmentConfigPath?: string | null;
+}
+
+export interface CodexScheduledAutomationUpdateInput extends CodexScheduledAutomationCreateInput {
+  id: string;
+  status: CodexScheduledAutomationStatus;
+}
+
+export interface CodexScheduledAutomationListResponse {
+  items: CodexScheduledAutomation[];
+}
+
+export type CodexScheduledAutomationDeleteStatus =
+  | "store_unavailable"
+  | "invalid_id"
+  | "state_cleanup_failed"
+  | "remove_failed"
+  | "deleted"
+  | "not_found";
+
+export interface CodexScheduledAutomationDeleteResult {
+  status: CodexScheduledAutomationDeleteStatus;
+}
+
+export interface CodexScheduledAutomationDeleteInput {
+  id: string;
+}
+
+export interface CodexScheduledAutomationDeleteResponse {
+  item: CodexScheduledAutomation | null;
+  success: boolean;
+  status: CodexScheduledAutomationDeleteStatus;
+}
+
+export interface CodexScheduledAutomationMutationResponse {
+  item: CodexScheduledAutomation;
+}
+
+export interface CodexScheduledAutomationRunNowInput {
+  id: string;
+  collaborationMode?: CodexHeartbeatAutomationCollaborationMode | null;
+  permissions?: CodexHeartbeatAutomationPermissions | null;
+}
+
+export interface CodexScheduledAutomationRunNowResponse {
+  success: boolean;
+}
+
+export interface CodexHeartbeatAutomationsEnabledChangedInput {
+  enabled: boolean;
+}
+
+export interface CodexHeartbeatAutomationThreadStateChangedInput {
+  threadId: string;
+  isEligible: boolean;
+  reason?: string | null;
+  collaborationMode?: CodexHeartbeatAutomationCollaborationMode | null;
+  permissions?: CodexHeartbeatAutomationPermissions | null;
+}
+
+export interface CodexAutomationRunArchiveInput {
+  threadId: string;
+  archivedAssistantMessage?: string | null;
+  archivedUserMessage?: string | null;
+  archivedReason?: string | null;
+}
+
+export interface CodexAutomationRunDeleteInput {
+  threadId: string;
+}
+
+export interface CodexAutomationRunUnarchiveInput {
+  threadId: string;
+}
+
+export interface CodexAutomationRunMutationResponse {
+  success: boolean;
+}
+
+export type CodexAutomationRunStatus =
+  | "IN_PROGRESS"
+  | "PENDING_REVIEW"
+  | "ACCEPTED"
+  | "ARCHIVED";
+
+export interface CodexAutomationRun {
+  threadId: string;
+  automationId: string;
+  status: CodexAutomationRunStatus;
+  readAt: number | null;
+  threadTitle: string | null;
+  sourceCwd: string | null;
+  inboxTitle: string | null;
+  inboxSummary: string | null;
+  archivedUserMessage: string | null;
+  archivedAssistantMessage: string | null;
+  archivedReason: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodexAutomationInboxItem {
+  id: string;
+  automationId: string;
+  automationName: string | null;
+  title: string | null;
+  description: string | null;
+  archivedAssistantMessage: string | null;
+  archivedUserMessage: string | null;
+  archivedReason: string | null;
+  sourceCwd: string | null;
+  threadId: string;
+  readAt: number | null;
+  createdAt: number;
+  status: CodexAutomationRunStatus;
+}
+
+export interface CodexAutomationRunUnreadCounts {
+  total: number;
+  automationIds: string[];
+  unreadRuns: Array<{
+    automationId: string;
+    threadId: string;
+  }>;
+}
+
+export interface CodexAutomationRunsInboxResponse {
+  items: CodexAutomationInboxItem[];
+  unreadRunCounts: CodexAutomationRunUnreadCounts;
+}
+
+export interface CodexAutomationRunReadStateInput {
+  threadId: string;
+  readAt: number | null;
+}
+
+export interface CodexAutomationRunMarkAllReadInput {
+  readAt: number;
+}
+
+export interface CodexAutomationRunMarkAllReadResponse {
+  changedCount: number;
 }
 
 export interface CodexScheduledAutomationChangedEvent {
   automationId: string;
   targetThreadId: string | null;
   reason: "upsert" | "delete";
+}
+
+export interface CodexAutomationRunsUpdatedEvent {
+  automationId?: string | null;
+  threadId?: string | null;
+  reason:
+    | "archive"
+    | "accepted"
+    | "delete"
+    | "mark-all-read"
+    | "pending-insert"
+    | "pending-replace"
+    | "read-state"
+    | "settle"
+    | "turn-completed"
+    | "unarchive";
 }
 
 export type CodexConversationResumeState =
@@ -1406,6 +1583,16 @@ export interface CodexCollaborationModePreset {
   mode: CodexCollaborationModeKind;
   model: string | null;
   reasoningEffort?: CodexReasoningEffort | null;
+}
+
+export type CodexHeartbeatAutomationCollaborationMode =
+  | CodexCollaborationModeKind
+  | CodexCollaborationModeState;
+
+export interface CodexHeartbeatAutomationPermissions {
+  approvalPolicy?: CodexApprovalPolicy | null;
+  approvalsReviewer?: CodexApprovalsReviewer | null;
+  sandboxPolicy?: CodexSandboxPolicy | null;
 }
 
 export interface CodexConversationThreadSettings {
@@ -1469,6 +1656,12 @@ export interface CodexThreadGoalMaterializedDraft {
   attachmentDirectory: string | null;
 }
 
+export interface CodexThreadStartHeartbeatAutomationInput {
+  name: string;
+  prompt: string;
+  rrule: string;
+}
+
 export interface CodexThreadStartForSessionInput {
   projectId: string;
   sessionId: string;
@@ -1486,6 +1679,7 @@ export interface CodexThreadStartForSessionInput {
   runInEnvironmentPath?: string | null;
   worktreeStartMode?: WorktreeStartMode;
   worktreeBranchPrefix?: string;
+  heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
 }
 
 export interface CodexSideChatStartInput {
@@ -2971,6 +3165,8 @@ export type CodexEvent =
   | { type: "threadSummary"; thread: CodexThreadSummary }
   | { type: "threadDeleted"; threadId: string }
   | { type: "threadArchivedState"; threadId: string; archived: boolean }
+  | { type: "scheduledAutomationChanged"; event: CodexScheduledAutomationChangedEvent }
+  | { type: "automationRunsUpdated"; event: CodexAutomationRunsUpdatedEvent }
   | {
       type: "threadStatus";
       threadId: string;

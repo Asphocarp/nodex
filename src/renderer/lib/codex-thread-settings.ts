@@ -26,7 +26,7 @@ const FALLBACK_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
 
 const REASONING_EFFORT_LABELS: Record<CodexReasoningEffort, string> = {
   minimal: "Minimal",
-  low: "Low",
+  low: "Light",
   medium: "Medium",
   high: "High",
   xhigh: "Extra High",
@@ -37,6 +37,19 @@ const THREAD_DETAIL_LEVEL_LABELS: Record<CodexThreadDetailLevel, string> = {
   STEPS_COMMANDS: "Steps with code commands",
   STEPS_EXECUTION: "Steps with code output",
 };
+
+export interface CodexModelSelection {
+  model: string;
+  reasoningEffort: CodexReasoningEffort | "";
+}
+
+export interface CodexModelSelectionInput {
+  model?: string | null;
+  reasoningEffort?: string | null;
+  models: readonly CodexModelOption[];
+  fallbackReasoningEffort?: CodexReasoningEffort | "";
+  preferHighReasoning?: boolean;
+}
 
 export function isCodexThreadDetailLevel(value: unknown): value is CodexThreadDetailLevel {
   return CodexThreadDetailLevelSchema.safeParse(value).success;
@@ -60,8 +73,12 @@ export function writeCodexThreadSettings(value: CodexThreadSettings): void {
   }
 }
 
-function resolveDefaultModel(models: CodexModelOption[]): CodexModelOption | null {
-  const visibleModels = models.filter((model) => !model.hidden);
+export function getVisibleCodexModels(models: readonly CodexModelOption[]): CodexModelOption[] {
+  return models.filter((model) => !model.hidden);
+}
+
+export function resolveDefaultCodexModel(models: readonly CodexModelOption[]): CodexModelOption | null {
+  const visibleModels = getVisibleCodexModels(models);
   if (visibleModels.length === 0) return null;
 
   return (
@@ -69,6 +86,80 @@ function resolveDefaultModel(models: CodexModelOption[]): CodexModelOption | nul
     visibleModels[0] ??
     null
   );
+}
+
+function normalizeModelId(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function findVisibleCodexModel(
+  models: readonly CodexModelOption[],
+  modelId: string | null,
+): CodexModelOption | null {
+  if (!modelId) return null;
+  return models.find((model) =>
+    !model.hidden && (model.id === modelId || model.model === modelId)
+  ) ?? null;
+}
+
+function isSupportedReasoningEffort(
+  value: string | null | undefined,
+): value is CodexReasoningEffort {
+  if (!value) return false;
+  return CodexReasoningEffortSchema.safeParse(value).success;
+}
+
+export function resolveCodexModelSelection(input: CodexModelSelectionInput): CodexModelSelection {
+  const requestedModelId = normalizeModelId(input.model);
+  const selectedModel = findVisibleCodexModel(input.models, requestedModelId);
+  const defaultModel = resolveDefaultCodexModel(input.models);
+  const resolvedModel = selectedModel ?? defaultModel;
+
+  if (!resolvedModel) {
+    return {
+      model: "",
+      reasoningEffort: isSupportedReasoningEffort(input.reasoningEffort)
+        ? input.reasoningEffort
+        : input.fallbackReasoningEffort ?? "",
+    };
+  }
+
+  const model = resolvedModel.id;
+  const reasoningOptions = resolveCodexReasoningEffortOptions(model, input.models);
+  const supportedEfforts = new Set(reasoningOptions.map((option) => option.reasoningEffort));
+
+  if (
+    isSupportedReasoningEffort(input.reasoningEffort)
+    && supportedEfforts.has(input.reasoningEffort)
+  ) {
+    return {
+      model,
+      reasoningEffort: input.reasoningEffort,
+    };
+  }
+
+  const preferredEfforts: Array<CodexReasoningEffort | "" | null | undefined> = [
+    input.preferHighReasoning && supportedEfforts.has("high") ? "high" : null,
+    resolvedModel.defaultReasoningEffort,
+    defaultModel?.defaultReasoningEffort,
+    reasoningOptions[0]?.reasoningEffort,
+    input.fallbackReasoningEffort,
+  ];
+
+  for (const effort of preferredEfforts) {
+    if (effort && supportedEfforts.has(effort)) {
+      return {
+        model,
+        reasoningEffort: effort,
+      };
+    }
+  }
+
+  return {
+    model,
+    reasoningEffort: input.fallbackReasoningEffort ?? "",
+  };
 }
 
 function formatCodexModelLabelFromId(modelId: string): string {
@@ -90,7 +181,7 @@ function formatCodexModelLabelFromId(modelId: string): string {
 
 export function resolveCodexReasoningEffortOptions(
   modelId: string | undefined,
-  models: CodexModelOption[],
+  models: readonly CodexModelOption[],
 ): CodexReasoningEffortOption[] {
   if (!modelId) return FALLBACK_REASONING_OPTIONS;
 
@@ -106,35 +197,20 @@ export function resolveCodexThreadSettings(
   stored: CodexThreadSettings | null | undefined,
   models: CodexModelOption[],
 ): Required<CodexThreadSettings> {
-  const defaultModel = resolveDefaultModel(models);
-  const visibleModelIds = new Set(models.filter((model) => !model.hidden).map((model) => model.id));
-
-  const model =
-    stored?.model && visibleModelIds.has(stored.model)
-      ? stored.model
-      : defaultModel?.id ?? "";
-
-  const selectedModel = models.find((candidate) => candidate.id === model && !candidate.hidden) ?? null;
-  const reasoningOptions = resolveCodexReasoningEffortOptions(model, models);
-  const supportedEfforts = new Set(reasoningOptions.map((option) => option.reasoningEffort));
-  const defaultReasoningEffort =
-    reasoningOptions.find((option) => option.reasoningEffort === "high")?.reasoningEffort ??
-    selectedModel?.defaultReasoningEffort ??
-    defaultModel?.defaultReasoningEffort ??
-    reasoningOptions[0]?.reasoningEffort ??
-    "high";
-
-  const reasoningEffort =
-    stored?.reasoningEffort && supportedEfforts.has(stored.reasoningEffort)
-      ? stored.reasoningEffort
-      : defaultReasoningEffort;
+  const selection = resolveCodexModelSelection({
+    model: stored?.model,
+    reasoningEffort: stored?.reasoningEffort,
+    models,
+    fallbackReasoningEffort: "high",
+    preferHighReasoning: true,
+  });
   const detailLevel = isCodexThreadDetailLevel(stored?.detailLevel)
     ? stored.detailLevel
     : DEFAULT_CODEX_THREAD_DETAIL_LEVEL;
 
   return {
-    model,
-    reasoningEffort,
+    model: selection.model,
+    reasoningEffort: selection.reasoningEffort || "high",
     detailLevel,
   };
 }

@@ -17,7 +17,7 @@ import {
   type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
+import { AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
 import {
   ArrowLeft,
   Bot,
@@ -74,7 +74,7 @@ import {
 import { CommandPalette } from "./workbench-shell-deps";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
-import { WorkbenchAutomationsRouteShell } from "./workbench-automations-overlay";
+import { WorkbenchAutomationsRouteShell, WorkbenchAutomationSidePanelTab } from "./workbench-automations-overlay";
 import { buildAutomationsPath } from "./workbench-automations-routes";
 import { WorkbenchProcessManagerDialog } from "./workbench-process-manager-dialog";
 import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
@@ -227,12 +227,16 @@ import type {
   CodexConversationSnapshot,
   CodexConnectionState,
   CodexCollaborationModePreset,
+  CodexComposerIntent,
   CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   CodexThreadSummary,
   CodexTurnDiffReviewTarget,
   GitReviewSource,
   CodexPromptInput,
+  CodexScheduledAutomation,
+  CodexScheduledAutomationCreateInput,
+  CodexScheduledAutomationUpdateInput,
   PanelId,
   Project,
   ProjectCreateInput,
@@ -266,6 +270,7 @@ import type {
   ThreadSummaryPanelAuxiliaryRow,
   ThreadSummaryPanelBrowserRow,
   ThreadSummaryPanelComputerUsePipState,
+  ThreadSummaryPanelScheduledAutomationOpenInput,
   ThreadSummaryPanelScheduledAutomationRow,
 } from "@/features/local-conversation/thread-stage-types";
 import {
@@ -405,6 +410,9 @@ const NON_MAC_SAFE_HEADER_LEFT_PX = 12;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
 const RIGHT_PANEL_MIN_WIDTH = 320;
 const RIGHT_PANEL_MAIN_MIN_WIDTH = 352;
+const AUTOMATION_DETAIL_RAIL_DEFAULT_WIDTH = 820;
+const AUTOMATION_DETAIL_RAIL_MIN_WIDTH = 360;
+const AUTOMATION_DETAIL_RAIL_MAIN_MIN_WIDTH = 420;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 280;
 const BOTTOM_PANEL_MIN_HEIGHT = 160;
 const TOOLBAR_BUTTON_BASE_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0";
@@ -530,6 +538,21 @@ interface PlanPanelTab {
   hideCodeBlocks?: boolean;
 }
 
+interface AutomationPanelTab {
+  automationPanel: true;
+  id: string;
+  sessionId: string;
+  projectId: string;
+  panelId: "right";
+  leafId?: string;
+  title: string;
+  stateKey: number;
+  automationId: string | null;
+  createInput: CodexScheduledAutomationCreateInput | null;
+  mode: "open" | "suggested-create" | "suggested-update";
+  updateInput: CodexScheduledAutomationUpdateInput | null;
+}
+
 interface BackgroundAgentPanelTab {
   backgroundAgent: true;
   id: string;
@@ -575,6 +598,7 @@ type ProjectSessionRenderableTab =
   | SideChatPanelTab
   | McpAppPanelTab
   | PlanPanelTab
+  | AutomationPanelTab
   | BackgroundAgentPanelTab
   | ProcessOutputPanelTab;
 
@@ -1027,6 +1051,8 @@ interface SessionPanelRenderModelInput {
   mcpAppActiveTabByPanel: Record<string, string>;
   planTabsBySession: Record<string, PlanPanelTab[]>;
   planActiveTabByPanel: Record<string, string>;
+  automationTabsBySession: Record<string, AutomationPanelTab[]>;
+  automationActiveTabByPanel: Record<string, string>;
   backgroundAgentTabsBySession: Record<string, BackgroundAgentPanelTab[]>;
   backgroundAgentActiveTabByPanel: Record<string, string>;
   processOutputTabsBySession: Record<string, ProcessOutputPanelTab[]>;
@@ -1166,6 +1192,7 @@ function resolveProjectTargetTabChromeContext(
     isSideChatPanelTab(tab)
     || isMcpAppPanelTab(tab)
     || isPlanPanelTab(tab)
+    || isAutomationPanelTab(tab)
     || isBackgroundAgentPanelTab(tab)
     || isProcessOutputPanelTab(tab)
   ) return {};
@@ -1416,6 +1443,19 @@ function clampRegularRightPanelWidth(width: number, sessionWidth: number): numbe
   return Math.min(maxWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, width));
 }
 
+function clampAutomationDetailRailWidth(width: number, shellWidth: number): number {
+  const roundedWidth = Math.round(width);
+  if (!Number.isFinite(shellWidth) || shellWidth <= 0) {
+    return Math.max(AUTOMATION_DETAIL_RAIL_MIN_WIDTH, roundedWidth);
+  }
+
+  const maxWidth = Math.max(
+    AUTOMATION_DETAIL_RAIL_MIN_WIDTH,
+    Math.floor(shellWidth - AUTOMATION_DETAIL_RAIL_MAIN_MIN_WIDTH),
+  );
+  return Math.min(maxWidth, Math.max(AUTOMATION_DETAIL_RAIL_MIN_WIDTH, roundedWidth));
+}
+
 function readCodexWindowZoom(root: HTMLElement | null): number {
   const rawZoom = root ? window.getComputedStyle(root).getPropertyValue("--codex-window-zoom") : "";
   const parsedZoom = Number.parseFloat(rawZoom);
@@ -1534,6 +1574,8 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
     mcpAppActiveTabByPanel,
     planTabsBySession,
     planActiveTabByPanel,
+    automationTabsBySession,
+    automationActiveTabByPanel,
     backgroundAgentTabsBySession,
     backgroundAgentActiveTabByPanel,
     processOutputTabsBySession,
@@ -1572,6 +1614,9 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
       const planTabs = (planTabsBySession[session.id] ?? []).filter((tab) =>
         tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
       );
+      const automationTabs = (automationTabsBySession[session.id] ?? []).filter((tab) =>
+        tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+      );
       const backgroundAgentTabs = (backgroundAgentTabsBySession[session.id] ?? []).filter((tab) =>
         tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
       );
@@ -1580,8 +1625,25 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
       );
       const previewTab = getRenderablePanelPreviewTab(session, panelId, leaf.id, previewTabsByPanel);
       const renderableTabs: ProjectSessionRenderableTab[] = previewTab
-        ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs, previewTab]
-        : [...durableTabs, ...sideChatTabs, ...mcpAppTabs, ...planTabs, ...backgroundAgentTabs, ...processOutputTabs];
+        ? [
+            ...durableTabs,
+            ...sideChatTabs,
+            ...mcpAppTabs,
+            ...planTabs,
+            ...automationTabs,
+            ...backgroundAgentTabs,
+            ...processOutputTabs,
+            previewTab,
+          ]
+        : [
+            ...durableTabs,
+            ...sideChatTabs,
+            ...mcpAppTabs,
+            ...planTabs,
+            ...automationTabs,
+            ...backgroundAgentTabs,
+            ...processOutputTabs,
+          ];
       const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(session.id, panelId, leaf.id)]
         ?? (leaf.id === activeLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(session.id, panelId)] : null)
         ?? null;
@@ -1590,6 +1652,9 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
         ?? null;
       const planActiveTabId = planActiveTabByPanel[makePlanPanelKey(session.id, panelId, leaf.id)]
         ?? (leaf.id === activeLeafId ? planActiveTabByPanel[makePlanPanelKey(session.id, panelId)] : null)
+        ?? null;
+      const automationActiveTabId = automationActiveTabByPanel[makeAutomationPanelKey(session.id, panelId, leaf.id)]
+        ?? (leaf.id === activeLeafId ? automationActiveTabByPanel[makeAutomationPanelKey(session.id, panelId)] : null)
         ?? null;
       const backgroundAgentActiveTabId =
         backgroundAgentActiveTabByPanel[makeBackgroundAgentPanelKey(session.id, panelId, leaf.id)]
@@ -1611,6 +1676,7 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
         [
           previewTab?.id ?? null,
           planActiveTabId,
+          automationActiveTabId,
           mcpAppActiveTabId,
           sideChatActiveTabId,
           backgroundAgentActiveTabId,
@@ -1730,6 +1796,10 @@ function makePlanPanelKey(sessionId: string, panelId: PanelId, leafId?: string |
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
+function makeAutomationPanelKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
+  return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
+}
+
 function makeBackgroundAgentPanelKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
@@ -1829,6 +1899,10 @@ function isPlanPanelTab(tab: ProjectSessionRenderableTab): tab is PlanPanelTab {
   return "planPanel" in tab && tab.planPanel === true;
 }
 
+function isAutomationPanelTab(tab: ProjectSessionRenderableTab): tab is AutomationPanelTab {
+  return "automationPanel" in tab && tab.automationPanel === true;
+}
+
 function isBackgroundAgentPanelTab(tab: ProjectSessionRenderableTab): tab is BackgroundAgentPanelTab {
   return "backgroundAgent" in tab && tab.backgroundAgent === true;
 }
@@ -1843,10 +1917,11 @@ function isProjectSessionFilesPreviewTab(tab: ProjectSessionRenderableTab): tab 
 
 function isTransientPanelTab(
   tab: ProjectSessionRenderableTab,
-): tab is SideChatPanelTab | McpAppPanelTab | PlanPanelTab | BackgroundAgentPanelTab | ProcessOutputPanelTab {
+): tab is SideChatPanelTab | McpAppPanelTab | PlanPanelTab | AutomationPanelTab | BackgroundAgentPanelTab | ProcessOutputPanelTab {
   return isSideChatPanelTab(tab)
     || isMcpAppPanelTab(tab)
     || isPlanPanelTab(tab)
+    || isAutomationPanelTab(tab)
     || isBackgroundAgentPanelTab(tab)
     || isProcessOutputPanelTab(tab);
 }
@@ -2191,6 +2266,8 @@ export function WorkbenchShell({
   const [mcpAppActiveTabByPanel, setMcpAppActiveTabByPanel] = useState<Record<string, string>>({});
   const [planTabsBySession, setPlanTabsBySession] = useState<Record<string, PlanPanelTab[]>>({});
   const [planActiveTabByPanel, setPlanActiveTabByPanel] = useState<Record<string, string>>({});
+  const [automationTabsBySession, setAutomationTabsBySession] = useState<Record<string, AutomationPanelTab[]>>({});
+  const [automationActiveTabByPanel, setAutomationActiveTabByPanel] = useState<Record<string, string>>({});
   const [backgroundAgentTabsBySession, setBackgroundAgentTabsBySession] =
     useState<Record<string, BackgroundAgentPanelTab[]>>({});
   const [backgroundAgentActiveTabByPanel, setBackgroundAgentActiveTabByPanel] = useState<Record<string, string>>({});
@@ -2214,7 +2291,11 @@ export function WorkbenchShell({
   const [, setHeaderLeftRailWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
+  const [automationsDetailRailOpen, setAutomationsDetailRailOpen] = useState(false);
+  const [automationsDetailRailWidth, setAutomationsDetailRailWidth] = useState(AUTOMATION_DETAIL_RAIL_DEFAULT_WIDTH);
   const [threadHeaderPortalElement, setThreadHeaderPortalElement] = useState<HTMLDivElement | null>(null);
+  const [automationsHeaderPortalElement, setAutomationsHeaderPortalElement] = useState<HTMLDivElement | null>(null);
+  const [automationsDetailRailPortalElement, setAutomationsDetailRailPortalElement] = useState<HTMLDivElement | null>(null);
   const [rightPanelComposerOverlayTarget, setRightPanelComposerOverlayTarget] = useState<HTMLElement | null>(null);
   const terminalSessionVersion = useTerminalSessionStoreVersion();
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
@@ -2280,7 +2361,13 @@ export function WorkbenchShell({
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
   const lastHandledKeyboardShortcutsSettingsOpenTickRef = useRef(keyboardShortcutsSettingsOpenTick);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
+  const [localEnvironmentSettingsInitial, setLocalEnvironmentSettingsInitial] = useState<{
+    projectId: string | null;
+    configPath: string | null;
+  } | null>(null);
   const [automationsPath, setAutomationsPath] = useState<string | null>(null);
+  const [newThreadComposerIntentsBySessionId, setNewThreadComposerIntentsBySessionId] =
+    useState<Record<string, CodexComposerIntent>>({});
   const [processManagerOpen, setProcessManagerOpen] = useState(false);
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
   const [composerEnterBehavior, setComposerEnterBehavior] = useState<ComposerEnterBehavior>(readComposerEnterBehavior);
@@ -2436,6 +2523,8 @@ export function WorkbenchShell({
     mcpAppActiveTabByPanel,
     planTabsBySession,
     planActiveTabByPanel,
+    automationTabsBySession,
+    automationActiveTabByPanel,
     backgroundAgentTabsBySession,
     backgroundAgentActiveTabByPanel,
     processOutputTabsBySession,
@@ -2445,6 +2534,8 @@ export function WorkbenchShell({
   }) : null, [
     activePlanKeyBySession,
     activeRenderSession,
+    automationActiveTabByPanel,
+    automationTabsBySession,
     backgroundAgentActiveTabByPanel,
     backgroundAgentTabsBySession,
     mcpAppActiveTabByPanel,
@@ -2570,6 +2661,15 @@ export function WorkbenchShell({
         ? 0
         : resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize)),
   );
+  const automationsRouteHeaderSlotSuppressed = useMotionValue(automationsPath ? 1 : 0);
+  useLayoutEffect(() => {
+    automationsRouteHeaderSlotSuppressed.set(automationsPath ? 1 : 0);
+  }, [automationsPath, automationsRouteHeaderSlotSuppressed]);
+  const rightHeaderShellSlotWidth = useTransform(
+    [rightPanelAnimatedWidth, automationsRouteHeaderSlotSuppressed],
+    ([latestRightPanelWidth, latestSuppressed]) =>
+      Number(latestSuppressed) > 0 ? 0 : Number(latestRightPanelWidth),
+  );
   const bottomPanelAnimatedHeightCss = useTransform(
     bottomPanelMotion.animatedSize,
     (latestHeight) => `${latestHeight}px`,
@@ -2683,30 +2783,36 @@ export function WorkbenchShell({
 
   const openSettings = useCallback(() => {
     setAutomationsPath(null);
+    setLocalEnvironmentSettingsInitial(null);
     setSettingsPath(buildSettingsPath("general-settings"));
   }, []);
 
   const openKeyboardShortcutsSettings = useCallback(() => {
     setAutomationsPath(null);
+    setLocalEnvironmentSettingsInitial(null);
     setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
   }, []);
 
-  const openLocalEnvironmentsSettings = useCallback(() => {
+  const openLocalEnvironmentsSettings = useCallback((input?: {
+    projectId?: string | null;
+    configPath?: string | null;
+  }) => {
     setAutomationsPath(null);
+    setLocalEnvironmentSettingsInitial({
+      projectId: input?.projectId ?? null,
+      configPath: input?.configPath ?? null,
+    });
     setSettingsPath(buildSettingsPath("local-environments"));
   }, []);
 
   const closeSettings = useCallback(() => {
     setSettingsPath(null);
+    setLocalEnvironmentSettingsInitial(null);
   }, []);
 
   const openAutomations = useCallback((path = buildAutomationsPath()) => {
     setSettingsPath(null);
     setAutomationsPath(path);
-  }, []);
-
-  const closeAutomations = useCallback(() => {
-    setAutomationsPath(null);
   }, []);
 
   useEffect(() => {
@@ -2720,6 +2826,7 @@ export function WorkbenchShell({
 
     lastHandledSettingsToggleTickRef.current = settingsToggleTick;
     setAutomationsPath(null);
+    setLocalEnvironmentSettingsInitial(null);
     setSettingsPath((current) => current ? null : buildSettingsPath("general-settings"));
   }, [settingsToggleTick]);
 
@@ -2733,6 +2840,7 @@ export function WorkbenchShell({
     }
 
     lastHandledKeyboardShortcutsSettingsOpenTickRef.current = keyboardShortcutsSettingsOpenTick;
+    setLocalEnvironmentSettingsInitial(null);
     setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
   }, [keyboardShortcutsSettingsOpenTick]);
 
@@ -3678,6 +3786,10 @@ export function WorkbenchShell({
       if (tab.id === excludedTabId) return false;
       return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
     }).length;
+    const automationCount = (automationTabsBySession[activeSession.id] ?? []).filter((tab) => {
+      if (tab.id === excludedTabId) return false;
+      return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
+    }).length;
     const backgroundAgentCount = (backgroundAgentTabsBySession[activeSession.id] ?? []).filter((tab) => {
       if (tab.id === excludedTabId) return false;
       return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
@@ -3688,9 +3800,10 @@ export function WorkbenchShell({
     }).length;
     const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leafId, previewTabsByPanel);
     const previewCount = previewTab && previewTab.id !== excludedTabId ? 1 : 0;
-    return durableCount + sideChatCount + mcpAppCount + planCount + backgroundAgentCount + processOutputCount + previewCount;
+    return durableCount + sideChatCount + mcpAppCount + planCount + automationCount + backgroundAgentCount + processOutputCount + previewCount;
   }, [
     activeSession,
+    automationTabsBySession,
     backgroundAgentTabsBySession,
     mcpAppTabsBySession,
     planTabsBySession,
@@ -3799,6 +3912,16 @@ export function WorkbenchShell({
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, leafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setMcpAppActiveTabByPanel((current) => {
         const keys = [
           makeMcpAppPanelKey(activeSession.id, panelId, leafId),
@@ -3820,6 +3943,16 @@ export function WorkbenchShell({
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, leafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, leafId),
@@ -3842,6 +3975,16 @@ export function WorkbenchShell({
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, leafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, leafId),
@@ -3873,9 +4016,60 @@ export function WorkbenchShell({
       return;
     }
 
+    if ((automationTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+      setPlanActiveTabByPanel((current) => {
+        const keys = [
+          makePlanPanelKey(activeSession.id, panelId, leafId),
+          makePlanPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, leafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setAutomationActiveTabByPanel((current) => ({
+        ...current,
+        [makeAutomationPanelKey(activeSession.id, panelId, leafId)]: tabId,
+      }));
+      return;
+    }
+
     if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, leafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, leafId),
@@ -3916,6 +4110,16 @@ export function WorkbenchShell({
     if ((processOutputTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, leafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, leafId),
@@ -3957,10 +4161,30 @@ export function WorkbenchShell({
 
     clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
     clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
     setPlanActiveTabByPanel((current) => {
       const keys = [
         makePlanPanelKey(activeSession.id, panelId, leafId),
         makePlanPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
       ];
       if (!keys.some((key) => key in current)) return current;
       const next = { ...current };
@@ -3990,6 +4214,7 @@ export function WorkbenchShell({
     await setActivePanelTab(panelId, tabId, { leafId });
   }, [
     activeSession,
+    automationTabsBySession,
     backgroundAgentTabsBySession,
     clearPanelPreviewTab,
     clearBackgroundAgentActiveTab,
@@ -4224,6 +4449,50 @@ export function WorkbenchShell({
     updateActivePanel,
   ]);
 
+  const closeAutomationPanelTab = useCallback(async (
+    panelId: PanelId,
+    tabId: string,
+    replacementTabId: string | null = null,
+  ) => {
+    if (!activeSession) return;
+    const automationTab = (automationTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
+    if (!automationTab) return;
+    const targetLeafId = automationTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+
+    setAutomationTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      return {
+        ...current,
+        [activeSession.id]: tabs.filter((tab) => tab.id !== tabId),
+      };
+    });
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, automationTab.leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => current[key] === tabId)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+
+    await activatePanelTabAfterClose(panelId, replacementTabId, targetLeafId);
+    if (getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: tabId }) === 0) {
+      await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: tabId });
+    }
+    if (getPanelVisibleTabCount(panelId, { excludingTabId: tabId }) > 0) return;
+    await updateActivePanel(panelId, { collapsed: true });
+  }, [
+    activeSession,
+    activatePanelTabAfterClose,
+    automationTabsBySession,
+    getPanelVisibleLeafTabCount,
+    getPanelVisibleTabCount,
+    removeEmptyVisiblePanelLeaf,
+    updateActivePanel,
+  ]);
+
   const closeBackgroundAgentPanelTab = useCallback(async (
     panelId: PanelId,
     tabId: string,
@@ -4337,6 +4606,10 @@ export function WorkbenchShell({
       await closePlanPanelTab(panelId, tabId, replacementTabId);
       return;
     }
+    if ((automationTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      await closeAutomationPanelTab(panelId, tabId, replacementTabId);
+      return;
+    }
     if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       await closeBackgroundAgentPanelTab(panelId, tabId, replacementTabId);
       return;
@@ -4366,7 +4639,9 @@ export function WorkbenchShell({
   }, [
     activeSession,
     activatePanelTabAfterClose,
+    automationTabsBySession,
     backgroundAgentTabsBySession,
+    closeAutomationPanelTab,
     closeBackgroundAgentPanelTab,
     closeProcessOutputPanelTab,
     closePreviewTab,
@@ -4393,6 +4668,16 @@ export function WorkbenchShell({
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, targetLeafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -4423,6 +4708,16 @@ export function WorkbenchShell({
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, targetLeafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -4455,6 +4750,16 @@ export function WorkbenchShell({
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, targetLeafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setSideChatActiveTabByPanel((current) => {
         const keys = [
           makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
@@ -4486,9 +4791,60 @@ export function WorkbenchShell({
       return;
     }
 
+    if ((automationTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
+      clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
+      setPlanActiveTabByPanel((current) => {
+        const keys = [
+          makePlanPanelKey(activeSession.id, panelId, targetLeafId),
+          makePlanPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, targetLeafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setAutomationActiveTabByPanel((current) => ({
+        ...current,
+        [makeAutomationPanelKey(activeSession.id, panelId, targetLeafId)]: tabId,
+      }));
+      return;
+    }
+
     if ((backgroundAgentTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, targetLeafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -4529,6 +4885,16 @@ export function WorkbenchShell({
     if ((processOutputTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
+      setAutomationActiveTabByPanel((current) => {
+        const keys = [
+          makeAutomationPanelKey(activeSession.id, panelId, targetLeafId),
+          makeAutomationPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setPlanActiveTabByPanel((current) => {
         const keys = [
           makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -4568,6 +4934,16 @@ export function WorkbenchShell({
 
     clearBackgroundAgentActiveTab(activeSession.id, panelId, targetLeafId);
     clearProcessOutputActiveTab(activeSession.id, panelId, targetLeafId);
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, targetLeafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
     setPlanActiveTabByPanel((current) => {
       const keys = [
         makePlanPanelKey(activeSession.id, panelId, targetLeafId),
@@ -4601,6 +4977,7 @@ export function WorkbenchShell({
     await setActivePanelTab(panelId, tabId, { leafId: targetLeafId });
   }, [
     activeSession,
+    automationTabsBySession,
     backgroundAgentTabsBySession,
     clearPanelPreviewTab,
     clearBackgroundAgentActiveTab,
@@ -4890,6 +5267,16 @@ export function WorkbenchShell({
       for (const key of keys) delete next[key];
       return next;
     });
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
     clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
     clearPanelPreviewTab(activeSession.id, panelId, leafId);
     await ensureActivePanelOpenWithoutRefresh(panelId);
@@ -5010,6 +5397,16 @@ export function WorkbenchShell({
       for (const key of keys) delete next[key];
       return next;
     });
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
     setSideChatActiveTabByPanel((current) => {
       const keys = [
         makeSideChatPanelKey(activeSession.id, panelId, leafId),
@@ -5081,10 +5478,30 @@ export function WorkbenchShell({
       for (const key of keys) delete next[key];
       return next;
     });
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
     setMcpAppActiveTabByPanel((current) => {
       const keys = [
         makeMcpAppPanelKey(activeSession.id, panelId, leafId),
         makeMcpAppPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
       ];
       if (!keys.some((key) => key in current)) return current;
       const next = { ...current };
@@ -5106,6 +5523,101 @@ export function WorkbenchShell({
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
   }, [activeSession, clearPanelPreviewTab, clearProcessOutputActiveTab, ensureActivePanelOpenWithoutRefresh]);
+
+  const openAutomationSidePanel = useCallback(async (input: ThreadSummaryPanelScheduledAutomationOpenInput) => {
+    if (!activeSession || activeSession.projectId === null) return;
+    const projectId = activeSession.projectId;
+    const panelId: PanelId = "right";
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const mode = input.mode ?? "open";
+    const automationId = input.automationId ?? input.updateInput?.id ?? null;
+    const suggestionKey = [
+      mode,
+      input.updateInput?.id ?? automationId ?? "",
+      input.createInput?.name ?? input.updateInput?.name ?? input.title,
+      input.createInput?.rrule ?? input.updateInput?.rrule ?? "",
+    ].join(":");
+    const tabId = mode === "suggested-create" || mode === "suggested-update"
+      ? `automation-suggestion:${encodeURIComponent(suggestionKey)}`
+      : `automation:${automationId ?? encodeURIComponent(input.title)}`;
+    const tab: AutomationPanelTab = {
+      automationPanel: true,
+      id: tabId,
+      sessionId: activeSession.id,
+      projectId,
+      panelId,
+      leafId,
+      title: input.title.trim() || "Scheduled task",
+      stateKey: Date.now(),
+      automationId,
+      createInput: input.createInput ?? null,
+      mode,
+      updateInput: input.updateInput ?? null,
+    };
+
+    setAutomationTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      const existingIndex = tabs.findIndex((candidate) => candidate.id === tabId);
+      if (existingIndex < 0) {
+        return {
+          ...current,
+          [activeSession.id]: [...tabs, tab],
+        };
+      }
+      return {
+        ...current,
+        [activeSession.id]: tabs.map((candidate) =>
+          candidate.id === tabId
+            ? { ...candidate, ...tab, stateKey: candidate.stateKey + 1 }
+            : candidate
+        ),
+      };
+    });
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
+    setPlanActiveTabByPanel((current) => {
+      const keys = [
+        makePlanPanelKey(activeSession.id, panelId, leafId),
+        makePlanPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setMcpAppActiveTabByPanel((current) => {
+      const keys = [
+        makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+        makeMcpAppPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setSideChatActiveTabByPanel((current) => {
+      const keys = [
+        makeSideChatPanelKey(activeSession.id, panelId, leafId),
+        makeSideChatPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+    setAutomationActiveTabByPanel((current) => ({
+      ...current,
+      [makeAutomationPanelKey(activeSession.id, panelId, leafId)]: tabId,
+    }));
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+  }, [
+    activeSession,
+    clearBackgroundAgentActiveTab,
+    clearPanelPreviewTab,
+    clearProcessOutputActiveTab,
+    ensureActivePanelOpenWithoutRefresh,
+  ]);
 
   const recreateSideChatPanelTab = useCallback(async (tabId: string) => {
     if (!activeSession) return;
@@ -5397,6 +5909,53 @@ export function WorkbenchShell({
     await refreshProjectSessions(projectId);
   }, [ensureBlankSessionForProject, refreshProjectSessions]);
 
+  const openScheduledAutomationChatCreate = useCallback(async (prompt: string) => {
+    const targetProject = activeProject ?? projects.find((project) => project.id === activeProjectId) ?? null;
+    if (!targetProject) {
+      throw new Error("No project is available for scheduled task chat.");
+    }
+
+    const session = await ensureBlankSessionForProject(targetProject.id);
+    setSettingsPath(null);
+    setAutomationsPath(null);
+    setNewThreadComposerIntentsBySessionId((current) => ({
+      ...current,
+      [session.id]: {
+        prompt,
+        focusNonce: Date.now(),
+      },
+    }));
+  }, [activeProject, activeProjectId, ensureBlankSessionForProject, projects]);
+
+  const startScheduledAutomationTemplateChat = useCallback(async (prompt: string) => {
+    const targetProject = activeProject ?? projects.find((project) => project.id === activeProjectId) ?? null;
+    if (!targetProject) {
+      throw new Error("No project is available for scheduled task personalization.");
+    }
+
+    const session = await ensureBlankSessionForProject(targetProject.id);
+    setSettingsPath(null);
+    setAutomationsPath(null);
+    const detail = await workbenchCodexControl.startThreadForSession({
+      projectId: targetProject.id,
+      sessionId: session.id,
+      prompt,
+      runInTarget: "localProject",
+      collaborationMode: "default",
+    });
+    await refreshProjectSessions(targetProject.id);
+    selectSession(session);
+    await workbenchCodexControl.requestThreadStreamSnapshot(detail.threadId).catch(() => null);
+  }, [
+    activeProject,
+    activeProjectId,
+    ensureBlankSessionForProject,
+    projects,
+    refreshProjectSessions,
+    selectSession,
+    workbenchCodexControl,
+  ]);
+
   const openSidebarCommandPalette = useCallback(() => {
     setCommandPaletteOpenRequest((current) => ({
       tick: current.tick + 1,
@@ -5640,15 +6199,18 @@ export function WorkbenchShell({
     workbenchCodexControl,
   ]);
 
-  const openAttachedThreadSession = useCallback<ThreadStageActions["onOpenThread"]>(async (threadId, context) => {
+  const openAttachedThreadSessionResult = useCallback(async (
+    threadId: string,
+    context?: Parameters<NonNullable<ThreadStageActions["onOpenThread"]>>[1],
+  ): Promise<boolean> => {
     if (context?.subagent && await openBackgroundAgentPanelTab(context.subagent)) {
-      return;
+      return true;
     }
 
     const session = knownSessions.find((candidate) => candidate.thread?.threadId === threadId) ?? null;
     if (session) {
       selectSession(session);
-      return;
+      return true;
     }
 
     try {
@@ -5657,13 +6219,15 @@ export function WorkbenchShell({
         toast.info("That chat is not available", {
           id: `thread-open-unattached-${threadId}`,
         });
-        return;
+        return false;
       }
       mergeSessionInState(ensured);
       await refreshProjectSessions(ensured.projectId);
       selectSession(ensured);
+      return true;
     } catch {
       toast.danger("Failed to open chat");
+      return false;
     }
   }, [
     knownSessions,
@@ -5673,9 +6237,21 @@ export function WorkbenchShell({
     selectSession,
   ]);
 
+  const openAttachedThreadSession = useCallback<ThreadStageActions["onOpenThread"]>(async (threadId, context) => {
+    await openAttachedThreadSessionResult(threadId, context);
+  }, [openAttachedThreadSessionResult]);
+
   const openAttachedThreadSessionById = useCallback(async (threadId: string) => {
     await openAttachedThreadSession(threadId);
   }, [openAttachedThreadSession]);
+
+  const openAutomationHistoryThreadSessionById = useCallback(async (threadId: string) => {
+    const opened = await openAttachedThreadSessionResult(threadId);
+    if (!opened) return;
+
+    setSettingsPath(null);
+    setAutomationsPath(null);
+  }, [openAttachedThreadSessionResult]);
 
   const openProcessOutputInCurrentSession = useCallback(async (target: ProcessOutputPanelTarget): Promise<boolean> => {
     if (!activeSession?.thread || activeSession.thread.threadId !== target.threadId) return false;
@@ -5721,6 +6297,16 @@ export function WorkbenchShell({
     });
     clearPanelPreviewTab(activeSession.id, panelId, leafId);
     clearBackgroundAgentActiveTab(activeSession.id, panelId, leafId);
+    setAutomationActiveTabByPanel((current) => {
+      const keys = [
+        makeAutomationPanelKey(activeSession.id, panelId, leafId),
+        makeAutomationPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
     setPlanActiveTabByPanel((current) => {
       const keys = [
         makePlanPanelKey(activeSession.id, panelId, leafId),
@@ -5831,6 +6417,15 @@ export function WorkbenchShell({
       panelId: "right",
     });
   }, [activeSession, openWorkspaceFileTab]);
+  const consumeNewThreadComposerIntent = useCallback((sessionId: string, focusNonce: number) => {
+    setNewThreadComposerIntentsBySessionId((current) => {
+      const intent = current[sessionId];
+      if (!intent || intent.focusNonce !== focusNonce) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
 
   const forkSessionFromTurn = useCallback(async (input: {
     threadId: string;
@@ -6441,6 +7036,51 @@ export function WorkbenchShell({
     window.addEventListener("pointercancel", onPointerCancel);
   }, [activeSession, regularRightPanelWidth, rightPanelSizingWidth, setActivePanelCollapsed, updateActivePanel]);
 
+  const resizeAutomationDetailRail = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const root = workbenchRootRef.current;
+    const windowZoom = readCodexWindowZoom(root);
+    const resizeHandle = event.currentTarget;
+    const pointerId = event.pointerId;
+    const sizingWidth = shellMainContentWidth;
+    const startX = event.clientX / windowZoom;
+    const startWidth = clampAutomationDetailRailWidth(automationsDetailRailWidth, sizingWidth);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      const pointerX = moveEvent.clientX / windowZoom;
+      const rawWidth = startWidth + startX - pointerX;
+      setAutomationsDetailRailWidth(clampAutomationDetailRailWidth(rawWidth, sizingWidth));
+    };
+
+    const cleanupPointerResize = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      if (resizeHandle.hasPointerCapture?.(pointerId)) {
+        resizeHandle.releasePointerCapture(pointerId);
+      }
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      upEvent.preventDefault();
+      cleanupPointerResize();
+    };
+    const onPointerCancel = () => {
+      cleanupPointerResize();
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+  }, [automationsDetailRailWidth, shellMainContentWidth]);
+
   const resizeBottomPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -6554,24 +7194,28 @@ export function WorkbenchShell({
             ? ComposerPluginsIcon
               : isPlanPanelTab(tab)
                 ? ComposerPlanModeIcon
-                : isBackgroundAgentPanelTab(tab)
-                  ? createBackgroundAgentTabIcon(tab.threadId)
-                  : isProcessOutputPanelTab(tab)
-                    ? CodexSidePanelTerminalIcon
-                    : isProjectSessionFilesPreviewTab(tab)
-                      ? getTabIcon(tab.kind)
-                      : getBrowserTabIcon(tab),
+                : isAutomationPanelTab(tab)
+                  ? CodexAutomationsIcon
+                  : isBackgroundAgentPanelTab(tab)
+                    ? createBackgroundAgentTabIcon(tab.threadId)
+                    : isProcessOutputPanelTab(tab)
+                      ? CodexSidePanelTerminalIcon
+                      : isProjectSessionFilesPreviewTab(tab)
+                        ? getTabIcon(tab.kind)
+                        : getBrowserTabIcon(tab),
         closable: isSideChatPanelTab(tab)
           ? tab.status !== "loading"
           : isMcpAppPanelTab(tab)
             ? true
             : isPlanPanelTab(tab)
               ? true
-              : isBackgroundAgentPanelTab(tab)
+              : isAutomationPanelTab(tab)
                 ? true
-          : isProcessOutputPanelTab(tab)
-            ? true
-            : tab.preview === true || session.tabs.length > 1,
+                : isBackgroundAgentPanelTab(tab)
+                  ? true
+                  : isProcessOutputPanelTab(tab)
+                    ? true
+                    : tab.preview === true || session.tabs.length > 1,
         preview: transientPanelTab ? undefined : tab.preview,
         retentionMode,
         reorderable: transientPanelTab ? false : tab.preview === true ? false : true,
@@ -6621,6 +7265,56 @@ export function WorkbenchShell({
           }
           if (isPlanPanelTab(tab)) {
             return <PlanSidePanelTab key={`${session.id}:${tab.id}:${tab.stateKey}`} content={tab.content} />;
+          }
+          if (isAutomationPanelTab(tab)) {
+            return (
+              <WorkbenchAutomationSidePanelTab
+                key={`${session.id}:${tab.id}:${tab.stateKey}`}
+                automationId={tab.automationId}
+                createInput={tab.createInput}
+                mode={tab.mode}
+                projects={projects}
+                title={tab.title}
+                updateInput={tab.updateInput}
+                onClose={() => closeAutomationPanelTab(tab.panelId, tab.id)}
+                onOpenInScheduled={(automationId) => {
+                  openAutomations(buildAutomationsPath({ automationId }));
+                }}
+                onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+                onSaved={(automation: CodexScheduledAutomation) => {
+                  setAutomationTabsBySession((current) => {
+                    const tabs = current[session.id] ?? [];
+                    return {
+                      ...current,
+                      [session.id]: tabs.map((candidate) =>
+                        candidate.id === tab.id
+                          ? {
+                              ...candidate,
+                              automationId: automation.id,
+                              createInput: null,
+                              mode: "open",
+                              title: automation.name,
+                              updateInput: null,
+                              stateKey: candidate.stateKey + 1,
+                            }
+                          : candidate
+                      ),
+                    };
+                  });
+                }}
+                onTitleChange={(title) => {
+                  setAutomationTabsBySession((current) => {
+                    const tabs = current[session.id] ?? [];
+                    return {
+                      ...current,
+                      [session.id]: tabs.map((candidate) =>
+                        candidate.id === tab.id ? { ...candidate, title } : candidate
+                      ),
+                    };
+                  });
+                }}
+              />
+            );
           }
           if (isProcessOutputPanelTab(tab)) {
             return <ProcessOutputPanelTabView key={`${session.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
@@ -6711,6 +7405,7 @@ export function WorkbenchShell({
     cardStageHistoryModal,
     cardStagePersistRef,
     cardStageSessionSnapshotRef,
+    closeAutomationPanelTab,
     closeTab,
     createBrowserTabToRight,
     createManualTab,
@@ -6722,9 +7417,11 @@ export function WorkbenchShell({
     processOutputTabsBySession,
     onLeaveCardStageCard,
     onReminderHandled,
+    openAutomations,
     openSideChat,
     openMcpAppSidePanel,
     openCardTab,
+    openLocalEnvironmentsSettings,
     openWorkspaceFileTab,
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
@@ -7086,7 +7783,6 @@ export function WorkbenchShell({
     sidebarWidth,
   ]);
 
-  const headerShellSlotWidth = rightPanelAnimatedWidth;
   const threadSummaryPanelAvailable = Boolean(activeSession?.thread);
   const threadSummaryPanelSuppressed = rightPanelFullWidth;
   const threadSummaryPanelMounted = threadSummaryPanelAvailable
@@ -7200,9 +7896,24 @@ export function WorkbenchShell({
   }, [activeSession, selectPanelTab, setActivePanelCollapsed]);
   const openSummaryScheduledAutomation = useCallback<NonNullable<ThreadStageActions["onOpenSummaryScheduledAutomation"]>>(({
     automationId,
+    createInput,
+    mode,
+    title,
+    updateInput,
   }) => {
+    if (mode === "suggested-create" || mode === "suggested-update") {
+      void openAutomationSidePanel({
+        automationId,
+        createInput,
+        mode,
+        title,
+        updateInput,
+      });
+      return;
+    }
+    if (!automationId) return;
     openAutomations(buildAutomationsPath({ automationId }));
-  }, [openAutomations]);
+  }, [openAutomationSidePanel, openAutomations]);
   const openSummaryProcessManager = useCallback<NonNullable<ThreadStageActions["onOpenProcessManager"]>>(() => {
     setProcessManagerOpen(true);
   }, []);
@@ -7568,8 +8279,8 @@ export function WorkbenchShell({
       onRequestProjectPickerOpen={onRequestProjectPickerOpen}
       projects={projects}
       activeProjectId={activeProject?.id ?? activeProjectId}
-      initialLocalEnvironmentProjectId={null}
-      initialLocalEnvironmentConfigPath={null}
+      initialLocalEnvironmentProjectId={localEnvironmentSettingsInitial?.projectId ?? null}
+      initialLocalEnvironmentConfigPath={localEnvironmentSettingsInitial?.configPath ?? null}
       sidebarTopLevelSectionOrder={settingsSidebarTopLevelSectionOrder}
       sidebarTopLevelSections={settingsSidebarTopLevelSections}
       onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible ?? (() => undefined)}
@@ -7590,11 +8301,31 @@ export function WorkbenchShell({
   const automationsRouteShell = automationsPath ? (
     <WorkbenchAutomationsRouteShell
       path={automationsPath}
+      projects={projects}
+      externalHeader
+      headerPortalTarget={automationsHeaderPortalElement}
+      detailRailPortalTarget={automationsDetailRailPortalElement}
+      onDetailRailOpenChange={setAutomationsDetailRailOpen}
       onPathChange={setAutomationsPath}
-      onBackToApp={closeAutomations}
+      onOpenThread={openAutomationHistoryThreadSessionById}
+      onCreateWithChat={openScheduledAutomationChatCreate}
+      onPersonalizeTemplate={startScheduledAutomationTemplateChat}
+      onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
     />
   ) : null;
-  const appShellHeaderCenterVisible = activeSession != null && settingsRouteShell == null && automationsRouteShell == null;
+  const appShellHeaderCenterVisible = settingsRouteShell == null && (activeSession != null || automationsRouteShell != null);
+  const appShellHeaderActions = settingsPath
+    ? null
+    : automationsPath
+      ? sidebarHeaderActions
+      : headerActions;
+  const automationsDetailRailMounted = Boolean(automationsRouteShell && automationsDetailRailOpen);
+  const automationsDetailRailResolvedWidth = automationsDetailRailMounted
+    ? clampAutomationDetailRailWidth(automationsDetailRailWidth, shellMainContentWidth)
+    : 0;
+  const automationsHeaderRightInset = automationsDetailRailMounted
+    ? automationsDetailRailResolvedWidth
+    : 0;
 
   const renameSessionDialog = (
     <RenameChatDialog
@@ -7722,6 +8453,8 @@ export function WorkbenchShell({
           mcpAppActiveTabByPanel,
           planTabsBySession,
           planActiveTabByPanel,
+          automationTabsBySession,
+          automationActiveTabByPanel,
           backgroundAgentTabsBySession,
           backgroundAgentActiveTabByPanel,
           processOutputTabsBySession,
@@ -7816,6 +8549,8 @@ export function WorkbenchShell({
                       threadViewportActive={isActive && !model.rightPanelFullWidth}
                       onRefreshProjectSessions={refreshProjectSessions}
                       onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+                      newThreadComposerIntent={newThreadComposerIntentsBySessionId[session.id] ?? null}
+                      onConsumeNewThreadComposerIntent={consumeNewThreadComposerIntent}
                       onRequestProjectPickerOpen={onRequestProjectPickerOpen}
                       onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
                       threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
@@ -8101,7 +8836,7 @@ export function WorkbenchShell({
   };
 
   return (
-    <HeaderActionProvider actions={settingsPath || automationsPath ? null : headerActions}>
+    <HeaderActionProvider actions={appShellHeaderActions}>
       <NodexTooltipProvider>
         <ContentSearchProvider openRequest={contentSearchOpenRequest}>
           <ContentSearchSurface />
@@ -8155,39 +8890,50 @@ export function WorkbenchShell({
             />
             {appShellHeaderCenterVisible ? (
               <div
-                aria-hidden={rightPanelFullWidth ? "true" : undefined}
+                aria-hidden={automationsRouteShell == null && rightPanelFullWidth ? "true" : undefined}
                 data-testid="app-shell-header-context-menu-surface"
                 className={cn(
-                  "pointer-events-none ms-4 flex h-full min-w-0 flex-1 isolate items-center gap-1.5 overflow-hidden [contain:layout_paint] pe-1.5",
-                  rightPanelFullWidth && "invisible",
+                  "pointer-events-none ms-4 flex h-full min-w-0 flex-1 isolate items-center gap-1.5 overflow-hidden [contain:layout_paint] pe-2",
+                  automationsRouteShell == null && rightPanelFullWidth && "invisible",
                 )}
+                style={automationsHeaderRightInset > 0 ? { marginRight: automationsHeaderRightInset } : undefined}
               >
-                <div
-                  ref={setThreadHeaderPortalElement}
-                  data-testid="thread-stage-header-portal-target"
-                  className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
-                />
-                <HeaderInlineActionRail
-                  slotPosition="center"
-                  data-testid="thread-stage-header-summary-actions"
-                  className="ms-auto"
-                />
+                {automationsRouteShell ? (
+                  <div
+                    ref={setAutomationsHeaderPortalElement}
+                    data-testid="automations-route-header-portal-target"
+                    className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
+                  />
+                ) : (
+                  <>
+                    <div
+                      ref={setThreadHeaderPortalElement}
+                      data-testid="thread-stage-header-portal-target"
+                      className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
+                    />
+                    <HeaderInlineActionRail
+                      slotPosition="center"
+                      data-testid="thread-stage-header-summary-actions"
+                      className="ms-auto"
+                    />
+                  </>
+                )}
               </div>
             ) : null}
             <HeaderShellSlot
               side="right"
-              slotWidth={headerShellSlotWidth}
-              minWidth={headerRightWidth}
-              fallbackWidth={RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX}
-              fallbackRailWidth={RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX}
+              slotWidth={rightHeaderShellSlotWidth}
+              minWidth={automationsRouteShell ? 0 : headerRightWidth}
+              fallbackWidth={automationsRouteShell ? 0 : RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX}
+              fallbackRailWidth={automationsRouteShell ? 0 : RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX}
               onMeasuredWidthChange={setHeaderRightWidth}
               onMeasuredRailWidthChange={setHeaderRightRailWidth}
             />
           </header>
 
         <div className="relative flex max-h-full min-h-0 w-full flex-1">
-          {settingsRouteShell || automationsRouteShell ? (
-            settingsRouteShell ?? automationsRouteShell
+          {settingsRouteShell ? (
+            settingsRouteShell
           ) : (
             <>
           {showInlineSidebar ? (
@@ -8214,15 +8960,24 @@ export function WorkbenchShell({
               onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
               onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
-              onSelectProject={selectProject}
-              onSelectSidebarThread={selectSidebarThread}
+              onSelectProject={(projectId) => {
+                setAutomationsPath(null);
+                selectProject(projectId);
+              }}
+              onSelectSidebarThread={(item) => {
+                setAutomationsPath(null);
+                void selectSidebarThread(item);
+              }}
               onPreviewSidebarThread={prefetchSidebarSession}
               onOpenSessionContextMenu={openSessionContextMenu}
               onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
               onArchiveSidebarThread={archiveSidebarThreadItem}
               onToggleSessionPinned={toggleSessionPin}
               onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
-              onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
+              onStartNewChatInProject={(projectId) => {
+                setAutomationsPath(null);
+                void startNewChatInProject(projectId);
+              }}
               onOpenCommandPalette={openSidebarCommandPalette}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
               onOpenAutomations={openAutomations}
@@ -8286,15 +9041,24 @@ export function WorkbenchShell({
                   onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
                   onToggleProjectExpanded={toggleProjectExpanded}
-                  onSelectProject={selectProject}
-                  onSelectSidebarThread={selectSidebarThread}
+                  onSelectProject={(projectId) => {
+                    setAutomationsPath(null);
+                    selectProject(projectId);
+                  }}
+                  onSelectSidebarThread={(item) => {
+                    setAutomationsPath(null);
+                    void selectSidebarThread(item);
+                  }}
                   onPreviewSidebarThread={prefetchSidebarSession}
                   onOpenSessionContextMenu={openSessionContextMenu}
                   onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
                   onArchiveSidebarThread={archiveSidebarThreadItem}
                   onToggleSessionPinned={toggleSessionPin}
                   onToggleSidebarThreadPinned={toggleSidebarThreadPinned}
-                  onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
+                  onStartNewChatInProject={(projectId) => {
+                    setAutomationsPath(null);
+                    void startNewChatInProject(projectId);
+                  }}
                   onOpenCommandPalette={openSidebarCommandPalette}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
                   onOpenAutomations={openAutomations}
@@ -8321,31 +9085,82 @@ export function WorkbenchShell({
             ) : null}
           </AnimatePresence>
 
-          <main
-            className={cn(
-              "main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-              realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
-            )}
-          >
-            {retainedSessionRenderEntries.length > 0 ? (
-              retainedSessionRenderEntries.map(renderRetainedSessionActivity)
-            ) : (
-              <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
-                Select a project session.
-              </div>
-            )}
-          </main>
-          <HistoryPanel
-            projectId={cardStageHistoryModal?.projectId ?? activeProjectId}
-            cardId={cardStageHistoryModal?.cardId ?? null}
-            cardTitle={cardStageHistoryModal?.cardTitle}
-            projectWorkspacePath={projectWorkspaceRootOrNull(cardStageHistoryModalProject)}
-            open={cardStageHistoryModal !== null}
-            onClose={closeCardStageHistoryModal}
-            onCardMutated={() => {
-              void activeProjectKanban.refresh();
-            }}
-          />
+          {automationsRouteShell ? (
+            <>
+              <main
+                className={cn(
+                  "main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                  realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
+                )}
+              >
+                {automationsRouteShell}
+              </main>
+              {automationsDetailRailMounted ? (
+                <aside
+                  data-app-shell-focus-area="right-panel"
+                  data-testid="automation-detail-rail"
+                  data-right-panel-width-mode="regular"
+                  className={cn(
+                    "relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible",
+                    APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
+                  )}
+                  style={{
+                    width: automationsDetailRailResolvedWidth,
+                  }}
+                >
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize scheduled task details"
+                    className="group absolute top-0 bottom-0 left-0 z-40 flex w-4 -translate-x-2 cursor-col-resize touch-none select-none active:cursor-col-resize"
+                    onPointerDown={resizeAutomationDetailRail}
+                  >
+                    <div className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
+                  </div>
+
+                  <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
+                    <div
+                      ref={setAutomationsDetailRailPortalElement}
+                      className="absolute top-0 bottom-0 left-0 min-w-0 border-l border-token-border bg-token-main-surface-primary"
+                      style={{
+                        width: automationsDetailRailResolvedWidth,
+                        minWidth: automationsDetailRailResolvedWidth,
+                        "--thread-content-top-inset": "calc(var(--spacing) * 8)",
+                      } as React.CSSProperties}
+                    />
+                  </div>
+                </aside>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <main
+                className={cn(
+                  "main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                  realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
+                )}
+              >
+                {retainedSessionRenderEntries.length > 0 ? (
+                  retainedSessionRenderEntries.map(renderRetainedSessionActivity)
+                ) : (
+                  <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
+                    Select a project session.
+                  </div>
+                )}
+              </main>
+              <HistoryPanel
+                projectId={cardStageHistoryModal?.projectId ?? activeProjectId}
+                cardId={cardStageHistoryModal?.cardId ?? null}
+                cardTitle={cardStageHistoryModal?.cardTitle}
+                projectWorkspacePath={projectWorkspaceRootOrNull(cardStageHistoryModalProject)}
+                open={cardStageHistoryModal !== null}
+                onClose={closeCardStageHistoryModal}
+                onCardMutated={() => {
+                  void activeProjectKanban.refresh();
+                }}
+              />
+            </>
+          )}
             </>
           )}
         </div>
@@ -9321,7 +10136,7 @@ function ProjectSessionSidebar({
                 onClick={() => onShowUnavailableProduct("Plugins")}
               />
               <CodexSidebarTopAction
-                label="Automations"
+                label="Scheduled"
                 icon={<CodexAutomationsIcon />}
                 onClick={() => onOpenAutomations()}
               />
@@ -9641,6 +10456,8 @@ function SessionThreadPage({
   threadViewportActive,
   onRefreshProjectSessions,
   onEnsureBlankSessionForProject,
+  newThreadComposerIntent,
+  onConsumeNewThreadComposerIntent,
   onRequestProjectPickerOpen,
   onOpenLocalEnvironmentsSettings,
   threadQueueFollowUpsEnabled,
@@ -9686,6 +10503,8 @@ function SessionThreadPage({
   threadViewportActive: boolean;
   onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
+  newThreadComposerIntent?: CodexComposerIntent | null;
+  onConsumeNewThreadComposerIntent?: ThreadStageActions["onConsumeNewThreadComposerIntent"];
   onRequestProjectPickerOpen: () => void;
   onOpenLocalEnvironmentsSettings: () => void;
   threadQueueFollowUpsEnabled: boolean;
@@ -9803,48 +10622,51 @@ function SessionThreadPage({
     worktreeStartMode,
   ]);
 
-  const actions = useMemo(() => createThreadStageActions({
-    activeThreadId: summary?.threadId ?? null,
-    accountActions,
-    codexControl,
-    onEnsureBlankSessionForProject,
-    onRefreshProjectSessions,
-    onQueueingEnabledChange,
-    onOpenThread,
-    onOpenTurnDiffReview,
-    onOpenTurnDiffFileInSidePanel,
-    onForkSessionFromTurn,
-    currentSessionProjectId: projectId,
-    projectId: effectiveProjectId,
-    onNewThreadProjectChange: setSelectedNewThreadProjectId,
-    onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
-    onNewThreadStartInTargetChange: (target) => {
-      setSelectedNewThreadRunInTarget(target.runInTarget);
-      if (target.runInTarget !== "newWorktree") setSelectedNewThreadEnvironmentPath(null);
-    },
-    onNewThreadStartInEnvironmentChange: setSelectedNewThreadEnvironmentPath,
-    onRefreshNewThreadStartInEnvironments: refreshNewThreadEnvironments,
-    onOpenNewThreadLocalEnvironmentsSettings: onOpenLocalEnvironmentsSettings,
-    onOpenSideChat: async (input) => {
-      await onOpenSideChat({
-        ...input,
-        collaborationMode: selectedCollaborationMode,
-      });
-    },
-    onOpenMcpAppSidePanel,
-    onOpenPlanInSidePanel,
-    onClosePlanSidePanel,
-    onOpenSummarySideChatRow,
-    onOpenSummaryBrowserRow,
-    onOpenSummaryScheduledAutomation,
-    onOpenSummaryOutputInSidePanel,
-    onOpenSummaryGitReview,
-    onOpenProcessManager,
-    onOpenBackgroundTerminalOutput,
-    onToggleSummaryComputerUsePip,
-    onRequestRenameThread,
-    selectedCollaborationMode,
-    setSelectedCollaborationMode,
+  const actions = useMemo<ThreadStageActions>(() => ({
+    ...createThreadStageActions({
+      activeThreadId: summary?.threadId ?? null,
+      accountActions,
+      codexControl,
+      onEnsureBlankSessionForProject,
+      onRefreshProjectSessions,
+      onQueueingEnabledChange,
+      onOpenThread,
+      onOpenTurnDiffReview,
+      onOpenTurnDiffFileInSidePanel,
+      onForkSessionFromTurn,
+      currentSessionProjectId: projectId,
+      projectId: effectiveProjectId,
+      onNewThreadProjectChange: setSelectedNewThreadProjectId,
+      onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
+      onNewThreadStartInTargetChange: (target) => {
+        setSelectedNewThreadRunInTarget(target.runInTarget);
+        if (target.runInTarget !== "newWorktree") setSelectedNewThreadEnvironmentPath(null);
+      },
+      onNewThreadStartInEnvironmentChange: setSelectedNewThreadEnvironmentPath,
+      onRefreshNewThreadStartInEnvironments: refreshNewThreadEnvironments,
+      onOpenNewThreadLocalEnvironmentsSettings: onOpenLocalEnvironmentsSettings,
+      onOpenSideChat: async (input) => {
+        await onOpenSideChat({
+          ...input,
+          collaborationMode: selectedCollaborationMode,
+        });
+      },
+      onOpenMcpAppSidePanel,
+      onOpenPlanInSidePanel,
+      onClosePlanSidePanel,
+      onOpenSummarySideChatRow,
+      onOpenSummaryBrowserRow,
+      onOpenSummaryScheduledAutomation,
+      onOpenSummaryOutputInSidePanel,
+      onOpenSummaryGitReview,
+      onOpenProcessManager,
+      onOpenBackgroundTerminalOutput,
+      onToggleSummaryComputerUsePip,
+      onRequestRenameThread,
+      selectedCollaborationMode,
+      setSelectedCollaborationMode,
+    }),
+    ...(onConsumeNewThreadComposerIntent ? { onConsumeNewThreadComposerIntent } : {}),
   }), [
     codexControl,
     accountActions,
@@ -9869,6 +10691,7 @@ function SessionThreadPage({
     onOpenProcessManager,
     onOpenBackgroundTerminalOutput,
     onToggleSummaryComputerUsePip,
+    onConsumeNewThreadComposerIntent,
     onRequestRenameThread,
     refreshNewThreadEnvironments,
     effectiveProjectId,
@@ -9900,6 +10723,7 @@ function SessionThreadPage({
           canAddProject: true,
         }}
         newThreadStartInSelector={startInSelectorModel}
+        newThreadComposerIntent={summary ? null : newThreadComposerIntent ?? null}
         threadStartProgress={threadStartProgress}
         activeThreadId={summary?.threadId ?? null}
         activeThreadSummary={summary}
@@ -9943,6 +10767,7 @@ function makeThreadSummary(thread: ProjectSessionThreadLink): CodexThreadSummary
     cwd: thread.cwd ?? null,
     managedWorktreePath: thread.managedWorktreePath ?? null,
     projectlessOutputDirectory: thread.projectlessOutputDirectory ?? null,
+    projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot ?? null,
     statusType: thread.statusType as CodexThreadSummary["statusType"],
     statusActiveFlags: thread.statusActiveFlags as CodexThreadSummary["statusActiveFlags"],
     archived: thread.archived,

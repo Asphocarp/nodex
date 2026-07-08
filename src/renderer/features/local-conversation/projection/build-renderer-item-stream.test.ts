@@ -18,6 +18,44 @@ function buildEntry(overrides: Partial<CodexConversationItem>): CodexConversatio
 }
 
 describe("buildRendererItemStream", () => {
+  test("hides assistant remark directive lines from search without mutating raw markdown", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "assistant_directive",
+          type: "assistant_message",
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          markdownText: [
+            "Daily report is ready.",
+            "",
+            "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
+            "::archive-thread{}",
+            "",
+            "Done. ::inbox-item{title=\"Inline remains visible\"}",
+          ].join("\n"),
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    const assistant = items[0];
+    expect(assistant?.type).toBe("assistantMessage");
+    expect(assistant?.type === "assistantMessage" ? assistant.entry.markdownText : "").toBe(
+      [
+        "Daily report is ready.",
+        "",
+        "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
+        "::archive-thread{}",
+        "",
+        "Done. ::inbox-item{title=\"Inline remains visible\"}",
+      ].join("\n"),
+    );
+    expect(assistant?.searchableText.includes("Daily report ready")).toBeFalse();
+    expect(assistant?.searchableText.includes("Inline remains visible")).toBeTrue();
+  });
+
   test("maps transcript entries into richer renderer item types", () => {
     const items = buildRendererItemStream({
       entries: [
