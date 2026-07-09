@@ -360,6 +360,30 @@ const SETTINGS_SEARCH_PANELS = {
       },
     ],
   },
+  git: {
+    title: "Git",
+    subtitle: "Branch naming and instructions used by Codex for Git operations.",
+    groups: [
+      {
+        title: "Branches",
+        entries: [entry(
+          "Branch prefix",
+          "Prefix used when Codex creates new branches.",
+          [DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX],
+        )],
+      },
+      {
+        title: "Commit instructions",
+        description: "Added to commit message generation prompts.",
+        messages: ["Add commit message guidance", "Save"],
+      },
+      {
+        title: "Pull request instructions",
+        description: "Added to PR title and description generation prompts.",
+        messages: ["Add pull request guidance", "Save"],
+      },
+    ],
+  },
   worktrees: {
     title: "Worktrees",
     subtitle: "Managed worktree creation, naming, and cleanup.",
@@ -371,11 +395,6 @@ const SETTINGS_SEARCH_PANELS = {
             "Worktree start mode",
             "Choose whether new worktree threads auto-create a branch or start detached.",
             ["Auto branch", "Detached HEAD"],
-          ),
-          entry(
-            "Auto branch prefix",
-            "Prefix prepended to auto branch names before the thread slug.",
-            [DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX],
           ),
         ],
       },
@@ -476,6 +495,31 @@ const SETTINGS_SEARCH_PANELS = {
       },
     ],
   },
+  "hooks-settings": {
+    title: "Hooks",
+    subtitle: "Manage lifecycle hooks from config and enabled plugins.",
+    groups: [
+      {
+        title: "From Config",
+        entries: [
+          entry("User config", "Hooks configured for the current user."),
+          entry("Admin config", "Hooks managed by system and organization policy."),
+        ],
+      },
+      {
+        title: "From Plugins",
+        messages: ["Unknown plugin", "Trust", "Managed hooks are always on"],
+      },
+      {
+        title: "From Projects",
+        messages: ["Project config", "Reload hooks", "No hooks found", "Could not load hooks"],
+      },
+      {
+        title: "Other sources",
+        messages: ["Session flags", "Unknown source", "Configured hooks will appear here"],
+      },
+    ],
+  },
   backups: {
     title: "Backups",
     subtitle: "Snapshot cadence, retention, and restore operations.",
@@ -557,11 +601,18 @@ export const SETTINGS_SEARCH_CATALOG = {
   card: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.card),
   },
+  git: {
+    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.git),
+  },
   worktrees: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.worktrees),
   },
   "local-environments": {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS["local-environments"]),
+    searchTerms: projectNameTerms,
+  },
+  "hooks-settings": {
+    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS["hooks-settings"]),
     searchTerms: projectNameTerms,
   },
   backups: {

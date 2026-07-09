@@ -222,6 +222,8 @@
     var(--vscode-editor-font-size, 14px)
   );
   --conversation-block-gap: 12px;
+  --conversation-item-gap: 16px;
+  --conversation-grouped-item-gap: 4px;
   --conversation-tool-assistant-gap: 16px;
 
   --background: #ffffff;

@@ -4,6 +4,7 @@ import type {
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexConversationServerRequest,
+  CodexCanonicalServerRequest,
   CodexConversationTurn,
   CodexMcpServerElicitationRequest,
   CodexPermissionRequest,
@@ -11,6 +12,11 @@ import type {
   CodexPlanImplementationRequest,
   CodexUserInputRequest,
 } from "./types";
+import {
+  buildCodexCanonicalPendingRequestBuckets,
+  selectCanonicalInteractiveRequestForTurn,
+} from "./codex-canonical-pending-request";
+import { hasCodexFileChangeEntries } from "./codex-file-change";
 
 export type CodexTurnScopedConversationRequest = Exclude<
   CodexConversationLiveRequest,
@@ -30,18 +36,20 @@ interface DerivedConversationRequestSelection {
   planSelection: LatestPlanImplementationSelection | null;
   liveRequests: CodexConversationLiveRequest[];
   primaryRequest: CodexConversationLiveRequest | null;
+  primaryBackgroundRequest: CodexApprovalRequest | CodexPermissionRequest | null;
   requestsByTurnId: Map<string, CodexTurnScopedConversationRequest[]>;
 }
 
 interface DerivedConversationRequestCacheEntry extends DerivedConversationRequestSelection {
   turnsRef: readonly CodexConversationTurn[];
+  canonicalRequestsRef: readonly CodexCanonicalServerRequest[] | undefined;
   latestPlanItemRef: CodexConversationItem | null;
   latestPlanTurnId: string | null;
 }
 
 const derivedRequestSelectionsByServerRequestRef = new WeakMap<
   readonly CodexConversationServerRequest[],
-  DerivedConversationRequestCacheEntry[]
+  DerivedConversationRequestCacheEntry
 >();
 
 export function buildPlanImplementationRequestId(turnId: string): string {
@@ -61,7 +69,7 @@ function selectLatestPlanImplementationItem(
 ): LatestPlanImplementationSelection | null {
   for (let turnIndex = conversation.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = conversation.turns[turnIndex];
-    if (!turn) continue;
+    if (!turn || turn.turnId === null) continue;
 
     for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
       const item = turn.items[itemIndex];
@@ -92,14 +100,119 @@ function findMatchingPlanImplementationRequest(
   ) ?? null;
 }
 
-function upsertLatestTurnRequest<TRequest extends CodexConversationServerRequest>(
-  byTurnId: Map<string, TRequest>,
-  request: TRequest,
-): void {
-  const existing = byTurnId.get(request.turnId);
-  if (!existing || existing.createdAt <= request.createdAt) {
-    byTurnId.set(request.turnId, request);
+interface ProjectedPendingRequestBucket {
+  approvalRequests: CodexApprovalRequest[];
+  latestUserInputRequest: CodexUserInputRequest | null;
+  latestMcpElicitationRequest: CodexMcpServerElicitationRequest | null;
+  latestPermissionRequest: CodexPermissionRequest | null;
+}
+
+interface ProjectedPendingRequestBuckets {
+  byTurnId: Map<string, ProjectedPendingRequestBucket>;
+  latestTurnlessMcpElicitation: CodexMcpServerElicitationRequest | null;
+}
+
+function getOrCreateProjectedPendingRequestBucket(
+  buckets: Map<string, ProjectedPendingRequestBucket>,
+  turnId: string,
+): ProjectedPendingRequestBucket {
+  const existing = buckets.get(turnId);
+  if (existing) return existing;
+  const bucket: ProjectedPendingRequestBucket = {
+    approvalRequests: [],
+    latestUserInputRequest: null,
+    latestMcpElicitationRequest: null,
+    latestPermissionRequest: null,
+  };
+  buckets.set(turnId, bucket);
+  return bucket;
+}
+
+function buildProjectedPendingRequestBuckets(
+  requests: readonly CodexConversationServerRequest[],
+): ProjectedPendingRequestBuckets {
+  const byTurnId = new Map<string, ProjectedPendingRequestBucket>();
+  let latestTurnlessMcpElicitation: CodexMcpServerElicitationRequest | null = null;
+
+  for (let index = requests.length - 1; index >= 0; index -= 1) {
+    const request = requests[index];
+    if (!request || request.type === "implementPlan") continue;
+    if (request.type === "mcpServerElicitation" && request.turnId.trim().length === 0) {
+      latestTurnlessMcpElicitation ??= request;
+      continue;
+    }
+
+    const bucket = getOrCreateProjectedPendingRequestBucket(byTurnId, request.turnId);
+    switch (request.type) {
+      case "approval":
+        bucket.approvalRequests.push(request);
+        break;
+      case "userInput":
+        bucket.latestUserInputRequest ??= request;
+        break;
+      case "mcpServerElicitation":
+        bucket.latestMcpElicitationRequest ??= request;
+        break;
+      case "permissionRequest":
+        bucket.latestPermissionRequest ??= request;
+        break;
+    }
   }
+
+  return { byTurnId, latestTurnlessMcpElicitation };
+}
+
+function isValidApprovalForTurn(
+  request: CodexApprovalRequest,
+  turn: CodexConversationTurn,
+): boolean {
+  if (request.kind === "command") return true;
+  const item = [...turn.items].reverse().find((candidate) => candidate.itemId === request.itemId);
+  if (!item?.fileChange) return false;
+  return hasCodexFileChangeEntries(item.fileChange.changes)
+    || (item.fileChange.visualizationActivities?.length ?? 0) > 0;
+}
+
+function selectApprovalOrPermissionForTurn(
+  turn: CodexConversationTurn,
+  bucket: ProjectedPendingRequestBucket | undefined,
+): CodexApprovalRequest | CodexPermissionRequest | null {
+  if (!bucket) return null;
+  return bucket.approvalRequests.find((request) => isValidApprovalForTurn(request, turn))
+    ?? bucket.latestPermissionRequest;
+}
+
+function selectSyntheticUserInputForTurn(
+  conversation: CodexConversationSnapshot,
+  turn: CodexConversationTurn,
+): CodexUserInputRequest | null {
+  if (turn.turnId === null) return null;
+  for (let index = turn.items.length - 1; index >= 0; index -= 1) {
+    const item = turn.items[index];
+    if (!item || (item.kind !== "userInputResponse" && item.semanticKind !== "userInputResponse")) {
+      continue;
+    }
+    const rawCompleted = typeof item.rawItem === "object"
+      && item.rawItem !== null
+      && "completed" in item.rawItem
+      && item.rawItem.completed === true;
+    if (item.status === "completed" || rawCompleted) continue;
+    if (item.requestId === undefined || !item.userInputQuestions) continue;
+    return {
+      type: "userInput",
+      requestId: item.requestId,
+      projectId: conversation.projectId,
+      threadId: conversation.threadId,
+      turnId: turn.turnId,
+      itemId: item.itemId,
+      questions: item.userInputQuestions.map((question) => ({
+        ...question,
+        isOther: false,
+      })),
+      createdAt: item.createdAt,
+    };
+  }
+  return null;
 }
 
 function freezeTurnRequestMap(
@@ -139,50 +252,36 @@ function deriveConversationRequestSelection(
     ? buildPlanImplementationRequest(conversation, latestPlanSelection)
     : null;
 
-  const latestApprovalByTurnId = new Map<string, CodexApprovalRequest>();
-  const latestUserInputByTurnId = new Map<string, CodexUserInputRequest>();
-  const latestMcpElicitationByTurnId = new Map<string, CodexMcpServerElicitationRequest>();
-  const latestPermissionRequestByTurnId = new Map<string, CodexPermissionRequest>();
-  for (const request of conversation.requests) {
-    switch (request.type) {
-      case "approval":
-        upsertLatestTurnRequest(latestApprovalByTurnId, request);
-        break;
-      case "userInput":
-        upsertLatestTurnRequest(latestUserInputByTurnId, request);
-        break;
-      case "mcpServerElicitation":
-        upsertLatestTurnRequest(latestMcpElicitationByTurnId, request);
-        break;
-      case "permissionRequest":
-        upsertLatestTurnRequest(latestPermissionRequestByTurnId, request);
-        break;
-      case "implementPlan":
-        break;
-    }
-  }
+  const projectedPendingBuckets = buildProjectedPendingRequestBuckets(conversation.requests);
+  const canonicalPendingBuckets = buildCodexCanonicalPendingRequestBuckets(conversation);
 
   const liveRequests: CodexConversationLiveRequest[] = [];
+  let primaryBackgroundRequest: CodexApprovalRequest | CodexPermissionRequest | null = null;
   for (let turnIndex = conversation.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = conversation.turns[turnIndex];
-    if (!turn) continue;
+    if (!turn || turn.turnId === null) continue;
 
-    const userInput = latestUserInputByTurnId.get(turn.turnId);
-    if (userInput) {
+    const projectedBucket = projectedPendingBuckets.byTurnId.get(turn.turnId);
+    const userInput = projectedBucket?.latestUserInputRequest ?? null;
+    const canonicalInteractiveRequest = selectCanonicalInteractiveRequestForTurn(
+      canonicalPendingBuckets.get(turn.turnId),
+    );
+    if (canonicalInteractiveRequest) {
+      liveRequests.push(canonicalInteractiveRequest);
+    } else if (userInput) {
       liveRequests.push(userInput);
+    } else {
+      const syntheticUserInput = selectSyntheticUserInputForTurn(conversation, turn);
+      if (syntheticUserInput) liveRequests.push(syntheticUserInput);
     }
 
-    const approval = latestApprovalByTurnId.get(turn.turnId);
-    if (approval) {
-      liveRequests.push(approval);
+    const approvalOrPermission = selectApprovalOrPermissionForTurn(turn, projectedBucket);
+    if (approvalOrPermission) {
+      primaryBackgroundRequest ??= approvalOrPermission;
+      liveRequests.push(approvalOrPermission);
     }
 
-    const permissionRequest = latestPermissionRequestByTurnId.get(turn.turnId);
-    if (permissionRequest) {
-      liveRequests.push(permissionRequest);
-    }
-
-    const mcpElicitation = latestMcpElicitationByTurnId.get(turn.turnId);
+    const mcpElicitation = projectedBucket?.latestMcpElicitationRequest;
     if (mcpElicitation) {
       liveRequests.push(mcpElicitation);
     }
@@ -191,11 +290,14 @@ function deriveConversationRequestSelection(
       liveRequests.push(planRequest);
     }
   }
+  const turnlessMcpElicitation = projectedPendingBuckets.latestTurnlessMcpElicitation;
+  if (turnlessMcpElicitation) liveRequests.push(turnlessMcpElicitation);
 
   return {
     planSelection: latestPlanSelection,
     liveRequests: liveRequests.length === 0 ? EMPTY_LIVE_REQUESTS : liveRequests,
     primaryRequest: liveRequests[0] ?? null,
+    primaryBackgroundRequest,
     requestsByTurnId: freezeTurnRequestMap(liveRequests),
   };
 }
@@ -206,13 +308,13 @@ function resolveDerivedConversationRequestSelection(
   const latestPlanSelection = selectLatestPlanImplementationItem(conversation);
   const latestPlanItemRef = latestPlanSelection?.item ?? null;
   const latestPlanTurnId = latestPlanSelection?.turnId ?? null;
-  const cachedEntries = derivedRequestSelectionsByServerRequestRef.get(conversation.requests);
-  const cached = cachedEntries?.find((entry) =>
-    entry.turnsRef === conversation.turns
-    && entry.latestPlanItemRef === latestPlanItemRef
-    && entry.latestPlanTurnId === latestPlanTurnId,
-  );
-  if (cached) {
+  const cached = derivedRequestSelectionsByServerRequestRef.get(conversation.requests);
+  if (
+    cached?.turnsRef === conversation.turns
+    && cached.canonicalRequestsRef === conversation.canonicalRequests
+    && cached.latestPlanItemRef === latestPlanItemRef
+    && cached.latestPlanTurnId === latestPlanTurnId
+  ) {
     return cached;
   }
 
@@ -220,11 +322,11 @@ function resolveDerivedConversationRequestSelection(
   const entry: DerivedConversationRequestCacheEntry = {
     ...derived,
     turnsRef: conversation.turns,
+    canonicalRequestsRef: conversation.canonicalRequests,
     latestPlanItemRef,
     latestPlanTurnId,
   };
-  const nextEntries = cachedEntries ? [...cachedEntries, entry] : [entry];
-  derivedRequestSelectionsByServerRequestRef.set(conversation.requests, nextEntries);
+  derivedRequestSelectionsByServerRequestRef.set(conversation.requests, entry);
   return entry;
 }
 
@@ -262,7 +364,18 @@ export function areConversationLiveRequestsEqual(
       );
     case "userInput":
       if (right.type !== "userInput") return false;
-      return left.questions === right.questions;
+      return left.questions === right.questions
+        && left.isOnboardingDynamicInput === right.isOnboardingDynamicInput
+        && left.autoResolutionMs === right.autoResolutionMs;
+    case "optionPicker":
+      return right.type === "optionPicker"
+        && left.question === right.question
+        && left.options === right.options
+        && left.allowMultiple === right.allowMultiple
+        && left.submitLabel === right.submitLabel
+        && left.skipLabel === right.skipLabel;
+    case "setupCodexStep":
+      return right.type === "setupCodexStep" && left.step === right.step;
     case "mcpServerElicitation":
       return (
         right.type === "mcpServerElicitation"
@@ -335,6 +448,13 @@ export function selectPrimaryConversationRequest(
   return resolveDerivedConversationRequestSelection(conversation).primaryRequest;
 }
 
+export function selectPrimaryBackgroundConversationRequest(
+  conversation: CodexConversationSnapshot | null,
+): CodexApprovalRequest | CodexPermissionRequest | null {
+  if (!conversation) return null;
+  return resolveDerivedConversationRequestSelection(conversation).primaryBackgroundRequest;
+}
+
 export function selectConversationTurnRequestsByTurnId(
   conversation: CodexConversationSnapshot | null,
 ): Map<string, CodexTurnScopedConversationRequest[]> {
@@ -354,6 +474,8 @@ export function isBlockingConversationRequest(
 ): boolean {
   return request.type === "approval"
     || request.type === "userInput"
+    || request.type === "optionPicker"
+    || request.type === "setupCodexStep"
     || request.type === "mcpServerElicitation"
     || request.type === "permissionRequest";
 }

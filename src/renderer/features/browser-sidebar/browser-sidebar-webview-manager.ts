@@ -1,5 +1,6 @@
 import {
-  BROWSER_SIDEBAR_PARTITION,
+  makeBrowserSidebarRoutePartition,
+  makeBrowserSidebarTabKey,
   type BrowserSidebarDestroyWebviewRequest,
   type BrowserSidebarWebviewDestroyed,
   type BrowserSidebarWebviewHostCreated,
@@ -26,12 +27,12 @@ export interface BrowserSidebarWebviewBounds {
 }
 
 interface WebviewHostKey {
-  sessionId: string;
-  tabId: string;
+  browserConversationId: string;
+  browserTabId: string;
 }
 
 interface ManagedWebviewInput extends WebviewHostKey {
-  projectId: string;
+  projectId: string | null;
   hostKind: BrowserSidebarWebviewHostKind;
   initialUrl: string;
 }
@@ -80,17 +81,17 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.hostKind = input.hostKind;
     this.webview = document.createElement("webview") as BrowserSidebarWebviewElement;
     this.container.setAttribute("data-browser-sidebar-webview-manager-root", "");
-    this.container.setAttribute("data-browser-sidebar-session-id", input.sessionId);
-    this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.tabId);
+    this.container.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.container.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
     this.webview.className = "h-full w-full";
     this.webview.style.display = "flex";
     this.webview.style.width = "100%";
     this.webview.style.height = "100%";
-    this.webview.setAttribute("partition", BROWSER_SIDEBAR_PARTITION);
+    this.webview.setAttribute("partition", makeBrowserSidebarRoutePartition(input));
     this.webview.setAttribute("src", normalizeInitialWebviewUrl(input.initialUrl));
-    this.webview.setAttribute("data-browser-sidebar-session-id", input.sessionId);
-    this.webview.setAttribute("data-browser-sidebar-browser-tab-id", input.tabId);
+    this.webview.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.webview.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.webview.setAttribute("data-browser-sidebar-webview-host-root", "");
     this.webview.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
     this.webview.setAttribute("allowpopups", "false");
@@ -112,11 +113,15 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.scale = input.scale ?? 1;
     this.shouldPaint = input.shouldPaint !== false;
     this.windowZoom = input.windowZoom ?? 1;
-    this.container.setAttribute("data-browser-sidebar-session-id", input.sessionId);
-    this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.tabId);
+    this.container.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.container.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
     this.webview.setAttribute("data-browser-sidebar-mount-generation", String(input.mountGeneration));
-    this.webview.setAttribute("data-browser-sidebar-project-id", input.projectId);
+    if (input.projectId === null) {
+      this.webview.removeAttribute("data-browser-sidebar-project-id");
+    } else {
+      this.webview.setAttribute("data-browser-sidebar-project-id", input.projectId);
+    }
     this.webview.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
 
     ensureBrowserSidebarWebviewHostParent(this.container, input.hostKind);
@@ -243,9 +248,9 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
       title = undefined;
     }
     latestInput.onHostCreated({
-      sessionId: latestInput.sessionId,
+      browserConversationId: latestInput.browserConversationId,
+      browserTabId: latestInput.browserTabId,
       projectId: latestInput.projectId,
-      tabId: latestInput.tabId,
       hostKind: latestInput.hostKind,
       mountGeneration: latestInput.mountGeneration,
       webContentsId,
@@ -294,8 +299,8 @@ export class BrowserSidebarRendererWebviewManager {
     request: BrowserSidebarDestroyWebviewRequest,
     onDestroyed: (event: BrowserSidebarWebviewDestroyed) => void,
   ): void {
-    const host = [...this.hosts.entries()].find(([hostKey]) => hostKey.endsWith(`\0${request.tabId}`));
-    const managedHost = host?.[1];
+    const key = makeHostKey(request);
+    const managedHost = this.hosts.get(key);
     const shouldDestroy = managedHost?.shouldDestroyForHostRequest(request) ?? false;
     let webContentsId: number | undefined;
     try {
@@ -305,17 +310,18 @@ export class BrowserSidebarRendererWebviewManager {
     }
     if (shouldDestroy && managedHost) {
       managedHost.dispose();
-      if (host) this.hosts.delete(host[0]);
+      this.hosts.delete(key);
     }
     onDestroyed({
-      tabId: request.tabId,
+      browserConversationId: request.browserConversationId,
+      browserTabId: request.browserTabId,
       mountGeneration: request.mountGeneration,
       reason: request.reason,
       teardownId: request.teardownId,
       webContentsId,
     });
-    if (host && shouldDestroy) {
-      this.mountGenerations.delete(host[0]);
+    if (shouldDestroy) {
+      this.mountGenerations.delete(key);
     }
   }
 
@@ -335,7 +341,7 @@ function normalizeInitialWebviewUrl(url: string): string {
 }
 
 function makeHostKey(input: WebviewHostKey): string {
-  return `${input.sessionId}\0${input.tabId}`;
+  return makeBrowserSidebarTabKey(input);
 }
 
 function getBrowserSidebarWebviewLayerRoot(): HTMLDivElement {

@@ -14,6 +14,7 @@ import { resetAssetPathCacheForTests } from "./assets";
 import {
   createShippedV57SchemaFixture,
   CURRENT_SCHEMA_VERSION,
+  SHIPPED_SCHEMA_VERSION,
 } from "./schema";
 import { migrateShippedSchemaStoreToCurrent } from "./shipped-schema-migration";
 import { validateBackupStore } from "./backup-store-validation";
@@ -179,7 +180,7 @@ afterEach(() => {
   }
 });
 
-describe("shipped schema to v58 staged import", () => {
+describe("shipped schema through v58 staged import to v59 startup", () => {
   test("imports v26 through the legacy filename without exposing checkpoints", async () => {
     const source = seedV26Store();
     const sourceDatabaseHash = sha256File(source.sourceDatabasePath);
@@ -265,7 +266,7 @@ describe("shipped schema to v58 staged import", () => {
     expect(result).toEqual({
       migrated: true,
       sourceSchemaVersion: 57,
-      installedSchemaVersion: CURRENT_SCHEMA_VERSION,
+      installedSchemaVersion: SHIPPED_SCHEMA_VERSION,
     });
     await initializeDatabase();
 
@@ -294,7 +295,7 @@ describe("shipped schema to v58 staged import", () => {
     closeDatabase();
     resetAssetPathCacheForTests();
     const freshDirectoryPath = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nodex-schema-v58-fresh-"),
+      path.join(os.tmpdir(), "nodex-schema-v59-fresh-"),
     );
     tempDirectories.push(freshDirectoryPath);
     process.env.NODEX_DIR = freshDirectoryPath;

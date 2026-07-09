@@ -2,6 +2,7 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserUseTabState,
 } from "../shared/browser-sidebar";
+import { makeBrowserSidebarTabKey } from "../shared/browser-sidebar";
 import type { IpcEvents } from "../shared/ipc-api";
 import type {
   CodexDesktopMessageFromView,
@@ -166,14 +167,14 @@ export class RemoteHostedPipService {
     if (tab.released) return null;
     if (!tab.captureActive) return null;
     if (tab.webContentsId === null) return null;
-    if (!tab.sessionId) return null;
-
-    const conversationId = this.deps.resolveThreadIdForSession(tab.sessionId);
+    const conversationId = this.deps.resolveThreadIdForSession(
+      tab.browserConversationId,
+    );
     if (!conversationId) return null;
 
     return {
       conversationId,
-      sourceId: `browser-use:${tab.tabId}`,
+      sourceId: `browser-use:${makeBrowserSidebarTabKey(tab)}`,
     };
   }
 

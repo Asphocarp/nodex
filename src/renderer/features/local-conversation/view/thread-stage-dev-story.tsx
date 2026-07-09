@@ -20,10 +20,18 @@ import type { ThreadStageActions } from "../thread-stage-types";
 import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexApprovalKind,
   CodexConversationSnapshot,
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationResponse,
+  CodexProtocolRequestId,
 } from "@/lib/types";
+import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
+import {
+  recordManualApprovalForAutoReviewNudge,
+  resetAutoReviewApprovalNudgeStateForTests,
+  resolveAutoReviewApprovalNudge,
+} from "../auto-review-approval-nudge-state";
 
 export interface ThreadStageDevStoryPageProps extends ThreadStageStoryControls {
   renderPreview?: boolean;
@@ -185,16 +193,18 @@ function updateConversationForThread(
 
 function removeConversationRequest(
   runtime: ThreadStageStoryRuntimeState,
-  requestId: string,
+  requestId: CodexProtocolRequestId,
 ): ThreadStageStoryRuntimeState {
   const threadedRequestConversation = Object.values(runtime.knownConversationsById).find((conversation) =>
-    conversation.requests.some((request) => request.requestId === requestId),
+    conversation.requests.some((request) => request.requestId === requestId)
+    || conversation.canonicalRequests?.some((request) => request.id === requestId),
   );
   if (!threadedRequestConversation) return runtime;
 
   return updateConversationForThread(runtime, threadedRequestConversation.threadId, (conversation) => ({
     ...conversation,
     requests: conversation.requests.filter((request) => request.requestId !== requestId),
+    canonicalRequests: conversation.canonicalRequests?.filter((request) => request.id !== requestId),
     statusType: conversation.turns.some((turn) => turn.status === "inProgress") ? "active" : "idle",
     statusActiveFlags: [],
     updatedAt: getNextTimestamp(conversation),
@@ -365,6 +375,7 @@ export function ThreadStageDevStoryPage({
     preset,
   ]);
   const [runtime, setRuntime] = useState<ThreadStageStoryRuntimeState>(scenario.runtime);
+  const [autoReviewNudgeRevision, setAutoReviewNudgeRevision] = useState(0);
   const previewRef = useRef<HTMLDivElement>(null);
   const lastAutoActionKeyRef = useRef<string | null>(null);
 
@@ -372,16 +383,40 @@ export function ThreadStageDevStoryPage({
     setRuntime(scenario.runtime);
   }, [scenario]);
 
+  useEffect(() => {
+    if (!scenario.activateAutoReviewNudge) return;
+    const threadId = scenario.runtime.activeThreadId;
+    if (!threadId) return;
+    let current = true;
+    clearPersistedAtomStoreForTests();
+    resetAutoReviewApprovalNudgeStateForTests();
+    void recordManualApprovalForAutoReviewNudge({
+      threadId,
+      eligible: true,
+      threshold: 1,
+    }).then(() => {
+      if (current) setAutoReviewNudgeRevision((revision) => revision + 1);
+    });
+    return () => {
+      current = false;
+      resolveAutoReviewApprovalNudge(threadId);
+    };
+  }, [scenario.activateAutoReviewNudge, scenario.runtime.activeThreadId]);
+
   const surfaceModels = useMemo(
-    () => buildThreadStageStorySurfaceModels(scenario, {
-      preset,
-      permissionMode,
-      authenticatedAccount,
-      isQueueingEnabled,
-      collapseAgentBody,
-    }, runtime),
+    () => {
+      void autoReviewNudgeRevision;
+      return buildThreadStageStorySurfaceModels(scenario, {
+        preset,
+        permissionMode,
+        authenticatedAccount,
+        isQueueingEnabled,
+        collapseAgentBody,
+      }, runtime);
+    },
     [
       authenticatedAccount,
+      autoReviewNudgeRevision,
       collapseAgentBody,
       isQueueingEnabled,
       permissionMode,
@@ -499,21 +534,37 @@ export function ThreadStageDevStoryPage({
         return setStoryLog(updateConversationForThread(current, current.conversation.threadId, interruptActiveTurn), "Interrupted the active story turn.");
       });
     },
-    onRespondApproval: async (requestId: string, decision: CodexApprovalDecision) => {
+    onRespondApproval: async (
+      requestId: CodexProtocolRequestId,
+      _kind: CodexApprovalKind,
+      decision: CodexApprovalDecision,
+    ) => {
       setRuntime((current) => setStoryLog(removeConversationRequest(current, requestId), `Approval response: ${decision}`));
     },
-    onRespondUserInput: async (requestId: string, answers: Record<string, string[]>) => {
+    onRespondUserInput: async (requestId: CodexProtocolRequestId, answers: Record<string, string[]>) => {
       setRuntime((current) => {
         const nextRuntime = removeConversationRequest(current, requestId);
         return setStoryLog(nextRuntime, `Answered user input: ${Object.values(answers).flat().join(", ")}`);
       });
     },
     onRespondMcpElicitation: async (
-      requestId: string,
+      requestId: CodexProtocolRequestId,
       response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
     ) => {
       const action = typeof response === "string" ? response : response.action;
       setRuntime((current) => setStoryLog(removeConversationRequest(current, requestId), `MCP elicitation: ${action}`));
+    },
+    onRespondOptionPicker: async (requestId, response) => {
+      setRuntime((current) => setStoryLog(
+        removeConversationRequest(current, requestId),
+        `Option picker: ${response.action}`,
+      ));
+    },
+    onRespondSetupCodexStep: async (requestId, response) => {
+      setRuntime((current) => setStoryLog(
+        removeConversationRequest(current, requestId),
+        `Setup ${response.step}: ${response.action}`,
+      ));
     },
     onResolvePlanImplementationRequest: async (threadId: string, turnId: string) => {
       setRuntime((current) =>
@@ -640,6 +691,19 @@ export function ThreadStageDevStoryPage({
     onCleanBackgroundTerminals: async () => {},
   }), [authenticatedAccount, scenario.autoAction, surfaceModels.footerModel.conversation?.threadId]);
 
+  const forkFromTurnIntoWorktree = async ({
+    threadId,
+    targetTurnId,
+  }: {
+    threadId: string;
+    targetTurnId: string;
+  }) => {
+    setRuntime((current) => setStoryLog(
+      current,
+      `Requested a new worktree from ${threadId}:${targetTurnId}.`,
+    ));
+  };
+
   useEffect(() => {
     if (!scenario.autoAction || !renderPreview) return;
 
@@ -747,6 +811,7 @@ export function ThreadStageDevStoryPage({
                       <LocalConversationThreadBody
                         model={surfaceModels.bodyModel}
                         actions={actions}
+                        onForkFromTurnIntoWorktree={forkFromTurnIntoWorktree}
                         onErrorMessage={() => {}}
                         initialUiState={scenario.initialUiState}
                       />
@@ -771,6 +836,7 @@ export function ThreadStageDevStoryPage({
                         <LocalConversationThreadBody
                           model={surfaceModels.bodyModel}
                           actions={actions}
+                          onForkFromTurnIntoWorktree={forkFromTurnIntoWorktree}
                           onErrorMessage={() => {}}
                           initialUiState={scenario.initialUiState}
                         />

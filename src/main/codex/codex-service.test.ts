@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -6,20 +6,30 @@ import path from "node:path";
 import type {
   CodexBackgroundProcessRow,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexAgentMode,
+  CodexApprovalDecision,
+  CodexApprovalKind,
   CodexConversationSnapshot,
+  CodexCanonicalConversationState,
   CodexEvent,
+  CodexGitSettings,
   CodexHostMessage,
   CodexItemView,
   CodexMcpServerElicitationResponse,
   CodexCollaborationModePreset,
+  CodexCollaborationModeState,
+  CodexConversationThreadSettings,
   CodexPermissionMode,
   CodexPermissionState,
+  CodexPlanImplementationServerRequest,
   CodexPromptInput,
   CodexScheduledAutomation,
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
   CodexThreadGoalSetActionInput,
+  CodexThreadStartForSessionInput,
+  CodexThreadStartForSessionResult,
   CodexThreadOwnerStreamStatePublishInput,
   CodexThreadSummary,
   CodexTurnSummary,
@@ -28,14 +38,55 @@ import type {
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
 } from "../../shared/types";
-import type { ThreadBackgroundTerminal, ThreadGoal, ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2";
+import type {
+  CodexHooksListInput,
+  CodexHooksListResponse,
+  CodexHooksStateUpdateInput,
+} from "../../shared/codex-hooks";
+import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import type {
+  AppInfo,
+  ListMcpServerStatusResponse,
+  Thread,
+  ThreadBackgroundTerminal,
+  ThreadItem,
+  ThreadGoal,
+  ThreadGoalSetParams,
+  ThreadForkResponse,
+  ThreadResumeResponse,
+  ThreadRollbackResponse,
+  ThreadStartResponse,
+  Turn,
+} from "@nodex/codex-app-server-protocol/v2";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../shared/codex-file-change";
+import type {
+  CodexPendingWorktreeCreateInput,
+  CodexPendingStartConversationRequest,
+  CodexPendingWorktreeEntry,
+  CodexPendingWorktreeRequest,
+  CodexPendingWorktreeWarningEvent,
+} from "../../shared/codex-pending-worktree";
+import { canCreateCodexPendingWorktreeSetupRepair } from "../../shared/codex-pending-worktree";
 import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
-import { closeDatabase, initializeDatabase } from "../local-store/database";
-import { createProject } from "../local-store/projects";
+import type { CodexFrameTextDeltaUpdate } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
+import type { CodexCommandOutputUpdate } from "../../shared/codex-conversation-state/codex-command-output-queue";
+import type {
+  CodexFileChangePatchUpdate,
+  CodexMcpToolCallProgressUpdate,
+} from "../../shared/codex-conversation-state/codex-file-change-stream";
+import {
+  createCodexCanonicalHydratedConversationState,
+  isCodexCanonicalProtocolItem,
+} from "../../shared/codex-conversation-state/codex-conversation-state";
+import type {
+  BrowserSidebarBrowserUseStateSnapshot,
+  BrowserSidebarStateSnapshot,
+} from "../../shared/browser-sidebar";
+import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
+import { createProject, listProjects } from "../local-store/projects";
 import {
   dbNotifier,
   type ProjectSessionsChangeEvent,
@@ -44,6 +95,7 @@ import {
   createProjectSession,
   createProjectSessionTab,
   getProjectSession,
+  getProjectSessionThreadLink,
   listProjectSessions,
   upsertProjectSessionThreadLink,
 } from "../local-store/project-sessions";
@@ -58,7 +110,10 @@ import {
   insertCodexAutomationRunInProgress,
   markCodexAutomationRunPendingReview,
 } from "../local-store/codex-automation-runs";
-import { CodexRpcError } from "./codex-app-server-client";
+import {
+  CODEX_SERVER_REQUEST_NO_RESPONSE,
+  CodexRpcError,
+} from "./codex-app-server-client";
 import {
   getCodexThread,
   setCodexThreadPinned,
@@ -66,6 +121,10 @@ import {
 } from "./codex-link-repository";
 import { resetCodexSessionStoreCaches } from "./codex-session-store";
 import { CodexService } from "./codex-service";
+import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
+import { removeManagedWorktree } from "./git-worktree-service";
+import type { PastedTextAttachmentManager } from "../thread-goal-attachments";
+import { getCodexClientThreadId } from "./codex-client-thread-identity";
 import {
   createInlineCommandPaletteThreadSearchClient,
   type CommandPaletteThreadSearchClient,
@@ -77,6 +136,13 @@ import {
   CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
 } from "./thread-title-generator";
 import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-sessions";
+import {
+  getCodexThreadWritableRoots,
+  mergeCodexThreadWritableRoots,
+  resetCodexThreadWritableRootsCacheForTests,
+  setCodexThreadWritableRootsPathOverrideForTests,
+} from "../local-store/codex-thread-writable-roots";
+import { resetPersistedAtomStateForTests } from "../local-store/persisted-atoms";
 
 interface TestableCodexService {
   on: {
@@ -85,6 +151,8 @@ interface TestableCodexService {
     (event: "rendererOwnerHostMessage", listener: (message: { targetClientId: string; message: unknown }) => void): unknown;
   };
   shutdown: () => Promise<void>;
+  getPersonality: () => import("../../shared/types").CodexPersonality;
+  setPersonality: (personality: import("../../shared/types").CodexPersonality) => void;
   readAccountSnapshot: () => Promise<import("../../shared/types").CodexAccountSnapshot>;
   logoutAccount: () => Promise<boolean>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
@@ -95,6 +163,23 @@ interface TestableCodexService {
     policy?: import("../../shared/types").CodexSidebarRefreshPolicy;
     reason?: import("../../shared/types").CodexSidebarRefreshReason;
   }) => Promise<import("../../shared/types").CodexSidebarSyncResult>;
+  setPinnedThreadOrder: (
+    orderedThreadIds: readonly string[],
+  ) => import("../../shared/types").CodexSidebarSnapshot;
+  setThreadPinned: (
+    threadId: string,
+    pinned: boolean,
+    beforeThreadId?: string | null,
+  ) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
+  moveSidebarThread: (
+    input: import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveInput,
+  ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveResult>;
+  setSidebarProjectThreadOrder: (
+    input: import("../../shared/codex-sidebar-thread-move").CodexSidebarProjectThreadOrderInput,
+  ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarProjectThreadOrderResult>;
+  setSidebarChatsThreadOrder: (
+    input: import("../../shared/codex-sidebar-thread-move").CodexSidebarChatsThreadOrderInput,
+  ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarChatsThreadOrderResult>;
   listCommandPaletteThreads: (input: { scope: "sidebar" }) => CommandPaletteThreadSummary[];
   searchCommandPaletteThreadContent: (input: {
     scope: "sidebar";
@@ -106,7 +191,10 @@ interface TestableCodexService {
     threadId: string,
     options?: { emitSourceNullSnapshots?: boolean; replayBufferedNotifications?: boolean },
   ) => Promise<CodexConversationSnapshot | null>;
-  requestRendererConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+  requestRendererConversationResume: (
+    threadId: string,
+    ownerClientId: string,
+  ) => Promise<CodexConversationSnapshot | null>;
   releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
   ackRendererThreadOwnerNotification: (
     sourceClientId: string,
@@ -115,6 +203,7 @@ interface TestableCodexService {
   loadOlderThreadTurns: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+  listPendingWorktrees: () => readonly import("../../shared/codex-pending-worktree").CodexPendingWorktreeEntry[];
   resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
   forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
   forkProjectSessionThread: (sessionId: string, input: {
@@ -122,6 +211,7 @@ interface TestableCodexService {
     turnId?: string;
     message?: string;
     collaborationMode?: "default" | "plan";
+    localEnvironmentConfigPath?: string | null;
   }) => Promise<ProjectSessionForkResult>;
   startSideChat: (input: {
     projectId: string;
@@ -167,35 +257,21 @@ interface TestableCodexService {
   ) => Promise<void>;
   sendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
   respondToMcpServerElicitation: (
-    requestId: string,
+    requestId: string | number,
     response: "accept" | "decline" | "cancel" | CodexMcpServerElicitationResponse,
+    conversationId?: string,
   ) => Promise<boolean>;
-  startThreadForSession: (input: {
-    projectId: string;
-    sessionId: string;
-    prompt: string;
-    threadName?: string;
-    model?: string;
-    serviceTier?: null | "fast";
-    permissionMode?: CodexPermissionMode;
-    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-    collaborationMode?: "default" | "plan";
-    promptInput?: CodexPromptInput;
-    threadGoalDraft?: { objective: string; attachmentDirectory?: string | null };
-    skipAutoTitleGeneration?: boolean;
-    runInTarget?: "localProject" | "newWorktree" | "cloud";
-    runInEnvironmentPath?: string | null;
-    worktreeStartMode?: "autoBranch" | "detachedHead";
-    worktreeBranchPrefix?: string;
-    heartbeatAutomation?: {
-      name: string;
-      prompt: string;
-      rrule: string;
-    } | null;
-  }) => Promise<CodexThreadDetail>;
+  listMcpServerStatuses: () => Promise<ListMcpServerStatusResponse>;
+  listMcpApps: () => Promise<AppInfo[]>;
+  listExperimentalFeatures: () => Promise<import("@nodex/codex-app-server-protocol/v2").ExperimentalFeature[]>;
+  startThreadForSession: (
+    input: CodexThreadStartForSessionInput,
+  ) => Promise<CodexThreadStartForSessionResult>;
   setThreadName: (threadId: string, name: string) => Promise<boolean>;
   setGeneratedThreadName: (threadId: string, name: string) => Promise<boolean>;
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
+  listHooks: (input: CodexHooksListInput) => Promise<CodexHooksListResponse>;
+  updateHooksState: (input: CodexHooksStateUpdateInput) => Promise<void>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
@@ -209,7 +285,7 @@ interface TestableCodexService {
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,
   ) => Promise<CodexThreadSummary[]>;
-  respondToUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<boolean>;
+  respondToUserInput: (requestId: string | number, answers: Record<string, string[]>) => Promise<boolean>;
   setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
   getCustomPermissionModeDescription: (projectId: string) => string;
   runScheduledAutomationNow: (
@@ -266,6 +342,7 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
     cwd: "/tmp",
     statusType: "active",
     statusActiveFlags: [],
+    hasUnreadTurn: false,
     archived: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -273,6 +350,381 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
     turns: [],
     transcript: [],
   };
+}
+
+function makeProtocolThread(
+  threadId: string,
+  cwd: string,
+  turns: Turn[] = [],
+): Thread {
+  return {
+    id: threadId,
+    extra: null,
+    sessionId: threadId,
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: "",
+    ephemeral: false,
+    historyMode: "paginated",
+    modelProvider: "openai",
+    createdAt: 1_711_278_000,
+    updatedAt: 1_711_278_060,
+    recencyAt: 1_711_278_060,
+    status: { type: "active", activeFlags: [] },
+    path: `${cwd}/rollout.jsonl`,
+    cwd,
+    cliVersion: "0.0.0-test",
+    source: "appServer",
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: "Canonical hydration fixture",
+    turns,
+  };
+}
+
+type ProtocolCommandExecution = Extract<ThreadItem, { type: "commandExecution" }>;
+type ProtocolAgentMessage = Extract<ThreadItem, { type: "agentMessage" }>;
+type ProtocolUserMessage = Extract<ThreadItem, { type: "userMessage" }>;
+
+function makeProtocolAgentMessage(
+  input: Pick<ProtocolAgentMessage, "id" | "text">
+    & Partial<Omit<ProtocolAgentMessage, "type" | "id" | "text">>,
+): ProtocolAgentMessage {
+  return {
+    type: "agentMessage",
+    id: input.id,
+    text: input.text,
+    phase: input.phase ?? null,
+    memoryCitation: input.memoryCitation ?? null,
+  };
+}
+
+function makeProtocolUserMessage(
+  input: Pick<ProtocolUserMessage, "id" | "content">
+    & Partial<Omit<ProtocolUserMessage, "type" | "id" | "content">>,
+): ProtocolUserMessage {
+  return {
+    type: "userMessage",
+    id: input.id,
+    clientId: input.clientId ?? null,
+    content: input.content,
+  };
+}
+
+function makeProtocolCommandExecution(
+  input: Pick<ProtocolCommandExecution, "id" | "command">
+    & Partial<Omit<ProtocolCommandExecution, "type" | "id" | "command">>,
+): ProtocolCommandExecution {
+  return {
+    type: "commandExecution",
+    id: input.id,
+    command: input.command,
+    cwd: input.cwd ?? "/workspace/project",
+    processId: input.processId ?? null,
+    source: input.source ?? "agent",
+    status: input.status ?? "inProgress",
+    commandActions: input.commandActions ?? [],
+    aggregatedOutput: input.aggregatedOutput ?? null,
+    exitCode: input.exitCode ?? null,
+    durationMs: input.durationMs ?? null,
+  };
+}
+
+function makeCanonicalHydrationTurn(turnId: string): Turn {
+  const sharedItemId = "shared-canonical-slot";
+  const items = [
+    {
+      type: "userMessage",
+      id: "canonical-user-message",
+      clientId: null,
+      content: [{
+        type: "text",
+        text: [
+          "# Files mentioned by the user:",
+          "",
+          "## fixture: /workspace/project/file.ts (line 7)",
+          "",
+          "## My request for Codex:",
+          "Preserve the raw item slots.",
+        ].join("\n"),
+        text_elements: [],
+      }],
+    },
+    {
+      type: "enteredReviewMode",
+      id: sharedItemId,
+      review: "hidden review payload",
+    },
+    {
+      type: "fileChange",
+      id: sharedItemId,
+      changes: [],
+      status: "inProgress",
+    },
+    {
+      type: "commandExecution",
+      id: sharedItemId,
+      command: "pwd",
+      cwd: "/workspace/project",
+      processId: null,
+      source: "agent",
+      status: "inProgress",
+      commandActions: [],
+      aggregatedOutput: null,
+      exitCode: null,
+      durationMs: null,
+    },
+  ] satisfies ThreadItem[];
+
+  return {
+    id: turnId,
+    items,
+    itemsView: "full",
+    status: "completed",
+    error: null,
+    startedAt: 1_711_278_050,
+    completedAt: 1_711_278_060,
+    durationMs: 10_000,
+  };
+}
+
+function makeCanonicalResumeResponse(input: {
+  threadId: string;
+  threadTurns?: Turn[];
+  initialTurnsPage: ThreadResumeResponse["initialTurnsPage"];
+  activePermissionProfile?: ThreadResumeResponse["activePermissionProfile"];
+  model?: string;
+  runtimeWorkspaceRoots?: string[];
+}): ThreadResumeResponse {
+  const cwd = "/workspace/project";
+  return {
+    thread: makeProtocolThread(input.threadId, cwd, input.threadTurns ?? []),
+    model: input.model ?? "gpt-canonical",
+    modelProvider: "openai",
+    serviceTier: null,
+    cwd,
+    runtimeWorkspaceRoots: input.runtimeWorkspaceRoots ?? [cwd],
+    instructionSources: [],
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandbox: {
+      type: "workspaceWrite",
+      writableRoots: [cwd],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    },
+    activePermissionProfile: input.activePermissionProfile ?? null,
+    reasoningEffort: "high",
+    multiAgentMode: "explicitRequestOnly",
+    initialTurnsPage: input.initialTurnsPage,
+  };
+}
+
+function buildCanonicalHistoryTimeline(
+  service: ReturnType<typeof createService>,
+  input: {
+    threadId: string;
+    turns: readonly Turn[];
+    requests?: CodexCanonicalConversationState["requests"];
+    transformState?: (
+      state: CodexCanonicalConversationState,
+    ) => CodexCanonicalConversationState;
+  },
+): Pick<CodexThreadDetail, "turns" | "transcript"> {
+  const cwd = "/workspace/project";
+  const state = createCodexCanonicalHydratedConversationState(
+    makeProtocolThread(input.threadId, cwd, [...input.turns]),
+    {
+      model: "gpt-canonical",
+      reasoningEffort: "high",
+      cwd,
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: [cwd],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+      activePermissionProfile: null,
+      runtimeWorkspaceRoots: [cwd],
+      pendingRequests: input.requests ?? [],
+    },
+  );
+  const canonicalState = input.transformState?.(state) ?? state;
+  const internals = service as unknown as {
+    buildThreadTimelineFromCanonicalState: (
+      value: CodexCanonicalConversationState,
+    ) => Pick<CodexThreadDetail, "turns" | "transcript">;
+  };
+  return internals.buildThreadTimelineFromCanonicalState(canonicalState);
+}
+
+function makeCanonicalStateDetailFixture(
+  state: CodexCanonicalConversationState,
+  overrides: Partial<CodexThreadDetail> = {},
+): CodexThreadDetail {
+  return {
+    ...makeThreadDetail(state.protocol.id),
+    threadName: state.protocol.name,
+    cwd: state.sidecar.hydrationContext?.cwd ?? state.protocol.cwd,
+    turns: state.turns.flatMap((turn): CodexTurnSummary[] => {
+      if (turn.protocol.id === null) return [];
+      return [{
+        threadId: state.protocol.id,
+        turnId: turn.protocol.id,
+        status: turn.protocol.status,
+        itemIds: turn.items.map((item) => item.id),
+      }];
+    }),
+    transcript: [],
+    ...overrides,
+  };
+}
+
+function completeLegacyProtocolTurnFixture(value: unknown): Turn {
+  const turn = value as Partial<Turn> & { id?: unknown };
+  if (typeof turn.id !== "string") {
+    throw new Error("Legacy turn fixture requires an id");
+  }
+
+  return {
+    id: turn.id,
+    items: Array.isArray(turn.items) ? turn.items : [],
+    itemsView: "full",
+    status: turn.status === "completed"
+      || turn.status === "interrupted"
+      || turn.status === "failed"
+      || turn.status === "inProgress"
+      ? turn.status
+      : "completed",
+    error: turn.error ?? null,
+    startedAt: typeof turn.startedAt === "number" ? turn.startedAt : null,
+    completedAt: typeof turn.completedAt === "number" ? turn.completedAt : null,
+    durationMs: typeof turn.durationMs === "number" ? turn.durationMs : null,
+  };
+}
+
+function makeCanonicalResumeResponseFromLegacyThread(
+  legacyThread: Record<string, unknown>,
+): ThreadResumeResponse {
+  const threadId = typeof legacyThread.id === "string" ? legacyThread.id : "thread-test";
+  const cwd = typeof legacyThread.cwd === "string" ? legacyThread.cwd : "/workspace/project";
+  const turns = Array.isArray(legacyThread.turns)
+    ? legacyThread.turns.map(completeLegacyProtocolTurnFixture)
+    : [];
+  const base = makeCanonicalResumeResponse({
+    threadId,
+    initialTurnsPage: {
+      data: [...turns].reverse(),
+      nextCursor: null,
+      backwardsCursor: null,
+    },
+  });
+  return {
+    ...base,
+    thread: {
+      ...base.thread,
+      ...legacyThread,
+      id: threadId,
+      cwd,
+      turns: [],
+    },
+  };
+}
+
+function makeCanonicalForkResponse(input: {
+  threadId: string;
+  turns: Turn[];
+  cwd: string;
+  model?: string;
+  reasoningEffort?: ThreadForkResponse["reasoningEffort"];
+  activePermissionProfile?: ThreadForkResponse["activePermissionProfile"];
+  runtimeWorkspaceRoots?: string[];
+}): ThreadForkResponse {
+  return {
+    thread: makeProtocolThread(input.threadId, input.cwd, input.turns),
+    model: input.model ?? "gpt-fork",
+    modelProvider: "openai",
+    serviceTier: null,
+    cwd: input.cwd,
+    runtimeWorkspaceRoots: input.runtimeWorkspaceRoots ?? [input.cwd],
+    instructionSources: [],
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandbox: {
+      type: "readOnly",
+      networkAccess: false,
+    },
+    activePermissionProfile: input.activePermissionProfile ?? null,
+    reasoningEffort: input.reasoningEffort ?? "high",
+    multiAgentMode: "explicitRequestOnly",
+  };
+}
+
+function makeCanonicalThreadStartResponse(input: {
+  threadId: string;
+  cwd: string;
+  model?: string;
+  reasoningEffort?: ThreadStartResponse["reasoningEffort"];
+}): ThreadStartResponse {
+  return {
+    thread: {
+      ...makeProtocolThread(input.threadId, input.cwd),
+      threadSource: "subagent",
+    },
+    model: input.model ?? "gpt-created",
+    modelProvider: "openai",
+    serviceTier: null,
+    cwd: input.cwd,
+    runtimeWorkspaceRoots: [input.cwd],
+    instructionSources: [],
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandbox: {
+      type: "workspaceWrite",
+      writableRoots: [input.cwd],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    },
+    activePermissionProfile: { id: ":workspace", extends: null },
+    reasoningEffort: input.reasoningEffort ?? "high",
+    multiAgentMode: "explicitRequestOnly",
+  };
+}
+
+function makeCanonicalForkResumeResponse(
+  response: ThreadForkResponse,
+): ThreadResumeResponse {
+  return {
+    ...response,
+    thread: {
+      ...response.thread,
+      turns: [],
+    },
+    initialTurnsPage: {
+      data: [...response.thread.turns].reverse(),
+      nextCursor: null,
+      backwardsCursor: null,
+    },
+  };
+}
+
+function getCanonicalConversationState(
+  service: TestableCodexService,
+  threadId: string,
+): CodexCanonicalConversationState | null {
+  const record = (service as unknown as {
+    getMaybeConversationRecord: (id: string) => {
+      canonicalState: CodexCanonicalConversationState | null;
+    } | null;
+  }).getMaybeConversationRecord(threadId);
+  return record?.canonicalState ?? null;
 }
 
 function makeConversationSnapshot(input: {
@@ -315,22 +767,888 @@ function makeConversationSnapshot(input: {
   };
 }
 
+const DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT = fs.mkdtempSync(
+  path.join(os.tmpdir(), "nodex-codex-service-goal-attachments-"),
+);
+const PREVIOUS_TEST_NODEX_DIR = process.env.NODEX_DIR;
+const DEFAULT_TEST_LOCAL_STORE_ROOT = fs.mkdtempSync(
+  path.join(os.tmpdir(), "nodex-codex-service-local-store-"),
+);
+const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
+  getStateSnapshot: (): BrowserSidebarStateSnapshot => ({ tabs: [] }),
+  getBrowserUseStateSnapshot: (): BrowserSidebarBrowserUseStateSnapshot => ({
+    tabs: [],
+    activeBrowserTabIdsByConversation: {},
+    cursors: [],
+  }),
+};
+
+beforeAll(async () => {
+  closeDatabase();
+  process.env.NODEX_DIR = DEFAULT_TEST_LOCAL_STORE_ROOT;
+  await initializeDatabase();
+});
+
+afterAll(() => {
+  closeDatabase();
+  if (PREVIOUS_TEST_NODEX_DIR === undefined) delete process.env.NODEX_DIR;
+  else process.env.NODEX_DIR = PREVIOUS_TEST_NODEX_DIR;
+  fs.rmSync(DEFAULT_TEST_LOCAL_STORE_ROOT, { recursive: true, force: true });
+  fs.rmSync(DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT, { recursive: true, force: true });
+});
+
 function createService(options?: {
   rateLimitsPollIntervalMs?: number;
   inactiveRendererOwnerRetentionMs?: number;
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
+  supportsChatGptApps?: boolean;
   commandPaletteThreadSearchClient?: CommandPaletteThreadSearchClient;
+  gitSettingsResolver?: () => CodexGitSettings;
+  projectAwareDeveloperInstructionsResolver?: (input: {
+    baseInstructions?: string | null;
+    cwd: string;
+    model?: string | null;
+    threadId: string | null;
+    threadToolsEnabled?: boolean;
+  }) => Promise<string>;
+  threadCodexConfigBuilder?: (
+    cwd: string | null,
+  ) => Promise<Record<string, boolean | string | number | null> | null>;
+  resolveThreadGoalAttachmentsRoot?: () => Promise<string> | string;
+  loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
+  browserTransferStateReader?: {
+    getStateSnapshot(): BrowserSidebarStateSnapshot;
+    getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot;
+  };
+  forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
 }): TestableCodexService {
-  return new CodexService({
+  const service = new CodexService({
     rateLimitsPollIntervalMs: options?.rateLimitsPollIntervalMs,
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,
+    supportsChatGptApps: options?.supportsChatGptApps,
+    projectAwareDeveloperInstructionsResolver:
+      options?.projectAwareDeveloperInstructionsResolver,
+    gitSettingsResolver: options?.gitSettingsResolver,
+    threadCodexConfigBuilder: options?.threadCodexConfigBuilder,
+    resolveThreadGoalAttachmentsRoot:
+      options?.resolveThreadGoalAttachmentsRoot
+      ?? (() => DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT),
+    loadWorktreeSetupBaseEnvironment: options?.loadWorktreeSetupBaseEnvironment,
+    browserTransferStateReader:
+      options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
+    forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
     commandPaletteThreadSearchClient:
       options?.commandPaletteThreadSearchClient ?? createInlineCommandPaletteThreadSearchClient(),
   }) as unknown as TestableCodexService;
+  const internals = service as unknown as {
+    getMaybeConversationRecord: (threadId: string) => {
+      canonicalState: CodexCanonicalConversationState | null;
+      detail: CodexThreadDetail | null;
+      serverRequests: CodexCanonicalConversationState["requests"];
+      hasUnreadTurn: boolean;
+      latestThreadSettings: CodexConversationThreadSettings | null;
+      latestTokenUsageInfo:
+        CodexCanonicalConversationState["sidecar"]["latestTokenUsageInfo"];
+      threadGoal: ThreadGoal | null;
+      completedThreadGoal: ThreadGoal | null;
+      threadGoalResumeConfirmation: ThreadGoal | null;
+    } | null;
+    setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    handleNotification: (method: string, params: unknown, options?: unknown) => Promise<void>;
+    handleServerRequest: (request: { method?: unknown; params?: unknown }) => Promise<unknown>;
+    isConversationArchived: (threadId: string) => boolean;
+    upsertPlanImplementationRequest: (
+      threadId: string,
+      turnId: string,
+      planContent: string,
+      itemCreatedAt: number,
+    ) => CodexPlanImplementationServerRequest;
+  };
+  const syncCanonicalFixture = (threadId: string, force = false) => {
+    const record = internals.getMaybeConversationRecord(threadId);
+    const detail = record?.detail;
+    if (!record || !detail) return;
+    const detailTurnIds = detail.turns.flatMap((turn) =>
+      typeof turn.turnId === "string" ? [turn.turnId] : []
+    );
+    const hasNullTurn = detail.turns.some((turn) =>
+      (turn as { turnId: string | null }).turnId === null
+    );
+    const detailRawItemIds = detail.transcript.flatMap((entry) =>
+      isCodexCanonicalProtocolItem(entry.rawItem)
+        ? [entry.rawItem.id]
+        : []
+    );
+    if (!force &&
+      record.canonicalState
+      && detailTurnIds.every((turnId) =>
+        record.canonicalState?.turns.some((turn) => turn.protocol.id === turnId)
+      )
+      && (!hasNullTurn || record.canonicalState.turns.some((turn) => turn.protocol.id === null))
+      && detailRawItemIds.every((itemId) =>
+        record.canonicalState?.turns.some((turn) =>
+          turn.items.some((item) => item.id === itemId)
+        )
+      )
+    ) {
+      return;
+    }
+
+    const turns = detail.turns.map((turn, turnIndex): Turn => {
+      const nullableTurnId = (turn as { turnId: string | null }).turnId;
+      const protocolTurnId = nullableTurnId ?? `fixture-null-turn-${turnIndex}`;
+      const existing = nullableTurnId === null
+        ? record.canonicalState?.turns[turnIndex]
+        : record.canonicalState?.turns.find((candidate) =>
+            candidate.protocol.id === nullableTurnId
+          );
+      const transcriptItems = detail.transcript.flatMap((entry): ThreadItem[] => {
+        if ((entry as { turnId: string | null }).turnId !== nullableTurnId) return [];
+        const rawItem = entry.rawItem;
+        return isCodexCanonicalProtocolItem(rawItem) ? [rawItem] : [];
+      });
+      const existingProtocolItems = existing?.items.filter(isCodexCanonicalProtocolItem) ?? [];
+      const itemsById = new Map(
+        [...existingProtocolItems, ...transcriptItems].map((item) => [item.id, item]),
+      );
+      const orderedItemIds = [
+        ...turn.itemIds,
+        ...existingProtocolItems.map((item) => item.id),
+        ...transcriptItems.map((item) => item.id),
+      ].filter((itemId, index, itemIds) => itemIds.indexOf(itemId) === index);
+      return {
+        id: protocolTurnId,
+        items: orderedItemIds.flatMap((itemId) => {
+          const item = itemsById.get(itemId);
+          return item ? [item] : [];
+        }),
+        itemsView: "full",
+        status: turn.status,
+        error: turn.errorMessage
+          ? { message: turn.errorMessage, codexErrorInfo: null, additionalDetails: null }
+          : null,
+        startedAt: turn.turnStartedAtMs == null
+          ? turn.startedAt ?? null
+          : turn.turnStartedAtMs / 1_000,
+        completedAt: turn.completedAt == null ? null : turn.completedAt / 1_000,
+        durationMs: turn.durationMs ?? null,
+      };
+    });
+    const cwd = detail.cwd ?? "/workspace/project";
+    const canonical = createCodexCanonicalHydratedConversationState(
+      makeProtocolThread(threadId, cwd, turns),
+      {
+        model: "gpt-test-fixture",
+        reasoningEffort: "high",
+        cwd,
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+        activePermissionProfile: null,
+        runtimeWorkspaceRoots: [cwd],
+      },
+    );
+    record.canonicalState = {
+      ...canonical,
+      requests: [...record.serverRequests],
+      sidecar: {
+        ...canonical.sidecar,
+        hasUnreadTurn: record.hasUnreadTurn,
+        latestThreadSettings:
+          record.canonicalState?.sidecar.latestThreadSettings ?? null,
+        latestTokenUsageInfo:
+          record.latestTokenUsageInfo ?? record.canonicalState?.sidecar.latestTokenUsageInfo ?? null,
+        threadGoal: record.threadGoal,
+        completedThreadGoal: record.completedThreadGoal,
+        threadGoalResumeConfirmation: record.threadGoalResumeConfirmation,
+      },
+      turns: canonical.turns.map((canonicalTurn, turnIndex) => {
+        const detailTurn = detail.turns[turnIndex];
+        if (!detailTurn) return canonicalTurn;
+        const nullableTurnId = (detailTurn as { turnId: string | null }).turnId;
+        const existing = nullableTurnId === null
+          ? record.canonicalState?.turns[turnIndex]
+          : record.canonicalState?.turns.find((candidate) =>
+              candidate.protocol.id === nullableTurnId
+            );
+        return {
+          ...canonicalTurn,
+          protocol: {
+            ...canonicalTurn.protocol,
+            id: nullableTurnId,
+          },
+          sidecar: {
+            ...canonicalTurn.sidecar,
+            diff: detailTurn.diff ?? existing?.sidecar.diff ?? null,
+            completedAtMs:
+              detailTurn.completedAt ?? existing?.sidecar.completedAtMs ?? null,
+            firstTurnWorkItemStartedAtMs:
+              detailTurn.firstTurnWorkItemStartedAtMs ?? null,
+            finalAssistantStartedAtMs:
+              detailTurn.finalAssistantStartedAtMs ?? null,
+            commandExecutionStartedAtMsById:
+              detailTurn.commandExecutionStartedAtMsById,
+            interruptedCommandExecutionItemIds:
+              detailTurn.interruptedCommandExecutionItemIds
+              ?? existing?.sidecar.interruptedCommandExecutionItemIds,
+            hookRuns: detailTurn.hookRuns ?? existing?.sidecar.hookRuns,
+            safetyBuffering:
+              detailTurn.safetyBuffering ?? existing?.sidecar.safetyBuffering,
+          },
+        };
+      }),
+    };
+  };
+  const handleNotification = internals.handleNotification.bind(service);
+  internals.handleNotification = async (method, params, handleOptions) => {
+    const requiresFullCanonicalSync =
+      method === "item/started"
+      || method === "item/completed"
+      || method === "item/agentMessage/delta"
+      || method === "item/plan/delta"
+      || method === "item/reasoning/summaryTextDelta"
+      || method === "item/reasoning/textDelta"
+      || method === "item/commandExecution/outputDelta"
+      || method === "item/commandExecution/terminalInteraction"
+      || method === "item/fileChange/patchUpdated"
+      || method === "item/mcpToolCall/progress";
+    const isTurnMetadata = method === "turn/started"
+      || method === "turn/completed"
+      || method === "turn/interrupted"
+      || method === "turn/failed"
+      || method === "turn/diff/updated"
+      || method === "turn/plan/updated"
+      || method === "model/safetyBuffering/updated"
+      || method === "hook/started"
+      || method === "hook/completed"
+      || method === "model/rerouted"
+      || method === "item/autoApprovalReview/started"
+      || method === "item/autoApprovalReview/completed"
+      || method === "guardianWarning"
+      || method === "error";
+    const isThreadMetadata = method === "thread/started"
+      || method === "thread/name/updated"
+      || method === "thread/settings/updated"
+      || method === "thread/status/changed"
+      || method === "thread/goal/updated"
+      || method === "thread/goal/cleared"
+      || method === "thread/tokenUsage/updated";
+    if (requiresFullCanonicalSync || isTurnMetadata || isThreadMetadata) {
+      const threadId = typeof params === "object" && params !== null
+        ? (params as { threadId?: unknown }).threadId
+        : null;
+      if (typeof threadId === "string") {
+        const turnId = typeof params === "object" && params !== null
+          && typeof (params as { turnId?: unknown }).turnId === "string"
+          ? (params as { turnId: string }).turnId
+          : null;
+        const canonical = internals.getMaybeConversationRecord(threadId)?.canonicalState;
+        const hasTurn = turnId === null
+          ? (canonical?.turns.length ?? 0) > 0
+          : canonical?.turns.some((turn) => turn.protocol.id === turnId) === true;
+        if (requiresFullCanonicalSync || !canonical || (!isThreadMetadata && !hasTurn)) {
+          syncCanonicalFixture(threadId, isThreadMetadata);
+        }
+      }
+    }
+    await handleNotification(method, params, handleOptions);
+  };
+  const handleServerRequest = internals.handleServerRequest.bind(service);
+  internals.handleServerRequest = async (request) => {
+    const params = typeof request.params === "object" && request.params !== null
+      ? request.params as { threadId?: unknown }
+      : null;
+    if (typeof params?.threadId === "string" && params.threadId.length > 0) {
+      let existingRecord = internals.getMaybeConversationRecord(params.threadId);
+      const requestTurnId = typeof (request.params as { turnId?: unknown }).turnId === "string"
+        ? (request.params as { turnId: string }).turnId
+        : null;
+      const isConversationRequest = typeof request.method === "string" && (
+        request.method === "item/commandExecution/requestApproval"
+        || request.method === "item/fileChange/requestApproval"
+        || request.method === "item/permissions/requestApproval"
+        || request.method === "item/tool/requestUserInput"
+        || request.method === "item/tool/requestOptionPicker"
+        || request.method === "item/tool/requestSetupCodexContextPicker"
+        || request.method === "item/tool/call"
+        || request.method === "mcpServer/elicitation/request"
+      );
+      if (
+        !existingRecord
+        && isConversationRequest
+        && !internals.isConversationArchived(params.threadId)
+      ) {
+        internals.setConversationRecordDetail({
+          ...makeThreadDetail(params.threadId),
+          turns: requestTurnId
+            ? [{
+                threadId: params.threadId,
+                turnId: requestTurnId,
+                status: "inProgress",
+                itemIds: [],
+              }]
+            : [],
+          transcript: [],
+        });
+        existingRecord = internals.getMaybeConversationRecord(params.threadId);
+      }
+      if (existingRecord && !existingRecord.detail) {
+        internals.setConversationRecordDetail({
+          ...makeThreadDetail(params.threadId),
+          turns: requestTurnId
+            ? [{
+                threadId: params.threadId,
+                turnId: requestTurnId,
+                status: "inProgress",
+                itemIds: [],
+              }]
+            : [],
+          transcript: [],
+        });
+      }
+      syncCanonicalFixture(params.threadId);
+    }
+    return await handleServerRequest(request);
+  };
+  const upsertPlanImplementationRequest =
+    internals.upsertPlanImplementationRequest.bind(service);
+  internals.upsertPlanImplementationRequest = (
+    threadId,
+    turnId,
+    planContent,
+    itemCreatedAt,
+  ) => {
+    syncCanonicalFixture(threadId);
+    return upsertPlanImplementationRequest(
+      threadId,
+      turnId,
+      planContent,
+      itemCreatedAt,
+    );
+  };
+  const steerService = service as unknown as {
+    steerTurn: (
+      input: CodexSteerTurnInput,
+      options?: { emitSourceNullUpdates?: boolean },
+    ) => Promise<{ turnId: string } | null>;
+  };
+  const steerTurn = steerService.steerTurn.bind(service);
+  steerService.steerTurn = async (input, steerOptions) => {
+    syncCanonicalFixture(input.threadId);
+    return await steerTurn(input, steerOptions);
+  };
+  return service;
 }
+
+function makeRecordingForkSidePanelTransferLifecycle(
+  events: string[],
+): CodexForkSidePanelTransferLifecycle {
+  return {
+    stageDirect: ({ sourceConversationId, targetConversationId }) => {
+      events.push(`direct:${sourceConversationId}:${targetConversationId}`);
+    },
+    capturePending: ({ pendingWorktreeId, sourceConversationId, sourceWorkspaceRoot }) => {
+      events.push(
+        `capture:${pendingWorktreeId}:${sourceConversationId}:${sourceWorkspaceRoot}`,
+      );
+    },
+    promotePending: ({ pendingWorktreeId, targetConversationId, targetWorkspaceRoot }) => {
+      events.push(`promote:${pendingWorktreeId}:${targetConversationId}:${targetWorkspaceRoot}`);
+      return true;
+    },
+    discardPending: (pendingWorktreeId) => {
+      events.push(`discard:${pendingWorktreeId}`);
+    },
+    consumeTarget: ({ targetConversationId, targetProjectSessionId }) => {
+      events.push(`consume:${targetConversationId}:${targetProjectSessionId}`);
+      return true;
+    },
+    clear: () => {
+      events.push("clear");
+    },
+  };
+}
+
+test("reads Git settings live for every project-aware instruction build", async () => {
+  let gitSettings: CodexGitSettings = {
+    branchPrefix: "team/",
+    commitInstructions: "Keep commits focused.",
+    pullRequestInstructions: "Include validation notes.",
+  };
+  const service = createService({ gitSettingsResolver: () => gitSettings });
+  const resolveInstructions = Reflect.get(
+    service as object,
+    "resolveProjectAwareDeveloperInstructions",
+  ) as (input: {
+    cwd: string;
+    threadId: string | null;
+  }) => Promise<string>;
+
+  try {
+    const first = await resolveInstructions.call(service, {
+      cwd: process.cwd(),
+      threadId: null,
+    });
+    expect(first.includes("- Branch prefix: `team/`")).toBe(true);
+    expect(first.includes("- Commit instructions: Keep commits focused.")).toBe(true);
+    expect(first.includes("- Pull request instructions: Include validation notes.")).toBe(true);
+
+    gitSettings = {
+      branchPrefix: "release/",
+      commitInstructions: "Use imperative subjects.",
+      pullRequestInstructions: "Link the issue.",
+    };
+    const second = await resolveInstructions.call(service, {
+      cwd: process.cwd(),
+      threadId: null,
+    });
+    expect(second.includes("- Branch prefix: `release/`")).toBe(true);
+    expect(second.includes("- Commit instructions: Use imperative subjects.")).toBe(true);
+    expect(second.includes("- Pull request instructions: Link the issue.")).toBe(true);
+    expect(second.includes("Keep commits focused.")).toBe(false);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("canonical history projection retains null occurrences and suppresses each raw echo", async () => {
+  const service = createService();
+  const threadId = "thr_canonical_history_projection";
+  const rawTurn = makeCanonicalHydrationTurn("turn_history_projection");
+
+  try {
+    const timeline = buildCanonicalHistoryTimeline(service, {
+      threadId,
+      turns: [rawTurn],
+      transformState: (state) => {
+        const boundTurn = state.turns[0];
+        if (!boundTurn) return state;
+        return {
+          ...state,
+          turns: [
+            {
+              ...boundTurn,
+              protocol: { ...boundTurn.protocol, id: null },
+              items: [],
+            },
+            boundTurn,
+          ],
+        };
+      },
+    });
+    const userMessages = timeline.transcript.filter((entry) => entry.semanticKind === "userMessage");
+
+    expect(userMessages.map((entry) => entry.itemId)).toStrictEqual([
+      "turn-index-0:input",
+      "turn_history_projection:input",
+    ]);
+    expect(userMessages.every((entry) => entry.source === "bootstrap")).toBe(true);
+    expect((userMessages[0]?.userAttachments?.[0] as { path?: string } | undefined)?.path)
+      .toBe("/workspace/project/file.ts");
+    expect(timeline.turns[0]?.turnStartedAtMs).toBe(1_711_278_050_000);
+    expect(timeline.turns[0]?.completedAt).toBe(1_711_278_060_000);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("history projection splits command actions while retaining the raw command owner", async () => {
+  const service = createService();
+  const threadId = "thr_split_command_history";
+  const rawCommand = {
+    type: "commandExecution",
+    id: "command-multi",
+    command: "cat a && rg b",
+    cwd: "/workspace/project",
+    processId: "process-1",
+    source: "agent",
+    status: "completed",
+    commandActions: [
+      { type: "read", command: " cat a ", name: "a", path: "/workspace/project/a" },
+      { type: "search", command: " rg b ", query: "b", path: null },
+    ],
+    aggregatedOutput: "done",
+    exitCode: 0,
+    durationMs: 25,
+  } satisfies Extract<ThreadItem, { type: "commandExecution" }>;
+  try {
+    const timeline = buildCanonicalHistoryTimeline(service, {
+      threadId,
+      turns: [{
+        id: "turn-command",
+        items: [rawCommand],
+        itemsView: "full",
+        status: "completed",
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: 25,
+      }],
+      transformState: (state) => ({
+        ...state,
+        turns: state.turns.map((turn) => ({
+          ...turn,
+          sidecar: {
+            ...turn.sidecar,
+            commandExecutionStartedAtMsById: { "command-multi": 1_000 },
+          },
+        })),
+      }),
+    });
+
+    expect(timeline.transcript.length).toBe(2);
+    expect(timeline.transcript[0]?.callId).toBe("command-multi:0");
+    expect(timeline.transcript[1]?.itemId).toBe("command-multi:1");
+    expect(timeline.transcript[0]?.commandExecutionItemId).toBe("command-multi");
+    expect(timeline.transcript[0]?.startedAtMs).toBe(1_000);
+    expect(timeline.transcript[0]?.rawItem === rawCommand).toBe(true);
+    expect(timeline.transcript[1]?.rawItem === rawCommand).toBe(true);
+    expect(timeline.turns[0]?.itemIds[0]).toBe("command-multi");
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("history projection keeps patch, visualization, and filtered turn diff state together", async () => {
+  const service = createService();
+  const threadId = "thr_patch_visualization_history";
+  const visualizationPath = ".codex/visualizations/2026/07/11/thread/chart.html";
+  const ordinaryDiff = "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n";
+  const visualizationDiff = [
+    `diff --git a/${visualizationPath} b/${visualizationPath}`,
+    "new file mode 100644",
+    "--- /dev/null",
+    `+++ b/${visualizationPath}`,
+    "@@ -0,0 +1 @@",
+    "+<html></html>",
+    "",
+  ].join("\n");
+  try {
+    const timeline = buildCanonicalHistoryTimeline(service, {
+      threadId,
+      turns: [{
+        id: "turn-patch",
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+        items: [
+          {
+          type: "commandExecution",
+          id: "command-cwd",
+          command: "pwd",
+          cwd: "/workspace/changed",
+          processId: null,
+          source: "agent",
+          status: "completed",
+          commandActions: [],
+          aggregatedOutput: null,
+          exitCode: 0,
+          durationMs: 1,
+          },
+          {
+          type: "fileChange",
+          id: "file-mixed",
+          status: "inProgress",
+          changes: [
+            {
+              path: "src/app.ts",
+              kind: { type: "update", move_path: null },
+              diff: "@@ -1 +1 @@\n-old\n+new\n",
+            },
+            {
+              path: visualizationPath,
+              kind: { type: "add" },
+              diff: "<html></html>",
+            },
+          ],
+          },
+        ],
+      }],
+      transformState: (state) => ({
+        ...state,
+        turns: state.turns.map((turn) => ({
+          ...turn,
+          sidecar: {
+            ...turn.sidecar,
+            diff: `${ordinaryDiff}${visualizationDiff}`,
+          },
+        })),
+      }),
+    });
+    const patch = timeline.transcript.find((entry) => entry.itemId === "file-mixed");
+    const turnDiff = timeline.transcript.find((entry) => entry.semanticKind === "diff");
+    const turnDiffRaw = turnDiff?.rawItem as {
+      unifiedDiff?: string;
+      patchBatches?: Array<{ cwd?: string; changes?: unknown[] }>;
+    } | undefined;
+
+    expect(getCodexFileChangePaths(patch?.fileChange?.changes).join(",")).toBe("src/app.ts");
+    expect(patch?.fileChange?.visualizationActivities?.[0]?.path).toBe(visualizationPath);
+    expect(patch?.fileChange?.success ?? null).toBe(null);
+    expect(turnDiffRaw?.unifiedDiff).toBe(ordinaryDiff);
+    expect(turnDiffRaw?.patchBatches?.[0]?.cwd).toBe("/workspace/changed");
+    expect(turnDiffRaw?.patchBatches?.[0]?.changes?.length ?? 0).toBe(1);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("history projection applies MCP, dynamic, collab, and web special-family rules", async () => {
+  const service = createService();
+  const threadId = "thr_special_family_history";
+  try {
+    const timeline = buildCanonicalHistoryTimeline(service, {
+      threadId,
+      turns: [{
+        id: "turn-special",
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+        items: [
+        {
+          type: "mcpToolCall",
+          id: "mcp-1",
+          server: "node_repl",
+          tool: "run",
+          status: "completed",
+          arguments: { code: "fixture()" },
+          appContext: null,
+          pluginId: null,
+          result: { content: [], structuredContent: null, _meta: null },
+          error: null,
+          durationMs: 5,
+        },
+        {
+          type: "dynamicToolCall",
+          id: "dynamic-generic",
+          namespace: "fixture",
+          tool: "fixture_tool",
+          arguments: { value: true },
+          status: "completed",
+          contentItems: [{ type: "inputText", text: "hidden generic output" }],
+          success: true,
+          durationMs: 6,
+        },
+        {
+          type: "dynamicToolCall",
+          id: "dynamic-hidden",
+          namespace: "codex_app",
+          tool: "load_workspace_dependencies",
+          arguments: {},
+          status: "completed",
+          contentItems: null,
+          success: true,
+          durationMs: 1,
+        },
+        {
+          type: "collabAgentToolCall",
+          id: "collab-wait",
+          tool: "wait",
+          status: "completed",
+          senderThreadId: "sender",
+          receiverThreadIds: [],
+          prompt: null,
+          model: null,
+          reasoningEffort: null,
+          agentsStates: {},
+        },
+        {
+          type: "collabAgentToolCall",
+          id: "collab-spawn",
+          tool: "spawnAgent",
+          status: "completed",
+          senderThreadId: "sender",
+          receiverThreadIds: ["receiver"],
+          prompt: "Inspect",
+          model: "gpt-fixture",
+          reasoningEffort: "medium",
+          agentsStates: {},
+        },
+        {
+          type: "webSearch",
+          id: "web-active",
+          query: "fixture",
+          action: { type: "search", query: "fixture", queries: ["fixture"] },
+        },
+        ],
+      }],
+    });
+    const mcp = timeline.transcript.find((entry) => entry.itemId === "mcp-1");
+    const dynamic = timeline.transcript.find((entry) => entry.itemId === "dynamic-generic");
+    const spawn = timeline.transcript.find((entry) => entry.itemId === "collab-spawn");
+    const web = timeline.transcript.find((entry) => entry.itemId === "web-active");
+
+    expect(timeline.transcript.some((entry) => entry.itemId === "dynamic-hidden")).toBe(false);
+    expect(timeline.transcript.some((entry) => entry.itemId === "collab-wait")).toBe(false);
+    expect(mcp?.mcpToolCall?.completed).toBe(true);
+    expect(mcp?.toolCall === undefined).toBe(true);
+    expect(dynamic?.dynamicToolCall?.completed).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(dynamic?.dynamicToolCall ?? {}, "contentItems")).toBe(false);
+    expect(spawn?.semanticKind).toBe("multiAgentAction");
+    expect(spawn?.toolCall === undefined).toBe(true);
+    expect(web?.webSearch?.completed).toBe(false);
+    expect((web?.webSearch?.action as { type?: string })?.type).toBe("search");
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("history timeline projects turn diff before canonical request rows", async () => {
+  const service = createService();
+  const threadId = "thr_history_requests";
+  try {
+    const timeline = buildCanonicalHistoryTimeline(service, {
+      threadId,
+      turns: [{
+        id: "turn-requests",
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+        items: [],
+      }],
+      requests: [
+        {
+          id: 701,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId,
+            turnId: "turn-requests",
+            itemId: "command-pending",
+            startedAtMs: 7_010,
+            environmentId: null,
+            reason: "Needs approval",
+            command: "bun test",
+            cwd: "/request/cwd-must-not-win",
+            commandActions: [{ type: "unknown", command: "bun test" }],
+          },
+        },
+        {
+          id: "input-702",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId,
+            turnId: "turn-requests",
+            itemId: "input-pending",
+            questions: [{
+              id: "choice",
+              header: "Choice",
+              question: "Continue?",
+              isOther: true,
+              isSecret: false,
+              options: [{ label: "Yes", description: "Continue." }],
+            }],
+            autoResolutionMs: null,
+          },
+        },
+      ],
+      transformState: (state) => ({
+        ...state,
+        turns: state.turns.map((turn) => ({
+          ...turn,
+          sidecar: {
+            ...turn.sidecar,
+            diff: "diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-old\n+new\n",
+          },
+        })),
+      }),
+    });
+    const turnDiff = timeline.transcript.find((entry) => entry.semanticKind === "diff");
+    const command = timeline.transcript.find((entry) => entry.callId === "command-pending");
+    const userInput = timeline.transcript.find((entry) => entry.requestId === "input-702");
+
+    expect(timeline.transcript.length).toBe(3);
+    expect(turnDiff?.sequence).toBe(0);
+    expect(command?.sequence).toBe(1);
+    expect(userInput?.sequence).toBe(2);
+    expect(command?.approvalRequestId).toBe(701);
+    expect(command?.cwd).toBe("/workspace/project");
+    expect(userInput?.callId).toBe("input-pending");
+    expect(userInput?.userInputQuestions?.[0]?.isOther).toBe(true);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("fork rollback rematerializes through the attached-session owner", async () => {
+  const service = createService();
+  const threadId = "thr_attached_rollback";
+  const serviceInternals = service as unknown as {
+    setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    applyForkRollbackResponse: (input: {
+      threadId: string;
+      response: ThreadRollbackResponse;
+      fallbackRef: null;
+      fallbackCwd: string;
+      materialize: (thread: Thread, resolvedCwd: string) => {
+        detail: CodexThreadDetail;
+        summary: null;
+      };
+    }) => { detail: CodexThreadDetail; summary: null };
+  };
+  serviceInternals.setConversationRecordDetail({
+    ...makeThreadDetail(threadId),
+    cwd: "/workspace/fork-response",
+    threadPreview: "Fork response preview",
+  });
+  const rollbackThread = {
+    ...makeCanonicalForkResponse({
+      threadId,
+      cwd: "/workspace/rollback-response",
+      turns: [makeCanonicalHydrationTurn("turn_after_rollback")],
+    }).thread,
+    preview: "Rollback response preview",
+  };
+  let attachedLink = {
+    cwd: "/workspace/fork-response",
+    preview: "Fork response preview",
+  };
+  let materializeCalls = 0;
+
+  try {
+    const materialized = serviceInternals.applyForkRollbackResponse({
+      threadId,
+      response: { thread: rollbackThread },
+      fallbackRef: null,
+      fallbackCwd: "/workspace/fallback",
+      materialize: (thread, resolvedCwd) => {
+        materializeCalls += 1;
+        attachedLink = {
+          cwd: resolvedCwd,
+          preview: thread.preview ?? "",
+        };
+        return {
+          detail: {
+            ...makeThreadDetail(thread.id),
+            cwd: resolvedCwd,
+            threadPreview: thread.preview ?? "",
+          },
+          summary: null,
+        };
+      },
+    });
+
+    expect(materializeCalls).toBe(1);
+    expect(attachedLink.cwd).toBe("/workspace/rollback-response");
+    expect(attachedLink.preview).toBe("Rollback response preview");
+    expect(materialized.detail.cwd).toBe("/workspace/rollback-response");
+    expect(materialized.detail.threadPreview).toBe("Rollback response preview");
+    expect(getCanonicalConversationState(service, threadId)?.turns.length ?? 0).toBe(1);
+  } finally {
+    await service.shutdown();
+  }
+});
 
 function makeSidebarListThread(input: {
   id: string;
@@ -370,6 +1688,15 @@ async function flushAsyncWork(ticks = 2): Promise<void> {
   for (let index = 0; index < ticks; index += 1) {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
+}
+
+function requireStartedThread(
+  result: CodexThreadStartForSessionResult,
+): CodexThreadDetail {
+  if (result.kind !== "started") {
+    throw new Error(`Expected a started thread, received ${result.kind}`);
+  }
+  return result.detail;
 }
 
 async function waitForCondition(
@@ -474,7 +1801,12 @@ describe("codex-service renderer owner stream publishing", () => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
-      handleNotification: (method: string, params: unknown) => Promise<void>;
+      handleNotification: (
+        method: string,
+        params: unknown,
+        options?: { bypassResumeBuffer?: boolean },
+      ) => Promise<void>;
+      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
     };
 
     try {
@@ -847,7 +2179,7 @@ describe("codex-service renderer owner stream publishing", () => {
         itemId: "patch-live",
         changes: [{
           path: "src/app.ts",
-          kind: { type: "update" },
+          kind: { type: "update", move_path: null },
           diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
         }],
       });
@@ -866,6 +2198,63 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(item?.status ?? "").toBe("inProgress");
       expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
       expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("src/app.ts");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("advances canonical file patches when the derived detail projection is unavailable", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      applyFileChangePatchUpdate: (
+        update: CodexFileChangePatchUpdate,
+        suppressConversationSync: boolean,
+      ) => void;
+      getMaybeConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        detail: CodexThreadDetail | null;
+      } | null;
+    };
+    const threadId = "thread-patch-without-detail";
+    const turnId = "turn-patch-without-detail";
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        turns: [{
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      await serviceInternals.handleNotification("item/started", {
+        threadId,
+        turnId,
+        item: makeProtocolAgentMessage({
+          id: "assistant-before-patch",
+          text: "",
+        }),
+      });
+
+      const record = serviceInternals.getMaybeConversationRecord(threadId);
+      if (record) record.detail = null;
+      serviceInternals.applyFileChangePatchUpdate({
+        conversationId: threadId,
+        turnId,
+        itemId: "patch-without-detail",
+        changes: [],
+      }, true);
+
+      const canonicalPatch = record?.canonicalState?.turns[0]?.items[1];
+      expect(canonicalPatch?.type).toBe("fileChange");
+      if (canonicalPatch?.type === "fileChange") {
+        expect(canonicalPatch.id).toBe("patch-without-detail");
+        expect(canonicalPatch.changes.length).toBe(0);
+      }
     } finally {
       await service.shutdown();
     }
@@ -1072,6 +2461,9 @@ describe("codex-service renderer owner stream publishing", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -1104,6 +2496,11 @@ describe("codex-service renderer owner stream publishing", () => {
         turns: [],
         transcript: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thread-goal-objective",
+        threadTurns: [],
+        initialTurnsPage: null,
+      }));
       await service.setThreadGoal({ threadId: "thread-goal-objective", objective: "Ship parity" });
       const params = requests[0]?.params as { objective?: unknown; status?: unknown; tokenBudget?: unknown } | undefined;
       const snapshot = await service.requestConversationSnapshot("thread-goal-objective");
@@ -1118,9 +2515,13 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(turn?.status ?? "").toBe("completed");
       expect(turn?.turnStartedAtMs ?? 0).toBe(1_000);
       expect(item?.kind ?? "").toBe("userMessage");
-      expect(item?.markdownText ?? "").toBe("/goal Ship parity");
+      expect(item?.markdownText ?? "").toBe("Ship parity");
       expect(item?.goal ?? false).toBe(true);
-      expect(((item?.rawItem as { goal?: boolean } | undefined)?.goal ?? false)).toBe(true);
+      expect(item?.rawItem ?? null).toBe(null);
+      expect(String(snapshot?.canonicalState?.turns[0]?.items.length ?? -1)).toBe("0");
+      const rawInput = snapshot?.canonicalState?.turns[0]?.sidecar.params.input[0];
+      expect(rawInput?.type).toBe("text");
+      expect(rawInput?.type === "text" ? rawInput.text : "").toBe("/goal Ship parity");
     } finally {
       await service.shutdown();
     }
@@ -1130,6 +2531,9 @@ describe("codex-service renderer owner stream publishing", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -1163,6 +2567,11 @@ describe("codex-service renderer owner stream publishing", () => {
         turns: [],
         transcript: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thread-goal-settings",
+        threadTurns: [],
+        initialTurnsPage: null,
+      }));
       await service.setThreadGoal({
         threadId: "thread-goal-settings",
         objective: "Ship parity",
@@ -1194,12 +2603,13 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBe(false);
       const snapshot = await service.requestConversationSnapshot("thread-goal-settings");
       expect(snapshot?.turns.length ?? 0).toBe(0);
+      expect(snapshot?.canonicalState?.turns.length ?? 0).toBe(0);
     } finally {
       await service.shutdown();
     }
   });
 
-  test("forwards nullable-turn item notifications to the renderer owner", async () => {
+  test("drops item lifecycle notifications without the protocol-required turn id", async () => {
     const service = createService();
     const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
     const hostMessages: CodexHostMessage[] = [];
@@ -1229,11 +2639,10 @@ describe("codex-service renderer owner stream publishing", () => {
       });
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thread-owner-null-turn",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant-1",
-          type: "agentMessage",
           text: "hello",
-        },
+        }),
       });
       await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
         threadId: "thread-owner-null-turn",
@@ -1249,7 +2658,7 @@ describe("codex-service renderer owner stream publishing", () => {
         .map((message) => message.method)
         .join(",");
 
-      expect(methods).toBe("item/agentMessage/delta,item/completed,item/commandExecution/outputDelta");
+      expect(methods).toBe("item/agentMessage/delta,item/commandExecution/outputDelta");
       expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
     } finally {
@@ -1265,7 +2674,6 @@ describe("codex-service renderer owner stream publishing", () => {
         hostMessages.push(message);
       }
     });
-
     try {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
       const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "hello" });
@@ -1412,15 +2820,17 @@ describe("codex-service renderer owner stream publishing", () => {
     });
 
     try {
-      service.setRendererConversationOwner("thread-a", "owner-a");
+      installRendererOwnerConversation(service, { threadId: "thread-a", ownerClientId: "owner-a" });
       service.setRendererConversationOwner("thread-b", "owner-b");
-      service.setRendererConversationOwner("thread-c", "owner-a");
+      installRendererOwnerConversation(service, { threadId: "thread-c", ownerClientId: "owner-a" });
 
       service.handleRendererClientDisposed("owner-a");
 
       expect(service.getRendererConversationOwner("thread-a")).toBe(null);
       expect(service.getRendererConversationOwner("thread-b")).toBe("owner-b");
       expect(service.getRendererConversationOwner("thread-c")).toBe(null);
+      expect(service.serializeConversationSnapshot("thread-a")?.resumeState).toBe("needs_resume");
+      expect(service.serializeConversationSnapshot("thread-c")?.resumeState).toBe("needs_resume");
       const unavailableMessage = hostMessages.find((message) =>
         message.type === "threadOwnerUnavailable"
       );
@@ -1429,6 +2839,224 @@ describe("codex-service renderer owner stream publishing", () => {
         expect(unavailableMessage.ownerClientId).toBe("owner-a");
         expect(unavailableMessage.conversationIds.join(",")).toBe("thread-a,thread-c");
       }
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("disposed owner state cannot bypass the next renderer resume kernel", async () => {
+    const service = createService();
+    const threadId = "thread-owner-loss-resume-kernel";
+    const ownerClientId = "owner-loss-resume-kernel";
+    installRendererOwnerConversation(service, { threadId, ownerClientId });
+    const serviceInternals = service as unknown as {
+      resumeThreadWithSeed: (
+        targetThreadId: string,
+        seed: unknown,
+        force: boolean,
+      ) => Promise<CodexThreadDetail | null>;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (targetThreadId: string) => {
+        resumeState: string;
+        streamRole: string | null;
+        isStreaming: boolean;
+      };
+    };
+    let resumeCalls = 0;
+    serviceInternals.resumeThreadWithSeed = async (targetThreadId, _seed, force) => {
+      resumeCalls += 1;
+      expect(targetThreadId).toBe(threadId);
+      expect(force).toBe(true);
+      const detail = {
+        ...makeThreadDetail(threadId),
+        turns: [{
+          threadId,
+          turnId: "turn-reacquired",
+          status: "completed" as const,
+          itemIds: [],
+        }],
+        transcript: [],
+      };
+      serviceInternals.setConversationRecordDetail(detail);
+      const record = serviceInternals.getConversationRecord(threadId);
+      record.streamRole = "owner";
+      record.isStreaming = true;
+      return detail;
+    };
+
+    try {
+      service.handleRendererClientDisposed(ownerClientId);
+      const invalidated = serviceInternals.getConversationRecord(threadId);
+      expect(invalidated.resumeState).toBe("needs_resume");
+      expect(invalidated.streamRole).toBe(null);
+      expect(invalidated.isStreaming).toBe(false);
+
+      const reacquired = await service.requestRendererConversationResume(
+        threadId,
+        "owner-after-loss-resume-kernel",
+      );
+      expect(resumeCalls).toBe(1);
+      expect(reacquired?.turns[0]?.turnId).toBe("turn-reacquired");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("owner loss rejects stale publication and forces canonical paged reacquisition", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const threadId = "thread-owner-reacquisition";
+      const ownerClientId = "owner-before-loss";
+      upsertCodexThread({ threadId, cwd: "/workspace/project", modelProvider: "openai" });
+      installRendererOwnerConversation(service, { threadId, ownerClientId });
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const freshTurn = makeCanonicalHydrationTurn("turn-after-owner-loss");
+      const olderTurn = makeCanonicalHydrationTurn("turn-before-owner-loss");
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          return makeCanonicalResumeResponse({
+            threadId,
+            initialTurnsPage: {
+              data: [freshTurn],
+              nextCursor: "cursor-before-owner-loss",
+              backwardsCursor: null,
+            },
+          });
+        }
+        if (method === "thread/turns/list") {
+          return {
+            data: [olderTurn],
+            nextCursor: null,
+            backwardsCursor: "cursor-before-owner-loss",
+          };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        const staleSnapshot = service.serializeConversationSnapshot(threadId);
+        service.handleRendererClientDisposed(ownerClientId);
+        const staleAccepted = staleSnapshot
+          ? service.publishRendererThreadStreamStateChange(ownerClientId, {
+              conversationId: threadId,
+              change: {
+                type: "snapshot",
+                revision: 99,
+                conversationState: staleSnapshot,
+              },
+            })
+          : true;
+        const reacquired = await service.requestRendererConversationResume(
+          threadId,
+          "owner-after-loss-reacquisition",
+        );
+        const complete = await service.loadOlderThreadTurns(threadId);
+
+        expect(staleAccepted).toBe(false);
+        expect(requests.filter((request) => request.method === "thread/resume").length).toBe(1);
+        expect(reacquired?.resumeState).toBe("resumed");
+        expect(reacquired?.turns[0]?.turnId).toBe("turn-after-owner-loss");
+        expect(reacquired?.turnPagination?.hasLoadedOldest ?? true).toBe(false);
+        expect(complete?.turns.map((turn) => turn.turnId).join(",")).toBe(
+          "turn-before-owner-loss,turn-after-owner-loss",
+        );
+        expect(complete?.turnPagination?.hasLoadedOldest ?? false).toBe(true);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("retains stored specialized dynamic waiters across renderer owner replacement", async () => {
+    const service = createService();
+    const threadId = "thread-stored-request-owner-replacement";
+    const requestId = "stored-onboarding-owner-replacement";
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      respondToUserInput: (
+        requestId: string | number,
+        answers: Record<string, string[]>,
+        conversationId: string,
+      ) => Promise<boolean>;
+      pendingDynamicToolCalls: { readonly size: number };
+      getConversationRecord: (targetThreadId: string) => {
+        serverRequests: Array<{ id: string | number }>;
+      };
+    };
+    service.setRendererConversationOwner(threadId, "owner-before-disconnect");
+
+    try {
+      const requestPromise = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId: "turn-owner-replacement",
+          callId: "call-owner-replacement",
+          namespace: "codex_app",
+          tool: "request_onboarding_input",
+          arguments: {
+            questions: [{
+              id: "first_task",
+              header: "Start",
+              question: "What should Codex do?",
+              options: [
+                { label: "Audit", description: "Inspect first" },
+                { label: "Build", description: "Implement first" },
+              ],
+            }],
+          },
+        },
+      });
+      let settled = false;
+      let rejected = false;
+      void requestPromise.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+          rejected = true;
+        },
+      );
+      await Promise.resolve();
+
+      service.handleRendererClientDisposed("owner-before-disconnect");
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(rejected).toBe(false);
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(1);
+
+      service.setRendererConversationOwner(threadId, "owner-after-disconnect");
+      expect(await serviceInternals.respondToUserInput(
+        requestId,
+        { first_task: ["Audit"] },
+        threadId,
+      )).toBe(true);
+      expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({
+            answers: { first_task: { answers: ["Audit"] } },
+          }),
+        }],
+        success: true,
+      }));
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -1443,6 +3071,12 @@ describe("codex-service renderer owner stream publishing", () => {
       request: (method: string, params: unknown) => Promise<unknown>;
     };
     const requests: Array<{ method: string; params: unknown }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadOwnerUnavailable" || message.type === "threadStreamStateChanged") {
+        hostMessages.push(message);
+      }
+    });
     client.request = async (method: string, params: unknown) => {
       requests.push({ method, params });
       if (method === "thread/unsubscribe") return { status: "unsubscribed" };
@@ -1466,6 +3100,12 @@ describe("codex-service renderer owner stream publishing", () => {
       expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thread-inactive-owner");
       expect(service.getRendererConversationOwner("thread-inactive-owner")).toBe(null);
       expect(service.serializeConversationSnapshot("thread-inactive-owner")?.resumeState).toBe("needs_resume");
+      expect(hostMessages[0]?.type).toBe("threadOwnerUnavailable");
+      expect(hostMessages[1]?.type).toBe("threadStreamStateChanged");
+      if (hostMessages[1]?.type === "threadStreamStateChanged") {
+        expect(hostMessages[1].sourceClientId).toBe(null);
+        expect(hostMessages[1].change.type).toBe("snapshot");
+      }
     } finally {
       await service.shutdown();
     }
@@ -1601,6 +3241,9 @@ describe("codex-service renderer owner stream publishing", () => {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       handleNotification: (method: string, params: unknown) => Promise<void>;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
+      getMaybeConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+      } | null;
     };
     serviceInternals.syncThreadStatusFromKnownTurns = () => {};
     const hostMessages: CodexHostMessage[] = [];
@@ -1635,11 +3278,10 @@ describe("codex-service renderer owner stream publishing", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thread-owner-drain",
         turnId: "turn-owner-drain",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant-owner-drain",
-          type: "agentMessage",
           text: "",
-        },
+        }),
       });
       await serviceInternals.handleNotification("item/agentMessage/delta", {
         threadId: "thread-owner-drain",
@@ -1647,14 +3289,21 @@ describe("codex-service renderer owner stream publishing", () => {
         itemId: "assistant-owner-drain",
         delta: "hello",
       });
+      const canonicalAssistant = serviceInternals
+        .getMaybeConversationRecord("thread-owner-drain")
+        ?.canonicalState?.turns[0]?.items[0];
+      expect(canonicalAssistant?.type).toBe("agentMessage");
+      if (canonicalAssistant?.type === "agentMessage") {
+        expect(canonicalAssistant.text).toBe("hello");
+      }
+      expect(String(hostMessages.length)).toBe("0");
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thread-owner-drain",
         turnId: "turn-owner-drain",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant-owner-drain",
-          type: "agentMessage",
           text: "hello",
-        },
+        }),
       });
 
       expect(String(hostMessages.length)).toBe("0");
@@ -1680,7 +3329,62 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const snapshot = await service.requestConversationSnapshot("thread-owner-drain");
       expect(snapshot?.turns[0]?.items[0]?.markdownText).toBe("hello");
-      expect(snapshot?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(snapshot?.turns[0]?.items[0]?.status).toBe("inProgress");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("advances canonical frame text when the derived detail projection is unavailable", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      applyFrameTextDeltas: (updates: readonly CodexFrameTextDeltaUpdate[]) => void;
+      getMaybeConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        detail: CodexThreadDetail | null;
+      } | null;
+    };
+    const threadId = "thread-frame-without-detail";
+    const turnId = "turn-frame-without-detail";
+    const itemId = "assistant-frame-without-detail";
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        turns: [{
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      await serviceInternals.handleNotification("item/started", {
+        threadId,
+        turnId,
+        item: makeProtocolAgentMessage({
+          id: itemId,
+          text: "",
+        }),
+      });
+
+      const record = serviceInternals.getMaybeConversationRecord(threadId);
+      if (record) record.detail = null;
+      serviceInternals.applyFrameTextDeltas([{
+        conversationId: threadId,
+        turnId,
+        itemId,
+        target: { type: "agentMessage" },
+        delta: "canonical only",
+      }]);
+
+      const canonicalAssistant = record?.canonicalState?.turns[0]?.items[0];
+      expect(canonicalAssistant?.type).toBe("agentMessage");
+      if (canonicalAssistant?.type === "agentMessage") {
+        expect(canonicalAssistant.text).toBe("canonical only");
+      }
     } finally {
       await service.shutdown();
     }
@@ -1837,7 +3541,7 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
-  test("claims renderer ownership for the first owner stream publish", async () => {
+  test("rejects renderer publication until ownership is explicitly established", async () => {
     const service = createService();
     try {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner-claim" });
@@ -1851,8 +3555,9 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 8,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-      })).toBe(true);
+      })).toBe(false);
 
+      service.setRendererConversationOwner("thread-owner-claim", "client-owner");
       expect(service.publishRendererThreadStreamStateChange("client-owner", {
         conversationId: "thread-owner-claim",
         change: {
@@ -1860,7 +3565,7 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-      })).toBe(false);
+      })).toBe(true);
 
       expect(service.publishRendererThreadStreamStateChange("client-stale", {
         conversationId: "thread-owner-claim",
@@ -1869,7 +3574,22 @@ describe("codex-service renderer owner stream publishing", () => {
           revision: 2,
           conversationState: nextConversation,
         },
-      })).toBe(true);
+      })).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("renderer resume adoption never replaces an established owner", async () => {
+    const service = createService();
+    try {
+      service.setRendererConversationOwner("thread-owner-adoption-race", "owner-a");
+
+      await expect(service.requestRendererConversationResume(
+        "thread-owner-adoption-race",
+        "owner-b",
+      )).rejects.toThrow("already has another renderer owner");
+      expect(service.getRendererConversationOwner("thread-owner-adoption-race")).toBe("owner-a");
     } finally {
       await service.shutdown();
     }
@@ -1910,6 +3630,116 @@ function getRecordedItem(
   return null;
 }
 
+function installManualApprovalState(service: unknown, projectId: string): void {
+  const stateByProject = Reflect.get(
+    service as object,
+    "permissionStateByProject",
+  ) as Map<string, CodexPermissionState>;
+  stateByProject.set(projectId, {
+    mode: "auto",
+    effectivePreset: "auto",
+    availableModes: ["auto", "full-access", "custom"],
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandboxMode: "workspace-write",
+    sandbox: null,
+    autoReviewAvailable: true,
+    configTarget: { source: "none", filePath: null },
+    customDescription: null,
+  });
+}
+
+function installDynamicCreateHarness(
+  service: TestableCodexService,
+  input: { readonly cwd: string; readonly threadId: string },
+) {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  let resolveTurnStart: ((value: { turn: Turn }) => void) | null = null;
+  let rejectTurnStart: ((reason: unknown) => void) | null = null;
+  const turnStartPromise = new Promise<{ turn: Turn }>((resolve, reject) => {
+    resolveTurnStart = resolve;
+    rejectTurnStart = reject;
+  });
+  const client = Reflect.get(service as object, "client") as {
+    start: () => Promise<void>;
+    request: (method: string, params: unknown) => Promise<unknown>;
+  };
+  client.start = async () => undefined;
+  client.request = async (method, params) => {
+    requests.push({ method, params });
+    if (method === "thread/start") {
+      const response = makeCanonicalThreadStartResponse({
+        threadId: input.threadId,
+        cwd: input.cwd,
+      });
+      return {
+        ...response,
+        thread: {
+          ...response.thread,
+          status: { type: "idle" },
+        },
+      };
+    }
+    if (method === "turn/start") return await turnStartPromise;
+    throw new Error(`Unexpected client request: ${method}`);
+  };
+  const serviceInternals = service as unknown as {
+    handleDynamicToolCall: (params: {
+      threadId: string;
+      turnId: string;
+      callId: string;
+      namespace: string;
+      tool: string;
+      arguments: Record<string, unknown>;
+    }) => Promise<{ contentItems: Array<{ type: string; text?: string }>; success: boolean }>;
+    resolveDynamicCreatePermissions: () => Promise<unknown>;
+    resolveDynamicCreateServiceTier: () => Promise<null>;
+    readDynamicCreateDestinationSnapshot: () => Promise<unknown>;
+    scheduleGeneratedThreadName: () => void;
+  };
+  serviceInternals.resolveDynamicCreatePermissions = async () => ({
+    mode: "auto",
+    context: {
+      activePermissionProfile: { id: ":workspace", extends: null },
+      runtimeWorkspaceRoots: [input.cwd],
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: [input.cwd],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    },
+    launchParams: {
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      permissions: ":workspace",
+      runtimeWorkspaceRoots: [input.cwd],
+    },
+    turnParams: {
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      permissions: ":workspace",
+      runtimeWorkspaceRoots: [input.cwd],
+    },
+  });
+  serviceInternals.resolveDynamicCreateServiceTier = async () => null;
+  serviceInternals.readDynamicCreateDestinationSnapshot = async () => ({
+    rawConfig: {},
+    expandedConfig: {},
+  });
+  serviceInternals.scheduleGeneratedThreadName = () => {};
+
+  return {
+    handleDynamicToolCall: serviceInternals.handleDynamicToolCall.bind(service),
+    rejectTurnStart: (reason: unknown) => rejectTurnStart?.(reason),
+    requests,
+    resolveTurnStart: (turn: Turn) => resolveTurnStart?.({ turn }),
+  };
+}
+
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("better-sqlite3") && message.includes("not yet supported");
@@ -1919,7 +3749,9 @@ let defaultProjectId = "";
 const tempCodexHomeCleanups: Array<() => void> = [];
 
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
+  const previousNodexDir = process.env.NODEX_DIR;
   closeDatabase();
+  resetPersistedAtomStateForTests();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-service-"));
   process.env.NODEX_DIR = tempDir;
 
@@ -1929,7 +3761,8 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     if (isUnsupportedSqliteError(error)) {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
+      if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
+      else process.env.NODEX_DIR = previousNodexDir;
       return false;
     }
     throw error;
@@ -1945,8 +3778,10 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
       tempCodexHomeCleanups.pop()?.();
     }
     closeDatabase();
+    resetPersistedAtomStateForTests();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.NODEX_DIR;
+    if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
+    else process.env.NODEX_DIR = previousNodexDir;
   }
 }
 
@@ -2469,8 +4304,11 @@ describe("codex-service scheduled automations", () => {
       };
       client.start = async () => undefined;
       client.request = async (method: string) => {
-        if (method === "config/read" || method === "configRequirements/read") {
-          throw new Error("use fallback permission state");
+        if (method === "config/read") {
+          return { config: {}, origins: {} };
+        }
+        if (method === "configRequirements/read") {
+          return { requirements: null };
         }
         if (method === "turn/start") {
           return {
@@ -2661,20 +4499,18 @@ describe("codex-service scheduled automations", () => {
               completedAt: now + 4,
               durationMs: 1_000,
               items: [
-                {
+                makeProtocolUserMessage({
                   id: "user-latest",
-                  type: "userMessage",
                   content: [
-                    { type: "text", text: "Latest prompt" },
+                    { type: "text", text: "Latest prompt", text_elements: [] },
                     { type: "mention", name: "notes.md", path: "/tmp/codex/notes.md" },
                     { type: "localImage", path: "/tmp/codex/diagram.png" },
                   ],
-                },
-                {
+                }),
+                makeProtocolAgentMessage({
                   id: "assistant-latest",
-                  type: "agentMessage",
                   text: "Latest answer",
-                },
+                }),
               ],
             },
             {
@@ -2686,16 +4522,14 @@ describe("codex-service scheduled automations", () => {
               completedAt: now + 2,
               durationMs: 1_000,
               items: [
-                {
+                makeProtocolUserMessage({
                   id: "user-older",
-                  type: "userMessage",
-                  content: [{ type: "text", text: "Older prompt" }],
-                },
-                {
+                  content: [{ type: "text", text: "Older prompt", text_elements: [] }],
+                }),
+                makeProtocolAgentMessage({
                   id: "assistant-older",
-                  type: "agentMessage",
                   text: "Older answer",
-                },
+                }),
               ],
             },
           ],
@@ -2795,7 +4629,7 @@ describe("codex-service scheduled automations", () => {
               excludeTmpdirEnvVar: false,
               excludeSlashTmp: false,
             },
-            activePermissionProfile: null,
+            activePermissionProfile: { id: ":workspace", extends: null },
             reasoningEffort: "medium",
             multiAgentMode: "explicitRequestOnly",
             initialTurnsPage: null,
@@ -2841,6 +4675,11 @@ describe("codex-service scheduled automations", () => {
         const resumeRequest = requests.find((request) => request.method === "thread/resume");
         const resumeParams = resumeRequest?.params as { threadId?: string } | undefined;
         expect(resumeParams?.threadId).toBe("thread-heartbeat-target");
+        expect(
+          getCanonicalConversationState(service, "thread-heartbeat-target")
+            ?.sidecar.hydrationContext?.currentPermissions.activePermissionProfile?.id
+          ?? null,
+        ).toBe(":workspace");
 
         const turnStartRequest = requests.find((request) => request.method === "turn/start");
         const turnStartParams = turnStartRequest?.params as {
@@ -3113,8 +4952,7 @@ describe("codex-service scheduled automations", () => {
       client.request = async (method: string, params?: unknown) => {
         requests.push({ method, params });
         if (method === "thread/read") {
-          return {
-            thread: {
+          return makeCanonicalResumeResponseFromLegacyThread({
               id: "thread-heartbeat-target",
               sessionId: "session-heartbeat-target",
               status: { type: "idle" },
@@ -3126,8 +4964,7 @@ describe("codex-service scheduled automations", () => {
               name: "Target thread",
               threadSource: null,
               turns: [],
-            },
-          };
+          });
         }
         throw new Error(`Unexpected client request: ${method}`);
       };
@@ -3450,8 +5287,10 @@ describe("codex-service scheduled automations", () => {
       const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-automation-worktree-repo-"));
       initializeGitRepository(repoPath);
       execFileSync("git", ["checkout", "-b", "automation-source"], { cwd: repoPath });
-      fs.writeFileSync(path.join(repoPath, "FEATURE.md"), "# feature\n");
-      execFileSync("git", ["add", "FEATURE.md"], { cwd: repoPath });
+      const sourceWorkspacePath = path.join(repoPath, "packages", "automation");
+      fs.mkdirSync(sourceWorkspacePath, { recursive: true });
+      fs.writeFileSync(path.join(sourceWorkspacePath, "FEATURE.md"), "# feature\n");
+      execFileSync("git", ["add", "packages/automation/FEATURE.md"], { cwd: repoPath });
       execFileSync("git", ["commit", "-m", "feature"], { cwd: repoPath });
       const sourceHead = execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: repoPath,
@@ -3537,7 +5376,7 @@ describe("codex-service scheduled automations", () => {
         prompt: "Summarize the repo.",
         rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
         model: "gpt-5",
-        cwds: [repoPath],
+        cwds: [sourceWorkspacePath],
         executionEnvironment: "worktree",
         createdAt: 10,
         updatedAt: 10,
@@ -3564,12 +5403,19 @@ describe("codex-service scheduled automations", () => {
         expect(worktreeHead).toBe(sourceHead);
 
         const linked = getCodexThread("thread-worktree-automation");
+        const worktreeGitRoot = execFileSync(
+          "git",
+          ["rev-parse", "--path-format=absolute", "--show-toplevel"],
+          { cwd: threadStartCwd, encoding: "utf8" },
+        ).trim();
         expect(linked?.cwd).toBe(threadStartCwd);
-        expect(linked?.managedWorktreePath).toBe(threadStartCwd);
+        expect(fs.realpathSync(linked?.managedWorktreePath ?? "")).toBe(fs.realpathSync(worktreeGitRoot));
+        expect(linked?.managedWorktreePath === threadStartCwd).toBe(false);
+        expect(path.relative(fs.realpathSync(worktreeGitRoot), fs.realpathSync(threadStartCwd))).toBe("packages/automation");
 
         const run = getCodexAutomationRun("thread-worktree-automation");
         expect(run?.automationId).toBe("worktree-report");
-        expect(run?.sourceCwd).toBe(repoPath);
+        expect(run?.sourceCwd).toBe(sourceWorkspacePath);
       } finally {
         await service.shutdown();
         fs.rmSync(repoPath, { recursive: true, force: true });
@@ -3685,7 +5531,7 @@ describe("codex-service scheduled automations", () => {
         } | undefined;
         const expectedRoot = path.join(tempHome, "Documents", "Codex");
         const expectedRunRoot = path.join(expectedRoot, "2026-07-08", "draft-a-status-update");
-        const expectedCwd = path.join(expectedRunRoot, "work");
+        const expectedCwd = expectedRunRoot;
         const expectedOutputs = path.join(expectedRunRoot, "outputs");
         expect(threadStartParams?.cwd).toBe(expectedCwd);
         expect(fs.existsSync(expectedCwd)).toBe(true);
@@ -3811,6 +5657,171 @@ describe("codex-service rate limit polling", () => {
 });
 
 describe("codex-service readThread fallback", () => {
+  test("metadata-only thread/read preserves an already loaded timeline", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thr_metadata_only_history";
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId,
+        threadName: "Before metadata refresh",
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      hydrateConversation(service, {
+        ...makeThreadDetail(threadId),
+        projectId: defaultProjectId,
+        threadName: "Before metadata refresh",
+        turns: [{
+          threadId,
+          turnId: "turn-preserved",
+          status: "completed",
+          itemIds: ["assistant-preserved"],
+        }],
+        transcript: [{
+          threadId,
+          turnId: "turn-preserved",
+          itemId: "assistant-preserved",
+          type: "agent_message",
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          role: "assistant",
+          sequence: 0,
+          markdownText: "Preserve me",
+          createdAt: 1,
+          updatedAt: 1,
+        }],
+      });
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/read") throw new Error(`Unexpected method: ${method}`);
+        return {
+          thread: {
+            ...makeProtocolThread(threadId, "/workspace/project", []),
+            name: "After metadata refresh",
+          },
+        };
+      };
+
+      try {
+        const detail = await service.readThread(threadId, false);
+
+        expect(detail?.threadName).toBe("After metadata refresh");
+        expect(detail?.turns.map((turn) => turn.turnId)).toEqual(["turn-preserved"]);
+        expect(detail?.transcript.map((entry) => entry.markdownText)).toEqual(["Preserve me"]);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("include-turn thread/read uses fresh default hydration context", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thr_fresh_read_context";
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId,
+        threadName: "Fresh read context",
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      hydrateConversation(service, {
+        ...makeThreadDetail(threadId),
+        projectId: defaultProjectId,
+        cwd: "/stale/context",
+      });
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/read") throw new Error(`Unexpected method: ${method}`);
+        return {
+          thread: makeProtocolThread(
+            threadId,
+            "/fresh/context",
+            [makeCanonicalHydrationTurn("turn-fresh-read")],
+          ),
+        };
+      };
+
+      try {
+        await service.readThread(threadId, true);
+        const params = getCanonicalConversationState(service, threadId)
+          ?.turns[0]?.sidecar.params;
+
+        expect(params?.cwd).toBe("/fresh/context");
+        expect(params?.model).toBe("");
+        expect(params?.effort).toBe(null);
+        expect(params && "permissions" in params ? params.permissions : null)
+          .toBe(":workspace");
+        expect(params && "runtimeWorkspaceRoots" in params
+          ? params.runtimeWorkspaceRoots
+          : null).toEqual([]);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("include-turn thread/read authoritatively clears an empty history", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thr_empty_read_history";
+      const originalTurn = makeCanonicalHydrationTurn("turn-before-empty-read");
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId,
+        threadName: "Empty read history",
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      (service as unknown as {
+        hydrateCanonicalConversationState: (
+          input: ThreadResumeResponse,
+        ) => CodexCanonicalConversationState;
+      }).hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId,
+        threadTurns: [originalTurn],
+        initialTurnsPage: null,
+      }));
+      hydrateConversation(service, {
+        ...makeThreadDetail(threadId),
+        projectId: defaultProjectId,
+        turns: [{
+          threadId,
+          turnId: originalTurn.id,
+          status: "completed",
+          itemIds: originalTurn.items.map((item) => item.id),
+        }],
+      });
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "thread/read") throw new Error(`Unexpected method: ${method}`);
+        return { thread: makeProtocolThread(threadId, "/workspace/project", []) };
+      };
+
+      try {
+        const detail = await service.readThread(threadId, true);
+
+        expect(detail?.turns).toEqual([]);
+        expect(getCanonicalConversationState(service, threadId)?.turns).toEqual([]);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("retries with includeTurns=false for pre-materialization errors", async () => {
     const ran = await withTempDatabase(async () => {
 
@@ -3836,10 +5847,7 @@ describe("codex-service readThread fallback", () => {
         }
 
         return {
-          thread: {
-            id: "thr_read_fallback",
-            turns: [],
-          },
+          thread: makeProtocolThread("thr_read_fallback", "/workspace/project", []),
         };
       };
 
@@ -4389,6 +6397,7 @@ describe("codex-service readThread fallback", () => {
       };
 
       try {
+        service.setRendererConversationOwner("thr_parent_metadata_repair", "owner-a");
         expect(service.publishRendererThreadStreamStateChange("owner-a", {
           conversationId: "thr_parent_metadata_repair",
           change: {
@@ -5280,6 +7289,17 @@ describe("codex-service readThread fallback", () => {
           .find((session) => session.thread?.threadId === "thr_rehome_projectless");
         expect(projectless !== undefined).toBe(true);
         expect(projectless?.projectId).toBe(null);
+        if (!projectless) throw new Error("Missing projectless source session");
+        const browser = createProjectSessionTab({
+          sessionId: projectless.id,
+          projectId: null,
+          panelId: "right",
+          clientTabId: "durable:rehome-browser",
+          browserTabId: "rehome-browser",
+          kind: "browser",
+          title: "Browser",
+          config: { projectId: null, url: "https://example.com/rehome" },
+        });
 
         captured.events.length = 0;
         cwd = "/tmp/codex/packages/app";
@@ -5292,6 +7312,15 @@ describe("codex-service readThread fallback", () => {
 
         expect(moved?.id).toBe(projectless?.id);
         expect(moved?.projectId).toBe(defaultProjectId);
+        expect(moved?.tabs[0]?.id).toBe(browser.id);
+        expect(moved?.tabs[0]?.browserTabId).toBe(browser.browserTabId);
+        expect(moved?.tabs[0]?.projectId).toBe(defaultProjectId);
+        expect(moved?.tabs[0]?.config.projectId).toBe(defaultProjectId);
+        expect(
+          moved?.tabs[0] && "url" in moved.tabs[0].config
+            ? moved.tabs[0].config.url
+            : null,
+        ).toBe("https://example.com/rehome");
         expect(stillProjectless === undefined).toBe(true);
         expect(captured.events.length).toBe(2);
         const oldScopeEvents = captured.events.filter((event) =>
@@ -5413,6 +7442,536 @@ describe("codex-service readThread fallback", () => {
         expect(getCodexThread("thr_deleted_cleanup") === null).toBe(true);
         expect(snapshot.items.some((item) => item.threadId === "thr_deleted_cleanup")).toBe(false);
         expect(snapshot.pinnedThreadIds.includes("thr_deleted_cleanup")).toBe(false);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("persists and broadcasts the global pinned conversation order", async () => {
+    const ran = await withTempDatabase(async () => {
+      for (const threadId of ["thr_pin_a", "thr_pin_b", "thr_pin_c"]) {
+        upsertCodexThread({
+          projectId: defaultProjectId,
+          threadId,
+          cwd: "/tmp/codex",
+        });
+        setCodexThreadPinned(threadId, true);
+      }
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const snapshot = service.setPinnedThreadOrder([
+          "thr_pin_c",
+          "thr_pin_a",
+          "thr_pin_b",
+        ]);
+        const sidebarUpdate = hostMessages.find((message) => (
+          message.type === "sidebarSyncUpdated"
+        ));
+
+        expect(JSON.stringify(snapshot.pinnedThreadIds)).toBe(JSON.stringify([
+          "thr_pin_c",
+          "thr_pin_a",
+          "thr_pin_b",
+        ]));
+        expect(JSON.stringify(snapshot.items
+          .filter((item) => item.pinned)
+          .map((item) => item.threadId))).toBe(JSON.stringify([
+          "thr_pin_c",
+          "thr_pin_a",
+          "thr_pin_b",
+        ]));
+        expect(sidebarUpdate?.type).toBe("sidebarSyncUpdated");
+        if (sidebarUpdate?.type === "sidebarSyncUpdated") {
+          expect(JSON.stringify(sidebarUpdate.result.snapshot.pinnedThreadIds)).toBe(
+            JSON.stringify(snapshot.pinnedThreadIds),
+          );
+        }
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("atomically pins a realized conversation before its anchor and broadcasts the final snapshot", async () => {
+    const ran = await withTempDatabase(async () => {
+      for (const threadId of ["thr_pin_existing_a", "thr_pin_existing_b", "thr_pin_realized"]) {
+        upsertCodexThread({
+          projectId: defaultProjectId,
+          threadId,
+          cwd: "/tmp/codex",
+        });
+      }
+      setCodexThreadPinned("thr_pin_existing_a", true);
+      setCodexThreadPinned("thr_pin_existing_b", true);
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Realized pending conversation",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId: "thr_pin_realized",
+        threadPreview: "Realized pending conversation",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+      });
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const snapshot = await service.setThreadPinned(
+          "thr_pin_realized",
+          true,
+          "thr_pin_existing_b",
+        );
+        const sidebarUpdates = hostMessages.filter((message) => (
+          message.type === "sidebarSyncUpdated"
+        ));
+        const sidebarUpdate = sidebarUpdates[0];
+
+        expect(JSON.stringify(snapshot.pinnedThreadIds)).toBe(JSON.stringify([
+          "thr_pin_existing_a",
+          "thr_pin_realized",
+          "thr_pin_existing_b",
+        ]));
+        expect(getProjectSession(session.id)?.pinned ?? false).toBe(true);
+        expect(sidebarUpdates.length).toBe(1);
+        expect(sidebarUpdate?.type).toBe("sidebarSyncUpdated");
+        if (sidebarUpdate?.type === "sidebarSyncUpdated") {
+          expect(JSON.stringify(sidebarUpdate.result.snapshot.pinnedThreadIds)).toBe(
+            JSON.stringify(snapshot.pinnedThreadIds),
+          );
+        }
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("serializes an exact local project move and broadcasts one final two-scope snapshot", async () => {
+    const ran = await withTempDatabase(async () => {
+      resetCodexThreadWritableRootsCacheForTests();
+      const targetProject = createProject({
+        name: "Same source target",
+        sources: ["/tmp/codex"],
+      });
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_move",
+        threadName: "Move exactly once",
+        cwd: "/tmp/codex",
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Move exactly once",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_move",
+        threadName: "Move exactly once",
+        cwd: "/tmp/codex",
+      });
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const result = await service.moveSidebarThread({
+          hostId: "local",
+          threadId: "thr_sidebar_move",
+          sourceContainerId: `project:${defaultProjectId}`,
+          targetContainerId: `project:${targetProject.id}`,
+          beforeThreadId: null,
+          useDefaultOrder: true,
+        });
+        const sidebarUpdates = hostMessages.filter((message) => (
+          message.type === "sidebarSyncUpdated"
+        ));
+
+        expect(result.status).toBe("moved");
+        expect(getCodexThread("thr_sidebar_move")?.projectId).toBe(targetProject.id);
+        expect(getProjectSession(session.id)?.projectId).toBe(targetProject.id);
+        expect(sidebarUpdates.length).toBe(1);
+        if (result.status === "moved") {
+          expect(result.source.projectId).toBe(defaultProjectId);
+          expect(result.destination.projectId).toBe(targetProject.id);
+          expect(result.destination.sessions.some((item) => item.id === session.id)).toBe(true);
+          expect(result.source.sessions.some((item) => item.id === session.id)).toBe(false);
+          expect(result.snapshot.projectAssignments.thr_sidebar_move).toBe(targetProject.id);
+        }
+      } finally {
+        await service.shutdown();
+        resetCodexThreadWritableRootsCacheForTests();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("preserves pin state when moving a task between project pinned lanes", async () => {
+    const ran = await withTempDatabase(async () => {
+      const targetProject = createProject({
+        name: "Pinned lane target",
+        sources: ["/tmp/codex"],
+      });
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_pinned_project_move",
+        threadName: "Stay pinned",
+        cwd: "/tmp/codex",
+      });
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Stay pinned",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_pinned_project_move",
+        threadName: "Stay pinned",
+        cwd: "/tmp/codex",
+      });
+      setCodexThreadPinned("thr_sidebar_pinned_project_move", true);
+      const service = createService();
+
+      try {
+        const result = await service.moveSidebarThread({
+          hostId: "local",
+          threadId: "thr_sidebar_pinned_project_move",
+          sourceContainerId: `project-pinned:${defaultProjectId}`,
+          targetContainerId: `project-pinned:${targetProject.id}`,
+          beforeThreadId: null,
+          insertAtEnd: true,
+        });
+
+        expect(result.status).toBe("moved");
+        expect(getCodexThread("thr_sidebar_pinned_project_move")?.projectId).toBe(targetProject.id);
+        expect(getProjectSession(session.id)?.projectId).toBe(targetProject.id);
+        expect(getProjectSession(session.id)?.pinned).toBe(true);
+        if (result.status === "moved") {
+          expect(result.destination.projectId).toBe(targetProject.id);
+          expect(result.snapshot.pinnedThreadIds.includes(
+            "thr_sidebar_pinned_project_move",
+          )).toBe(true);
+        }
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("keeps committed membership and still unpins when the best-effort sidebar save fails", async () => {
+    const ran = await withTempDatabase(async () => {
+      const targetProject = createProject({
+        name: "Sidebar save failure target",
+        sources: ["/tmp/codex"],
+      });
+      for (const [threadId, projectId, title] of [
+        ["thr_sidebar_two_phase", defaultProjectId, "Two phase move"],
+        ["thr_sidebar_two_phase_anchor", targetProject.id, "Target anchor"],
+      ] as const) {
+        upsertCodexThread({
+          projectId,
+          threadId,
+          threadName: title,
+          cwd: "/tmp/codex",
+        });
+        const session = createProjectSession({ projectId, noThreadFallbackTitle: title });
+        upsertProjectSessionThreadLink({
+          sessionId: session.id,
+          projectId,
+          threadId,
+          threadName: title,
+          cwd: "/tmp/codex",
+        });
+      }
+      setCodexThreadPinned("thr_sidebar_two_phase", true);
+      getDb().exec(`
+        CREATE TRIGGER fail_sidebar_order_insert
+        BEFORE INSERT ON codex_project_thread_orders
+        BEGIN
+          SELECT RAISE(FAIL, 'injected sidebar order failure');
+        END;
+      `);
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const result = await service.moveSidebarThread({
+          hostId: "local",
+          threadId: "thr_sidebar_two_phase",
+          sourceContainerId: `project-pinned:${defaultProjectId}`,
+          targetContainerId: `project:${targetProject.id}`,
+          beforeThreadId: "thr_sidebar_two_phase_anchor",
+        });
+
+        expect(result.status).toBe("moved");
+        expect(getCodexThread("thr_sidebar_two_phase")?.projectId).toBe(targetProject.id);
+        if (result.status === "moved") {
+          expect(result.snapshot.pinnedThreadIds.includes("thr_sidebar_two_phase")).toBe(false);
+        }
+        expect(hostMessages.filter((message) => message.type === "sidebarSyncUpdated").length).toBe(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("returns the exact missing-source block without mutating membership", async () => {
+    const ran = await withTempDatabase(async () => {
+      const targetProject = createProject({
+        name: "Different source target",
+        sources: ["/tmp/elsewhere"],
+      });
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_move_blocked",
+        threadName: "Blocked move",
+        cwd: "/tmp/codex",
+      });
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Blocked move",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_move_blocked",
+        threadName: "Blocked move",
+        cwd: "/tmp/codex",
+      });
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const result = await service.moveSidebarThread({
+          hostId: "local",
+          threadId: "thr_sidebar_move_blocked",
+          sourceContainerId: `project:${defaultProjectId}`,
+          targetContainerId: `project:${targetProject.id}`,
+          beforeThreadId: null,
+          useDefaultOrder: true,
+        });
+
+        expect(result.status).toBe("blocked");
+        if (result.status === "blocked") {
+          expect(result.reason).toBe("missing-project-sources");
+          expect(result.targetProjectName).toBe("Different source target");
+          expect(JSON.stringify(result.missingProjectSources)).toBe(JSON.stringify(["/tmp/codex"]));
+        }
+        expect(getCodexThread("thr_sidebar_move_blocked")?.projectId).toBe(defaultProjectId);
+        expect(getProjectSession(session.id)?.projectId).toBe(defaultProjectId);
+        expect(hostMessages.some((message) => message.type === "sidebarSyncUpdated")).toBe(false);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("silently leaves a sourced project task unchanged when dropped on Chats", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_chats_refused",
+        threadName: "Keep project membership",
+        cwd: "/tmp/codex",
+      });
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const result = await service.moveSidebarThread({
+          hostId: "local",
+          threadId: "thr_sidebar_chats_refused",
+          sourceContainerId: `project:${defaultProjectId}`,
+          targetContainerId: "chats",
+          beforeThreadId: null,
+          insertAtEnd: true,
+        });
+
+        expect(result.status).toBe("unchanged");
+        if (result.status === "unchanged") {
+          expect(result.reason).toBe("project-sources-cannot-move-to-chats");
+        }
+        expect(getCodexThread("thr_sidebar_chats_refused")?.projectId).toBe(defaultProjectId);
+        expect(getProjectSessionThreadLink("thr_sidebar_chats_refused")).toBe(null);
+        expect(hostMessages.some((message) => message.type === "sidebarSyncUpdated")).toBe(false);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("moving a project task from its pinned lane to its regular lane only unpins it", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_pinned_to_chats",
+        threadName: "Return to project",
+        cwd: "/tmp/codex",
+      });
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Return to project",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId: "thr_sidebar_pinned_to_chats",
+        threadName: "Return to project",
+        cwd: "/tmp/codex",
+      });
+      setCodexThreadPinned("thr_sidebar_pinned_to_chats", true);
+      const service = createService();
+
+      try {
+        const result = await service.moveSidebarThread({
+          hostId: "local",
+          threadId: "thr_sidebar_pinned_to_chats",
+          sourceContainerId: `project-pinned:${defaultProjectId}`,
+          targetContainerId: `project:${defaultProjectId}`,
+          beforeThreadId: null,
+        });
+
+        expect(result.status).toBe("moved");
+        expect(getCodexThread("thr_sidebar_pinned_to_chats")?.projectId).toBe(defaultProjectId);
+        expect(getProjectSession(session.id)?.projectId).toBe(defaultProjectId);
+        if (result.status === "moved") {
+          expect(result.destination.projectId).toBe(defaultProjectId);
+          expect(result.snapshot.pinnedThreadIds.includes("thr_sidebar_pinned_to_chats")).toBe(false);
+        }
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("persists project-local real-thread order through the serialized sidebar authority", async () => {
+    const ran = await withTempDatabase(async () => {
+      for (const [threadId, title] of [
+        ["thr_project_order_a", "Order A"],
+        ["thr_project_order_b", "Order B"],
+      ] as const) {
+        upsertCodexThread({
+          projectId: defaultProjectId,
+          threadId,
+          threadName: title,
+          cwd: "/tmp/codex",
+        });
+        const session = createProjectSession({
+          projectId: defaultProjectId,
+          noThreadFallbackTitle: title,
+        });
+        upsertProjectSessionThreadLink({
+          sessionId: session.id,
+          projectId: defaultProjectId,
+          threadId,
+          threadName: title,
+          cwd: "/tmp/codex",
+        });
+      }
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const result = await service.setSidebarProjectThreadOrder({
+          projectId: defaultProjectId,
+          orderedThreadIds: ["thr_project_order_b", "thr_project_order_a"],
+        });
+        const orderedThreadIds = result.sessions.flatMap((session) => (
+          session.thread ? [session.thread.threadId] : []
+        ));
+
+        expect(JSON.stringify(orderedThreadIds)).toBe(JSON.stringify([
+          "thr_project_order_b",
+          "thr_project_order_a",
+        ]));
+        expect(hostMessages.filter((message) => message.type === "sidebarSyncUpdated").length).toBe(1);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("persists the global manual order while replacing only Chats-visible slots", async () => {
+    const ran = await withTempDatabase(async () => {
+      for (const [threadId, projectId] of [
+        ["thr_chats_order_a", null],
+        ["thr_chats_order_project", defaultProjectId],
+        ["thr_chats_order_b", null],
+      ] as const) {
+        upsertCodexThread({
+          projectId,
+          threadId,
+          threadName: threadId,
+          cwd: "/tmp/codex",
+        });
+        const session = createProjectSession({
+          projectId,
+          noThreadFallbackTitle: threadId,
+        });
+        upsertProjectSessionThreadLink({
+          sessionId: session.id,
+          projectId,
+          threadId,
+          threadName: threadId,
+          cwd: "/tmp/codex",
+        });
+      }
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => hostMessages.push(message));
+
+      try {
+        const result = await service.setSidebarChatsThreadOrder({
+          threadIdsInDisplayOrder: [
+            "thr_chats_order_a",
+            "thr_chats_order_project",
+            "thr_chats_order_b",
+          ],
+          visibleThreadIds: ["thr_chats_order_a", "thr_chats_order_b"],
+          nextVisibleThreadIds: ["thr_chats_order_b", "thr_chats_order_a"],
+        });
+
+        expect(JSON.stringify(result.orderedThreadIds)).toBe(JSON.stringify([
+          "thr_chats_order_b",
+          "thr_chats_order_project",
+          "thr_chats_order_a",
+        ]));
+        expect(JSON.stringify(result.snapshot.manualThreadOrder)).toBe(
+          JSON.stringify(result.orderedThreadIds),
+        );
+        expect(hostMessages.filter((message) => message.type === "sidebarSyncUpdated").length).toBe(1);
       } finally {
         await service.shutdown();
       }
@@ -5744,8 +8303,6 @@ describe("codex-service readThread fallback", () => {
       };
 
       const patchDiff = "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new";
-      const turnDiff = `${patchDiff}\n`;
-
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         if (method !== "thread/read") return {};
@@ -5753,16 +8310,15 @@ describe("codex-service readThread fallback", () => {
         if (request.threadId !== "thr_file_change_diff") return {};
 
         return {
-          thread: {
-            id: "thr_file_change_diff",
-            turns: [
-              {
+          thread: makeProtocolThread("thr_file_change_diff", "/tmp", [
+            {
                 id: "turn_file_change_diff",
+                itemsView: "full",
                 status: "completed",
+                error: null,
                 startedAt: 1,
                 completedAt: 2,
                 durationMs: 1000,
-                diff: turnDiff,
                 items: [
                   {
                     id: "patch_file_change_diff",
@@ -5771,22 +8327,21 @@ describe("codex-service readThread fallback", () => {
                     changes: [
                       {
                         path: "src/example.ts",
-                        kind: { type: "update" },
+                        kind: { type: "update", move_path: null },
                         diff: patchDiff,
                       },
                     ],
                   },
                 ],
               },
-            ],
-          },
+          ]),
         };
       };
 
       try {
         const detail = await service.readThread("thr_file_change_diff", true);
         expect(detail).not.toBeNull();
-        expect(detail?.turns[0]?.diff).toBe(turnDiff);
+        expect(detail?.turns[0]?.diff).toBeUndefined();
         expect(detail?.turns[0]?.startedAt).toBe(1_000);
         expect(detail?.turns[0]?.completedAt).toBe(2_000);
         expect(detail?.turns[0]?.turnStartedAtMs).toBe(1_000);
@@ -5795,68 +8350,6 @@ describe("codex-service readThread fallback", () => {
         expect(detail?.transcript.length).toBe(2);
         expect(`${detail?.transcript[0]?.kind}:${detail?.transcript[0]?.semanticKind}`).toBe("fileChange:patch");
         expect(`${detail?.transcript[1]?.kind}:${detail?.transcript[1]?.semanticKind}`).toBe("systemEvent:diff");
-      } finally {
-        await service.shutdown();
-      }
-    });
-
-    if (!ran) expect(true).toBe(true);
-  });
-
-  test("thread read rebuild uses turn.diff instead of fileChange patch text", async () => {
-    const ran = await withTempDatabase(async () => {
-
-      const service = createService();
-      const client = Reflect.get(service as object, "client") as {
-        start: () => Promise<void>;
-        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
-      };
-
-      const patchDiff = "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+intermediate\n";
-      const canonicalDiff = "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+final\n";
-
-      client.start = async () => undefined;
-      client.request = async (method: string, params: unknown) => {
-        if (method !== "thread/read") return {};
-        const request = params as { threadId?: string };
-        if (request.threadId !== "thr_file_change_canonical_diff") return {};
-
-        return {
-          thread: {
-            id: "thr_file_change_canonical_diff",
-            turns: [
-              {
-                id: "turn_file_change_canonical_diff",
-                status: "completed",
-                diff: canonicalDiff,
-                items: [
-                  {
-                    id: "patch_file_change_canonical_diff",
-                    type: "fileChange",
-                    status: "completed",
-                    changes: [
-                      {
-                        path: "src/example.ts",
-                        kind: { type: "update" },
-                        diff: patchDiff,
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-        };
-      };
-
-      try {
-        const detail = await service.readThread("thr_file_change_canonical_diff", true);
-        const turnDiff = detail?.transcript.find((entry) => entry.entryId === "turn-diff:turn_file_change_canonical_diff");
-        const rawItem = turnDiff?.rawItem as { unifiedDiff?: string } | undefined;
-
-        expect(detail).not.toBeNull();
-        expect((rawItem?.unifiedDiff ?? "").includes("+final")).toBe(true);
-        expect((rawItem?.unifiedDiff ?? "").includes("+intermediate")).toBe(false);
       } finally {
         await service.shutdown();
       }
@@ -5881,12 +8374,15 @@ describe("codex-service readThread fallback", () => {
         if (request.threadId !== "thr_file_change_without_turn_diff") return {};
 
         return {
-          thread: {
-            id: "thr_file_change_without_turn_diff",
-            turns: [
-              {
+          thread: makeProtocolThread("thr_file_change_without_turn_diff", "/tmp", [
+            {
                 id: "turn_file_change_without_turn_diff",
+                itemsView: "full",
                 status: "completed",
+                error: null,
+                startedAt: null,
+                completedAt: null,
+                durationMs: null,
                 items: [
                   {
                     id: "patch_file_change_without_turn_diff_1",
@@ -5895,7 +8391,7 @@ describe("codex-service readThread fallback", () => {
                     changes: [
                       {
                         path: "src/example.ts",
-                        kind: { type: "update" },
+                        kind: { type: "update", move_path: null },
                         diff: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new\n",
                       },
                     ],
@@ -5907,7 +8403,7 @@ describe("codex-service readThread fallback", () => {
                     changes: [
                       {
                         path: "src/example.ts",
-                        kind: { type: "update" },
+                        kind: { type: "update", move_path: null },
                         diff: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -3 +3 @@\n-before\n+after\n",
                       },
                     ],
@@ -5919,15 +8415,14 @@ describe("codex-service readThread fallback", () => {
                     changes: [
                       {
                         path: "src/example.ts",
-                        kind: { type: "update" },
+                        kind: { type: "update", move_path: null },
                         diff: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -9 +9 @@\n-nope\n+ignored\n",
                       },
                     ],
                   },
                 ],
               },
-            ],
-          },
+          ]),
         };
       };
 
@@ -6091,27 +8586,32 @@ describe("codex-service session-backed transcript recovery", () => {
         if (request.threadId !== "thr_replay_merge") return {};
 
         return {
-          thread: {
-            id: "thr_replay_merge",
-            turns: [
-              {
+          thread: makeProtocolThread("thr_replay_merge", "/tmp/replay-merge", [
+            {
                 id: "turn_replay_merge",
+                itemsView: "full",
                 status: "completed",
+                error: null,
+                startedAt: null,
+                completedAt: null,
+                durationMs: null,
                 items: [
                   {
                     id: "user_live_1",
                     type: "userMessage",
-                    content: [{ type: "text", text: "who are you" }],
+                    clientId: null,
+                    content: [{ type: "text", text: "who are you", text_elements: [] }],
                   },
                   {
                     id: "assistant_live_1",
                     type: "agentMessage",
                     text: "Codex, your coding agent in this repo.",
+                    phase: null,
+                    memoryCitation: null,
                   },
                 ],
               },
-            ],
-          },
+          ]),
         };
       };
 
@@ -6123,6 +8623,8 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(detail).not.toBeNull();
         expect(detail?.threadPreview).toBe("who are you");
         expect(detail?.transcript.length).toBe(2);
+        expect(detail?.transcript[0]?.itemId).toBe("turn_replay_merge:input");
+        expect(detail?.transcript[0]?.source).toBe("bootstrap");
         expect(detail?.transcript[0]?.markdownText).toBe("who are you");
         expect(detail?.transcript[1]?.markdownText).toBe("Codex, your coding agent in this repo.");
         expect(serialized?.threadPreview).toBe("who are you");
@@ -6225,12 +8727,11 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.resumeState).toBe("needs_resume");
         expect(conversation?.turns.length).toBe(1);
         expect(conversation?.turns[0]?.turnId).toBe("turn_old_open");
-        expect(conversation?.turns[0]?.items.length).toBe(3);
+        expect(conversation?.turns[0]?.items.length).toBe(2);
         expect(conversation?.turns[0]?.items[0]?.kind).toBe("userMessage");
         expect(conversation?.turns[0]?.items[0]?.markdownText).toBe("who are you");
-        expect(conversation?.turns[0]?.items[1]?.kind).toBe("toolCall");
-        expect(conversation?.turns[0]?.items[2]?.kind).toBe("assistantMessage");
-        expect(conversation?.turns[0]?.items[2]?.markdownText).toBe("Codex, your coding agent in this repo.");
+        expect(conversation?.turns[0]?.items[1]?.kind).toBe("assistantMessage");
+        expect(conversation?.turns[0]?.items[1]?.markdownText).toBe("Codex, your coding agent in this repo.");
       } finally {
         await service.shutdown();
       }
@@ -6410,7 +8911,6 @@ describe("codex-service session-backed transcript recovery", () => {
 
       try {
         const conversation = await service.requestConversationResume("thr_archived_stale");
-        const projected = projectConversationFromHostMessages(hostMessages);
         const persisted = getCodexThread("thr_archived_stale");
         const resumeRequests = requests.filter((request) => request.method === "thread/resume");
 
@@ -6418,8 +8918,10 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.threadId).toBe("thr_archived_stale");
         expect(conversation?.archived).toBe(true);
         expect(conversation?.resumeState).toBe("needs_resume");
-        expect(projected?.archived).toBe(true);
-        expect(projected?.resumeState).toBe("needs_resume");
+        expect(hostMessages.some((message) =>
+          message.type === "threadArchived"
+          && message.conversationId === "thr_archived_stale"
+        )).toBe(true);
         expect(persisted?.archived).toBe(true);
       } finally {
         await service.shutdown();
@@ -6538,8 +9040,7 @@ describe("codex-service session-backed transcript recovery", () => {
       client.start = async () => undefined;
       client.request = async (method: string) => {
         if (method === "thread/resume") {
-          return {
-            thread: {
+          return makeCanonicalResumeResponseFromLegacyThread({
               id: "thr_resume_no_duplicate",
               preview: "run bun test",
               ephemeral: false,
@@ -6560,32 +9061,28 @@ describe("codex-service session-backed transcript recovery", () => {
                   id: "turn_resume_no_duplicate",
                   status: "completed",
                   items: [
-                    {
+                    makeProtocolUserMessage({
                       id: "user_resume_no_duplicate",
-                      type: "userMessage",
-                      content: [{ type: "text", text: "run bun test" }],
-                    },
-                    {
+                      content: [{ type: "text", text: "run bun test", text_elements: [] }],
+                    }),
+                    makeProtocolCommandExecution({
                       id: "tool_resume_no_duplicate",
-                      type: "commandExecution",
                       status: "completed",
                       command: "bun test",
                       cwd: "/tmp/resume-no-duplicate",
                       aggregatedOutput: "1340 pass\n0 fail\n",
-                    },
-                    {
+                    }),
+                    makeProtocolAgentMessage({
                       id: "assistant_resume_no_duplicate",
-                      type: "agentMessage",
                       text: "`bun test` passed.",
-                    },
+                    }),
                   ],
                 },
               ],
-            },
-          };
+          });
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run for a completed resume payload");
+          return { thread: makeProtocolThread("thr_resume_no_duplicate", "/tmp/resume-no-duplicate", []) };
         }
         return {};
       };
@@ -6596,7 +9093,9 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.turns.length).toBe(1);
         expect(conversation?.turns[0]?.items.length).toBe(3);
         expect(conversation?.turns[0]?.items[0]?.markdownText).toBe("run bun test");
-        expect(conversation?.turns[0]?.items[1]?.toolCall?.toolName).toBe("bash");
+        expect(conversation?.turns[0]?.items[1]?.kind).toBe("commandExecution");
+        expect(conversation?.turns[0]?.items[1]?.command).toBe("bun test");
+        expect(conversation?.turns[0]?.items[1]?.aggregatedOutput).toBe("1340 pass\n0 fail\n");
         expect(conversation?.turns[0]?.items[2]?.markdownText).toBe("`bun test` passed.");
       } finally {
         await service.shutdown();
@@ -6659,8 +9158,7 @@ describe("codex-service session-backed transcript recovery", () => {
       client.start = async () => undefined;
       client.request = async (method: string) => {
         if (method === "thread/resume") {
-          return {
-            thread: {
+          return makeCanonicalResumeResponseFromLegacyThread({
               id: "thr_resume_refresh",
               preview: "run bun test",
               ephemeral: false,
@@ -6679,21 +9177,21 @@ describe("codex-service session-backed transcript recovery", () => {
               turns: [
                 {
                   id: "turn_resume_refresh",
-                  status: "in_progress",
+                  status: "inProgress",
                   items: [
                     {
                       id: "user_resume_refresh",
                       type: "userMessage",
-                      content: [{ type: "text", text: "run bun test" }],
+                      clientId: null,
+                      content: [{ type: "text", text: "run bun test", text_elements: [] }],
                     },
                   ],
                 },
               ],
-            },
-          };
+          });
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run during active resume");
+          return { thread: makeProtocolThread("thr_resume_refresh", "/tmp/resume-refresh", []) };
         }
         return {};
       };
@@ -6730,27 +9228,20 @@ describe("codex-service session-backed transcript recovery", () => {
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
-        if (method === "thread/resume") {
+        if (method === "thread/read") {
           return {
-            thread: {
-              id: "thr_resume_goal",
-              preview: "ship goal hydration",
-              ephemeral: false,
-              modelProvider: "openai",
-              createdAt: 1_711_278_000,
-              updatedAt: 1_711_278_002,
-              status: { type: "idle" },
-              path: "/tmp/resume-goal/rollout.jsonl",
-              cwd: "/tmp/resume-goal",
-              cliVersion: "0.0.0-test",
-              source: "app_server",
-              agentNickname: null,
-              agentRole: null,
-              gitInfo: null,
-              name: "Goal hydration",
-              turns: [],
-            },
+            thread: makeProtocolThread("thr_paged_history", "/workspace/project", []),
           };
+        }
+        if (method === "thread/resume") {
+          return makeCanonicalResumeResponse({
+            threadId: "thr_resume_goal",
+            initialTurnsPage: {
+              data: [],
+              nextCursor: null,
+              backwardsCursor: null,
+            },
+          });
         }
         if (method === "thread/goal/get") {
           return {
@@ -6767,23 +9258,25 @@ describe("codex-service session-backed transcript recovery", () => {
           };
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run during goal hydration resume");
+          return { thread: makeProtocolThread("thr_resume_goal", "/tmp/resume-goal", []) };
         }
         throw new Error(`Unexpected client request: ${method}`);
       };
 
       try {
         const conversation = await service.requestConversationResume("thr_resume_goal");
+        await waitForCondition(
+          () => service.serializeConversationSnapshot("thr_resume_goal")?.threadGoal?.status === "paused",
+          250,
+        );
         const projected = projectConversationFromHostMessages(hostMessages);
         const methods = requests.map((request) => request.method).join(",");
 
-        expect(methods).toBe("thread/resume,thread/goal/get");
-        expect((requests[1]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_resume_goal");
-        expect(conversation?.threadGoal?.status ?? "").toBe("paused");
-        expect(conversation?.threadGoal?.objective ?? "").toBe("Ship goal hydration");
-        expect(conversation?.threadGoalResumeConfirmation?.status ?? "").toBe("paused");
+        expect(methods).toBe("thread/read,thread/resume,thread/goal/get");
+        expect((requests[2]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_resume_goal");
+        expect(conversation?.threadGoal ?? null).toBe(null);
         expect(projected?.threadGoal?.status ?? "").toBe("paused");
-        expect(projected?.threadGoalResumeConfirmation?.objective ?? "").toBe("Ship goal hydration");
+        expect(projected?.threadGoalResumeConfirmation ?? null).toBe(null);
       } finally {
         await service.shutdown();
       }
@@ -6812,8 +9305,7 @@ describe("codex-service session-backed transcript recovery", () => {
         requests.push({ method, params });
         if (method === "thread/resume") {
           await resumeGate;
-          return {
-            thread: {
+          return makeCanonicalResumeResponseFromLegacyThread({
               id: "thr_resume_single_flight",
               preview: "resume once",
               ephemeral: false,
@@ -6830,14 +9322,13 @@ describe("codex-service session-backed transcript recovery", () => {
               gitInfo: null,
               name: "Resume single flight",
               turns: [],
-            },
-          };
+          });
         }
         if (method === "thread/goal/get") {
           return { goal: null };
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run during resume single-flight");
+          return { thread: makeProtocolThread("thr_resume_single_flight", "/tmp/resume-single-flight", []) };
         }
         throw new Error(`Unexpected client request: ${method}`);
       };
@@ -6879,8 +9370,7 @@ describe("codex-service session-backed transcript recovery", () => {
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
         if (method === "thread/resume") {
-          return {
-            thread: {
+          return makeCanonicalResumeResponseFromLegacyThread({
               id: "thr_resume_goal_failure",
               preview: "resume despite goal failure",
               ephemeral: false,
@@ -6897,14 +9387,13 @@ describe("codex-service session-backed transcript recovery", () => {
               gitInfo: null,
               name: "Goal failure",
               turns: [],
-            },
-          };
+          });
         }
         if (method === "thread/goal/get") {
           throw new Error("goal hydration unavailable");
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run during goal hydration failure resume");
+          return { thread: makeProtocolThread("thr_resume_goal_failure", "/tmp/resume-goal-failure", []) };
         }
         throw new Error(`Unexpected client request: ${method}`);
       };
@@ -6913,7 +9402,7 @@ describe("codex-service session-backed transcript recovery", () => {
         const conversation = await service.requestConversationResume("thr_resume_goal_failure");
         const methods = requests.map((request) => request.method).join(",");
 
-        expect(methods).toBe("thread/resume,thread/goal/get");
+        expect(methods).toBe("thread/read,thread/resume,thread/goal/get");
         expect(conversation?.threadId ?? "").toBe("thr_resume_goal_failure");
         expect(conversation?.resumeState).toBe("resumed");
         expect(conversation?.threadGoal ?? null).toBe(null);
@@ -6925,7 +9414,7 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("buffers resume-time notifications and trims hydrated text/output before replay", async () => {
+  test("buffers resume-time notifications and suppresses only fully hydrated aggregate deltas", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const client = Reflect.get(service as object, "client") as {
@@ -6959,8 +9448,7 @@ describe("codex-service session-backed transcript recovery", () => {
               delta: "abcdef",
             },
           });
-          return {
-            thread: {
+          return makeCanonicalResumeResponseFromLegacyThread({
               id: "thr_resume_buffer",
               preview: "stream while resuming",
               ephemeral: false,
@@ -6981,27 +9469,24 @@ describe("codex-service session-backed transcript recovery", () => {
                   id: "turn_resume_buffer",
                   status: "in_progress",
                   items: [
-                    {
+                    makeProtocolCommandExecution({
                       id: "cmd_resume_buffer",
-                      type: "commandExecution",
-                      status: "in_progress",
+                      status: "inProgress",
                       command: "printf abcdef",
                       cwd: "/tmp/resume-buffer",
-                      aggregatedOutput: "abc",
-                    },
-                    {
+                      aggregatedOutput: "abcdef",
+                    }),
+                    makeProtocolAgentMessage({
                       id: "assistant_resume_buffer",
-                      type: "agentMessage",
-                      text: "hello",
-                    },
+                      text: "hello world",
+                    }),
                   ],
                 },
               ],
-            },
-          };
+          });
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run during buffered resume");
+          return { thread: makeProtocolThread("thr_resume_buffer", "/tmp/resume-buffer", []) };
         }
         return {};
       };
@@ -7024,10 +9509,7 @@ describe("codex-service session-backed transcript recovery", () => {
         );
         expect(assistant?.markdownText).toBe("hello world");
         expect(command?.aggregatedOutput).toBe("abcdef");
-        expect(outputDeltaMessage?.type).toBe("mcpNotification");
-        if (outputDeltaMessage?.type === "mcpNotification") {
-          expect(outputDeltaMessage.params.delta).toBe("def");
-        }
+        expect(outputDeltaMessage ?? null).toBe(null);
       } finally {
         await service.shutdown();
       }
@@ -7077,8 +9559,7 @@ describe("codex-service session-backed transcript recovery", () => {
               delta: " buffered",
             },
           });
-          return {
-            thread: {
+          return makeCanonicalResumeResponseFromLegacyThread({
               id: threadId,
               preview: "renderer resume",
               ephemeral: false,
@@ -7099,28 +9580,29 @@ describe("codex-service session-backed transcript recovery", () => {
                   id: "turn-renderer-resume",
                   status: "in_progress",
                   items: [
-                    {
+                    makeProtocolAgentMessage({
                       id: "assistant-renderer-resume",
-                      type: "agentMessage",
                       text: "hydrated",
-                    },
+                    }),
                   ],
                 },
               ],
-            },
-          };
+          });
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run during renderer-owned resume boundary test");
+          return { thread: makeProtocolThread(threadId, "/tmp/renderer-resume", []) };
         }
         return {};
       };
 
       try {
-        service.setRendererConversationOwner(threadId, ownerClientId);
-        const conversation = await service.requestRendererConversationResume(threadId);
+        const conversation = await service.requestRendererConversationResume(
+          threadId,
+          ownerClientId,
+        );
 
         expect(conversation?.threadId ?? "").toBe(threadId);
+        expect(service.getRendererConversationOwner(threadId)).toBe(ownerClientId);
         expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
         expect(ownerMessages.length).toBe(0);
 
@@ -7131,6 +9613,16 @@ describe("codex-service session-backed transcript recovery", () => {
           const record = message as { type?: string; method?: string };
           return record.type === "threadOwnerNotification" && record.method === "item/agentMessage/delta";
         })).toBe(true);
+        if (!conversation) throw new Error("Missing renderer resume conversation");
+        expect(service.publishRendererThreadStreamStateChange(ownerClientId, {
+          conversationId: threadId,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: conversation,
+          },
+        })).toBe(true);
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(true);
       } finally {
         await service.shutdown();
       }
@@ -7146,6 +9638,7 @@ describe("codex-service session-backed transcript recovery", () => {
       const ownerClientId = "owner-client-resume-failure";
       const hostMessages: CodexHostMessage[] = [];
       const ownerMessages: unknown[] = [];
+      let resumeRequestCount = 0;
       service.on("hostMessage", (message) => {
         hostMessages.push(message);
       });
@@ -7161,6 +9654,7 @@ describe("codex-service session-backed transcript recovery", () => {
       client.start = async () => undefined;
       client.request = async (method: string) => {
         if (method === "thread/resume") {
+          resumeRequestCount += 1;
           client.emit("notification", {
             method: "item/agentMessage/delta",
             params: {
@@ -7173,19 +9667,15 @@ describe("codex-service session-backed transcript recovery", () => {
           throw new Error("resume failed");
         }
         if (method === "thread/read") {
-          throw new Error("thread/read should not run during renderer-owned resume failure test");
+          return { thread: makeProtocolThread(threadId, "/tmp/renderer-resume-failure", []) };
         }
         return {};
       };
 
       try {
-        service.setRendererConversationOwner(threadId, ownerClientId);
         let threw = false;
         try {
-          await service.requestConversationResume(threadId, {
-            emitSourceNullSnapshots: false,
-            replayBufferedNotifications: false,
-          });
+          await service.requestRendererConversationResume(threadId, ownerClientId);
         } catch {
           threw = true;
         }
@@ -7193,6 +9683,8 @@ describe("codex-service session-backed transcript recovery", () => {
         const snapshot = service.serializeConversationSnapshot(threadId);
         expect(threw).toBe(true);
         expect(snapshot?.resumeState).toBe("needs_resume");
+        expect(service.getRendererConversationOwner(threadId)).toBe(null);
+        expect(resumeRequestCount).toBe(1);
         expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
         expect(ownerMessages.length).toBe(0);
       } finally {
@@ -7216,35 +9708,28 @@ describe("codex-service session-backed transcript recovery", () => {
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
         if (method === "thread/goal/get") return { goal: null };
-        if (method !== "thread/resume") throw new Error(`Unexpected method: ${method}`);
-        return {
-          thread: {
-            id: "thr_resume_patch_streaming",
-            preview: "",
-            ephemeral: false,
-            modelProvider: "openai",
-            createdAt: 1711278000,
-            updatedAt: 1711278000,
-            status: { type: "idle" },
-            path: "/tmp/resume-patch-streaming/rollout.jsonl",
-            cwd: "/tmp/resume-patch-streaming",
-            cliVersion: "0.0.0-test",
-            source: "app_server",
-            agentNickname: null,
-            agentRole: null,
-            gitInfo: null,
-            name: "Resume patch streaming",
-            turns: [],
-          },
-        };
+        if (method === "thread/read") {
+          return { thread: makeProtocolThread("thr_resume_patch_streaming", "/tmp/resume-patch-streaming", []) };
+        }
+        if (method === "thread/resume") {
+          return makeCanonicalResumeResponse({
+            threadId: "thr_resume_patch_streaming",
+            initialTurnsPage: {
+              data: [],
+              nextCursor: null,
+              backwardsCursor: null,
+            },
+          });
+        }
+        throw new Error(`Unexpected method: ${method}`);
       };
 
       try {
         const detail = await service.resumeThread("thr_resume_patch_streaming");
         expect(detail?.threadId ?? "").toBe("thr_resume_patch_streaming");
-        expect(requests.map((request) => request.method).join(",")).toBe("thread/resume,thread/goal/get");
-        expect(requests[0]?.method).toBe("thread/resume");
-        const resumeParams = requests[0]?.params as {
+        expect(requests.map((request) => request.method).join(",")).toBe("thread/read,thread/resume,thread/goal/get");
+        expect(requests[1]?.method).toBe("thread/resume");
+        const resumeParams = requests[1]?.params as {
           config?: Record<string, unknown>;
           excludeTurns?: boolean;
           initialTurnsPage?: {
@@ -7267,7 +9752,686 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("replays resume-buffered server requests in notification order from bundle 46730-46950", async () => {
+  test("normal resume pre-reads metadata, sends exact nullable fields, and gates an existing owner", async () => {
+    const service = createService();
+    const threadId = "thr_exact_resume_params";
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const serviceInternals = service as unknown as {
+      resumeConversationRecord: (id: string) => Promise<CodexThreadDetail | null>;
+      parseThreadRef: (id: string) => Record<string, unknown> | null;
+      maybeResolveProjectRuntimeContext: (projectId: string) => {
+        workspaceRoots: string[];
+        primaryWorkspaceRoot: string;
+      };
+      upsertLinkFromThread: () => null;
+      buildThreadDetailFromCanonicalState: (
+        state: CodexCanonicalConversationState,
+      ) => CodexThreadDetail;
+      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const metadataThread = {
+      ...makeProtocolThread(threadId, "/workspace/project", []),
+      path: "/workspace/project/rollout.jsonl",
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/read") return { thread: metadataThread };
+      if (method === "thread/resume") {
+        return makeCanonicalResumeResponse({
+          threadId,
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+        });
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.parseThreadRef = () => ({
+      projectId: "project-exact-resume",
+      cwd: "/workspace/project",
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    serviceInternals.maybeResolveProjectRuntimeContext = () => ({
+      workspaceRoots: ["/workspace/project"],
+      primaryWorkspaceRoot: "/workspace/project",
+    });
+    serviceInternals.upsertLinkFromThread = () => null;
+    serviceInternals.buildThreadDetailFromCanonicalState = () => ({
+      ...makeThreadDetail(threadId),
+      projectId: "project-exact-resume",
+      cwd: "/workspace/project",
+    });
+    serviceInternals.persistThreadDetailSummary = () => {};
+
+    try {
+      const first = await serviceInternals.resumeConversationRecord(threadId);
+      const second = await serviceInternals.resumeConversationRecord(threadId);
+      const params = requests[1]?.params as Record<string, unknown>;
+      expect(first?.threadId).toBe(threadId);
+      expect(second?.threadId).toBe(threadId);
+      expect(first?.latestCollaborationMode?.mode ?? "").toBe("default");
+      expect(first?.latestCollaborationMode?.settings.model ?? "").toBe("gpt-canonical");
+      expect(first?.latestCollaborationMode?.settings.reasoning_effort ?? null).toBe("high");
+      expect(requests.map((request) => request.method).join(",")).toBe("thread/read,thread/resume");
+      expect(params.cwd).toBe("/workspace/project");
+      expect(params.path).toBe("/workspace/project/rollout.jsonl");
+      expect(params.history).toBe(null);
+      expect(params.model).toBe(null);
+      expect(params.modelProvider).toBe(null);
+      expect(String(params.developerInstructions).includes("<app-context>")).toBe(true);
+      expect(String(params.developerInstructions).includes("### Thread Coordination")).toBe(true);
+      expect((params.config as Record<string, unknown>)["features.apply_patch_streaming_events"]).toBe(true);
+      expect((params.config as Record<string, unknown>)["features.thread_tools"]).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(params, "permissions")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(params, "sandbox")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(params, "approvalsReviewer")).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("direct resume returns an owned conversation before buffer and post-resume side effects", async () => {
+    const service = createService();
+    const threadId = "thr_direct_resume_owned";
+    installRendererOwnerConversation(service, { threadId });
+    const requests: string[] = [];
+    const hostMessages: CodexHostMessage[] = [];
+    let goalFlows = 0;
+    let tailLoads = 0;
+    const serviceInternals = service as unknown as {
+      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+      startPostResumeGoalFlow: (id: string, revision: number) => Promise<void>;
+      scheduleRemainingThreadTurnsLoad: (id: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      requests.push(method);
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.startPostResumeGoalFlow = async () => {
+      goalFlows += 1;
+    };
+    serviceInternals.scheduleRemainingThreadTurnsLoad = () => {
+      tailLoads += 1;
+    };
+    service.on("hostMessage", (message) => hostMessages.push(message));
+
+    try {
+      const detail = await service.resumeThread(threadId);
+
+      expect(detail?.threadId ?? "").toBe(threadId);
+      expect(requests.length).toBe(0);
+      expect(serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)).toBe(false);
+      expect(goalFlows).toBe(0);
+      expect(tailLoads).toBe(0);
+      expect(hostMessages.length).toBe(0);
+      expect(service.serializeConversationSnapshot(threadId)?.resumeState ?? "").toBe("resumed");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("resume reviewer gate treats explicit null candidates as absent", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      resolveCanonicalPreResumePermissionContext: (
+        record: unknown,
+        runtimeRoots: readonly string[],
+        defaultRoots: readonly string[],
+        projectless: boolean,
+        persistedRoots: readonly string[],
+      ) => {
+        context: { approvalsReviewer: string };
+        shouldSendApprovalsReviewer: boolean;
+      };
+    };
+    const record = {
+      canonicalState: {
+        sidecar: {
+          hydrationContext: {
+            latestThreadSettings: { approvalsReviewer: null },
+            currentPermissions: null,
+          },
+        },
+        turns: [{ sidecar: { params: { approvalsReviewer: null } } }],
+      },
+    };
+
+    try {
+      const selection = serviceInternals.resolveCanonicalPreResumePermissionContext(
+        record,
+        [],
+        [],
+        false,
+        [],
+      );
+      expect(selection.context.approvalsReviewer).toBe("user");
+      expect(selection.shouldSendApprovalsReviewer).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("projectless resume clamps cwd to its browser root and sends explicit permissions", async () => {
+    const service = createService();
+    const threadId = "thr_projectless_resume_clamp";
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const serviceInternals = service as unknown as {
+      resumeConversationRecord: (id: string) => Promise<CodexThreadDetail | null>;
+      parseThreadRef: (id: string) => Record<string, unknown> | null;
+      getThreadLinkSafely: (id: string) => { cwd: string } | null;
+      upsertLinkFromThread: () => null;
+      buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
+      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/read") {
+        return { thread: makeProtocolThread(threadId, "/outside/root", []) };
+      }
+      if (method === "thread/resume") {
+        return makeCanonicalResumeResponse({
+          threadId,
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+        });
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.parseThreadRef = () => ({
+      projectId: null,
+      cwd: "/outside/root",
+      projectlessWorkspaceBrowserRoot: "/browser/root",
+    });
+    serviceInternals.getThreadLinkSafely = () => ({ cwd: "/outside/root" });
+    serviceInternals.upsertLinkFromThread = () => null;
+    serviceInternals.buildThreadDetailFromCanonicalState = () => ({
+      ...makeThreadDetail(threadId),
+      projectId: null,
+      cwd: "/browser/root",
+      projectlessWorkspaceBrowserRoot: "/browser/root",
+    });
+    serviceInternals.persistThreadDetailSummary = () => {};
+
+    try {
+      await serviceInternals.resumeConversationRecord(threadId);
+      const params = requests[1]?.params as Record<string, unknown>;
+      expect(params.cwd).toBe("/browser/root");
+      expect(params.permissions).toBe(":workspace");
+      expect(JSON.stringify(params.runtimeWorkspaceRoots)).toBe(JSON.stringify(["/browser/root"]));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("projectless cold resume stays read-only when persisted roots are its only roots", async () => {
+    const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-projectless-retained-roots-"));
+    setCodexThreadWritableRootsPathOverrideForTests(path.join(temporaryDirectory, "roots.json"));
+    const threadId = "thr_projectless_retained_only";
+    const retainedRoot = "/workspace/retained-only";
+    mergeCodexThreadWritableRoots(threadId, [retainedRoot]);
+    const service = createService();
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const serviceInternals = service as unknown as {
+      resumeConversationRecord: (id: string) => Promise<CodexThreadDetail | null>;
+      parseThreadRef: () => Record<string, unknown>;
+      getThreadLinkSafely: () => { cwd: string };
+      upsertLinkFromThread: () => null;
+      buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
+      persistThreadDetailSummary: () => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/read") {
+        return { thread: makeProtocolThread(threadId, "~", []) };
+      }
+      if (method === "thread/resume") {
+        const response = makeCanonicalResumeResponse({
+          threadId,
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+          activePermissionProfile: { id: ":read-only", extends: null },
+          runtimeWorkspaceRoots: [retainedRoot],
+        });
+        response.thread.cwd = "~";
+        response.cwd = "~";
+        response.sandbox = { type: "readOnly", networkAccess: false };
+        return response;
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.parseThreadRef = () => ({
+      projectId: null,
+      cwd: "~",
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    serviceInternals.getThreadLinkSafely = () => ({ cwd: "~" });
+    serviceInternals.upsertLinkFromThread = () => null;
+    serviceInternals.buildThreadDetailFromCanonicalState = () => ({
+      ...makeThreadDetail(threadId),
+      projectId: null,
+      cwd: "~",
+    });
+    serviceInternals.persistThreadDetailSummary = () => {};
+
+    try {
+      const detail = await serviceInternals.resumeConversationRecord(threadId);
+      const resumeParams = requests[1]?.params as Record<string, unknown>;
+      expect(resumeParams.permissions).toBe(":read-only");
+      expect(JSON.stringify(resumeParams.runtimeWorkspaceRoots)).toBe(JSON.stringify([retainedRoot]));
+      expect(Object.prototype.hasOwnProperty.call(resumeParams, "sandbox")).toBe(false);
+      expect(detail?.sandbox?.type ?? "").toBe("readOnly");
+    } finally {
+      await service.shutdown();
+      setCodexThreadWritableRootsPathOverrideForTests(null);
+      fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("thread start repairs omitted writable roots before hydration and a fresh resume restores them", async () => {
+    const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-thread-roots-resume-"));
+    const rootsPath = path.join(temporaryDirectory, "roots.json");
+    const threadId = "thr_persisted_writable_roots";
+    const projectRoot = "/workspace/project";
+    const retainedRoot = "/workspace/shared-cache";
+    setCodexThreadWritableRootsPathOverrideForTests(rootsPath);
+
+    const firstService = createService();
+    const firstInternals = firstService as unknown as {
+      reconcileThreadStartWritableRoots: (
+        response: ThreadStartResponse,
+        sandbox: ThreadStartResponse["sandbox"],
+      ) => ThreadStartResponse;
+      hydrateCanonicalConversationState: (
+        response: ThreadStartResponse,
+        options: { resolvedCwd: string },
+      ) => CodexCanonicalConversationState;
+    };
+    const rawStartResponse = makeCanonicalResumeResponse({
+      threadId,
+      initialTurnsPage: null,
+    });
+    rawStartResponse.thread.cwd = projectRoot;
+    rawStartResponse.cwd = projectRoot;
+    rawStartResponse.runtimeWorkspaceRoots = [projectRoot];
+    rawStartResponse.sandbox = {
+      type: "workspaceWrite",
+      writableRoots: [projectRoot],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    };
+    const requestedSandbox: ThreadStartResponse["sandbox"] = {
+      ...rawStartResponse.sandbox,
+      writableRoots: [projectRoot, retainedRoot],
+    };
+
+    try {
+      const repaired = firstInternals.reconcileThreadStartWritableRoots(
+        rawStartResponse,
+        requestedSandbox,
+      );
+      const canonical = firstInternals.hydrateCanonicalConversationState(repaired, {
+        resolvedCwd: projectRoot,
+      });
+      const hydrationContext = canonical.sidecar.hydrationContext;
+      if (!hydrationContext) throw new Error("canonical hydration context is missing");
+      const currentSandbox = hydrationContext.currentPermissions.sandboxPolicy;
+      const repairedSandbox = repaired.sandbox;
+
+      expect(repaired.activePermissionProfile).toBe(null);
+      expect(repairedSandbox.type).toBe("workspaceWrite");
+      expect(JSON.stringify(repairedSandbox.type === "workspaceWrite" ? repairedSandbox.writableRoots : [])).toBe(
+        JSON.stringify([projectRoot, retainedRoot]),
+      );
+      expect(currentSandbox.type).toBe("workspaceWrite");
+      expect(JSON.stringify(currentSandbox.type === "workspaceWrite" ? currentSandbox.writableRoots : [])).toBe(
+        JSON.stringify([projectRoot, retainedRoot]),
+      );
+      expect(JSON.stringify(getCodexThreadWritableRoots(threadId))).toBe(
+        JSON.stringify([projectRoot, retainedRoot]),
+      );
+    } finally {
+      await firstService.shutdown();
+    }
+
+    resetCodexThreadWritableRootsCacheForTests();
+    const secondService = createService();
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const secondInternals = secondService as unknown as {
+      resumeConversationRecord: (id: string) => Promise<CodexThreadDetail | null>;
+      parseThreadRef: () => Record<string, unknown>;
+      maybeResolveProjectRuntimeContext: () => {
+        workspaceRoots: string[];
+        primaryWorkspaceRoot: string;
+      };
+      upsertLinkFromThread: () => null;
+      buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
+      persistThreadDetailSummary: () => void;
+    };
+    const client = Reflect.get(secondService as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/read") {
+        return { thread: makeProtocolThread(threadId, projectRoot, []) };
+      }
+      if (method === "thread/resume") {
+        const response = makeCanonicalResumeResponse({
+          threadId,
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+          runtimeWorkspaceRoots: [projectRoot, retainedRoot],
+        });
+        response.thread.cwd = projectRoot;
+        response.cwd = projectRoot;
+        response.sandbox = requestedSandbox;
+        return response;
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    secondInternals.parseThreadRef = () => ({
+      projectId: "project-persisted-roots",
+      cwd: projectRoot,
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    secondInternals.maybeResolveProjectRuntimeContext = () => ({
+      workspaceRoots: [projectRoot],
+      primaryWorkspaceRoot: projectRoot,
+    });
+    secondInternals.upsertLinkFromThread = () => null;
+    secondInternals.buildThreadDetailFromCanonicalState = () => ({
+      ...makeThreadDetail(threadId),
+      projectId: "project-persisted-roots",
+      cwd: projectRoot,
+    });
+    secondInternals.persistThreadDetailSummary = () => {};
+
+    try {
+      await secondInternals.resumeConversationRecord(threadId);
+      const resumeParams = requests[1]?.params as Record<string, unknown>;
+      expect(resumeParams.permissions).toBe(":workspace");
+      expect(JSON.stringify(resumeParams.runtimeWorkspaceRoots)).toBe(
+        JSON.stringify([projectRoot, retainedRoot]),
+      );
+    } finally {
+      await secondService.shutdown();
+      setCodexThreadWritableRootsPathOverrideForTests(null);
+      fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("resume returns before goal hydration, then publishes a revision-guarded goal with null confirmation", async () => {
+    const service = createService();
+    const threadId = "thr_async_goal_resume";
+    const hostMessages: CodexHostMessage[] = [];
+    let resolveGoal: (value: unknown) => void = () => {
+      throw new Error("goal gate was not initialized");
+    };
+    const goalGate = new Promise<unknown>((resolve) => {
+      resolveGoal = resolve;
+    });
+    let goalRequestStarted = false;
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      parseThreadRef: (id: string) => Record<string, unknown> | null;
+      getThreadLinkSafely: (id: string) => { cwd: string; archived: boolean } | null;
+      maybeResolveProjectRuntimeContext: (projectId: string) => {
+        workspaceRoots: string[];
+        primaryWorkspaceRoot: string;
+      };
+      upsertLinkFromThread: () => null;
+      buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
+      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      projectId: "project-async-goal",
+      cwd: "/workspace/project",
+    });
+    serviceInternals.parseThreadRef = () => ({
+      projectId: "project-async-goal",
+      cwd: "/workspace/project",
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    serviceInternals.getThreadLinkSafely = () => ({
+      cwd: "/workspace/project",
+      archived: false,
+    });
+    serviceInternals.maybeResolveProjectRuntimeContext = () => ({
+      workspaceRoots: ["/workspace/project"],
+      primaryWorkspaceRoot: "/workspace/project",
+    });
+    serviceInternals.upsertLinkFromThread = () => null;
+    serviceInternals.buildThreadDetailFromCanonicalState = () => ({
+      ...makeThreadDetail(threadId),
+      projectId: "project-async-goal",
+      cwd: "/workspace/project",
+    });
+    serviceInternals.persistThreadDetailSummary = () => {};
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "thread/read") {
+        return { thread: makeProtocolThread(threadId, "/workspace/project", []) };
+      }
+      if (method === "thread/resume") {
+        return makeCanonicalResumeResponse({
+          threadId,
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+        });
+      }
+      if (method === "thread/goal/get") {
+        goalRequestStarted = true;
+        return await goalGate;
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const resumed = await service.requestConversationResume(threadId);
+      expect(goalRequestStarted).toBe(true);
+      expect(resumed?.threadGoal ?? null).toBe(null);
+
+      resolveGoal({
+        goal: {
+          threadId,
+          objective: "Ship async goal hydration",
+          status: "paused",
+          tokenBudget: 40000,
+          tokensUsed: 120,
+          timeUsedSeconds: 45,
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      });
+      await waitForCondition(
+        () => service.serializeConversationSnapshot(threadId)?.threadGoal?.status === "paused",
+        250,
+      );
+      const hydrated = service.serializeConversationSnapshot(threadId);
+      const projected = projectConversationFromHostMessages(hostMessages);
+      expect(hydrated?.threadGoal?.objective ?? "").toBe("Ship async goal hydration");
+      expect(hydrated?.threadGoalResumeConfirmation ?? null).toBe(null);
+      expect(projected?.threadGoal?.status ?? "").toBe("paused");
+      expect(projected?.threadGoalResumeConfirmation ?? null).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("late goal hydration cannot overwrite a newer conversation revision", async () => {
+    const service = createService();
+    const threadId = "thr_stale_goal_hydration";
+    let resolveGoal: (value: unknown) => void = () => {
+      throw new Error("goal gate was not initialized");
+    };
+    const goalGate = new Promise<unknown>((resolve) => {
+      resolveGoal = resolve;
+    });
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      hydrateThreadGoalAfterResume: (id: string, expectedRevision: number) => Promise<void>;
+      emitThreadStreamSnapshotFromRecord: (id: string, reason: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "thread/goal/get") return await goalGate;
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
+    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+      threadId,
+      initialTurnsPage: null,
+    }));
+
+    try {
+      const hydration = serviceInternals.hydrateThreadGoalAfterResume(threadId, 0);
+      await Promise.resolve();
+      serviceInternals.emitThreadStreamSnapshotFromRecord(threadId, "explicit-resync");
+      resolveGoal({
+        goal: {
+          threadId,
+          objective: "Stale goal",
+          status: "paused",
+          tokenBudget: null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      });
+      await hydration;
+      expect(service.serializeConversationSnapshot(threadId)?.threadGoal ?? null).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("post-resume tail hydration does not wait for active-goal continuation", async () => {
+    const service = createService();
+    const threadId = "thr_goal_tail_independent";
+    let releaseContinuation: () => void = () => {};
+    const continuationGate = new Promise<void>((resolve) => {
+      releaseContinuation = resolve;
+    });
+    let continuationSettled = false;
+    let tailStarted = false;
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      startPostResumeGoalFlow: (id: string, expectedRevision: number) => Promise<void>;
+      maybeContinueActiveThreadGoal: (id: string) => Promise<void>;
+      scheduleRemainingThreadTurnsLoad: (id: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "thread/goal/get") {
+        return {
+          goal: {
+            threadId,
+            objective: "Continue without blocking history",
+            status: "active",
+            tokenBudget: null,
+            tokensUsed: 1,
+            timeUsedSeconds: 1,
+            createdAt: 10,
+            updatedAt: 20,
+          },
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
+    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+      threadId,
+      initialTurnsPage: {
+        data: [],
+        nextCursor: "older-page",
+        backwardsCursor: null,
+      },
+    }));
+    serviceInternals.maybeContinueActiveThreadGoal = async () => {
+      await continuationGate;
+      continuationSettled = true;
+    };
+    serviceInternals.scheduleRemainingThreadTurnsLoad = () => {
+      tailStarted = true;
+    };
+
+    try {
+      const flow = serviceInternals.startPostResumeGoalFlow(threadId, 0).then(() => {
+        serviceInternals.scheduleRemainingThreadTurnsLoad(threadId);
+      });
+      await waitForCondition(() => tailStarted, 250);
+
+      expect(tailStarted).toBe(true);
+      expect(continuationSettled).toBe(false);
+
+      releaseContinuation();
+      await flow;
+      await Promise.resolve();
+      expect(continuationSettled).toBe(true);
+    } finally {
+      releaseContinuation();
+      await service.shutdown();
+    }
+  });
+
+  test("answers currentTime immediately while resume notifications remain buffered", async () => {
     const service = createService();
     const threadId = "thr_resume_request_order";
     const order: string[] = [];
@@ -7281,12 +10445,13 @@ describe("codex-service session-backed transcript recovery", () => {
       ) => Promise<void>;
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
       handleServerRequestNow: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
     };
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
     const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
 
     serviceInternals.handleNotification = async (method, params, options) => {
-      if (options?.bypassResumeBuffer) {
+      if (!serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)) {
         order.push(`notification:${method}`);
       }
       return originalHandleNotification(method, params, options);
@@ -7316,15 +10481,225 @@ describe("codex-service session-backed transcript recovery", () => {
         message: "Still working",
       });
 
-      expect(order.join(",")).toBe("");
+      const result = await requestPromise;
+      expect((result as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
+      expect(order.join(",")).toBe("request:currentTime/read");
 
       await serviceInternals.replayBufferedResumeNotifications(threadId);
-      const result = await requestPromise;
 
-      expect((result as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
       expect(order.join(",")).toBe(
-        "notification:item/reasoning/summaryPartAdded,request:currentTime/read,notification:item/mcpToolCall/progress",
+        "request:currentTime/read,notification:item/reasoning/summaryPartAdded,notification:item/mcpToolCall/progress",
       );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("removes the resume buffer before replay so nested notifications dispatch live", async () => {
+    const service = createService();
+    const threadId = "thr_resume_live_nested";
+    const order: string[] = [];
+    const serviceInternals = service as unknown as {
+      beginResumeNotificationBuffer: (id: string) => void;
+      replayBufferedResumeNotifications: (id: string) => Promise<void>;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+    };
+
+    try {
+      serviceInternals.beginResumeNotificationBuffer(threadId);
+      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
+        threadId,
+        turnId: "turn-1",
+        itemId: "reasoning-1",
+        summaryIndex: 0,
+      });
+      await serviceInternals.handleNotification("item/mcpToolCall/progress", {
+        threadId,
+        turnId: "turn-1",
+        itemId: "mcp-old-tail",
+        message: "old tail",
+      });
+
+      const originalHandleNotification = serviceInternals.handleNotification.bind(service);
+      let didInjectNestedNotification = false;
+      serviceInternals.handleNotification = async (method, params) => {
+        if (!serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)) {
+          order.push(`${method}:${(params as { itemId?: string }).itemId ?? ""}`);
+        }
+        await originalHandleNotification(method, params);
+        if (method !== "item/reasoning/summaryPartAdded" || didInjectNestedNotification) return;
+
+        didInjectNestedNotification = true;
+        await serviceInternals.handleNotification("item/mcpToolCall/progress", {
+          threadId,
+          turnId: "turn-1",
+          itemId: "mcp-live-nested",
+          message: "live nested",
+        });
+      };
+
+      await serviceInternals.replayBufferedResumeNotifications(threadId);
+
+      expect(order.join(",")).toBe(
+        "item/reasoning/summaryPartAdded:reasoning-1,"
+          + "item/mcpToolCall/progress:mcp-live-nested,"
+          + "item/mcpToolCall/progress:mcp-old-tail",
+      );
+      expect(serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("resume replay dedupe aggregates full deltas and reads the first exact canonical raw slot", async () => {
+    const service = createService();
+    const threadId = "thr_exact_resume_dedupe";
+    const turn: Turn = {
+      id: "turn-exact-resume-dedupe",
+      itemsView: "full",
+      status: "inProgress",
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      durationMs: null,
+      items: [
+        {
+          id: "shared-agent",
+          type: "enteredReviewMode",
+          review: "same id, different type",
+        },
+        {
+          id: "shared-agent",
+          type: "agentMessage",
+          text: "a",
+          phase: null,
+          memoryCitation: null,
+        },
+        {
+          id: "shared-agent",
+          type: "agentMessage",
+          text: "ends-with-abc",
+          phase: null,
+          memoryCitation: null,
+        },
+        {
+          id: "command-1",
+          type: "commandExecution",
+          command: "printf hello",
+          cwd: "/workspace/project",
+          processId: null,
+          source: "agent",
+          status: "inProgress",
+          commandActions: [],
+          aggregatedOutput: "prefix-hello",
+          exitCode: null,
+          durationMs: null,
+        },
+      ],
+    };
+    const response = makeCanonicalResumeResponse({
+      threadId,
+      threadTurns: [turn],
+      initialTurnsPage: null,
+    });
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+        options?: Record<string, unknown>,
+      ) => CodexCanonicalConversationState;
+      dedupeBufferedResumeEvents: (
+        id: string,
+        events: Array<{ type: "notification"; method: string; params: unknown }>,
+      ) => Array<{ type: "notification"; method: string; params: unknown }>;
+    };
+    serviceInternals.hydrateCanonicalConversationState(response);
+
+    const replay = serviceInternals.dedupeBufferedResumeEvents(threadId, [
+      {
+        type: "notification",
+        method: "item/agentMessage/delta",
+        params: {
+          threadId,
+          turnId: turn.id,
+          itemId: "shared-agent",
+          delta: "a",
+        },
+      },
+      {
+        type: "notification",
+        method: "item/agentMessage/delta",
+        params: {
+          threadId,
+          turnId: turn.id,
+          itemId: "shared-agent",
+          delta: "bc",
+        },
+      },
+      {
+        type: "notification",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId,
+          turnId: turn.id,
+          itemId: "command-1",
+          delta: "he",
+        },
+      },
+      {
+        type: "notification",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId,
+          turnId: turn.id,
+          itemId: "command-1",
+          delta: "llo",
+        },
+      },
+    ]);
+    const replayedDeltas = replay.map((event) =>
+      (event.params as { delta?: string }).delta ?? "");
+    expect(replayedDeltas.join("|")).toBe("a|bc");
+
+    await service.shutdown();
+  });
+
+  test("resume keeps the initial page on pre-resume model context while advancing latest settings", async () => {
+    const service = createService();
+    const threadId = "thr_resume_model_context_split";
+    const response = makeCanonicalResumeResponse({
+      threadId,
+      threadTurns: [makeCanonicalHydrationTurn("turn-model-context")],
+      initialTurnsPage: null,
+      model: "gpt-response",
+    });
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+        options: Record<string, unknown>,
+      ) => CodexCanonicalConversationState;
+    };
+
+    try {
+      const canonical = serviceInternals.hydrateCanonicalConversationState(response, {
+        historyModel: "gpt-before-resume",
+        historyReasoningEffort: "low",
+        latestModel: "gpt-response",
+        latestReasoningEffort: "high",
+        turns: response.thread.turns,
+      });
+      expect(canonical.turns[0]?.sidecar.params.model).toBe("gpt-before-resume");
+      expect(canonical.turns[0]?.sidecar.params.effort).toBe("low");
+      expect(canonical.sidecar.hydrationContext?.latestModel ?? "").toBe("gpt-response");
+      expect(canonical.sidecar.hydrationContext?.latestReasoningEffort ?? null).toBe("high");
+      expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.model ?? "").toBe("gpt-response");
+      expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.serviceTier ?? null).toBe(null);
+      expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.multiAgentMode ?? null).toBe(
+        "explicitRequestOnly",
+      );
+      expect(canonical.sidecar.latestThreadSettings?.model ?? "").toBe("gpt-response");
+      expect(canonical.sidecar.latestThreadSettings?.modelProvider ?? "").toBe("openai");
+      expect(canonical.sidecar.latestThreadSettings?.effort ?? null).toBe("high");
     } finally {
       await service.shutdown();
     }
@@ -7338,11 +10713,16 @@ describe("codex-service session-backed transcript recovery", () => {
       completeThreadStartNotificationDeferral: (threadId: string | null) => Promise<void>;
       endThreadStartNotificationDeferral: () => Promise<void>;
       handleNotification: (method: string, params: unknown) => Promise<void>;
-      replayBufferedResumeNotifications: (threadId: string) => Promise<void>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      replayBufferedThreadStartEvents: (threadId: string) => Promise<void>;
     };
-    const originalReplay = serviceInternals.replayBufferedResumeNotifications.bind(service);
+    const originalReplay = serviceInternals.replayBufferedThreadStartEvents.bind(service);
 
-    serviceInternals.replayBufferedResumeNotifications = async (threadId) => {
+    serviceInternals.replayBufferedThreadStartEvents = async (threadId) => {
       replayedThreadIds.push(threadId);
     };
 
@@ -7359,12 +10739,122 @@ describe("codex-service session-backed transcript recovery", () => {
       });
 
       expect(replayedThreadIds.join(",")).toBe("");
+      const currentTime = await serviceInternals.handleServerRequest({
+        id: "time-during-thread-start-deferral",
+        method: "currentTime/read",
+        params: { threadId: "thr_deferred_creation_context" },
+      });
+      expect((currentTime as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
+      expect(replayedThreadIds.join(",")).toBe("");
 
       await serviceInternals.completeThreadStartNotificationDeferral("thr_deferred_creation_context");
 
       expect(replayedThreadIds.join(",")).toBe("thr_deferred_creation_context");
     } finally {
-      serviceInternals.replayBufferedResumeNotifications = originalReplay;
+      serviceInternals.replayBufferedThreadStartEvents = originalReplay;
+      await serviceInternals.endThreadStartNotificationDeferral();
+      await service.shutdown();
+    }
+  });
+
+  test("nested resume release moves notifications and requests into the outer thread-start deferral", async () => {
+    const service = createService();
+    const threadId = "thr_nested_resume_deferral";
+    const order: string[] = [];
+    const serviceInternals = service as unknown as {
+      beginThreadStartNotificationDeferral: () => void;
+      completeThreadStartNotificationDeferral: (id: string | null) => Promise<void>;
+      endThreadStartNotificationDeferral: () => Promise<void>;
+      beginResumeNotificationBuffer: (id: string) => void;
+      replayBufferedResumeNotifications: (id: string) => Promise<void>;
+      handleNotification: (
+        method: string,
+        params: unknown,
+        options?: { bypassResumeBuffer?: boolean },
+      ) => Promise<void>;
+      handleServerRequest: (request: {
+        id: string;
+        method: string;
+        params: { threadId: string };
+      }) => Promise<unknown>;
+      handleServerRequestNow: (request: {
+        id: string;
+        method: string;
+        params: { threadId: string };
+      }) => Promise<unknown>;
+      upsertSidebarThreadFromAppServerThread: () => null;
+      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+      threadStartNotificationBuffersByThreadId: Map<string, unknown[]>;
+    };
+    const originalHandleNotification = serviceInternals.handleNotification.bind(service);
+    const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
+    serviceInternals.upsertSidebarThreadFromAppServerThread = () => null;
+    serviceInternals.handleNotification = async (method, params, options) => {
+      const bufferedBefore = serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)
+        || serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
+      await originalHandleNotification(method, params, options);
+      const bufferedAfter = serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)
+        || serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
+      if (!bufferedBefore && !bufferedAfter) order.push(`notification:${method}`);
+    };
+    serviceInternals.handleServerRequestNow = async (request) => {
+      if (request.method === "currentTime/read") {
+        return originalHandleServerRequestNow(request);
+      }
+      order.push(`request:${request.method}`);
+      return { handled: true };
+    };
+
+    try {
+      serviceInternals.beginThreadStartNotificationDeferral();
+      await serviceInternals.handleNotification("thread/started", {
+        thread: {
+          ...makeProtocolThread(threadId, "/workspace/project", []),
+        },
+      });
+      serviceInternals.beginResumeNotificationBuffer(threadId);
+      await serviceInternals.handleNotification("item/reasoning/summaryPartAdded", {
+        threadId,
+        turnId: "turn-1",
+        itemId: "reasoning-1",
+        summaryIndex: 0,
+      });
+      let ordinaryRequestSettled = false;
+      const ordinaryRequest = serviceInternals.handleServerRequest({
+        id: "ordinary-request",
+        method: "item/tool/requestUserInput",
+        params: { threadId },
+      }).then((value) => {
+        ordinaryRequestSettled = true;
+        return value;
+      });
+      const currentTime = await serviceInternals.handleServerRequest({
+        id: "current-time-request",
+        method: "currentTime/read",
+        params: { threadId },
+      });
+      expect((currentTime as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
+
+      await serviceInternals.replayBufferedResumeNotifications(threadId);
+      await Promise.resolve();
+      expect(ordinaryRequestSettled).toBe(false);
+      const outerEvents = serviceInternals.threadStartNotificationBuffersByThreadId.get(threadId) as Array<{
+        type?: string;
+        method?: string;
+        request?: { method?: string };
+      }> | undefined;
+      expect(outerEvents?.length ?? 0).toBe(3);
+      expect(outerEvents?.map((event) => event.method ?? event.request?.method ?? "").join(",") ?? "").toBe(
+        "thread/started,item/reasoning/summaryPartAdded,item/tool/requestUserInput",
+      );
+      expect(order.join(",")).toBe("");
+
+      await serviceInternals.completeThreadStartNotificationDeferral(threadId);
+      await ordinaryRequest;
+      expect(order.join(",")).toBe(
+        "notification:item/reasoning/summaryPartAdded,request:item/tool/requestUserInput",
+      );
+    } finally {
       await serviceInternals.endThreadStartNotificationDeferral();
       await service.shutdown();
     }
@@ -7383,59 +10873,14 @@ describe("codex-service session-backed transcript recovery", () => {
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
         if (method === "thread/resume") {
-          return {
-            thread: {
-              id: "thr_paged_history",
-              preview: "recent prompt",
-              ephemeral: false,
-              modelProvider: "openai",
-              createdAt: 1711278000,
-              updatedAt: 1711278060,
-              status: { type: "idle" },
-              path: "/tmp/paged-history/rollout.jsonl",
-              cwd: "/tmp/paged-history",
-              cliVersion: "0.0.0-test",
-              source: "app_server",
-              agentNickname: null,
-              agentRole: null,
-              gitInfo: null,
-              name: "Paged history",
-              turns: [],
-            },
-            model: "gpt-5.4",
-            modelProvider: "openai",
-            serviceTier: null,
-            cwd: "/tmp/paged-history",
-            runtimeWorkspaceRoots: [],
-            instructionSources: [],
-            approvalPolicy: "never",
-            approvalsReviewer: "user",
-            sandbox: { mode: "read-only" },
-            activePermissionProfile: null,
-            reasoningEffort: null,
+          return makeCanonicalResumeResponse({
+            threadId: "thr_paged_history",
             initialTurnsPage: {
-              data: [
-                {
-                  id: "turn_recent",
-                  status: "completed",
-                  itemsView: "full",
-                  error: null,
-                  startedAt: 1711278050,
-                  completedAt: 1711278060,
-                  durationMs: 10_000,
-                  items: [
-                    {
-                      id: "user_recent",
-                      type: "userMessage",
-                      content: [{ type: "text", text: "recent prompt" }],
-                    },
-                  ],
-                },
-              ],
+              data: [makeCanonicalHydrationTurn("turn_recent")],
               nextCursor: "cursor-older",
               backwardsCursor: "cursor-newer",
             },
-          };
+          });
         }
         if (method === "thread/turns/list") {
           return {
@@ -7449,11 +10894,10 @@ describe("codex-service session-backed transcript recovery", () => {
                 completedAt: 1711278010,
                 durationMs: 10_000,
                 items: [
-                  {
+                  makeProtocolUserMessage({
                     id: "user_older",
-                    type: "userMessage",
-                    content: [{ type: "text", text: "older prompt" }],
-                  },
+                    content: [{ type: "text", text: "older prompt", text_elements: [] }],
+                  }),
                 ],
               },
             ],
@@ -7461,6 +10905,7 @@ describe("codex-service session-backed transcript recovery", () => {
             backwardsCursor: "cursor-recent",
           };
         }
+        if (method === "thread/goal/get") return { goal: null };
         throw new Error(`Unexpected method: ${method}`);
       };
 
@@ -7471,6 +10916,24 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(initialConversation?.turns[0]?.turnId ?? "").toBe("turn_recent");
         expect(initialConversation?.turnPagination?.olderCursor ?? null).toBe("cursor-older");
         expect(initialConversation?.turnPagination?.oldestLoadedTurnId ?? null).toBe("turn_recent");
+        const canonical = getCanonicalConversationState(service, "thr_paged_history");
+        const canonicalTurn = canonical?.turns[0];
+        expect(canonicalTurn?.protocol.id ?? null).toBe("turn_recent");
+        expect(canonicalTurn?.items.map((item) => `${item.type}:${item.id}`).join(",") ?? "").toBe(
+          "userMessage:canonical-user-message,enteredReviewMode:shared-canonical-slot,fileChange:shared-canonical-slot,commandExecution:shared-canonical-slot",
+        );
+        expect(canonicalTurn?.sidecar.params.model ?? null).toBe("gpt-canonical");
+        expect(canonicalTurn?.sidecar.params.effort ?? null).toBe("high");
+        expect(canonicalTurn?.sidecar.params.cwd ?? null).toBe("/workspace/project");
+        expect(canonicalTurn?.sidecar.params.approvalPolicy ?? null).toBe("on-request");
+        expect(canonicalTurn?.sidecar.params.approvalsReviewer ?? null).toBe("user");
+        expect(canonicalTurn?.sidecar.params.permissions ?? null).toBe(":workspace");
+        expect(canonicalTurn?.sidecar.params.sandboxPolicy?.type ?? null).toBe("workspaceWrite");
+        expect(JSON.stringify(canonicalTurn?.sidecar.params.attachments ?? [])).toBe(JSON.stringify([{
+          label: "fixture",
+          path: "/workspace/project/file.ts",
+          fsPath: "/workspace/project/file.ts",
+        }]));
 
         const fullConversation = await service.loadOlderThreadTurns("thr_paged_history");
         expect(fullConversation?.turns.length ?? 0).toBe(2);
@@ -7478,7 +10941,14 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(fullConversation?.turns[1]?.turnId ?? "").toBe("turn_recent");
         expect(fullConversation?.turnPagination?.hasLoadedOldest ?? false).toBe(true);
         expect(fullConversation?.turnPagination?.oldestLoadedTurnId ?? null).toBe("turn_older");
-        expect(requests.map((request) => request.method).join(",")).toBe("thread/resume,thread/goal/get,thread/turns/list");
+        expect(
+          getCanonicalConversationState(service, "thr_paged_history")
+            ?.turns.map((turn) => turn.protocol.id).join(",")
+          ?? "",
+        ).toBe("turn_older,turn_recent");
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/read,thread/resume,thread/goal/get,thread/turns/list",
+        );
         const olderParams = requests.find((request) => request.method === "thread/turns/list")?.params as {
           cursor?: string;
           limit?: number;
@@ -7497,9 +10967,298 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("resume hydrates raw turns from thread/read only when the initial page is absent", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thr_canonical_read_fallback";
+      upsertCodexThread({
+        threadId,
+        cwd: "/workspace/project/subdir",
+        modelProvider: "openai",
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const rawTurn = makeCanonicalHydrationTurn("turn_from_read");
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          const response = makeCanonicalResumeResponse({
+            threadId,
+            initialTurnsPage: null,
+            activePermissionProfile: {
+              id: "profile-fallback",
+              extends: null,
+            },
+            runtimeWorkspaceRoots: [
+              "/workspace/project",
+              "/workspace/shared",
+            ],
+          });
+          response.thread.name = "Resume response metadata";
+          return response;
+        }
+        if (method === "thread/read") {
+          const includeTurns = (params as { includeTurns?: boolean }).includeTurns === true;
+          if (!includeTurns) {
+            return {
+              thread: makeProtocolThread(threadId, "/workspace/project", []),
+            };
+          }
+          const fallbackThread = makeProtocolThread(
+            threadId,
+            "/legacy/read-cwd",
+            [rawTurn],
+          );
+          fallbackThread.name = "Legacy read metadata must not win";
+          return {
+            thread: fallbackThread,
+          };
+        }
+        if (method === "thread/goal/get") return { goal: null };
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        const detail = await service.resumeThread(threadId);
+        expect(detail?.turns[0]?.turnId ?? null).toBe("turn_from_read");
+        expect(detail?.threadName ?? null).toBe("Resume response metadata");
+        expect(detail?.cwd ?? null).toBe("/workspace/project/subdir");
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/read,thread/resume,thread/read,thread/goal/get",
+        );
+        expect((requests[2]?.params as { includeTurns?: boolean }).includeTurns).toBe(true);
+
+        const canonical = getCanonicalConversationState(service, threadId);
+        const canonicalTurn = canonical?.turns[0];
+        expect(canonicalTurn?.items.length ?? 0).toBe(4);
+        expect(canonicalTurn?.items[1] === rawTurn.items[1]).toBe(true);
+        expect(canonicalTurn?.items[2] === rawTurn.items[2]).toBe(true);
+        expect(canonicalTurn?.items[3] === rawTurn.items[3]).toBe(true);
+        expect(canonicalTurn?.sidecar.params.model ?? null).toBe("gpt-canonical");
+        expect(canonicalTurn?.sidecar.params.permissions ?? null).toBe(":workspace");
+        expect(JSON.stringify(canonicalTurn?.sidecar.params.runtimeWorkspaceRoots ?? [])).toBe(
+          JSON.stringify(["/workspace/project/subdir"]),
+        );
+        expect(canonicalTurn?.sidecar.params.cwd ?? null).toBe("/workspace/project/subdir");
+        expect(canonicalTurn?.sidecar.params.sandboxPolicy?.type ?? null).toBe("workspaceWrite");
+        expect(
+          canonical?.sidecar.hydrationContext?.currentPermissions.activePermissionProfile?.id
+          ?? null,
+        ).toBe("profile-fallback");
+        expect(JSON.stringify(
+          canonical?.sidecar.hydrationContext?.currentPermissions.runtimeWorkspaceRoots ?? [],
+        )).toBe(JSON.stringify(["/workspace/project", "/workspace/shared"]));
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("resume keeps an empty initial page and canonically merges the later older page", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const threadId = "thr_empty_initial_page";
+      const olderTurn = makeCanonicalHydrationTurn("turn_loaded_later");
+      let releaseOlderPage!: (page: {
+        data: Turn[];
+        nextCursor: string | null;
+        backwardsCursor: string | null;
+      }) => void;
+      const olderPage = new Promise<{
+        data: Turn[];
+        nextCursor: string | null;
+        backwardsCursor: string | null;
+      }>((resolve) => {
+        releaseOlderPage = resolve;
+      });
+      let olderPageRequestCount = 0;
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          return makeCanonicalResumeResponse({
+            threadId,
+            initialTurnsPage: {
+              data: [],
+              nextCursor: "cursor-older",
+              backwardsCursor: "cursor-newer",
+            },
+          });
+        }
+        if (method === "thread/turns/list") {
+          olderPageRequestCount += 1;
+          if (olderPageRequestCount === 1) {
+            return await olderPage;
+          }
+          return {
+            data: [olderTurn],
+            nextCursor: null,
+            backwardsCursor: "cursor-older",
+          };
+        }
+        if (method === "thread/read") {
+          const includeTurns = (params as { includeTurns?: boolean }).includeTurns === true;
+          if (includeTurns) {
+            throw new Error("A non-null empty page must not trigger a full thread/read");
+          }
+          return {
+            thread: makeProtocolThread(threadId, "/workspace/project", []),
+          };
+        }
+        if (method === "thread/goal/get") return { goal: null };
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        const detail = await service.resumeThread(threadId);
+        expect(detail?.turns.length ?? -1).toBe(0);
+        await waitForCondition(
+          () => requests.some((request) => request.method === "thread/turns/list"),
+          250,
+        );
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/read,thread/resume,thread/goal/get,thread/turns/list",
+        );
+        expect(getCanonicalConversationState(service, threadId)?.turns.length ?? -1).toBe(0);
+
+        releaseOlderPage({
+          data: [],
+          nextCursor: "cursor-oldest",
+          backwardsCursor: "cursor-newer",
+        });
+        await waitForCondition(
+          () => getCanonicalConversationState(service, threadId)?.turns.length === 1,
+          250,
+        );
+
+        const canonicalTurn = getCanonicalConversationState(service, threadId)?.turns[0];
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/read,thread/resume,thread/goal/get,thread/turns/list,thread/turns/list",
+        );
+        expect(canonicalTurn?.protocol.id ?? null).toBe("turn_loaded_later");
+        expect(canonicalTurn?.items[1] === olderTurn.items[1]).toBe(true);
+        expect(canonicalTurn?.items[2] === olderTurn.items[2]).toBe(true);
+        expect(canonicalTurn?.items[3] === olderTurn.items[3]).toBe(true);
+      } finally {
+        releaseOlderPage({
+          data: [],
+          nextCursor: null,
+          backwardsCursor: null,
+        });
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("resume merges overlapping canonical history without losing richer existing raw items", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const threadId = "thr_overlapping_canonical_history";
+      const existingTurn = makeCanonicalHydrationTurn("turn_existing");
+      const liveOnlyItem = {
+        type: "agentMessage",
+        id: "live-only-final",
+        text: "A richer live final answer",
+        phase: "final_answer",
+        memoryCitation: null,
+      } satisfies ThreadItem;
+      existingTurn.items.push(liveOnlyItem);
+      const shorterExistingTurn = {
+        ...makeCanonicalHydrationTurn("turn_existing"),
+        items: [...makeCanonicalHydrationTurn("turn_existing").items],
+      } satisfies Turn;
+      const recentTurn = makeCanonicalHydrationTurn("turn_recent");
+      let resumeCount = 0;
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/read") {
+          return {
+            thread: makeProtocolThread(threadId, "/workspace/project", []),
+          };
+        }
+        if (method === "thread/goal/get") return { goal: null };
+        if (method !== "thread/resume") throw new Error(`Unexpected method: ${method}`);
+        resumeCount += 1;
+        return makeCanonicalResumeResponse({
+          threadId,
+          model: resumeCount === 1 ? "gpt-first" : "gpt-second",
+          initialTurnsPage: {
+            data: resumeCount === 1
+              ? [existingTurn]
+              : [recentTurn, shorterExistingTurn],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+        });
+      };
+
+      try {
+        await service.resumeThread(threadId);
+        const record = (service as unknown as {
+          ensureConversationRecord: (id: string) => {
+            resumeState: CodexConversationSnapshot["resumeState"];
+            streamRole: "owner" | "follower" | null;
+            isStreaming: boolean;
+          };
+        }).ensureConversationRecord(threadId);
+        record.resumeState = "needs_resume";
+        record.streamRole = null;
+        record.isStreaming = false;
+        await service.resumeThread(threadId);
+
+        const canonical = getCanonicalConversationState(service, threadId);
+        expect(canonical?.turns.map((turn) => turn.protocol.id).join(",") ?? "").toBe(
+          "turn_existing,turn_recent",
+        );
+        const mergedExisting = canonical?.turns[0];
+        expect(mergedExisting?.items.length ?? 0).toBe(5);
+        expect(mergedExisting?.items[4] === liveOnlyItem).toBe(true);
+        expect(
+          mergedExisting?.items.filter((item) => item.id === "shared-canonical-slot").length
+          ?? 0,
+        ).toBe(3);
+        expect(mergedExisting?.sidecar.params.model ?? null).toBe("gpt-second");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("resume background-loads remaining older turn pages without duplicating later older-load requests", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
+      const serviceInternals = service as unknown as {
+        applyLatestThreadSettingsForThread: (
+          threadId: string,
+          settings: CodexConversationThreadSettings,
+        ) => void;
+        buildDefaultCollaborationModeState: () => CodexCollaborationModeState;
+        ensureConversationRecord: (threadId: string) => {
+          turnPagination: CodexConversationSnapshot["turnPagination"];
+        };
+      };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
@@ -7514,11 +11273,10 @@ describe("codex-service session-backed transcript recovery", () => {
         completedAt: startedAt + 10,
         durationMs: 10_000,
         items: [
-          {
+          makeProtocolUserMessage({
             id: `user_${id}`,
-            type: "userMessage",
-            content: [{ type: "text", text }],
-          },
+            content: [{ type: "text", text, text_elements: [] }],
+          }),
         ],
       });
 
@@ -7566,15 +11324,38 @@ describe("codex-service session-backed transcript recovery", () => {
         if (method === "thread/turns/list") {
           const cursor = (params as { cursor?: string }).cursor ?? "";
           if (cursor === "cursor-mid") {
+            const record = serviceInternals.ensureConversationRecord("thr_background_history");
+            if (!record.turnPagination) {
+              throw new Error("Expected active turn pagination");
+            }
+            record.turnPagination = {
+              ...record.turnPagination,
+              olderCursor: "cursor-rebased",
+              isLoadingOlder: false,
+              hasLoadedOldest: false,
+            };
+            throw new Error("superseded cursor failure");
+          }
+          if (cursor === "cursor-rebased") {
+            const collaborationMode = serviceInternals.buildDefaultCollaborationModeState();
+            serviceInternals.applyLatestThreadSettingsForThread("thr_background_history", {
+              model: "gpt-mutated-during-load",
+              reasoningEffort: "low",
+              collaborationMode,
+              personality: null,
+            });
             return {
-              data: [buildTurn("turn_mid", "middle prompt", 1711278020)],
+              data: [buildTurn("turn_duplicate", "newer duplicate", 1711278020)],
               nextCursor: "cursor-older",
               backwardsCursor: "cursor-recent",
             };
           }
           if (cursor === "cursor-older") {
             return {
-              data: [buildTurn("turn_older", "older prompt", 1711278000)],
+              data: [
+                buildTurn("turn_duplicate", "older duplicate", 1711278010),
+                buildTurn("turn_older", "older prompt", 1711278000),
+              ],
               nextCursor: null,
               backwardsCursor: "cursor-mid",
             };
@@ -7589,7 +11370,7 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(initialConversation?.turnPagination?.olderCursor ?? null).toBe("cursor-mid");
 
         await waitForCondition(
-          () => requests.filter((request) => request.method === "thread/turns/list").length === 2,
+          () => requests.filter((request) => request.method === "thread/turns/list").length === 3,
           250,
         );
 
@@ -7597,8 +11378,17 @@ describe("codex-service session-backed transcript recovery", () => {
         const fullConversation = await service.loadOlderThreadTurns("thr_background_history");
         expect(requests.length).toBe(requestCountAfterBackgroundLoad);
         expect(fullConversation?.turns.map((turn) => turn.turnId).join(",") ?? "").toBe(
-          "turn_older,turn_mid,turn_recent",
+          "turn_older,turn_duplicate,turn_recent",
         );
+        const canonicalDuplicate = getCanonicalConversationState(
+          service,
+          "thr_background_history",
+        )?.turns.find((turn) => turn.protocol.id === "turn_duplicate");
+        const duplicateInput = canonicalDuplicate?.sidecar.params.input[0];
+        expect(duplicateInput?.type === "text" ? duplicateInput.text : "").toBe(
+          "newer duplicate",
+        );
+        expect(canonicalDuplicate?.sidecar.params.model ?? null).toBe("gpt-5.4");
         expect(fullConversation?.turnPagination?.hasLoadedOldest ?? false).toBe(true);
         const olderParams = requests
           .filter((request) => request.method === "thread/turns/list")
@@ -7609,11 +11399,13 @@ describe("codex-service session-backed transcript recovery", () => {
             itemsView?: string;
           });
         expect(olderParams[0]?.cursor ?? "").toBe("cursor-mid");
-        expect(olderParams[1]?.cursor ?? "").toBe("cursor-older");
+        expect(olderParams[1]?.cursor ?? "").toBe("cursor-rebased");
+        expect(olderParams[2]?.cursor ?? "").toBe("cursor-older");
         expect(olderParams[0]?.limit ?? 0).toBe(5);
         expect(olderParams[1]?.limit ?? 0).toBe(5);
+        expect(olderParams[2]?.limit ?? 0).toBe(5);
         expect(olderParams[0]?.sortDirection ?? "").toBe("desc");
-        expect(olderParams[1]?.itemsView ?? "").toBe("full");
+        expect(olderParams[2]?.itemsView ?? "").toBe("full");
       } finally {
         await service.shutdown();
       }
@@ -7631,6 +11423,14 @@ describe("codex-service session-backed transcript recovery", () => {
       });
 
       const service = createService();
+      const serviceInternals = service as unknown as {
+        handleServerRequest: (request: {
+          id: string | number;
+          method: string;
+          params: unknown;
+        }) => Promise<unknown>;
+        pendingPermissionRequests: { size: number };
+      };
       hydrateConversation(service, {
         ...makeThreadDetail("thr_parent"),
         projectId: defaultProjectId,
@@ -7664,7 +11464,31 @@ describe("codex-service session-backed transcript recovery", () => {
         threadName: "Child agent",
         agentNickname: "@ChildNick",
         agentRole: "reviewer",
+        turns: [{
+          threadId: "thr_child",
+          turnId: "turn_child_permission",
+          status: "inProgress",
+          itemIds: [],
+        }],
       });
+      const permissionRequestPromise = serviceInternals.handleServerRequest({
+        id: "child-permission",
+        method: "item/permissions/requestApproval",
+        params: {
+          threadId: "thr_child",
+          turnId: "turn_child_permission",
+          itemId: "permission-item",
+          environmentId: null,
+          startedAtMs: 1,
+          cwd: "/workspace/project",
+          reason: "Need network",
+          permissions: {
+            network: { enabled: true },
+            fileSystem: null,
+          },
+        },
+      }).catch((error) => error);
+      await waitForCondition(() => serviceInternals.pendingPermissionRequests.size === 1, 250);
 
       try {
         const conversation = service.serializeConversationSnapshot("thr_parent");
@@ -7676,8 +11500,10 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.childMemberships[0]?.thread?.name).toBe("Child agent");
         expect(conversation?.childMemberships[0]?.thread?.nickname).toBe("@ChildNick");
         expect(conversation?.childMemberships[0]?.thread?.agentRole).toBe("reviewer");
+        expect(conversation?.childMemberships[0]?.role).toBe("childApproval");
       } finally {
         await service.shutdown();
+        await permissionRequestPromise;
       }
     });
 
@@ -7882,7 +11708,7 @@ describe("codex-service session-backed transcript recovery", () => {
       const errorEntry = detail?.transcript.find((entry) => entry.semanticKind === "streamError") ?? null;
 
       expect(detail).not.toBeNull();
-      expect(errorEntry?.markdownText).toBe("Reconnecting... 2/5");
+      expect(errorEntry?.markdownText).toBe("Reconnecting 2/5");
       expect(errorEntry?.additionalDetails).toBe("Network error: connection dropped while streaming.");
       expect(errorEntry?.willRetry).toBe(true);
     });
@@ -7890,7 +11716,7 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("materializes failed turn errors from thread/read into system-error transcript rows", async () => {
+  test("keeps thread/read turn errors as metadata without inventing a transcript row", async () => {
     const ran = await withTempDatabase(async () => {
       upsertCodexThread({
         projectId: defaultProjectId,
@@ -7899,32 +11725,31 @@ describe("codex-service session-backed transcript recovery", () => {
       });
       const service = createService();
       const serviceInternals = service as unknown as {
-        buildThreadDetailFromRead: (thread: unknown) => CodexThreadDetail | null;
+        buildThreadDetailFromRead: (thread: Thread) => CodexThreadDetail | null;
       };
 
-      const detail = serviceInternals.buildThreadDetailFromRead({
-        id: "thr_failed_reconnect",
-        turns: [
+      const detail = serviceInternals.buildThreadDetailFromRead(
+        makeProtocolThread("thr_failed_reconnect", "/tmp", [
           {
             id: "turn_failed_reconnect",
+            itemsView: "full",
             status: "failed",
             items: [],
             error: {
               message: "Failed to reconnect to the stream.",
+              codexErrorInfo: null,
               additionalDetails: "The connection could not be re-established after repeated retry attempts.",
             },
+            startedAt: null,
+            completedAt: null,
+            durationMs: null,
           },
-        ],
-      });
-
-      const errorEntry = detail?.transcript.find((entry) => entry.semanticKind === "systemError") ?? null;
+        ]),
+      );
 
       expect(detail).not.toBeNull();
-      expect(errorEntry?.markdownText).toBe("Failed to reconnect to the stream.");
-      expect(errorEntry?.additionalDetails).toBe(
-        "The connection could not be re-established after repeated retry attempts.",
-      );
-      expect(errorEntry?.willRetry).toBe(false);
+      expect(detail?.turns[0]?.errorMessage).toBe("Failed to reconnect to the stream.");
+      expect(detail?.transcript.length).toBe(0);
     });
 
     if (!ran) expect(true).toBe(true);
@@ -8051,6 +11876,7 @@ describe("codex-service session-backed transcript recovery", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -8087,6 +11913,8 @@ describe("codex-service session-backed transcript recovery", () => {
           threadId: "thr_clean_background_terminals_silent",
           turnId: "turn_background",
           itemId: "exec_background",
+          rawItemId: "exec_background",
+          rawItemType: "commandExecution",
           type: "commandExecution",
           kind: "commandExecution",
           semanticKind: "exec",
@@ -8103,6 +11931,17 @@ describe("codex-service session-backed transcript recovery", () => {
         },
       ],
     });
+    await serviceInternals.handleNotification("item/started", {
+      threadId: "thr_clean_background_terminals_silent",
+      turnId: "turn_background",
+      item: makeProtocolCommandExecution({
+        id: "exec_background",
+        command: "bun run dev",
+        cwd: "/workspace/project",
+        processId: "process-background",
+        aggregatedOutput: "",
+      }),
+    });
 
     try {
       const before = service.serializeConversationSnapshot("thr_clean_background_terminals_silent");
@@ -8117,6 +11956,236 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(requests.some((request) => request.method === "turn/interrupt")).toBe(false);
       expect(after?.backgroundTerminalRows.length).toBe(0);
       expect(after?.turns[0]?.interruptedCommandExecutionItemIds?.[0]).toBe("exec_background");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("listMcpServerStatuses coalesces the exact host-scoped first-page request", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method !== "mcpServerStatus/list") {
+        throw new Error(`Unexpected client request: ${method}`);
+      }
+      return {
+        data: [{
+          name: "docs",
+          serverInfo: null,
+          tools: {},
+          resources: [],
+          resourceTemplates: [],
+          authStatus: "unsupported",
+        }],
+        nextCursor: "next-page",
+      };
+    };
+
+    try {
+      const firstRequest = service.listMcpServerStatuses();
+      const secondRequest = service.listMcpServerStatuses();
+      const response = await firstRequest;
+
+      expect(secondRequest).toBe(firstRequest);
+      expect(response.data.length).toBe(1);
+      expect(response.data[0]?.name).toBe("docs");
+      expect(response.nextCursor).toBe("next-page");
+      expect(requests.length).toBe(1);
+      expect(requests[0]?.method).toBe("mcpServerStatus/list");
+      expect(Object.hasOwn(requests[0]?.params as object, "threadId")).toBe(false);
+      expect((requests[0]?.params as { detail?: string })?.detail).toBe("full");
+      expect((requests[0]?.params as { cursor?: string | null })?.cursor).toBe(null);
+      expect((requests[0]?.params as { limit?: number })?.limit).toBe(100);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("does not contact app-server for unsupported ChatGPT Apps", async () => {
+    const service = createService();
+    Reflect.set(service as object, "accountSnapshot", {
+      account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
+      requiresOpenAiAuth: true,
+      pendingLogin: null,
+      rateLimits: null,
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: string[] = [];
+    const events: CodexEvent[] = [];
+
+    client.start = async () => {
+      throw new Error("Unsupported Apps must not start app-server");
+    };
+    client.request = async (method: string) => {
+      requests.push(method);
+      throw new Error(`Unsupported Apps must not request ${method}`);
+    };
+    service.on("event", (event) => events.push(event));
+
+    try {
+      await expect(service.listMcpApps()).resolves.toEqual([]);
+      await (service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      }).handleNotification("app/list/updated", { data: [] });
+
+      expect(requests).toEqual([]);
+      expect(events.some((event) => event.type === "appsUpdated")).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("listMcpApps retries once, aggregates pages, and normalizes exact app logos when supported", async () => {
+    const service = createService({ supportsChatGptApps: true });
+    Reflect.set(service as object, "accountSnapshot", {
+      account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
+      requiresOpenAiAuth: true,
+      pendingLogin: null,
+      rateLimits: null,
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method !== "app/list") throw new Error(`Unexpected client request: ${method}`);
+      if (requests.length === 1) throw new Error("transient apps failure");
+
+      const cursor = (params as { cursor?: string | null }).cursor ?? null;
+      return {
+        data: [{
+          id: cursor === null ? "connector_docs" : "connector_calendar",
+          name: cursor === null ? "Docs" : "Calendar",
+          description: null,
+          logoUrl: null,
+          logoUrlDark: null,
+          iconAssets: cursor === null ? { "256_square": " /assets/docs.png " } : null,
+          iconDarkAssets: null,
+          distributionChannel: null,
+          branding: null,
+          appMetadata: null,
+          labels: null,
+          installUrl: "https://apps.example.test/install",
+          isAccessible: true,
+          isEnabled: true,
+          pluginDisplayNames: [],
+        }],
+        nextCursor: cursor === null ? "next-page" : null,
+      };
+    };
+
+    try {
+      const apps = await service.listMcpApps();
+
+      expect(apps.length).toBe(2);
+      expect(apps[0]?.logoUrl).toBe("https://apps.example.test/assets/docs.png");
+      expect(apps[0]?.logoUrlDark).toBe("https://apps.example.test/assets/docs.png");
+      expect(requests.length).toBe(3);
+      expect((requests[0]?.params as { cursor?: string | null })?.cursor).toBe(null);
+      expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe(null);
+      expect((requests[2]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
+      expect((requests[1]?.params as { limit?: number })?.limit).toBe(1_000);
+      expect((requests[1]?.params as { forceRefetch?: boolean })?.forceRefetch).toBe(false);
+      expect(
+        requests.every(({ params }) => !Object.hasOwn(params as object, "threadId")),
+      ).toBe(true);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("listExperimentalFeatures loads the host catalog without a thread context", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method !== "experimentalFeature/list") {
+        throw new Error(`Unexpected client request: ${method}`);
+      }
+      const cursor = (params as { cursor?: string | null }).cursor ?? null;
+      return {
+        data: [{
+          name: cursor === null ? "apps" : "memories",
+          stage: "stable",
+          displayName: null,
+          description: null,
+          announcement: null,
+          enabled: true,
+          defaultEnabled: true,
+        }],
+        nextCursor: cursor === null ? "next-page" : null,
+      };
+    };
+
+    try {
+      const features = await service.listExperimentalFeatures();
+
+      expect(features.map((feature) => feature.name)).toEqual(["apps", "memories"]);
+      expect(requests).toHaveLength(2);
+      expect(requests.every(({ params }) => !Object.hasOwn(params as object, "threadId"))).toBe(true);
+      expect((requests[0]?.params as { limit?: number })?.limit).toBe(100);
+      expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("publishes normalized host app catalog updates from app-server notifications", async () => {
+    const service = createService({ supportsChatGptApps: true });
+    const events: CodexEvent[] = [];
+    service.on("event", (event) => events.push(event));
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      await serviceInternals.handleNotification("app/list/updated", {
+        data: [{
+          id: "connector_docs",
+          name: "Docs",
+          description: null,
+          logoUrl: null,
+          logoUrlDark: null,
+          iconAssets: { "256_square": " /assets/docs.png " },
+          iconDarkAssets: null,
+          distributionChannel: null,
+          branding: null,
+          appMetadata: null,
+          labels: null,
+          installUrl: "https://apps.example.test/install",
+          isAccessible: true,
+          isEnabled: true,
+          pluginDisplayNames: [],
+        }],
+      });
+
+      const update = events.find(
+        (event): event is Extract<CodexEvent, { type: "appsUpdated" }> => (
+          event.type === "appsUpdated"
+        ),
+      );
+      expect(update?.apps[0]?.logoUrl).toBe("https://apps.example.test/assets/docs.png");
+      expect(update?.apps[0]?.logoUrlDark).toBe("https://apps.example.test/assets/docs.png");
     } finally {
       await service.shutdown();
     }
@@ -8265,6 +12334,173 @@ describe("codex-service session-backed transcript recovery", () => {
 });
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {
+  test("fork-from-turn uses full fork, seeded resume, child rollback, a provenance marker, and caller title", async () => {
+    const service = createService();
+    const sourceThreadId = "thr_exact_fork_source";
+    const childThreadId = "thr_exact_fork_child";
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const order: string[] = [];
+    const sourceTurns = [
+      makeCanonicalHydrationTurn("turn_1"),
+      makeCanonicalHydrationTurn("turn_2"),
+      makeCanonicalHydrationTurn("turn_3"),
+    ];
+    const forkResponse = makeCanonicalForkResponse({
+      threadId: childThreadId,
+      cwd: "/workspace/project",
+      turns: sourceTurns,
+    });
+    const sourceDetail: CodexThreadDetail = {
+      ...makeThreadDetail(sourceThreadId),
+      projectId: "project-exact-fork",
+      threadName: "Exact fork source",
+      cwd: "/workspace/project",
+      turns: sourceTurns.map((turn) => ({
+        threadId: sourceThreadId,
+        turnId: turn.id,
+        status: "completed",
+        itemIds: turn.items.map((item) => item.id),
+      })),
+      transcript: [],
+    };
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      parseThreadRef: (id: string) => Record<string, unknown> | null;
+      maybeResolveProjectRuntimeContext: (projectId: string) => {
+        workspaceRoots: string[];
+        primaryWorkspaceRoot: string;
+      };
+      upsertLinkFromThread: () => null;
+      buildThreadDetailFromRead: (thread: Thread) => CodexThreadDetail;
+      buildThreadDetailFromCanonicalState: (
+        state: CodexCanonicalConversationState,
+      ) => CodexThreadDetail;
+      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
+      applyThreadNameLocal: (id: string, name: string) => void;
+      beginThreadStartNotificationDeferral: () => void;
+      completeThreadStartNotificationDeferral: (threadId: string | null) => Promise<void>;
+      endThreadStartNotificationDeferral: () => Promise<void>;
+      appendForkedFromConversationMarker: (
+        targetThreadId: string,
+        sourceThreadId: string,
+        sourceTitle: string | null,
+      ) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    serviceInternals.setConversationRecordDetail(sourceDetail);
+    serviceInternals.parseThreadRef = () => ({
+      projectId: "project-exact-fork",
+      cwd: "/workspace/project",
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    serviceInternals.maybeResolveProjectRuntimeContext = () => ({
+      workspaceRoots: ["/workspace/project"],
+      primaryWorkspaceRoot: "/workspace/project",
+    });
+    serviceInternals.upsertLinkFromThread = () => null;
+    serviceInternals.buildThreadDetailFromRead = (thread) => ({
+      ...makeThreadDetail(thread.id),
+      projectId: "project-exact-fork",
+      threadName: thread.name,
+      cwd: thread.cwd,
+      turns: thread.turns.map((turn) => ({
+        threadId: thread.id,
+        turnId: turn.id,
+        status: turn.status === "inProgress" ? "inProgress" : "completed",
+        itemIds: turn.items.map((item) => item.id),
+      })),
+      transcript: [],
+    });
+    serviceInternals.buildThreadDetailFromCanonicalState = (state) => (
+      makeCanonicalStateDetailFixture(state, { projectId: "project-exact-fork" })
+    );
+    serviceInternals.persistThreadDetailSummary = () => {};
+    serviceInternals.applyThreadNameLocal = (id, name) => {
+      const detail = service.serializeThreadDetail(id);
+      if (!detail) return;
+      serviceInternals.setConversationRecordDetail({ ...detail, threadName: name });
+    };
+    const originalAppendForkMarker = serviceInternals.appendForkedFromConversationMarker.bind(service);
+    serviceInternals.beginThreadStartNotificationDeferral = () => {
+      order.push("deferral:begin");
+    };
+    serviceInternals.completeThreadStartNotificationDeferral = async () => {
+      order.push("deferral:complete");
+    };
+    serviceInternals.endThreadStartNotificationDeferral = async () => {
+      order.push("deferral:end");
+    };
+    serviceInternals.appendForkedFromConversationMarker = (...args) => {
+      order.push("provenance:append");
+      originalAppendForkMarker(...args);
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      order.push(`request:${method}`);
+      if (method === "thread/fork") return forkResponse;
+      if (method === "thread/read") {
+        return { thread: { ...forkResponse.thread, turns: [] } };
+      }
+      if (method === "thread/resume") return makeCanonicalForkResumeResponse(forkResponse);
+      if (method === "thread/goal/get") return { goal: null };
+      if (method === "thread/rollback") {
+        return {
+          thread: {
+            ...forkResponse.thread,
+            turns: sourceTurns.slice(0, 2),
+          },
+        };
+      }
+      if (method === "thread/name/set") return {};
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const result = await service.forkConversationFromTurn(
+        sourceThreadId,
+        "turn_2",
+        "This text must not prefill the child composer",
+      );
+      const forkParams = requests[0]?.params as Record<string, unknown>;
+      const rollbackParams = requests.find((request) => request.method === "thread/rollback")
+        ?.params as Record<string, unknown>;
+      const canonical = getCanonicalConversationState(service, childThreadId);
+      const marker = canonical?.turns.at(-1)?.items.at(-1);
+
+      expect(requests.map((request) => request.method).join(",")).toBe(
+        "thread/fork,thread/read,thread/resume,thread/goal/get,thread/rollback,thread/name/set",
+      );
+      expect(forkParams.path).toBe(null);
+      expect(forkParams.threadSource).toBe("user");
+      expect(Object.prototype.hasOwnProperty.call(forkParams, "lastTurnId")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(forkParams, "runtimeWorkspaceRoots")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(forkParams, "config")).toBe(true);
+      expect(forkParams.config).toBe(undefined);
+      expect(rollbackParams.threadId).toBe(childThreadId);
+      expect(rollbackParams.numTurns).toBe(1);
+      expect(order.indexOf("deferral:begin") < order.indexOf("request:thread/fork")).toBe(true);
+      expect(order.indexOf("deferral:complete") < order.indexOf("request:thread/rollback")).toBe(true);
+      expect(order.indexOf("deferral:end") < order.indexOf("request:thread/rollback")).toBe(true);
+      expect(order.indexOf("request:thread/rollback") < order.indexOf("provenance:append")).toBe(true);
+      expect(result.composerIntent?.prompt ?? "missing").toBe("");
+      expect(canonical?.turns.length ?? 0).toBe(2);
+      expect(canonical?.turns.at(-1)?.protocol.id).toBe("turn_2");
+      expect(marker?.type).toBe("forkedFromConversation");
+      expect(marker && "sourceConversationId" in marker ? marker.sourceConversationId : null).toBe(sourceThreadId);
+      expect(marker && "sourceConversationTitle" in marker ? marker.sourceConversationTitle : null).toBe(
+        "Exact fork source",
+      );
+      expect((requests.at(-1)?.params as { name?: string }).name ?? "").toBe("Exact fork source (2)");
+      expect(service.serializeThreadDetail(childThreadId)?.threadName ?? "").toBe("Exact fork source (2)");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("renderer owner rollback edit only rolls back and returns an owner-publishable snapshot", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -8297,23 +12533,27 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         if (method === "thread/rollback") {
           return {
             thread: {
-              id: "thr_owner_edit",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 10,
-              turns: [
+              ...makeProtocolThread("thr_owner_edit", "/tmp/owner-edit-thread", [
                 {
                   id: "turn_older",
+                  itemsView: "full",
                   status: "completed",
+                  error: null,
+                  startedAt: 1,
+                  completedAt: 2,
+                  durationMs: 1_000,
                   items: [
                     {
                       id: "user_older",
                       type: "userMessage",
-                      content: [{ type: "text", text: "Older prompt" }],
+                      clientId: null,
+                      content: [{ type: "text", text: "Older prompt", text_elements: [] }],
                     },
                   ],
                 },
-              ],
+              ]),
+              createdAt: 1,
+              updatedAt: 10,
             },
           };
         }
@@ -8815,7 +13055,16 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         ) => Promise<unknown>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
-      const hostMessages: CodexHostMessage[] = [];
+      const hostMessages: Array<Extract<CodexHostMessage, { type: "threadStreamStateChanged" }>> = [];
+      const ownerForkTurns = [
+        makeCanonicalHydrationTurn("turn_1"),
+        makeCanonicalHydrationTurn("turn_2"),
+      ];
+      const ownerForkResponse = makeCanonicalForkResponse({
+        threadId: "thr_owner_forked",
+        cwd: "/tmp/owner-fork-thread",
+        turns: ownerForkTurns,
+      });
 
       service.on("hostMessage", (message) => {
         if (message.type === "threadStreamStateChanged") {
@@ -8826,24 +13075,22 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
         if (method === "thread/fork") {
+          return ownerForkResponse;
+        }
+        if (method === "thread/read") {
+          return { thread: { ...ownerForkResponse.thread, turns: [] } };
+        }
+        if (method === "thread/resume") return makeCanonicalForkResumeResponse(ownerForkResponse);
+        if (method === "thread/goal/get") return { goal: null };
+        if (method === "thread/rollback") {
           return {
             thread: {
-              id: "thr_owner_forked",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 11,
-              turns: [
-                {
-                  id: "turn_1",
-                  status: "completed",
-                  items: [
-                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
-                  ],
-                },
-              ],
+              ...ownerForkResponse.thread,
+              turns: ownerForkTurns.slice(0, 1),
             },
           };
         }
+        if (method === "thread/name/set") return {};
         throw new Error(`Unexpected client request: ${method}`);
       };
 
@@ -8904,15 +13151,27 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         ) as CodexThreadActionResult;
         const snapshot = service.serializeConversationSnapshot("thr_owner_forked");
 
-        expect(requests.map((request) => request.method).join(",")).toBe("thread/fork");
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/fork,thread/read,thread/resume,thread/goal/get,thread/rollback,thread/name/set",
+        );
+        expect((requests.at(-1)?.params as { name?: string }).name ?? "").toBe("Owner fork source (2)");
         expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_owner_fork_source");
-        expect((requests[0]?.params as { lastTurnId?: string } | undefined)?.lastTurnId).toBe("turn_1");
+        expect(Object.prototype.hasOwnProperty.call(requests[0]?.params ?? {}, "lastTurnId")).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(
+          requests[0]?.params ?? {},
+          "runtimeWorkspaceRoots",
+        )).toBe(false);
         expect(result.threadId).toBe("thr_owner_forked");
         expect(Boolean(result.composerIntent)).toBe(true);
-        expect(result.composerIntent?.prompt).toBe("Continue from the fork");
+        expect(result.composerIntent?.prompt).toBe("");
         expect(snapshot?.turns.length).toBe(1);
         expect(snapshot?.turns[0]?.turnId).toBe("turn_1");
-        expect(String(hostMessages.length)).toBe("0");
+        expect(getCanonicalConversationState(service, "thr_owner_forked")?.turns[0]?.items.at(-1)?.type).toBe(
+          "forkedFromConversation",
+        );
+        expect(hostMessages.map((message) =>
+          `${message.conversationId}:${message.change.type}`
+        ).join(",")).toBe("");
       } finally {
         await service.shutdown();
       }
@@ -8938,36 +13197,48 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         events.push(event);
       });
 
+      const forkResponse = makeCanonicalForkResponse({
+        threadId: "thr_forked",
+        cwd: "/tmp/fork-thread",
+        turns: [
+          makeCanonicalHydrationTurn("turn_1"),
+          makeCanonicalHydrationTurn("turn_2"),
+          makeCanonicalHydrationTurn("turn_3"),
+        ],
+        model: "gpt-fork",
+        reasoningEffort: "xhigh",
+        activePermissionProfile: {
+          id: "profile-fork",
+          extends: null,
+        },
+        runtimeWorkspaceRoots: ["/tmp/fork-thread", "/tmp/shared"],
+      });
+
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
         if (method === "thread/fork") {
+          return forkResponse;
+        }
+        if (method === "thread/read") {
+          return { thread: { ...forkResponse.thread, turns: [] } };
+        }
+        if (method === "thread/resume") {
+          return makeCanonicalForkResumeResponse(forkResponse);
+        }
+        if (method === "thread/goal/get") {
+          return { goal: null };
+        }
+        if (method === "thread/rollback") {
           return {
             thread: {
-              id: "thr_forked",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 11,
-              turns: [
-                {
-                  id: "turn_1",
-                  status: "completed",
-                  items: [
-                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
-                    { id: "assistant_1", type: "agentMessage", text: "Answer 1" },
-                  ],
-                },
-                {
-                  id: "turn_2",
-                  status: "completed",
-                  items: [
-                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
-                    { id: "assistant_2", type: "agentMessage", text: "Answer 2" },
-                  ],
-                },
-              ],
+              ...forkResponse.thread,
+              turns: forkResponse.thread.turns.slice(0, 2),
             },
           };
+        }
+        if (method === "thread/name/set") {
+          return {};
         }
         throw new Error(`Unexpected client request: ${method}`);
       };
@@ -9032,14 +13303,30 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
         expect(requests[0]?.method).toBe("thread/fork");
         expect("persistExtendedHistory" in (forkParams ?? {})).toBe(false);
-        expect("path" in (forkParams ?? {})).toBe(false);
-        expect(forkParams?.lastTurnId).toBe("turn_2");
-        expect(requests.length).toBe(1);
+        expect(forkParams?.path).toBe(null);
+        expect(Object.prototype.hasOwnProperty.call(forkParams ?? {}, "lastTurnId")).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(
+          forkParams ?? {},
+          "runtimeWorkspaceRoots",
+        )).toBe(false);
+        expect(forkParams?.threadSource).toBe("user");
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/fork,thread/read,thread/resume,thread/goal/get,thread/rollback,thread/name/set",
+        );
+        expect((requests.at(-1)?.params as { name?: string }).name ?? "").toBe("Source thread (2)");
         expect(result.threadId).toBe("thr_forked");
         expect(Boolean(result.composerIntent)).toBe(true);
-        expect(result.composerIntent?.prompt).toBe("Continue from turn 2");
+        expect(result.composerIntent?.prompt).toBe("");
         expect(snapshot?.turns.length).toBe(2);
         expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
+        const canonical = getCanonicalConversationState(service, "thr_forked");
+        const canonicalTurn = canonical?.turns[1];
+        expect(canonicalTurn?.items.at(-1)?.type).toBe("forkedFromConversation");
+        expect(canonicalTurn?.sidecar.params.model ?? null).toBe("");
+        expect(canonicalTurn?.sidecar.params.effort ?? null).toBe(null);
+        expect((requests.find((request) => request.method === "thread/rollback")?.params as {
+          numTurns?: number;
+        })?.numTurns ?? 0).toBe(1);
         expect(events.some((event) => event.type === "threadSummary" && event.thread.threadId === "thr_forked")).toBe(true);
       } finally {
         await service.shutdown();
@@ -9058,37 +13345,78 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
+      const forkResponse = makeCanonicalForkResponse({
+        threadId: "thr_latest_forked",
+        cwd: "/tmp/latest-fork-thread",
+        turns: [
+          {
+            id: "turn_1",
+            itemsView: "full",
+            status: "completed",
+            error: null,
+            startedAt: null,
+            completedAt: null,
+            durationMs: null,
+            items: [
+              {
+                id: "user_1",
+                type: "userMessage",
+                clientId: null,
+                content: [{ type: "text", text: "Prompt 1", text_elements: [] }],
+              },
+              {
+                id: "assistant_1",
+                type: "agentMessage",
+                text: "Answer 1",
+                phase: null,
+                memoryCitation: null,
+              },
+            ],
+          },
+          {
+            id: "turn_2",
+            itemsView: "full",
+            status: "completed",
+            error: null,
+            startedAt: null,
+            completedAt: null,
+            durationMs: null,
+            items: [
+              {
+                id: "user_2",
+                type: "userMessage",
+                clientId: null,
+                content: [{ type: "text", text: "Prompt 2", text_elements: [] }],
+              },
+              {
+                id: "assistant_2",
+                type: "agentMessage",
+                text: "Answer 2",
+                phase: null,
+                memoryCitation: null,
+              },
+            ],
+          },
+        ],
+      });
 
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
         if (method === "thread/fork") {
-          return {
-            thread: {
-              id: "thr_latest_forked",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 11,
-              turns: [
-                {
-                  id: "turn_1",
-                  status: "completed",
-                  items: [
-                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
-                    { id: "assistant_1", type: "agentMessage", text: "Answer 1" },
-                  ],
-                },
-                {
-                  id: "turn_2",
-                  status: "completed",
-                  items: [
-                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
-                    { id: "assistant_2", type: "agentMessage", text: "Answer 2" },
-                  ],
-                },
-              ],
-            },
-          };
+          return forkResponse;
+        }
+        if (method === "thread/read") {
+          return { thread: { ...forkResponse.thread, turns: [] } };
+        }
+        if (method === "thread/resume") {
+          return makeCanonicalForkResumeResponse(forkResponse);
+        }
+        if (method === "thread/goal/get") {
+          return { goal: null };
+        }
+        if (method === "thread/name/set") {
+          return {};
         }
         throw new Error(`Unexpected client request: ${method}`);
       };
@@ -9137,14 +13465,24 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         const snapshot = service.serializeConversationSnapshot("thr_latest_forked");
         const forkParams = requests[0]?.params as Record<string, unknown> | undefined;
 
-        expect(requests.length).toBe(1);
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/fork,thread/read,thread/resume,thread/goal/get,thread/name/set",
+        );
+        expect((requests.at(-1)?.params as { name?: string }).name ?? "").toBe("Latest source thread (2)");
         expect(requests[0]?.method).toBe("thread/fork");
-        expect(forkParams?.lastTurnId).toBe("turn_2");
+        expect(Object.prototype.hasOwnProperty.call(forkParams ?? {}, "lastTurnId")).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(
+          forkParams ?? {},
+          "runtimeWorkspaceRoots",
+        )).toBe(false);
         expect("persistExtendedHistory" in (forkParams ?? {})).toBe(false);
-        expect("path" in (forkParams ?? {})).toBe(false);
+        expect(forkParams?.path).toBe(null);
         expect(result.threadId).toBe("thr_latest_forked");
         expect(snapshot?.turns.length).toBe(2);
         expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
+        expect(getCanonicalConversationState(service, "thr_latest_forked")?.turns.at(-1)?.items.at(-1)?.type).toBe(
+          "forkedFromConversation",
+        );
       } finally {
         await service.shutdown();
       }
@@ -9153,36 +13491,82 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("starts side chat as an ephemeral fork, injects boundary, then sends initial prompt", async () => {
+  test("starts a side chat with exact ephemeral and projectless parent inheritance", async () => {
     const ran = await withTempDatabase(async () => {
-      const service = createService();
+      const developerInstructionInputs: Array<{
+        baseInstructions?: string | null;
+        cwd: string;
+        model?: string | null;
+        threadId: string | null;
+        threadToolsEnabled?: boolean;
+      }> = [];
+      const configCwds: Array<string | null> = [];
+      const service = createService({
+        projectAwareDeveloperInstructionsResolver: async (input) => {
+          developerInstructionInputs.push(input);
+          return "  Project-aware developer instructions  ";
+        },
+        threadCodexConfigBuilder: async (cwd) => {
+          configCwds.push(cwd);
+          return { "test.side_chat_config": true };
+        },
+      });
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
+      let canonicalAtInjection: CodexCanonicalConversationState | null | undefined;
+      let canonicalAtTurnStart: CodexCanonicalConversationState | null | undefined;
+      let statusAtTurnStart: string | null | undefined;
 
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
-        if (method === "config/read" || method === "configRequirements/read") {
+        if (method === "config/read") {
+          return {
+            config: { developer_instructions: "Wrong config/read instructions" },
+            origins: {},
+            layers: [],
+          };
+        }
+        if (method === "configRequirements/read") {
           throw new Error("Use fallback permissions");
         }
         if (method === "thread/fork") {
+          const cwd = "/tmp/codex";
           return {
             thread: {
-              id: "thr_side_chat",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 1,
-              turns: [],
+              ...makeProtocolThread("thr_side_chat", cwd),
+              ephemeral: true,
             },
+            model: "gpt-5-codex",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd,
+            runtimeWorkspaceRoots: [cwd],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: [cwd],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "high",
+            multiAgentMode: "explicitRequestOnly",
           };
         }
         if (method === "thread/inject_items") {
+          canonicalAtInjection = getCanonicalConversationState(service, "thr_side_chat");
           return {};
         }
         if (method === "turn/start") {
+          canonicalAtTurnStart = getCanonicalConversationState(service, "thr_side_chat");
+          statusAtTurnStart = service.serializeConversationSnapshot("thr_side_chat")?.statusType;
           return {
             turn: {
               id: "turn_side_chat",
@@ -9199,10 +13583,12 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
       hydrateConversation(service, {
         ...makeThreadDetail("thr_parent"),
-        projectId: defaultProjectId,
+        projectId: null,
         source: null,
         threadName: "Parent",
         cwd: "/tmp/codex",
+        projectlessOutputDirectory: "/tmp/codex-output",
+        projectlessWorkspaceBrowserRoot: "/tmp/codex-browser",
         latestCollaborationMode: {
           mode: "default",
           settings: {
@@ -9234,12 +13620,35 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         const snapshot = service.serializeConversationSnapshot("thr_side_chat");
 
         expect(sideRequests.map((request) => request.method).join(",")).toBe("thread/fork,thread/inject_items,turn/start");
+        expect(canonicalAtInjection ?? null).toBe(null);
+        expect(canonicalAtTurnStart?.protocol.id ?? null).toBe("thr_side_chat");
+        expect(canonicalAtTurnStart?.turns.length ?? -1).toBe(0);
         expect(forkParams?.threadId).toBe("thr_parent");
+        expect(forkParams?.path).toBe(null);
         expect(forkParams?.ephemeral).toBe(true);
         expect(forkParams?.excludeTurns).toBe(true);
         expect(String(forkParams?.developerInstructions).includes("You are in a side conversation")).toBe(true);
+        expect(String(forkParams?.developerInstructions).startsWith("  Project-aware developer instructions  \n\n")).toBe(true);
+        expect(String(forkParams?.developerInstructions).includes("Wrong config/read instructions")).toBe(false);
+        expect(String(forkParams?.developerInstructions).includes("Sub-agents are off-limits")).toBe(true);
+        expect((forkParams?.config as Record<string, unknown>)?.["test.side_chat_config"]).toBe(true);
+        expect((forkParams?.config as Record<string, unknown>)?.model_reasoning_effort).toBe("high");
+        expect(JSON.stringify(developerInstructionInputs)).toBe(
+          JSON.stringify([{
+            cwd: "/tmp/codex",
+            model: "gpt-5-codex",
+            threadId: "thr_parent",
+          }]),
+        );
+        expect(JSON.stringify(configCwds)).toBe(JSON.stringify(["/tmp/codex"]));
+        expect(Object.prototype.hasOwnProperty.call(forkParams ?? {}, "approvalPolicy")).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(forkParams ?? {}, "approvalsReviewer")).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(forkParams ?? {}, "sandbox")).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(forkParams ?? {}, "permissions")).toBe(false);
         expect(injectParams?.threadId).toBe("thr_side_chat");
         expect(JSON.stringify(injectParams?.items ?? []).includes("Side conversation boundary")).toBe(true);
+        expect(JSON.stringify(injectParams?.items ?? []).includes("Sub-agents are off-limits")).toBe(true);
+        expect(statusAtTurnStart ?? "").toBe("idle");
         expect(turnParams?.threadId).toBe("thr_side_chat");
         expect(JSON.stringify(turnParams?.input ?? []).includes("Investigate this in side chat")).toBe(true);
         expect(result.threadId).toBe("thr_side_chat");
@@ -9248,6 +13657,9 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
           "project:codex/session:session-1/thread:thr_parent",
         );
         expect(snapshot?.ephemeral === true).toBe(true);
+        expect(snapshot?.projectId ?? null).toBe(null);
+        expect(snapshot?.projectlessOutputDirectory ?? null).toBe("/tmp/codex-output");
+        expect(snapshot?.projectlessWorkspaceBrowserRoot ?? null).toBe("/tmp/codex-browser");
         expect(snapshot?.capabilityFlags.canForkFromTurn).toBe(false);
         expect(snapshot?.capabilityFlags.canEditLastUserTurn).toBe(false);
         expect(getCodexThread("thr_side_chat") === null).toBe(true);
@@ -9262,6 +13674,128 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     });
 
     if (!ran) expect(true).toBe(true);
+  });
+
+  test("side chat resolves project-aware instructions and thread config before an exact fork", async () => {
+    const resolverInputs: Array<{
+      baseInstructions?: string | null;
+      cwd: string;
+      model?: string | null;
+      threadId: string | null;
+      threadToolsEnabled?: boolean;
+    }> = [];
+    const configCwds: Array<string | null> = [];
+    const service = createService({
+      projectAwareDeveloperInstructionsResolver: async (input) => {
+        resolverInputs.push(input);
+        return "  Resolved desktop instructions  ";
+      },
+      threadCodexConfigBuilder: async (cwd) => {
+        configCwds.push(cwd);
+        return { "mcp.test_enabled": true };
+      },
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const forkResponse = makeCanonicalForkResponse({
+      threadId: "thr_side_exact_child",
+      cwd: "/workspace/side-exact",
+      turns: [],
+    });
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/fork") return forkResponse;
+      if (method === "thread/inject_items") return {};
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    service.readThread = async () => ({
+      ...makeThreadDetail("thr_side_exact_parent"),
+      projectId: "project-side-exact",
+      source: null,
+      cwd: "/workspace/side-exact",
+    });
+
+    try {
+      const result = await service.startSideChat({
+        projectId: "project-side-exact",
+        parentThreadId: "thr_side_exact_parent",
+        reasoningEffort: "xhigh",
+      });
+      const forkParams = requests[0]?.params as Record<string, unknown>;
+      const config = forkParams.config as Record<string, unknown>;
+
+      expect(requests.map((request) => request.method).join(",")).toBe(
+        "thread/fork,thread/inject_items",
+      );
+      expect(JSON.stringify(resolverInputs)).toBe(JSON.stringify([{
+        cwd: "/workspace/side-exact",
+        model: null,
+        threadId: "thr_side_exact_parent",
+      }]));
+      expect(JSON.stringify(configCwds)).toBe(JSON.stringify(["/workspace/side-exact"]));
+      expect(forkParams.path).toBe(null);
+      expect(forkParams.ephemeral).toBe(true);
+      expect(forkParams.excludeTurns).toBe(true);
+      expect(config["mcp.test_enabled"]).toBe(true);
+      expect(config.model_reasoning_effort).toBe("xhigh");
+      expect(String(forkParams.developerInstructions).startsWith(
+        "  Resolved desktop instructions  \n\nYou are in a side conversation",
+      )).toBe(true);
+      expect(result.threadId).toBe("thr_side_exact_child");
+      expect(getCanonicalConversationState(service, result.threadId)?.turns.length ?? -1).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("side chat aborts before fork when project-aware instruction resolution fails", async () => {
+    let configBuildStarted = false;
+    const service = createService({
+      projectAwareDeveloperInstructionsResolver: async () => {
+        throw new Error("developer instruction host failed");
+      },
+      threadCodexConfigBuilder: async () => {
+        configBuildStarted = true;
+        return {};
+      },
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: string[] = [];
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      requests.push(method);
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    service.readThread = async () => ({
+      ...makeThreadDetail("thr_side_failure_parent"),
+      projectId: "project-side-failure",
+      source: null,
+      cwd: "/workspace/side-failure",
+    });
+
+    try {
+      let message = "";
+      try {
+        await service.startSideChat({
+          projectId: "project-side-failure",
+          parentThreadId: "thr_side_failure_parent",
+        });
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toBe("developer instruction host failed");
+      expect(configBuildStarted).toBe(false);
+      expect(requests.length).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
   });
 });
 
@@ -9412,11 +13946,6 @@ describe("codex-service interrupt target resolution", () => {
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
-      applyThreadStatusLocal: (
-        threadId: string,
-        statusType: CodexThreadDetail["statusType"],
-        statusActiveFlags: CodexThreadDetail["statusActiveFlags"],
-      ) => void;
       maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
@@ -9468,7 +13997,9 @@ describe("codex-service interrupt target resolution", () => {
     };
 
     try {
-      serviceInternals.applyThreadStatusLocal("thr_goal_continue", "idle", []);
+      record.detail = record.detail
+        ? { ...record.detail, statusType: "idle", statusActiveFlags: [] }
+        : null;
       await Promise.all([
         serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue"),
         serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue"),
@@ -9495,11 +14026,6 @@ describe("codex-service interrupt target resolution", () => {
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
-      applyThreadStatusLocal: (
-        threadId: string,
-        statusType: CodexThreadDetail["statusType"],
-        statusActiveFlags: CodexThreadDetail["statusActiveFlags"],
-      ) => void;
       maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
@@ -9543,7 +14069,9 @@ describe("codex-service interrupt target resolution", () => {
     };
 
     try {
-      serviceInternals.applyThreadStatusLocal("thr_goal_continue_fallback", "idle", []);
+      record.detail = record.detail
+        ? { ...record.detail, statusType: "idle", statusActiveFlags: [] }
+        : null;
       void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_fallback");
 
       await waitForCondition(() =>
@@ -9571,11 +14099,6 @@ describe("codex-service interrupt target resolution", () => {
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
-      applyThreadStatusLocal: (
-        threadId: string,
-        statusType: CodexThreadDetail["statusType"],
-        statusActiveFlags: CodexThreadDetail["statusActiveFlags"],
-      ) => void;
       maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
@@ -9632,7 +14155,9 @@ describe("codex-service interrupt target resolution", () => {
     };
 
     try {
-      serviceInternals.applyThreadStatusLocal("thr_goal_continue_settings", "idle", []);
+      record.detail = record.detail
+        ? { ...record.detail, statusType: "idle", statusActiveFlags: [] }
+        : null;
       void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_settings");
 
       await new Promise((resolve) => setTimeout(resolve, 350));
@@ -9915,16 +14440,44 @@ describe("codex-service startTurn", () => {
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
       markThreadAsActive: (threadId: string) => void;
+      upsertLinkFromThread: () => null;
+      buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
+      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
+      handleNotification: (
+        method: string,
+        params: unknown,
+        options?: { bypassResumeBuffer?: boolean },
+      ) => Promise<void>;
+      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
       request: (method: string, params: unknown) => Promise<unknown>;
+      emit: (eventName: string, payload: unknown) => boolean;
     };
     const requests: Array<{ method: string; params: unknown }> = [];
+    const resumeOrder: string[] = [];
     let turnStartAttempts = 0;
 
     serviceInternals.parseThreadRef = () => null;
     serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.upsertLinkFromThread = () => null;
+    serviceInternals.buildThreadDetailFromCanonicalState = () => ({
+      ...makeThreadDetail("thr_start"),
+      cwd: "/workspace/project",
+    });
+    serviceInternals.persistThreadDetailSummary = () => {};
+    const originalHandleNotification = serviceInternals.handleNotification.bind(service);
+    serviceInternals.handleNotification = async (method, params, options) => {
+      if (
+        method === "item/agentMessage/delta"
+        && !serviceInternals.resumeNotificationBuffersByThreadId.has("thr_start")
+      ) {
+        const canonical = getCanonicalConversationState(service, "thr_start");
+        resumeOrder.push(canonical ? "replay-after-hydration" : "replay-before-hydration");
+      }
+      await originalHandleNotification(method, params, options);
+    };
     client.start = async () => undefined;
     client.request = async (method: string, params: unknown) => {
       requests.push({ method, params });
@@ -9934,6 +14487,7 @@ describe("codex-service startTurn", () => {
           throw new CodexRpcError("thread not found", -32600);
         }
 
+        resumeOrder.push("turn-retry");
         return {
           turn: {
             id: "turn_retry",
@@ -9944,11 +14498,28 @@ describe("codex-service startTurn", () => {
       }
 
       if (method === "thread/resume") {
-        return {
-          thread: {
-            id: "thr_start",
-            turns: [],
+        client.emit("notification", {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thr_start",
+            turnId: "turn_hydrated",
+            itemId: "item_hydrated",
+            delta: " buffered",
           },
+        });
+        return makeCanonicalResumeResponse({
+          threadId: "thr_start",
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+        });
+      }
+
+      if (method === "thread/read") {
+        return {
+          thread: makeProtocolThread("thr_start", "/workspace/project", []),
         };
       }
 
@@ -9958,9 +14529,12 @@ describe("codex-service startTurn", () => {
     try {
       const startedTurn = await service.startTurn("thr_start", "Ship the fix");
       expect(startedTurn?.turnId).toBe("turn_retry");
-      expect(requests.map((request) => request.method).join(",")).toBe("turn/start,thread/resume,turn/start");
-      expect(((requests[1]?.params as { threadId?: string }).threadId)).toBe("thr_start");
-      const resumeConfig = (requests[1]?.params as { config?: Record<string, unknown> })?.config ?? {};
+      expect(requests.map((request) => request.method).join(",")).toBe(
+        "turn/start,thread/read,thread/resume,thread/goal/get,turn/start",
+      );
+      expect(resumeOrder.join(",")).toBe("replay-after-hydration,turn-retry");
+      expect(((requests[2]?.params as { threadId?: string }).threadId)).toBe("thr_start");
+      const resumeConfig = (requests[2]?.params as { config?: Record<string, unknown> })?.config ?? {};
       expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
     } finally {
       await service.shutdown();
@@ -10119,7 +14693,7 @@ describe("codex-service startTurn", () => {
         const snapshot = service.serializeConversationSnapshot("thr_steer_started_echo");
         const steerItemId = detail?.transcript[0]?.itemId ?? "";
 
-        expect(detail?.turns[0]?.itemIds.join(",")).toBe(`agent_msg_existing,${steerItemId}`);
+        expect(detail?.turns[0]?.itemIds.join(",")).toBe(steerItemId);
         expect(detail?.transcript.length).toBe(1);
         expect(detail?.transcript[0]?.type).toBe("steeringUserMessage");
         expect(detail?.transcript[0]?.steeringStatus).toBe("pending");
@@ -10311,12 +14885,11 @@ describe("codex-service startTurn", () => {
         expect(afterSendSnapshot?.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
         expect(afterSendSnapshot?.turns[0]?.items[0]?.markdownText).toBe("Queue this without interrupting");
 
-        const serverUserMessage = {
+        const serverUserMessage = makeProtocolUserMessage({
           id: "user_msg_queue_send_now",
-          type: "userMessage",
           clientId: steerClientUserMessageId,
           content: [{ type: "text", text: "Queue this without interrupting", text_elements: [] }],
-        };
+        });
         await serviceInternals.handleNotification("item/started", {
           threadId: "thr_queue_prompt_send_now",
           turnId: "turn_queue_prompt_send_now",
@@ -10335,7 +14908,7 @@ describe("codex-service startTurn", () => {
         expect(userMessageItems[0]?.steeringStatus).toBe("accepted");
         expect(afterAcceptedSnapshot?.turns[0]?.items[1]?.semanticKind).toBe("steered");
         expect(afterAcceptedSnapshot?.turns[0]?.itemIds.join(",")).toBe(
-          `${userMessageItems[0]?.itemId ?? ""},user_msg_queue_send_now:steered`,
+          `${userMessageItems[0]?.itemId ?? ""},user_msg_queue_send_now`,
         );
       } finally {
         await service.shutdown();
@@ -10425,6 +14998,7 @@ describe("codex-service startTurn", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const client = Reflect.get(service as object, "client") as {
@@ -10439,6 +15013,20 @@ describe("codex-service startTurn", () => {
         status: "inProgress",
         itemIds: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_steer_started_completed",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_steer_started_completed"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
 
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
@@ -10450,14 +15038,28 @@ describe("codex-service startTurn", () => {
       };
 
       try {
+        await serviceInternals.handleNotification("turn/started", {
+          threadId: "thr_compaction_live_order",
+          turn: {
+            id: "turn_compaction_live_order",
+            status: "inProgress",
+          },
+        });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_steer_started_completed",
+          turnId: "turn_steer_started_completed",
+          item: makeProtocolAgentMessage({
+            id: "assistant_before_steer",
+            text: "",
+          }),
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_steer_started_completed",
           turnId: "turn_steer_started_completed",
-          item: {
+          item: makeProtocolAgentMessage({
             id: "assistant_before_steer",
-            type: "agentMessage",
             text: "Message 3/7",
-          },
+          }),
         });
         await service.steerTurn({
           threadId: "thr_steer_started_completed",
@@ -10465,12 +15067,11 @@ describe("codex-service startTurn", () => {
           prompt: "Use the compact version.",
         });
         const clientUserMessageId = (requests[0]?.params as { clientUserMessageId?: string } | undefined)?.clientUserMessageId;
-        const serverUserMessage = {
+        const serverUserMessage = makeProtocolUserMessage({
           id: "user_msg_started_completed",
-          type: "userMessage",
           clientId: clientUserMessageId,
           content: [{ type: "text", text: "Use the compact version.", text_elements: [] }],
-        };
+        });
 
         await serviceInternals.handleNotification("item/started", {
           threadId: "thr_steer_started_completed",
@@ -10482,14 +15083,21 @@ describe("codex-service startTurn", () => {
           turnId: "turn_steer_started_completed",
           item: serverUserMessage,
         });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_steer_started_completed",
+          turnId: "turn_steer_started_completed",
+          item: makeProtocolAgentMessage({
+            id: "assistant_after_steer",
+            text: "",
+          }),
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_steer_started_completed",
           turnId: "turn_steer_started_completed",
-          item: {
+          item: makeProtocolAgentMessage({
             id: "assistant_after_steer",
-            type: "agentMessage",
             text: "I am Codex.",
-          },
+          }),
         });
 
         const detail = service.serializeThreadDetail("thr_steer_started_completed");
@@ -10499,16 +15107,16 @@ describe("codex-service startTurn", () => {
         const steerItemId = userMessageItems[0]?.itemId ?? "";
 
         expect(detail?.turns[0]?.itemIds.join(",")).toBe(
-          `assistant_before_steer,${steerItemId},user_msg_started_completed:steered,assistant_after_steer`,
+          `assistant_before_steer,${steerItemId},user_msg_started_completed,assistant_after_steer`,
         );
         expect(snapshot?.turns[0]?.items.map((entry) => entry.itemId).join(",")).toBe(
-          `assistant_before_steer,${steerItemId},user_msg_started_completed:steered,assistant_after_steer`,
+          `assistant_before_steer,${steerItemId},user_msg_started_completed,assistant_after_steer`,
         );
         expect(detail?.transcript.length).toBe(4);
         expect(userMessageItems.length).toBe(1);
         expect(userMessageItems[0]?.type).toBe("steeringUserMessage");
         expect(userMessageItems[0]?.steeringStatus).toBe("accepted");
-        expect(userMessageItems[0]?.acceptedUserMessageItemId).toBe("user_msg_started_completed");
+        expect(steeredItems[0]?.acceptedUserMessageItemId).toBe("user_msg_started_completed");
         expect(steeredItems.length).toBe(1);
       } finally {
         await service.shutdown();
@@ -10551,12 +15159,11 @@ describe("codex-service startTurn", () => {
           expectedTurnId: "turn_steer_nonmatching",
           prompt: "Use the compact version.",
         });
-        const serverUserMessage = {
+        const serverUserMessage = makeProtocolUserMessage({
           id: "user_msg_nonmatching",
-          type: "userMessage",
           clientId: "server-owned-message",
           content: [{ type: "text", text: "A different follow-up.", text_elements: [] }],
-        };
+        });
 
         await serviceInternals.handleNotification("item/started", {
           threadId: "thr_steer_nonmatching",
@@ -10798,12 +15405,11 @@ describe("codex-service startTurn", () => {
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_pending_clear",
           turnId: "turn_pending_clear",
-          item: {
+          item: makeProtocolUserMessage({
             id: "user_msg_1",
-            type: "userMessage",
-            role: "user",
+            clientId: null,
             content: [{ type: "text", text: "Tighten the spacing.", text_elements: [] }],
-          },
+          }),
         });
 
         snapshot = service.serializeConversationSnapshot("thr_pending_clear");
@@ -10812,7 +15418,7 @@ describe("codex-service startTurn", () => {
         expect(snapshot?.turns[0]?.items[0]?.steeringStatus).toBe("accepted");
         expect(snapshot?.turns[0]?.items[1]?.semanticKind).toBe("steered");
         expect(snapshot?.turns[0]?.itemIds.join(",")).toBe(
-          `${snapshot?.turns[0]?.items[0]?.itemId ?? ""},user_msg_1:steered`,
+          `${snapshot?.turns[0]?.items[0]?.itemId ?? ""},user_msg_1`,
         );
       } finally {
         await service.shutdown();
@@ -11027,7 +15633,7 @@ describe("codex-service startTurn", () => {
     }
   });
 
-  test("passes prompt input images through to turn/start", async () => {
+  test("passes images and explicit file channels through ordinary turn input without duplicate legacy mentions", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
@@ -11073,13 +15679,24 @@ describe("codex-service startTurn", () => {
             { source: "/tmp/local.png", caption: "local" },
             { source: "data:image/png;base64,aW1hZ2U=", caption: "inline" },
           ],
+          fileAttachments: [{
+            label: "explicit.md",
+            path: "docs/explicit.md",
+            fsPath: "/tmp/docs/explicit.md",
+            startLine: 3,
+          }],
+          addedFiles: [{
+            label: "generated.md",
+            path: "docs/generated.md",
+            fsPath: "/tmp/docs/generated.md",
+          }],
           mentions: [{ name: "notes.md", path: "/tmp/notes.md" }],
           skills: [{ name: "Computer Use", path: "/plugins/computer-use" }],
         },
       });
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
       const params = turnStartRequest?.params as { input?: Array<Record<string, string>> };
-      expect(params.input?.length ?? 0).toBe(6);
+      expect(params.input?.length ?? 0).toBe(7);
       expect(params.input?.[0]?.type).toBe("text");
       expect(params.input?.[0]?.text).toBe("Inspect these images");
       expect(params.input?.[1]?.type).toBe("image");
@@ -11089,9 +15706,11 @@ describe("codex-service startTurn", () => {
       expect(params.input?.[3]?.type).toBe("image");
       expect(params.input?.[3]?.url).toBe("data:image/png;base64,aW1hZ2U=");
       expect(params.input?.[4]?.type).toBe("mention");
-      expect(params.input?.[4]?.path).toBe("/tmp/notes.md");
-      expect(params.input?.[5]?.type).toBe("skill");
-      expect(params.input?.[5]?.path).toBe("/plugins/computer-use");
+      expect(params.input?.[4]?.path).toBe("docs/explicit.md");
+      expect(params.input?.[5]?.type).toBe("mention");
+      expect(params.input?.[5]?.path).toBe("docs/generated.md");
+      expect(params.input?.[6]?.type).toBe("skill");
+      expect(params.input?.[6]?.path).toBe("/plugins/computer-use");
     } finally {
       await service.shutdown();
     }
@@ -11334,6 +15953,19 @@ describe("codex-service collaboration modes", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("keeps the enabled host personality in manager state", async () => {
+    const service = createService();
+    try {
+      expect(service.getPersonality()).toBe("friendly");
+      service.setPersonality("pragmatic");
+      expect(service.getPersonality()).toBe("pragmatic");
+      service.setPersonality("none");
+      expect(service.getPersonality()).toBe("none");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("updates next-turn thread settings through app-server and mirrors snapshots", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
@@ -11358,6 +15990,7 @@ describe("codex-service collaboration modes", () => {
           model: "gpt-5.9-codex",
           reasoningEffort: "high",
           collaborationMode: "plan",
+          personality: "pragmatic",
         });
         const snapshot = service.serializeConversationSnapshot("thr_settings_update");
         const updateRequest = requests.find((request) => request.method === "thread/settings/update");
@@ -11369,13 +16002,16 @@ describe("codex-service collaboration modes", () => {
         expect(settings.model).toBe("gpt-5.9-codex");
         expect(settings.reasoningEffort).toBe("high");
         expect(settings.collaborationMode?.mode).toBe("plan");
+        expect(settings.personality).toBe("pragmatic");
         expect(updateRequest?.params.threadId).toBe("thr_settings_update");
         expect(updateRequest?.params.model).toBe("gpt-5.9-codex");
         expect(updateRequest?.params.effort).toBe("high");
+        expect(updateRequest?.params.personality).toBe("pragmatic");
         expect(collaborationMode?.mode).toBe("plan");
         expect(collaborationMode?.settings?.developer_instructions).toBe(null);
         expect(snapshot?.latestThreadSettings?.model).toBe("gpt-5.9-codex");
         expect(snapshot?.latestThreadSettings?.collaborationMode?.mode).toBe("plan");
+        expect(snapshot?.latestThreadSettings?.personality).toBe("pragmatic");
         expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
       } finally {
         await service.shutdown();
@@ -11463,6 +16099,7 @@ describe("codex-service collaboration modes", () => {
                 developer_instructions: null,
               },
             },
+            personality: "friendly",
           },
         });
         const snapshot = service.serializeConversationSnapshot("thr_settings_notification");
@@ -11470,6 +16107,7 @@ describe("codex-service collaboration modes", () => {
         expect(snapshot?.latestThreadSettings?.model).toBe("gpt-5.8-codex");
         expect(snapshot?.latestThreadSettings?.reasoningEffort).toBe("medium");
         expect(snapshot?.latestThreadSettings?.collaborationMode?.mode).toBe("plan");
+        expect(snapshot?.latestThreadSettings?.personality).toBe("friendly");
         expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
       } finally {
         await service.shutdown();
@@ -11538,6 +16176,154 @@ describe("codex-service collaboration modes", () => {
       expect(secondTurn?.model).toBe("gpt-explicit");
       expect(secondTurn?.effort).toBe("high");
       expect(secondMode?.mode).toBe("default");
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
+
+describe("codex-service hooks settings", () => {
+  test("lists hooks for the exact host-scoped working directories", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const response: CodexHooksListResponse = { data: [] };
+
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "hooks/list") return response;
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const result = await service.listHooks({
+        hostId: DEFAULT_CODEX_HOST_ID,
+        cwds: ["/workspace/alpha", "/workspace/beta"],
+      });
+
+      expect(result).toBe(response);
+      expect(requests).toEqual([{
+        method: "hooks/list",
+        params: { cwds: ["/workspace/alpha", "/workspace/beta"] },
+      }]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("writes enable and trust patches through the exact hooks.state upsert", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "config/batchWrite") return {};
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      await service.updateHooksState({
+        hostId: DEFAULT_CODEX_HOST_ID,
+        patches: [
+          { key: "hook-enable", enabled: false },
+          { key: "hook-trust", trustedHash: "sha256:trusted" },
+          { key: "hook-both", enabled: true, trustedHash: "sha256:both" },
+        ],
+      });
+
+      expect(requests).toEqual([{
+        method: "config/batchWrite",
+        params: {
+          edits: [{
+            keyPath: "hooks.state",
+            value: {
+              "hook-enable": { enabled: false },
+              "hook-trust": { trusted_hash: "sha256:trusted" },
+              "hook-both": { enabled: true, trusted_hash: "sha256:both" },
+            },
+            mergeStrategy: "upsert",
+          }],
+          filePath: null,
+          expectedVersion: null,
+          reloadUserConfig: true,
+        },
+      }]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("rejects unknown hosts before starting or sending app-server requests", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    let startCount = 0;
+    let requestCount = 0;
+
+    client.start = async () => {
+      startCount += 1;
+    };
+    client.request = async () => {
+      requestCount += 1;
+      return {};
+    };
+
+    try {
+      await expect(service.listHooks({ hostId: "remote", cwds: ["/workspace"] }))
+        .rejects.toThrow("Codex host is unavailable: remote");
+      await expect(service.updateHooksState({
+        hostId: "remote",
+        patches: [{ key: "hook", enabled: true }],
+      })).rejects.toThrow("Codex host is unavailable: remote");
+
+      expect(startCount).toBe(0);
+      expect(requestCount).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("rejects empty, duplicate, and malformed state patches before starting the client", async () => {
+    const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+    };
+    const start = vi.fn(async () => undefined);
+    client.start = start;
+
+    try {
+      await expect(service.updateHooksState({
+        hostId: DEFAULT_CODEX_HOST_ID,
+        patches: [],
+      })).rejects.toThrow("At least one hook state patch is required");
+      await expect(service.updateHooksState({
+        hostId: DEFAULT_CODEX_HOST_ID,
+        patches: [
+          { key: "hook", enabled: true },
+          { key: "hook", enabled: false },
+        ],
+      })).rejects.toThrow("Duplicate hook state patch: hook");
+      await expect(service.updateHooksState({
+        hostId: DEFAULT_CODEX_HOST_ID,
+        patches: [{ key: " ", enabled: true }],
+      })).rejects.toThrow("Hook key is required");
+      await expect(service.updateHooksState({
+        hostId: DEFAULT_CODEX_HOST_ID,
+        patches: [{ key: "hook", trustedHash: " " }],
+      })).rejects.toThrow("Hook trusted hash is required");
+
+      expect(start).not.toHaveBeenCalled();
     } finally {
       await service.shutdown();
     }
@@ -11686,15 +16472,10 @@ describe("codex-service startThreadForSession", () => {
             listProjectSessions(defaultProjectId)
               .some((candidate) => candidate.thread?.threadId === "thr_session_deferred_started"),
           ).toBe(false);
-          return {
-            thread: {
-              id: "thr_session_deferred_started",
-              modelProvider: "openai",
-              cwd: "/tmp/codex",
-              createdAt: 1_780_800_000_000,
-              updatedAt: 1_780_800_000_000,
-            },
-          };
+          return makeCanonicalThreadStartResponse({
+            threadId: "thr_session_deferred_started",
+            cwd: "/tmp/codex",
+          });
         }
         if (method === "turn/start") {
           return {
@@ -11709,13 +16490,13 @@ describe("codex-service startThreadForSession", () => {
       };
 
       try {
-        const detail = await service.startThreadForSession({
+        const detail = requireStartedThread(await service.startThreadForSession({
           projectId: defaultProjectId,
           sessionId: session.id,
           prompt: "Start after early notification",
           permissionMode: "auto",
           skipAutoTitleGeneration: true,
-        });
+        }));
 
         const linkedSessions = listProjectSessions(defaultProjectId)
           .filter((candidate) => candidate.thread?.threadId === "thr_session_deferred_started");
@@ -11748,14 +16529,27 @@ describe("codex-service startThreadForSession", () => {
           throw new Error("use fallback permission state");
         }
         if (method === "thread/start") {
+          const cwd = "/tmp/codex";
           return {
-            thread: {
-              id: "thr_session_start",
-              modelProvider: "openai",
-              cwd: "/tmp/codex",
-              createdAt: 1_780_800_000_000,
-              updatedAt: 1_780_800_000_000,
+            thread: makeProtocolThread("thr_session_start", cwd),
+            model: "gpt-5-codex",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd,
+            runtimeWorkspaceRoots: [cwd],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: [cwd],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
             },
+            activePermissionProfile: null,
+            reasoningEffort: "medium",
+            multiAgentMode: "explicitRequestOnly",
           };
         }
         if (method === "turn/start") {
@@ -11771,7 +16565,8 @@ describe("codex-service startThreadForSession", () => {
       };
 
       try {
-        const detail = await service.startThreadForSession({
+        service.setPersonality("pragmatic");
+        const detail = requireStartedThread(await service.startThreadForSession({
           projectId: defaultProjectId,
           sessionId: session.id,
           prompt: "Start from this session",
@@ -11779,18 +16574,23 @@ describe("codex-service startThreadForSession", () => {
           reasoningEffort: "medium",
           permissionMode: "auto",
           skipAutoTitleGeneration: true,
-        });
+        }));
 
         const threadStartRequest = requests.find((request) => request.method === "thread/start");
         const turnStartRequest = requests.find((request) => request.method === "turn/start");
         const linked = getProjectSession(session.id)?.thread;
         expect((threadStartRequest?.params as { cwd?: string } | undefined)?.cwd).toBe("/tmp/codex");
+        expect((threadStartRequest?.params as { personality?: string } | undefined)?.personality)
+          .toBe("pragmatic");
         expect((turnStartRequest?.params as { cwd?: string } | undefined)?.cwd).toBe("/tmp/codex");
         expect(linked?.threadId).toBe("thr_session_start");
         expect(linked?.projectId).toBe(defaultProjectId);
         expect(linked?.cwd).toBe("/tmp/codex");
         expect(detail.threadId).toBe("thr_session_start");
         expect(detail.projectId).toBe(defaultProjectId);
+        const canonical = getCanonicalConversationState(service, "thr_session_start");
+        expect(canonical?.protocol.id ?? null).toBe("thr_session_start");
+        expect(canonical?.turns.length ?? -1).toBe(0);
       } finally {
         await service.shutdown();
       }
@@ -11816,15 +16616,10 @@ describe("codex-service startThreadForSession", () => {
           throw new Error("use fallback permission state");
         }
         if (method === "thread/start") {
-          return {
-            thread: {
-              id: "thr_session_goal",
-              modelProvider: "openai",
-              cwd: "/tmp/codex",
-              createdAt: 1_780_800_000_000,
-              updatedAt: 1_780_800_000_000,
-            },
-          };
+          return makeCanonicalThreadStartResponse({
+            threadId: "thr_session_goal",
+            cwd: "/tmp/codex",
+          });
         }
         if (method === "turn/start") {
           return {
@@ -11853,16 +16648,17 @@ describe("codex-service startThreadForSession", () => {
       };
 
       try {
-        const detail = await service.startThreadForSession({
+        const detail = requireStartedThread(await service.startThreadForSession({
           projectId: defaultProjectId,
           sessionId: session.id,
           prompt: "Keep refining the migration until tests pass",
-          threadGoalDraft: {
+          threadGoalMaterializedDraft: {
             objective: "Keep refining the migration until tests pass",
+            attachmentDirectory: null,
           },
           permissionMode: "auto",
           skipAutoTitleGeneration: true,
-        });
+        }));
 
         const turnStartIndex = requests.findIndex((request) => request.method === "turn/start");
         const goalSetIndex = requests.findIndex((request) => request.method === "thread/goal/set");
@@ -11924,15 +16720,17 @@ describe("codex-service startThreadForSession", () => {
               },
             });
           }
+          const response = makeCanonicalThreadStartResponse({
+            threadId: isHelperThread ? "thr_title_helper" : "thr_session_auto_title",
+            cwd: "/tmp/codex",
+          });
           return {
+            ...response,
             thread: {
-              id: isHelperThread ? "thr_title_helper" : "thr_session_auto_title",
+              ...response.thread,
               ephemeral: isHelperThread,
               threadSource: isHelperThread ? "system" : "appServer",
-              modelProvider: "openai",
-              cwd: "/tmp/codex",
-              createdAt: 1_780_800_000_000,
-              updatedAt: 1_780_800_000_000,
+              name: null,
             },
           };
         }
@@ -12027,15 +16825,25 @@ describe("codex-service startThreadForSession", () => {
 
   test("forks a session thread from a selected turn and attaches the branch to a new project session", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session branch" });
+      const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-fork-worktree-repo-"));
+      initializeGitRepository(repoPath);
+      const sourceWorkspacePath = path.join(repoPath, "packages", "fork-source");
+      fs.mkdirSync(sourceWorkspacePath, { recursive: true });
+      fs.writeFileSync(path.join(sourceWorkspacePath, "source.txt"), "nested fork source\n", "utf8");
+      execFileSync("git", ["add", "packages/fork-source/source.txt"], { cwd: repoPath });
+      execFileSync("git", ["commit", "-m", "test: add nested fork workspace"], {
+        cwd: repoPath,
+      });
+      const project = createProject({ name: "Session fork worktree", sources: [sourceWorkspacePath] });
+      const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "Session branch" });
       upsertProjectSessionThreadLink({
         sessionId: session.id,
-        projectId: defaultProjectId,
+        projectId: project.id,
         threadId: "thr_session_source",
         threadName: "Source session thread",
         threadPreview: "Source preview",
         modelProvider: "openai",
-        cwd: "/tmp/codex",
+        cwd: sourceWorkspacePath,
         statusType: "idle",
         statusActiveFlags: [],
         archived: false,
@@ -12049,45 +16857,52 @@ describe("codex-service startThreadForSession", () => {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
+      const sessionForkTurns = [
+        makeCanonicalHydrationTurn("turn_1"),
+        makeCanonicalHydrationTurn("turn_2"),
+        makeCanonicalHydrationTurn("turn_3"),
+      ];
+      let sessionForkResponse = makeCanonicalForkResponse({
+        threadId: "thr_session_forked",
+        cwd: sourceWorkspacePath,
+        turns: sessionForkTurns,
+      });
 
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
         if (method === "thread/fork") {
+          const requestedCwd = (params as { cwd?: string }).cwd ?? sourceWorkspacePath;
+          sessionForkResponse = makeCanonicalForkResponse({
+            threadId: "thr_session_forked",
+            cwd: requestedCwd,
+            turns: sessionForkTurns,
+          });
+          return sessionForkResponse;
+        }
+        if (method === "thread/read") {
+          return { thread: { ...sessionForkResponse.thread, turns: [] } };
+        }
+        if (method === "thread/resume") return makeCanonicalForkResumeResponse(sessionForkResponse);
+        if (method === "thread/goal/get") return { goal: null };
+        if (method === "thread/rollback") {
           return {
             thread: {
-              id: "thr_session_forked",
-              modelProvider: "openai",
-              cwd: "/tmp/codex",
-              createdAt: 1,
-              updatedAt: 4,
-              turns: [
-                {
-                  id: "turn_1",
-                  status: "completed",
-                  items: [
-                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
-                  ],
-                },
-                {
-                  id: "turn_2",
-                  status: "completed",
-                  items: [
-                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
-                  ],
-                },
-              ],
+              ...sessionForkResponse.thread,
+              turns: sessionForkTurns.slice(0, 2),
             },
           };
         }
+        if (method === "thread/name/set") return {};
         throw new Error(`Unexpected client request: ${method}`);
       };
 
-      hydrateConversation(service, {
-        ...makeThreadDetail("thr_session_source"),
-        projectId: defaultProjectId,
+      const originalSerializeThreadDetail = service.serializeThreadDetail.bind(service);
+      service.serializeThreadDetail = (threadId: string) => threadId === "thr_session_source" ? ({
+        ...makeThreadDetail(threadId),
+        projectId: project.id,
         threadName: "Source session thread",
-        cwd: "/tmp/codex",
+        cwd: sourceWorkspacePath,
         turns: [
           { threadId: "thr_session_source", turnId: "turn_1", status: "completed", itemIds: ["user_1"] },
           { threadId: "thr_session_source", turnId: "turn_2", status: "completed", itemIds: ["user_2"] },
@@ -12134,31 +16949,256 @@ describe("codex-service startThreadForSession", () => {
             updatedAt: 3,
           },
         ],
-      });
+      }) : originalSerializeThreadDetail(threadId);
+
+      const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+        dependencies: {
+          createWorktree: (
+            entry: CodexPendingWorktreeEntry,
+            context: { signal: AbortSignal },
+          ) => Promise<never>;
+        };
+      };
+      pendingRuntime.dependencies.createWorktree = async (_entry, context) =>
+        await new Promise<never>((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
 
       try {
         const result = await service.forkProjectSessionThread(session.id, {
-          target: "local",
+          target: "newWorktree",
           turnId: "turn_2",
           message: "Continue from turn 2",
           collaborationMode: "plan",
         });
-        const forkParams = requests[0]?.params as { threadId?: string; lastTurnId?: string; cwd?: string } | undefined;
-        const linked = getProjectSession(result.session.id)?.thread;
-        const snapshot = service.serializeConversationSnapshot("thr_session_forked");
+        if (!("pendingWorktreeId" in result)) {
+          throw new Error("Expected a pending worktree fork");
+        }
+        const pending = service.listPendingWorktrees().find((entry) =>
+          entry.id === result.pendingWorktreeId
+        );
 
-        expect(requests[0]?.method).toBe("thread/fork");
-        expect(forkParams?.threadId).toBe("thr_session_source");
-        expect(forkParams?.lastTurnId).toBe("turn_2");
-        expect(forkParams?.cwd).toBe("/tmp/codex");
-        expect(requests.length).toBe(1);
-        expect(result.threadId).toBe("thr_session_forked");
-        expect(result.composerIntent?.prompt).toBe("Continue from turn 2");
-        expect(linked?.threadId).toBe("thr_session_forked");
-        expect(linked?.projectId).toBe(defaultProjectId);
-        expect(snapshot?.turns.length).toBe(2);
-        expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
-        expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
+        expect(requests.length).toBe(0);
+        expect(result.clientThreadId.startsWith("client-new-thread:")).toBe(true);
+        expect(result.pendingWorktreeId.startsWith("local:")).toBe(true);
+        expect(pending?.launchMode).toBe("fork-conversation");
+        if (pending?.launchMode !== "fork-conversation") {
+          throw new Error("Expected a pending fork request");
+        }
+        expect(pending.sourceConversationId).toBe("thr_session_source");
+        expect(pending.targetTurnId).toBe("turn_2");
+        expect(pending.startingState?.type).toBe("working-tree");
+        expect(pending.projectAssignment?.projectId).toBe(project.id);
+        expect(pending.prompt).toBe("Continue this task in a new worktree");
+        expect(getProjectSession(session.id)?.thread?.threadId).toBe("thr_session_source");
+      } finally {
+        await service.shutdown();
+        fs.rmSync(repoPath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("creates a pending worktree fork for a projectless session", async () => {
+    const ran = await withTempDatabase(async () => {
+      const sourceWorkspacePath = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-projectless-session-fork-"),
+      );
+      const session = createProjectSession({
+        projectId: null,
+        noThreadFallbackTitle: "Projectless branch",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: null,
+        threadId: "thr_projectless_source",
+        threadName: "Projectless source thread",
+        threadPreview: "Source preview",
+        modelProvider: "openai",
+        cwd: sourceWorkspacePath,
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+      };
+      client.start = async () => undefined;
+      const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+        dependencies: {
+          createWorktree: (
+            entry: CodexPendingWorktreeEntry,
+            context: { signal: AbortSignal },
+          ) => Promise<never>;
+        };
+      };
+      pendingRuntime.dependencies.createWorktree = async (_entry, context) =>
+        await new Promise<never>((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+
+      try {
+        const result = await service.forkProjectSessionThread(session.id, {
+          target: "newWorktree",
+          localEnvironmentConfigPath: "/tmp/environment.toml",
+        });
+        if (!("pendingWorktreeId" in result)) {
+          throw new Error("Expected a pending projectless worktree fork");
+        }
+        const pending = service.listPendingWorktrees().find((entry) =>
+          entry.id === result.pendingWorktreeId
+        );
+        if (pending?.launchMode !== "fork-conversation") {
+          throw new Error("Expected a pending projectless fork request");
+        }
+
+        expect(pending.projectAssignment).toBe(null);
+        expect(pending.sourceConversationId).toBe("thr_projectless_source");
+        expect(pending.sourceWorkspaceRoot).toBe(sourceWorkspacePath);
+        expect(pending.localEnvironmentConfigPath).toBe("/tmp/environment.toml");
+      } finally {
+        await service.shutdown();
+        fs.rmSync(sourceWorkspacePath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("keeps projectless workspace hints on a persistent same-directory session fork", async () => {
+    const ran = await withTempDatabase(async () => {
+      const cwd = "/tmp/projectless-persistent";
+      const outputDirectory = "/tmp/projectless-persistent-output";
+      const workspaceBrowserRoot = "/tmp/projectless-persistent-browser";
+      const rollbackCwd = "/tmp/projectless-persistent-rollback";
+      const sourceSession = createProjectSession({
+        projectId: null,
+        noThreadFallbackTitle: "Projectless persistent source",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: sourceSession.id,
+        projectId: null,
+        threadId: "thr_projectless_persistent_source",
+        threadName: "Projectless persistent source",
+        threadPreview: "Source preview",
+        modelProvider: "openai",
+        cwd,
+        projectlessOutputDirectory: outputDirectory,
+        projectlessWorkspaceBrowserRoot: workspaceBrowserRoot,
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const forkResponse = makeCanonicalForkResponse({
+        threadId: "thr_projectless_persistent_child",
+        cwd,
+        turns: [
+          makeCanonicalHydrationTurn("turn_projectless_1"),
+          makeCanonicalHydrationTurn("turn_projectless_2"),
+        ],
+      });
+      const sourceTurns = [
+        makeCanonicalHydrationTurn("turn_projectless_1"),
+        makeCanonicalHydrationTurn("turn_projectless_2"),
+      ];
+      let hadCanonicalChildBeforeResume = true;
+      const sourceResponse = makeCanonicalResumeResponse({
+        threadId: "thr_projectless_persistent_source",
+        initialTurnsPage: {
+          data: [...sourceTurns].reverse(),
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      });
+      sourceResponse.cwd = cwd;
+      sourceResponse.thread = {
+        ...sourceResponse.thread,
+        cwd,
+        turns: sourceTurns,
+      };
+      (service as unknown as {
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      }).hydrateCanonicalConversationState(sourceResponse);
+      hydrateConversation(service, {
+        ...makeThreadDetail("thr_projectless_persistent_source"),
+        projectId: null,
+        cwd,
+        projectlessOutputDirectory: outputDirectory,
+        projectlessWorkspaceBrowserRoot: workspaceBrowserRoot,
+        turns: [
+          {
+            threadId: "thr_projectless_persistent_source",
+            turnId: "turn_projectless_1",
+            status: "completed",
+            itemIds: sourceTurns[0]?.items.map((item) => item.id) ?? [],
+          },
+          {
+            threadId: "thr_projectless_persistent_source",
+            turnId: "turn_projectless_2",
+            status: "completed",
+            itemIds: sourceTurns[1]?.items.map((item) => item.id) ?? [],
+          },
+        ],
+      });
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method === "thread/fork") return forkResponse;
+        if (method === "thread/read") return { thread: { ...forkResponse.thread, turns: [] } };
+        if (method === "thread/resume") {
+          hadCanonicalChildBeforeResume = getCanonicalConversationState(
+            service,
+            forkResponse.thread.id,
+          ) !== null;
+          return makeCanonicalForkResumeResponse(forkResponse);
+        }
+        if (method === "thread/goal/get") return { goal: null };
+        if (method === "thread/rollback") {
+          return {
+            thread: {
+              ...forkResponse.thread,
+              cwd: rollbackCwd,
+              preview: "Rollback preview",
+              turns: [makeCanonicalHydrationTurn("turn_projectless_1")],
+            },
+          };
+        }
+        if (method === "thread/name/set") return {};
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      try {
+        const result = await service.forkProjectSessionThread(sourceSession.id, {
+          target: "local",
+          turnId: "turn_projectless_1",
+        });
+        if (!("session" in result)) throw new Error("Expected a persistent session fork");
+        const child = getProjectSession(result.session.id)?.thread;
+
+        expect(child?.threadId).toBe("thr_projectless_persistent_child");
+        expect(child?.projectId ?? null).toBe(null);
+        expect(child?.projectlessOutputDirectory ?? null).toBe(outputDirectory);
+        expect(child?.projectlessWorkspaceBrowserRoot ?? null).toBe(workspaceBrowserRoot);
+        expect(child?.cwd ?? null).toBe(rollbackCwd);
+        expect(child?.threadPreview ?? null).toBe("Rollback preview");
+        expect(result.session.projectId ?? null).toBe(null);
+        expect(hadCanonicalChildBeforeResume).toBe(false);
       } finally {
         await service.shutdown();
       }
@@ -12189,14 +17229,10 @@ describe("codex-service startThreadForSession", () => {
           throw new Error("use fallback permission state");
         }
         if (method === "thread/start") {
-          return {
-            thread: {
-              id: "thr_session_local",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 1,
-            },
-          };
+          return makeCanonicalThreadStartResponse({
+            threadId: "thr_session_local",
+            cwd: "/tmp/codex",
+          });
         }
         if (method === "turn/start") {
           return {
@@ -12303,16 +17339,129 @@ describe("codex-service startThreadForSession", () => {
     const ran = await withTempDatabase(async () => {
       const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-worktree-repo-"));
       initializeGitRepository(repoPath);
-      const project = createProject({ name: "Session Worktree", sources: [repoPath] });
+      const sourceWorkspacePath = path.join(repoPath, "packages", "session");
+      fs.mkdirSync(sourceWorkspacePath, { recursive: true });
+      fs.writeFileSync(path.join(sourceWorkspacePath, "session.txt"), "nested session\n", "utf8");
+      execFileSync("git", ["add", "packages/session/session.txt"], { cwd: repoPath });
+      execFileSync("git", ["commit", "-m", "test: add nested session workspace"], {
+        cwd: repoPath,
+      });
+      const project = createProject({ name: "Session Worktree", sources: [sourceWorkspacePath] });
       const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "Session worktree" });
+      const rightBrowserTab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: project.id,
+        panelId: "right",
+        kind: "browser",
+        title: "Right browser",
+        config: { projectId: project.id, url: "https://right.example.com" },
+      });
+      const bottomBrowserTab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: project.id,
+        panelId: "bottom",
+        kind: "browser",
+        title: "Bottom browser",
+        config: { projectId: project.id, url: "https://bottom.example.com" },
+      });
+      const promptPastedSource = "  Prompt source\nwith exact whitespace  ";
+      const goalImageAttachment = {
+        src: "https://example.com/goal-reference.png",
+        localPath: null,
+        filename: "goal-reference.png",
+        rendererOnly: "must not enter the frozen request",
+      };
 
-      const service = createService();
+      const service = createService({
+        resolveThreadGoalAttachmentsRoot: () => path.join(repoPath, "goal-attachments"),
+        browserTransferStateReader: {
+          getStateSnapshot: () => ({
+            tabs: [{
+              browserConversationId: session.id,
+              browserTabId: "runtime-browser",
+              projectId: project.id,
+              webContentsId: null,
+              mountGeneration: 0,
+              url: "https://runtime.example.com",
+              title: "Runtime browser",
+              isLoading: false,
+              canGoBack: false,
+              canGoForward: false,
+              zoomPercent: 100,
+              deviceToolbarVisible: false,
+              viewport: { width: 0, height: 0, zoomPercent: 100, presetId: "responsive" },
+              deviceToolbarState: {
+                responsiveViewportSize: null,
+                toolbarState: {
+                  isEnabled: false,
+                  presetId: "responsive",
+                  width: 0,
+                  height: 0,
+                },
+              },
+              interactionMode: "browse",
+              findState: {
+                open: false,
+                query: "",
+                activeMatchOrdinal: null,
+                matchCount: null,
+                caseSensitive: false,
+              },
+              hasBrowserPage: true,
+              pageActionsDisabled: false,
+              updatedAt: 0,
+            }],
+          }),
+          getBrowserUseStateSnapshot: () => ({
+            tabs: [{
+              browserConversationId: session.id,
+              browserTabId: "browser-use",
+              projectId: project.id,
+              title: "Browser use",
+              url: "https://browser-use.example.com",
+              webContentsId: null,
+              viewport: { width: 0, height: 0, zoomPercent: 100, presetId: "responsive" },
+              captureActive: false,
+              released: false,
+              updatedAt: 0,
+            }],
+            activeBrowserTabIdsByConversation: { [session.id]: "browser-use" },
+            cursors: [],
+          }),
+        },
+      });
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
       const events: CodexEvent[] = [];
+      let releaseWorktreeCreation!: () => void;
+      const worktreeCreationGate = new Promise<void>((resolve) => {
+        releaseWorktreeCreation = resolve;
+      });
+      const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+        dependencies: {
+          createWorktree: (
+            entry: CodexPendingWorktreeEntry,
+            context: {
+              signal: AbortSignal;
+              onOutput: (output: string) => void;
+              onSetupStarted: () => void;
+            },
+          ) => Promise<{
+            worktreeGitRoot: string;
+            worktreeWorkspaceRoot: string;
+            setupError?: string | null;
+          }>;
+        };
+      };
+      const createWorktree = pendingRuntime.dependencies.createWorktree;
+      pendingRuntime.dependencies.createWorktree = async (entry, context) => {
+        await worktreeCreationGate;
+        return await createWorktree(entry, context);
+      };
+      let configSnapshot = "frozen";
 
       (service as unknown as {
         on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
@@ -12323,17 +17472,30 @@ describe("codex-service startThreadForSession", () => {
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
-        if (method === "config/read" || method === "configRequirements/read") {
-          throw new Error("use fallback permission state");
+        if (method === "config/read") {
+          return {
+            config: {
+              profile: "selected",
+              profiles: {
+                selected: { pending_snapshot_marker: configSnapshot },
+              },
+            },
+            origins: {},
+          };
+        }
+        if (method === "configRequirements/read") {
+          return { requirements: null };
         }
         if (method === "thread/start") {
+          const cwd = (params as { cwd?: string }).cwd ?? sourceWorkspacePath;
+          const response = makeCanonicalThreadStartResponse({
+            threadId: "thr_session_worktree",
+            cwd,
+          });
           return {
-            thread: {
-              id: "thr_session_worktree",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 1,
-            },
+            ...response,
+            model: "gpt-5-codex",
+            reasoningEffort: "medium",
           };
         }
         if (method === "turn/start") {
@@ -12374,6 +17536,7 @@ describe("codex-service startThreadForSession", () => {
           cwd: link?.cwd ?? "",
           statusType: "active",
           statusActiveFlags: [],
+          hasUnreadTurn: false,
           archived: false,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -12384,14 +17547,46 @@ describe("codex-service startThreadForSession", () => {
       };
 
       try {
-        await service.startThreadForSession({
+        const result = await service.startThreadForSession({
           projectId: project.id,
           sessionId: session.id,
-          prompt: "Start in worktree",
+          prompt: "",
+          promptInput: {
+            text: "",
+            textAttachments: [{ text: promptPastedSource }],
+            fileAttachments: [{
+              label: "README.md",
+              path: "README.md",
+              fsPath: path.join(repoPath, "README.md"),
+              startLine: 1,
+            }],
+            addedFiles: [{
+              label: "session.txt",
+              path: "packages/session/session.txt",
+              fsPath: path.join(sourceWorkspacePath, "session.txt"),
+            }],
+            commentAttachments: [{
+              id: "review-comment",
+              type: "comment",
+              content: [{ content_type: "text", text: "Preserve this review context" }],
+              position: { side: "right", path: "src/index.ts", line: 4 },
+              createdAt: 1,
+            }],
+          },
           threadGoalDraft: {
-            objective: "Keep refining the worktree setup until tests pass",
+            objective: "",
+            pastedTextAttachments: [{
+              text: "Keep refining the worktree setup until tests pass",
+            }],
+            imageAttachments: [goalImageAttachment],
           },
           runInTarget: "newWorktree",
+          permissionProfileId: "team-profile",
+          memoryPreferences: { generateMemories: true, useMemories: false },
+          mode: "work",
+          threadStartKind: "composer",
+          baseInstructions: "Frozen base instructions",
+          additionalDeveloperInstructions: "Frozen additional instructions",
           worktreeStartMode: "detachedHead",
           worktreeBranchPrefix: "nodex/",
           heartbeatAutomation: {
@@ -12401,6 +17596,90 @@ describe("codex-service startThreadForSession", () => {
           },
           skipAutoTitleGeneration: true,
         });
+        if (result.kind !== "pending") {
+          throw new Error("Expected a pending worktree result");
+        }
+        const initialPending = service.listPendingWorktrees().find((entry) =>
+          entry.id === result.pendingWorktreeId
+        );
+        expect(initialPending?.startingState?.type).toBe("branch");
+        expect(
+          initialPending?.startingState?.type === "branch"
+            ? initialPending.startingState.branchName
+            : null,
+        ).toBe("main");
+        if (!initialPending || initialPending.launchMode !== "start-conversation") {
+          throw new Error("Expected a frozen pending start request");
+        }
+        expect(initialPending.projectSessionId).toBe(session.id);
+        expect(initialPending.browserTransferSourceBrowserTabId).toBe("browser-use");
+        expect(JSON.stringify(initialPending.browserTransferSourceBrowserTabIds)).toBe(
+          JSON.stringify([
+            rightBrowserTab.browserTabId,
+            bottomBrowserTab.browserTabId,
+            "runtime-browser",
+            "browser-use",
+          ]),
+        );
+        expect(initialPending.browserTransferSourceConversationId).toBe(session.id);
+        expect(initialPending.startConversationParamsInput.commentAttachments.length).toBe(1);
+        const frozenPrompt = (
+          initialPending.startConversationParamsInput.input[0] as { text?: string }
+        ).text ?? "";
+        expect(frozenPrompt.includes("# Files mentioned by the user:")).toBe(true);
+        expect(frozenPrompt.includes("## README.md: README.md (line 1)")).toBe(true);
+        expect(frozenPrompt.includes("## session.txt: packages/session/session.txt")).toBe(true);
+        expect(frozenPrompt.includes("The attached pasted text file(s) contain the user's request."))
+          .toBe(true);
+        expect(frozenPrompt.includes("## My request for Codex:")).toBe(true);
+        expect(frozenPrompt.includes(promptPastedSource)).toBe(false);
+        const frozenPromptSource = initialPending.startConversationParamsInput.fileAttachments
+          .find((attachment) => attachment.label === "Prompt source with exact whitespace");
+        const frozenGoalSource = initialPending.threadGoalDraft?.pastedTextAttachments?.[0]?.file;
+        expect(frozenPromptSource !== undefined).toBe(true);
+        expect(frozenGoalSource !== undefined).toBe(true);
+        expect(Object.prototype.hasOwnProperty.call(
+          initialPending.threadGoalDraft?.pastedTextAttachments?.[0] ?? {},
+          "text",
+        )).toBe(false);
+        expect(JSON.stringify(initialPending.threadGoalDraft?.imageAttachments[0])).toBe(
+          JSON.stringify({
+            src: "https://example.com/goal-reference.png",
+            localPath: null,
+            filename: "goal-reference.png",
+          }),
+        );
+        expect(fs.readFileSync(frozenPromptSource?.fsPath ?? "", "utf8")).toBe(
+          promptPastedSource,
+        );
+        expect(initialPending.startConversationParamsInput.addedFiles[0]?.path).toBe(
+          "packages/session/session.txt",
+        );
+        expect(
+          initialPending.startConversationParamsInput.config.pending_snapshot_marker,
+        ).toBe("frozen");
+        expect(initialPending.startConversationParamsInput.permissionProfileId).toBe(
+          "team-profile",
+        );
+        expect(initialPending.startConversationParamsInput.memoryPreferences?.generateMemories)
+          .toBe(true);
+        expect(initialPending.startConversationParamsInput.mode).toBe("work");
+        expect(initialPending.startConversationParamsInput.threadStartKind).toBe("composer");
+        expect(initialPending.startConversationParamsInput.baseInstructions).toBe(
+          "Frozen base instructions",
+        );
+        expect(initialPending.startConversationParamsInput.additionalDeveloperInstructions).toBe(
+          "Frozen additional instructions",
+        );
+        expect(requests.some((request) => request.method === "thread/start")).toBe(false);
+        configSnapshot = "mutated";
+        releaseWorktreeCreation();
+        await waitForCondition(
+          () => requests.some((request) => request.method === "thread/goal/set")
+            && requests.some((request) => request.method === "turn/start")
+            && getProjectSession(session.id)?.thread?.threadId === "thr_session_worktree",
+          10_000,
+        );
 
         const threadStartCwd = (requests.find((request) => request.method === "thread/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
         const turnStartCwd = (requests.find((request) => request.method === "turn/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
@@ -12411,17 +17690,78 @@ describe("codex-service startThreadForSession", () => {
           objective?: string;
           status?: string;
         } | undefined;
+        const turnStartParams = requests[turnStartIndex]?.params as {
+          additionalContext?: unknown;
+          attachments?: Array<{ label: string; path: string; fsPath: string }>;
+          input?: Array<{ type?: string; text?: string }>;
+        } | undefined;
+        const threadStartParams = requests.find((request) => request.method === "thread/start")
+          ?.params as {
+            baseInstructions?: string | null;
+            config?: Record<string, unknown>;
+            developerInstructions?: string | null;
+            permissions?: string | null;
+          } | undefined;
         const linked = getProjectSession(session.id)?.thread;
         expect(threadStartCwd.length > 0).toBe(true);
         expect(threadStartCwd === repoPath).toBe(false);
         expect(fs.existsSync(threadStartCwd)).toBe(true);
         expect(turnStartCwd).toBe(threadStartCwd);
         expect(linked?.cwd).toBe(threadStartCwd);
-        expect(linked?.managedWorktreePath).toBe(threadStartCwd);
+        const worktreeGitRoot = execFileSync(
+          "git",
+          ["rev-parse", "--path-format=absolute", "--show-toplevel"],
+          { cwd: threadStartCwd, encoding: "utf8" },
+        ).trim();
+        expect(fs.realpathSync(linked?.managedWorktreePath ?? "")).toBe(
+          fs.realpathSync(worktreeGitRoot),
+        );
+        expect(linked?.managedWorktreePath === threadStartCwd).toBe(false);
+        expect(path.relative(
+          fs.realpathSync(worktreeGitRoot),
+          fs.realpathSync(threadStartCwd),
+        )).toBe("packages/session");
         expect(goalSetIndex > turnStartIndex).toBe(true);
         expect(goalSetParams?.threadId).toBe("thr_session_worktree");
-        expect(goalSetParams?.objective).toBe("Keep refining the worktree setup until tests pass");
+        expect(goalSetParams?.objective?.includes("pasted text file:") ?? false).toBe(true);
         expect(goalSetParams?.status).toBe("active");
+        expect(turnStartParams?.input?.[0]?.text).toBe(`/goal ${goalSetParams?.objective}`);
+        const realizedAttachmentPaths = turnStartParams?.attachments?.map((attachment) =>
+          attachment.path
+        ) ?? [];
+        expect(realizedAttachmentPaths.includes("README.md")).toBe(true);
+        expect(realizedAttachmentPaths.includes("packages/session/session.txt")).toBe(true);
+        expect(realizedAttachmentPaths.includes(frozenPromptSource?.path ?? "")).toBe(true);
+        expect(realizedAttachmentPaths.includes(frozenGoalSource?.path ?? "")).toBe(false);
+        await waitForCondition(
+          () =>
+            (getCanonicalConversationState(service, "thr_session_worktree")
+              ?.turns.at(-1)?.sidecar.params.attachments?.length ?? 0) === 3,
+          10_000,
+        );
+        const canonicalAttachmentPaths = getCanonicalConversationState(
+          service,
+          "thr_session_worktree",
+        )?.turns.at(-1)?.sidecar.params.attachments?.map((attachment) =>
+          (attachment as { path: string }).path
+        ) ?? [];
+        expect(JSON.stringify(canonicalAttachmentPaths)).toBe(
+          JSON.stringify(realizedAttachmentPaths),
+        );
+        expect(JSON.stringify(turnStartParams?.additionalContext).includes(
+          "Preserve this review context",
+        )).toBe(true);
+        expect(Object.prototype.hasOwnProperty.call(
+          threadStartParams?.config ?? {},
+          "pending_snapshot_marker",
+        )).toBe(false);
+        expect(threadStartParams?.permissions).toBe("team-profile");
+        expect(threadStartParams?.baseInstructions).toBe("Frozen base instructions");
+        expect(threadStartParams?.developerInstructions?.includes(
+          "Frozen additional instructions",
+        ) ?? false).toBe(true);
+        expect(threadStartParams?.config?.["memories.generate_memories"]).toBe(true);
+        expect(threadStartParams?.config?.["memories.use_memories"]).toBe(false);
 
         const heartbeat = listCodexScheduledAutomations().find((automation) =>
           automation.kind === "heartbeat" && automation.targetThreadId === "thr_session_worktree"
@@ -12441,19 +17781,7 @@ describe("codex-service startThreadForSession", () => {
         expect(progressEvents.some((event) =>
           event.sessionId === session.id
           && event.runInTarget === "newWorktree"
-          && event.phase === "creatingWorktree"
-        )).toBe(true);
-        expect(progressEvents.some((event) =>
-          event.sessionId === session.id
-          && event.runInTarget === "newWorktree"
-          && event.phase === "startingThread"
-        )).toBe(true);
-        expect(progressEvents.some((event) =>
-          event.sessionId === session.id
-          && event.runInTarget === "newWorktree"
-          && event.threadId === "thr_session_worktree"
-          && event.phase === "ready"
-        )).toBe(true);
+        )).toBe(false);
         expect(events.some((event) =>
           event.type === "scheduledAutomationChanged"
           && event.event.automationId === heartbeat.id
@@ -12469,7 +17797,7 @@ describe("codex-service startThreadForSession", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("keeps managed worktree start successful when heartbeat automation creation fails", async () => {
+  test("freezes heartbeat setup in the pending worktree producer", async () => {
     const ran = await withTempDatabase(async () => {
       const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-worktree-heartbeat-fail-"));
       initializeGitRepository(repoPath);
@@ -12485,17 +17813,31 @@ describe("codex-service startThreadForSession", () => {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const events: CodexEvent[] = [];
+      const warnings: CodexPendingWorktreeWarningEvent[] = [];
 
       (service as unknown as {
         on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
       }).on("event", (event) => {
         events.push(event);
       });
+      (service as unknown as {
+        on: (
+          eventName: "pendingWorktreeWarning",
+          listener: (event: CodexPendingWorktreeWarningEvent) => void,
+        ) => void;
+      }).on("pendingWorktreeWarning", (event) => {
+        warnings.push(event);
+      });
 
       client.start = async () => undefined;
+      const requests: string[] = [];
       client.request = async (method: string) => {
-        if (method === "config/read" || method === "configRequirements/read") {
-          throw new Error("use fallback permission state");
+        requests.push(method);
+        if (method === "config/read") {
+          return { config: {}, origins: {} };
+        }
+        if (method === "configRequirements/read") {
+          return { requirements: null };
         }
         if (method === "thread/start") {
           return {
@@ -12529,6 +17871,7 @@ describe("codex-service startThreadForSession", () => {
         cwd: getProjectSession(session.id)?.thread?.cwd ?? "",
         statusType: "active",
         statusActiveFlags: [],
+        hasUnreadTurn: false,
         archived: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -12536,9 +17879,23 @@ describe("codex-service startThreadForSession", () => {
         turns: [],
         transcript: [],
       });
+      const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+        dependencies: {
+          createWorktree: (
+            entry: CodexPendingWorktreeEntry,
+            context: { signal: AbortSignal },
+          ) => Promise<never>;
+        };
+      };
+      pendingRuntime.dependencies.createWorktree = async (_entry, context) =>
+        await new Promise<never>((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
 
       try {
-        const detail = await service.startThreadForSession({
+        const result = await service.startThreadForSession({
           projectId: project.id,
           sessionId: session.id,
           prompt: "Start in worktree",
@@ -12552,21 +17909,49 @@ describe("codex-service startThreadForSession", () => {
           skipAutoTitleGeneration: true,
         });
 
-        expect(detail.threadId).toBe("thr_session_worktree_heartbeat_fail");
+        if (result.kind !== "pending") {
+          throw new Error("Expected a pending worktree result");
+        }
+        const pending = service.listPendingWorktrees().find((entry) =>
+          entry.id === result.pendingWorktreeId
+        );
+        if (!pending || pending.launchMode !== "start-conversation") {
+          throw new Error("Expected the pending start request");
+        }
+        expect(pending.projectSessionId).toBe(session.id);
+        expect(pending.heartbeatAutomation?.name).toBe("");
+        expect(pending.heartbeatAutomation?.prompt).toBe("This seed should fail validation.");
+        expect(pending.heartbeatAutomation?.rrule).toBe("FREQ=HOURLY;INTERVAL=2");
+        expect(requests.includes("thread/start")).toBe(false);
+        expect(requests.includes("turn/start")).toBe(false);
         expect(listCodexScheduledAutomations().length).toBe(0);
         expect(events.some((event) =>
           event.type === "threadStartProgress"
           && event.runInTarget === "newWorktree"
-          && event.threadId === "thr_session_worktree_heartbeat_fail"
-          && event.phase === "startingThread"
-          && event.message === "Started chat, but could not create the heartbeat."
-          && event.outputDelta === "[stderr] Started chat, but could not create the heartbeat\n"
-        )).toBe(true);
-        expect(events.some((event) =>
-          event.type === "threadStartProgress"
-          && event.threadId === "thr_session_worktree_heartbeat_fail"
-          && event.phase === "ready"
-        )).toBe(true);
+        )).toBe(false);
+
+        (service as unknown as {
+          createPendingWorktreeHeartbeat: (
+            entry: Extract<
+              CodexPendingWorktreeEntry,
+              { readonly launchMode: "start-conversation" }
+            >,
+            threadId: string,
+          ) => void;
+        }).createPendingWorktreeHeartbeat(
+          pending,
+          "thr_session_worktree_heartbeat_fail",
+        );
+
+        expect(listCodexScheduledAutomations().length).toBe(0);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]?.clientThreadId).toBe(pending.clientThreadId);
+        expect(warnings[0]?.pendingWorktreeId).toBe(pending.id);
+        expect(warnings[0]?.threadId).toBe("thr_session_worktree_heartbeat_fail");
+        expect(warnings[0]?.kind).toBe("heartbeat-automation-create-failed");
+        expect(warnings[0]?.message).toBe(
+          "Started task, but could not create the heartbeat",
+        );
       } finally {
         await service.shutdown();
         fs.rmSync(repoPath, { recursive: true, force: true });
@@ -12576,12 +17961,179 @@ describe("codex-service startThreadForSession", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("aborts session worktree start when selected environment setup fails", async () => {
+  test("captures setup shell changes and applies the persisted policy to worktree thread start", async () => {
+    const ran = await withTempDatabase(async () => {
+      const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-env-capture-repo-"));
+      initializeGitRepository(repoPath);
+      const environmentsDir = path.join(repoPath, ".codex", "environments");
+      fs.mkdirSync(environmentsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(environmentsDir, "environment.toml"),
+        [
+          'name = "session-env-capture"',
+          "",
+          "[setup]",
+          "script = '''",
+          "export NODEX_CAPTURED_FROM_SETUP=ready",
+          "unset NODEX_REMOVED_BY_SETUP",
+          "'''",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      const project = createProject({ name: "Session Env Capture", sources: [repoPath] });
+      const session = createProjectSession({
+        projectId: project.id,
+        noThreadFallbackTitle: "Captured setup",
+      });
+      const service = createService({
+        loadWorktreeSetupBaseEnvironment: async () => ({ ...process.env }),
+      });
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const previousRemovedValue = process.env.NODEX_REMOVED_BY_SETUP;
+      process.env.NODEX_REMOVED_BY_SETUP = "remove-me";
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read") {
+          return {
+            config: {
+              shell_environment_policy: {
+                inherit: "all",
+                set: { EXISTING: "kept" },
+                exclude: ["ALREADY_EXCLUDED"],
+              },
+            },
+            origins: {},
+            layers: [],
+          };
+        }
+        if (method === "configRequirements/read") return { requirements: null };
+        if (method === "thread/start") {
+          const cwd = (params as { cwd?: string | null }).cwd ?? "";
+          return {
+            thread: {
+              id: "thr_session_env_capture",
+              status: { type: "idle" },
+              createdAt: 1,
+              updatedAt: 1,
+              cwd,
+              modelProvider: "openai",
+              preview: "",
+              name: null,
+              turns: [],
+            },
+            model: "gpt-5-codex",
+            modelProvider: "openai",
+            serviceTier: null,
+            cwd,
+            runtimeWorkspaceRoots: [cwd],
+            instructionSources: [],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: [cwd],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
+            reasoningEffort: "medium",
+            multiAgentMode: "explicitRequestOnly",
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_env_capture",
+              status: "inProgress",
+              items: [],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      service.serializeThreadDetail = (threadId: string) => ({
+        ...makeThreadDetail(threadId),
+        projectId: project.id,
+        cwd: getProjectSession(session.id)?.thread?.cwd ?? "",
+      });
+
+      let worktreePath = "";
+      try {
+        const result = await service.startThreadForSession({
+          projectId: project.id,
+          sessionId: session.id,
+          prompt: "Start with captured environment",
+          runInTarget: "newWorktree",
+          runInEnvironmentPath: ".codex/environments/environment.toml",
+          skipAutoTitleGeneration: true,
+        });
+        if (result.kind !== "pending") {
+          throw new Error("Expected a pending worktree result");
+        }
+        const pending = service.listPendingWorktrees().find((entry) =>
+          entry.id === result.pendingWorktreeId
+        );
+        expect(pending?.localEnvironmentConfigPath).toBe(
+          ".codex/environments/environment.toml",
+        );
+        await waitForCondition(
+          () => requests.some((request) => request.method === "turn/start"),
+          10_000,
+        );
+
+        const threadStartParams = requests.find((request) => request.method === "thread/start")
+          ?.params as { cwd?: string; config?: Record<string, unknown> } | undefined;
+        worktreePath = threadStartParams?.cwd ?? "";
+        const set = threadStartParams?.config?.["shell_environment_policy.set"] as Record<string, unknown>;
+        const exclude = threadStartParams?.config?.["shell_environment_policy.exclude"] as string[];
+        const rawGitPath = execFileSync(
+          "git",
+          ["rev-parse", "--git-path", "codex-shell-environment.json"],
+          { cwd: worktreePath, encoding: "utf8" },
+        ).trim();
+        const persistedPath = path.isAbsolute(rawGitPath)
+          ? rawGitPath
+          : path.resolve(worktreePath, rawGitPath);
+        const persisted = JSON.parse(fs.readFileSync(persistedPath, "utf8")) as {
+          version?: number;
+          set?: Record<string, string>;
+          exclude?: string[];
+        };
+
+        expect(set.EXISTING).toBe("kept");
+        expect(set.NODEX_CAPTURED_FROM_SETUP).toBe("ready");
+        expect(exclude.includes("ALREADY_EXCLUDED")).toBe(true);
+        expect(exclude.includes("NODEX_REMOVED_BY_SETUP")).toBe(true);
+        expect(persisted.version).toBe(1);
+        expect(persisted.set?.NODEX_CAPTURED_FROM_SETUP).toBe("ready");
+        expect(persisted.exclude?.includes("NODEX_REMOVED_BY_SETUP") ?? false).toBe(true);
+      } finally {
+        if (previousRemovedValue === undefined) delete process.env.NODEX_REMOVED_BY_SETUP;
+        else process.env.NODEX_REMOVED_BY_SETUP = previousRemovedValue;
+        await service.shutdown();
+        if (worktreePath) fs.rmSync(worktreePath, { recursive: true, force: true });
+        fs.rmSync(repoPath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("keeps a failed pending worktree available for retry and setup repair", async () => {
     const ran = await withTempDatabase(async () => {
       const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-env-fail-repo-"));
       initializeGitRepository(repoPath);
-      const project = createProject({ name: "Session Env Fail", sources: [repoPath] });
-      const environmentsDir = path.join(repoPath, ".codex", "environments");
+      const sourceWorkspacePath = path.join(repoPath, "packages", "setup-failure");
+      const environmentsDir = path.join(sourceWorkspacePath, ".codex", "environments");
       fs.mkdirSync(environmentsDir, { recursive: true });
       fs.writeFileSync(
         path.join(environmentsDir, "environment.toml"),
@@ -12597,9 +18149,18 @@ describe("codex-service startThreadForSession", () => {
         ].join("\n"),
         "utf8",
       );
+      execFileSync("git", ["add", "packages/setup-failure/.codex/environments/environment.toml"], {
+        cwd: repoPath,
+      });
+      execFileSync("git", ["commit", "-m", "test: add failing nested environment"], {
+        cwd: repoPath,
+      });
+      const project = createProject({ name: "Session Env Fail", sources: [sourceWorkspacePath] });
       const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "Failing setup" });
 
-      const service = createService();
+      const service = createService({
+        loadWorktreeSetupBaseEnvironment: async () => ({ ...process.env }),
+      });
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
@@ -12616,32 +18177,60 @@ describe("codex-service startThreadForSession", () => {
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
+        if (method === "config/read") return { config: {}, origins: {} };
+        if (method === "configRequirements/read") return { requirements: null };
         return {};
       };
 
+      let failedWorktreeGitRoot = "";
       try {
-        let message = "";
-        try {
-          await service.startThreadForSession({
-            projectId: project.id,
-            sessionId: session.id,
-            prompt: "Fail setup",
-            runInTarget: "newWorktree",
-            runInEnvironmentPath: ".codex/environments/environment.toml",
-            skipAutoTitleGeneration: true,
-          });
-        } catch (error) {
-          message = error instanceof Error ? error.message : String(error);
+        const result = await service.startThreadForSession({
+          projectId: project.id,
+          sessionId: session.id,
+          prompt: "Fail setup",
+          runInTarget: "newWorktree",
+          runInEnvironmentPath: ".codex/environments/environment.toml",
+          skipAutoTitleGeneration: true,
+        });
+        if (result.kind !== "pending") {
+          throw new Error("Expected a pending worktree result");
         }
+        await waitForCondition(
+          () => service.listPendingWorktrees().some((entry) =>
+            entry.id === result.pendingWorktreeId && entry.phase === "failed"
+          ),
+          10_000,
+        );
+        const pending = service.listPendingWorktrees().find((entry) =>
+          entry.id === result.pendingWorktreeId
+        );
+        if (!pending) throw new Error("Expected failed pending worktree state");
+        failedWorktreeGitRoot = pending.worktreeGitRoot ?? "";
 
-        expect(message.includes("Failed to set up new worktree using environment")).toBe(true);
+        expect(pending.phase).toBe("failed");
+        expect(pending.setupOutputText.includes("session-env-fail")).toBe(true);
+        expect(pending.needsAttention).toBe(true);
+        expect(failedWorktreeGitRoot.length > 0).toBe(true);
+        expect(fs.existsSync(failedWorktreeGitRoot)).toBe(true);
+        expect(canCreateCodexPendingWorktreeSetupRepair(pending)).toBe(true);
         expect(requests.some((request) => request.method === "thread/start")).toBe(false);
+        const worktreeListOutput = execFileSync(
+          "git",
+          ["worktree", "list", "--porcelain"],
+          { cwd: repoPath, encoding: "utf8" },
+        );
+        expect(worktreeListOutput.includes(failedWorktreeGitRoot)).toBe(true);
         const progressEvents = events.filter(
           (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
         );
-        expect(progressEvents.some((event) => event.sessionId === session.id && event.phase === "failed")).toBe(true);
+        expect(progressEvents.some((event) =>
+          event.sessionId === session.id && event.runInTarget === "newWorktree"
+        )).toBe(false);
       } finally {
         await service.shutdown();
+        if (failedWorktreeGitRoot) {
+          await removeManagedWorktree(failedWorktreeGitRoot).catch(() => undefined);
+        }
         fs.rmSync(repoPath, { recursive: true, force: true });
       }
     });
@@ -12699,15 +18288,12 @@ describe("codex-service startThreadForSession", () => {
           throw new Error("use fallback permission state");
         }
         if (method === "thread/start") {
-          return {
-            thread: {
-              id: "thr_session_attachments",
-              modelProvider: "openai",
-              cwd: "/tmp/codex",
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            },
-          };
+          return makeCanonicalThreadStartResponse({
+            threadId: "thr_session_attachments",
+            cwd: "/tmp/codex",
+            model: "gpt-5.3-codex",
+            reasoningEffort: "high",
+          });
         }
         if (method === "turn/start") {
           return {
@@ -12787,15 +18373,10 @@ describe("codex-service startThreadForSession", () => {
           throw new Error("use fallback permission state");
         }
         if (method === "thread/start") {
-          return {
-            thread: {
-              id: "thr_projectless_session",
-              modelProvider: "openai",
-              cwd: (params as { cwd?: string }).cwd,
-              createdAt: 1,
-              updatedAt: 1,
-            },
-          };
+          return makeCanonicalThreadStartResponse({
+            threadId: "thr_projectless_session",
+            cwd: (params as { cwd?: string }).cwd ?? "",
+          });
         }
         if (method === "turn/start") {
           return { turn: { id: "turn_projectless_session", status: "in_progress", items: [] } };
@@ -12804,15 +18385,18 @@ describe("codex-service startThreadForSession", () => {
       };
 
       try {
-        const detail = await service.startThreadForSession({
+        const result = await service.startThreadForSession({
           projectId: project.id,
           sessionId: session.id,
           prompt: "Start without workspace",
           skipAutoTitleGeneration: true,
         });
+        if (result.kind !== "started") {
+          throw new Error("Expected an immediately started projectless thread");
+        }
         const threadStart = requests.find((request) => request.method === "thread/start");
         const cwd = (threadStart?.params as { cwd?: string } | undefined)?.cwd ?? "";
-        expect(detail.threadId).toBe("thr_projectless_session");
+        expect(result.detail.threadId).toBe("thr_projectless_session");
         expect(cwd.includes(path.join("projectless-workspaces", project.id))).toBe(true);
       } finally {
         await service.shutdown();
@@ -12828,6 +18412,7 @@ describe("codex-service startThreadForSession", () => {
       generateThreadTitleWithStructuredTurn: (input: {
         prompt: string;
         cwd: string | null;
+        serviceName?: string;
         client: {
           startThread: (params: Record<string, unknown>) => Promise<unknown>;
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
@@ -12886,6 +18471,7 @@ describe("codex-service startThreadForSession", () => {
       const generated = await serviceInternals.generateThreadTitleWithStructuredTurn({
         prompt: "Refactor inbox list layout",
         cwd: "/tmp/codex",
+        serviceName: "source-service",
         client: mockClient,
       });
       expect(generated).toBe("Refactor inbox list layout");
@@ -12903,6 +18489,7 @@ describe("codex-service startThreadForSession", () => {
         experimentalRawEvents: false,
         dynamicTools: null,
         serviceTier: null,
+        serviceName: "source-service",
       }));
 
       const turnStartPayload = turnStartParams && typeof turnStartParams === "object"
@@ -12932,6 +18519,102 @@ describe("codex-service startThreadForSession", () => {
         collaborationMode: null,
       }));
       expect(unsubscribedThreadId).toBe("thr_title_1");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("uses durable conversation service identity for scheduled title generation", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thread-durable-title-service";
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId,
+        serviceName: "durable-title-service",
+      });
+
+      const service = createService();
+      let capturedServiceName: string | undefined;
+      const serviceInternals = service as unknown as {
+        applyThreadNameLocal: (targetThreadId: string, title: string) => void;
+        generateAndPersistThreadName: (
+          targetThreadId: string,
+          titlePrompt: string,
+          cwd: string | null,
+        ) => Promise<void>;
+        generateThreadTitleForPrompt: (
+          firstPrompt: string,
+          cwd: string | null,
+          serviceName?: string,
+        ) => Promise<string | null>;
+        hasThreadTitle: () => boolean;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      serviceInternals.hasThreadTitle = () => false;
+      serviceInternals.generateThreadTitleForPrompt = async (_prompt, _cwd, serviceName) => {
+        capturedServiceName = serviceName;
+        return "Generated title";
+      };
+      serviceInternals.applyThreadNameLocal = () => {};
+      client.request = async () => ({});
+
+      try {
+        await serviceInternals.generateAndPersistThreadName(
+          threadId,
+          "Build durable title metadata",
+          "/tmp/codex",
+        );
+        expect(capturedServiceName).toBe("durable-title-service");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("persists the exact bounded prompt fallback when generated title metadata is empty", async () => {
+    const service = createService();
+    const appliedTitles: string[] = [];
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const serviceInternals = service as unknown as {
+      applyThreadNameLocal: (threadId: string, title: string) => void;
+      generateAndPersistThreadName: (
+        threadId: string,
+        titlePrompt: string,
+        cwd: string | null,
+      ) => Promise<void>;
+      generateThreadTitleForPrompt: () => Promise<string | null>;
+      hasThreadTitle: () => boolean;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    serviceInternals.hasThreadTitle = () => false;
+    serviceInternals.generateThreadTitleForPrompt = async () => null;
+    serviceInternals.applyThreadNameLocal = (_threadId, title) => {
+      appliedTitles.push(title);
+    };
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      return {};
+    };
+
+    try {
+      await serviceInternals.generateAndPersistThreadName(
+        "thread-fallback-title",
+        `# Build a refined migration plan with ${"careful details ".repeat(8)}`,
+        "/workspace",
+      );
+
+      expect(appliedTitles[0]).toBe(
+        "Build a refined migration plan with careful details careful…",
+      );
+      expect((requests[0]?.params as { name?: string } | undefined)?.name).toBe(
+        appliedTitles[0],
+      );
     } finally {
       await service.shutdown();
     }
@@ -12983,10 +18666,10 @@ describe("codex-service startThreadForSession", () => {
             params: {
               threadId: "thr_title_2",
               turnId: "turn_title_2",
-              item: {
-                type: "agentMessage",
+              item: makeProtocolAgentMessage({
+                id: "title-message",
                 text: "{\"title\":\"title: \\\"Fix flaky.\\\"\"}",
-              },
+              }),
             },
           });
           notificationHandler?.({
@@ -13292,7 +18975,10 @@ describe("codex-service startThreadForSession", () => {
         throw new Error("NODEX_DIR was not set by withTempDatabase");
       }
       const sharedPath = path.join(localStoreDir, "worktrees", "reuse", defaultProjectId);
-      fs.mkdirSync(sharedPath, { recursive: true });
+      const olderWorkspacePath = path.join(sharedPath, "packages", "old");
+      const newerWorkspacePath = path.join(sharedPath, "packages", "new");
+      fs.mkdirSync(olderWorkspacePath, { recursive: true });
+      fs.mkdirSync(newerWorkspacePath, { recursive: true });
 
       const olderLinkedAt = "2026-03-01T00:00:00.000Z";
       const newerLinkedAt = "2026-03-02T00:00:00.000Z";
@@ -13300,15 +18986,23 @@ describe("codex-service startThreadForSession", () => {
         projectId: defaultProjectId,
         threadId: "thr_reused_path_old",
         threadName: "Old Thread",
-        cwd: sharedPath,
+        cwd: olderWorkspacePath,
+        managedWorktreePath: sharedPath,
         linkedAt: olderLinkedAt,
       });
       upsertCodexThread({
         projectId: defaultProjectId,
         threadId: "thr_reused_path_new",
         threadName: "New Thread",
-        cwd: sharedPath,
+        cwd: newerWorkspacePath,
+        managedWorktreePath: sharedPath,
         linkedAt: newerLinkedAt,
+      });
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_cwd_is_not_worktree_authority",
+        cwd: sharedPath,
+        linkedAt: "2026-03-03T00:00:00.000Z",
       });
 
       const service = createService();
@@ -13335,25 +19029,31 @@ describe("codex-service startThreadForSession", () => {
 
       const sharedPath = path.join(localStoreDir, "worktrees", "delete", defaultProjectId);
       const otherPath = path.join(localStoreDir, "worktrees", "keep", defaultProjectId);
-      fs.mkdirSync(sharedPath, { recursive: true });
+      const oldWorkspacePath = path.join(sharedPath, "packages", "old");
+      const newWorkspacePath = path.join(sharedPath, "packages", "new");
+      fs.mkdirSync(oldWorkspacePath, { recursive: true });
+      fs.mkdirSync(newWorkspacePath, { recursive: true });
       fs.mkdirSync(otherPath, { recursive: true });
 
       upsertCodexThread({
         projectId: defaultProjectId,
         threadId: "thr_delete_old",
-        cwd: sharedPath,
+        cwd: oldWorkspacePath,
+        managedWorktreePath: sharedPath,
         linkedAt: "2026-03-01T00:00:00.000Z",
       });
       upsertCodexThread({
         projectId: defaultProjectId,
         threadId: "thr_delete_new",
-        cwd: sharedPath,
+        cwd: newWorkspacePath,
+        managedWorktreePath: sharedPath,
         linkedAt: "2026-03-02T00:00:00.000Z",
       });
       upsertCodexThread({
         projectId: defaultProjectId,
         threadId: "thr_keep",
-        cwd: otherPath,
+        cwd: path.join(otherPath, "packages", "keep"),
+        managedWorktreePath: otherPath,
         linkedAt: "2026-03-03T00:00:00.000Z",
       });
 
@@ -13382,15 +19082,24 @@ describe("codex-service startThreadForSession", () => {
 
       const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-delete-worktree-repo-"));
       initializeGitRepository(repositoryPath);
+      const nestedSourcePath = path.join(repositoryPath, "packages", "app");
+      fs.mkdirSync(nestedSourcePath, { recursive: true });
+      fs.writeFileSync(path.join(nestedSourcePath, "app.txt"), "nested app\n", "utf8");
+      execFileSync("git", ["add", "packages/app/app.txt"], { cwd: repositoryPath });
+      execFileSync("git", ["commit", "-m", "test: add nested workspace"], {
+        cwd: repositoryPath,
+      });
 
       const managedPath = path.join(localStoreDir, "worktrees", "git-remove", defaultProjectId);
       fs.mkdirSync(path.dirname(managedPath), { recursive: true });
       execFileSync("git", ["worktree", "add", "--detach", managedPath, "main"], { cwd: repositoryPath });
+      const nestedWorktreeWorkspacePath = path.join(managedPath, "packages", "app");
 
       upsertCodexThread({
         projectId: defaultProjectId,
         threadId: "thr_git_remove",
-        cwd: managedPath,
+        cwd: nestedWorktreeWorkspacePath,
+        managedWorktreePath: managedPath,
       });
 
       const service = createService();
@@ -13398,6 +19107,7 @@ describe("codex-service startThreadForSession", () => {
         const deleted = await service.deleteManagedWorktree("thr_git_remove");
         expect(deleted).toBe(true);
         expect(fs.existsSync(managedPath)).toBe(false);
+        expect(fs.existsSync(nestedWorktreeWorkspacePath)).toBe(false);
 
         const worktreeListOutput = execFileSync(
           "git",
@@ -13414,6 +19124,1441 @@ describe("codex-service startThreadForSession", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+});
+
+describe("codex-service pending managed worktree setup", () => {
+  type PendingWorktreeCreator = {
+    createPendingManagedWorktree: (
+      entry: CodexPendingWorktreeEntry,
+      context: {
+        signal: AbortSignal;
+        onOutput: (output: string) => void;
+        onSetupStarted: () => void;
+      },
+    ) => Promise<{
+      worktreeGitRoot: string;
+      worktreeWorkspaceRoot: string;
+      setupError: string | null;
+    }>;
+  };
+
+  function makePendingManagedWorktreeEntry(input: {
+    id: string;
+    sourceWorkspaceRoot: string;
+    localEnvironmentConfigPath: string;
+  }): CodexPendingWorktreeEntry {
+    return {
+      id: input.id,
+      hostId: "local",
+      label: "Pending setup task",
+      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+      startingState: { type: "branch", branchName: "main" },
+      localEnvironmentConfigPath: input.localEnvironmentConfigPath,
+      prompt: "Run pending setup",
+      launchMode: "start-conversation",
+      clientThreadId: `client-new-thread:${input.id}`,
+      startConversationParamsInput: {
+        input: [],
+        commentAttachments: [],
+        workspaceRoots: [input.sourceWorkspaceRoot],
+        cwd: input.sourceWorkspaceRoot,
+        fileAttachments: [],
+        addedFiles: [],
+        agentMode: "auto",
+        permissionProfileId: undefined,
+        shouldSendPermissionOverrides: true,
+        model: null,
+        serviceTier: null,
+        reasoningEffort: null,
+        collaborationMode: null,
+        config: {},
+        threadSource: "subagent",
+        workspaceKind: "project",
+        projectAssignment: {
+          projectKind: "local",
+          projectId: `project-${input.id}`,
+          pendingCoreUpdate: false,
+        },
+        serviceName: undefined,
+      },
+      sourceConversationId: null,
+      sourceCollaborationMode: null,
+      createdAt: 1,
+      attempt: 1,
+      phase: "creating",
+      labelEdited: false,
+      worktreeOutputText: "",
+      setupOutputText: "",
+      errorMessage: null,
+      worktreeWorkspaceRoot: null,
+      worktreeGitRoot: null,
+      needsAttention: false,
+      isPinned: false,
+      pinnedBeforeThreadId: null,
+    };
+  }
+
+  function pendingWorktreeCreator(service: TestableCodexService): PendingWorktreeCreator {
+    return service as unknown as PendingWorktreeCreator;
+  }
+
+  async function withPendingWorktreeStore(run: () => Promise<void>): Promise<void> {
+    const previousNodexDir = process.env.NODEX_DIR;
+    const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-worktree-store-"));
+    process.env.NODEX_DIR = storeDir;
+    try {
+      await run();
+    } finally {
+      if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
+      else process.env.NODEX_DIR = previousNodexDir;
+      fs.rmSync(storeDir, { recursive: true, force: true });
+    }
+  }
+
+  test("streams selected setup output after setup start and persists its shell environment", async () => {
+    await withPendingWorktreeStore(async () => {
+      const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-success-"));
+      initializeGitRepository(repositoryPath);
+      const environmentsDir = path.join(repositoryPath, ".codex", "environments");
+      fs.mkdirSync(environmentsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(environmentsDir, "environment.toml"),
+        [
+          'name = "pending-setup-success"',
+          "",
+          "[setup]",
+          "script = '''",
+          "echo pending-setup-output",
+          "export NODEX_PENDING_SETUP_CAPTURED=ready",
+          "'''",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      const service = createService({
+        loadWorktreeSetupBaseEnvironment: async () => ({ ...process.env }),
+      });
+      const serviceInternals = pendingWorktreeCreator(service);
+      const events: string[] = [];
+      let worktreeGitRoot = "";
+
+      try {
+        const result = await serviceInternals.createPendingManagedWorktree(
+          makePendingManagedWorktreeEntry({
+            id: "pending-setup-success",
+            sourceWorkspaceRoot: repositoryPath,
+            localEnvironmentConfigPath: ".codex/environments/environment.toml",
+          }),
+          {
+            signal: new AbortController().signal,
+            onOutput: (output) => events.push(`output:${output}`),
+            onSetupStarted: () => events.push("setup-started"),
+          },
+        );
+        worktreeGitRoot = result.worktreeGitRoot;
+
+        expect(result.setupError).toBe(null);
+        const setupStartedIndex = events.indexOf("setup-started");
+        const setupOutputIndex = events.findIndex((event) =>
+          event.includes("pending-setup-output"));
+        expect(setupStartedIndex >= 0).toBe(true);
+        expect(setupOutputIndex > setupStartedIndex).toBe(true);
+
+        const rawGitPath = execFileSync(
+          "git",
+          ["rev-parse", "--git-path", "codex-shell-environment.json"],
+          { cwd: result.worktreeWorkspaceRoot, encoding: "utf8" },
+        ).trim();
+        const persistedPath = path.isAbsolute(rawGitPath)
+          ? rawGitPath
+          : path.resolve(result.worktreeWorkspaceRoot, rawGitPath);
+        const persisted = JSON.parse(fs.readFileSync(persistedPath, "utf8")) as {
+          set?: Record<string, string>;
+        };
+        expect(persisted.set?.NODEX_PENDING_SETUP_CAPTURED).toBe("ready");
+      } finally {
+        if (worktreeGitRoot) await removeManagedWorktree(worktreeGitRoot);
+        await service.shutdown();
+        fs.rmSync(repositoryPath, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("retains allocated worktrees when selected environment parsing or setup fails", async () => {
+    await withPendingWorktreeStore(async () => {
+      const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-fail-"));
+      initializeGitRepository(repositoryPath);
+      const environmentsDir = path.join(repositoryPath, ".codex", "environments");
+      fs.mkdirSync(environmentsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(environmentsDir, "invalid.toml"),
+        "[setup\nscript = 'invalid'\n",
+        "utf8",
+      );
+      fs.writeFileSync(
+        path.join(environmentsDir, "failing.toml"),
+        [
+          'name = "pending-setup-fail"',
+          "",
+          "[setup]",
+          "script = '''",
+          "echo pending-setup-failed",
+          "exit 9",
+          "'''",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      const service = createService({
+        loadWorktreeSetupBaseEnvironment: async () => ({ ...process.env }),
+      });
+      const serviceInternals = pendingWorktreeCreator(service);
+      const allocatedRoots: string[] = [];
+
+      try {
+        for (const scenario of [
+          {
+            id: "pending-parse-failure",
+            configPath: ".codex/environments/invalid.toml",
+            expectedError: "Could not parse environment file",
+          },
+          {
+            id: "pending-script-failure",
+            configPath: ".codex/environments/failing.toml",
+            expectedError: "Worktree environment setup script failed",
+          },
+        ]) {
+          let setupStarted = 0;
+          let output = "";
+          const result = await serviceInternals.createPendingManagedWorktree(
+            makePendingManagedWorktreeEntry({
+              id: scenario.id,
+              sourceWorkspaceRoot: repositoryPath,
+              localEnvironmentConfigPath: scenario.configPath,
+            }),
+            {
+              signal: new AbortController().signal,
+              onOutput: (chunk) => {
+                output += chunk;
+              },
+              onSetupStarted: () => {
+                setupStarted += 1;
+              },
+            },
+          );
+          allocatedRoots.push(result.worktreeGitRoot);
+
+          expect(setupStarted).toBe(1);
+          expect(result.setupError?.includes(scenario.expectedError) ?? false).toBe(true);
+          expect(fs.existsSync(result.worktreeGitRoot)).toBe(true);
+          const worktreeList = execFileSync(
+            "git",
+            ["worktree", "list", "--porcelain"],
+            { cwd: repositoryPath, encoding: "utf8" },
+          );
+          expect(worktreeList.includes(path.resolve(result.worktreeGitRoot))).toBe(true);
+          if (scenario.id === "pending-script-failure") {
+            expect(output.includes("pending-setup-failed")).toBe(true);
+          }
+        }
+      } finally {
+        for (const root of allocatedRoots) {
+          await removeManagedWorktree(root);
+        }
+        await service.shutdown();
+        fs.rmSync(repositoryPath, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("rolls back an allocated worktree when setup is canceled or reports AbortError", async () => {
+    await withPendingWorktreeStore(async () => {
+      const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-cancel-"));
+      initializeGitRepository(repositoryPath);
+      const environmentsDir = path.join(repositoryPath, ".codex", "environments");
+      fs.mkdirSync(environmentsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(environmentsDir, "environment.toml"),
+        ['name = "pending-setup-cancel"', ""].join("\n"),
+        "utf8",
+      );
+      const service = createService();
+      const serviceInternals = pendingWorktreeCreator(service);
+      const abortController = new AbortController();
+
+      try {
+        let message = "";
+        try {
+          await serviceInternals.createPendingManagedWorktree(
+            makePendingManagedWorktreeEntry({
+              id: "pending-setup-cancel",
+              sourceWorkspaceRoot: repositoryPath,
+              localEnvironmentConfigPath: ".codex/environments/environment.toml",
+            }),
+            {
+              signal: abortController.signal,
+              onOutput: () => {},
+              onSetupStarted: () => abortController.abort(),
+            },
+          );
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+
+        expect(message).toBe("Request canceled");
+
+        const persistOwner = service as unknown as {
+          persistWorktreeShellEnvironment: () => Promise<void>;
+        };
+        persistOwner.persistWorktreeShellEnvironment = async () => {
+          const error = new Error("persist aborted");
+          error.name = "AbortError";
+          throw error;
+        };
+        let abortErrorName = "";
+        try {
+          await serviceInternals.createPendingManagedWorktree(
+            makePendingManagedWorktreeEntry({
+              id: "pending-setup-abort-error",
+              sourceWorkspaceRoot: repositoryPath,
+              localEnvironmentConfigPath: ".codex/environments/environment.toml",
+            }),
+            {
+              signal: new AbortController().signal,
+              onOutput: () => {},
+              onSetupStarted: () => {},
+            },
+          );
+        } catch (error) {
+          abortErrorName = error instanceof Error ? error.name : "";
+        }
+        expect(abortErrorName).toBe("AbortError");
+
+        const worktreeList = execFileSync(
+          "git",
+          ["worktree", "list", "--porcelain"],
+          { cwd: repositoryPath, encoding: "utf8" },
+        );
+        const managedWorktreesRoot = path.resolve(process.env.NODEX_DIR ?? "", "worktrees");
+        expect(worktreeList.includes(managedWorktreesRoot)).toBe(false);
+      } finally {
+        await service.shutdown();
+        fs.rmSync(repositoryPath, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("creates setup Auto-fix as a separate system task and preserves the original failure", async () => {
+    const service = createService();
+    const base = makePendingManagedWorktreeEntry({
+      id: "pending-repair-source",
+      sourceWorkspaceRoot: "/repo/source",
+      localEnvironmentConfigPath: ".codex/environments/dev.toml",
+    }) as Extract<CodexPendingWorktreeEntry, { launchMode: "start-conversation" }>;
+    const original = {
+      ...base,
+      phase: "failed" as const,
+      worktreeOutputText: "created\n",
+      setupOutputText: "install failed\n",
+      errorMessage: "setup exited 1",
+      worktreeWorkspaceRoot: "/repo/worktrees/failed",
+      worktreeGitRoot: "/repo/worktrees/failed",
+      needsAttention: true,
+      startConversationParamsInput: {
+        ...base.startConversationParamsInput,
+        input: [{ type: "text" as const, text: "Original request", text_elements: [] }],
+        commentAttachments: [{
+          id: "comment",
+          type: "comment" as const,
+          content: [{ content_type: "text" as const, text: "Review this line" }],
+          position: { side: "right" as const, path: "src/index.ts", line: 1 },
+          createdAt: 1,
+        }],
+        fileAttachments: [{
+          label: "before.txt",
+          path: "before.txt",
+          fsPath: "before.txt",
+        }],
+        addedFiles: [{
+          label: "added.txt",
+          path: "added.txt",
+          fsPath: "added.txt",
+        }],
+        serviceTier: "standard",
+      },
+    } satisfies CodexPendingWorktreeEntry;
+    const captured: CodexPendingWorktreeRequest[] = [];
+    const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+      list: () => readonly CodexPendingWorktreeEntry[];
+      create: (request: CodexPendingWorktreeRequest) => void;
+    };
+    pendingRuntime.list = () => [original];
+    pendingRuntime.create = (request) => {
+      captured.push(request);
+    };
+    const serviceInternals = service as unknown as {
+      resolveDynamicCreateServiceTier: () => Promise<string | null>;
+    };
+    serviceInternals.resolveDynamicCreateServiceTier = async () => "fast";
+    const repairService = service as unknown as {
+      createPendingWorktreeSetupRepair: (
+        hostId: string,
+        pendingWorktreeId: string,
+        agentMode: CodexAgentMode,
+      ) => Promise<{ pendingWorktreeId: string; clientThreadId: string | null }>;
+    };
+
+    try {
+      const result = await repairService.createPendingWorktreeSetupRepair(
+        "local",
+        original.id,
+        "read-only",
+      );
+      const repair = captured[0];
+
+      expect(result.pendingWorktreeId.startsWith("local:")).toBe(true);
+      expect(result.clientThreadId?.startsWith("client-new-thread:") ?? false).toBe(true);
+      expect(captured.length).toBe(1);
+      expect(pendingRuntime.list()[0] === original).toBe(true);
+      expect(repair?.launchMode).toBe("start-conversation");
+      if (repair?.launchMode !== "start-conversation") {
+        throw new Error("Expected a repair start request");
+      }
+      expect(repair.label).toBe("Fix worktree setup");
+      expect(repair.initialThreadTitle).toBe("Fix worktree setup");
+      expect(repair.localEnvironmentConfigPath).toBe(null);
+      expect(repair.startConversationParamsInput.threadSource).toBe("system");
+      expect(repair.startConversationParamsInput.agentMode).toBe(
+        original.startConversationParamsInput.agentMode,
+      );
+      expect(repair.startConversationParamsInput.agentMode === "read-only").toBe(false);
+      expect(repair.startConversationParamsInput.serviceTier).toBe("fast");
+      expect(repair.startConversationParamsInput.commentAttachments.length).toBe(0);
+      expect(repair.startConversationParamsInput.fileAttachments.length).toBe(0);
+      expect(repair.startConversationParamsInput.addedFiles.length).toBe(0);
+      const repairInput = repair.startConversationParamsInput.input[0];
+      expect(repairInput?.type).toBe("text");
+      expect(
+        repairInput?.type === "text"
+          && repairInput.text.includes("Do not continue the original user request")
+          && repairInput.text.includes(".codex/environments/dev.toml")
+          && repairInput.text.includes("install failed")
+      ).toBe(true);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("builds non-start Auto-fix from explicit host permissions without invented fields", async () => {
+    const service = createService();
+    const original = {
+      id: "local:pending-fork-repair-source",
+      hostId: "local",
+      label: "Fork with failed setup",
+      sourceWorkspaceRoot: "/repo/source",
+      localEnvironmentConfigPath: ".codex/environments/dev.toml",
+      prompt: "Continue in a worktree",
+      launchMode: "fork-conversation" as const,
+      clientThreadId: "client-new-thread:fork-repair-source",
+      startConversationParamsInput: null,
+      projectAssignment: {
+        projectKind: "local" as const,
+        projectId: "project-fork-repair-source",
+        path: "/repo/source",
+        pendingCoreUpdate: false as const,
+      },
+      sourceConversationId: "thread-fork-repair-source",
+      sourceCollaborationMode: {
+        mode: "plan" as const,
+        settings: {
+          model: "gpt-frozen-plan",
+          reasoning_effort: "high" as const,
+          developer_instructions: null,
+        },
+      },
+      targetTurnId: "turn-fork-repair-source",
+      threadSource: "user" as const,
+      createdAt: 1,
+      attempt: 1,
+      phase: "failed" as const,
+      labelEdited: false,
+      worktreeOutputText: "created\n",
+      setupOutputText: "install failed\n",
+      errorMessage: "setup exited 1",
+      worktreeWorkspaceRoot: "/repo/worktrees/failed",
+      worktreeGitRoot: "/repo/worktrees/failed",
+      needsAttention: true,
+      isPinned: false,
+      pinnedBeforeThreadId: null,
+    } satisfies CodexPendingWorktreeEntry;
+    const captured: CodexPendingWorktreeRequest[] = [];
+    const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+      list: () => readonly CodexPendingWorktreeEntry[];
+      create: (request: CodexPendingWorktreeRequest) => void;
+    };
+    pendingRuntime.list = () => [original];
+    pendingRuntime.create = (request) => {
+      captured.push(request);
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "config/read") return { config: { model: "gpt-config" } };
+      throw new Error(`Unexpected request: ${method}`);
+    };
+    const serviceInternals = service as unknown as {
+      resolveDynamicCreateServiceTier: () => Promise<string | null>;
+    };
+    serviceInternals.resolveDynamicCreateServiceTier = async () => "fast";
+
+    try {
+      await (service as unknown as {
+        createPendingWorktreeSetupRepair: (
+          hostId: string,
+          pendingWorktreeId: string,
+          agentMode: CodexAgentMode,
+        ) => Promise<unknown>;
+      }).createPendingWorktreeSetupRepair("local", original.id, "full-access");
+      const repair = captured[0];
+      if (repair?.launchMode !== "start-conversation") {
+        throw new Error("Expected a repair start request");
+      }
+
+      expect(repair.startingState).toBe(undefined);
+      expect(repair.startConversationParamsInput.agentMode).toBe("full-access");
+      expect(repair.startConversationParamsInput.collaborationMode?.mode).toBe("plan");
+      expect(repair.startConversationParamsInput.collaborationMode?.settings.model).toBe(
+        "gpt-frozen-plan",
+      );
+      for (const key of ["permissionProfileId", "projectAssignment", "serviceName"]) {
+        expect(Object.prototype.hasOwnProperty.call(
+          repair.startConversationParamsInput,
+          key,
+        )).toBe(false);
+      }
+      expect(pendingRuntime.list()[0] === original).toBe(true);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("stable pending success registers a persistent project and starts no conversation", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+        dependencies: {
+          createWorktree: () => Promise<{
+            worktreeGitRoot: string;
+            worktreeWorkspaceRoot: string;
+          }>;
+        };
+      };
+      pendingRuntime.dependencies.createWorktree = async () => ({
+        worktreeGitRoot: "/worktrees/persistent-project",
+        worktreeWorkspaceRoot: "/worktrees/persistent-project/packages/app",
+      });
+      const stableService = service as unknown as {
+        createPendingWorktree: (input: Record<string, unknown>) => {
+          pendingWorktreeId: string;
+          clientThreadId: string | null;
+        };
+      };
+
+      try {
+        const result = stableService.createPendingWorktree({
+          hostId: "local",
+          label: "Persistent project",
+          sourceWorkspaceRoot: "/repo/source",
+          startingState: { type: "branch", branchName: "HEAD" },
+          localEnvironmentConfigPath: null,
+          prompt: "Create a persistent project worktree",
+          launchMode: "create-stable-worktree",
+          startConversationParamsInput: null,
+          sourceConversationId: null,
+          sourceCollaborationMode: null,
+        });
+        await flushAsyncWork();
+        const created = listProjects().find((project) => project.name === "Persistent project");
+
+        expect(result.pendingWorktreeId.startsWith("local:")).toBe(true);
+        expect(result.clientThreadId).toBe(null);
+        expect(created?.primaryWorkspaceRoot).toBe(
+          "/worktrees/persistent-project/packages/app",
+        );
+        expect(service.listPendingWorktrees().length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+});
+
+describe("codex-service pending goal draft lifecycle", () => {
+  type ManagedGoalSource = Awaited<
+    ReturnType<PastedTextAttachmentManager["createRawSource"]>
+  >;
+  type PendingGoalStartCreateInput = Extract<
+    CodexPendingWorktreeCreateInput,
+    { readonly launchMode: "start-conversation" }
+  >;
+
+  interface PendingGoalLaunchInput {
+    readonly firstTurnAttachments: readonly { readonly path: string }[];
+    readonly firstTurnInput: readonly { readonly type: string; readonly text?: string }[];
+    readonly managedWorktreePath: string | null;
+    readonly onThreadCreated: (threadId: string) => void;
+    readonly target: {
+      readonly cwd: string;
+      readonly workspaceRoots: readonly string[];
+    };
+    readonly worktreeInit?: unknown;
+  }
+
+  interface PendingGoalServiceInternals {
+    getPastedTextAttachmentManager: () => Promise<PastedTextAttachmentManager>;
+    startDynamicCreatedConversation: (
+      input: PendingGoalLaunchInput,
+      options?: { readonly persistClientThreadIdentity?: boolean },
+    ) => Promise<{ readonly threadId: string }>;
+    persistClientThreadIdentity: (threadId: string, clientThreadId: string) => void;
+    applyPendingWorktreeConversationMetadata: (input: unknown) => Promise<void>;
+    applyStartedSessionThreadGoal: (input: {
+      readonly threadId: string;
+      readonly objective: string;
+      readonly rawDraft: {
+        readonly objective: string;
+        readonly pastedTextAttachments: readonly ManagedGoalSource[];
+        readonly imageAttachments: readonly [];
+      } | null;
+    }) => Promise<void>;
+    createPendingWorktreeHeartbeat: (entry: CodexPendingWorktreeEntry, threadId: string) => void;
+    materializePendingWorktreeGoal: (entry: CodexPendingWorktreeEntry) => Promise<unknown>;
+  }
+
+  interface PendingGoalRuntime {
+    readonly dependencies: {
+      createWorktree: (
+        entry: CodexPendingWorktreeEntry,
+        context: {
+          readonly signal: AbortSignal;
+          readonly onOutput: (output: string) => void;
+          readonly onSetupStarted: () => void;
+        },
+      ) => Promise<{
+        readonly worktreeGitRoot: string;
+        readonly worktreeWorkspaceRoot: string;
+        readonly setupError?: string | null;
+      }>;
+    };
+    resolveThread: (clientThreadId: string) => {
+      readonly state: "waiting" | "failed" | "succeeded";
+      readonly threadId?: string;
+    } | null;
+  }
+
+  interface PendingGoalLifecycleService {
+    createPendingWorktree: (
+      input: CodexPendingWorktreeCreateInput,
+    ) => { readonly pendingWorktreeId: string; readonly clientThreadId: string | null };
+    retryPendingWorktree: (hostId: string, pendingWorktreeId: string) => void;
+    workLocallyFromPendingWorktree: (
+      hostId: string,
+      pendingWorktreeId: string,
+    ) => Promise<{ readonly threadId: string }>;
+  }
+
+  function pendingGoalInternals(service: TestableCodexService): PendingGoalServiceInternals {
+    return service as unknown as PendingGoalServiceInternals;
+  }
+
+  function pendingGoalRuntime(service: TestableCodexService): PendingGoalRuntime {
+    return Reflect.get(service as object, "pendingWorktreeRuntime") as PendingGoalRuntime;
+  }
+
+  function pendingGoalLifecycle(service: TestableCodexService): PendingGoalLifecycleService {
+    return service as unknown as PendingGoalLifecycleService;
+  }
+
+  function pendingGoalCreateInput(
+    source: ManagedGoalSource,
+    sourceWorkspaceRoot = "/repo/source",
+  ): PendingGoalStartCreateInput {
+    return {
+      hostId: "local",
+      label: "Pending goal lifecycle",
+      sourceWorkspaceRoot,
+      startingState: { type: "branch", branchName: "main" },
+      localEnvironmentConfigPath: null,
+      prompt: "Original frozen pending prompt",
+      launchMode: "start-conversation",
+      startConversationParamsInput: {
+        input: [{
+          type: "text",
+          text: "Original frozen pending input",
+          text_elements: [],
+        }],
+        commentAttachments: [],
+        workspaceRoots: [sourceWorkspaceRoot],
+        cwd: sourceWorkspaceRoot,
+        fileAttachments: [
+          {
+            label: "ordinary.txt",
+            path: "ordinary.txt",
+            fsPath: path.join(sourceWorkspaceRoot, "ordinary.txt"),
+          },
+          { ...source.file },
+        ],
+        addedFiles: [{
+          label: "added.txt",
+          path: "added.txt",
+          fsPath: path.join(sourceWorkspaceRoot, "added.txt"),
+        }],
+        agentMode: "auto",
+        shouldSendPermissionOverrides: true,
+        model: null,
+        serviceTier: null,
+        reasoningEffort: null,
+        collaborationMode: null,
+        config: {},
+        threadSource: "user",
+        workspaceKind: "project",
+        projectAssignment: {
+          projectKind: "local",
+          projectId: "project-pending-goal-lifecycle",
+          path: sourceWorkspaceRoot,
+          pendingCoreUpdate: false,
+        },
+      },
+      projectSessionId: "session-pending-goal-lifecycle",
+      threadStartHostId: "local",
+      threadGoalDraft: {
+        objective: "Keep pursuing the exact goal",
+        pastedTextAttachments: [source],
+        imageAttachments: [],
+      },
+      heartbeatAutomation: {
+        name: "Pending goal heartbeat",
+        prompt: "Check the goal",
+        rrule: "FREQ=HOURLY",
+      },
+      sourceConversationId: null,
+      sourceCollaborationMode: null,
+    };
+  }
+
+  function directoryContaining(attachmentsRoot: string, filename: string): string | null {
+    const entries = fs.existsSync(attachmentsRoot)
+      ? fs.readdirSync(attachmentsRoot, { withFileTypes: true })
+      : [];
+    const match = entries.find((entry) =>
+      entry.isDirectory() && fs.existsSync(path.join(attachmentsRoot, entry.name, filename))
+    );
+    return match ? path.join(attachmentsRoot, match.name) : null;
+  }
+
+  function createGate(): { readonly promise: Promise<void>; readonly release: () => void } {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { promise, release };
+  }
+
+  test("retries registry-owned pending removals when the service starts", async () => {
+    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-startup-cleanup-"));
+    const ownedDirectory = path.join(
+      attachmentsRoot,
+      "550e8400-e29b-41d4-a716-446655440000",
+    );
+    const ownedPath = path.join(ownedDirectory, "pasted-text.txt");
+    fs.mkdirSync(ownedDirectory, { recursive: true });
+    fs.writeFileSync(ownedPath, "remove after restart", "utf8");
+    fs.writeFileSync(
+      path.join(attachmentsRoot, "pasted-text-attachments.json"),
+      JSON.stringify({
+        attachmentPaths: [ownedPath],
+        pendingRemovalPaths: [ownedPath],
+        textExcerptsByPath: { [ownedPath]: "remove after restart" },
+      }),
+      "utf8",
+    );
+    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+
+    try {
+      await waitForCondition(() => {
+        if (fs.existsSync(ownedPath)) return false;
+        try {
+          const registry = JSON.parse(fs.readFileSync(
+            path.join(attachmentsRoot, "pasted-text-attachments.json"),
+            "utf8",
+          )) as { attachmentPaths?: string[]; pendingRemovalPaths?: string[] };
+          return registry.attachmentPaths?.length === 0
+            && registry.pendingRemovalPaths?.length === 0;
+        } catch {
+          return false;
+        }
+      }, 2_000);
+      const registry = JSON.parse(fs.readFileSync(
+        path.join(attachmentsRoot, "pasted-text-attachments.json"),
+        "utf8",
+      )) as {
+        attachmentPaths: string[];
+        pendingRemovalPaths: string[];
+        textExcerptsByPath: Record<string, string>;
+      };
+
+      expect(fs.existsSync(ownedPath)).toBe(false);
+      expect(fs.statSync(ownedDirectory).isDirectory()).toBe(true);
+      expect(JSON.stringify(registry)).toBe(JSON.stringify({
+        attachmentPaths: [],
+        pendingRemovalPaths: [],
+        textExcerptsByPath: {},
+      }));
+    } finally {
+      await service.shutdown();
+      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("readiness failure removes materialized goal files but retains raw sources", async () => {
+    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-readiness-fail-"));
+    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+    const internals = pendingGoalInternals(service);
+    const manager = await internals.getPastedTextAttachmentManager();
+    const source = await manager.createRawSource({ text: "retry after app-server readiness" });
+    const goalService = service as unknown as {
+      materializeThreadGoalDraft: (draft: {
+        readonly objective: string;
+        readonly pastedTextAttachments: readonly ManagedGoalSource[];
+        readonly imageAttachments: readonly [];
+      }) => Promise<{ readonly objective: string; readonly attachmentDirectory: string | null }>;
+    };
+    const materialized = await goalService.materializeThreadGoalDraft({
+      objective: "Retry the eager-local goal",
+      pastedTextAttachments: [source],
+      imageAttachments: [],
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+    };
+    client.start = async () => {
+      throw new Error("app-server unavailable");
+    };
+
+    try {
+      let errorMessage = "";
+      try {
+        await service.startThreadForSession({
+          projectId: "missing-project",
+          sessionId: "missing-session",
+          prompt: materialized.objective,
+          threadGoalDraft: {
+            objective: "Retry the eager-local goal",
+            pastedTextAttachments: [source],
+            imageAttachments: [],
+          },
+          threadGoalMaterializedDraft: materialized,
+          runInTarget: "localProject",
+        });
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : String(error);
+      }
+
+      expect(errorMessage).toBe("app-server unavailable");
+      expect(fs.existsSync(materialized.attachmentDirectory ?? "")).toBe(false);
+      expect(fs.existsSync(source.file.fsPath)).toBe(true);
+    } finally {
+      await manager.remove(source.file.path).catch(() => undefined);
+      await service.shutdown();
+      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("awaits the first raw-goal cleanup before success and performs dismiss cleanup again", async () => {
+    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-success-"));
+    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+    const internals = pendingGoalInternals(service);
+    const runtime = pendingGoalRuntime(service);
+    const lifecycle = pendingGoalLifecycle(service);
+    const manager = await internals.getPastedTextAttachmentManager();
+    const source = await manager.createRawSource({ text: "Raw source for normal success" });
+    const cleanupGate = createGate();
+    const events: string[] = [];
+    let cleanupCalls = 0;
+    let launchedInput: PendingGoalLaunchInput | null = null;
+    const originalCleanup = manager.cleanupGoalSources.bind(manager);
+    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
+      cleanupCalls += 1;
+      const call = cleanupCalls;
+      events.push(`cleanup-${call}-start`);
+      if (call === 1) await cleanupGate.promise;
+      await originalCleanup(draft, fallbackHostId);
+      events.push(`cleanup-${call}-end`);
+    };
+    runtime.dependencies.createWorktree = async () => ({
+      worktreeGitRoot: "/worktrees/pending-goal-success",
+      worktreeWorkspaceRoot: "/worktrees/pending-goal-success/packages/app",
+    });
+    internals.startDynamicCreatedConversation = async (input) => {
+      events.push("launch");
+      launchedInput = input;
+      input.onThreadCreated("thread-pending-goal-success");
+      return { threadId: "thread-pending-goal-success" };
+    };
+    internals.persistClientThreadIdentity = () => {
+      events.push("map");
+    };
+    internals.applyPendingWorktreeConversationMetadata = async () => {
+      events.push("metadata");
+    };
+    internals.createPendingWorktreeHeartbeat = () => {
+      events.push("heartbeat");
+    };
+
+    try {
+      const created = lifecycle.createPendingWorktree(pendingGoalCreateInput(source));
+      if (!created.clientThreadId) throw new Error("Expected a pending client thread id");
+      await waitForCondition(() => events.includes("cleanup-1-start"), 2_000);
+
+      expect(events.includes("metadata")).toBe(true);
+      expect(events.includes("heartbeat")).toBe(true);
+      expect(events.indexOf("metadata") < events.indexOf("cleanup-1-start")).toBe(true);
+      expect(events.indexOf("heartbeat") < events.indexOf("cleanup-1-start")).toBe(true);
+      expect(service.listPendingWorktrees().some((entry) => entry.id === created.pendingWorktreeId))
+        .toBe(true);
+      expect(fs.existsSync(source.file.fsPath)).toBe(true);
+      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt") !== null).toBe(true);
+
+      cleanupGate.release();
+      await waitForCondition(
+        () => cleanupCalls === 2 && service.listPendingWorktrees().length === 0,
+        2_000,
+      );
+      await flushAsyncWork();
+
+      expect(cleanupCalls).toBe(2);
+      expect(events.indexOf("cleanup-1-end") < events.indexOf("cleanup-2-start")).toBe(true);
+      expect(fs.existsSync(source.file.fsPath)).toBe(false);
+      expect(fs.statSync(path.dirname(source.file.fsPath)).isDirectory()).toBe(true);
+      const materializedDirectory = directoryContaining(attachmentsRoot, "pasted-text-1.txt");
+      const realizedLaunch = launchedInput as PendingGoalLaunchInput | null;
+      expect(materializedDirectory !== null).toBe(true);
+      expect(fs.existsSync(path.join(materializedDirectory ?? "", "pasted-text-1.txt"))).toBe(true);
+      expect((realizedLaunch?.firstTurnInput[0]?.text ?? "").startsWith("/goal ")).toBe(true);
+      expect(runtime.resolveThread(created.clientThreadId)).toBe(null);
+    } finally {
+      cleanupGate.release();
+      manager.cleanupGoalSources = originalCleanup;
+      await service.shutdown();
+      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("mapped metadata failure dismisses with one raw cleanup and retains materialized goal files", async () => {
+    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-metadata-fail-"));
+    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+    const internals = pendingGoalInternals(service);
+    const runtime = pendingGoalRuntime(service);
+    const lifecycle = pendingGoalLifecycle(service);
+    const manager = await internals.getPastedTextAttachmentManager();
+    const source = await manager.createRawSource({ text: "Raw source for metadata failure" });
+    const originalCleanup = manager.cleanupGoalSources.bind(manager);
+    let cleanupCalls = 0;
+    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
+      cleanupCalls += 1;
+      await originalCleanup(draft, fallbackHostId);
+    };
+    runtime.dependencies.createWorktree = async () => ({
+      worktreeGitRoot: "/worktrees/pending-goal-metadata-fail",
+      worktreeWorkspaceRoot: "/worktrees/pending-goal-metadata-fail/packages/app",
+    });
+    internals.startDynamicCreatedConversation = async (input) => {
+      input.onThreadCreated("thread-pending-goal-metadata-fail");
+      return { threadId: "thread-pending-goal-metadata-fail" };
+    };
+    internals.persistClientThreadIdentity = () => {};
+    internals.applyPendingWorktreeConversationMetadata = async () => {
+      throw new Error("goal metadata failed after mapping");
+    };
+    internals.createPendingWorktreeHeartbeat = () => {};
+
+    try {
+      const created = lifecycle.createPendingWorktree(pendingGoalCreateInput(source));
+      const clientThreadId = created.clientThreadId;
+      if (!clientThreadId) throw new Error("Expected a pending client thread id");
+      await waitForCondition(
+        () => service.listPendingWorktrees().length === 0,
+        2_000,
+      );
+      await waitForCondition(
+        () => cleanupCalls === 1 && !fs.existsSync(source.file.fsPath),
+        2_000,
+      );
+
+      expect(cleanupCalls).toBe(1);
+      expect(service.listPendingWorktrees().length).toBe(0);
+      expect(fs.existsSync(source.file.fsPath)).toBe(false);
+      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt") !== null).toBe(true);
+      expect(runtime.resolveThread(clientThreadId)).toBe(null);
+    } finally {
+      manager.cleanupGoalSources = originalCleanup;
+      await service.shutdown();
+      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("pre-map start failure retains raw sources, removes materialization, and retries cleanly", async () => {
+    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-start-retry-"));
+    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+    const internals = pendingGoalInternals(service);
+    const runtime = pendingGoalRuntime(service);
+    const lifecycle = pendingGoalLifecycle(service);
+    const manager = await internals.getPastedTextAttachmentManager();
+    const source = await manager.createRawSource({ text: "Raw source retained for retry" });
+    const originalCleanup = manager.cleanupGoalSources.bind(manager);
+    let cleanupCalls = 0;
+    let startCalls = 0;
+    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
+      cleanupCalls += 1;
+      await originalCleanup(draft, fallbackHostId);
+    };
+    runtime.dependencies.createWorktree = async () => ({
+      worktreeGitRoot: "/worktrees/pending-goal-start-retry",
+      worktreeWorkspaceRoot: "/worktrees/pending-goal-start-retry/packages/app",
+    });
+    internals.startDynamicCreatedConversation = async (input) => {
+      startCalls += 1;
+      if (startCalls === 1) throw new Error("start failed before mapping");
+      input.onThreadCreated("thread-pending-goal-start-retry");
+      return { threadId: "thread-pending-goal-start-retry" };
+    };
+    internals.persistClientThreadIdentity = () => {};
+    internals.applyPendingWorktreeConversationMetadata = async () => {};
+    internals.createPendingWorktreeHeartbeat = () => {};
+
+    try {
+      const created = lifecycle.createPendingWorktree(pendingGoalCreateInput(source));
+      const clientThreadId = created.clientThreadId;
+      if (!clientThreadId) throw new Error("Expected a pending client thread id");
+      await waitForCondition(
+        () => runtime.resolveThread(clientThreadId)?.state === "failed",
+        2_000,
+      );
+
+      expect(startCalls).toBe(1);
+      expect(cleanupCalls).toBe(0);
+      expect(fs.existsSync(source.file.fsPath)).toBe(true);
+      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt")).toBe(null);
+      expect(service.listPendingWorktrees().length).toBe(1);
+
+      lifecycle.retryPendingWorktree("local", created.pendingWorktreeId);
+      await waitForCondition(
+        () => service.listPendingWorktrees().length === 0,
+        2_000,
+      );
+      await waitForCondition(() => cleanupCalls === 2, 2_000);
+      await flushAsyncWork();
+
+      expect(startCalls).toBe(2);
+      expect(cleanupCalls).toBe(2);
+      expect(fs.existsSync(source.file.fsPath)).toBe(false);
+      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt") !== null).toBe(true);
+      expect(service.listPendingWorktrees().length).toBe(0);
+    } finally {
+      manager.cleanupGoalSources = originalCleanup;
+      await service.shutdown();
+      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("Work locally launches frozen input and attachments without waiting for goal cleanup", async () => {
+    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-work-local-"));
+    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+    const internals = pendingGoalInternals(service);
+    const runtime = pendingGoalRuntime(service);
+    const lifecycle = pendingGoalLifecycle(service);
+    const manager = await internals.getPastedTextAttachmentManager();
+    const source = await manager.createRawSource({ text: "Raw goal source sent locally" });
+    const originalCleanup = manager.cleanupGoalSources.bind(manager);
+    const cleanupGate = createGate();
+    let cleanupCalls = 0;
+    let materializeCalls = 0;
+    let metadataCalls = 0;
+    let heartbeatCalls = 0;
+    let launchedInput: PendingGoalLaunchInput | null = null;
+    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
+      cleanupCalls += 1;
+      await cleanupGate.promise;
+      await originalCleanup(draft, fallbackHostId);
+    };
+    runtime.dependencies.createWorktree = async (_entry, context) =>
+      await new Promise<never>((_resolve, reject) => {
+        context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        });
+      });
+    internals.materializePendingWorktreeGoal = async () => {
+      materializeCalls += 1;
+      throw new Error("Work locally must not materialize a goal");
+    };
+    internals.startDynamicCreatedConversation = async (input) => {
+      launchedInput = input;
+      input.onThreadCreated("thread-pending-goal-work-local");
+      return { threadId: "thread-pending-goal-work-local" };
+    };
+    internals.persistClientThreadIdentity = () => {};
+    internals.applyPendingWorktreeConversationMetadata = async () => {
+      metadataCalls += 1;
+    };
+    internals.createPendingWorktreeHeartbeat = () => {
+      heartbeatCalls += 1;
+    };
+
+    try {
+      const createInput = pendingGoalCreateInput(source);
+      const created = lifecycle.createPendingWorktree(createInput);
+      await flushAsyncWork(1);
+      let localResult: { readonly threadId: string } | null = null;
+      const localLaunch = lifecycle.workLocallyFromPendingWorktree(
+        "local",
+        created.pendingWorktreeId,
+      ).then((result) => {
+        localResult = result;
+        return result;
+      });
+      await waitForCondition(() => cleanupCalls === 1, 2_000);
+      await flushAsyncWork();
+
+      const realizedLocalResult = localResult as { readonly threadId: string } | null;
+      const realizedLaunch = launchedInput as PendingGoalLaunchInput | null;
+      expect(realizedLocalResult?.threadId).toBe("thread-pending-goal-work-local");
+      expect(cleanupCalls).toBe(1);
+      expect(fs.existsSync(source.file.fsPath)).toBe(true);
+      expect(materializeCalls).toBe(0);
+      expect(metadataCalls).toBe(0);
+      expect(heartbeatCalls).toBe(0);
+      expect(JSON.stringify(realizedLaunch?.firstTurnInput)).toBe(JSON.stringify(
+        createInput.startConversationParamsInput.input,
+      ));
+      const attachmentPaths = realizedLaunch?.firstTurnAttachments.map((attachment) =>
+        attachment.path
+      ) ?? [];
+      expect(attachmentPaths.includes("ordinary.txt")).toBe(true);
+      expect(attachmentPaths.includes("added.txt")).toBe(true);
+      expect(attachmentPaths.includes(source.file.path)).toBe(true);
+      expect(realizedLaunch?.managedWorktreePath).toBe(null);
+      expect(realizedLaunch?.target.cwd).toBe(createInput.sourceWorkspaceRoot);
+      expect(JSON.stringify(realizedLaunch?.target.workspaceRoots)).toBe(JSON.stringify([
+        createInput.sourceWorkspaceRoot,
+      ]));
+      expect(Object.prototype.hasOwnProperty.call(realizedLaunch ?? {}, "worktreeInit")).toBe(false);
+
+      cleanupGate.release();
+      await localLaunch;
+      await waitForCondition(() => !fs.existsSync(source.file.fsPath), 2_000);
+      expect(fs.existsSync(source.file.fsPath)).toBe(false);
+    } finally {
+      cleanupGate.release();
+      manager.cleanupGoalSources = originalCleanup;
+      await service.shutdown();
+      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("eager-local cleanup waits for goal metadata and retains raw sources on metadata failure", async () => {
+    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-local-raw-cleanup-"));
+    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+    const internals = pendingGoalInternals(service);
+    const manager = await internals.getPastedTextAttachmentManager();
+    const successSource = await manager.createRawSource({ text: "remove after metadata" });
+    const failedSource = await manager.createRawSource({ text: "retain after metadata failure" });
+    const originalSetThreadGoal = service.setThreadGoal.bind(service);
+    const originalCleanup = manager.cleanupGoalSources.bind(manager);
+    const events: string[] = [];
+
+    try {
+      manager.cleanupGoalSources = async (draft, fallbackHostId) => {
+        events.push("cleanup");
+        await originalCleanup(draft, fallbackHostId);
+      };
+      service.setThreadGoal = async () => {
+        events.push("metadata");
+        return null;
+      };
+      await internals.applyStartedSessionThreadGoal({
+        threadId: "thread-eager-local-success",
+        objective: "Finish the eager-local goal",
+        rawDraft: {
+          objective: "Finish the eager-local goal",
+          pastedTextAttachments: [successSource],
+          imageAttachments: [],
+        },
+      });
+      events.push("returned");
+
+      expect(events.join(",")).toBe("metadata,cleanup,returned");
+      expect(fs.existsSync(successSource.file.fsPath)).toBe(false);
+
+      service.setThreadGoal = async () => {
+        events.push("metadata-failed");
+        throw new Error("goal metadata failed");
+      };
+      let errorMessage = "";
+      try {
+        await internals.applyStartedSessionThreadGoal({
+          threadId: "thread-eager-local-failure",
+          objective: "Retain the eager-local source",
+          rawDraft: {
+            objective: "Retain the eager-local source",
+            pastedTextAttachments: [failedSource],
+            imageAttachments: [],
+          },
+        });
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : String(error);
+      }
+
+      expect(errorMessage).toBe("goal metadata failed");
+      expect(fs.existsSync(failedSource.file.fsPath)).toBe(true);
+    } finally {
+      service.setThreadGoal = originalSetThreadGoal;
+      manager.cleanupGoalSources = originalCleanup;
+      await manager.remove(failedSource.file.path).catch(() => undefined);
+      await service.shutdown();
+      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("local eager goals send slash-goal input and clean only failures before thread creation", async () => {
+    const ran = await withTempDatabase(async () => {
+      const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-local-eager-"));
+      type GoalMaterializationService = {
+        materializeThreadGoalDraft: (draft: {
+          readonly objective: string;
+          readonly pastedTextAttachments: readonly { readonly text: string }[];
+          readonly imageAttachments: readonly [];
+        }) => Promise<{ readonly objective: string; readonly attachmentDirectory: string | null }>;
+        cleanupThreadGoalMaterializedDraft: (attachmentDirectory: string | null) => Promise<void>;
+      };
+
+      const beforeThreadSession = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Goal failure before thread",
+      });
+      const beforeThreadService = createService({
+        resolveThreadGoalAttachmentsRoot: () => attachmentsRoot,
+      });
+      const beforeThreadGoalService = beforeThreadService as unknown as GoalMaterializationService;
+      const beforeThreadClient = Reflect.get(beforeThreadService as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      beforeThreadClient.start = async () => {};
+      beforeThreadClient.request = async (method) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") throw new Error("failed before thread creation");
+        throw new Error(`Unexpected request: ${method}`);
+      };
+
+      try {
+        const materialized = await beforeThreadGoalService.materializeThreadGoalDraft({
+          objective: "Finish the local goal",
+          pastedTextAttachments: [{ text: "Local eager reference" }],
+          imageAttachments: [],
+        });
+        const directory = materialized.attachmentDirectory ?? "";
+        expect(fs.existsSync(directory)).toBe(true);
+
+        let message = "";
+        try {
+          await beforeThreadService.startThreadForSession({
+            projectId: defaultProjectId,
+            sessionId: beforeThreadSession.id,
+            prompt: materialized.objective,
+            threadGoalMaterializedDraft: materialized,
+            runInTarget: "localProject",
+            skipAutoTitleGeneration: true,
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+
+        expect(message).toBe("failed before thread creation");
+        expect(fs.existsSync(directory)).toBe(false);
+      } finally {
+        await beforeThreadService.shutdown();
+      }
+
+      const afterThreadSession = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Goal failure after thread",
+      });
+      const afterThreadService = createService({
+        resolveThreadGoalAttachmentsRoot: () => attachmentsRoot,
+      });
+      const afterThreadGoalService = afterThreadService as unknown as GoalMaterializationService;
+      const afterThreadClient = Reflect.get(afterThreadService as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      let turnStartInput: readonly { readonly type?: string; readonly text?: string }[] = [];
+      afterThreadClient.start = async () => {};
+      afterThreadClient.request = async (method, params) => {
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return makeCanonicalThreadStartResponse({
+            threadId: "thread-local-goal-post-create-failure",
+            cwd: "/tmp/codex",
+          });
+        }
+        if (method === "turn/start") {
+          turnStartInput = (params as {
+            input?: readonly { readonly type?: string; readonly text?: string }[];
+          }).input ?? [];
+          throw new Error("failed after thread creation");
+        }
+        throw new Error(`Unexpected request: ${method}`);
+      };
+
+      try {
+        const materialized = await afterThreadGoalService.materializeThreadGoalDraft({
+          objective: "Keep the realized goal files",
+          pastedTextAttachments: [{ text: "Post-create reference" }],
+          imageAttachments: [],
+        });
+        const directory = materialized.attachmentDirectory ?? "";
+        let message = "";
+        try {
+          await afterThreadService.startThreadForSession({
+            projectId: defaultProjectId,
+            sessionId: afterThreadSession.id,
+            prompt: materialized.objective,
+            threadGoalMaterializedDraft: materialized,
+            runInTarget: "localProject",
+            skipAutoTitleGeneration: true,
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+
+        expect(message).toBe("failed after thread creation");
+        expect(turnStartInput[0]?.text).toBe(`/goal ${materialized.objective}`);
+        expect(fs.existsSync(directory)).toBe(true);
+
+        await afterThreadGoalService.cleanupThreadGoalMaterializedDraft(directory);
+        expect(fs.existsSync(directory)).toBe(false);
+      } finally {
+        await afterThreadService.shutdown();
+        fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("producer rollback removes only raw sources created for the rejected pending request", async () => {
+    const ran = await withTempDatabase(async () => {
+      const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-producer-rollback-"));
+      const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-producer-workspace-"));
+      initializeGitRepository(workspaceRoot);
+      const existingSourcePath = `${attachmentsRoot}-existing-goal-source.txt`;
+      fs.writeFileSync(existingSourcePath, "existing goal source", "utf8");
+      const project = createProject({
+        name: "Pending goal rollback",
+        sources: [workspaceRoot],
+      });
+      const session = createProjectSession({
+        projectId: project.id,
+        noThreadFallbackTitle: "Pending goal rollback",
+      });
+      const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
+      const internals = pendingGoalInternals(service);
+      const manager = await internals.getPastedTextAttachmentManager();
+      const originalCreateRawSource = manager.createRawSource.bind(manager);
+      let createdRawPath = "";
+      manager.createRawSource = async (input) => {
+        const attachment = await originalCreateRawSource(input);
+        createdRawPath = attachment.file.path;
+        return attachment;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string) => Promise<unknown>;
+      };
+      client.start = async () => {};
+      client.request = async (method) => {
+        if (method === "config/read") return { config: {}, origins: {} };
+        if (method === "configRequirements/read") return { requirements: null };
+        throw new Error(`Unexpected request: ${method}`);
+      };
+      (service as unknown as {
+        createPendingWorktree: (input: CodexPendingWorktreeCreateInput) => never;
+      }).createPendingWorktree = () => {
+        throw new Error("pending allocation rejected");
+      };
+
+      try {
+        let message = "";
+        try {
+          await service.startThreadForSession({
+            projectId: project.id,
+            sessionId: session.id,
+            prompt: "Queue the pending goal",
+            runInTarget: "newWorktree",
+            threadGoalDraft: {
+              objective: "Use both goal sources",
+              pastedTextAttachments: [
+                {
+                  text: "existing goal source",
+                  file: {
+                    label: "existing-goal-source.txt",
+                    path: existingSourcePath,
+                    fsPath: existingSourcePath,
+                  },
+                  preview: "existing goal source",
+                  characterCount: 20,
+                },
+                { text: "new raw goal source" },
+              ],
+              imageAttachments: [],
+            },
+            skipAutoTitleGeneration: true,
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+
+        expect(message).toBe("pending allocation rejected");
+        expect(createdRawPath.length > 0).toBe(true);
+        expect(fs.existsSync(createdRawPath)).toBe(false);
+        expect(fs.statSync(path.dirname(createdRawPath)).isDirectory()).toBe(true);
+        expect(fs.readFileSync(existingSourcePath, "utf8")).toBe("existing goal source");
+        const registry = JSON.parse(fs.readFileSync(
+          path.join(attachmentsRoot, "pasted-text-attachments.json"),
+          "utf8",
+        )) as { attachmentPaths: string[]; pendingRemovalPaths: string[] };
+        expect(registry.attachmentPaths.length).toBe(0);
+        expect(registry.pendingRemovalPaths.length).toBe(0);
+      } finally {
+        manager.createRawSource = originalCreateRawSource;
+        await service.shutdown();
+        fs.rmSync(existingSourcePath, { force: true });
+        fs.rmSync(attachmentsRoot, { recursive: true, force: true });
+        fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
 });
 
 describe("codex-service approval fallback", () => {
@@ -13435,6 +20580,29 @@ describe("codex-service approval fallback", () => {
       expect((result as { currentTimeAt?: number }).currentTimeAt ?? 0).toBe(1_700_000_123);
     } finally {
       Date.now = originalDateNow;
+      await service.shutdown();
+    }
+  });
+
+  test("ignores unknown future server-request methods without a JSON-RPC response", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+    };
+
+    try {
+      const result = await serviceInternals.handleServerRequest({
+        id: "future-server-request",
+        method: "future/request",
+        params: { threadId: "thr_future_request" },
+      });
+      expect(result).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(service.serializeConversationSnapshot("thr_future_request")).toBe(null);
+    } finally {
       await service.shutdown();
     }
   });
@@ -13484,19 +20652,113 @@ describe("codex-service approval fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("auto-accepts approval requests in full-access mode", async () => {
+  test("ignores missing and empty thread ids for exact direct interactive request families", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      conversationRecords: Map<string, unknown>;
+      pendingApprovals: { size: number };
+      pendingUserInputs: { size: number };
+      pendingPrivateServerRequests: { size: number };
+    };
+    installManualApprovalState(service, "project-invalid-thread-id");
+    const directRequests = [
+      {
+        method: "item/commandExecution/requestApproval",
+        params: {
+          turnId: "turn-command",
+          itemId: "command-1",
+          reason: "Command route",
+          command: "bun test",
+          cwd: "/repo",
+        },
+      },
+      {
+        method: "item/fileChange/requestApproval",
+        params: {
+          turnId: "turn-file",
+          itemId: "file-1",
+          reason: "File route",
+          grantRoot: "/repo",
+        },
+      },
+      {
+        method: "item/tool/requestUserInput",
+        params: {
+          turnId: "turn-user-input",
+          itemId: "user-input-1",
+          questions: [],
+        },
+      },
+      {
+        method: "item/tool/requestOptionPicker",
+        params: {
+          turnId: "turn-option",
+          question: "Choose",
+          options: [{ label: "A", description: "Option A" }],
+          allowMultiple: false,
+          submitLabel: "Continue",
+          skipLabel: null,
+        },
+      },
+      {
+        method: "item/tool/requestSetupCodexContextPicker",
+        params: {
+          turnId: "turn-setup",
+        },
+      },
+    ] as const;
+
+    try {
+      for (const [index, request] of directRequests.entries()) {
+        const missingResult = await serviceInternals.handleServerRequest({
+          id: `missing-thread-${index}`,
+          method: request.method,
+          params: request.params,
+        });
+        const emptyResult = await serviceInternals.handleServerRequest({
+          id: `empty-thread-${index}`,
+          method: request.method,
+          params: { ...request.params, threadId: "" },
+        });
+        expect(missingResult).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+        expect(emptyResult).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      }
+
+      expect(serviceInternals.conversationRecords.size).toBe(0);
+      expect(serviceInternals.pendingApprovals.size).toBe(0);
+      expect(serviceInternals.pendingUserInputs.size).toBe(0);
+      expect(serviceInternals.pendingPrivateServerRequests.size).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("does not auto-accept an unexpected approval request in full-access mode", async () => {
     const ran = await withTempDatabase(async () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
         handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+        pendingApprovals: { size: number };
+        respondToApproval: (
+          requestId: string | number,
+          kind: CodexApprovalKind,
+          decision: CodexApprovalDecision,
+          conversationId?: string,
+        ) => Promise<boolean>;
       };
 
       serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
       await service.setProjectPermissionMode(defaultProjectId, "full-access");
 
       try {
-        const result = await serviceInternals.handleServerRequest({
+        let settled = false;
+        const resultPromise = serviceInternals.handleServerRequest({
           id: "req_full_access",
           method: "item/commandExecution/requestApproval",
           params: {
@@ -13505,8 +20767,20 @@ describe("codex-service approval fallback", () => {
             itemId: "item_full",
             reason: "Needs permissions",
           },
+        }).then((result) => {
+          settled = true;
+          return result;
         });
+        await waitForCondition(() => serviceInternals.pendingApprovals.size === 1, 250);
 
+        expect(settled).toBe(false);
+        expect(await serviceInternals.respondToApproval(
+          "req_full_access",
+          "command",
+          "accept",
+          "thr_full",
+        )).toBe(true);
+        const result = await resultPromise;
         expect(JSON.stringify(result)).toBe(JSON.stringify({ decision: "accept" }));
       } finally {
         await service.shutdown();
@@ -13522,16 +20796,46 @@ describe("codex-service approval fallback", () => {
       const serviceInternals = service as unknown as {
         parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
         handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         pendingApprovals: Map<
-          string,
+          string | number,
           {
             reject: (reason?: unknown) => void;
           }
         >;
+        respondToApproval: (
+          requestId: string | number,
+          kind: CodexApprovalKind,
+          decision: CodexApprovalDecision,
+          conversationId?: string,
+        ) => Promise<boolean>;
       };
 
       serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
       await service.setProjectPermissionMode(defaultProjectId, "auto");
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_default",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_default"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
+      hydrateConversation(service, {
+        ...makeThreadDetail("thr_default"),
+        turns: [{
+          threadId: "thr_default",
+          turnId: "turn_default",
+          status: "inProgress",
+          itemIds: [],
+        }],
+      });
 
       try {
         const requestPromise = serviceInternals.handleServerRequest({
@@ -13542,19 +20846,27 @@ describe("codex-service approval fallback", () => {
             turnId: "turn_default",
             itemId: "item_default",
             reason: "Needs permissions",
+            command: "bun test",
+            cwd: "/workspace/project",
           },
         });
+        void requestPromise.catch(() => undefined);
 
         await Promise.resolve();
         expect(serviceInternals.pendingApprovals.size).toBe(1);
-        const approvalItem = getRecordedItem(serviceInternals, "thr_default", "turn_default", "item_default");
-        expect(approvalItem?.normalizedKind).toBe("commandExecution");
+        const turnItems = service.serializeConversationSnapshot("thr_default")?.turns[0]?.items ?? [];
+        const approvalItem = turnItems.find((item) => item.approvalRequestId === "req_sandbox");
+        expect(approvalItem?.type).toBe("commandExecutionApproval");
+        expect(approvalItem?.kind).toBe("commandExecution");
         expect(approvalItem?.approvalRequestId).toBe("req_sandbox");
 
-        for (const pending of serviceInternals.pendingApprovals.values()) {
-          pending.reject(new Error("test cleanup"));
-        }
-        await requestPromise.catch(() => undefined);
+        expect(await serviceInternals.respondToApproval(
+          "req_sandbox",
+          "command",
+          "decline",
+          "thr_default",
+        )).toBe(true);
+        await requestPromise;
       } finally {
         await service.shutdown();
       }
@@ -13570,11 +20882,16 @@ describe("codex-service approval fallback", () => {
         parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
         handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
         pendingApprovals: Map<
-          string,
+          string | number,
           {
             reject: (reason?: unknown) => void;
           }
         >;
+        getConversationRecord: (threadId: string) => {
+          canonicalState: CodexCanonicalConversationState | null;
+          serverRequests: Array<{ id: string | number }>;
+          hasUnreadTurn: boolean;
+        };
         setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
         on: (
           event: "rendererOwnerHostMessage",
@@ -13598,7 +20915,7 @@ describe("codex-service approval fallback", () => {
 
       try {
         const requestPromise = serviceInternals.handleServerRequest({
-          id: "req_owner_approval",
+          id: 73,
           method: "item/commandExecution/requestApproval",
           params: {
             threadId: "thr_owner_request",
@@ -13612,13 +20929,18 @@ describe("codex-service approval fallback", () => {
         });
 
         await Promise.resolve();
-        expect(serviceInternals.pendingApprovals.has("req_owner_approval")).toBe(true);
+        expect(serviceInternals.pendingApprovals.has(73)).toBe(true);
+        const requestRecord = serviceInternals.getConversationRecord("thr_owner_request");
+        expect(requestRecord.canonicalState?.requests[0]?.id).toBe(73);
+        expect(requestRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+        expect(requestRecord.serverRequests[0]?.id).toBe(73);
+        expect(requestRecord.hasUnreadTurn).toBe(true);
         expect(String(hostMessages.length)).toBe("0");
         expect(String(ownerMessages.length)).toBe("1");
         expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
         expect(ownerMessages[0]?.message.type).toBe("threadOwnerRequest");
         if (ownerMessages[0]?.message.type === "threadOwnerRequest") {
-          expect(ownerMessages[0].message.request.id).toBe("req_owner_approval");
+          expect(ownerMessages[0].message.request.id).toBe(73);
           expect(ownerMessages[0].message.request.method).toBe("item/commandExecution/requestApproval");
           expect(ownerMessages[0].message.sequence).toBe(1);
         }
@@ -13635,12 +20957,1767 @@ describe("codex-service approval fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("dynamic same-directory fork returns the exact environment, source, child, and continuation payload", async () => {
+    const sourceThreadId = "thr_dynamic_fork_source";
+    const childThreadId = "thr_dynamic_fork_child";
+    const cwd = "/workspace/dynamic-fork";
+    const transferEvents: string[] = [];
+    const service = createService({
+      forkSidePanelTransferLifecycle:
+        makeRecordingForkSidePanelTransferLifecycle(transferEvents),
+    });
+    const sourceDetail = {
+      ...makeThreadDetail(sourceThreadId),
+      projectId: null,
+      cwd,
+      threadName: "Dynamic fork source",
+    };
+    const childDetail = {
+      ...makeThreadDetail(childThreadId),
+      projectId: null,
+      cwd,
+      threadName: "Dynamic fork source",
+    };
+    const forkResponse = makeCanonicalForkResponse({
+      threadId: childThreadId,
+      cwd,
+      turns: [makeCanonicalHydrationTurn("turn_dynamic_fork")],
+    });
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const serviceInternals = service as unknown as {
+      handleDynamicToolCall: (params: {
+        threadId: string;
+        turnId: string;
+        callId: string;
+        namespace: string;
+        tool: string;
+        arguments: Record<string, unknown>;
+      }) => Promise<{ contentItems: Array<{ type: string; text?: string }>; success: boolean }>;
+      resolveDynamicThreadDetail: () => Promise<CodexThreadDetail>;
+      parseThreadRef: () => Record<string, unknown>;
+      upsertLinkFromThread: () => null;
+      materializeThreadDetailFromThreadPayload: () => {
+        detail: CodexThreadDetail;
+        summary: null;
+      };
+      buildThreadDetailFromRead: () => CodexThreadDetail;
+      buildThreadDetailFromCanonicalState: (
+        state: CodexCanonicalConversationState,
+      ) => CodexThreadDetail;
+      persistThreadDetailSummary: () => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/fork") return forkResponse;
+      if (method === "thread/read") return { thread: { ...forkResponse.thread, turns: [] } };
+      if (method === "thread/resume") return makeCanonicalForkResumeResponse(forkResponse);
+      if (method === "thread/goal/get") return { goal: null };
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    serviceInternals.resolveDynamicThreadDetail = async () => sourceDetail;
+    serviceInternals.parseThreadRef = () => ({
+      projectId: null,
+      cwd,
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    serviceInternals.upsertLinkFromThread = () => null;
+    serviceInternals.materializeThreadDetailFromThreadPayload = () => ({
+      detail: childDetail,
+      summary: null,
+    });
+    serviceInternals.buildThreadDetailFromRead = () => childDetail;
+    serviceInternals.buildThreadDetailFromCanonicalState = () => childDetail;
+    serviceInternals.persistThreadDetailSummary = () => {};
+
+    try {
+      const response = await serviceInternals.handleDynamicToolCall({
+        threadId: sourceThreadId,
+        turnId: "turn_dynamic_parent",
+        callId: "call_dynamic_fork",
+        namespace: "codex_app",
+        tool: "fork_thread",
+        arguments: { environment: { type: "same-directory" } },
+      });
+      const output = JSON.parse(response.contentItems[0]?.text ?? "null") as Record<string, unknown>;
+      const forkParams = requests[0]?.params as Record<string, unknown>;
+
+      expect(response.success).toBe(true);
+      expect(JSON.stringify(output.environment)).toBe(JSON.stringify({ type: "same-directory" }));
+      expect(output.sourceThreadId).toBe(sourceThreadId);
+      expect(output.threadId).toBe(childThreadId);
+      expect(String(output.continuation)).toBe(
+        "The fork contains completed history only. If the source thread was running, the active turn and unfinished response are not in the child. Send a follow-up message to threadId only if the task requires work to continue there.",
+      );
+      expect(forkParams.path).toBe(null);
+      expect(forkParams.threadSource).toBe("subagent");
+      expect(getCanonicalConversationState(service, childThreadId)?.turns.at(-1)?.items.at(-1)?.type).toBe(
+        "forkedFromConversation",
+      );
+      expect(transferEvents.join(",")).toBe(
+        `direct:${sourceThreadId}:${childThreadId}`,
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("dynamic worktree fork creates a real pending fork request instead of a title reservation", async () => {
+    const sourceThreadId = "thr_dynamic_pending_fork_source";
+    const transferEvents: string[] = [];
+    const transferLifecycle = makeRecordingForkSidePanelTransferLifecycle(transferEvents);
+    const service = createService({
+      forkSidePanelTransferLifecycle: transferLifecycle,
+    });
+    const captured: CodexPendingWorktreeRequest[] = [];
+    const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+      create: (request: CodexPendingWorktreeRequest) => void;
+    };
+    pendingRuntime.create = (request) => {
+      captured.push(request);
+      transferEvents.push(`create:${request.id}`);
+    };
+    const serviceInternals = service as unknown as {
+      handleDynamicToolCall: (params: {
+        threadId: string;
+        turnId: string;
+        callId: string;
+        namespace: string;
+        tool: string;
+        arguments: Record<string, unknown>;
+      }) => Promise<{ contentItems: Array<{ text?: string }>; success: boolean }>;
+      resolveDynamicThreadDetail: () => Promise<CodexThreadDetail>;
+      parseThreadRef: () => { projectId: string; cwd: string };
+    };
+    serviceInternals.resolveDynamicThreadDetail = async () => ({
+      ...makeThreadDetail(sourceThreadId),
+      projectId: "project-dynamic-pending-fork",
+      cwd: "/workspace/dynamic-pending-fork",
+      threadName: "Dynamic pending fork source",
+      latestCollaborationMode: {
+        mode: "default",
+        settings: {
+          model: "gpt-pending-fork",
+          reasoning_effort: "high",
+          developer_instructions: null,
+        },
+      },
+    });
+    serviceInternals.parseThreadRef = () => ({
+      projectId: "project-dynamic-pending-fork",
+      cwd: "/workspace/dynamic-pending-fork",
+    });
+
+    try {
+      const response = await serviceInternals.handleDynamicToolCall({
+        threadId: sourceThreadId,
+        turnId: "turn_dynamic_pending_fork",
+        callId: "call_dynamic_pending_fork",
+        namespace: "codex_app",
+        tool: "fork_thread",
+        arguments: { environment: { type: "worktree" } },
+      });
+      const output = JSON.parse(response.contentItems[0]?.text ?? "null") as {
+        pendingWorktreeId?: string;
+      };
+      const pending = captured[0];
+
+      expect(response.success).toBe(true);
+      expect(output.pendingWorktreeId?.startsWith("local:") ?? false).toBe(true);
+      expect(captured.length).toBe(1);
+      expect(pending?.id).toBe(output.pendingWorktreeId);
+      expect(pending?.launchMode).toBe("fork-conversation");
+      if (pending?.launchMode !== "fork-conversation") {
+        throw new Error("Expected a pending fork request");
+      }
+      expect(pending.clientThreadId.startsWith("client-new-thread:")).toBe(true);
+      expect(pending.sourceConversationId).toBe(sourceThreadId);
+      expect(pending.startingState?.type).toBe("working-tree");
+      expect(pending.projectAssignment?.projectId).toBe("project-dynamic-pending-fork");
+      expect(pending.sourceCollaborationMode?.settings.model).toBe("gpt-pending-fork");
+      expect(pending.threadSource).toBe("subagent");
+      expect(transferEvents.join(",")).toBe([
+        `create:${pending.id}`,
+        `capture:${pending.id}:${sourceThreadId}:/workspace/dynamic-pending-fork`,
+      ].join(","));
+
+      transferLifecycle.capturePending = () => {
+        transferEvents.push("capture-failed");
+        throw new Error("snapshot capture failed");
+      };
+      const failedResponse = await serviceInternals.handleDynamicToolCall({
+        threadId: sourceThreadId,
+        turnId: "turn_dynamic_pending_fork_failure",
+        callId: "call_dynamic_pending_fork_failure",
+        namespace: "codex_app",
+        tool: "fork_thread",
+        arguments: { environment: { type: "worktree" } },
+      });
+      expect(failedResponse.success).toBe(false);
+      expect(captured.length).toBe(2);
+      expect(transferEvents.at(-2)).toBe(`create:${captured[1]?.id}`);
+      expect(transferEvents.at(-1)).toBe("capture-failed");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("pending target-turn fork resumes with frozen settings before rolling back the child", async () => {
+    const sourceThreadId = "thr_pending_target_source";
+    const childThreadId = "thr_pending_target_child";
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-target-project-"));
+    const project = createProject({
+      name: "Pending target fork",
+      sources: [workspaceRoot],
+    });
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const resolvedInstructionModels: Array<string | null | undefined> = [];
+    const sourceTurns = [
+      makeCanonicalHydrationTurn("turn_1"),
+      makeCanonicalHydrationTurn("turn_2"),
+      makeCanonicalHydrationTurn("turn_3"),
+    ];
+    const forkResponse = makeCanonicalForkResponse({
+      threadId: childThreadId,
+      cwd: workspaceRoot,
+      turns: sourceTurns,
+      model: "gpt-fork-response",
+      reasoningEffort: "medium",
+    });
+    const service = createService({
+      projectAwareDeveloperInstructionsResolver: async (input) => {
+        resolvedInstructionModels.push(input.model);
+        return "";
+      },
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      parseThreadRef: (threadId: string) => {
+        projectId: string;
+        cwd: string;
+        projectlessWorkspaceBrowserRoot: null;
+      };
+      persistThreadDetailSummary: () => void;
+      launchPendingWorktreeFork: (
+        entry: Extract<CodexPendingWorktreeEntry, { launchMode: "fork-conversation" }>,
+        destination: string,
+        worktreeInit: null,
+      ) => Promise<{ threadId: string }>;
+    };
+    const sourceDetail: CodexThreadDetail = {
+      ...makeThreadDetail(sourceThreadId),
+      projectId: project.id,
+      cwd: workspaceRoot,
+      turns: sourceTurns.map((turn) => ({
+        threadId: sourceThreadId,
+        turnId: turn.id,
+        status: "completed",
+        itemIds: turn.items.map((item) => item.id),
+      })),
+      transcript: [],
+    };
+    const entry = {
+      id: "local:pending-target-fork",
+      hostId: "local",
+      label: "Pending target fork",
+      sourceWorkspaceRoot: sourceDetail.cwd ?? "/workspace/pending-target-source",
+      startingState: { type: "working-tree" as const },
+      localEnvironmentConfigPath: null,
+      prompt: "Continue from turn 2",
+      launchMode: "fork-conversation" as const,
+      clientThreadId: "client-new-thread:pending-target-fork",
+      startConversationParamsInput: null,
+      projectAssignment: {
+        projectKind: "local" as const,
+        projectId: project.id,
+        path: sourceDetail.cwd ?? workspaceRoot,
+        pendingCoreUpdate: false as const,
+      },
+      sourceConversationId: sourceThreadId,
+      sourceCollaborationMode: {
+        mode: "plan" as const,
+        settings: {
+          model: "gpt-frozen-plan",
+          reasoning_effort: "high" as const,
+          developer_instructions: null,
+        },
+      },
+      targetTurnId: "turn_2",
+      threadSource: "subagent" as const,
+      createdAt: 1,
+      attempt: 1,
+      phase: "worktree-ready" as const,
+      labelEdited: false,
+      worktreeOutputText: "created\n",
+      setupOutputText: "",
+      errorMessage: null,
+      worktreeWorkspaceRoot: workspaceRoot,
+      worktreeGitRoot: workspaceRoot,
+      needsAttention: false,
+      isPinned: false,
+      pinnedBeforeThreadId: null,
+    } satisfies CodexPendingWorktreeEntry;
+
+    serviceInternals.setConversationRecordDetail(sourceDetail);
+    serviceInternals.parseThreadRef = () => ({
+      projectId: project.id,
+      cwd: workspaceRoot,
+      projectlessWorkspaceBrowserRoot: null,
+    });
+    serviceInternals.persistThreadDetailSummary = () => {};
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/fork") return forkResponse;
+      if (method === "thread/read") {
+        return { thread: { ...forkResponse.thread, turns: [] } };
+      }
+      if (method === "thread/resume") {
+        return {
+          ...makeCanonicalForkResumeResponse(forkResponse),
+          model: "",
+          reasoningEffort: null,
+        };
+      }
+      if (method === "thread/goal/get") return { goal: null };
+      if (method === "thread/rollback") {
+        return {
+          thread: {
+            ...forkResponse.thread,
+            turns: sourceTurns.slice(0, 2),
+          },
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const result = await serviceInternals.launchPendingWorktreeFork(entry, workspaceRoot, null);
+      const forkParams = requests.find((request) => request.method === "thread/fork")
+        ?.params as Record<string, unknown> | undefined;
+      const resumeParams = requests.find((request) => request.method === "thread/resume")
+        ?.params as Record<string, unknown> | undefined;
+      const rollbackParams = requests.find((request) => request.method === "thread/rollback")
+        ?.params as Record<string, unknown> | undefined;
+      const detail = service.serializeThreadDetail(childThreadId);
+
+      expect(result.threadId).toBe(childThreadId);
+      expect(Object.prototype.hasOwnProperty.call(forkParams ?? {}, "lastTurnId")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(
+        forkParams ?? {},
+        "runtimeWorkspaceRoots",
+      )).toBe(false);
+      expect(forkParams?.threadSource).toBe("subagent");
+      expect(resumeParams?.model).toBe(null);
+      expect(JSON.stringify(resolvedInstructionModels)).toBe(JSON.stringify(["gpt-frozen-plan"]));
+      expect(rollbackParams?.threadId).toBe(childThreadId);
+      expect(rollbackParams?.numTurns).toBe(1);
+      expect(detail?.turns.length).toBe(2);
+      expect(detail?.latestCollaborationMode?.mode).toBe("default");
+      expect(detail?.latestCollaborationMode?.settings.model).toBe("gpt-frozen-plan");
+      expect(detail?.latestCollaborationMode?.settings.reasoning_effort).toBe("high");
+      expect(getCanonicalConversationState(service, childThreadId)?.turns.at(-1)?.items.at(-1)?.type).toBe(
+        "forkedFromConversation",
+      );
+    } finally {
+      await service.shutdown();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("dynamic start kernel forwards frozen options and can use app-server permission defaults", async () => {
+    const cwd = "/tmp/codex-dynamic-direct";
+    const outputDirectory = `${cwd}/outputs`;
+    const workspaceRoot = "/tmp/codex-dynamic-root";
+    const createdThreadId = "thr_dynamic_direct_kernel";
+    const service = createService({
+      projectAwareDeveloperInstructionsResolver: async () => "",
+    });
+    const requests: Array<{ method: string; params: unknown }> = [];
+    let resolveTurnStart!: (value: { turn: Turn }) => void;
+    const pendingTurnStart = new Promise<{ turn: Turn }>((resolve) => {
+      resolveTurnStart = resolve;
+    });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/start") {
+        return makeCanonicalThreadStartResponse({
+          threadId: createdThreadId,
+          cwd,
+        });
+      }
+      if (method === "turn/start") return await pendingTurnStart;
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    let materializedThreadPayload: Record<string, unknown> | null = null;
+    const serviceInternals = service as unknown as {
+      startDynamicCreatedConversation: (input: unknown) => Promise<{
+        threadId: string;
+        projectlessOutputDirectory?: string;
+      }>;
+      buildNewConversationParams: (
+        input: Record<string, unknown>,
+      ) => Promise<Record<string, unknown>>;
+      materializeThreadDetailFromThreadPayload: (thread: unknown) => {
+        detail: CodexThreadDetail;
+        summary: null;
+      };
+      markThreadAsActive: (threadId: string) => void;
+      scheduleGeneratedThreadName: () => void;
+      getConversationRecord: (threadId: string) => {
+        detail: CodexThreadDetail | null;
+      };
+    };
+    const originalBuildNewConversationParams =
+      serviceInternals.buildNewConversationParams.bind(service);
+    let buildNewConversationParamsInput: Record<string, unknown> | null = null;
+    serviceInternals.buildNewConversationParams = async (input) => {
+      buildNewConversationParamsInput = input;
+      return await originalBuildNewConversationParams(input);
+    };
+    serviceInternals.materializeThreadDetailFromThreadPayload = (thread) => {
+      materializedThreadPayload = thread as Record<string, unknown>;
+      return {
+        detail: {
+          ...makeThreadDetail(createdThreadId),
+          projectId: null,
+          cwd,
+          projectlessOutputDirectory: outputDirectory,
+          projectlessWorkspaceBrowserRoot: workspaceRoot,
+          serviceName: typeof materializedThreadPayload.serviceName === "string"
+            ? materializedThreadPayload.serviceName
+            : null,
+          turns: [],
+          transcript: [],
+        },
+        summary: null,
+      };
+    };
+    serviceInternals.markThreadAsActive = (threadId) => {
+      const record = serviceInternals.getConversationRecord(threadId);
+      if (!record.detail) return;
+      record.detail = {
+        ...record.detail,
+        statusType: "active",
+        statusActiveFlags: [],
+      };
+    };
+    serviceInternals.scheduleGeneratedThreadName = () => {};
+
+    try {
+      service.setPersonality("pragmatic");
+      const resultPromise = serviceInternals.startDynamicCreatedConversation({
+        sourceThreadId: "thr_dynamic_direct_source",
+        createInput: {
+          prompt: "Implement delegated direct work",
+          target: { type: "projectless" },
+        },
+        target: {
+          launchMode: "direct",
+          projectId: null,
+          cwd,
+          workspaceRoots: [workspaceRoot],
+          workspaceKind: "projectless",
+          projectlessOutputDirectory: outputDirectory,
+          projectlessWorkspaceBrowserRoot: workspaceRoot,
+        },
+        modelProjection: {
+          collaborationMode: {
+            mode: "default",
+            settings: {
+              model: "gpt-delegated",
+              reasoning_effort: "medium",
+              developer_instructions: null,
+            },
+          },
+          configOverrides: {
+            frozen_override_marker: "override",
+            "memories.use_memories": true,
+            "features.onboarding_interactive_tools": true,
+          },
+        },
+        permissionSelection: null,
+        memoryPreferences: { generateMemories: true, useMemories: false },
+        mode: "work",
+        threadStartKind: "composer",
+        baseInstructions: "Frozen base instructions",
+        additionalDeveloperInstructions: "Frozen additional instructions",
+        serviceName: "source-service",
+        serviceTier: null,
+        worktreeInit: {
+          type: "worktreeInit",
+          id: "local:pending-kernel:1",
+          worktreeOutputText: "Worktree created\n",
+          setup: null,
+        },
+      });
+      const raced = await Promise.race([
+        resultPromise.then((result) => ({ type: "result" as const, result })),
+        new Promise<{ type: "timeout" }>((resolve) => {
+          setTimeout(() => resolve({ type: "timeout" }), 100);
+        }),
+      ]);
+      expect(raced.type).toBe("result");
+      if (raced.type !== "result") throw new Error("direct create waited for turn/start");
+
+      const turnStart = requests.find((request) => request.method === "turn/start")
+        ?.params as Record<string, unknown> | undefined;
+      const threadStart = requests.find((request) => request.method === "thread/start")
+        ?.params as Record<string, unknown> | undefined;
+      const inputItems = Array.isArray(turnStart?.input) ? turnStart.input : [];
+      const delegatedText = String((inputItems[0] as Record<string, unknown> | undefined)?.text ?? "");
+      const canonical = getCanonicalConversationState(service, createdThreadId);
+      const detail = service.serializeThreadDetail(createdThreadId);
+      const materializedPayload = materializedThreadPayload as Record<string, unknown> | null;
+
+      expect(raced.result.threadId).toBe(createdThreadId);
+      expect(raced.result.projectlessOutputDirectory).toBe(outputDirectory);
+      expect(delegatedText.includes("<codex_delegation>")).toBe(true);
+      expect(delegatedText.includes("<source_thread_id>thr_dynamic_direct_source</source_thread_id>")).toBe(true);
+      expect(delegatedText.includes("<input>Implement delegated direct work</input>")).toBe(true);
+      expect(threadStart?.model).toBe("gpt-delegated");
+      expect(threadStart?.serviceName).toBe("source-service");
+      expect(threadStart?.baseInstructions).toBe("Frozen base instructions");
+      expect(threadStart?.developerInstructions).toBe("Frozen additional instructions");
+      expect(threadStart?.personality).toBe("pragmatic");
+      const threadStartConfig = threadStart?.config as Record<string, unknown> | undefined;
+      expect(threadStartConfig?.["memories.generate_memories"]).toBe(true);
+      expect(threadStartConfig?.["memories.use_memories"]).toBe(true);
+      expect(threadStartConfig?.["features.onboarding_interactive_tools"]).toBe(true);
+      expect(threadStartConfig?.frozen_override_marker).toBe("override");
+      expect((buildNewConversationParamsInput as Record<string, unknown> | null)?.mode).toBe("work");
+      expect(
+        (buildNewConversationParamsInput as Record<string, unknown> | null)?.threadStartKind,
+      ).toBe("composer");
+      expect((
+        (buildNewConversationParamsInput as Record<string, unknown> | null)
+          ?.defaultFeatureOverrides as
+          | Record<string, unknown>
+          | undefined
+      )?.["features.onboarding_interactive_tools"]).toBe(true);
+      for (const key of ["approvalPolicy", "approvalsReviewer", "permissions", "sandbox"]) {
+        expect(Object.prototype.hasOwnProperty.call(threadStart ?? {}, key)).toBe(false);
+      }
+      expect(materializedPayload?.serviceName).toBe("source-service");
+      expect(detail?.serviceName).toBe("source-service");
+      expect(turnStart?.model).toBe(null);
+      expect(turnStart?.effort).toBe(null);
+      expect(turnStart?.multiAgentMode).toBe("explicitRequestOnly");
+      expect(JSON.stringify(turnStart?.responsesapiClientMetadata)).toBe(JSON.stringify({
+        workspace_kind: "projectless",
+      }));
+      expect(turnStart?.outputSchema).toBe(null);
+      for (const key of [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "permissions",
+        "runtimeWorkspaceRoots",
+        "sandboxPolicy",
+      ]) {
+        expect(Object.prototype.hasOwnProperty.call(turnStart ?? {}, key)).toBe(true);
+        expect(turnStart?.[key]).toBe(null);
+      }
+      expect(canonical?.turns.at(-1)?.protocol.id).toBe(null);
+      expect(canonical?.turns.at(-1)?.protocol.status).toBe("inProgress");
+      expect(canonical?.turns.length).toBe(1);
+      expect(canonical?.turns.at(-1)?.items[0]?.type).toBe("worktreeInit");
+      expect(canonical?.turns.at(-1)?.sidecar.params.effort).toBe(null);
+      expect((canonical?.turns.at(-1)?.sidecar.params as {
+        useAppServerPermissionDefault?: boolean;
+      } | undefined)?.useAppServerPermissionDefault).toBe(true);
+      expect((detail?.turns.at(-1) as { turnId?: string | null } | undefined)?.turnId ?? null).toBe(null);
+      expect(detail?.turns.at(-1)?.itemIds).toStrictEqual([
+        "turn-index-0:input",
+        "local:pending-kernel:1",
+      ]);
+      expect(detail?.transcript[0]?.markdownText).toBe("Implement delegated direct work");
+      expect(detail?.transcript.at(-1)?.semanticKind).toBe("worktreeInit");
+
+      resolveTurnStart({
+        turn: {
+          id: "turn_dynamic_direct_kernel",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          durationMs: null,
+        },
+      });
+      await flushAsyncWork();
+      expect(getCanonicalConversationState(service, createdThreadId)?.turns.at(-1)?.protocol.id).toBe(
+        "turn_dynamic_direct_kernel",
+      );
+      expect(getCanonicalConversationState(service, createdThreadId)?.turns.at(-1)?.items[0]?.type).toBe(
+        "worktreeInit",
+      );
+      expect(service.serializeThreadDetail(createdThreadId)?.turns.at(-1)?.turnId).toBe(
+        "turn_dynamic_direct_kernel",
+      );
+      expect(service.serializeThreadDetail(createdThreadId)?.transcript[0]?.itemId).toBe(
+        "turn_dynamic_direct_kernel:input",
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("restores delegated source service identity from durable thread metadata", async () => {
+    const ran = await withTempDatabase(async () => {
+      const sourceThreadId = "thr_dynamic_service_source";
+      const firstService = createService();
+      const firstInternals = firstService as unknown as {
+        upsertLinkFromThread: (thread: unknown) => CodexThreadSummary | null;
+      };
+
+      try {
+        const created = firstInternals.upsertLinkFromThread({
+          id: sourceThreadId,
+          serviceName: "durable-source-service",
+        });
+        expect(created?.serviceName).toBe("durable-source-service");
+
+        const refreshed = firstInternals.upsertLinkFromThread({
+          id: sourceThreadId,
+          name: "Hydrated source thread",
+        });
+        expect(refreshed?.serviceName).toBe("durable-source-service");
+      } finally {
+        await firstService.shutdown();
+      }
+
+      const restartedService = createService();
+      const restartedInternals = restartedService as unknown as {
+        resolveThreadServiceName: (threadId: string) => string | undefined;
+      };
+      try {
+        expect(restartedInternals.resolveThreadServiceName(sourceThreadId)).toBe(
+          "durable-source-service",
+        );
+      } finally {
+        await restartedService.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("dynamic create snapshots keep raw direct config and profile-expanded pending config", async () => {
+    const service = createService();
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "config/read") {
+        return {
+          config: {
+            profile: "delegated",
+            approval_policy: "on-request",
+            approvals_reviewer: "user",
+            sandbox_mode: "workspace-write",
+            model: "base-model",
+            profiles: {
+              delegated: {
+                model: "profile-model",
+                approval_policy: "never",
+              },
+            },
+          },
+          origins: {},
+          layers: [],
+        };
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+    const serviceInternals = service as unknown as {
+      readDynamicCreateDestinationSnapshot: (target: {
+        projectId: string;
+        cwd: string;
+        workspaceRoots: readonly string[];
+        workspaceKind: "project";
+        projectlessOutputDirectory: null;
+        projectlessWorkspaceBrowserRoot: null;
+        launchMode: "direct";
+      }) => Promise<{
+        rawConfig: Record<string, unknown>;
+        expandedConfig: Record<string, unknown>;
+      }>;
+    };
+
+    try {
+      const snapshot = await serviceInternals.readDynamicCreateDestinationSnapshot({
+        projectId: "project-destination-permissions",
+        cwd: "/tmp/destination-permissions",
+        workspaceRoots: ["/tmp/destination-permissions"],
+        workspaceKind: "project",
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+        launchMode: "direct",
+      });
+
+      const configRead = requests.find((request) => request.method === "config/read");
+      expect(JSON.stringify(configRead?.params)).toBe(JSON.stringify({
+        includeLayers: false,
+        cwd: "/tmp/destination-permissions",
+      }));
+      expect(snapshot.rawConfig.model).toBe("base-model");
+      expect(snapshot.rawConfig.approval_policy).toBe("on-request");
+      expect(snapshot.expandedConfig.model).toBe("profile-model");
+      expect(snapshot.expandedConfig.approval_policy).toBe("never");
+      expect(requests.some((request) => request.method === "configRequirements/read")).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("dynamic direct permissions use retained source mode or the owner host mode, never config requirements", async () => {
+    const service = createService();
+    const sourceThreadId = "thread-dynamic-permission-source";
+    const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        detail: { cwd: string | null } | null;
+        canonicalState: {
+          sidecar: {
+            hydrationContext: {
+              cwd: string;
+              currentPermissions: {
+                activePermissionProfile: { id: string; extends: null } | null;
+                runtimeWorkspaceRoots: string[];
+                approvalPolicy: "on-request" | "never";
+                approvalsReviewer: "user";
+                sandboxPolicy:
+                  | { type: "dangerFullAccess" }
+                  | {
+                      type: "workspaceWrite";
+                      writableRoots: string[];
+                      excludeSlashTmp: false;
+                      excludeTmpdirEnvVar: false;
+                      networkAccess: boolean;
+                    };
+              };
+            };
+          };
+        } | null;
+      };
+      resolveDynamicCreatePermissions: (
+        sourceThreadId: string,
+        target: Record<string, unknown>,
+        snapshot: Record<string, unknown>,
+        hostMode: "read-only" | "auto" | "full-access" | "custom",
+      ) => Promise<{
+        mode: string;
+        context: { activePermissionProfile: { id: string } | null; sandboxPolicy: { type: string } };
+      }>;
+    };
+    const record = serviceInternals.getConversationRecord(sourceThreadId);
+    record.detail = { cwd: "/source" };
+    record.canonicalState = {
+      sidecar: {
+        hydrationContext: {
+          cwd: "/source",
+          currentPermissions: {
+            activePermissionProfile: { id: "source-custom", extends: null },
+            runtimeWorkspaceRoots: ["/source"],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandboxPolicy: {
+              type: "workspaceWrite",
+              writableRoots: ["/source"],
+              excludeSlashTmp: false,
+              excludeTmpdirEnvVar: false,
+              networkAccess: true,
+            },
+          },
+        },
+      },
+    };
+    const target = {
+      projectId: "project-dynamic-permission-target",
+      cwd: "/destination",
+      workspaceRoots: ["/destination"],
+      workspaceKind: "project",
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+      launchMode: "direct",
+    };
+    const snapshot = {
+      rawConfig: {
+        sandbox_mode: "danger-full-access",
+        approval_policy: "never",
+      },
+      expandedConfig: {
+        sandbox_mode: "workspace-write",
+        approval_policy: "on-request",
+      },
+    };
+
+    try {
+      const sourceDiscarded = await serviceInternals.resolveDynamicCreatePermissions(
+        sourceThreadId,
+        target,
+        snapshot,
+        "read-only",
+      );
+      expect(sourceDiscarded.mode).toBe("read-only");
+      expect(sourceDiscarded.context.activePermissionProfile?.id ?? null).toBe(":read-only");
+      expect(sourceDiscarded.context.sandboxPolicy.type).toBe("readOnly");
+
+      record.detail = { cwd: "/destination" };
+      record.canonicalState.sidecar.hydrationContext.cwd = "/destination";
+      record.canonicalState.sidecar.hydrationContext.currentPermissions = {
+        activePermissionProfile: { id: ":danger-full-access", extends: null },
+        runtimeWorkspaceRoots: ["/destination"],
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        sandboxPolicy: { type: "dangerFullAccess" },
+      };
+      const sourceRetained = await serviceInternals.resolveDynamicCreatePermissions(
+        sourceThreadId,
+        target,
+        snapshot,
+        "auto",
+      );
+      expect(sourceRetained.mode).toBe("full-access");
+      expect(sourceRetained.context.activePermissionProfile?.id ?? null).toBe(
+        ":danger-full-access",
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("admits explicit file and added sidecars with an empty pending prompt placeholder", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      preparePromptForTurn: (
+        prompt: string,
+        promptInput: CodexPromptInput,
+        options: { readonly allowEmptyTextPlaceholder: boolean },
+      ) => Promise<{
+        inputItems: Array<{ type: string; text?: string }>;
+        pendingInputItems: Array<{ type: string; text?: string }>;
+        fileAttachments: Array<{ label: string; path: string; fsPath: string }>;
+        addedFiles: Array<{ label: string; path: string; fsPath: string }>;
+        pastedTextAttachments: Array<{ text: string }>;
+      }>;
+    };
+
+    try {
+      const prepared = await serviceInternals.preparePromptForTurn("", {
+        text: "",
+        fileAttachments: [{
+          label: "source.ts",
+          path: "src/source.ts",
+          fsPath: "/repo/src/source.ts",
+        }],
+        addedFiles: [{
+          label: "generated.ts",
+          path: "src/generated.ts",
+          fsPath: "/repo/src/generated.ts",
+        }],
+        textAttachments: [{ text: "  \n\t  " }],
+      }, { allowEmptyTextPlaceholder: true });
+
+      expect(JSON.stringify(prepared.inputItems)).toBe(JSON.stringify([
+        { type: "text", text: "", text_elements: [] },
+        { type: "mention", name: "source.ts", path: "src/source.ts" },
+        { type: "mention", name: "generated.ts", path: "src/generated.ts" },
+      ]));
+      expect(JSON.stringify(prepared.pendingInputItems)).toBe(
+        '[{"type":"text","text":"","text_elements":[]}]',
+      );
+      expect(JSON.stringify(prepared.fileAttachments)).toBe(
+        '[{"label":"source.ts","path":"src/source.ts","fsPath":"/repo/src/source.ts"}]',
+      );
+      expect(JSON.stringify(prepared.addedFiles)).toBe(
+        '[{"label":"generated.ts","path":"src/generated.ts","fsPath":"/repo/src/generated.ts"}]',
+      );
+      expect(prepared.pastedTextAttachments[0]?.text).toBe("  \n\t  ");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("preserves raw structured prompt bytes before pending context formatting", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      preparePromptForTurn: (
+        prompt: string,
+        promptInput: CodexPromptInput,
+      ) => Promise<{
+        promptText: string;
+        pendingInputItems: Array<{ type: string; text?: string }>;
+      }>;
+    };
+    const rawPrompt = "  leading\ntrailing  \n";
+
+    try {
+      const prepared = await serviceInternals.preparePromptForTurn("ignored", {
+        text: rawPrompt,
+      });
+
+      expect(prepared.promptText).toBe(rawPrompt);
+      expect(prepared.pendingInputItems[0]?.text).toBe(rawPrompt);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("queues the exact dynamic pending-worktree contract and returns only its client id", async () => {
+    const service = createService();
+    const captured: CodexPendingStartConversationRequest[] = [];
+    const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+      create: (request: CodexPendingStartConversationRequest) => void;
+    };
+    pendingRuntime.create = (request) => {
+      captured.push(request);
+    };
+    const serviceInternals = service as unknown as {
+      enqueueDynamicPendingWorktree: (input: Record<string, unknown>) => {
+        clientThreadId: string;
+      };
+      launchPendingWorktreeConversation: (
+        entry: CodexPendingStartConversationRequest & {
+          createdAt: number;
+          attempt: number;
+          phase: "worktree-ready";
+          labelEdited: boolean;
+          worktreeOutputText: string;
+          setupOutputText: string;
+          errorMessage: null;
+          worktreeWorkspaceRoot: string;
+          worktreeGitRoot: string;
+          needsAttention: boolean;
+          isPinned: boolean;
+          pinnedBeforeThreadId: string | null;
+        },
+        workspaceRoot: string,
+        context: {
+          readonly includeWorktreeInit: boolean;
+          readonly onThreadCreated: (threadId: string) => void;
+        },
+      ) => Promise<{ threadId: string }>;
+      startDynamicCreatedConversation: (
+        input: Record<string, unknown>,
+        options?: { readonly persistClientThreadIdentity?: boolean },
+      ) => Promise<{ threadId: string }>;
+      persistClientThreadIdentity: (threadId: string, clientThreadId: string) => void;
+      setThreadPinned: (
+        threadId: string,
+        pinned: boolean,
+        beforeThreadId?: string | null,
+      ) => Promise<unknown>;
+    };
+    let launchedInput: Record<string, unknown> | null = null;
+    let pinnedCall: {
+      threadId: string;
+      pinned: boolean;
+      beforeThreadId: string | null | undefined;
+    } | null = null;
+    let startOptions: { readonly persistClientThreadIdentity?: boolean } | undefined;
+    const realizationEvents: string[] = [];
+    serviceInternals.startDynamicCreatedConversation = async (input, options) => {
+      launchedInput = input;
+      startOptions = options;
+      realizationEvents.push("launch");
+      return { threadId: "thread-pending-contract" };
+    };
+    serviceInternals.persistClientThreadIdentity = (threadId, clientThreadId) => {
+      realizationEvents.push(`map:${threadId}:${clientThreadId}`);
+    };
+    serviceInternals.setThreadPinned = async (threadId, pinned, beforeThreadId) => {
+      realizationEvents.push("metadata");
+      pinnedCall = { threadId, pinned, beforeThreadId };
+      return {};
+    };
+    const prompt = `${"Build delegated work ".repeat(6)}\nwith exact queue state`;
+
+    try {
+      const result = serviceInternals.enqueueDynamicPendingWorktree({
+        createInput: {
+          prompt,
+          target: {
+            type: "project",
+            projectId: "project-pending-contract",
+            environment: { type: "worktree" },
+          },
+        },
+        destinationSnapshot: {
+          rawConfig: {
+            model: "base-model",
+            service_tier: null,
+          },
+          expandedConfig: {
+            model: "profile-model",
+            service_tier: "fast",
+          },
+        },
+        modelProjection: {
+          collaborationMode: {
+            mode: "default",
+            settings: {
+              model: "gpt-pending",
+              reasoning_effort: "high",
+              developer_instructions: null,
+            },
+          },
+          configOverrides: null,
+        },
+        permissionSelection: {
+          mode: "auto",
+          context: {
+            activePermissionProfile: { id: ":workspace", extends: null },
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandboxPolicy: {
+              type: "workspaceWrite",
+              writableRoots: ["/repo"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+          },
+          launchParams: {},
+          turnParams: {},
+        },
+        serviceName: "source-service",
+        serviceTier: "fast",
+        sourceThreadId: "thread-source-pending",
+        startingState: { type: "branch", branchName: "main" },
+        target: {
+          launchMode: "worktree",
+          projectId: "project-pending-contract",
+          cwd: "/repo",
+          workspaceRoots: ["/repo"],
+          workspaceKind: "project",
+          projectlessOutputDirectory: null,
+          projectlessWorkspaceBrowserRoot: null,
+        },
+      });
+      const request = captured[0];
+      const firstInput = request?.startConversationParamsInput.input[0];
+
+      expect(captured.length).toBe(1);
+      expect(result.clientThreadId.startsWith("client-new-thread:")).toBe(true);
+      expect(request?.clientThreadId).toBe(result.clientThreadId);
+      expect(request?.id.startsWith("local:")).toBe(true);
+      expect(request?.id === result.clientThreadId).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(request ?? {}, "initialThreadTitle")).toBe(true);
+      expect(request?.initialThreadTitle).toBe(undefined);
+      for (const key of [
+        "browserTransferSourceBrowserTabId",
+        "browserTransferSourceBrowserTabIds",
+        "browserTransferSourceConversationId",
+      ]) {
+        expect(Object.prototype.hasOwnProperty.call(request ?? {}, key)).toBe(false);
+        expect((request as unknown as Record<string, unknown> | undefined)?.[key]).toBe(undefined);
+      }
+      expect((request?.label.length ?? 0) <= 80).toBe(true);
+      expect(request?.label.endsWith("…")).toBe(true);
+      expect(request?.startingState?.type).toBe("branch");
+      expect(request?.startingState?.type === "branch" ? request.startingState.branchName : null).toBe(
+        "main",
+      );
+      expect(firstInput?.type).toBe("text");
+      expect(
+        firstInput?.type === "text"
+          ? firstInput.text.includes("<source_thread_id>thread-source-pending</source_thread_id>")
+          : false,
+      ).toBe(true);
+      expect(request?.startConversationParamsInput.serviceName).toBe("source-service");
+      expect(request?.startConversationParamsInput.serviceTier).toBe("fast");
+      expect(request?.startConversationParamsInput.config.model).toBe("profile-model");
+      expect(Object.prototype.hasOwnProperty.call(
+        request?.startConversationParamsInput ?? {},
+        "permissionProfileId",
+      )).toBe(true);
+      expect(request?.startConversationParamsInput.permissionProfileId).toBe(undefined);
+      expect(Object.prototype.hasOwnProperty.call(
+        request?.startConversationParamsInput ?? {},
+        "serviceName",
+      )).toBe(true);
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          request?.startConversationParamsInput.projectAssignment ?? {},
+          "cwd",
+        ),
+      ).toBe(false);
+
+      if (!request) throw new Error("Pending request was not captured");
+      let mappedThreadId = "";
+      const launched = await serviceInternals.launchPendingWorktreeConversation({
+        ...request,
+        startConversationParamsInput: {
+          ...request.startConversationParamsInput,
+          permissionProfileId: "team-profile",
+          configOverrides: { frozen_override_marker: "override" },
+          memoryPreferences: { generateMemories: true, useMemories: false },
+          mode: "work",
+          threadStartKind: "composer",
+          baseInstructions: "Frozen base instructions",
+          additionalDeveloperInstructions: "Frozen additional instructions",
+        },
+        createdAt: 1,
+        attempt: 1,
+        phase: "worktree-ready",
+        labelEdited: false,
+        worktreeOutputText: "Worktree created\n",
+        setupOutputText: "",
+        errorMessage: null,
+        worktreeWorkspaceRoot: "/worktree/repo",
+        worktreeGitRoot: "/missing/worktree-git-root",
+        needsAttention: false,
+        isPinned: true,
+        pinnedBeforeThreadId: "thread-existing-anchor",
+      }, "/worktree/repo", {
+        includeWorktreeInit: true,
+        onThreadCreated: (threadId) => {
+          realizationEvents.push("callback");
+          mappedThreadId = threadId;
+        },
+      });
+      const capturedLaunch = launchedInput as Record<string, unknown> | null;
+      const launchedTarget = capturedLaunch?.target as Record<string, unknown> | undefined;
+      const launchedPermissions = capturedLaunch?.permissionSelection as {
+        context?: {
+          activePermissionProfile?: { id?: string } | null;
+          runtimeWorkspaceRoots?: readonly string[];
+          sandboxPolicy?: { type?: string; writableRoots?: readonly string[] };
+        };
+      } | undefined;
+
+      expect(launched.threadId).toBe("thread-pending-contract");
+      expect(mappedThreadId).toBe("thread-pending-contract");
+      expect(launchedTarget?.cwd).toBe("/worktree/repo");
+      expect(JSON.stringify(launchedTarget?.workspaceRoots)).toBe(JSON.stringify(["/worktree/repo"]));
+      expect(capturedLaunch?.managedWorktreePath).toBe("/missing/worktree-git-root");
+      expect(capturedLaunch?.clientThreadId).toBe(request.clientThreadId);
+      expect(startOptions?.persistClientThreadIdentity).toBe(false);
+      expect(realizationEvents.join(",")).toBe(
+        `launch,map:thread-pending-contract:${request.clientThreadId},callback,metadata`,
+      );
+      expect(Object.prototype.hasOwnProperty.call(capturedLaunch ?? {}, "initialTitle")).toBe(false);
+      expect(capturedLaunch?.serviceName).toBe("source-service");
+      expect(
+        (capturedLaunch?.memoryPreferences as { generateMemories?: boolean } | undefined)
+          ?.generateMemories,
+      ).toBe(true);
+      expect(
+        (capturedLaunch?.memoryPreferences as { useMemories?: boolean } | undefined)
+          ?.useMemories,
+      ).toBe(false);
+      expect(capturedLaunch?.mode).toBe("work");
+      expect(capturedLaunch?.threadStartKind).toBe("composer");
+      expect(capturedLaunch?.baseInstructions).toBe("Frozen base instructions");
+      expect(capturedLaunch?.additionalDeveloperInstructions).toBe(
+        "Frozen additional instructions",
+      );
+      expect(JSON.stringify(capturedLaunch?.firstTurnInput)).toBe(
+        JSON.stringify(request.startConversationParamsInput.input),
+      );
+      expect(JSON.stringify(launchedPermissions?.context?.runtimeWorkspaceRoots)).toBe(
+        JSON.stringify(["/worktree/repo"]),
+      );
+      expect(launchedPermissions?.context?.activePermissionProfile?.id ?? null).toBe(
+        "team-profile",
+      );
+      expect(JSON.stringify(launchedPermissions?.context?.sandboxPolicy?.writableRoots)).toBe(
+        JSON.stringify(["/worktree/repo"]),
+      );
+      expect((capturedLaunch?.worktreeInit as { id?: string } | undefined)?.id).toBe(
+        `${request.id}:1`,
+      );
+      expect(JSON.stringify(pinnedCall)).toBe(JSON.stringify({
+        threadId: "thread-pending-contract",
+        pinned: true,
+        beforeThreadId: "thread-existing-anchor",
+      }));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("promotes a Work-locally fork snapshot before durable client mapping", async () => {
+    const events: string[] = [];
+    const service = createService({
+      forkSidePanelTransferLifecycle:
+        makeRecordingForkSidePanelTransferLifecycle(events),
+    });
+    const entry = {
+      id: "local:work-locally-transfer",
+      hostId: "local",
+      label: "Work locally transfer",
+      sourceWorkspaceRoot: "/repo/source",
+      startingState: { type: "working-tree" as const },
+      localEnvironmentConfigPath: null,
+      prompt: "Continue locally",
+      launchMode: "fork-conversation" as const,
+      clientThreadId: "client-new-thread:work-locally-transfer",
+      startConversationParamsInput: null,
+      projectAssignment: null,
+      sourceConversationId: "thread-source-work-locally-transfer",
+      sourceCollaborationMode: null,
+      targetTurnId: null,
+      threadSource: "user" as const,
+      createdAt: 1,
+      attempt: 1,
+      phase: "worktree-ready" as const,
+      labelEdited: false,
+      worktreeOutputText: "",
+      setupOutputText: "",
+      errorMessage: null,
+      worktreeWorkspaceRoot: "/repo/worktree",
+      worktreeGitRoot: "/repo/worktree",
+      needsAttention: false,
+      isPinned: false,
+      pinnedBeforeThreadId: null,
+    } satisfies CodexPendingWorktreeEntry;
+    const internals = service as unknown as {
+      launchPendingWorktreeConversation: (
+        pendingEntry: CodexPendingWorktreeEntry,
+        workspaceRoot: string,
+        context: {
+          readonly includeWorktreeInit: boolean;
+          readonly onThreadCreated: (threadId: string) => void;
+        },
+      ) => Promise<{ readonly threadId: string }>;
+      launchPendingWorktreeFork: () => Promise<{ readonly threadId: string }>;
+      persistClientThreadIdentity: (threadId: string, clientThreadId: string) => void;
+    };
+    internals.launchPendingWorktreeFork = async () => {
+      events.push("launch");
+      return { threadId: "thread-target-work-locally-transfer" };
+    };
+    internals.persistClientThreadIdentity = (threadId, clientThreadId) => {
+      events.push(`map:${threadId}:${clientThreadId}`);
+    };
+
+    try {
+      const result = await internals.launchPendingWorktreeConversation(
+        entry,
+        entry.sourceWorkspaceRoot,
+        {
+          includeWorktreeInit: false,
+          onThreadCreated: (threadId) => {
+            events.push(`callback:${threadId}`);
+          },
+        },
+      );
+
+      expect(result.threadId).toBe("thread-target-work-locally-transfer");
+      expect(events.join(",")).toBe([
+        "launch",
+        "promote:local:work-locally-transfer:thread-target-work-locally-transfer:/repo/source",
+        "map:thread-target-work-locally-transfer:client-new-thread:work-locally-transfer",
+        "callback:thread-target-work-locally-transfer",
+      ].join(","));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("promotes a normal pending fork after accepted mapping and before metadata", async () => {
+    const events: string[] = [];
+    const service = createService({
+      forkSidePanelTransferLifecycle:
+        makeRecordingForkSidePanelTransferLifecycle(events),
+    });
+    const runtime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
+      readonly dependencies: {
+        createWorktree: () => Promise<{
+          readonly worktreeGitRoot: string;
+          readonly worktreeWorkspaceRoot: string;
+        }>;
+      };
+      resolveThread: (clientThreadId: string) =>
+        | { readonly state: "waiting" | "failed" | "succeeded"; readonly threadId?: string }
+        | null;
+    };
+    const internals = service as unknown as {
+      createPendingWorktree: (
+        input: CodexPendingWorktreeCreateInput,
+      ) => { readonly pendingWorktreeId: string; readonly clientThreadId: string | null };
+      launchPendingWorktreeFork: () => Promise<{ readonly threadId: string }>;
+      persistClientThreadIdentity: (threadId: string, clientThreadId: string) => void;
+      applyPendingWorktreeConversationMetadata: () => Promise<void>;
+    };
+    runtime.dependencies.createWorktree = async () => ({
+      worktreeGitRoot: "/repo/worktree",
+      worktreeWorkspaceRoot: "/repo/worktree",
+    });
+    internals.launchPendingWorktreeFork = async () => {
+      events.push("launch");
+      return { threadId: "thread-normal-transfer" };
+    };
+    internals.persistClientThreadIdentity = (threadId, clientThreadId) => {
+      events.push(`map:${threadId}:${clientThreadId}`);
+    };
+    internals.applyPendingWorktreeConversationMetadata = async () => {
+      events.push("metadata");
+    };
+
+    try {
+      const created = internals.createPendingWorktree({
+        hostId: "local",
+        label: "Normal transfer",
+        sourceWorkspaceRoot: "/repo/source",
+        startingState: { type: "working-tree" },
+        localEnvironmentConfigPath: null,
+        launchMode: "fork-conversation",
+        projectAssignment: null,
+        prompt: "Continue in worktree",
+        startConversationParamsInput: null,
+        sourceConversationId: "thread-source-normal-transfer",
+        sourceCollaborationMode: null,
+        targetTurnId: null,
+        threadSource: "user",
+      });
+      const clientThreadId = created.clientThreadId;
+      if (!clientThreadId) throw new Error("Expected a pending client thread id");
+      await waitForCondition(
+        () => service.listPendingWorktrees().length === 0,
+        2_000,
+      );
+
+      expect(events.join(",")).toBe([
+        "launch",
+        `map:thread-normal-transfer:${clientThreadId}`,
+        `promote:${created.pendingWorktreeId}:thread-normal-transfer:/repo/worktree`,
+        "metadata",
+      ].join(","));
+      expect(runtime.resolveThread(clientThreadId)).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("consumes a target snapshot only for the linked local-session route", async () => {
+    const ran = await withTempDatabase(async () => {
+      const project = createProject({
+        name: "Fork transfer target",
+        sources: ["/repo/target"],
+      });
+      const session = createProjectSession({
+        projectId: project.id,
+        noThreadFallbackTitle: "Fork transfer target",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: project.id,
+        threadId: "thread-fork-transfer-target",
+        threadPreview: "Fork transfer target",
+        modelProvider: "openai",
+        cwd: "/repo/target",
+      });
+      const events: string[] = [];
+      const service = createService({
+        forkSidePanelTransferLifecycle:
+          makeRecordingForkSidePanelTransferLifecycle(events),
+      });
+      const lifecycle = service as unknown as {
+        consumeForkSidePanelTransfer: (input: {
+          readonly routeKind: "local-thread";
+          readonly targetConversationId: string;
+          readonly targetProjectSessionId: string;
+        }) => boolean;
+      };
+
+      try {
+        let message = "";
+        try {
+          lifecycle.consumeForkSidePanelTransfer({
+            routeKind: "local-thread",
+            targetConversationId: "thread-other",
+            targetProjectSessionId: session.id,
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+        expect(message).toBe("Target project session does not own the conversation");
+        expect(events.length).toBe(0);
+        expect(lifecycle.consumeForkSidePanelTransfer({
+          routeKind: "local-thread",
+          targetConversationId: "thread-fork-transfer-target",
+          targetProjectSessionId: session.id,
+        })).toBe(true);
+        expect(events.join(",")).toBe(
+          `consume:thread-fork-transfer-target:${session.id}`,
+        );
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("maps pending clients only after fork or start realization completes", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const baseEntry = {
+        hostId: "local",
+        label: "Pending mapping boundary",
+        sourceWorkspaceRoot: "/repo/source",
+        startingState: { type: "branch" as const, branchName: "main" },
+        localEnvironmentConfigPath: null,
+        prompt: "Continue the task",
+        createdAt: 1,
+        attempt: 1,
+        phase: "worktree-ready" as const,
+        labelEdited: false,
+        worktreeOutputText: "created\n",
+        setupOutputText: "",
+        errorMessage: null,
+        worktreeWorkspaceRoot: "/repo/worktree",
+        worktreeGitRoot: "/repo/worktree",
+        needsAttention: false,
+        isPinned: false,
+        pinnedBeforeThreadId: null,
+      };
+      const forkEntry = {
+        ...baseEntry,
+        id: "local:pending-map-fork",
+        launchMode: "fork-conversation" as const,
+        clientThreadId: "client-new-thread:pending-map-fork",
+        startConversationParamsInput: null,
+        projectAssignment: null,
+        sourceConversationId: "thread-source-map-fork",
+        sourceCollaborationMode: null,
+        targetTurnId: null,
+        threadSource: "user" as const,
+      } satisfies CodexPendingWorktreeEntry;
+      const startEntry = {
+        ...baseEntry,
+        id: "local:pending-map-start",
+        launchMode: "start-conversation" as const,
+        clientThreadId: "client-new-thread:pending-map-start",
+        startConversationParamsInput: {
+          input: [],
+          commentAttachments: [],
+          workspaceRoots: ["/repo/source"],
+          cwd: "/repo/source",
+          fileAttachments: [],
+          addedFiles: [],
+          agentMode: "auto" as const,
+          shouldSendPermissionOverrides: true as const,
+          model: null,
+          serviceTier: null,
+          reasoningEffort: null,
+          collaborationMode: null,
+          config: {},
+          threadSource: "user" as const,
+          workspaceKind: "project" as const,
+        },
+        sourceConversationId: null,
+        sourceCollaborationMode: null,
+      } satisfies CodexPendingWorktreeEntry;
+      const serviceInternals = service as unknown as {
+        launchPendingWorktreeConversation: (
+          entry: CodexPendingWorktreeEntry,
+          workspaceRoot: string,
+          context: {
+            includeWorktreeInit: boolean;
+            onThreadCreated: (threadId: string) => void;
+          },
+        ) => Promise<{ threadId: string }>;
+        launchPendingWorktreeFork: () => Promise<{ threadId: string }>;
+        launchPendingWorktreeStart: () => Promise<{ threadId: string }>;
+        applyPendingWorktreeConversationMetadata: () => Promise<void>;
+      };
+
+      try {
+        for (const scenario of [
+          {
+            entry: forkEntry,
+            failedThreadId: "thread-fork-created-before-failure",
+            retryThreadId: "thread-fork-retry",
+            install: (implementation: () => Promise<{ threadId: string }>) => {
+              serviceInternals.launchPendingWorktreeFork = implementation;
+            },
+          },
+          {
+            entry: startEntry,
+            failedThreadId: "thread-start-created-before-failure",
+            retryThreadId: "thread-start-retry",
+            install: (implementation: () => Promise<{ threadId: string }>) => {
+              serviceInternals.launchPendingWorktreeStart = implementation;
+            },
+          },
+        ]) {
+          scenario.install(async () => {
+            throw new Error(`realization failed after ${scenario.failedThreadId}`);
+          });
+          let failureMessage = "";
+          try {
+            await serviceInternals.launchPendingWorktreeConversation(
+              scenario.entry,
+              "/repo/worktree",
+              { includeWorktreeInit: true, onThreadCreated: () => {} },
+            );
+          } catch (error) {
+            failureMessage = error instanceof Error ? error.message : String(error);
+          }
+          expect(failureMessage.includes(scenario.failedThreadId)).toBe(true);
+          expect(getCodexClientThreadId("local", scenario.failedThreadId)).toBe(null);
+
+          scenario.install(async () => ({ threadId: scenario.retryThreadId }));
+          serviceInternals.applyPendingWorktreeConversationMetadata = async () => {
+            throw new Error("metadata failed after mapping");
+          };
+          let mappedThreadId = "";
+          let metadataMessage = "";
+          try {
+            await serviceInternals.launchPendingWorktreeConversation(
+              scenario.entry,
+              "/repo/worktree",
+              {
+                includeWorktreeInit: true,
+                onThreadCreated: (threadId) => {
+                  mappedThreadId = threadId;
+                },
+              },
+            );
+          } catch (error) {
+            metadataMessage = error instanceof Error ? error.message : String(error);
+          }
+          expect(mappedThreadId).toBe(scenario.retryThreadId);
+          expect(metadataMessage).toBe("metadata failed after mapping");
+          expect(getCodexClientThreadId("local", scenario.retryThreadId)).toBe(
+            scenario.entry.clientThreadId,
+          );
+          expect(getCodexClientThreadId("local", scenario.failedThreadId)).toBe(null);
+        }
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("does not queue a pending worktree when its cwd-scoped config read fails", async () => {
+    const ran = await withTempDatabase(async () => {
+      const project = createProject({
+        name: "Pending config failure",
+        sources: ["/tmp/pending-config-failure"],
+      });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method === "config/read") throw new Error("config unavailable");
+        if (method === "configRequirements/read") return { requirements: null };
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      const serviceInternals = service as unknown as {
+        handleDynamicToolCall: (params: {
+          threadId: string;
+          turnId: string;
+          callId: string;
+          namespace: string;
+          tool: string;
+          arguments: Record<string, unknown>;
+        }) => Promise<{ contentItems: Array<{ text?: string }>; success: boolean }>;
+      };
+
+      try {
+        const response = await serviceInternals.handleDynamicToolCall({
+          threadId: "thread-config-source",
+          turnId: "turn-config-source",
+          callId: "call-config-failure",
+          namespace: "codex_app",
+          tool: "create_thread",
+          arguments: {
+            prompt: "Do not queue without config",
+            target: {
+              type: "project",
+              projectId: project.id,
+              environment: { type: "worktree" },
+            },
+          },
+        });
+
+        expect(response.success).toBe(false);
+        expect(response.contentItems[0]?.text).toBe("config unavailable");
+        expect(service.listPendingWorktrees().length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("dynamic create_thread returns after the exact optimistic delegated turn boundary", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const createdThreadId = "thr_dynamic_created";
+      const cwd = "/tmp/codex";
+      const harness = installDynamicCreateHarness(service, {
+        cwd,
+        threadId: createdThreadId,
+      });
+
+      try {
+        const responsePromise = harness.handleDynamicToolCall({
+          threadId: "thr_dynamic_source",
+          turnId: "turn_dynamic_source",
+          callId: "call_dynamic_create",
+          namespace: "codex_app",
+          tool: "create_thread",
+          arguments: {
+            prompt: "Implement the delegated task",
+            target: {
+              type: "project",
+              projectId: defaultProjectId,
+              environment: { type: "local" },
+            },
+          },
+        });
+        const raced = await Promise.race([
+          responsePromise.then((response) => ({ type: "response" as const, response })),
+          new Promise<{ type: "timeout" }>((resolve) => {
+            setTimeout(() => resolve({ type: "timeout" }), 100);
+          }),
+        ]);
+        expect(raced.type).toBe("response");
+        if (raced.type !== "response") throw new Error("create_thread waited for turn/start");
+
+        const output = JSON.parse(raced.response.contentItems[0]?.text ?? "null") as Record<string, unknown>;
+        const threadStart = harness.requests.find((request) => request.method === "thread/start")
+          ?.params as Record<string, unknown> | undefined;
+        const turnStart = harness.requests.find((request) => request.method === "turn/start")
+          ?.params as Record<string, unknown> | undefined;
+        const turnInput = Array.isArray(turnStart?.input)
+          ? turnStart.input[0] as Record<string, unknown> | undefined
+          : undefined;
+        const canonical = getCanonicalConversationState(service, createdThreadId);
+        const detail = service.serializeThreadDetail(createdThreadId);
+        const linked = getCodexThread(createdThreadId);
+
+        expect(raced.response.success).toBe(true);
+        expect(output.threadId).toBe(createdThreadId);
+        expect(output.projectlessOutputDirectory ?? null).toBe(null);
+        expect(threadStart?.threadSource).toBe("subagent");
+        expect(threadStart?.model).toBe(null);
+        expect(turnStart?.model).toBe("gpt-created");
+        expect(turnInput?.type).toBe("text");
+        expect(String(turnInput?.text).includes("<codex_delegation>")).toBe(true);
+        expect(String(turnInput?.text).includes("<source_thread_id>thr_dynamic_source</source_thread_id>")).toBe(true);
+        expect(canonical?.turns.at(-1)?.protocol.id).toBe(null);
+        expect(canonical?.turns.at(-1)?.protocol.status).toBe("inProgress");
+        expect((detail?.turns.at(-1) as { turnId?: string | null } | undefined)?.turnId ?? null).toBe(null);
+        expect(detail?.transcript.at(-1)?.markdownText).toBe("Implement the delegated task");
+        expect(linked?.projectId).toBe(defaultProjectId);
+        const clientThreadId = getCodexClientThreadId("local", createdThreadId);
+        expect(clientThreadId?.startsWith("client-new-thread:") ?? false).toBe(true);
+        const sidebar = await service.syncSidebarThreads({ refresh: false });
+        expect(sidebar.items.some((item) => item.threadId === createdThreadId)).toBe(false);
+        expect(getCodexThread(createdThreadId)?.threadId).toBe(createdThreadId);
+
+        harness.resolveTurnStart({
+          id: "turn_dynamic_created",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          durationMs: null,
+        });
+        await flushAsyncWork();
+
+        expect(getCanonicalConversationState(service, createdThreadId)?.turns.at(-1)?.protocol.id).toBe(
+          "turn_dynamic_created",
+        );
+        expect(service.serializeThreadDetail(createdThreadId)?.turns.at(-1)?.turnId).toBe(
+          "turn_dynamic_created",
+        );
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("dynamic create_thread keeps tool success when the background first turn fails", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const createdThreadId = "thr_dynamic_created_failure";
+      const harness = installDynamicCreateHarness(service, {
+        cwd: "/tmp/codex",
+        threadId: createdThreadId,
+      });
+
+      try {
+        const response = await harness.handleDynamicToolCall({
+          threadId: "thr_dynamic_source_failure",
+          turnId: "turn_dynamic_source_failure",
+          callId: "call_dynamic_create_failure",
+          namespace: "codex_app",
+          tool: "create_thread",
+          arguments: {
+            prompt: "Fail after optimistic dispatch",
+            target: {
+              type: "project",
+              projectId: defaultProjectId,
+              environment: { type: "local" },
+            },
+          },
+        });
+        harness.rejectTurnStart(new Error("turn rejected"));
+        await flushAsyncWork();
+
+        const output = JSON.parse(response.contentItems[0]?.text ?? "null") as Record<string, unknown>;
+        const canonicalTurn = getCanonicalConversationState(service, createdThreadId)?.turns.at(-1);
+        const detail = service.serializeThreadDetail(createdThreadId);
+
+        expect(response.success).toBe(true);
+        expect(output.threadId).toBe(createdThreadId);
+        expect(canonicalTurn?.protocol.id).toBe(null);
+        expect(canonicalTurn?.protocol.status).toBe("failed");
+        expect(canonicalTurn?.protocol.error?.message).toBe("Error submitting message");
+        expect(canonicalTurn?.items.at(-1)?.type).toBe("error");
+        expect(detail?.turns.at(-1)?.status).toBe("failed");
+        expect(detail?.turns.at(-1)?.errorMessage).toBe("Error submitting message");
+        expect(detail?.transcript.at(-1)?.semanticKind).toBe("systemError");
+        expect(detail?.statusType).toBe("idle");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("routes dynamic tool-call requests through renderer owner from bundle 51920-52390", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
-      pendingDynamicToolCalls: Map<string, unknown>;
-      respondToDynamicToolCall: (requestId: string) => Promise<{ success: boolean } | null>;
+      pendingDynamicToolCalls: Map<string | number, unknown>;
+      respondToDynamicToolCall: (requestId: string | number) => Promise<{ success: boolean } | null>;
       setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
       on: (
         event: "rendererOwnerHostMessage",
@@ -13662,7 +22739,7 @@ describe("codex-service approval fallback", () => {
 
     try {
       const requestPromise = serviceInternals.handleServerRequest({
-        id: "req_dynamic_tool",
+        id: 74,
         method: "item/tool/call",
         params: {
           threadId: "thr_dynamic_tool",
@@ -13675,22 +22752,326 @@ describe("codex-service approval fallback", () => {
       });
 
       await Promise.resolve();
-      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBe(true);
+      expect(serviceInternals.pendingDynamicToolCalls.has(74)).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
       expect(String(ownerMessages.length)).toBe("1");
       expect(ownerMessages[0]?.targetClientId).toBe("owner-dynamic");
       expect(ownerMessages[0]?.message.type).toBe("threadOwnerRequest");
       if (ownerMessages[0]?.message.type === "threadOwnerRequest") {
-        expect(ownerMessages[0].message.request.id).toBe("req_dynamic_tool");
+        expect(ownerMessages[0].message.request.id).toBe(74);
         expect(ownerMessages[0].message.request.method).toBe("item/tool/call");
         expect(ownerMessages[0].message.sequence).toBe(1);
       }
 
-      const ownerResponse = await serviceInternals.respondToDynamicToolCall("req_dynamic_tool");
+      const ownerResponse = await serviceInternals.respondToDynamicToolCall(74);
       const serverResponse = await requestPromise as { success: boolean };
       expect(ownerResponse?.success).toBe(false);
       expect(serverResponse.success).toBe(false);
-      expect(serviceInternals.pendingDynamicToolCalls.has("req_dynamic_tool")).toBe(false);
+      expect(serviceInternals.pendingDynamicToolCalls.has(74)).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("does not dispatch or answer ordinary dynamic tool calls without a thread id", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      pendingDynamicToolCalls: { readonly size: number };
+      getMaybeConversationRecord: (threadId: string) => unknown;
+    };
+
+    try {
+      const result = await serviceInternals.handleServerRequest({
+        id: "dynamic-empty-thread",
+        method: "item/tool/call",
+        params: {
+          threadId: "",
+          turnId: "turn-dynamic-empty-thread",
+          callId: "call-dynamic-empty-thread",
+          namespace: "codex_app",
+          tool: "setup_codex_step",
+          arguments: { step: "complete" },
+        },
+      });
+
+      expect(result).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+      expect(serviceInternals.getMaybeConversationRecord("")).toBe(null);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("does not dispatch or answer ordinary dynamic tool calls for an archived conversation", async () => {
+    const service = createService();
+    const threadId = "thr-archived-dynamic-dispatch";
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      pendingDynamicToolCalls: { readonly size: number };
+      getMaybeConversationRecord: (targetThreadId: string) => {
+        detail: CodexThreadDetail | null;
+        serverRequests: Array<{ id: string | number }>;
+      } | null;
+    };
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      archived: true,
+    });
+
+    try {
+      const result = await serviceInternals.handleServerRequest({
+        id: "archived-dynamic-dispatch",
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId: "turn-archived-dynamic-dispatch",
+          callId: "call-archived-dynamic-dispatch",
+          namespace: "codex_app",
+          tool: "setup_codex_step",
+          arguments: { step: "complete" },
+        },
+      });
+
+      expect(result).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+      expect(serviceInternals.getMaybeConversationRecord(threadId)?.detail?.archived).toBe(true);
+      expect(serviceInternals.getMaybeConversationRecord(threadId)?.serverRequests.length).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("keeps specialized dynamic calls with an empty thread id in the stored request lane", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      pendingDynamicToolCalls: { readonly size: number };
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number; method: string }>;
+      };
+      respondToSetupCodexStep: (
+        conversationId: string,
+        requestId: string | number,
+        response: {
+          step: "role";
+          action: "submit" | "skip" | "dismiss";
+          selectedRoles: readonly string[];
+        },
+      ) => Promise<boolean>;
+    };
+    const requestPromise = serviceInternals.handleServerRequest({
+      id: "stored-dynamic-empty-thread",
+      method: "item/tool/call",
+      params: {
+        threadId: "",
+        turnId: "turn-stored-dynamic-empty-thread",
+        callId: "call-stored-dynamic-empty-thread",
+        namespace: "codex_app",
+        tool: "setup_codex_step",
+        arguments: { step: "role" },
+      },
+    });
+
+    try {
+      await Promise.resolve();
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
+      expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(1);
+      expect(await serviceInternals.respondToSetupCodexStep(
+        "",
+        "stored-dynamic-empty-thread",
+        { step: "role", action: "submit", selectedRoles: ["engineer"] },
+      )).toBe(true);
+      expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({ action: "submit", selectedRoles: ["engineer"] }),
+        }],
+        success: true,
+      }));
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("withdraws every same-id specialized request and waiter for an empty thread id", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      pendingDynamicToolCalls: { readonly size: number };
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number; method: string }>;
+      };
+    };
+    const request = (callId: string) => serviceInternals.handleServerRequest({
+      id: "withdraw-stored-empty-thread",
+      method: "item/tool/call",
+      params: {
+        threadId: "",
+        turnId: "turn-withdraw-stored-empty-thread",
+        callId,
+        namespace: "codex_app",
+        tool: "setup_codex_step",
+        arguments: { step: "role" },
+      },
+    });
+
+    try {
+      const firstPromise = request("call-withdraw-stored-empty-thread-1");
+      const secondPromise = request("call-withdraw-stored-empty-thread-2");
+      await Promise.resolve();
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(2);
+      expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(2);
+
+      await serviceInternals.handleNotification("serverRequest/resolved", {
+        threadId: "",
+        requestId: "withdraw-stored-empty-thread",
+      });
+
+      expect(await firstPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(await secondPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+      expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("responds once per dispatched dynamic occurrence without consuming same-id stored requests", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      pendingDynamicToolCalls: { readonly size: number };
+      respondToDynamicToolCall: (
+        requestId: string | number,
+        conversationId: string,
+      ) => Promise<{ contentItems: Array<{ type: string; text?: string }>; success: boolean } | null>;
+      respondToUserInput: (
+        requestId: string | number,
+        answers: Record<string, string[]>,
+        conversationId: string,
+      ) => Promise<boolean>;
+      setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number; method: string }>;
+      };
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+      ) => void;
+    };
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const threadId = "thr_dynamic_occurrence_identity";
+    const turnId = "turn_dynamic_occurrence_identity";
+    const requestId = 75;
+    serviceInternals.on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    serviceInternals.setRendererConversationOwner(threadId, "owner-dynamic-occurrences");
+
+    const request = (callId: string, tool: string, args: Record<string, unknown>) => ({
+      id: requestId,
+      method: "item/tool/call",
+      params: {
+        threadId,
+        turnId,
+        callId,
+        namespace: "codex_app",
+        tool,
+        arguments: args,
+      },
+    });
+
+    try {
+      const onboardingPromise = serviceInternals.handleServerRequest(request(
+        "call-stored-onboarding",
+        "request_onboarding_input",
+        {
+          questions: [{
+            id: "first_task",
+            header: "Start",
+            question: "What should Codex do?",
+            options: [
+              { label: "Audit", description: "Inspect first" },
+              { label: "Build", description: "Implement first" },
+            ],
+          }],
+        },
+      ));
+      const firstDispatchedPromise = serviceInternals.handleServerRequest(request(
+        "call-dispatched-first",
+        "unsupported_occurrence_first",
+        {},
+      ));
+      const secondDispatchedPromise = serviceInternals.handleServerRequest(request(
+        "call-dispatched-second",
+        "unsupported_occurrence_second",
+        {},
+      ));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(ownerMessages.length).toBe(3);
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(3);
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord(threadId).serverRequests.map((entry) => entry.method),
+      )).toBe(JSON.stringify(["item/tool/call"]));
+
+      const firstResponse = await serviceInternals.respondToDynamicToolCall(requestId, threadId);
+      expect(firstResponse?.contentItems[0]?.text).toBe(
+        "Unsupported dynamic tool: unsupported_occurrence_first",
+      );
+      expect(JSON.stringify(await firstDispatchedPromise)).toBe(JSON.stringify(firstResponse));
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(2);
+
+      const secondResponse = await serviceInternals.respondToDynamicToolCall(requestId, threadId);
+      expect(secondResponse?.contentItems[0]?.text).toBe(
+        "Unsupported dynamic tool: unsupported_occurrence_second",
+      );
+      expect(JSON.stringify(await secondDispatchedPromise)).toBe(JSON.stringify(secondResponse));
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(1);
+
+      expect(await serviceInternals.respondToUserInput(
+        requestId,
+        { first_task: ["Audit"] },
+        threadId,
+      )).toBe(true);
+      expect(JSON.stringify(await onboardingPromise)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({
+            answers: { first_task: { answers: ["Audit"] } },
+          }),
+        }],
+        success: true,
+      }));
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -13982,6 +23363,7 @@ describe("codex-service approval fallback", () => {
       const serviceInternals = service as unknown as {
         parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
         handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         respondToPermissionRequest: (
           requestId: string,
           response: { permissions: { network?: { enabled: boolean | null } }; scope: "turn" | "session" },
@@ -13992,6 +23374,11 @@ describe("codex-service approval fallback", () => {
             reject: (reason?: unknown) => void;
           }
         >;
+        getConversationRecord: (threadId: string) => {
+          canonicalState: CodexCanonicalConversationState | null;
+          serverRequests: Array<{ id: string | number }>;
+          hasUnreadTurn: boolean;
+        };
         setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
         on: (
           event: "rendererOwnerHostMessage",
@@ -14011,6 +23398,29 @@ describe("codex-service approval fallback", () => {
       });
       serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
       serviceInternals.setRendererConversationOwner("thr_owner_permission", "owner-a");
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_owner_permission",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_owner_permission"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
+      hydrateConversation(service, {
+        ...makeThreadDetail("thr_owner_permission"),
+        turns: [{
+          threadId: "thr_owner_permission",
+          turnId: "turn_owner_permission",
+          status: "inProgress",
+          itemIds: [],
+        }],
+      });
 
       try {
         const requestPromise = serviceInternals.handleServerRequest({
@@ -14051,6 +23461,10 @@ describe("codex-service approval fallback", () => {
         );
         expect(pendingItem?.semanticKind).toBe("permissionRequest");
         expect(pendingItem?.status).toBe("inProgress");
+        const pendingRecord = serviceInternals.getConversationRecord("thr_owner_permission");
+        expect(pendingRecord.canonicalState?.requests.length).toBe(1);
+        expect(pendingRecord.serverRequests.length).toBe(1);
+        expect(pendingRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
 
         const response = { permissions: { network: { enabled: true } }, scope: "turn" as const };
         const accepted = await serviceInternals.respondToPermissionRequest("req_owner_permission", response);
@@ -14065,6 +23479,19 @@ describe("codex-service approval fallback", () => {
         expect(accepted).toBe(true);
         expect(JSON.stringify(result)).toBe(JSON.stringify(response));
         expect(serviceInternals.pendingPermissionRequests.has("req_owner_permission")).toBe(false);
+        const completedRecord = serviceInternals.getConversationRecord("thr_owner_permission");
+        const canonicalPermission = completedRecord.canonicalState?.turns[0]?.items[0];
+        expect(completedRecord.canonicalState?.requests.length).toBe(0);
+        expect(completedRecord.serverRequests.length).toBe(0);
+        expect(completedRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+        expect(completedRecord.hasUnreadTurn).toBe(true);
+        expect(canonicalPermission?.type).toBe("permissionRequest");
+        expect(canonicalPermission && "completed" in canonicalPermission
+          ? canonicalPermission.completed
+          : false).toBe(true);
+        expect(canonicalPermission && "response" in canonicalPermission
+          ? canonicalPermission.response === response
+          : false).toBe(true);
         expect(completedItem?.status).toBe("completed");
         expect(JSON.stringify(completedItem?.rawItem)).toBe(JSON.stringify({
           id: "permission-request-req_owner_permission",
@@ -14091,31 +23518,41 @@ describe("codex-service approval fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("keys pending approvals by JSON-RPC request.id", async () => {
-    const ran = await withTempDatabase(async () => {
+  test("appends duplicate request ids without overwriting waiters and keeps scalar id types distinct", async () => {
+    {
       const service = createService();
       const serviceInternals = service as unknown as {
         parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
         handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
         pendingApprovals: Map<
-          string,
+          string | number,
           {
-            request: { requestId: string };
+            request: { requestId: string | number };
             reject: (reason?: unknown) => void;
           }
         >;
+        getConversationRecord: (threadId: string) => {
+          canonicalState: CodexCanonicalConversationState | null;
+          serverRequests: Array<{ id: string | number }>;
+        };
+        respondToApproval: (
+          requestId: string | number,
+          kind: CodexApprovalKind,
+          decision: CodexApprovalDecision,
+        ) => Promise<boolean>;
         on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
       };
       const events: CodexEvent[] = [];
 
-      serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
-      await service.setProjectPermissionMode(defaultProjectId, "auto");
+      const projectId = "project-request-id-regression";
+      serviceInternals.parseThreadRef = () => ({ projectId, cwd: null });
+      installManualApprovalState(service, projectId);
       serviceInternals.on("event", (event) => {
         events.push(event);
       });
 
       try {
-        const requestPromise = serviceInternals.handleServerRequest({
+        const numericPromise = serviceInternals.handleServerRequest({
           id: 42,
           method: "item/commandExecution/requestApproval",
           params: {
@@ -14125,21 +23562,1400 @@ describe("codex-service approval fallback", () => {
             reason: "Needs permissions",
           },
         });
+        const duplicateNumericPromise = serviceInternals.handleServerRequest({
+          id: 42,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "thr_request_id",
+            turnId: "turn_request_id",
+            itemId: "item_request_id_duplicate",
+            reason: "Needs the same numeric correlation token",
+          },
+        });
+        const textualPromise = serviceInternals.handleServerRequest({
+          id: "42",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "thr_request_id",
+            turnId: "turn_request_id",
+            itemId: "item_request_id_text",
+            reason: "Needs textual permissions",
+          },
+        });
 
         await Promise.resolve();
+        expect(serviceInternals.pendingApprovals.size).toBe(3);
+        expect(serviceInternals.pendingApprovals.has(42)).toBe(true);
         expect(serviceInternals.pendingApprovals.has("42")).toBe(true);
         const approvalItem = getRecordedItem(serviceInternals, "thr_request_id", "turn_request_id", "item_request_id");
-        expect(approvalItem?.approvalRequestId).toBe("42");
+        expect(approvalItem?.approvalRequestId).toBe(undefined);
 
         const requestedEvent = events.find(
           (event): event is Extract<CodexEvent, { type: "approvalRequested" }> => event.type === "approvalRequested",
         );
-        expect(requestedEvent?.request.requestId).toBe("42");
+        expect(requestedEvent?.request.requestId).toBe(42);
+        expect(JSON.stringify(
+          serviceInternals.getConversationRecord("thr_request_id").serverRequests.map((request) => request.id),
+        )).toBe(JSON.stringify([42, 42, "42"]));
+        expect(JSON.stringify(
+          serviceInternals.getConversationRecord("thr_request_id").canonicalState?.requests.map(
+            (request) => request.id,
+          ),
+        )).toBe(JSON.stringify([42, 42, "42"]));
+
+        expect(await serviceInternals.respondToApproval(42, "command", "decline")).toBe(true);
+        expect(JSON.stringify(await numericPromise)).toBe(JSON.stringify({ decision: "decline" }));
+        expect(await duplicateNumericPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+        expect(serviceInternals.pendingApprovals.size).toBe(1);
+        expect(serviceInternals.pendingApprovals.has(42)).toBe(false);
+        expect(serviceInternals.pendingApprovals.has("42")).toBe(true);
+        expect(JSON.stringify(
+          serviceInternals.getConversationRecord("thr_request_id").serverRequests.map((request) => request.id),
+        )).toBe(JSON.stringify(["42"]));
+        expect(JSON.stringify(
+          serviceInternals.getConversationRecord("thr_request_id").canonicalState?.requests.map(
+            (request) => request.id,
+          ),
+        )).toBe(JSON.stringify(["42"]));
 
         for (const pending of serviceInternals.pendingApprovals.values()) {
           pending.reject(new Error("test cleanup"));
         }
-        await requestPromise.catch(() => undefined);
+        await textualPromise.catch(() => undefined);
+      } finally {
+        await service.shutdown();
+      }
+    }
+  });
+
+  test("scopes same-id approval replies to the requested conversation", async () => {
+    const service = createService();
+    const projectId = "project-request-conversation-scope";
+    const requestId = "shared-approval-id";
+    const firstThreadId = "thr_request_scope_first";
+    const secondThreadId = "thr_request_scope_second";
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number }>;
+      };
+      pendingApprovals: Map<string | number, unknown>;
+      respondToApproval: (
+        requestId: string | number,
+        kind: CodexApprovalKind,
+        decision: CodexApprovalDecision,
+        conversationId?: string,
+      ) => Promise<boolean>;
+    };
+    serviceInternals.parseThreadRef = () => ({ projectId, cwd: null });
+    installManualApprovalState(service, projectId);
+    for (const [threadId, turnId] of [
+      [firstThreadId, "turn_request_scope_first"],
+      [secondThreadId, "turn_request_scope_second"],
+    ] as const) {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        turns: [{ threadId, turnId, status: "inProgress", itemIds: [] }],
+        transcript: [],
+      });
+    }
+
+    try {
+      const firstPromise = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: firstThreadId,
+          turnId: "turn_request_scope_first",
+          itemId: "command_request_scope_first",
+          reason: "First conversation",
+        },
+      });
+      const secondPromise = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: secondThreadId,
+          turnId: "turn_request_scope_second",
+          itemId: "command_request_scope_second",
+          reason: "Second conversation",
+        },
+      });
+      await Promise.resolve();
+
+      expect(await serviceInternals.respondToApproval(
+        requestId,
+        "command",
+        "decline",
+        secondThreadId,
+      )).toBe(true);
+      expect(JSON.stringify(await secondPromise)).toBe(JSON.stringify({ decision: "decline" }));
+      expect(serviceInternals.pendingApprovals.size).toBe(1);
+      expect(serviceInternals.getConversationRecord(firstThreadId).serverRequests.length).toBe(1);
+      expect(serviceInternals.getConversationRecord(secondThreadId).serverRequests.length).toBe(0);
+
+      expect(await serviceInternals.respondToApproval(
+        requestId,
+        "command",
+        "decline",
+        firstThreadId,
+      )).toBe(true);
+      expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({ decision: "decline" }));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("blocks both approval routes when the first ordinary same-id request has the other kind", async () => {
+    const service = createService();
+    const projectId = "project-approval-route-collision";
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number; method: string }>;
+      };
+      requestConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+      pendingApprovals: { size: number };
+      respondToApproval: (
+        requestId: string | number,
+        kind: CodexApprovalKind,
+        decision: CodexApprovalDecision,
+        conversationId?: string,
+      ) => Promise<boolean>;
+    };
+    serviceInternals.parseThreadRef = () => ({ projectId, cwd: null });
+    serviceInternals.requestConversationResume = async () => null;
+    installManualApprovalState(service, projectId);
+
+    const runCollision = async (input: {
+      threadId: string;
+      requestId: string;
+      firstKind: CodexApprovalKind;
+    }) => {
+      const turnId = `turn-${input.requestId}`;
+      const commandRequest = {
+        id: input.requestId,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: input.threadId,
+          turnId,
+          itemId: `command-${input.requestId}`,
+          reason: "Command route",
+          command: "bun test",
+          cwd: "/repo",
+        },
+      };
+      const fileRequest = {
+        id: input.requestId,
+        method: "item/fileChange/requestApproval",
+        params: {
+          threadId: input.threadId,
+          turnId,
+          itemId: `file-${input.requestId}`,
+          reason: "File route",
+          grantRoot: "/repo",
+        },
+      };
+      const firstRequest = input.firstKind === "command" ? commandRequest : fileRequest;
+      const secondRequest = input.firstKind === "command" ? fileRequest : commandRequest;
+      const firstPromise = serviceInternals.handleServerRequest(firstRequest);
+      const secondPromise = serviceInternals.handleServerRequest(secondRequest);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const wrongKind = input.firstKind === "command" ? "file" : "command";
+      expect(await serviceInternals.respondToApproval(
+        input.requestId,
+        wrongKind,
+        "decline",
+        input.threadId,
+      )).toBe(false);
+      expect(serviceInternals.pendingApprovals.size).toBe(2);
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord(input.threadId).serverRequests.map(
+          (request) => request.method,
+        ),
+      )).toBe(JSON.stringify([firstRequest.method, secondRequest.method]));
+
+      expect(await serviceInternals.respondToApproval(
+        input.requestId,
+        input.firstKind,
+        "decline",
+        input.threadId,
+      )).toBe(true);
+      expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({ decision: "decline" }));
+      expect(await secondPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(serviceInternals.getConversationRecord(input.threadId).serverRequests.length).toBe(0);
+    };
+
+    try {
+      await runCollision({
+        threadId: "thr-file-first-approval-route",
+        requestId: "file-first-approval-route",
+        firstKind: "file",
+      });
+      await runCollision({
+        threadId: "thr-command-first-approval-route",
+        requestId: "command-first-approval-route",
+        firstKind: "command",
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("stores synthetic-family requests for empty or missing target turns without inventing items", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
+      };
+      respondToPermissionRequest: (
+        requestId: string | number,
+        response: { permissions: Record<string, never>; scope: "turn" },
+      ) => Promise<boolean>;
+    };
+
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_request_empty_turns"),
+      turns: [],
+      transcript: [],
+    });
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_request_missing_turn"),
+      turns: [{
+        threadId: "thr_request_missing_turn",
+        turnId: "turn_existing",
+        status: "completed",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      const emptyPromise = serviceInternals.handleServerRequest({
+        id: "empty-turn-user-input",
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thr_request_empty_turns",
+          turnId: "turn_absent",
+          itemId: "user-input-empty-turn",
+          questions: [{
+            id: "q-empty",
+            header: "Empty",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+          }],
+        },
+      });
+      const missingPromise = serviceInternals.handleServerRequest({
+        id: "missing-turn-permission",
+        method: "item/permissions/requestApproval",
+        params: {
+          threadId: "thr_request_missing_turn",
+          turnId: "turn_missing",
+          itemId: "permission-missing-turn",
+          environmentId: "env-missing",
+          startedAtMs: 200,
+          cwd: "/tmp",
+          reason: "Need access",
+          permissions: { network: null, fileSystem: null },
+        },
+      });
+
+      await Promise.resolve();
+
+      const emptyRecord = serviceInternals.getConversationRecord("thr_request_empty_turns");
+      const missingRecord = serviceInternals.getConversationRecord("thr_request_missing_turn");
+      expect(JSON.stringify(emptyRecord.serverRequests.map((request) => request.id))).toBe(
+        JSON.stringify(["empty-turn-user-input"]),
+      );
+      expect(emptyRecord.hasUnreadTurn).toBe(true);
+      expect(service.serializeConversationSnapshot("thr_request_empty_turns")?.turns.length ?? -1).toBe(0);
+      expect(getRecordedItem(
+        serviceInternals,
+        "thr_request_empty_turns",
+        "turn_absent",
+        "user-input-response-empty-turn-user-input",
+      )).toBe(null);
+
+      expect(JSON.stringify(missingRecord.serverRequests.map((request) => request.id))).toBe(
+        JSON.stringify(["missing-turn-permission"]),
+      );
+      expect(missingRecord.hasUnreadTurn).toBe(true);
+      expect(service.serializeConversationSnapshot("thr_request_missing_turn")?.turns.length ?? -1).toBe(1);
+      expect(getRecordedItem(
+        serviceInternals,
+        "thr_request_missing_turn",
+        "turn_missing",
+        "permission-request-missing-turn-permission",
+      )).toBe(null);
+
+      expect(await service.respondToUserInput("empty-turn-user-input", {})).toBe(true);
+      expect(await serviceInternals.respondToPermissionRequest(
+        "missing-turn-permission",
+        { permissions: {}, scope: "turn" },
+      )).toBe(true);
+      await emptyPromise;
+      await missingPromise;
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("stores file approval raw state before consuming its asynchronous resume effect", async () => {
+    const service = createService();
+    const projectId = "project-file-approval-resume";
+    const resumeObservations: Array<{
+      threadId: string;
+      requestIds: Array<string | number>;
+      hasUnreadTurn: boolean;
+      emitSourceNullSnapshots: boolean | undefined;
+    }> = [];
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      requestConversationResume: (
+        threadId: string,
+        options?: { emitSourceNullSnapshots?: boolean },
+      ) => Promise<CodexConversationSnapshot | null>;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
+      };
+      respondToApproval: (
+        requestId: string | number,
+        kind: CodexApprovalKind,
+        decision: CodexApprovalDecision,
+      ) => Promise<boolean>;
+    };
+    serviceInternals.parseThreadRef = () => ({ projectId, cwd: null });
+    installManualApprovalState(service, projectId);
+    serviceInternals.requestConversationResume = async (threadId, options) => {
+      const record = serviceInternals.getConversationRecord(threadId);
+      resumeObservations.push({
+        threadId,
+        requestIds: record.serverRequests.map((request) => request.id),
+        hasUnreadTurn: record.hasUnreadTurn,
+        emitSourceNullSnapshots: options?.emitSourceNullSnapshots,
+      });
+      return null;
+    };
+
+    try {
+      const requestPromise = serviceInternals.handleServerRequest({
+        id: "file-approval-resume",
+        method: "item/fileChange/requestApproval",
+        params: {
+          threadId: "thr_file_approval_resume",
+          turnId: "turn_file_approval_resume",
+          itemId: "patch_file_approval_resume",
+          startedAtMs: 300,
+          reason: "Need write access",
+          grantRoot: "/tmp/shared",
+        },
+      });
+
+      await Promise.resolve();
+      expect(resumeObservations.length).toBe(1);
+      expect(JSON.stringify(resumeObservations[0])).toBe(JSON.stringify({
+        threadId: "thr_file_approval_resume",
+        requestIds: ["file-approval-resume"],
+        hasUnreadTurn: true,
+        emitSourceNullSnapshots: false,
+      }));
+
+      expect(await serviceInternals.respondToApproval(
+        "file-approval-resume",
+        "file",
+        "decline",
+      )).toBe(true);
+      expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({ decision: "decline" }));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("returns typed direct picker payloads and wrapped dynamic payloads while removing raw requests", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      respondToOptionPicker: (
+        conversationId: string,
+        requestId: string | number,
+        response: {
+          action: "submit" | "skip" | "dismiss";
+          selectedOptions: readonly string[];
+          freeformAnswer: string | null;
+        },
+      ) => Promise<boolean>;
+      respondToSetupContextPicker: (
+        conversationId: string,
+        requestId: string | number,
+        response: {
+          action: "continue" | "skip" | "dismiss";
+          selectedSources: readonly string[];
+        },
+      ) => Promise<boolean>;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
+      };
+    };
+    const threadId = "thr_picker_response_contract";
+
+    try {
+      const directOptionPromise = serviceInternals.handleServerRequest({
+        id: 610,
+        method: "item/tool/requestOptionPicker",
+        params: {
+          threadId,
+          turnId: "turn_picker_response_contract",
+          question: "Pick a direct option",
+          options: [{ label: "Direct", description: "Direct response" }],
+          allowMultiple: false,
+          submitLabel: "Continue",
+          skipLabel: null,
+        },
+      });
+      const dynamicOptionPromise = serviceInternals.handleServerRequest({
+        id: "dynamic-option-611",
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId: "turn_picker_response_contract",
+          callId: "call-dynamic-option-611",
+          namespace: "codex_app",
+          tool: "request_option_picker",
+          arguments: {
+            question: "Pick a dynamic option",
+            options: [{ label: "Dynamic", description: "Dynamic response" }],
+            allowMultiple: false,
+            submitLabel: "Continue",
+            skipLabel: "Skip",
+          },
+        },
+      });
+      const directSetupPromise = serviceInternals.handleServerRequest({
+        id: 612,
+        method: "item/tool/requestSetupCodexContextPicker",
+        params: { threadId, turnId: "turn_picker_response_contract" },
+      });
+      const dynamicSetupPromise = serviceInternals.handleServerRequest({
+        id: "dynamic-setup-613",
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId: "turn_picker_response_contract",
+          callId: "call-dynamic-setup-613",
+          namespace: "codex_app",
+          tool: "setup_codex_context_picker",
+          arguments: {},
+        },
+      });
+
+      await Promise.resolve();
+      const record = serviceInternals.getConversationRecord(threadId);
+      expect(JSON.stringify(record.serverRequests.map((request) => request.id))).toBe(
+        JSON.stringify([610, "dynamic-option-611", 612, "dynamic-setup-613"]),
+      );
+      expect(JSON.stringify(record.canonicalState?.requests.map((request) => request.id))).toBe(
+        JSON.stringify([610, "dynamic-option-611", 612, "dynamic-setup-613"]),
+      );
+      expect(record.hasUnreadTurn).toBe(true);
+
+      const directOptionResponse = {
+        action: "submit" as const,
+        selectedOptions: ["Direct"],
+        freeformAnswer: null,
+      };
+      const dynamicOptionResponse = {
+        action: "skip" as const,
+        selectedOptions: [],
+        freeformAnswer: null,
+      };
+      const directSetupResponse = {
+        action: "continue" as const,
+        selectedSources: ["workspace"],
+      };
+      const dynamicSetupResponse = {
+        action: "dismiss" as const,
+        selectedSources: [],
+      };
+
+      expect(await serviceInternals.respondToOptionPicker(threadId, 610, directOptionResponse)).toBe(true);
+      expect(await serviceInternals.respondToOptionPicker(
+        threadId,
+        "dynamic-option-611",
+        dynamicOptionResponse,
+      )).toBe(true);
+      expect(await serviceInternals.respondToSetupContextPicker(threadId, 612, directSetupResponse)).toBe(true);
+      expect(await serviceInternals.respondToSetupContextPicker(
+        threadId,
+        "dynamic-setup-613",
+        dynamicSetupResponse,
+      )).toBe(true);
+
+      expect(JSON.stringify(await directOptionPromise)).toBe(JSON.stringify(directOptionResponse));
+      expect(JSON.stringify(await dynamicOptionPromise)).toBe(JSON.stringify({
+        contentItems: [{ type: "inputText", text: JSON.stringify(dynamicOptionResponse) }],
+        success: true,
+      }));
+      expect(JSON.stringify(await directSetupPromise)).toBe(JSON.stringify(directSetupResponse));
+      expect(JSON.stringify(await dynamicSetupPromise)).toBe(JSON.stringify({
+        contentItems: [{ type: "inputText", text: JSON.stringify(dynamicSetupResponse) }],
+        success: true,
+      }));
+      expect(record.serverRequests.length).toBe(0);
+      expect(record.canonicalState?.requests.length).toBe(0);
+      expect(record.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+      expect(record.hasUnreadTurn).toBe(true);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes same-id picker replies by the first raw envelope and settles duplicate waiters once", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      respondToOptionPicker: (
+        conversationId: string,
+        requestId: string | number,
+        response: {
+          action: "submit" | "skip" | "dismiss";
+          selectedOptions: readonly string[];
+          freeformAnswer: string | null;
+        },
+      ) => Promise<boolean>;
+      respondToSetupContextPicker: (
+        conversationId: string,
+        requestId: string | number,
+        response: {
+          action: "continue" | "skip" | "dismiss";
+          selectedSources: readonly string[];
+        },
+      ) => Promise<boolean>;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number; method: string }>;
+      };
+    };
+    const threadId = "thr_picker_first_envelope";
+    const turnId = "turn_picker_first_envelope";
+    const requestId = 620;
+
+    try {
+      const setupPromise = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/requestSetupCodexContextPicker",
+        params: { threadId, turnId },
+      });
+      const firstOptionPromise = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/requestOptionPicker",
+        params: {
+          threadId,
+          turnId,
+          question: "Choose one",
+          options: [{ label: "First", description: "First duplicate" }],
+          allowMultiple: false,
+          submitLabel: "Continue",
+          skipLabel: null,
+        },
+      });
+      const duplicateOptionPromise = serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/requestOptionPicker",
+        params: {
+          threadId,
+          turnId,
+          question: "Choose again",
+          options: [{ label: "Second", description: "Second duplicate" }],
+          allowMultiple: false,
+          submitLabel: "Continue",
+          skipLabel: null,
+        },
+      });
+      await Promise.resolve();
+
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord(threadId).serverRequests.map((request) => request.method),
+      )).toBe(JSON.stringify([
+        "item/tool/requestSetupCodexContextPicker",
+        "item/tool/requestOptionPicker",
+        "item/tool/requestOptionPicker",
+      ]));
+      expect(await serviceInternals.respondToOptionPicker(threadId, requestId, {
+        action: "submit",
+        selectedOptions: ["First"],
+        freeformAnswer: null,
+      })).toBe(false);
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(3);
+
+      const setupResponse = {
+        action: "continue" as const,
+        selectedSources: ["workspace"],
+      };
+      expect(await serviceInternals.respondToSetupContextPicker(
+        threadId,
+        requestId,
+        setupResponse,
+      )).toBe(true);
+      expect(JSON.stringify(await setupPromise)).toBe(JSON.stringify(setupResponse));
+      expect(await firstOptionPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(await duplicateOptionPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("approval attachment and reply preserve canonical raw item and item/thread timestamps", async () => {
+    const service = createService();
+    const projectId = "project-approval-timestamps";
+    const rawItem = {
+      id: "exec-approval-timestamps",
+      type: "commandExecution",
+      command: "bun test",
+      cwd: "/tmp/project",
+      status: "inProgress",
+      aggregatedOutput: "",
+    };
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      mergeItem: (item: CodexItemView) => void;
+      getConversationRecord: (threadId: string) => {
+        detail: CodexThreadDetail | null;
+      };
+      respondToApproval: (
+        requestId: string | number,
+        kind: CodexApprovalKind,
+        decision: CodexApprovalDecision,
+      ) => Promise<boolean>;
+    };
+    const threadId = "thr_approval_timestamps";
+    const turnId = "turn_approval_timestamps";
+    const itemId = "exec-approval-timestamps";
+    serviceInternals.parseThreadRef = () => ({ projectId, cwd: "/tmp/project" });
+    installManualApprovalState(service, projectId);
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      createdAt: 700,
+      updatedAt: 800,
+      turns: [{
+        threadId,
+        turnId,
+        status: "inProgress",
+        itemIds: [itemId],
+        turnStartedAtMs: 710,
+        firstTurnWorkItemStartedAtMs: 720,
+        finalAssistantStartedAtMs: 730,
+      }],
+      transcript: [],
+    });
+    serviceInternals.mergeItem({
+      threadId,
+      turnId,
+      itemId,
+      type: "commandExecution",
+      normalizedKind: "commandExecution",
+      semanticKind: "exec",
+      status: "inProgress",
+      rawItem,
+      createdAt: 740,
+      updatedAt: 750,
+    });
+
+    const readTimestamps = () => {
+      const record = serviceInternals.getConversationRecord(threadId);
+      const item = getRecordedItem(serviceInternals, threadId, turnId, itemId);
+      const turn = record.detail?.turns.find((candidate) => candidate.turnId === turnId);
+      const transcriptEntry = record.detail?.transcript.find((entry) => entry.itemId === itemId);
+      return {
+        itemCreatedAt: item?.createdAt ?? null,
+        itemUpdatedAt: item?.updatedAt ?? null,
+        transcriptCreatedAt: transcriptEntry?.createdAt ?? null,
+        transcriptUpdatedAt: transcriptEntry?.updatedAt ?? null,
+        turnStartedAtMs: turn?.turnStartedAtMs ?? null,
+        firstTurnWorkItemStartedAtMs: turn?.firstTurnWorkItemStartedAtMs ?? null,
+        finalAssistantStartedAtMs: turn?.finalAssistantStartedAtMs ?? null,
+        threadCreatedAt: record.detail?.createdAt ?? null,
+        threadUpdatedAt: record.detail?.updatedAt ?? null,
+      };
+    };
+    const baselineTimestamps = readTimestamps();
+
+    try {
+      const requestPromise = serviceInternals.handleServerRequest({
+        id: 614,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId,
+          turnId,
+          itemId,
+          startedAtMs: 760,
+          reason: "Approve timestamp-preserving command",
+          command: "bun test",
+          cwd: "/tmp/project",
+        },
+      });
+      await Promise.resolve();
+
+      const unchangedRaw = getRecordedItem(serviceInternals, threadId, turnId, itemId);
+      const approvalItemId = `command-approval:${itemId}:614`;
+      const approvalRow = getRecordedItem(serviceInternals, threadId, turnId, approvalItemId);
+      expect(unchangedRaw?.approvalRequestId ?? null).toBe(null);
+      expect(unchangedRaw?.rawItem === rawItem).toBe(true);
+      expect(approvalRow?.approvalRequestId).toBe(614);
+      expect(approvalRow?.callId).toBe(itemId);
+      expect(approvalRow?.createdAt).toBe(760);
+      expect(JSON.stringify(readTimestamps())).toBe(JSON.stringify(baselineTimestamps));
+
+      expect(await serviceInternals.respondToApproval(614, "command", "decline")).toBe(true);
+      expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({ decision: "decline" }));
+
+      const replied = getRecordedItem(serviceInternals, threadId, turnId, itemId);
+      expect(replied?.approvalRequestId ?? null).toBe(null);
+      expect(replied?.rawItem === rawItem).toBe(true);
+      expect(getRecordedItem(serviceInternals, threadId, turnId, approvalItemId) === null).toBe(true);
+      expect(JSON.stringify(readTimestamps())).toBe(JSON.stringify(baselineTimestamps));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("declines every exact pending request family before sending turn interrupt", async () => {
+    const service = createService();
+    const projectId = "project-interrupt-request-families";
+    const threadId = "thr_interrupt_request_families";
+    const turnId = "turn_interrupt_request_families";
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      requestConversationResume: () => Promise<CodexConversationSnapshot | null>;
+      persistThreadSnapshot: (threadId: string) => void;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<{ id: string | number }>;
+      };
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const interruptCalls: Array<{ method: string; params: unknown }> = [];
+
+    serviceInternals.parseThreadRef = () => ({ projectId, cwd: "/tmp/project" });
+    installManualApprovalState(service, projectId);
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      turns: [{ threadId, turnId, status: "inProgress", itemIds: [] }],
+      transcript: [],
+    });
+    serviceInternals.requestConversationResume = async () => null;
+    serviceInternals.persistThreadSnapshot = () => {};
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      if (method === "turn/interrupt") {
+        expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
+        interruptCalls.push({ method, params });
+      }
+      return {};
+    };
+
+    try {
+      const commandPromise = serviceInternals.handleServerRequest({
+        id: "interrupt-command",
+        method: "item/commandExecution/requestApproval",
+        params: { threadId, turnId, itemId: "exec-interrupt", reason: "Command" },
+      });
+      const filePromise = serviceInternals.handleServerRequest({
+        id: "interrupt-file",
+        method: "item/fileChange/requestApproval",
+        params: { threadId, turnId, itemId: "patch-interrupt", startedAtMs: 800, reason: "File" },
+      });
+      const permissionPromise = serviceInternals.handleServerRequest({
+        id: "interrupt-permission",
+        method: "item/permissions/requestApproval",
+        params: {
+          threadId,
+          turnId,
+          itemId: "permission-interrupt",
+          environmentId: "env-interrupt",
+          startedAtMs: 801,
+          cwd: "/tmp/project",
+          reason: "Permission",
+          permissions: { network: null, fileSystem: null },
+        },
+      });
+      const userPromise = serviceInternals.handleServerRequest({
+        id: "interrupt-user",
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId,
+          turnId,
+          itemId: "user-interrupt",
+          questions: [{
+            id: "q-interrupt",
+            header: "Interrupt",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+          }],
+        },
+      });
+      const optionPromise = serviceInternals.handleServerRequest({
+        id: "interrupt-option",
+        method: "item/tool/requestOptionPicker",
+        params: {
+          threadId,
+          turnId,
+          question: "Choose",
+          options: [{ label: "Continue" }],
+          allowMultiple: false,
+          submitLabel: "Continue",
+          skipLabel: null,
+        },
+      });
+      const setupPromise = serviceInternals.handleServerRequest({
+        id: "interrupt-setup",
+        method: "item/tool/requestSetupCodexContextPicker",
+        params: { threadId, turnId },
+      });
+      const mcpPromise = serviceInternals.handleServerRequest({
+        id: "interrupt-mcp",
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId,
+          turnId,
+          serverName: "fixture_server",
+          mode: "openai/form",
+          message: "Provide a value",
+          requestedSchema: { type: "object", properties: {} },
+          _meta: null,
+        },
+      });
+
+      await Promise.resolve();
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord(threadId).serverRequests.map((request) => request.id),
+      )).toBe(JSON.stringify([
+        "interrupt-command",
+        "interrupt-file",
+        "interrupt-permission",
+        "interrupt-user",
+        "interrupt-option",
+        "interrupt-setup",
+        "interrupt-mcp",
+      ]));
+
+      expect(await service.interruptTurn(threadId, turnId)).toBe(true);
+      expect(JSON.stringify(interruptCalls)).toBe(JSON.stringify([{
+        method: "turn/interrupt",
+        params: { threadId, turnId },
+      }]));
+      expect(JSON.stringify(await commandPromise)).toBe(JSON.stringify({ decision: "decline" }));
+      expect(JSON.stringify(await filePromise)).toBe(JSON.stringify({ decision: "decline" }));
+      expect(JSON.stringify(await permissionPromise)).toBe(JSON.stringify({
+        permissions: {},
+        scope: "turn",
+      }));
+      expect(JSON.stringify(await userPromise)).toBe(JSON.stringify({ answers: {} }));
+      expect(JSON.stringify(await optionPromise)).toBe(JSON.stringify({
+        action: "dismiss",
+        selectedOptions: [],
+        freeformAnswer: null,
+      }));
+      expect(JSON.stringify(await setupPromise)).toBe(JSON.stringify({
+        action: "dismiss",
+        selectedSources: [],
+      }));
+      expect(JSON.stringify(await mcpPromise)).toBe(JSON.stringify({
+        action: "decline",
+        content: null,
+        _meta: null,
+      }));
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
+      expect(service.serializeConversationSnapshot(threadId)?.turns[0]?.status).toBe("interrupted");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("returns the exact wrapped onboarding payload once and settles duplicate waiters without responses", async () => {
+    const service = createService();
+    const threadId = "thr_onboarding_response_contract";
+    const turnId = "turn_onboarding_response_contract";
+    const requestId = 615;
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      respondToUserInput: (
+        requestId: string | number,
+        answers: Record<string, string[]>,
+        conversationId?: string,
+      ) => Promise<boolean>;
+      getConversationRecord: (targetThreadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
+      };
+    };
+    const request = (callId: string) => ({
+      id: requestId,
+      method: "item/tool/call",
+      params: {
+        threadId,
+        turnId,
+        callId,
+        namespace: "codex_app",
+        tool: "request_onboarding_input",
+        arguments: {
+          questions: [{
+            id: "first_task",
+            header: "Start",
+            question: "What should Codex do first?",
+            options: [
+              { label: "Audit", description: "Inspect the implementation" },
+              { label: "Build", description: "Implement the change" },
+            ],
+          }],
+        },
+      },
+    });
+
+    try {
+      const firstPromise = serviceInternals.handleServerRequest(request("onboarding-call-first"));
+      const duplicatePromise = serviceInternals.handleServerRequest(request("onboarding-call-duplicate"));
+      await Promise.resolve();
+
+      const pendingRecord = serviceInternals.getConversationRecord(threadId);
+      expect(JSON.stringify(pendingRecord.serverRequests.map((entry) => entry.id))).toBe(
+        JSON.stringify([requestId, requestId]),
+      );
+      expect(JSON.stringify(pendingRecord.canonicalState?.requests.map((entry) => entry.id))).toBe(
+        JSON.stringify([requestId, requestId]),
+      );
+      expect(pendingRecord.hasUnreadTurn).toBe(true);
+
+      expect(await serviceInternals.respondToUserInput(
+        requestId,
+        { first_task: ["Audit"] },
+        threadId,
+      )).toBe(true);
+      expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({
+            answers: {
+              first_task: { answers: ["Audit"] },
+            },
+          }),
+        }],
+        success: true,
+      }));
+      expect(await duplicatePromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(pendingRecord.serverRequests.length).toBe(0);
+      expect(pendingRecord.canonicalState?.requests.length).toBe(0);
+      expect(pendingRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+      expect(pendingRecord.hasUnreadTurn).toBe(true);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("validates setup-step responses and wraps exact role task and context results", async () => {
+    const service = createService();
+    const threadId = "thr_setup_step_response_contract";
+    const turnId = "turn_setup_step_response_contract";
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      respondToSetupCodexStep: (
+        conversationId: string,
+        requestId: string | number,
+        response:
+          | { step: "role"; action: "submit" | "skip" | "dismiss"; selectedRoles: readonly string[] }
+          | { step: "task"; action: "submit" | "skip" | "dismiss"; answers: Readonly<Record<string, { readonly answers: readonly string[] }>> }
+          | { step: "context"; action: "continue" | "skip" | "dismiss"; selectedSources: readonly string[] },
+      ) => Promise<boolean>;
+      getConversationRecord: (targetThreadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
+      };
+    };
+    const requestFor = (requestId: string, step: "role" | "task" | "context") =>
+      serviceInternals.handleServerRequest({
+        id: requestId,
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId,
+          callId: `call-${requestId}`,
+          namespace: "codex_app",
+          tool: "setup_codex_step",
+          arguments: { step },
+        },
+      });
+
+    try {
+      const completeResult = await serviceInternals.handleServerRequest({
+        id: "setup-complete-615",
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId,
+          callId: "call-setup-complete-615",
+          namespace: "codex_app",
+          tool: "setup_codex_step",
+          arguments: { step: "complete" },
+        },
+      });
+      expect(JSON.stringify(completeResult)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({ completed: true }),
+        }],
+        success: true,
+      }));
+      expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
+
+      let roleResolved = false;
+      const rolePromise = requestFor("setup-role-616", "role");
+      const taskPromise = requestFor("setup-task-617", "task");
+      const contextPromise = requestFor("setup-context-618", "context");
+      void rolePromise.then(() => {
+        roleResolved = true;
+      });
+      await Promise.resolve();
+
+      expect(await serviceInternals.respondToSetupCodexStep(
+        threadId,
+        "setup-role-616",
+        { step: "context", action: "dismiss", selectedSources: [] },
+      )).toBe(false);
+      await Promise.resolve();
+      expect(roleResolved).toBe(false);
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord(threadId).serverRequests.map((request) => request.id),
+      )).toBe(JSON.stringify(["setup-role-616", "setup-task-617", "setup-context-618"]));
+
+      expect(await serviceInternals.respondToSetupCodexStep(
+        threadId,
+        "setup-role-616",
+        { step: "role", action: "submit", selectedRoles: ["engineer", "reviewer"] },
+      )).toBe(true);
+      expect(await serviceInternals.respondToSetupCodexStep(
+        threadId,
+        "setup-task-617",
+        {
+          step: "task",
+          action: "skip",
+          answers: { first_task: { answers: ["Ship parity"] } },
+        },
+      )).toBe(true);
+      expect(await serviceInternals.respondToSetupCodexStep(
+        threadId,
+        "setup-context-618",
+        { step: "context", action: "continue", selectedSources: ["repo", "docs"] },
+      )).toBe(true);
+
+      expect(JSON.stringify(await rolePromise)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({
+            action: "submit",
+            selectedRoles: ["engineer", "reviewer"],
+          }),
+        }],
+        success: true,
+      }));
+      expect(JSON.stringify(await taskPromise)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({
+            action: "skip",
+            answers: { first_task: { answers: ["Ship parity"] } },
+          }),
+        }],
+        success: true,
+      }));
+      expect(JSON.stringify(await contextPromise)).toBe(JSON.stringify({
+        contentItems: [{
+          type: "inputText",
+          text: JSON.stringify({
+            action: "continue",
+            selectedSources: ["repo", "docs"],
+          }),
+        }],
+        success: true,
+      }));
+      const record = serviceInternals.getConversationRecord(threadId);
+      expect(record.serverRequests.length).toBe(0);
+      expect(record.canonicalState?.requests.length).toBe(0);
+      expect(record.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+      expect(record.hasUnreadTurn).toBe(true);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("persists standalone conversation unread changes without emitting stream revisions", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thr_standalone_unread_contract";
+      const session = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Unread projection",
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: defaultProjectId,
+        threadId,
+        threadName: "Unread projection",
+        threadPreview: "Unread projection",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        getConversationRecord: (targetThreadId: string) => {
+          hasUnreadTurn: boolean;
+          unreadMessageCount?: number;
+        };
+        lastBroadcastConversationById: Map<string, CodexConversationSnapshot>;
+        setConversationUnreadState: (targetThreadId: string, hasUnreadTurn: boolean) => boolean;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+      const sessionChanges = collectProjectSessionChangeEvents();
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        projectId: defaultProjectId,
+      });
+      hostMessages.length = 0;
+
+      try {
+        expect(serviceInternals.setConversationUnreadState(threadId, true)).toBe(true);
+        expect(serviceInternals.getConversationRecord(threadId).hasUnreadTurn).toBe(true);
+        expect(getCodexThread(threadId)?.hasUnreadTurn).toBe(true);
+        expect(getProjectSession(session.id)?.unread).toBe(true);
+        expect(String(hostMessages.filter((message) => message.type === "threadReadStateChanged").length)).toBe("1");
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
+        const unreadMessage = hostMessages.find((message) => message.type === "threadReadStateChanged");
+        expect(unreadMessage?.type).toBe("threadReadStateChanged");
+        if (unreadMessage?.type === "threadReadStateChanged") {
+          expect(unreadMessage.conversationId).toBe(threadId);
+          expect(unreadMessage.hasUnreadTurn).toBe(true);
+        }
+        expect(sessionChanges.events.filter((event) =>
+          event.changeType === "unread" && event.sessionId === session.id
+        ).length).toBe(1);
+
+        expect(serviceInternals.setConversationUnreadState(threadId, true)).toBe(false);
+        expect(hostMessages.filter((message) => message.type === "threadReadStateChanged").length).toBe(1);
+        expect(sessionChanges.events.filter((event) => event.changeType === "unread").length).toBe(1);
+
+        serviceInternals.getConversationRecord(threadId).unreadMessageCount = 7;
+        expect(serviceInternals.setConversationUnreadState(threadId, false)).toBe(true);
+        expect(serviceInternals.getConversationRecord(threadId).hasUnreadTurn).toBe(false);
+        expect(serviceInternals.getConversationRecord(threadId).unreadMessageCount).toBe(0);
+        expect(service.serializeConversationSnapshot(threadId)?.unreadMessageCount).toBe(0);
+        expect(getCodexThread(threadId)?.hasUnreadTurn).toBe(false);
+        expect(getProjectSession(session.id)?.unread).toBe(false);
+        expect(String(hostMessages.filter((message) => message.type === "threadReadStateChanged").length)).toBe("2");
+        expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
+        expect(sessionChanges.events.filter((event) =>
+          event.changeType === "unread" && event.sessionId === session.id
+        ).length).toBe(2);
+
+        service.setRendererConversationOwner(threadId, "owner-stale-unread-count");
+        const staleOwnerSnapshot = {
+          ...service.serializeConversationSnapshot(threadId)!,
+          hasUnreadTurn: true,
+          unreadMessageCount: 9,
+        };
+        expect(service.publishRendererThreadStreamStateChange("owner-stale-unread-count", {
+          conversationId: threadId,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: staleOwnerSnapshot,
+          },
+        })).toBe(true);
+        expect(
+          serviceInternals.lastBroadcastConversationById.get(threadId)?.unreadMessageCount,
+        ).toBe(0);
+        const correction = hostMessages.at(-1);
+        expect(correction?.type).toBe("threadReadStateChanged");
+        if (correction?.type === "threadReadStateChanged") {
+          expect(correction.hasUnreadTurn).toBe(false);
+        }
+      } finally {
+        sessionChanges.dispose();
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("clears durable and in-memory unread state before archive action and notification fanout", async () => {
+    const ran = await withTempDatabase(async () => {
+      const actionThreadId = "thr_archive_unread_action";
+      const notificationThreadId = "thr_archive_unread_notification";
+      const actionSession = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Archive action unread",
+      });
+      const notificationSession = createProjectSession({
+        projectId: defaultProjectId,
+        noThreadFallbackTitle: "Archive notification unread",
+      });
+      for (const [sessionId, threadId] of [
+        [actionSession.id, actionThreadId],
+        [notificationSession.id, notificationThreadId],
+      ] as const) {
+        upsertProjectSessionThreadLink({
+          sessionId,
+          projectId: defaultProjectId,
+          threadId,
+          threadName: threadId,
+          threadPreview: threadId,
+          modelProvider: "openai",
+          cwd: "/tmp/codex",
+          statusType: "idle",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1,
+          updatedAt: 2,
+        });
+      }
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        getMaybeConversationRecord: (threadId: string) => { hasUnreadTurn: boolean } | null;
+        setConversationUnreadState: (threadId: string, hasUnreadTurn: boolean) => boolean;
+        handleServerRequest: (request: {
+          id: string | number;
+          method: string;
+          params: unknown;
+        }) => Promise<unknown>;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+        pendingApprovals: { readonly size: number };
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/archive") return {};
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+
+      try {
+        for (const threadId of [actionThreadId, notificationThreadId]) {
+          serviceInternals.setConversationRecordDetail({
+            ...makeThreadDetail(threadId),
+            projectId: defaultProjectId,
+          });
+          expect(serviceInternals.setConversationUnreadState(threadId, true)).toBe(true);
+        }
+        service.setRendererConversationOwner(actionThreadId, "owner-before-archive");
+        hostMessages.length = 0;
+
+        expect(await (service as unknown as {
+          archiveThread: (threadId: string) => Promise<boolean>;
+        }).archiveThread(actionThreadId)).toBe(true);
+        await serviceInternals.handleNotification("thread/archived", {
+          threadId: notificationThreadId,
+        });
+        expect(service.publishRendererThreadStreamStateChange("owner-before-archive", {
+          conversationId: actionThreadId,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: makeConversationSnapshot({ threadId: actionThreadId }),
+          },
+        })).toBe(false);
+        expect(service.getRendererConversationOwner(actionThreadId)).toBe(null);
+
+        expect(await serviceInternals.handleServerRequest({
+          id: "late-archived-approval",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: actionThreadId,
+            turnId: "turn-late-archived",
+            itemId: "item-late-archived",
+            reason: "Late archived ingress",
+          },
+        })).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+        expect(serviceInternals.pendingApprovals.size).toBe(0);
+        expect(serviceInternals.setConversationUnreadState(actionThreadId, true)).toBe(false);
+
+        for (const threadId of [actionThreadId, notificationThreadId]) {
+          expect(serviceInternals.getMaybeConversationRecord(threadId)).toBe(null);
+          expect(getCodexThread(threadId)?.hasUnreadTurn).toBe(false);
+          expect(service.serializeConversationSnapshot(threadId)).toBe(null);
+          expect(serviceInternals.getMaybeConversationRecord(threadId)).toBe(null);
+        }
+        expect(getProjectSession(actionSession.id)?.unread).toBe(false);
+        expect(getProjectSession(notificationSession.id)?.unread).toBe(false);
+        expect(JSON.stringify(hostMessages.flatMap((message) =>
+          message.type === "threadReadStateChanged"
+            ? [[message.conversationId, message.hasUnreadTurn]]
+            : []
+        ))).toBe(JSON.stringify([
+          [actionThreadId, false],
+          [notificationThreadId, false],
+        ]));
+        expect(JSON.stringify(hostMessages.flatMap((message) =>
+          message.type === "threadArchived" ? [message.conversationId] : []
+        ))).toBe(JSON.stringify([actionThreadId, notificationThreadId]));
+        expect(hostMessages.some((message) =>
+          message.type === "threadStreamStateChanged"
+          && message.conversationId === actionThreadId
+        )).toBe(false);
       } finally {
         await service.shutdown();
       }
@@ -14405,6 +25221,11 @@ describe("codex-service streaming notification parity", () => {
       handleNotification: (method: string, params: unknown) => Promise<void>;
       pendingApprovals: Map<string, unknown>;
       pendingUserInputs: Map<string, unknown>;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
+      };
       on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
     };
     const events: CodexEvent[] = [];
@@ -14445,6 +25266,10 @@ describe("codex-service streaming notification parity", () => {
       await Promise.resolve();
       expect(serviceInternals.pendingApprovals.has("approval_req")).toBe(true);
       expect(serviceInternals.pendingUserInputs.has("input_req")).toBe(true);
+      const pendingRecord = serviceInternals.getConversationRecord("thr_resolved");
+      expect(JSON.stringify(pendingRecord.canonicalState?.requests.map((request) => request.id))).toBe(
+        JSON.stringify(["approval_req", "input_req"]),
+      );
 
       await serviceInternals.handleNotification("serverRequest/resolved", {
         threadId: "thr_resolved",
@@ -14457,10 +25282,19 @@ describe("codex-service streaming notification parity", () => {
 
       const approvalResult = await approvalPromise;
       const inputResult = await userInputPromise;
-      expect(JSON.stringify(approvalResult)).toBe(JSON.stringify({ decision: "cancel" }));
-      expect(JSON.stringify(inputResult)).toBe(JSON.stringify({ answers: {} }));
+      expect(approvalResult).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(inputResult).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(serviceInternals.pendingApprovals.has("approval_req")).toBe(false);
       expect(serviceInternals.pendingUserInputs.has("input_req")).toBe(false);
+      const resolvedRecord = serviceInternals.getConversationRecord("thr_resolved");
+      const resolvedInput = resolvedRecord.canonicalState?.turns[0]?.items.find(
+        (item) => item.type === "userInputResponse",
+      );
+      expect(resolvedRecord.canonicalState?.requests.length).toBe(0);
+      expect(resolvedRecord.serverRequests.length).toBe(0);
+      expect(resolvedRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+      expect(resolvedRecord.hasUnreadTurn).toBe(true);
+      expect(resolvedInput && "completed" in resolvedInput ? resolvedInput.completed : false).toBe(true);
       const approvalItem = getRecordedItem(serviceInternals, "thr_resolved", "turn_resolved", "item_approval");
       expect(approvalItem?.approvalRequestId ?? null).toBe(null);
 
@@ -14481,7 +25315,10 @@ describe("codex-service streaming notification parity", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
         itemsByTurn: Map<string, Map<string, CodexItemView>>;
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
       };
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
@@ -14523,6 +25360,18 @@ describe("codex-service streaming notification parity", () => {
       });
 
       await Promise.resolve();
+      const pendingRequestItem = getRecordedItem(
+        serviceInternals,
+        "thr_input",
+        "turn_input",
+        "user-input:item_input:input_req",
+      );
+      expect(pendingRequestItem?.requestId).toBe("input_req");
+      expect(pendingRequestItem?.callId).toBe("item_input");
+      const pendingRecord = serviceInternals.getConversationRecord("thr_input");
+      expect(pendingRecord.canonicalState?.requests.length).toBe(1);
+      expect(pendingRecord.serverRequests.length).toBe(1);
+      expect(pendingRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
       const responded = await service.respondToUserInput("input_req", { q1: ["2"] });
       expect(responded).toBe(true);
 
@@ -14534,6 +25383,20 @@ describe("codex-service streaming notification parity", () => {
           },
         },
       }));
+
+      const completedRecord = serviceInternals.getConversationRecord("thr_input");
+      const canonicalInput = completedRecord.canonicalState?.turns[0]?.items[0];
+      expect(completedRecord.canonicalState?.requests.length).toBe(0);
+      expect(completedRecord.serverRequests.length).toBe(0);
+      expect(completedRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+      expect(completedRecord.hasUnreadTurn).toBe(true);
+      expect(canonicalInput?.type).toBe("userInputResponse");
+      expect(canonicalInput && "completed" in canonicalInput
+        ? canonicalInput.completed
+        : false).toBe(true);
+      expect(canonicalInput && "answers" in canonicalInput
+        ? canonicalInput.answers.q1?.[0]
+        : null).toBe("2");
 
       const answeredItem = getRecordedItem(
         serviceInternals,
@@ -14548,6 +25411,12 @@ describe("codex-service streaming notification parity", () => {
       expect(answeredItem?.userInputQuestions?.[0]?.question).toBe("What is 1 + 1?");
       expect(answeredItem?.userInputAnswers?.q1?.[0]).toBe("2");
       expect((answeredItem?.rawItem as { answers?: Record<string, string[]> } | undefined)?.answers?.q1?.[0]).toBe("2");
+      expect(getRecordedItem(
+        serviceInternals,
+        "thr_input",
+        "turn_input",
+        "user-input:item_input:input_req",
+      ) === null).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -14935,6 +25804,219 @@ describe("codex-service item identity dedupe", () => {
 });
 
 describe("codex-service item lifecycle status fallback", () => {
+  test("replaces the pending manual compaction row with an accepted manual lifecycle item", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "thread/compact/start") return {};
+      throw new Error(`Unexpected method: ${method}`);
+    };
+
+    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+      threadId: "thr_manual_compaction",
+      threadTurns: [{
+        ...makeCanonicalHydrationTurn("turn_manual_compaction"),
+        items: [],
+        status: "inProgress",
+        completedAt: null,
+        durationMs: null,
+      }],
+      initialTurnsPage: {
+        data: [{
+          ...makeCanonicalHydrationTurn("turn_manual_compaction"),
+          items: [],
+          status: "inProgress",
+          completedAt: null,
+          durationMs: null,
+        }],
+        nextCursor: null,
+        backwardsCursor: null,
+      },
+    }));
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_manual_compaction"),
+      turns: [{
+        threadId: "thr_manual_compaction",
+        turnId: "turn_manual_compaction",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      await (service as unknown as {
+        startThreadCompaction: (threadId: string) => Promise<void>;
+      }).startThreadCompaction("thr_manual_compaction");
+      expect(
+        getCanonicalConversationState(service, "thr_manual_compaction")
+          ?.turns[0]?.items[0]?.id,
+      ).toBe("pending-manual-context-compaction");
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_manual_compaction",
+        turnId: "turn_manual_compaction",
+        startedAtMs: 1_000,
+        item: { id: "compaction-accepted", type: "contextCompaction" },
+      });
+      const items = getCanonicalConversationState(service, "thr_manual_compaction")
+        ?.turns[0]?.items ?? [];
+      const accepted = items[0] as { id?: string; source?: string; completed?: boolean } | undefined;
+      expect(items.length).toBe(1);
+      expect(accepted?.id).toBe("compaction-accepted");
+      expect(accepted?.source).toBe("manual");
+      expect(accepted?.completed).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("removes the pending manual compaction row when the request fails", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "thread/compact/start") throw new Error("compaction rejected");
+      throw new Error(`Unexpected method: ${method}`);
+    };
+
+    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+      threadId: "thr_manual_compaction_failure",
+      threadTurns: [{
+        ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
+        items: [],
+        status: "inProgress",
+        completedAt: null,
+        durationMs: null,
+      }],
+      initialTurnsPage: {
+        data: [{
+          ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
+          items: [],
+          status: "inProgress",
+          completedAt: null,
+          durationMs: null,
+        }],
+        nextCursor: null,
+        backwardsCursor: null,
+      },
+    }));
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_manual_compaction_failure"),
+      turns: [{
+        threadId: "thr_manual_compaction_failure",
+        turnId: "turn_manual_compaction_failure",
+        status: "inProgress",
+        itemIds: [],
+      }],
+      transcript: [],
+    });
+
+    try {
+      await expect((service as unknown as {
+        startThreadCompaction: (threadId: string) => Promise<void>;
+      }).startThreadCompaction("thr_manual_compaction_failure"))
+        .rejects.toThrow("compaction rejected");
+      expect(
+        getCanonicalConversationState(service, "thr_manual_compaction_failure")
+          ?.turns[0]?.items.length,
+      ).toBe(0);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("keeps an earlier local turn when an unbound manual compaction turn is added and removed", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      appendThreadGoalTranscriptTurn: (threadId: string, goal: ThreadGoal) => void;
+      conversationRecords: Map<string, { detail: CodexThreadDetail | null }>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method !== "thread/compact/start") throw new Error(`Unexpected method: ${method}`);
+      const pendingDetail = serviceInternals.conversationRecords
+        .get("thr_manual_compaction_unbound")
+        ?.detail;
+      expect(pendingDetail?.turns).toMatchObject([
+        { turnId: null, status: "completed" },
+        { turnId: null, status: "inProgress" },
+      ]);
+      expect(pendingDetail?.transcript.map((item) => item.type)).toEqual([
+        "userMessage",
+        "contextCompaction",
+      ]);
+      throw new Error("compaction rejected");
+    };
+
+    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+      threadId: "thr_manual_compaction_unbound",
+      threadTurns: [],
+      initialTurnsPage: {
+        data: [],
+        nextCursor: null,
+        backwardsCursor: null,
+      },
+    }));
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail("thr_manual_compaction_unbound"),
+      turns: [],
+      transcript: [],
+    });
+    serviceInternals.appendThreadGoalTranscriptTurn("thr_manual_compaction_unbound", {
+      threadId: "thr_manual_compaction_unbound",
+      objective: "Preserve the earlier local turn",
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    try {
+      await expect((service as unknown as {
+        startThreadCompaction: (threadId: string) => Promise<void>;
+      }).startThreadCompaction("thr_manual_compaction_unbound"))
+        .rejects.toThrow("compaction rejected");
+      expect(
+        getCanonicalConversationState(service, "thr_manual_compaction_unbound")?.turns,
+      ).toHaveLength(1);
+      expect(
+        serviceInternals.conversationRecords.get("thr_manual_compaction_unbound")?.detail?.turns,
+      ).toMatchObject([{ turnId: null, status: "completed" }]);
+      expect(
+        serviceInternals.conversationRecords
+          .get("thr_manual_compaction_unbound")
+          ?.detail?.transcript.map((item) => item.markdownText),
+      ).toEqual(["Preserve the earlier local turn"]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("projects live reasoning rows from summary text only", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -15048,7 +26130,7 @@ describe("codex-service item lifecycle status fallback", () => {
 
       const item = getRecordedItem(serviceInternals, "thr_status", "turn_status", "item_reasoning");
 
-      expect(item?.status).toBe("completed");
+      expect(item?.status).toBe("inProgress");
     } finally {
       await service.shutdown();
     }
@@ -15080,7 +26162,7 @@ describe("codex-service item lifecycle status fallback", () => {
         turnId: "turn_compaction_live",
         item: {
           id: "item_context_compaction",
-          type: "context_compaction",
+          type: "contextCompaction",
         },
       });
 
@@ -15099,7 +26181,7 @@ describe("codex-service item lifecycle status fallback", () => {
         turnId: "turn_compaction_live",
         item: {
           id: "item_context_compaction",
-          type: "context_compaction",
+          type: "contextCompaction",
         },
       });
 
@@ -15122,6 +26204,7 @@ describe("codex-service item lifecycle status fallback", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -15132,39 +26215,92 @@ describe("codex-service item lifecycle status fallback", () => {
         }
       });
 
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_compaction_order",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_compaction_order"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_compaction_order"),
         turns: [
           {
             threadId: "thr_compaction_order",
             turnId: "turn_compaction_order",
-            status: "completed",
-            itemIds: ["assistant_before", "item_context_compaction", "tool_after"],
+            status: "inProgress",
+            itemIds: [],
           },
         ],
         transcript: [],
       });
 
       try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_compaction_order",
+          turnId: "turn_compaction_order",
+          item: makeProtocolAgentMessage({
+            id: "assistant_before",
+            text: "",
+          }),
+        });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_compaction_order",
+          turnId: "turn_compaction_order",
+          item: {
+            id: "item_context_compaction",
+            type: "contextCompaction",
+          },
+        });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_compaction_order",
+          turnId: "turn_compaction_order",
+          item: {
+            id: "tool_after",
+            type: "commandExecution",
+            command: "echo later",
+            cwd: "/workspace/project",
+            processId: null,
+            source: "agent",
+            status: "inProgress",
+            commandActions: [],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null,
+          },
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_compaction_order",
           turnId: "turn_compaction_order",
           item: {
             id: "tool_after",
-            type: "function_call",
-            name: "bash",
-            arguments: "{\"command\":\"echo later\"}",
+            type: "commandExecution",
+            command: "echo later",
+            cwd: "/workspace/project",
+            processId: null,
+            source: "agent",
+            status: "completed",
+            commandActions: [],
+            aggregatedOutput: "",
+            exitCode: 0,
+            durationMs: 10,
           },
         });
 
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_compaction_order",
           turnId: "turn_compaction_order",
-          item: {
+          item: makeProtocolAgentMessage({
             id: "assistant_before",
-            type: "assistant_message",
             text: "Assistant first.",
-          },
+          }),
         });
 
         await serviceInternals.handleNotification("item/completed", {
@@ -15172,7 +26308,7 @@ describe("codex-service item lifecycle status fallback", () => {
           turnId: "turn_compaction_order",
           item: {
             id: "item_context_compaction",
-            type: "context_compaction",
+            type: "contextCompaction",
           },
         });
 
@@ -15194,12 +26330,13 @@ describe("codex-service item lifecycle status fallback", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("synthesizes turn-local canonical item order from live item lifecycle events", async () => {
+  test("preserves turn-local canonical item order from live item lifecycle events", async () => {
     const ran = await withTempDatabase(async () => {
 
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -15212,19 +26349,45 @@ describe("codex-service item lifecycle status fallback", () => {
 
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_compaction_live_order"),
-        turns: [],
+        turns: [{
+          threadId: "thr_compaction_live_order",
+          turnId: "turn_compaction_live_order",
+          status: "inProgress",
+          itemIds: [],
+        }],
         transcript: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_compaction_live_order",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_compaction_live_order"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
 
       try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_compaction_live_order",
+          turnId: "turn_compaction_live_order",
+          item: makeProtocolAgentMessage({
+            id: "assistant_before",
+            text: "",
+          }),
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_compaction_live_order",
           turnId: "turn_compaction_live_order",
-          item: {
+          item: makeProtocolAgentMessage({
             id: "assistant_before",
-            type: "assistant_message",
             text: "Assistant first.",
-          },
+          }),
         });
 
         await serviceInternals.handleNotification("item/started", {
@@ -15232,7 +26395,7 @@ describe("codex-service item lifecycle status fallback", () => {
           turnId: "turn_compaction_live_order",
           item: {
             id: "item_context_compaction",
-            type: "context_compaction",
+            type: "contextCompaction",
           },
         });
 
@@ -15241,18 +26404,42 @@ describe("codex-service item lifecycle status fallback", () => {
           turnId: "turn_compaction_live_order",
           item: {
             id: "item_context_compaction",
-            type: "context_compaction",
+            type: "contextCompaction",
           },
         });
 
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_compaction_live_order",
+          turnId: "turn_compaction_live_order",
+          item: {
+            id: "tool_after",
+            type: "commandExecution",
+            command: "echo later",
+            cwd: "/workspace/project",
+            processId: null,
+            source: "agent",
+            status: "inProgress",
+            commandActions: [],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null,
+          },
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_compaction_live_order",
           turnId: "turn_compaction_live_order",
           item: {
             id: "tool_after",
-            type: "function_call",
-            name: "bash",
-            arguments: "{\"command\":\"echo later\"}",
+            type: "commandExecution",
+            command: "echo later",
+            cwd: "/workspace/project",
+            processId: null,
+            source: "agent",
+            status: "completed",
+            commandActions: [],
+            aggregatedOutput: "",
+            exitCode: 0,
+            durationMs: 10,
           },
         });
 
@@ -15534,7 +26721,7 @@ describe("codex-service item lifecycle status fallback", () => {
           mode: "openai/form",
           serverName: "Context7",
           message: "Allow this call?",
-          requestedSchema: { type: "object" },
+          requestedSchema: { type: "object", properties: {} },
         },
       });
 
@@ -15543,9 +26730,11 @@ describe("codex-service item lifecycle status fallback", () => {
       let item = getRecordedItem(serviceInternals, "thr_mcp", "turn_mcp", "mcp-server-elicitation-mcp_req");
       expect(item?.semanticKind).toBe("mcpServerElicitation");
       expect(item?.status).toBe("inProgress");
-      const rawElicitation = (item?.rawItem as { elicitation?: { mode?: string; requestedSchema?: { type?: string } } } | undefined)?.elicitation;
-      expect(rawElicitation?.mode ?? "").toBe("openai/form");
-      expect(rawElicitation?.requestedSchema?.type ?? "").toBe("object");
+      const rawElicitation = (item?.rawItem as {
+        elicitation?: { kind?: string; schema?: { type?: string } };
+      } | undefined)?.elicitation;
+      expect(rawElicitation?.kind ?? "").toBe("openaiForm");
+      expect(rawElicitation?.schema?.type ?? "").toBe("object");
 
       const responded = await service.respondToMcpServerElicitation("mcp_req", {
         action: "accept",
@@ -15567,6 +26756,183 @@ describe("codex-service item lifecycle status fallback", () => {
       item = getRecordedItem(serviceInternals, "thr_mcp", "turn_mcp", "mcp-server-elicitation-mcp_req");
       expect(item?.status).toBe("completed");
       expect((item?.rawItem as { action?: string } | undefined)?.action).toBe("accept");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("retains turnless MCP requests and transport waiters across history replacement", async () => {
+    const service = createService();
+    const threadId = "thr_turnless_mcp";
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      pendingMcpElicitations: Map<string | number, unknown>;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        serverRequests: Array<{ id: string | number }>;
+      };
+    };
+    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
+    const emptyDetail = {
+      ...makeThreadDetail(threadId),
+      turns: [],
+      transcript: [],
+    };
+    serviceInternals.setConversationRecordDetail(emptyDetail);
+
+    try {
+      const requestPromise = serviceInternals.handleServerRequest({
+        id: "turnless-mcp-request",
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId,
+          turnId: "",
+          mode: "openai/form",
+          serverName: "fixture",
+          message: "Provide a value",
+          requestedSchema: { type: "object", properties: {} },
+        },
+      });
+      await Promise.resolve();
+
+      serviceInternals.setConversationRecordDetail({ ...emptyDetail });
+
+      expect(serviceInternals.pendingMcpElicitations.has("turnless-mcp-request")).toBe(true);
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord(threadId).serverRequests.map((request) => request.id),
+      )).toBe(JSON.stringify(["turnless-mcp-request"]));
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord(threadId).canonicalState?.requests.map(
+          (request) => request.id,
+        ),
+      )).toBe(JSON.stringify(["turnless-mcp-request"]));
+
+      const response = {
+        action: "decline" as const,
+        content: null,
+        _meta: null,
+      };
+      expect(await service.respondToMcpServerElicitation(
+        "turnless-mcp-request",
+        response,
+        threadId,
+      )).toBe(true);
+      expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify(response));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("fans out accepted connector auth responses across equivalent pending requests", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      pendingMcpElicitations: Map<string | number, unknown>;
+      respondToMcpServerElicitation: (
+        requestId: string | number,
+        response: CodexMcpServerElicitationResponse,
+      ) => Promise<boolean>;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        serverRequests: Array<{ id: string | number }>;
+        hasUnreadTurn: boolean;
+      };
+    };
+    serviceInternals.parseThreadRef = () => ({ projectId: defaultProjectId, cwd: null });
+
+    try {
+      serviceInternals.mergeTurn("thr_mcp_fanout", {
+        threadId: "thr_mcp_fanout",
+        turnId: "turn_mcp_fanout",
+        status: "inProgress",
+        itemIds: [],
+      });
+      const connectorMeta = {
+        _codex_apps: {
+          connector_auth_failure: {
+            is_auth_failure: true,
+            connector_id: "drive",
+            connector_name: "Drive",
+            install_url: "https://chatgpt.com/connectors/drive",
+            link_id: "link-1",
+            auth_reason: "expired",
+            requested_scopes: ["files.read", "files.write"],
+          },
+        },
+      };
+      const request = (id: string | number, elicitationId: string) =>
+        serviceInternals.handleServerRequest({
+          id,
+          method: "mcpServer/elicitation/request",
+          params: {
+            threadId: "thr_mcp_fanout",
+            turnId: "turn_mcp_fanout",
+            mode: "url",
+            serverName: "codex_apps",
+            message: "Reconnect Drive",
+            url: "https://chatgpt.com/connectors/drive/authorize",
+            elicitationId,
+            _meta: connectorMeta,
+          },
+        });
+      const firstPromise = request(91, "elicit-91");
+      const secondPromise = request("92", "elicit-92");
+      await Promise.resolve();
+
+      expect(serviceInternals.pendingMcpElicitations.has(91)).toBe(true);
+      expect(serviceInternals.pendingMcpElicitations.has("92")).toBe(true);
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord("thr_mcp_fanout").serverRequests.map((entry) => entry.id),
+      )).toBe(JSON.stringify([91, "92"]));
+      expect(JSON.stringify(
+        serviceInternals.getConversationRecord("thr_mcp_fanout").canonicalState?.requests.map(
+          (entry) => entry.id,
+        ),
+      )).toBe(JSON.stringify([91, "92"]));
+
+      const response = {
+        action: "accept" as const,
+        content: {},
+        _meta: null,
+      };
+      expect(await serviceInternals.respondToMcpServerElicitation(91, response)).toBe(true);
+      expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify(response));
+      expect(JSON.stringify(await secondPromise)).toBe(JSON.stringify(response));
+      expect(serviceInternals.pendingMcpElicitations.has(91)).toBe(false);
+      expect(serviceInternals.pendingMcpElicitations.has("92")).toBe(false);
+      expect(String(
+        serviceInternals.getConversationRecord("thr_mcp_fanout").serverRequests.length,
+      )).toBe("0");
+      const completedRecord = serviceInternals.getConversationRecord("thr_mcp_fanout");
+      const canonicalMcpItems = completedRecord.canonicalState?.turns[0]?.items.filter(
+        (item) => item.type === "mcpServerElicitation",
+      ) ?? [];
+      expect(completedRecord.canonicalState?.requests.length).toBe(0);
+      expect(completedRecord.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
+      expect(completedRecord.hasUnreadTurn).toBe(true);
+      expect(canonicalMcpItems.length).toBe(2);
+      expect(canonicalMcpItems.every((item) => item.completed && item.action === "accept")).toBe(true);
+
+      const firstItem = getRecordedItem(
+        serviceInternals,
+        "thr_mcp_fanout",
+        "turn_mcp_fanout",
+        "mcp-server-elicitation-91",
+      );
+      const secondItem = getRecordedItem(
+        serviceInternals,
+        "thr_mcp_fanout",
+        "turn_mcp_fanout",
+        "mcp-server-elicitation-92",
+      );
+      expect(firstItem?.status).toBe("completed");
+      expect(secondItem?.status).toBe("completed");
+      expect((firstItem?.rawItem as { action?: string } | undefined)?.action).toBe("accept");
+      expect((secondItem?.rawItem as { action?: string } | undefined)?.action).toBe("accept");
     } finally {
       await service.shutdown();
     }
@@ -15611,13 +26977,32 @@ describe("codex-service item lifecycle status fallback", () => {
           _meta: null,
         },
       });
+      const unknownModeResult = await serviceInternals.handleServerRequest({
+        id: "mcp_unknown_mode",
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId: "thr_mcp_invalid",
+          turnId: "turn_mcp_invalid",
+          mode: "future/form",
+          serverName: "browser",
+          message: "Unknown form mode",
+          requestedSchema: { type: "object", properties: {} },
+          _meta: null,
+        },
+      });
 
       expect(JSON.stringify(result)).toBe(JSON.stringify({
         action: "decline",
         content: null,
         _meta: null,
       }));
+      expect(JSON.stringify(unknownModeResult)).toBe(JSON.stringify({
+        action: "decline",
+        content: null,
+        _meta: null,
+      }));
       expect(serviceInternals.pendingMcpElicitations.has("mcp_invalid")).toBe(false);
+      expect(serviceInternals.pendingMcpElicitations.has("mcp_unknown_mode")).toBe(false);
       expect(String(ownerMessages.length)).toBe("0");
       expect(String(hostMessages.length)).toBe("0");
     } finally {
@@ -15653,6 +27038,15 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: [],
       });
 
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_plan_impl",
+        turnId: "turn_plan_impl",
+        item: {
+          id: "plan_text",
+          type: "plan",
+          text: "",
+        },
+      });
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thr_plan_impl",
         turnId: "turn_plan_impl",
@@ -15725,6 +27119,15 @@ describe("codex-service item lifecycle status fallback", () => {
         itemIds: [],
       });
 
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_plan_impl_no_todo",
+        turnId: "turn_plan_impl_no_todo",
+        item: {
+          id: "plan_text",
+          type: "plan",
+          text: "",
+        },
+      });
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thr_plan_impl_no_todo",
         turnId: "turn_plan_impl_no_todo",
@@ -15744,6 +27147,216 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(requests.length).toBe(1);
       expect(requests[0]?.type).toBe("implementPlan");
       expect(requests[0]?.turnId).toBe("turn_plan_impl_no_todo");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("leaves an existing plan request untouched when the last plan item is whitespace", async () => {
+    const service = createService();
+    const threadId = "thr_plan_last_whitespace";
+    const turnId = "turn_plan_last_whitespace";
+    const request = {
+      id: `implement-plan:${turnId}`,
+      method: "item/plan/requestImplementation" as const,
+      params: { threadId, turnId, planContent: "Earlier usable plan" },
+    };
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      mergeItem: (entry: CodexItemView) => void;
+      syncPlanImplementationForTurn: (threadId: string, turnId: string) => void;
+      getConversationRecord: (threadId: string) => {
+        serverRequests: Array<typeof request>;
+      };
+    };
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      turns: [],
+      transcript: [],
+    });
+    serviceInternals.mergeTurn(threadId, {
+      threadId,
+      turnId,
+      status: "completed",
+      itemIds: ["plan-earlier", `implement-plan:${turnId}`, "plan-whitespace"],
+    });
+    serviceInternals.mergeItem({
+      threadId,
+      turnId,
+      itemId: "plan-earlier",
+      type: "plan",
+      normalizedKind: "plan",
+      semanticKind: "proposedPlan",
+      markdownText: "Earlier usable plan",
+      createdAt: 10,
+      updatedAt: 10,
+    });
+    serviceInternals.mergeItem({
+      threadId,
+      turnId,
+      itemId: `implement-plan:${turnId}`,
+      type: "planImplementation",
+      normalizedKind: "planImplementation",
+      semanticKind: "planImplementation",
+      status: "inProgress",
+      markdownText: "Earlier usable plan",
+      rawItem: {
+        id: `implement-plan:${turnId}`,
+        type: "planImplementation",
+        turnId,
+        planContent: "Earlier usable plan",
+        isCompleted: false,
+      },
+      createdAt: 20,
+      updatedAt: 21,
+    });
+    serviceInternals.mergeItem({
+      threadId,
+      turnId,
+      itemId: "plan-whitespace",
+      type: "plan",
+      normalizedKind: "plan",
+      semanticKind: "proposedPlan",
+      markdownText: "  \n\t ",
+      createdAt: 30,
+      updatedAt: 30,
+    });
+    const record = serviceInternals.getConversationRecord(threadId);
+    record.serverRequests = [request];
+    const existingItem = getRecordedItem(
+      serviceInternals as unknown as {
+        getConversationRecord: (targetThreadId: string) => {
+          itemsByTurn: Map<string, Map<string, CodexItemView>>;
+        };
+      },
+      threadId,
+      turnId,
+      `implement-plan:${turnId}`,
+    );
+
+    try {
+      serviceInternals.syncPlanImplementationForTurn(threadId, turnId);
+
+      expect(record.serverRequests.length).toBe(1);
+      expect(record.serverRequests[0] === request).toBe(true);
+      const item = getRecordedItem(
+        serviceInternals as unknown as {
+          getConversationRecord: (targetThreadId: string) => {
+            itemsByTurn: Map<string, Map<string, CodexItemView>>;
+          };
+        },
+        threadId,
+        turnId,
+        `implement-plan:${turnId}`,
+      );
+      expect(item === existingItem).toBe(true);
+      expect(item?.status).toBe("inProgress");
+      expect(item?.updatedAt).toBe(21);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("replaces identical plan requests and removes orphan plans globally on turn start", async () => {
+    const service = createService();
+    const threadId = "thr_plan_exact_replacement";
+    const currentTurnId = "turn_plan_current";
+    const staleTurnId = "turn_plan_stale";
+    const orphanTurnId = "turn_plan_orphan";
+    const planRequest = (turnId: string, id: string) => ({
+      id,
+      method: "item/plan/requestImplementation" as const,
+      params: { threadId, turnId, planContent: "same plan" },
+    });
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        serverRequests: Array<{
+          id: string | number;
+          method: string;
+          params: { threadId?: string; turnId?: string; planContent?: string };
+        }>;
+        hasUnreadTurn: boolean;
+        planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
+      };
+      upsertPlanImplementationRequest: (
+        threadId: string,
+        turnId: string,
+        planContent: string,
+        itemCreatedAt: number,
+      ) => CodexPlanImplementationServerRequest;
+      completeStalePlanImplementationItems: (threadId: string, activeTurnId: string) => void;
+    };
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      turns: [
+        { threadId, turnId: staleTurnId, status: "completed", itemIds: [] },
+        { threadId, turnId: currentTurnId, status: "inProgress", itemIds: [] },
+      ],
+      transcript: [],
+    });
+    const record = serviceInternals.getConversationRecord(threadId);
+    const unrelated = {
+      id: "unrelated-option",
+      method: "item/tool/requestOptionPicker",
+      params: { threadId, turnId: currentTurnId },
+    };
+    record.serverRequests = [
+      planRequest(currentTurnId, "old-current"),
+      unrelated,
+      planRequest(staleTurnId, "stale-plan"),
+      planRequest(currentTurnId, "duplicate-current"),
+      planRequest(orphanTurnId, "orphan-plan"),
+    ];
+    record.hasUnreadTurn = false;
+    for (const turnId of [staleTurnId, orphanTurnId]) {
+      record.planImplementationRequestsByTurnId.set(turnId, {
+        type: "implementPlan",
+        requestId: `implement-plan:${turnId}`,
+        projectId: "project-1",
+        threadId,
+        turnId,
+        itemId: `implement-plan:${turnId}`,
+        planContent: "same plan",
+        createdAt: 1,
+      });
+    }
+
+    try {
+      const fresh = serviceInternals.upsertPlanImplementationRequest(
+        threadId,
+        currentTurnId,
+        "same plan",
+        2,
+      );
+      expect(record.hasUnreadTurn).toBe(true);
+      expect(JSON.stringify(record.serverRequests.map((request) => request.id))).toBe(JSON.stringify([
+        "unrelated-option",
+        "stale-plan",
+        "orphan-plan",
+        fresh.requestId,
+      ]));
+      expect(JSON.stringify(record.canonicalState?.requests.map((request) => request.id))).toBe(JSON.stringify([
+        "unrelated-option",
+        "stale-plan",
+        "orphan-plan",
+        fresh.requestId,
+      ]));
+
+      serviceInternals.completeStalePlanImplementationItems(threadId, currentTurnId);
+      expect(JSON.stringify(record.serverRequests.map((request) => request.id))).toBe(JSON.stringify([
+        "unrelated-option",
+        fresh.requestId,
+      ]));
+      expect(JSON.stringify(record.canonicalState?.requests.map((request) => request.id))).toBe(JSON.stringify([
+        "unrelated-option",
+        fresh.requestId,
+      ]));
+      expect(JSON.stringify([...record.planImplementationRequestsByTurnId.keys()])).toBe(
+        JSON.stringify([currentTurnId]),
+      );
     } finally {
       await service.shutdown();
     }
@@ -15816,9 +27429,39 @@ describe("codex-service item lifecycle status fallback", () => {
         "turn_plan_impl_remove",
       );
 
+      serviceInternals.mergeItem({
+        threadId: "thr_plan_impl_remove",
+        turnId: "turn_plan_impl_remove",
+        itemId: "custom-plan-implementation",
+        type: "planImplementation",
+        normalizedKind: "planImplementation",
+        semanticKind: "planImplementation",
+        status: "inProgress",
+        markdownText: "Custom plan projection",
+        rawItem: {
+          id: "custom-plan-implementation",
+          type: "planImplementation",
+          turnId: "turn_plan_impl_remove",
+          planContent: "Custom plan projection",
+          isCompleted: false,
+        },
+        createdAt: 31,
+        updatedAt: 32,
+      });
+
       let requests = serviceInternals.listPendingConversationRequests("thr_plan_impl_remove");
       expect(requests.length).toBe(1);
       expect(requests[0]?.type).toBe("implementPlan");
+      const pendingItem = getRecordedItem(
+        serviceInternals as unknown as {
+          getConversationRecord: (threadId: string) => {
+            itemsByTurn: Map<string, Map<string, CodexItemView>>;
+          };
+        },
+        "thr_plan_impl_remove",
+        "turn_plan_impl_remove",
+        "implement-plan:turn_plan_impl_remove",
+      );
 
       const removed = await service.removePlanImplementationRequest(
         "thr_plan_impl_remove",
@@ -15840,6 +27483,21 @@ describe("codex-service item lifecycle status fallback", () => {
         "implement-plan:turn_plan_impl_remove",
       );
       expect(item?.status).toBe("completed");
+      expect(item?.createdAt).toBe(pendingItem?.createdAt);
+      expect(item?.updatedAt).toBe(pendingItem?.updatedAt);
+      const customItem = getRecordedItem(
+        serviceInternals as unknown as {
+          getConversationRecord: (threadId: string) => {
+            itemsByTurn: Map<string, Map<string, CodexItemView>>;
+          };
+        },
+        "thr_plan_impl_remove",
+        "turn_plan_impl_remove",
+        "custom-plan-implementation",
+      );
+      expect(customItem?.status).toBe("completed");
+      expect(customItem?.createdAt).toBe(31);
+      expect(customItem?.updatedAt).toBe(32);
     } finally {
       await service.shutdown();
     }
@@ -15873,7 +27531,7 @@ describe("codex-service terminal turn reconciliation", () => {
         threadId: "thr_terminal",
         turnId: "turn_terminal",
         status: "inProgress",
-        itemIds: ["item_reasoning", "item_tool"],
+        itemIds: ["item_reasoning", "item_tool", "item_mcp"],
       });
       serviceInternals.mergeItem({
         threadId: "thr_terminal",
@@ -15905,6 +27563,32 @@ describe("codex-service terminal turn reconciliation", () => {
         createdAt: 11,
         updatedAt: 11,
       });
+      serviceInternals.mergeItem({
+        threadId: "thr_terminal",
+        turnId: "turn_terminal",
+        itemId: "item_mcp",
+        type: "mcpToolCall",
+        normalizedKind: "toolCall",
+        semanticKind: "mcpToolCall",
+        status: "inProgress",
+        mcpToolCall: {
+          callId: "item_mcp",
+          functionName: "docs__search",
+          pluginId: null,
+          mcpAppResourceUri: undefined,
+          source: null,
+          invocation: {
+            server: "docs",
+            tool: "search",
+            arguments: {},
+          },
+          result: null,
+          durationMs: null,
+          completed: false,
+        },
+        createdAt: 12,
+        updatedAt: 12,
+      });
 
       await serviceInternals.handleNotification("turn/completed", {
         threadId: "thr_terminal",
@@ -15920,6 +27604,9 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(reasoningItem?.status).toBe("completed");
       const commandItem = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_tool");
       expect(commandItem?.status).toBe("inProgress");
+      const mcpItem = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_mcp");
+      expect(mcpItem?.status).toBe("completed");
+      expect(mcpItem?.mcpToolCall?.completed).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -16025,11 +27712,10 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_streaming_delta",
         turnId: "turn_streaming_delta",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_streaming_delta",
-          type: "agentMessage",
           text: "",
-        },
+        }),
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
@@ -16055,7 +27741,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
       expect(latest).not.toBeNull();
       expect(latest?.turns.length).toBe(1);
-      expect(typeof latest?.turns[0]?.turnStartedAtMs).toBe("number");
+      expect(latest?.turns[0]?.turnStartedAtMs ?? null).toBe(null);
       expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
       expect(latest?.turns[0]?.items.length).toBe(1);
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe("hello");
@@ -16071,6 +27757,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -16093,22 +27780,43 @@ describe("codex-service terminal turn reconciliation", () => {
         ],
         transcript: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_agent_message_completed",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_agent_message_completed"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
 
       try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_agent_message_completed",
+          turnId: "turn_agent_message_completed",
+          item: makeProtocolAgentMessage({
+            id: "assistant_agent_message_completed",
+            text: "",
+          }),
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_agent_message_completed",
           turnId: "turn_agent_message_completed",
-          item: {
+          item: makeProtocolAgentMessage({
             id: "assistant_agent_message_completed",
-            type: "agentMessage",
             text: "Done",
-          },
+          }),
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();
         expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Done");
-        expect(typeof latest?.turns[0]?.turnStartedAtMs).toBe("number");
+        expect(latest?.turns[0]?.turnStartedAtMs ?? null).toBe(null);
         expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
       } finally {
         await service.shutdown();
@@ -16205,11 +27913,10 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_streaming_delta_hot_path",
         turnId: "turn_streaming_delta_hot_path",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_streaming_delta_hot_path",
-          type: "agentMessage",
           text: "",
-        },
+        }),
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
@@ -16246,7 +27953,7 @@ describe("codex-service terminal turn reconciliation", () => {
     }
   });
 
-  test("splits large assistant deltas across frame-sized thread stream patches", async () => {
+  test("flushes the full main-fallback assistant delta in one timeout batch", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
@@ -16276,11 +27983,10 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_streaming_large_delta",
         turnId: "turn_streaming_large_delta",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_large_delta",
-          type: "agentMessage",
           text: "",
-        },
+        }),
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
@@ -16292,11 +27998,11 @@ describe("codex-service terminal turn reconciliation", () => {
         itemId: "assistant_large_delta",
         delta: largeDelta,
       });
-      await waitForCondition(() => hostMessages.length >= 3, 180);
+      await waitForCondition(() => hostMessages.length > 0, 180);
 
-      expect(hostMessages.length > 1).toBe(true);
-      const firstFrame = projectConversationFromHostMessages([hostMessages[0]!], baseConversation);
-      expect(firstFrame?.turns[0]?.items[0]?.markdownText?.length ?? -1).toBe(24);
+      expect(hostMessages.length).toBe(1);
+      const firstFlush = projectConversationFromHostMessages([hostMessages[0]!], baseConversation);
+      expect(firstFlush?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
 
       const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
@@ -16357,11 +28063,10 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_streaming_completion_drain",
         turnId: "turn_streaming_completion_drain",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_completion_drain",
-          type: "agentMessage",
           text: "",
-        },
+        }),
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
@@ -16376,32 +28081,21 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thr_streaming_completion_drain",
         turnId: "turn_streaming_completion_drain",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_completion_drain",
-          type: "agentMessage",
           text: largeDelta,
-        },
+        }),
       });
 
-      let completedMessageIndex = -1;
-      let conversation = baseConversation;
-      for (let index = 0; index < hostMessages.length; index += 1) {
-        conversation = projectConversationFromHostMessages([hostMessages[index]!], conversation);
-        if (conversation?.turns[0]?.items[0]?.status === "completed") {
-          completedMessageIndex = index;
-          break;
-        }
-      }
-
-      expect(completedMessageIndex > 0).toBe(true);
+      expect(hostMessages.length > 1).toBe(true);
       const beforeCompleted = projectConversationFromHostMessages(
-        hostMessages.slice(0, completedMessageIndex),
+        hostMessages.slice(0, -1),
         baseConversation,
       );
       expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
       expect(beforeCompleted?.turns[0]?.items[0]?.status).toBe("inProgress");
       const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
-      expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(latest?.turns[0]?.items[0]?.status).toBe("inProgress");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
       expect(requestAnimationFrameCalled).toBe(false);
     } finally {
@@ -16454,11 +28148,10 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_streaming_short_completion_drain",
         turnId: "turn_streaming_short_completion_drain",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_short_completion_drain",
-          type: "agentMessage",
           text: "",
-        },
+        }),
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
@@ -16473,36 +28166,21 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thr_streaming_short_completion_drain",
         turnId: "turn_streaming_short_completion_drain",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_short_completion_drain",
-          type: "agentMessage",
           text: delta,
-        },
+        }),
       });
-      await waitForCondition(() => {
-        const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
-        return latest?.turns[0]?.items[0]?.status === "completed";
-      }, 240);
+      await waitForCondition(() => hostMessages.length > 1, 240);
 
-      let completedMessageIndex = -1;
-      let conversation = baseConversation;
-      for (let index = 0; index < hostMessages.length; index += 1) {
-        conversation = projectConversationFromHostMessages([hostMessages[index]!], conversation);
-        if (conversation?.turns[0]?.items[0]?.status === "completed") {
-          completedMessageIndex = index;
-          break;
-        }
-      }
-
-      expect(completedMessageIndex > 0).toBe(true);
       const beforeCompleted = projectConversationFromHostMessages(
-        hostMessages.slice(0, completedMessageIndex),
+        hostMessages.slice(0, -1),
         baseConversation,
       );
       expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(delta);
       expect(beforeCompleted?.turns[0]?.items[0]?.status).toBe("inProgress");
       const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
-      expect(latest?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(latest?.turns[0]?.items[0]?.status).toBe("inProgress");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(delta);
     } finally {
       await service.shutdown();
@@ -16541,11 +28219,10 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_streaming_turn_completion_drain",
         turnId: "turn_streaming_turn_completion_drain",
-        item: {
+        item: makeProtocolAgentMessage({
           id: "assistant_turn_completion_drain",
-          type: "agentMessage",
           text: "",
-        },
+        }),
       });
       const baseConversation = projectConversationFromHostMessages(hostMessages);
       expect(baseConversation).not.toBeNull();
@@ -16626,13 +28303,11 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_streaming_output",
         turnId: "turn_streaming_output",
-        item: {
+        item: makeProtocolCommandExecution({
           id: "exec_streaming_output",
-          type: "commandExecution",
           command: "bun test",
           cwd: "/tmp",
-          status: "in_progress",
-        },
+        }),
       });
       await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
         threadId: "thr_streaming_output",
@@ -16665,8 +28340,7 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(snapshot?.turns[0]?.items.length).toBe(1);
       expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
       expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
-      expect(typeof snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
-      expect(snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
+      expect(snapshot?.turns[0]?.items[0]?.toolCall).toBeUndefined();
     } finally {
       await service.shutdown();
     }
@@ -16713,13 +28387,11 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_owner_streaming_output",
         turnId: "turn_owner_streaming_output",
-        item: {
+        item: makeProtocolCommandExecution({
           id: "exec_owner_streaming_output",
-          type: "commandExecution",
           command: "bun test",
           cwd: "/tmp",
-          status: "in_progress",
-        },
+        }),
       });
       await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
         threadId: "thr_owner_streaming_output",
@@ -16744,6 +28416,61 @@ describe("codex-service terminal turn reconciliation", () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
       const snapshot = await service.requestConversationSnapshot("thr_owner_streaming_output");
       expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("owner output\n");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("advances canonical command output when the derived detail projection is unavailable", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      applyOutputDeltas: (updates: readonly CodexCommandOutputUpdate[]) => void;
+      getMaybeConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        detail: CodexThreadDetail | null;
+      } | null;
+    };
+    const threadId = "thr_output_without_detail";
+    const turnId = "turn_output_without_detail";
+    const itemId = "exec_output_without_detail";
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        turns: [{
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      await serviceInternals.handleNotification("item/started", {
+        threadId,
+        turnId,
+        item: makeProtocolCommandExecution({
+          id: itemId,
+          command: "pnpm test",
+          cwd: "/tmp",
+        }),
+      });
+
+      const record = serviceInternals.getMaybeConversationRecord(threadId);
+      if (record) record.detail = null;
+      serviceInternals.applyOutputDeltas([{
+        conversationId: threadId,
+        turnId,
+        itemId,
+        delta: "canonical output\n",
+      }]);
+
+      const canonicalCommand = record?.canonicalState?.turns[0]?.items[0];
+      expect(canonicalCommand?.type).toBe("commandExecution");
+      if (canonicalCommand?.type === "commandExecution") {
+        expect(canonicalCommand.aggregatedOutput).toBe("canonical output\n");
+      }
     } finally {
       await service.shutdown();
     }
@@ -16790,15 +28517,12 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_owner_terminal_interaction",
         turnId: "turn_owner_terminal_interaction",
-        item: {
+        item: makeProtocolCommandExecution({
           id: "exec_owner_terminal_interaction",
-          type: "commandExecution",
           command: "python",
           cwd: "/tmp",
           processId: "proc-1",
-          status: "in_progress",
-          commandActions: [],
-        },
+        }),
       });
       const streamMessagesBeforeTerminal = hostMessages.length;
       await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
@@ -16825,14 +28549,100 @@ describe("codex-service terminal turn reconciliation", () => {
       const snapshot = await service.requestConversationSnapshot("thr_owner_terminal_interaction");
       const item = snapshot?.turns[0]?.items[0];
       const commandAction = item?.commandActions?.[0];
-      const toolCallArgs = item?.toolCall?.args as { commandActions?: Array<{ command?: string }> } | undefined;
 
       expect(String(terminalOwnerMessages.length)).toBe("2");
       expect(terminalOwnerMessages[0]?.targetClientId).toBe("owner-a");
       expect(terminalOwnerMessages[1]?.targetClientId).toBe("owner-a");
       expect(commandAction?.type).toBe("unknown");
       expect(commandAction?.command).toBe("bun test");
-      expect(toolCallArgs?.commandActions?.[0]?.command).toBe("bun test");
+      expect(item?.toolCall).toBeUndefined();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("advances canonical terminal commands when the derived detail projection is unavailable", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      applyTerminalInteraction: (input: {
+        threadId: string;
+        turnId: string | null;
+        itemId: string;
+        stdin: string;
+      }) => void;
+      getMaybeConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        detail: CodexThreadDetail | null;
+      } | null;
+    };
+    const threadId = "thr_terminal_without_detail";
+    const turnId = "turn_terminal_without_detail";
+    const itemId = "exec_terminal_without_detail";
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        turns: [{
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      await serviceInternals.handleNotification("item/started", {
+        threadId,
+        turnId,
+        item: makeProtocolCommandExecution({
+          id: itemId,
+          command: "python",
+          cwd: "/tmp",
+        }),
+      });
+
+      const record = serviceInternals.getMaybeConversationRecord(threadId);
+      if (record) record.detail = null;
+      serviceInternals.applyTerminalInteraction({
+        threadId,
+        turnId,
+        itemId,
+        stdin: "pnpm test\n",
+      });
+
+      const canonicalCommand = record?.canonicalState?.turns[0]?.items[0];
+      expect(canonicalCommand?.type).toBe("commandExecution");
+      if (canonicalCommand?.type === "commandExecution") {
+        expect(canonicalCommand.commandActions[0]?.type).toBe("unknown");
+        expect(canonicalCommand.commandActions[0]?.command).toBe("pnpm test");
+      }
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("retains incomplete terminal input across per-thread teardown", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      forgetThreadLocalState: (threadId: string) => void;
+      terminalInputBuffers: Map<string, string>;
+    };
+
+    try {
+      await serviceInternals.handleNotification("item/commandExecution/terminalInteraction", {
+        threadId: "thr_terminal_buffer_lifetime",
+        turnId: "turn_terminal_buffer_lifetime",
+        itemId: "exec_terminal_buffer_lifetime",
+        processId: "proc-terminal-buffer",
+        stdin: "bun tes",
+      });
+
+      const key = "thr_terminal_buffer_lifetime:exec_terminal_buffer_lifetime";
+      expect(serviceInternals.terminalInputBuffers.get(key)).toBe("bun tes");
+      serviceInternals.forgetThreadLocalState("thr_terminal_buffer_lifetime");
+      expect(serviceInternals.terminalInputBuffers.get(key)).toBe("bun tes");
     } finally {
       await service.shutdown();
     }
@@ -16860,16 +28670,21 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thr_completed_work_stamp",
         turnId: "turn_completed_work_stamp",
-        item: {
+        completedAtMs: 1_000,
+        item: makeProtocolCommandExecution({
           id: "exec_completed",
-          type: "commandExecution",
           command: "bun test",
           status: "completed",
-        },
+          durationMs: 50,
+        }),
       });
 
       let snapshot = service.serializeConversationSnapshot("thr_completed_work_stamp");
       expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
+      expect(snapshot?.turns[0]?.items.length).toBe(0);
+      expect(
+        snapshot?.turns[0]?.commandExecutionStartedAtMsById?.exec_completed,
+      ).toBe(950);
 
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_existing_work_stamp"),
@@ -16886,12 +28701,11 @@ describe("codex-service terminal turn reconciliation", () => {
       await serviceInternals.handleNotification("item/completed", {
         threadId: "thr_existing_work_stamp",
         turnId: "turn_existing_work_stamp",
-        item: {
+        item: makeProtocolCommandExecution({
           id: "exec_existing",
-          type: "commandExecution",
           command: "bun test",
           status: "completed",
-        },
+        }),
       });
 
       snapshot = service.serializeConversationSnapshot("thr_existing_work_stamp");
@@ -16901,7 +28715,253 @@ describe("codex-service terminal turn reconciliation", () => {
     }
   });
 
-  test("item/completed flushes pending command output into the canonical snapshot", async () => {
+  test("keeps hidden review-mode lifecycle identities without projecting transcript rows", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+      };
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_hidden_review_lifecycle"),
+        turns: [{
+          threadId: "thr_hidden_review_lifecycle",
+          turnId: "turn_hidden_review_lifecycle",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_hidden_review_lifecycle",
+        turnId: "turn_hidden_review_lifecycle",
+        startedAtMs: 100,
+        item: {
+          id: "review-mode-marker",
+          type: "enteredReviewMode",
+          review: "Review the current changes",
+        },
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_hidden_review_lifecycle",
+        turnId: "turn_hidden_review_lifecycle",
+        completedAtMs: 120,
+        item: {
+          id: "review-mode-marker",
+          type: "enteredReviewMode",
+          review: "Review the current changes",
+        },
+      });
+
+      const snapshot = service.serializeConversationSnapshot("thr_hidden_review_lifecycle");
+      const canonicalItem = serviceInternals.getConversationRecord("thr_hidden_review_lifecycle")
+        .canonicalState?.turns[0]?.items.find((item) => item.id === "review-mode-marker");
+      expect(snapshot?.turns[0]?.items.length ?? -1).toBe(0);
+      expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
+      expect(canonicalItem?.type).toBe("enteredReviewMode");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("round-trips a visible item through a hidden same-ID slot without reordering", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+      };
+    };
+    const buildCommand = (id: string, status: "inProgress" | "completed" = "inProgress") => ({
+      id,
+      type: "commandExecution",
+      command: `printf ${id}`,
+      cwd: "/tmp",
+      processId: null,
+      source: "agent",
+      status,
+      commandActions: [],
+      aggregatedOutput: status === "completed" ? `${id}\n` : null,
+      exitCode: status === "completed" ? 0 : null,
+      durationMs: status === "completed" ? 10 : null,
+    });
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_hidden_visible_roundtrip"),
+        turns: [{
+          threadId: "thr_hidden_visible_roundtrip",
+          turnId: "turn_hidden_visible_roundtrip",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      for (const itemId of ["before", "target", "after"]) {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_hidden_visible_roundtrip",
+          turnId: "turn_hidden_visible_roundtrip",
+          startedAtMs: 100,
+          item: buildCommand(itemId),
+        });
+      }
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_hidden_visible_roundtrip",
+        turnId: "turn_hidden_visible_roundtrip",
+        startedAtMs: 110,
+        item: {
+          id: "target",
+          type: "enteredReviewMode",
+          review: "Review target",
+        },
+      });
+      let snapshot = service.serializeConversationSnapshot("thr_hidden_visible_roundtrip");
+      expect(JSON.stringify(snapshot?.turns[0]?.itemIds)).toBe(
+        JSON.stringify(["before", "target", "after"]),
+      );
+      expect(JSON.stringify(snapshot?.turns[0]?.items.map((item) => item.itemId))).toBe(
+        JSON.stringify(["before", "after"]),
+      );
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_hidden_visible_roundtrip",
+        turnId: "turn_hidden_visible_roundtrip",
+        startedAtMs: 120,
+        item: buildCommand("target"),
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_hidden_visible_roundtrip",
+        turnId: "turn_hidden_visible_roundtrip",
+        completedAtMs: 130,
+        item: buildCommand("target", "completed"),
+      });
+
+      snapshot = service.serializeConversationSnapshot("thr_hidden_visible_roundtrip");
+      expect(JSON.stringify(snapshot?.turns[0]?.items.map((item) => item.itemId))).toBe(
+        JSON.stringify(["before", "target", "after"]),
+      );
+      expect(snapshot?.turns[0]?.items[1]?.status).toBe("completed");
+      expect(serviceInternals.getConversationRecord("thr_hidden_visible_roundtrip")
+        .canonicalState?.turns[0]?.items[1]?.type).toBe("commandExecution");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("patchUpdated replaces a hidden lifecycle identity and admits file completion", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      getConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+      };
+    };
+    const buildCommand = (id: string) => ({
+      id,
+      type: "commandExecution",
+      command: `printf ${id}`,
+      cwd: "/tmp",
+      processId: null,
+      source: "agent",
+      status: "inProgress",
+      commandActions: [],
+      aggregatedOutput: null,
+      exitCode: null,
+      durationMs: null,
+    });
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_hidden_patch_replacement"),
+        turns: [{
+          threadId: "thr_hidden_patch_replacement",
+          turnId: "turn_hidden_patch_replacement",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      for (const itemId of ["before", "target", "after"]) {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_hidden_patch_replacement",
+          turnId: "turn_hidden_patch_replacement",
+          startedAtMs: 100,
+          item: buildCommand(itemId),
+        });
+      }
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_hidden_patch_replacement",
+        turnId: "turn_hidden_patch_replacement",
+        startedAtMs: 110,
+        item: {
+          id: "target",
+          type: "enteredReviewMode",
+          review: "Review target",
+        },
+      });
+
+      const liveChanges: never[] = [];
+      await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+        threadId: "thr_hidden_patch_replacement",
+        turnId: "turn_hidden_patch_replacement",
+        itemId: "target",
+        changes: liveChanges,
+      });
+
+      let snapshot = service.serializeConversationSnapshot("thr_hidden_patch_replacement");
+      let target = snapshot?.turns[0]?.items[1];
+      const targetRaw = target?.rawItem as {
+        type?: string;
+        changes?: unknown;
+      } | undefined;
+      expect(snapshot?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
+        "before,after",
+      );
+      expect(target?.itemId).toBe("after");
+      expect(targetRaw?.type).toBe("commandExecution");
+      expect(serviceInternals.getConversationRecord("thr_hidden_patch_replacement")
+        .canonicalState?.turns[0]?.items[1]?.type).toBe("fileChange");
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_hidden_patch_replacement",
+        turnId: "turn_hidden_patch_replacement",
+        completedAtMs: 150,
+        item: {
+          id: "target",
+          type: "fileChange",
+          status: "completed",
+          changes: [{
+            path: "src/final.ts",
+            kind: { type: "add" },
+            diff: "",
+          }],
+        },
+      });
+
+      snapshot = service.serializeConversationSnapshot("thr_hidden_patch_replacement");
+      target = snapshot?.turns[0]?.items[1];
+      expect(snapshot?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
+        "before,target,after",
+      );
+      expect(target?.kind).toBe("fileChange");
+      expect(target?.status).toBe("completed");
+      expect(getCodexFileChangePaths(target?.fileChange?.changes).join(",")).toBe(
+        "src/final.ts",
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("rejects a hidden mismatched completion without removing the visible same-ID row", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
@@ -16910,47 +28970,292 @@ describe("codex-service terminal turn reconciliation", () => {
 
     try {
       serviceInternals.setConversationRecordDetail({
-        ...makeThreadDetail("thr_completed_output_flush"),
+        ...makeThreadDetail("thr_hidden_completion_mismatch"),
         turns: [{
-          threadId: "thr_completed_output_flush",
-          turnId: "turn_completed_output_flush",
+          threadId: "thr_hidden_completion_mismatch",
+          turnId: "turn_hidden_completion_mismatch",
           status: "inProgress",
-          itemIds: ["exec_completed_output_flush"],
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_hidden_completion_mismatch",
+        turnId: "turn_hidden_completion_mismatch",
+        startedAtMs: 100,
+        item: {
+          id: "shared-id",
+          type: "commandExecution",
+          command: "pwd",
+          cwd: "/tmp",
+          processId: null,
+          source: "agent",
+          status: "inProgress",
+          commandActions: [],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_hidden_completion_mismatch",
+        turnId: "turn_hidden_completion_mismatch",
+        completedAtMs: 110,
+        item: {
+          id: "shared-id",
+          type: "exitedReviewMode",
+          review: "Mismatched hidden completion",
+        },
+      });
+
+      const item = service.serializeConversationSnapshot("thr_hidden_completion_mismatch")
+        ?.turns[0]?.items[0];
+      expect(item?.itemId).toBe("shared-id");
+      expect((item?.rawItem as { type?: string } | undefined)?.type).toBe("commandExecution");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("persistently rebinds an actually empty completed null-ID placeholder before dropping a missing-item delta", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const threadId = "thr_empty_null_placeholder_delta";
+    const reboundTurnId = "turn_claiming_empty_placeholder";
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        turns: [{
+          threadId,
+          turnId: null as unknown as string,
+          status: "completed",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId,
+        turnId: reboundTurnId,
+        itemId: "assistant-not-started",
+        delta: "missing target still claims the empty placeholder",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      let snapshot = service.serializeConversationSnapshot(threadId);
+      expect(snapshot?.turns.length ?? -1).toBe(1);
+      expect(snapshot?.turns[0]?.turnId).toBe(reboundTurnId);
+      expect(snapshot?.turns[0]?.status).toBe("inProgress");
+      expect(snapshot?.turns[0]?.items.length ?? -1).toBe(0);
+
+      await serviceInternals.handleNotification("item/agentMessage/delta", {
+        threadId,
+        turnId: "turn_must_not_replace_persistent_rebind",
+        itemId: "another-assistant-not-started",
+        delta: "still missing",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      snapshot = service.serializeConversationSnapshot(threadId);
+      expect(snapshot?.turns.length ?? -1).toBe(1);
+      expect(snapshot?.turns[0]?.turnId).toBe(reboundTurnId);
+      expect(snapshot?.turns[0]?.status).toBe("inProgress");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("uses canonical raw evidence, not legacy view mirrors, to decide null-ID rebinding", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      conversationRecords: Map<string, {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      }>;
+    };
+    const recordThreadId = "thr_visible_record_null_placeholder";
+    const transcriptThreadId = "thr_visible_transcript_null_placeholder";
+    const nullTurnId = null as unknown as string;
+    const makeVisibleItem = (threadId: string, itemId: string): CodexItemView => ({
+      threadId,
+      turnId: nullTurnId,
+      itemId,
+      type: "agentMessage",
+      normalizedKind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      markdownText: "Already present",
+      rawItem: {
+        id: itemId,
+        type: "agentMessage",
+        text: "Already present",
+        phase: null,
+        memoryCitation: null,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(recordThreadId),
+        turns: [{
+          threadId: recordThreadId,
+          turnId: nullTurnId,
+          status: "completed",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      const recordItem = makeVisibleItem(recordThreadId, "assistant-recorded-outside-order");
+      serviceInternals.conversationRecords.get(recordThreadId)?.itemsByTurn.set(
+        nullTurnId,
+        new Map([[recordItem.itemId, recordItem]]),
+      );
+
+      const transcriptItem = makeVisibleItem(
+        transcriptThreadId,
+        "assistant-transcript-outside-order",
+      );
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(transcriptThreadId),
+        turns: [{
+          threadId: transcriptThreadId,
+          turnId: nullTurnId,
+          status: "completed",
+          itemIds: [],
+        }],
+        transcript: [{
+          ...transcriptItem,
+          kind: "assistantMessage",
+        }],
+      });
+
+      for (const threadId of [recordThreadId, transcriptThreadId]) {
+        await serviceInternals.handleNotification("item/agentMessage/delta", {
+          threadId,
+          turnId: `turn_after_${threadId}`,
+          itemId: "assistant-not-started",
+          delta: "must not claim the placeholder",
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      const recordSnapshot = service.serializeConversationSnapshot(recordThreadId);
+      expect(recordSnapshot?.turns.length ?? -1).toBe(1);
+      expect(recordSnapshot?.turns[0]?.turnId).toBe(`turn_after_${recordThreadId}`);
+      expect(recordSnapshot?.turns[0]?.status).toBe("inProgress");
+
+      const transcriptSnapshot = service.serializeConversationSnapshot(transcriptThreadId);
+      expect(transcriptSnapshot?.turns.length ?? -1).toBe(1);
+      expect(
+        (transcriptSnapshot?.turns[0] as { turnId: string | null } | undefined)?.turnId
+          ?? null,
+      ).toBe(null);
+      expect(transcriptSnapshot?.turns[0]?.status).toBe("completed");
+      expect(
+        serviceInternals.conversationRecords.get(recordThreadId)?.itemsByTurn.get(nullTurnId)?.size
+          ?? 0,
+      ).toBe(0);
+      expect(service.serializeThreadDetail(transcriptThreadId)?.transcript[0]?.itemId).toBe(
+        transcriptItem.itemId,
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("ignores item starts for unknown conversations without creating records", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      conversationRecords: Map<string, unknown>;
+    };
+
+    try {
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_unknown_item_lifecycle",
+        turnId: "turn_unknown_item_lifecycle",
+        startedAtMs: 100,
+        item: {
+          id: "unknown-command",
+          type: "commandExecution",
+          command: "pwd",
+          cwd: "/tmp",
+          processId: null,
+          source: "agent",
+          status: "inProgress",
+          commandActions: [],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      });
+
+      expect(serviceInternals.conversationRecords.has("thr_unknown_item_lifecycle")).toBe(false);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("item/completed leaves pending command output on its independent timer", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_completed_output_timer"),
+        turns: [{
+          threadId: "thr_completed_output_timer",
+          turnId: "turn_completed_output_timer",
+          status: "inProgress",
+          itemIds: ["exec_completed_output_timer"],
         }],
         transcript: [],
       });
 
       await serviceInternals.handleNotification("item/started", {
-        threadId: "thr_completed_output_flush",
-        turnId: "turn_completed_output_flush",
-        item: {
-          id: "exec_completed_output_flush",
-          type: "commandExecution",
+        threadId: "thr_completed_output_timer",
+        turnId: "turn_completed_output_timer",
+        item: makeProtocolCommandExecution({
+          id: "exec_completed_output_timer",
           command: "bun test",
-          status: "in_progress",
-        },
+          aggregatedOutput: null,
+        }),
       });
       await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
-        threadId: "thr_completed_output_flush",
-        turnId: "turn_completed_output_flush",
-        itemId: "exec_completed_output_flush",
-        delta: "1340 pass\n",
+        threadId: "thr_completed_output_timer",
+        turnId: "turn_completed_output_timer",
+        itemId: "exec_completed_output_timer",
+        delta: "provisional output\n",
       });
       await serviceInternals.handleNotification("item/completed", {
-        threadId: "thr_completed_output_flush",
-        turnId: "turn_completed_output_flush",
-        item: {
-          id: "exec_completed_output_flush",
-          type: "commandExecution",
+        threadId: "thr_completed_output_timer",
+        turnId: "turn_completed_output_timer",
+        item: makeProtocolCommandExecution({
+          id: "exec_completed_output_timer",
           command: "bun test",
           status: "completed",
-        },
+          aggregatedOutput: null,
+        }),
       });
 
-      const snapshot = service.serializeConversationSnapshot("thr_completed_output_flush");
-      const item = snapshot?.turns[0]?.items[0];
-      expect(item?.status).toBe("completed");
-      expect(item?.aggregatedOutput).toBe("1340 pass\n");
+      const beforeTimer = service.serializeConversationSnapshot("thr_completed_output_timer");
+      expect(beforeTimer?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(beforeTimer?.turns[0]?.items[0]?.aggregatedOutput).toBe(null);
+
+      await new Promise((resolve) => setTimeout(resolve, 70));
+      const afterTimer = service.serializeConversationSnapshot("thr_completed_output_timer");
+      expect(afterTimer?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(afterTimer?.turns[0]?.items[0]?.aggregatedOutput).toBe("provisional output\n");
     } finally {
       await service.shutdown();
     }
@@ -16994,13 +29299,11 @@ describe("codex-service terminal turn reconciliation", () => {
         await serviceInternals.handleNotification("item/started", {
           threadId: "thr_streaming_output_hot_path",
           turnId: "turn_streaming_output_hot_path",
-          item: {
+          item: makeProtocolCommandExecution({
             id: "exec_streaming_output_hot_path",
-            type: "commandExecution",
             command: "bun test",
             cwd: "/tmp",
-            status: "in_progress",
-          },
+          }),
         });
         await service.requestConversationSnapshot("thr_streaming_output_hot_path");
         threadMessages.length = 0;
@@ -17159,13 +29462,11 @@ describe("codex-service terminal turn reconciliation", () => {
         await serviceInternals.handleNotification("item/started", {
           threadId: "thr_streaming_output_truncated",
           turnId: "turn_streaming_output_truncated",
-          item: {
+          item: makeProtocolCommandExecution({
             id: "exec_streaming_output_truncated",
-            type: "commandExecution",
             command: "bun test",
             cwd: "/tmp",
-            status: "in_progress",
-          },
+          }),
         });
         await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
           threadId: "thr_streaming_output_truncated",
@@ -17219,14 +29520,12 @@ describe("codex-service terminal turn reconciliation", () => {
         await serviceInternals.handleNotification("item/started", {
           threadId: "thr_background_long_running",
           turnId: "turn_old_running",
-          item: {
+          item: makeProtocolCommandExecution({
             id: "exec_long_running",
-            type: "commandExecution",
             command: "bun run dev",
             cwd: "/tmp/project",
             processId: "7001",
-            status: "in_progress",
-          },
+          }),
         });
 
         await serviceInternals.handleNotification("turn/completed", {
@@ -17489,6 +29788,8 @@ describe("codex-service terminal turn reconciliation", () => {
           threadId: "thr_patch_updated_create",
           turnId: "turn_patch_updated_create",
           status: "inProgress",
+          turnStartedAtMs: null,
+          firstTurnWorkItemStartedAtMs: 12_345,
           itemIds: [],
         }],
         transcript: [],
@@ -17501,13 +29802,14 @@ describe("codex-service terminal turn reconciliation", () => {
           itemId: "patch_live",
           changes: [{
             path: "src/app.ts",
-            kind: { type: "update" },
+            kind: { type: "update", move_path: null },
             diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
           }],
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
-        expect(typeof latest?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
+        expect(latest?.turns[0]?.turnStartedAtMs ?? null).toBe(null);
+        expect(latest?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe(12_345);
         const item = latest?.turns[0]?.items[0] ?? null;
         expect(item?.itemId ?? "").toBe("patch_live");
         expect(item?.status ?? "").toBe("inProgress");
@@ -17521,7 +29823,7 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("patchUpdated with an empty add diff still creates a visible live fileChange row", async () => {
+  test("patchUpdated with an empty changes array retains only the canonical hidden owner", async () => {
     const ran = await withTempDatabase(async () => {
 
       const service = createService();
@@ -17551,20 +29853,13 @@ describe("codex-service terminal turn reconciliation", () => {
           threadId: "thr_patch_updated_empty_add",
           turnId: "turn_patch_updated_empty_add",
           itemId: "patch_live",
-          changes: [{
-            path: "poem.md",
-            kind: { type: "add" },
-            diff: "",
-          }],
+          changes: [],
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
         const item = latest?.turns[0]?.items[0] ?? null;
-        expect(item?.itemId ?? "").toBe("patch_live");
-        expect(item?.status ?? "").toBe("inProgress");
-        expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
-        expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("poem.md");
-        expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? "").toBe("add");
+        expect(item).toBeNull();
+        expect(latest?.turns[0]?.itemIds.join(",")).toBe("patch_live");
       } finally {
         await service.shutdown();
       }
@@ -17605,7 +29900,7 @@ describe("codex-service terminal turn reconciliation", () => {
           itemId: "patch_live",
           changes: [{
             path: "src/old.ts",
-            kind: { type: "update" },
+            kind: { type: "update", move_path: null },
             diff: "--- a/src/old.ts\n+++ b/src/old.ts\n@@ -1 +1 @@\n-old\n+new",
           }],
         });
@@ -17615,7 +29910,7 @@ describe("codex-service terminal turn reconciliation", () => {
           itemId: "patch_live",
           changes: [{
             path: "src/new.ts",
-            kind: { type: "update" },
+            kind: { type: "update", move_path: null },
             diff: "--- a/src/new.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-before\n+after",
           }],
         });
@@ -17626,6 +29921,164 @@ describe("codex-service terminal turn reconciliation", () => {
         const latestChange = getCodexFileChangeList(items[0]?.fileChange?.changes)[0];
         expect(getCodexFileChangePaths(items[0]?.fileChange?.changes).join(",")).toBe("src/new.ts");
         expect(latestChange?.type === "update" ? latestChange.unifiedDiff.includes("after") : false).toBe(true);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("patchUpdated preserves terminal raw fields when the empty patch becomes hidden", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+        getConversationRecord: (threadId: string) => {
+          canonicalState: CodexCanonicalConversationState | null;
+        };
+      };
+
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_patch_updated_terminal",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_patch_updated_terminal"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_patch_updated_terminal"),
+        turns: [{
+          threadId: "thr_patch_updated_terminal",
+          turnId: "turn_patch_updated_terminal",
+          status: "inProgress",
+          turnStartedAtMs: 2_001,
+          firstTurnWorkItemStartedAtMs: 2_002,
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_patch_updated_terminal",
+          turnId: "turn_patch_updated_terminal",
+          item: {
+            id: "patch_terminal",
+            type: "fileChange",
+            status: "inProgress",
+            extensionSentinel: { retained: true },
+            changes: [{
+              path: "src/before.ts",
+              kind: { type: "update", move_path: null },
+              diff: "--- a/src/before.ts\n+++ b/src/before.ts\n@@ -1 +1 @@\n-old\n+before",
+            }],
+          },
+        });
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_patch_updated_terminal",
+          turnId: "turn_patch_updated_terminal",
+          item: {
+            id: "patch_terminal",
+            type: "fileChange",
+            status: "declined",
+            extensionSentinel: { retained: true },
+            changes: [{
+              path: "src/before.ts",
+              kind: { type: "update", move_path: null },
+              diff: "--- a/src/before.ts\n+++ b/src/before.ts\n@@ -1 +1 @@\n-old\n+before",
+            }],
+          },
+        });
+        const before = getRecordedItem(
+          service,
+          "thr_patch_updated_terminal",
+          "turn_patch_updated_terminal",
+          "patch_terminal",
+        );
+        const beforeRaw = before?.rawItem as {
+          status?: string;
+          extensionSentinel?: { retained?: boolean };
+          changes?: unknown[];
+        } | undefined;
+
+        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+          threadId: "thr_patch_updated_terminal",
+          turnId: "turn_patch_updated_terminal",
+          itemId: "patch_terminal",
+          changes: [],
+        });
+
+        const after = getRecordedItem(
+          service,
+          "thr_patch_updated_terminal",
+          "turn_patch_updated_terminal",
+          "patch_terminal",
+        );
+        const afterRaw = serviceInternals.getConversationRecord("thr_patch_updated_terminal")
+          .canonicalState?.turns[0]?.items[0] as typeof beforeRaw;
+        const snapshot = await service.requestConversationSnapshot("thr_patch_updated_terminal");
+
+        expect(beforeRaw?.changes?.length ?? 0).toBe(1);
+        expect(afterRaw?.changes?.length ?? -1).toBe(0);
+        expect(afterRaw?.status ?? "").toBe("declined");
+        expect(afterRaw?.extensionSentinel?.retained === true).toBe(true);
+        expect(after).toBeNull();
+        expect(snapshot?.turns[0]?.turnStartedAtMs ?? -1).toBe(2_001);
+        expect(snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs ?? -1).toBe(2_002);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("patchUpdated drops an ordinary missing turn without synthesizing state", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_patch_updated_missing_turn"),
+        turns: [{
+          threadId: "thr_patch_updated_missing_turn",
+          turnId: "turn_existing",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+          threadId: "thr_patch_updated_missing_turn",
+          turnId: "turn_missing",
+          itemId: "patch_missing",
+          changes: [],
+        });
+
+        const snapshot = service.serializeConversationSnapshot("thr_patch_updated_missing_turn");
+        expect(hostMessages.length).toBe(0);
+        expect(snapshot?.turns.length ?? 0).toBe(1);
+        expect(snapshot?.turns[0]?.turnId ?? "").toBe("turn_existing");
+        expect(snapshot?.turns[0]?.items.length ?? 0).toBe(0);
       } finally {
         await service.shutdown();
       }
@@ -17653,20 +30106,29 @@ describe("codex-service terminal turn reconciliation", () => {
         ...makeThreadDetail("thr_patch_updated_rebind"),
         turns: [{
           threadId: "thr_patch_updated_rebind",
-          turnId: "turn_placeholder",
+          turnId: null as unknown as string,
           status: "inProgress",
           itemIds: ["assistant_draft"],
         }],
         transcript: [{
           threadId: "thr_patch_updated_rebind",
-          turnId: "turn_placeholder",
+          turnId: null as unknown as string,
           itemId: "assistant_draft",
+          rawItemId: "assistant_draft",
+          rawItemType: "agentMessage",
           type: "agent_message",
           kind: "assistantMessage",
           semanticKind: "assistantMessage",
           role: "assistant",
           status: "inProgress",
           markdownText: "Drafting the edit",
+          rawItem: {
+            id: "assistant_draft",
+            type: "agentMessage",
+            text: "Drafting the edit",
+            phase: null,
+            memoryCitation: null,
+          },
           createdAt: now,
           updatedAt: now,
         }],
@@ -17680,7 +30142,7 @@ describe("codex-service terminal turn reconciliation", () => {
           changes: [{
             path: "poem.md",
             kind: { type: "add" },
-            content: "line\n",
+            diff: "line\n",
           }],
         });
 
@@ -17700,12 +30162,130 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("mcp progress rebinds the sole completed empty placeholder without creating an item", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_mcp_progress_placeholder"),
+        turns: [{
+          threadId: "thr_mcp_progress_placeholder",
+          turnId: null as unknown as string,
+          status: "completed",
+          turnStartedAtMs: null,
+          firstTurnWorkItemStartedAtMs: null,
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/mcpToolCall/progress", {
+          threadId: "thr_mcp_progress_placeholder",
+          turnId: "turn_mcp_progress_bound",
+          itemId: "mcp_missing",
+          message: "working",
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest?.turns.length ?? 0).toBe(1);
+        expect(latest?.turns[0]?.turnId ?? "").toBe("turn_mcp_progress_bound");
+        expect(latest?.turns[0]?.status ?? "").toBe("inProgress");
+        expect(typeof latest?.turns[0]?.turnStartedAtMs).toBe("number");
+        expect(latest?.turns[0]?.firstTurnWorkItemStartedAtMs ?? null).toBe(null);
+        expect(latest?.turns[0]?.items.length ?? 0).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("applies MCP progress structural repair when the derived detail projection is unavailable", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      applyMcpToolCallProgressUpdate: (
+        update: CodexMcpToolCallProgressUpdate,
+        suppressConversationSync: boolean,
+      ) => void;
+      getMaybeConversationRecord: (threadId: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+        detail: CodexThreadDetail | null;
+      } | null;
+    };
+    const threadId = "thr_mcp_progress_without_detail";
+    const turnId = "turn_mcp_progress_without_detail";
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail(threadId),
+        turns: [{
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+      await serviceInternals.handleNotification("item/started", {
+        threadId,
+        turnId,
+        item: makeProtocolAgentMessage({
+          id: "assistant-before-mcp-progress",
+          text: "",
+        }),
+      });
+
+      const record = serviceInternals.getMaybeConversationRecord(threadId);
+      if (record?.canonicalState) {
+        const firstTurn = record.canonicalState.turns[0];
+        if (firstTurn) {
+          record.canonicalState = {
+            ...record.canonicalState,
+            turns: [{
+              ...firstTurn,
+              sidecar: {
+                ...firstTurn.sidecar,
+                hookRuns: undefined,
+              },
+            }],
+          };
+        }
+      }
+      expect(record?.canonicalState?.turns[0]?.sidecar.hookRuns).toBeUndefined();
+      if (record) record.detail = null;
+      serviceInternals.applyMcpToolCallProgressUpdate({
+        conversationId: threadId,
+        turnId,
+        itemId: "missing-mcp-item",
+        message: "working",
+      }, true);
+
+      expect(record?.canonicalState?.turns[0]?.sidecar.hookRuns).toEqual([]);
+      expect(record?.canonicalState?.turns[0]?.items.length).toBe(1);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("completed fileChange items synthesize turn-diff payloads when turn diff state is missing", async () => {
     const ran = await withTempDatabase(async () => {
 
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -17725,8 +30305,32 @@ describe("codex-service terminal turn reconciliation", () => {
         }],
         transcript: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_completed_patch_batches",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_completed_patch_batches"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
 
       try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_completed_patch_batches",
+          turnId: "turn_completed_patch_batches",
+          item: {
+            id: "patch_done_1",
+            type: "fileChange",
+            status: "inProgress",
+            changes: [],
+          },
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_completed_patch_batches",
           turnId: "turn_completed_patch_batches",
@@ -17736,9 +30340,19 @@ describe("codex-service terminal turn reconciliation", () => {
             status: "completed",
             changes: [{
               path: "src/app.ts",
-              kind: { type: "update" },
+              kind: { type: "update", move_path: null },
               diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
             }],
+          },
+        });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_completed_patch_batches",
+          turnId: "turn_completed_patch_batches",
+          item: {
+            id: "patch_done_2",
+            type: "fileChange",
+            status: "inProgress",
+            changes: [],
           },
         });
         await serviceInternals.handleNotification("item/completed", {
@@ -17750,7 +30364,7 @@ describe("codex-service terminal turn reconciliation", () => {
             status: "completed",
             changes: [{
               path: "src/app.ts",
-              kind: { type: "update" },
+              kind: { type: "update", move_path: null },
               diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -3 +3 @@\n-before\n+after",
             }],
           },
@@ -17788,6 +30402,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -17807,6 +30422,27 @@ describe("codex-service terminal turn reconciliation", () => {
         }],
         transcript: [],
       });
+      const hydrationResponse = makeCanonicalResumeResponse({
+        threadId: "thr_diff_fallback",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_diff_fallback"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+        runtimeWorkspaceRoots: [nonGitPath],
+      });
+      hydrationResponse.cwd = nonGitPath;
+      hydrationResponse.thread = {
+        ...hydrationResponse.thread,
+        cwd: nonGitPath,
+      };
+      serviceInternals.hydrateCanonicalConversationState(hydrationResponse);
 
       try {
         await serviceInternals.handleNotification("turn/started", {
@@ -17821,6 +30457,16 @@ describe("codex-service terminal turn reconciliation", () => {
           turnId: "turn_diff_fallback",
           diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-turn-diff\n",
         });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_diff_fallback",
+          turnId: "turn_diff_fallback",
+          item: {
+            id: "patch_fallback",
+            type: "fileChange",
+            status: "inProgress",
+            changes: [],
+          },
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_diff_fallback",
           turnId: "turn_diff_fallback",
@@ -17830,7 +30476,7 @@ describe("codex-service terminal turn reconciliation", () => {
             status: "completed",
             changes: [{
               path: "src/app.ts",
-              kind: { type: "update" },
+              kind: { type: "update", move_path: null },
               diff: "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch\n",
             }],
           },
@@ -17873,6 +30519,7 @@ describe("codex-service terminal turn reconciliation", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -17892,6 +30539,20 @@ describe("codex-service terminal turn reconciliation", () => {
         }],
         transcript: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_empty_diff_patch_fallback",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_empty_diff_patch_fallback"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
 
       try {
         await serviceInternals.handleNotification("turn/started", {
@@ -17906,6 +30567,16 @@ describe("codex-service terminal turn reconciliation", () => {
           turnId: "turn_empty_diff_patch_fallback",
           diff: "",
         });
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_empty_diff_patch_fallback",
+          turnId: "turn_empty_diff_patch_fallback",
+          item: {
+            id: "patch_empty_diff_fallback",
+            type: "fileChange",
+            status: "inProgress",
+            changes: [],
+          },
+        });
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_empty_diff_patch_fallback",
           turnId: "turn_empty_diff_patch_fallback",
@@ -17915,7 +30586,7 @@ describe("codex-service terminal turn reconciliation", () => {
             status: "completed",
             changes: [{
               path: "src/app.ts",
-              kind: { type: "update" },
+              kind: { type: "update", move_path: null },
               diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+from-patch",
             }],
           },
@@ -18086,18 +30757,22 @@ describe("codex-service terminal turn reconciliation", () => {
       const serviceInternals = service as unknown as {
         serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-        handleRequestUserInput: (requestId: string, params: {
-          threadId: string;
-          turnId: string;
-          itemId: string;
-          questions: Array<{
-            id: string;
-            header: string;
-            question: string;
-            isOther: boolean;
-            isSecret: boolean;
-            options?: Array<{ label: string; description: string }>;
-          }>;
+        hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+        handleRequestUserInput: (request: {
+          id: string;
+          method: "item/tool/requestUserInput";
+          params: {
+            threadId: string;
+            turnId: string;
+            itemId: string;
+            questions: Array<{
+              id: string;
+              header: string;
+              question: string;
+              isOther: boolean;
+              options?: Array<{ label: string; description: string }>;
+            }>;
+          };
         }) => Promise<unknown>;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -18120,6 +30795,20 @@ describe("codex-service terminal turn reconciliation", () => {
         ],
         transcript: [],
       });
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_user_input_direct_patch",
+        initialTurnsPage: {
+          data: [{
+            ...makeCanonicalHydrationTurn("turn_user_input_direct_patch"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          }],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
 
       try {
         await service.requestConversationSnapshot("thr_user_input_direct_patch");
@@ -18133,18 +30822,21 @@ describe("codex-service terminal turn reconciliation", () => {
           return originalSerializeConversationSnapshot(threadId);
         });
 
-        const pendingPromise = serviceInternals.handleRequestUserInput("req_user_input_direct_patch", {
-          threadId: "thr_user_input_direct_patch",
-          turnId: "turn_user_input_direct_patch",
-          itemId: "tool_user_input_direct_patch",
-          questions: [{
-            id: "q1",
-            header: "Question",
-            question: "Pick one",
-            isOther: false,
-            isSecret: false,
-            options: [{ label: "A", description: "Option A" }],
-          }],
+        const pendingPromise = serviceInternals.handleRequestUserInput({
+          id: "req_user_input_direct_patch",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "thr_user_input_direct_patch",
+            turnId: "turn_user_input_direct_patch",
+            itemId: "tool_user_input_direct_patch",
+            questions: [{
+              id: "q1",
+              header: "Question",
+              question: "Pick one",
+              isOther: false,
+              options: [{ label: "A", description: "Option A" }],
+            }],
+          },
         });
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
@@ -18216,12 +30908,10 @@ describe("codex-service terminal turn reconciliation", () => {
         await serviceInternals.handleNotification("item/started", {
           threadId: "thr_item_started_direct_patch",
           turnId: "turn_item_started_direct_patch",
-          item: {
+          item: makeProtocolAgentMessage({
             id: "assistant_item_started_direct_patch",
-            type: "agentMessage",
             text: "hello",
-            status: "in_progress",
-          },
+          }),
         });
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
@@ -18244,5 +30934,120 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     if (!ran) expect(true).toBe(true);
+  });
+
+  test("hot no-owner request patches preserve raw order and complete user/MCP synthetics on resolution", async () => {
+    const service = createService();
+    const threadId = "thr_request_lifecycle_hot_path";
+    const turnId = "turn_request_lifecycle_hot_path";
+    const serviceInternals = service as unknown as {
+      serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+    });
+    serviceInternals.setConversationRecordDetail({
+      ...makeThreadDetail(threadId),
+      turns: [{ threadId, turnId, status: "inProgress", itemIds: [] }],
+      transcript: [],
+    });
+
+    try {
+      const baseConversation = await service.requestConversationSnapshot(threadId);
+      expect(baseConversation).not.toBeNull();
+      hostMessages.length = 0;
+
+      const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+      let serializeConversationSnapshotCallCount = 0;
+      serviceInternals.serializeConversationSnapshot = ((targetThreadId: string) => {
+        serializeConversationSnapshotCallCount += 1;
+        return originalSerializeConversationSnapshot(targetThreadId);
+      });
+
+      const userPromise = serviceInternals.handleServerRequest({
+        id: 701,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId,
+          turnId,
+          itemId: "user-request-hot-path",
+          questions: [{
+            id: "q-hot-path",
+            header: "Hot path",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+          }],
+        },
+      });
+      const mcpPromise = serviceInternals.handleServerRequest({
+        id: "702",
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId,
+          turnId,
+          serverName: "fixture_server",
+          mode: "openai/form",
+          message: "Provide a fixture value",
+          requestedSchema: { type: "object", properties: {} },
+          _meta: null,
+        },
+      });
+      await Promise.resolve();
+
+      expect(serializeConversationSnapshotCallCount).toBe(0);
+      expect(hostMessages.length > 0).toBe(true);
+      expect(hostMessages.every((message) =>
+        message.type === "threadStreamStateChanged" && message.change.type === "patches"
+      )).toBe(true);
+      const pendingConversation = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(JSON.stringify(
+        pendingConversation?.canonicalRequests?.map((request) => request.id) ?? [],
+      )).toBe(JSON.stringify([701, "702"]));
+      expect(pendingConversation?.hasUnreadTurn).toBe(true);
+      expect(pendingConversation?.turns[0]?.items.find(
+        (item) => item.itemId === "user-input-response-701",
+      )?.status).toBe("inProgress");
+      expect(pendingConversation?.turns[0]?.items.find(
+        (item) => item.itemId === "mcp-server-elicitation-702",
+      )?.status).toBe("inProgress");
+
+      hostMessages.length = 0;
+      await serviceInternals.handleNotification("serverRequest/resolved", {
+        threadId,
+        requestId: 701,
+      });
+      await serviceInternals.handleNotification("serverRequest/resolved", {
+        threadId,
+        requestId: "702",
+      });
+
+      const resolvedConversation = projectConversationFromHostMessages(hostMessages, pendingConversation);
+      expect(serializeConversationSnapshotCallCount).toBe(0);
+      expect(resolvedConversation?.canonicalRequests?.length ?? -1).toBe(0);
+      expect(resolvedConversation?.hasUnreadTurn).toBe(true);
+      const resolvedUserItem = resolvedConversation?.turns[0]?.items.find(
+        (item) => item.itemId === "user-input-response-701",
+      );
+      const resolvedMcpItem = resolvedConversation?.turns[0]?.items.find(
+        (item) => item.itemId === "mcp-server-elicitation-702",
+      );
+      expect(resolvedUserItem?.status).toBe("completed");
+      expect((resolvedUserItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(true);
+      expect(JSON.stringify(
+        (resolvedUserItem?.rawItem as { answers?: unknown } | undefined)?.answers,
+      )).toBe(JSON.stringify({}));
+      expect(resolvedMcpItem?.status).toBe("completed");
+      expect((resolvedMcpItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(true);
+      expect((resolvedMcpItem?.rawItem as { action?: unknown } | undefined)?.action).toBe(null);
+      expect(await userPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      expect(await mcpPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
+    } finally {
+      await service.shutdown();
+    }
   });
 });

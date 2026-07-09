@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../../lib/codex-thread-settings";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
@@ -79,7 +79,7 @@ function buildAutomaticApprovalReviewEntry(overrides?: Partial<CodexTranscriptEn
 }
 
 async function expandCommandShell(container: HTMLElement) {
-  const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
+  const summaryToggle = container.querySelector<HTMLElement>("[data-testid='command-tool-summary-toggle'] > button");
   if (!summaryToggle) throw new Error("Expected command summary toggle");
   fireEvent.click(summaryToggle);
   await settleAsyncRender();
@@ -116,13 +116,51 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(textContent(container).includes("Running bun test"))).toBe(false);
     expect(Boolean(container.querySelector("[data-tool-activity-icon='run-command']"))).toBe(true);
     const shimmer = container.querySelector<HTMLElement>(".loading-shimmer-pure-text");
-    expect(shimmer?.textContent ?? "").toBe("Running command");
+    expect(shimmer?.firstChild?.textContent ?? "").toBe("Running command");
     expect(Boolean(shimmer?.textContent?.includes("bun test"))).toBe(false);
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
     expect(Boolean(collapsedBody)).toBe(true);
     expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBe(true);
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(true);
     expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
+  });
+
+  test("uses canonical started and duration timing for active and settled labels", () => {
+    const originalDateNow = Date.now;
+    Date.now = () => 10_000;
+    try {
+      const view = render(
+        <TooltipProvider>
+          <CodexThreadSettingsProvider>
+            <CommandToolCall
+              item={buildCommandEntry({
+                status: "inProgress",
+                startedAtMs: 6_500,
+                durationMs: null,
+              })}
+            />
+          </CodexThreadSettingsProvider>
+        </TooltipProvider>,
+      );
+      expect(Boolean(textContent(view.container).includes("for 3s"))).toBe(true);
+
+      view.rerender(
+        <TooltipProvider>
+          <CodexThreadSettingsProvider>
+            <CommandToolCall
+              item={buildCommandEntry({
+                status: "completed",
+                startedAtMs: 6_500,
+                durationMs: 2_500,
+              })}
+            />
+          </CodexThreadSettingsProvider>
+        </TooltipProvider>,
+      );
+      expect(Boolean(textContent(view.container).includes("for 2s"))).toBe(true);
+    } finally {
+      Date.now = originalDateNow;
+    }
   });
 
   test("resolves Electron command summary labels for generic, date, background, and skill-script commands", () => {
@@ -224,7 +262,7 @@ describe("CommandToolCall render state", () => {
     );
 
     expect(Boolean(textContent(container).includes("Checking the current date and time"))).toBe(true);
-    expect(container.querySelector<HTMLElement>(".loading-shimmer-pure-text")?.textContent ?? "").toBe(
+    expect(container.querySelector<HTMLElement>(".loading-shimmer-pure-text")?.firstChild?.textContent ?? "").toBe(
       "Checking the current date and time",
     );
 
@@ -368,8 +406,9 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(textContent(container).includes("Read src/index.ts"))).toBe(true);
     expect(Boolean(textContent(container).includes("Explored"))).toBe(false);
     expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
-    expect(Boolean(container.querySelector("[data-command-tool-summary-toggle]"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-testid='command-tool-summary-toggle']"))).toBe(false);
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
+    expect(Boolean(container.querySelector("[data-agent-activity-file-link][role='link']"))).toBe(true);
   });
 
   test("hides an in-progress single read action", () => {
@@ -626,7 +665,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
+    const summaryToggle = container.querySelector<HTMLElement>("[data-testid='command-tool-summary-toggle'] > button");
     expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
@@ -670,7 +709,7 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
+    const summaryToggle = container.querySelector<HTMLElement>("[data-testid='command-tool-summary-toggle'] > button");
     expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
@@ -750,9 +789,9 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(disclosure)).toBe(true);
 
     fireEvent.click(disclosure as HTMLButtonElement);
-    await waitFor(() => {
-      expect(disclosure?.getAttribute("aria-expanded") ?? "").toBe("true");
-    });
+    await settleAsyncRender();
+
+    expect(disclosure?.getAttribute("aria-expanded") ?? "").toBe("true");
     expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(true);
   });
 

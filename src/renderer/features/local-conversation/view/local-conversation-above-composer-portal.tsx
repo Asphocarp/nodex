@@ -8,12 +8,15 @@ import type {
   ThreadStageActions,
   ThreadTranscriptBlockModel,
 } from "../thread-stage-types";
-import { TodoListCompactPillContent } from "./shared/todo-list-surface";
+import { parseTodoSteps, TodoListCompactPillContent } from "./shared/todo-list-surface";
+import { buildTurnDiffRows, extractTurnDiffPayload } from "./shared/turn-diff-model";
 import { TurnDiffInProgressInlineSummary } from "./shared/turn-diff-surface";
 import { usePortalHost } from "./use-portal-host";
 
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID = "above-composer-portal";
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID = "above-composer-queue-portal";
+export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ATTRIBUTE = "data-above-composer-portal";
+export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ATTRIBUTE = "data-above-composer-queue-portal";
 
 type AboveComposerFixedBlock = ThreadTranscriptBlockModel & {
   type: "todoList" | "turnDiff";
@@ -25,7 +28,7 @@ const ABOVE_COMPOSER_FIXED_CONTENT_TRANSITION = {
 } as const;
 
 const ABOVE_COMPOSER_PILL_WIDTH_TRANSITION = {
-  duration: 0.18,
+  duration: 0.2,
   ease: "easeOut",
 } as const;
 
@@ -72,15 +75,38 @@ function useMeasuredElementWidth() {
 
 export function LocalConversationAboveComposerPortalHost({
   conversationId,
+  onContentPresenceChange,
 }: {
   conversationId?: string | null;
+  onContentPresenceChange?: (hasContent: boolean) => void;
 }) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!onContentPresenceChange) return;
+    if (!host) {
+      onContentPresenceChange(false);
+      return;
+    }
+
+    const publishPresence = () => {
+      onContentPresenceChange(host.childElementCount > 0);
+    };
+    publishPresence();
+
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(publishPresence);
+    observer.observe(host, { childList: true });
+    return () => observer.disconnect();
+  }, [host, onContentPresenceChange]);
+
   return (
     <div
+      ref={setHost}
       id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID}
       data-above-composer-portal="true"
       data-above-composer-conversation-id={conversationId ?? undefined}
-      className="relative min-w-0 px-5 empty:hidden"
+      className="relative px-5 empty:hidden"
     />
   );
 }
@@ -95,7 +121,7 @@ export function LocalConversationAboveComposerQueuePortalHost({
       id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID}
       data-above-composer-queue-portal="true"
       data-above-composer-conversation-id={conversationId ?? undefined}
-      className="relative min-w-0 px-5 empty:hidden"
+      className="relative px-5 empty:hidden"
     />
   );
 }
@@ -114,13 +140,13 @@ function AboveComposerMeasuredPill({ children }: { children: ReactNode }) {
     <motion.div
       animate={animateWidth}
       transition={reducedMotion ? { duration: 0 } : ABOVE_COMPOSER_PILL_WIDTH_TRANSITION}
-      className="relative z-10 w-fit max-w-(--thread-content-max-width) min-w-0 overflow-hidden rounded-3xl"
+      className="relative z-10 w-fit max-w-[min(100%,var(--thread-content-max-width))] min-w-0 overflow-hidden rounded-3xl"
       data-above-composer-fixed-pill="true"
       style={instantWidthStyle}
     >
       <div
         ref={elementRef}
-        className="flex w-max max-w-(--thread-content-max-width) min-w-0 items-center gap-2 rounded-3xl border border-token-border/80 bg-token-input-background/70 px-3 py-1.5 text-token-foreground backdrop-blur-sm"
+        className="flex w-max max-w-full min-w-0 items-center gap-2 rounded-3xl border border-token-border/80 bg-token-input-background/70 px-3 py-1.5 text-token-foreground backdrop-blur-sm"
         data-above-composer-fixed-pill-inner="true"
       >
         {children}
@@ -141,9 +167,22 @@ function AboveComposerFixedContentLayer({
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
 }) {
   const reducedMotion = useReducedMotion();
-  const todoBlock = blocks.find((block) => block.type === "todoList") ?? null;
-  const turnDiffBlock = blocks.find((block) => block.type === "turnDiff") ?? null;
+  const todoCandidate = blocks.find((block) => block.type === "todoList") ?? null;
+  const todoBlock = todoCandidate && parseTodoSteps(todoCandidate.entry).length > 0
+    ? todoCandidate
+    : null;
+  const turnDiffCandidate = blocks.find((block) => block.type === "turnDiff") ?? null;
+  const turnDiffBlock = turnDiffCandidate
+    && extractTurnDiffPayload(turnDiffCandidate.entry)
+    && buildTurnDiffRows(
+      turnDiffCandidate.entry,
+      threadCwd ?? undefined,
+      projectWorkspacePath ?? undefined,
+    ).length > 0
+    ? turnDiffCandidate
+    : null;
   const hasFixedContent = todoBlock !== null || turnDiffBlock !== null;
+  if (!hasFixedContent) return null;
   const motionState = reducedMotion
     ? {
         initial: { opacity: 0 },
@@ -218,6 +257,7 @@ function AboveComposerFixedContentLayer({
 
 interface LocalConversationAboveComposerPortalProps {
   blocks: ThreadBlockModel[];
+  conversationId?: string | null;
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
@@ -236,14 +276,21 @@ interface LocalConversationAboveComposerPortalProps {
 
 export function LocalConversationAboveComposerPortal({
   blocks,
+  conversationId,
+  isLatestTurn,
   isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
 }: LocalConversationAboveComposerPortalProps) {
-  const host = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID);
+  const host = usePortalHost({
+    attribute: LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ATTRIBUTE,
+    fallbackId: LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID,
+    conversationId,
+  });
   const fixedBlocks = blocks.filter(isAboveComposerFixedBlock);
   if (blocks.length === 0) return null;
+  if (!isLatestTurn) return null;
   if (!isStreamingTurn) return null;
   if (fixedBlocks.length === 0) return null;
   if (!host) return null;

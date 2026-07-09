@@ -1,10 +1,16 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, within } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { installWindowApi } from "@/test/browser-globals";
+import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
+import {
+  getAutoReviewApprovalNudgeState,
+  recordManualApprovalForAutoReviewNudge,
+  resetAutoReviewApprovalNudgeStateForTests,
+} from "../../auto-review-approval-nudge-state";
 import {
   buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
@@ -14,7 +20,10 @@ import {
   LocalConversationAboveComposerPortalHost,
   LocalConversationAboveComposerQueuePortalHost,
 } from "../local-conversation-above-composer-portal";
-import { LocalConversationComposerShell } from "./local-conversation-composer-shell";
+import {
+  LocalConversationComposerShell,
+  resolveComposerReplacementOwner,
+} from "./local-conversation-composer-shell";
 
 const STORY_CONTROLS: ThreadStageStoryControls = {
   preset: "background-activity",
@@ -138,6 +147,12 @@ function installComposerShellWindowApi(testInvoke?: (channel: string, ...args: u
         case "git:branch:watch:start":
         case "git:branch:watch:stop":
           return true;
+        case "persisted-atom:sync-request":
+          return {};
+        case "persisted-atom:update": {
+          const update = args[0] as { key: string; value: unknown };
+          return { [update.key]: update.value };
+        }
         case "codex:thread:goal:materialize-draft": {
           const draft = args[0] as { objective?: string };
           return {
@@ -178,6 +193,71 @@ function renderComposerShell(
 }
 
 describe("LocalConversationComposerShell", () => {
+  beforeEach(() => {
+    clearPersistedAtomStoreForTests();
+    resetAutoReviewApprovalNudgeStateForTests();
+  });
+
+  test("resolves the exact composer replacement owner precedence", () => {
+    const cases = [
+      { threadId: null, hasAutoReviewNudge: true, isResponseInProgress: false, hasRequestCards: true },
+      { threadId: "thread_1", hasAutoReviewNudge: false, isResponseInProgress: false, hasRequestCards: false },
+      { threadId: "thread_1", hasAutoReviewNudge: false, isResponseInProgress: false, hasRequestCards: true },
+      { threadId: "thread_1", hasAutoReviewNudge: true, isResponseInProgress: false, hasRequestCards: true },
+      { threadId: "thread_1", hasAutoReviewNudge: true, isResponseInProgress: true, hasRequestCards: true },
+      { threadId: "thread_1", hasAutoReviewNudge: true, isResponseInProgress: true, hasRequestCards: false },
+    ];
+
+    expect(cases.map(resolveComposerReplacementOwner).join(",")).toBe(
+      "normal,normal,requestStack,autoReviewNudge,requestStack,normal",
+    );
+  });
+
+  test("keeps every request family on the production stage projection path", () => {
+    const cases = [
+      ["file-approval-lane", "approval:file"],
+      ["permission-lane", "permissionRequest"],
+      ["mcp-elicitation-lane", "mcpServerElicitation"],
+      ["option-picker-lane", "optionPicker"],
+      ["onboarding-input-lane", "userInput:onboarding"],
+      ["setup-role-lane", "setupCodexStep:role"],
+      ["setup-task-lane", "setupCodexStep:task"],
+      ["setup-context-lane", "setupCodexStep:context"],
+    ] as const;
+    const projected = cases.map(([preset, expected]) => {
+      const controls: ThreadStageStoryControls = { ...STORY_CONTROLS, preset };
+      const scenario = buildThreadStageStoryScenario(controls);
+      const request = buildThreadStageStorySurfaceModels(
+        scenario,
+        controls,
+        scenario.runtime,
+      ).footerModel.composerShell.activeRequest?.request;
+      const actual = request?.type === "approval"
+        ? `${request.type}:${request.kind}`
+        : request?.type === "userInput" && request.isOnboardingDynamicInput
+          ? `${request.type}:onboarding`
+          : request?.type === "setupCodexStep"
+            ? `${request.type}:${request.step}`
+            : request?.type;
+      return `${expected}=${actual ?? "missing"}`;
+    });
+
+    expect(projected.join(",")).toBe(cases.map(([, expected]) => `${expected}=${expected}`).join(","));
+
+    const controls: ThreadStageStoryControls = {
+      ...STORY_CONTROLS,
+      preset: "background-permission-option",
+    };
+    const scenario = buildThreadStageStoryScenario(controls);
+    const shell = buildThreadStageStorySurfaceModels(
+      scenario,
+      controls,
+      scenario.runtime,
+    ).footerModel.composerShell;
+    expect(shell.backgroundRequest?.request.type).toBe("permissionRequest");
+    expect(shell.activeRequest?.request.type).toBe("optionPicker");
+  });
+
   test("renders Codex-compatible above-composer portal targets", () => {
     const { container } = render(
       <div>
@@ -221,6 +301,16 @@ describe("LocalConversationComposerShell", () => {
     expect(Boolean(renderedText.includes("1 active requests"))).toBe(false);
     expect(Boolean(renderedText.includes("Worker 1"))).toBe(true);
 
+    const backgroundReason = view.getByText(
+      "Background child wants to run the isolated request-card tests.",
+    );
+    const activeReason = view.getByText(
+      "Foreground thread wants to run lint before Storybook build.",
+    );
+    expect(view.getAllByText("Background child wants to run the isolated request-card tests.").length).toBe(1);
+    expect(view.getAllByText("Foreground thread wants to run lint before Storybook build.").length).toBe(1);
+    expect(Boolean(backgroundReason.compareDocumentPosition(activeReason) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
     expect(lowerStatusRow === null).toBe(true);
     expect(view.queryByLabelText("Add files and more") === null).toBe(true);
@@ -229,6 +319,69 @@ describe("LocalConversationComposerShell", () => {
     expect(view.queryByLabelText(/Context window/) === null).toBe(true);
     expect(view.queryByLabelText("Send prompt") === null).toBe(true);
     expect(view.queryByLabelText("Stop generating") === null).toBe(true);
+  });
+
+  test("gives the idle auto-review nudge exclusive ownership and restores requests after enabling it", async () => {
+    installComposerShellWindowApi();
+    const baseModel = buildComposerShellModel();
+    if (!baseModel.threadId) throw new Error("Expected a thread-backed story model");
+    await recordManualApprovalForAutoReviewNudge({
+      threadId: baseModel.threadId,
+      eligible: true,
+      threshold: 1,
+    });
+    const changedModes: string[] = [];
+    const view = renderComposerShell(
+      {
+        ...baseModel,
+        isThreadRunning: false,
+      },
+      buildActions({
+        onPermissionModeChange: async (mode) => {
+          changedModes.push(mode);
+        },
+      }),
+    );
+    await settleAsyncRender();
+
+    expect(view.getByText("Want fewer approval prompts?") !== null).toBe(true);
+    expect(view.queryByText("Background child wants to run the isolated request-card tests.") === null).toBe(true);
+    expect(view.queryByText("Foreground thread wants to run lint before Storybook build.") === null).toBe(true);
+    expect(Boolean(textContent(document.body).includes("Run final validation once the stories are in place."))).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: /Approve for me/ }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(changedModes.join(",")).toBe("guardian-approvals");
+    expect(getAutoReviewApprovalNudgeState().activeThreadIds.has(baseModel.threadId)).toBe(false);
+    expect(view.getByText("Background child wants to run the isolated request-card tests.") !== null).toBe(true);
+    expect(view.getByText("Foreground thread wants to run lint before Storybook build.") !== null).toBe(true);
+  });
+
+  test("restores the normal composer after every request surface clears", async () => {
+    installComposerShellWindowApi();
+    const baseModel = buildComposerShellModel();
+    const model: ThreadFooterModel = {
+      ...baseModel,
+      isThreadRunning: false,
+      composerShell: {
+        ...baseModel.composerShell,
+        activeRequest: null,
+        backgroundRequest: null,
+        showRequestCards: false,
+        showComposer: true,
+      },
+    };
+    const view = renderComposerShell(model);
+    await settleAsyncRender();
+
+    expect(view.getByLabelText("Add files and more") !== null).toBe(true);
+    expect(view.getByLabelText("Permission mode") !== null).toBe(true);
+    expect(view.getByLabelText("Select Codex model and reasoning") !== null).toBe(true);
+    expect(view.queryByText("Foreground thread wants to run lint before Storybook build.") === null).toBe(true);
   });
 
   test("opens composer background agents with subagent context", async () => {

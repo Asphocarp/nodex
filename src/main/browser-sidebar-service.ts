@@ -3,6 +3,8 @@ import { EventEmitter } from "node:events";
 import {
   BROWSER_SIDEBAR_PARTITION,
   DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
+  makeDefaultBrowserSidebarTabId,
+  makeBrowserSidebarTabKey,
   type BrowserBrowsingDataClearResult,
   type BrowserBrowsingDataKind,
   type BrowserSidebarBrowserUseCaptureSurfaceEvent,
@@ -10,12 +12,14 @@ import {
   type BrowserSidebarBrowserUseViewportEvent,
   type BrowserSidebarCommand,
   type BrowserSidebarCommandResult,
+  type BrowserSidebarClonedTabInput,
   type BrowserSidebarDestroyWebviewRequest,
   type BrowserSidebarLocalServer,
   type BrowserSidebarLocalServerRoute,
   type BrowserSidebarLocalServersSnapshot,
   type BrowserSidebarStateSnapshot,
   type BrowserSidebarTabSnapshot,
+  type BrowserSidebarTabIdentity,
   type BrowserSidebarViewport,
   type BrowserSidebarWebviewAttached,
   type BrowserSidebarWebviewDestroyed,
@@ -75,11 +79,82 @@ interface BrowserSidebarServiceDeps {
 }
 
 const DEFAULT_VIEWPORT: BrowserSidebarViewport = {
-  width: 0,
-  height: 0,
+  width: 390,
+  height: 844,
   zoomPercent: 100,
   presetId: "responsive",
 };
+
+function browserIdentity(
+  input: BrowserSidebarTabIdentity,
+): BrowserSidebarTabIdentity {
+  return {
+    browserConversationId: input.browserConversationId,
+    browserTabId: input.browserTabId,
+  };
+}
+
+function browserTabKey(input: BrowserSidebarTabIdentity): string {
+  return makeBrowserSidebarTabKey(browserIdentity(input));
+}
+
+function makeDefaultDeviceToolbarState(
+  isEnabled: boolean,
+): BrowserSidebarTabSnapshot["deviceToolbarState"] {
+  return {
+    responsiveViewportSize: null,
+    toolbarState: {
+      isEnabled,
+      presetId: DEFAULT_VIEWPORT.presetId,
+      width: DEFAULT_VIEWPORT.width,
+      height: DEFAULT_VIEWPORT.height,
+    },
+  };
+}
+
+function updateDeviceToolbarState(
+  current: BrowserSidebarTabSnapshot["deviceToolbarState"],
+  input: {
+    readonly isEnabled?: boolean;
+    readonly viewport?: BrowserSidebarViewport;
+  },
+): BrowserSidebarTabSnapshot["deviceToolbarState"] {
+  const viewport = input.viewport;
+  return {
+    responsiveViewportSize: viewport?.presetId === "responsive"
+      ? { width: viewport.width, height: viewport.height }
+      : current.responsiveViewportSize,
+    toolbarState: {
+      ...current.toolbarState,
+      ...(input.isEnabled === undefined ? {} : { isEnabled: input.isEnabled }),
+      ...(viewport === undefined
+        ? {}
+        : {
+            presetId: viewport.presetId,
+            width: viewport.width,
+            height: viewport.height,
+          }),
+    },
+  };
+}
+
+function viewportFromDeviceToolbarState(
+  deviceToolbarState: BrowserSidebarTabSnapshot["deviceToolbarState"],
+  zoomPercent: number,
+): BrowserSidebarViewport {
+  const toolbar = deviceToolbarState.toolbarState;
+  const responsive = deviceToolbarState.responsiveViewportSize;
+  return {
+    width: toolbar.presetId === "responsive"
+      ? responsive?.width ?? toolbar.width
+      : toolbar.width,
+    height: toolbar.presetId === "responsive"
+      ? responsive?.height ?? toolbar.height
+      : toolbar.height,
+    presetId: toolbar.presetId,
+    zoomPercent,
+  };
+}
 
 const LOCAL_SERVER_URL_PATTERN =
   /(?:https?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d+)?(?:\/[^\s"'<>]*)?|(?:localhost|127(?:\.\d{1,3}){3})(?::\d+)(?:\/[^\s"'<>]*)?)/gi;
@@ -91,7 +166,7 @@ interface BrowserSidebarServiceEvents {
   browserUseViewport: [BrowserSidebarBrowserUseViewportEvent];
   browserUseCaptureSurface: [BrowserSidebarBrowserUseCaptureSurfaceEvent];
   browserUseCursor: [BrowserUseCursorState];
-  pageReleased: [{ tabId: string }];
+  pageReleased: [BrowserSidebarTabIdentity];
   webviewAttached: [BrowserSidebarWebviewAttached];
   destroyWebview: [BrowserSidebarDestroyWebviewRequest];
 }
@@ -107,8 +182,7 @@ interface LocalServerProjectState {
   updatedAt: number;
 }
 
-interface PendingWebviewTeardown {
-  tabId: string;
+interface PendingWebviewTeardown extends BrowserSidebarTabIdentity {
   mountGeneration: number;
   reason: BrowserSidebarDestroyWebviewRequest["reason"];
   teardownId: string;
@@ -121,18 +195,17 @@ export class BrowserSidebarService extends EventEmitter {
   private readonly pendingTeardowns = new Map<string, PendingWebviewTeardown>();
   private readonly localServersByProject = new Map<string, LocalServerProjectState>();
   private readonly browserUseTabs = new Map<string, BrowserUseTabState>();
+  private readonly deviceToolbarStates = new Map<
+    string,
+    BrowserSidebarTabSnapshot["deviceToolbarState"]
+  >();
+  private readonly transferredBrowserTabIdsByConversation = new Map<string, string[]>();
   private readonly browserUseViewportSizes = new Map<string, BrowserSidebarBrowserUseViewportEvent>();
   private readonly browserUseCaptureSurfaces = new Map<string, BrowserSidebarBrowserUseCaptureSurfaceEvent>();
   private readonly electron: BrowserSidebarElectronDeps;
   private readonly logger: Pick<BackendLogger, "debug" | "info" | "warn">;
-  private browserUseActiveTabId: string | null = null;
-  private browserUseCursor: BrowserUseCursorState = {
-    tabId: null,
-    x: 0,
-    y: 0,
-    visible: false,
-    updatedAt: Date.now(),
-  };
+  private readonly browserUseActiveTabIdsByConversation = new Map<string, string>();
+  private readonly browserUseCursors = new Map<string, BrowserUseCursorState>();
   private teardownSequence = 0;
 
   constructor(deps: BrowserSidebarServiceDeps = {}) {
@@ -165,11 +238,199 @@ export class BrowserSidebarService extends EventEmitter {
     return { tabs: [...this.tabs.values()] };
   }
 
+  getConversationBrowserTabIds(browserConversationId: string): string[] {
+    const orderedIds: string[] = [];
+    const seenIds = new Set<string>();
+    const append = (browserTabId: string) => {
+      if (seenIds.has(browserTabId)) return;
+      seenIds.add(browserTabId);
+      orderedIds.push(browserTabId);
+    };
+    for (const tab of this.browserUseTabs.values()) {
+      if (tab.browserConversationId !== browserConversationId || tab.released) continue;
+      append(tab.browserTabId);
+    }
+    for (const tab of this.tabs.values()) {
+      if (tab.browserConversationId !== browserConversationId) continue;
+      if (tab.webContentsId === null) continue;
+      append(tab.browserTabId);
+    }
+    return orderedIds;
+  }
+
+  closeBrowserTab(identity: BrowserSidebarTabIdentity): void {
+    const key = browserTabKey(identity);
+    const hadOrdinaryTab = this.tabs.has(key);
+    if (hadOrdinaryTab) this.unregisterTab(key);
+
+    this.browserUseTabs.delete(key);
+    this.browserUseCursors.delete(key);
+    this.browserUseViewportSizes.delete(key);
+    this.browserUseCaptureSurfaces.delete(key);
+    this.deviceToolbarStates.delete(key);
+    if (
+      this.browserUseActiveTabIdsByConversation.get(identity.browserConversationId)
+      === identity.browserTabId
+    ) {
+      this.browserUseActiveTabIdsByConversation.delete(identity.browserConversationId);
+    }
+
+    const transferredIds = this.transferredBrowserTabIdsByConversation.get(
+      identity.browserConversationId,
+    );
+    if (transferredIds) {
+      const remainingIds = transferredIds.filter((browserTabId) =>
+        browserTabId !== identity.browserTabId
+      );
+      if (remainingIds.length > 0) {
+        this.transferredBrowserTabIdsByConversation.set(
+          identity.browserConversationId,
+          remainingIds,
+        );
+      } else {
+        this.transferredBrowserTabIdsByConversation.delete(
+          identity.browserConversationId,
+        );
+      }
+    }
+
+    this.emitBrowserUseState();
+  }
+
+  closeBrowserConversation(browserConversationId: string): void {
+    const browserTabIds = new Set<string>();
+    const appendIdentity = (identity: BrowserSidebarTabIdentity) => {
+      if (identity.browserConversationId !== browserConversationId) return;
+      browserTabIds.add(identity.browserTabId);
+    };
+    for (const tab of this.tabs.values()) appendIdentity(tab);
+    for (const tab of this.browserUseTabs.values()) appendIdentity(tab);
+    for (const cursor of this.browserUseCursors.values()) appendIdentity(cursor);
+    for (const viewport of this.browserUseViewportSizes.values()) appendIdentity(viewport);
+    for (const surface of this.browserUseCaptureSurfaces.values()) appendIdentity(surface);
+    for (const teardown of this.pendingTeardowns.values()) appendIdentity(teardown);
+    for (const browserTabId of this.transferredBrowserTabIdsByConversation.get(browserConversationId) ?? []) {
+      browserTabIds.add(browserTabId);
+    }
+    const keyPrefix = `${browserConversationId}\0`;
+    for (const key of this.deviceToolbarStates.keys()) {
+      if (!key.startsWith(keyPrefix)) continue;
+      browserTabIds.add(key.slice(keyPrefix.length));
+    }
+
+    for (const browserTabId of browserTabIds) {
+      this.closeBrowserTab({ browserConversationId, browserTabId });
+    }
+    this.browserUseActiveTabIdsByConversation.delete(browserConversationId);
+    this.transferredBrowserTabIdsByConversation.delete(browserConversationId);
+    this.emitBrowserUseState();
+  }
+
+  closeBrowserProject(projectId: string): void {
+    this.localServersByProject.delete(projectId);
+  }
+
+  getDeviceToolbarTabState(
+    identity: BrowserSidebarTabIdentity,
+  ): BrowserSidebarTabSnapshot["deviceToolbarState"] {
+    return this.deviceToolbarStates.get(browserTabKey(identity))
+      ?? makeDefaultDeviceToolbarState(false);
+  }
+
+  primeTransferredBrowserTabId(
+    browserConversationId: string,
+    browserTabId: string,
+  ): void {
+    this.transferredBrowserTabIdsByConversation.set(browserConversationId, [
+      ...(this.transferredBrowserTabIdsByConversation.get(browserConversationId) ?? []),
+      browserTabId,
+    ]);
+  }
+
+  openClonedBrowserTab(
+    input: Omit<BrowserSidebarClonedTabInput, "deviceToolbarState">,
+  ): BrowserSidebarTabSnapshot {
+    const transferredIds = this.transferredBrowserTabIdsByConversation.get(
+      input.browserConversationId,
+    ) ?? [];
+    const defaultBrowserTabId = makeDefaultBrowserSidebarTabId(
+      input.browserConversationId,
+    );
+    const browserTabId = input.browserTabId === defaultBrowserTabId
+      || transferredIds.includes(input.browserTabId)
+      ? input.browserTabId
+      : defaultBrowserTabId;
+    const identity = {
+      browserConversationId: input.browserConversationId,
+      browserTabId,
+    };
+    const key = browserTabKey(identity);
+    const existing = this.tabs.get(key);
+    const url = normalizeBrowserNavigationUrl(input.initialUrl);
+    const deviceToolbarState = this.getDeviceToolbarTabState(identity);
+    const viewport = viewportFromDeviceToolbarState(
+      deviceToolbarState,
+      existing?.zoomPercent ?? 100,
+    );
+    const snapshot = this.upsertTab({
+      ...(existing ?? {
+        ...identity,
+        webContentsId: null,
+        mountGeneration: 0,
+        title: "New tab",
+        isLoading: false,
+        canGoBack: false,
+        canGoForward: false,
+        zoomPercent: 100,
+        interactionMode: "browse" as const,
+        findState: DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
+        hasBrowserPage: false,
+        pageActionsDisabled: true,
+        updatedAt: Date.now(),
+      }),
+      projectId: input.projectId,
+      url,
+      pendingUrl: input.initialUrl === undefined ? undefined : url,
+      deviceToolbarVisible: deviceToolbarState.toolbarState.isEnabled,
+      viewport,
+      deviceToolbarState,
+      updatedAt: Date.now(),
+    });
+    this.emitState();
+    return snapshot;
+  }
+
+  setDeviceToolbarTabState(
+    identity: BrowserSidebarTabIdentity,
+    deviceToolbarState: BrowserSidebarTabSnapshot["deviceToolbarState"],
+  ): void {
+    const key = browserTabKey(identity);
+    this.deviceToolbarStates.set(key, deviceToolbarState);
+    const existing = this.tabs.get(key);
+    if (!existing) return;
+    this.updateTab(key, {
+      deviceToolbarVisible: deviceToolbarState.toolbarState.isEnabled,
+      viewport: viewportFromDeviceToolbarState(
+        deviceToolbarState,
+        existing.zoomPercent,
+      ),
+      deviceToolbarState,
+    });
+  }
+
+  primeClonedTab(input: BrowserSidebarClonedTabInput): BrowserSidebarTabSnapshot {
+    const snapshot = this.openClonedBrowserTab(input);
+    this.setDeviceToolbarTabState(input, input.deviceToolbarState);
+    return snapshot;
+  }
+
   getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot {
     return {
       tabs: [...this.browserUseTabs.values()],
-      activeTabId: this.browserUseActiveTabId,
-      cursor: this.browserUseCursor,
+      activeBrowserTabIdsByConversation: Object.fromEntries(
+        this.browserUseActiveTabIdsByConversation,
+      ),
+      cursors: [...this.browserUseCursors.values()],
     };
   }
 
@@ -198,7 +459,7 @@ export class BrowserSidebarService extends EventEmitter {
     const snapshot = this.attachWebview(event);
     if (!snapshot) return { ok: false, message: "Browser tab is not registered" };
     this.emit("webviewAttached", {
-      tabId: event.tabId,
+      ...browserIdentity(event),
       mountGeneration: event.mountGeneration,
       webContentsId: event.webContentsId,
     });
@@ -206,51 +467,61 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   async handleWebviewDestroyed(event: BrowserSidebarWebviewDestroyed): Promise<BrowserSidebarCommandResult> {
-    const current = this.tabs.get(event.tabId);
-    const pending = this.pendingTeardowns.get(event.tabId);
-    if (pending && pending.teardownId !== event.teardownId) {
+    const key = browserTabKey(event);
+    const current = this.tabs.get(key);
+    const pending = this.pendingTeardowns.get(key);
+    if (
+      !pending
+      || pending.teardownId !== event.teardownId
+      || pending.mountGeneration !== event.mountGeneration
+      || pending.reason !== event.reason
+    ) {
       this.logger.debug("Ignored stale browser webview destroyed ack", {
-        tabId: event.tabId,
+        ...browserIdentity(event),
         receivedTeardownId: event.teardownId,
-        pendingTeardownId: pending.teardownId,
+        pendingTeardownId: pending?.teardownId ?? null,
       });
       return { ok: true, snapshot: current };
     }
 
     if (current && current.mountGeneration !== event.mountGeneration) {
       this.logger.debug("Ignored stale browser webview generation ack", {
-        tabId: event.tabId,
+        ...browserIdentity(event),
         currentMountGeneration: current.mountGeneration,
         receivedMountGeneration: event.mountGeneration,
       });
       return { ok: true, snapshot: current };
     }
 
-    this.pendingTeardowns.delete(event.tabId);
-    this.detachWebview(event.tabId, event.webContentsId);
+    this.pendingTeardowns.delete(key);
+    this.detachWebview(key, event.webContentsId);
     this.logger.info("Browser webview destroyed", {
-      tabId: event.tabId,
+      ...browserIdentity(event),
       mountGeneration: event.mountGeneration,
       reason: event.reason,
     });
-    return { ok: true, snapshot: this.tabs.get(event.tabId) };
+    return { ok: true, snapshot: this.tabs.get(key) };
   }
 
   async handleCommand(command: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> {
     if (command.type === "register-tab") {
-      const existing = this.tabs.get(command.tabId);
+      const key = browserTabKey(command);
+      const existing = this.tabs.get(key);
       if (existing) {
-        const snapshot = this.updateTab(command.tabId, {
-          sessionId: command.sessionId,
+        const snapshot = this.updateTab(key, {
           projectId: command.projectId,
           title: existing.hasBrowserPage ? existing.title : command.title?.trim() || existing.title,
           faviconUrl: command.faviconUrl ?? existing.faviconUrl,
         });
         return { ok: true, snapshot };
       }
+      const deviceToolbarVisible = command.deviceToolbarVisible === true;
+      const deviceToolbarState = this.deviceToolbarStates.get(key)
+        ?? makeDefaultDeviceToolbarState(deviceToolbarVisible);
+      this.deviceToolbarStates.set(key, deviceToolbarState);
+      const viewport = viewportFromDeviceToolbarState(deviceToolbarState, 100);
       const snapshot = this.upsertTab({
-        tabId: command.tabId,
-        sessionId: command.sessionId,
+        ...browserIdentity(command),
         projectId: command.projectId,
         webContentsId: null,
         mountGeneration: 0,
@@ -261,8 +532,9 @@ export class BrowserSidebarService extends EventEmitter {
         canGoBack: false,
         canGoForward: false,
         zoomPercent: 100,
-        deviceToolbarVisible: command.deviceToolbarVisible === true,
-        viewport: DEFAULT_VIEWPORT,
+        deviceToolbarVisible,
+        viewport,
+        deviceToolbarState,
         interactionMode: "browse",
         findState: DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
         hasBrowserPage: !isBlankBrowserUrl(command.initialUrl),
@@ -312,7 +584,14 @@ export class BrowserSidebarService extends EventEmitter {
     }
 
     if (command.type === "open-external") {
-      const url = command.url ?? (command.tabId ? this.tabs.get(command.tabId)?.url : undefined);
+      let url = command.url;
+      if (
+        url === undefined
+        && "browserConversationId" in command
+        && "browserTabId" in command
+      ) {
+        url = this.tabs.get(browserTabKey(command))?.url;
+      }
       if (isBlankBrowserUrl(url)) return { ok: false, message: "Browser tab has no page URL" };
       await this.electron.shell.openExternal(normalizeBrowserNavigationUrl(url));
       return { ok: true };
@@ -323,16 +602,22 @@ export class BrowserSidebarService extends EventEmitter {
       return { ok: true };
     }
 
-    const tab = this.tabs.get(command.tabId);
+    if (command.type === "close-tab") {
+      this.closeBrowserTab(command);
+      return { ok: true };
+    }
+
+    const key = browserTabKey(command);
+    const tab = this.tabs.get(key);
     if (!tab) return { ok: false, message: "Browser tab is not registered" };
 
     if (command.type === "set-title") {
-      const snapshot = this.updateTab(command.tabId, { title: command.title.trim() || "New tab" });
+      const snapshot = this.updateTab(key, { title: command.title.trim() || "New tab" });
       return { ok: true, snapshot };
     }
 
     if (command.type === "set-favicon") {
-      const snapshot = this.updateTab(command.tabId, { faviconUrl: command.faviconUrl });
+      const snapshot = this.updateTab(key, { faviconUrl: command.faviconUrl });
       return { ok: true, snapshot };
     }
 
@@ -340,7 +625,7 @@ export class BrowserSidebarService extends EventEmitter {
       const zoomPercent = stepZoomPercent(tab.zoomPercent, command.delta);
       const contents = this.getAttachedWebContents(tab);
       if (contents && !contents.isDestroyed()) contents.setZoomFactor(zoomPercent / 100);
-      const snapshot = this.updateTab(command.tabId, {
+      const snapshot = this.updateTab(key, {
         zoomPercent,
         viewport: { ...tab.viewport, zoomPercent },
       });
@@ -351,7 +636,7 @@ export class BrowserSidebarService extends EventEmitter {
       const zoomPercent = clampZoomPercent(command.zoomPercent);
       const contents = this.getAttachedWebContents(tab);
       if (contents && !contents.isDestroyed()) contents.setZoomFactor(zoomPercent / 100);
-      const snapshot = this.updateTab(command.tabId, {
+      const snapshot = this.updateTab(key, {
         zoomPercent,
         viewport: { ...tab.viewport, zoomPercent },
       });
@@ -361,7 +646,7 @@ export class BrowserSidebarService extends EventEmitter {
     if (command.type === "reset-zoom") {
       const contents = this.getAttachedWebContents(tab);
       if (contents && !contents.isDestroyed()) contents.setZoomFactor(1);
-      const snapshot = this.updateTab(command.tabId, {
+      const snapshot = this.updateTab(key, {
         zoomPercent: 100,
         viewport: { ...tab.viewport, zoomPercent: 100 },
       });
@@ -369,30 +654,44 @@ export class BrowserSidebarService extends EventEmitter {
     }
 
     if (command.type === "set-device-toolbar-visible") {
-      const snapshot = this.updateTab(command.tabId, { deviceToolbarVisible: command.visible });
+      const deviceToolbarState = updateDeviceToolbarState(tab.deviceToolbarState, {
+        isEnabled: command.visible,
+      });
+      this.deviceToolbarStates.set(key, deviceToolbarState);
+      const snapshot = this.updateTab(key, {
+        deviceToolbarVisible: command.visible,
+        deviceToolbarState,
+      });
       return { ok: true, snapshot };
     }
 
     if (command.type === "set-viewport") {
-      const snapshot = this.updateTab(command.tabId, { viewport: command.viewport });
-      this.syncBrowserUseViewport(command.tabId, command.viewport);
+      const deviceToolbarState = updateDeviceToolbarState(tab.deviceToolbarState, {
+        viewport: command.viewport,
+      });
+      this.deviceToolbarStates.set(key, deviceToolbarState);
+      const snapshot = this.updateTab(key, {
+        viewport: command.viewport,
+        deviceToolbarState,
+      });
+      this.syncBrowserUseViewport(command, command.viewport);
       return { ok: true, snapshot };
     }
 
     if (command.type === "set-interaction-mode") {
-      const snapshot = this.updateTab(command.tabId, { interactionMode: command.mode });
+      const snapshot = this.updateTab(key, { interactionMode: command.mode });
       return { ok: true, snapshot };
     }
 
     if (command.type === "open-find") {
-      const snapshot = this.updateTab(command.tabId, { findState: { ...tab.findState, open: true } });
+      const snapshot = this.updateTab(key, { findState: { ...tab.findState, open: true } });
       return { ok: true, snapshot };
     }
 
     if (command.type === "close-find") {
       const contents = this.getAttachedWebContents(tab);
       contents?.stopFindInPage?.("clearSelection");
-      const snapshot = this.updateTab(command.tabId, { findState: { ...DEFAULT_BROWSER_SIDEBAR_FIND_STATE } });
+      const snapshot = this.updateTab(key, { findState: { ...DEFAULT_BROWSER_SIDEBAR_FIND_STATE } });
       return { ok: true, snapshot };
     }
 
@@ -404,7 +703,7 @@ export class BrowserSidebarService extends EventEmitter {
       } else {
         contents?.stopFindInPage?.("clearSelection");
       }
-      const snapshot = this.updateTab(command.tabId, {
+      const snapshot = this.updateTab(key, {
         findState: {
           open: true,
           query,
@@ -427,11 +726,6 @@ export class BrowserSidebarService extends EventEmitter {
         });
       }
       return { ok: true, snapshot: tab };
-    }
-
-    if (command.type === "close-tab") {
-      this.unregisterTab(command.tabId);
-      return { ok: true };
     }
 
     if (command.type === "navigate") {
@@ -459,7 +753,7 @@ export class BrowserSidebarService extends EventEmitter {
 
     if (command.type === "stop") {
       contents.stop();
-      this.refreshSnapshotFromWebContents(command.tabId, contents, { isLoading: false });
+      this.refreshSnapshotFromWebContents(key, contents, { isLoading: false });
       return { ok: true };
     }
 
@@ -529,9 +823,10 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   private navigate(tab: BrowserSidebarTabSnapshot, rawUrl: string): BrowserSidebarCommandResult {
+    const key = browserTabKey(tab);
     const url = normalizeBrowserNavigationUrl(rawUrl);
     if (isBlankBrowserUrl(url)) {
-      const snapshot = this.updateTab(tab.tabId, {
+      const snapshot = this.updateTab(key, {
         url: "about:blank",
         pendingUrl: undefined,
         title: "New tab",
@@ -540,12 +835,12 @@ export class BrowserSidebarService extends EventEmitter {
         canGoForward: false,
         errorMessage: undefined,
       });
-      this.requestDestroyWebview(tab.tabId, "reset");
+      this.requestDestroyWebview(key, "reset");
       return { ok: true, snapshot };
     }
 
     const contents = this.getAttachedWebContents(tab);
-    const snapshot = this.updateTab(tab.tabId, {
+    const snapshot = this.updateTab(key, {
       url,
       pendingUrl: url,
       isLoading: Boolean(contents && !contents.isDestroyed()),
@@ -554,25 +849,25 @@ export class BrowserSidebarService extends EventEmitter {
 
     if (!contents || contents.isDestroyed()) {
       this.logger.info("Browser navigate queued until webview host attaches", {
-        tabId: tab.tabId,
+        ...browserIdentity(tab),
         hasUrl: url.length > 0,
       });
       return { ok: true, snapshot };
     }
 
-    this.logger.info("Browser navigate start", { tabId: tab.tabId, hasUrl: url.length > 0 });
+    this.logger.info("Browser navigate start", { ...browserIdentity(tab), hasUrl: url.length > 0 });
     void Promise.resolve(contents.loadURL(url))
-      .then(() => this.refreshSnapshotFromWebContents(tab.tabId, contents, { pendingUrl: undefined }))
+      .then(() => this.refreshSnapshotFromWebContents(key, contents, { pendingUrl: undefined }))
       .catch((error) => {
         if (isNavigationAbortError(error)) {
-          this.logger.debug("Browser navigate aborted", { tabId: tab.tabId, hasUrl: url.length > 0 });
+          this.logger.debug("Browser navigate aborted", { ...browserIdentity(tab), hasUrl: url.length > 0 });
           return;
         }
         this.logger.warn("Browser navigate failed", {
-          tabId: tab.tabId,
+          ...browserIdentity(tab),
           message: error instanceof Error ? error.message : String(error),
         });
-        this.updateTab(tab.tabId, {
+        this.updateTab(key, {
           isLoading: false,
           pendingUrl: undefined,
           errorMessage: error instanceof Error ? error.message : "Failed to load page",
@@ -583,40 +878,26 @@ export class BrowserSidebarService extends EventEmitter {
 
   private upsertTab(snapshot: BrowserSidebarTabSnapshot): BrowserSidebarTabSnapshot {
     const next = deriveBrowserSnapshot(snapshot);
-    this.tabs.set(next.tabId, next);
+    this.tabs.set(browserTabKey(next), next);
     return next;
   }
 
   private updateTab(
-    tabId: string,
-    patch: Partial<Omit<BrowserSidebarTabSnapshot, "tabId" | "updatedAt">>,
+    key: string,
+    patch: Partial<Omit<
+      BrowserSidebarTabSnapshot,
+      "browserConversationId" | "browserTabId" | "updatedAt"
+    >>,
   ): BrowserSidebarTabSnapshot {
-    const current = this.tabs.get(tabId);
+    const current = this.tabs.get(key);
+    if (!current) throw new Error("Browser tab is not registered");
     const next = {
-      ...(current ?? {
-        tabId,
-        sessionId: "",
-        projectId: "",
-        webContentsId: null,
-        mountGeneration: 0,
-        url: "about:blank",
-        title: "New tab",
-        isLoading: false,
-        canGoBack: false,
-        canGoForward: false,
-        zoomPercent: 100,
-        deviceToolbarVisible: false,
-        viewport: DEFAULT_VIEWPORT,
-        interactionMode: "browse" as const,
-        findState: DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
-        hasBrowserPage: false,
-        pageActionsDisabled: true,
-      }),
+      ...current,
       ...stripUndefinedProperties(patch),
       updatedAt: Date.now(),
     } satisfies BrowserSidebarTabSnapshot;
     const derived = deriveBrowserSnapshot(next);
-    this.tabs.set(tabId, derived);
+    this.tabs.set(key, derived);
     this.emitState();
     return derived;
   }
@@ -626,29 +907,32 @@ export class BrowserSidebarService extends EventEmitter {
     const tab = this.tabs.get(tabId);
     if (tab && tab.webContentsId !== null) {
       this.webContentsTabIds.delete(tab.webContentsId);
+      this.disposeWebContentsListeners(tab.webContentsId);
     }
     this.tabs.delete(tabId);
+    this.deviceToolbarStates.delete(tabId);
     this.emitState();
   }
 
   private attachWebview(event: BrowserSidebarWebviewHostCreated): BrowserSidebarTabSnapshot | null {
-    const current = this.tabs.get(event.tabId);
+    const key = browserTabKey(event);
+    const current = this.tabs.get(key);
     if (!current) return null;
 
-    const existingTabId = this.webContentsTabIds.get(event.webContentsId);
-    if (existingTabId && existingTabId !== event.tabId) {
-      this.detachWebview(existingTabId, event.webContentsId);
+    const existingKey = this.webContentsTabIds.get(event.webContentsId);
+    if (existingKey && existingKey !== key) {
+      this.detachWebview(existingKey, event.webContentsId);
     }
     if (current.webContentsId !== null && current.webContentsId !== event.webContentsId) {
-      this.detachWebview(event.tabId, current.webContentsId);
+      this.detachWebview(key, current.webContentsId);
     }
 
-    this.webContentsTabIds.set(event.webContentsId, event.tabId);
+    this.webContentsTabIds.set(event.webContentsId, key);
     const contents = this.electron.webContents.fromId(event.webContentsId);
-    if (contents) this.ensureWebContentsListeners(event.tabId, event.webContentsId, contents);
+    if (contents) this.ensureWebContentsListeners(key, event.webContentsId, contents);
 
-    this.pendingTeardowns.delete(event.tabId);
-    const snapshot = this.updateTab(event.tabId, {
+    this.pendingTeardowns.delete(key);
+    const snapshot = this.updateTab(key, {
       webContentsId: event.webContentsId,
       mountGeneration: event.mountGeneration,
       url: isBlankBrowserUrl(current.url) ? normalizeBrowserNavigationUrl(event.initialUrl) : current.url,
@@ -656,7 +940,7 @@ export class BrowserSidebarService extends EventEmitter {
       errorMessage: undefined,
     });
     this.logger.info("Browser webview attached", {
-      tabId: event.tabId,
+      ...browserIdentity(event),
       mountGeneration: event.mountGeneration,
       webContentsId: event.webContentsId,
       hostKind: event.hostKind,
@@ -750,7 +1034,10 @@ export class BrowserSidebarService extends EventEmitter {
   private updateTabForWebContents(
     webContentsId: number,
     contents: BrowserWebContentsLike,
-    patch: Partial<Omit<BrowserSidebarTabSnapshot, "tabId" | "updatedAt">>,
+    patch: Partial<Omit<
+      BrowserSidebarTabSnapshot,
+      "browserConversationId" | "browserTabId" | "updatedAt"
+    >>,
   ): BrowserSidebarTabSnapshot | null {
     const tabId = this.webContentsTabIds.get(webContentsId);
     if (!tabId) return null;
@@ -760,7 +1047,10 @@ export class BrowserSidebarService extends EventEmitter {
   private refreshSnapshotFromWebContents(
     tabId: string,
     contents: BrowserWebContentsLike,
-    patch: Partial<Omit<BrowserSidebarTabSnapshot, "tabId" | "updatedAt">> = {},
+    patch: Partial<Omit<
+      BrowserSidebarTabSnapshot,
+      "browserConversationId" | "browserTabId" | "updatedAt"
+    >> = {},
   ): BrowserSidebarTabSnapshot | null {
     const current = this.tabs.get(tabId);
     if (!current) return null;
@@ -810,14 +1100,14 @@ export class BrowserSidebarService extends EventEmitter {
 
     const teardownId = `browser-webview-teardown-${++this.teardownSequence}`;
     const request: BrowserSidebarDestroyWebviewRequest = {
-      tabId,
+      ...browserIdentity(tab),
       mountGeneration: tab.mountGeneration,
       reason,
       teardownId,
     };
     this.pendingTeardowns.set(tabId, request);
     this.logger.info("Browser destroy webview requested", {
-      tabId,
+      ...browserIdentity(tab),
       mountGeneration: tab.mountGeneration,
       reason,
       teardownId,
@@ -878,7 +1168,9 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   private emitLocalServers(projectId: string): void {
-    this.emit("localServers", this.getLocalServersSnapshot(projectId));
+    const state = this.localServersByProject.get(projectId);
+    if (!state) return;
+    this.emit("localServers", this.toLocalServersSnapshot(state));
   }
 
   private async refreshLocalServers(projectId: string): Promise<void> {
@@ -898,6 +1190,7 @@ export class BrowserSidebarService extends EventEmitter {
       id: server.id,
       online: await probeLocalServer(server.origin),
     })));
+    if (this.localServersByProject.get(projectId) !== state) return;
     for (const result of probed) {
       const server = state.servers.get(result.id);
       if (!server) continue;
@@ -918,68 +1211,92 @@ export class BrowserSidebarService extends EventEmitter {
 
   private handleBrowserUseCommand(command: BrowserUseCommand): void {
     if (command.type === "browser-use-upsert-tab") {
-      this.browserUseTabs.set(command.tab.tabId, {
+      const key = browserTabKey(command.tab);
+      this.browserUseTabs.set(key, {
         ...command.tab,
         updatedAt: Date.now(),
       });
-      if (!this.browserUseActiveTabId) this.browserUseActiveTabId = command.tab.tabId;
+      if (!this.browserUseActiveTabIdsByConversation.has(command.tab.browserConversationId)) {
+        this.browserUseActiveTabIdsByConversation.set(
+          command.tab.browserConversationId,
+          command.tab.browserTabId,
+        );
+      }
       this.emitBrowserUseState();
       return;
     }
 
     if (command.type === "browser-use-release-tab") {
-      const tab = this.browserUseTabs.get(command.tabId);
-      if (tab) {
-        this.browserUseTabs.set(command.tabId, { ...tab, released: true, updatedAt: Date.now() });
+      const key = browserTabKey(command);
+      this.browserUseTabs.delete(key);
+      this.browserUseCursors.delete(key);
+      this.browserUseViewportSizes.delete(key);
+      this.browserUseCaptureSurfaces.delete(key);
+      this.deviceToolbarStates.delete(key);
+      if (
+        this.browserUseActiveTabIdsByConversation.get(command.browserConversationId)
+        === command.browserTabId
+      ) {
+        this.browserUseActiveTabIdsByConversation.delete(command.browserConversationId);
       }
-      if (this.browserUseActiveTabId === command.tabId) this.browserUseActiveTabId = null;
-      this.emit("pageReleased", { tabId: command.tabId });
+      this.emit("pageReleased", browserIdentity(command));
       this.emitBrowserUseState();
       return;
     }
 
     if (command.type === "browser-use-set-active-tab") {
-      this.browserUseActiveTabId = command.tabId;
+      if (command.browserTabId === null) {
+        this.browserUseActiveTabIdsByConversation.delete(command.browserConversationId);
+      } else {
+        this.browserUseActiveTabIdsByConversation.set(
+          command.browserConversationId,
+          command.browserTabId,
+        );
+      }
       this.emitBrowserUseState();
       return;
     }
 
     if (command.type === "browser-use-set-cursor") {
-      this.browserUseCursor = command.cursor;
+      this.browserUseCursors.set(browserTabKey(command.cursor), command.cursor);
       this.emit("browserUseCursor", command.cursor);
       this.emitBrowserUseState();
       return;
     }
 
     if (command.type === "browser-use-set-viewport") {
-      const key = command.event.tabId ?? "__global__";
+      const key = browserTabKey(command.event);
       this.browserUseViewportSizes.set(key, command.event);
       this.emit("browserUseViewport", command.event);
       return;
     }
 
     if (command.type === "browser-use-set-capture-surface") {
-      const key = command.event.tabId ?? "__global__";
+      const key = browserTabKey(command.event);
       this.browserUseCaptureSurfaces.set(key, command.event);
       this.emit("browserUseCaptureSurface", command.event);
     }
   }
 
-  private syncBrowserUseViewport(tabId: string, viewport: BrowserSidebarViewport): void {
-    const browserUseTab = this.browserUseTabs.get(tabId);
+  private syncBrowserUseViewport(
+    identity: BrowserSidebarTabIdentity,
+    viewport: BrowserSidebarViewport,
+  ): void {
+    const key = browserTabKey(identity);
+    const browserUseTab = this.browserUseTabs.get(key);
     if (!browserUseTab) return;
-    this.browserUseTabs.set(tabId, {
+    this.browserUseTabs.set(key, {
       ...browserUseTab,
       viewport,
       updatedAt: Date.now(),
     });
     const event: BrowserSidebarBrowserUseViewportEvent = {
-      tabId,
+      ...browserIdentity(identity),
       viewportSize: viewport.width > 0 && viewport.height > 0
         ? { width: viewport.width, height: viewport.height }
         : null,
     };
-    this.browserUseViewportSizes.set(tabId, event);
+    this.browserUseViewportSizes.set(key, event);
     this.emit("browserUseViewport", event);
     this.emitBrowserUseState();
   }

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { CheckmarkIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownItem,
@@ -55,6 +56,7 @@ import { useNfmAutolinkSettings } from "../../lib/use-nfm-autolink-settings";
 import { AppUpdateSettingsControl } from "./app-update-settings-control";
 import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-page";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
+import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
 import {
   DEFAULT_DESCRIPTION_SOFT_LIMIT,
   DEFAULT_TEXT_PROMPT_CHAR_THRESHOLD,
@@ -74,6 +76,7 @@ import { useThreadNotificationSettings } from "../../lib/use-thread-notification
 import { useWindowRestoreSettings } from "../../lib/use-window-restore-settings";
 import { isDiagnosticsSettings } from "../../../shared/diagnostics/diagnostics-settings";
 import { isTelemetrySettings } from "../../../shared/diagnostics/telemetry-settings";
+import { isCodexGitSettings } from "../../../shared/codex-git-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
   BackupRecord,
@@ -87,6 +90,7 @@ import type {
   UpdateTelemetrySettingsInput,
   WorktreeStartMode,
   CodexPermissionState,
+  CodexGitSettings,
   CodexThreadDetailLevel,
   ThreadNotificationTurnMode,
   WindowRestorePolicy,
@@ -1201,9 +1205,11 @@ function WorktreeStartModeSettingControl({
 }
 
 function WorktreeAutoBranchPrefixSettingControl({
+  disabled = false,
   value,
   onChange,
 }: {
+  disabled?: boolean;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -1214,8 +1220,9 @@ function WorktreeAutoBranchPrefixSettingControl({
   }, [value]);
 
   const commit = useCallback(() => {
+    if (disabled) return;
     onChange(draft);
-  }, [draft, onChange]);
+  }, [disabled, draft, onChange]);
 
   return (
     <Input
@@ -1231,10 +1238,11 @@ function WorktreeAutoBranchPrefixSettingControl({
         event.currentTarget.blur();
       }}
       spellCheck={false}
+      disabled={disabled}
       autoCapitalize="none"
       autoCorrect="off"
       placeholder={DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX}
-      aria-label="Auto branch prefix"
+      aria-label="Branch prefix"
       className="h-8 w-52 px-2 text-sm"
     />
   );
@@ -1995,6 +2003,8 @@ interface SettingsSectionPageProps extends Pick<
 > {
   isMacPlatform: boolean;
   open: boolean;
+  path: string;
+  onPathChange: (path: string) => void;
 }
 
 function GeneralSettingsPage({
@@ -2395,10 +2405,8 @@ function CardSettingsPage() {
 }
 
 function WorktreesSettingsPage({
-  onWorktreeAutoBranchPrefixChange,
   onWorktreeStartModeChange,
   open,
-  worktreeAutoBranchPrefix,
   worktreeStartMode,
 }: SettingsSectionPageProps) {
   return (
@@ -2416,15 +2424,6 @@ function WorktreesSettingsPage({
             onChange={onWorktreeStartModeChange}
           />
         </SettingRow>
-        <SettingRow
-          label="Auto branch prefix"
-          description="Prefix prepended to auto branch names before the thread slug."
-        >
-          <WorktreeAutoBranchPrefixSettingControl
-            value={worktreeAutoBranchPrefix}
-            onChange={onWorktreeAutoBranchPrefixChange}
-          />
-        </SettingRow>
       </SectionBlock>
       <SectionBlock title="Managed worktrees">
         <div className="flex flex-col gap-1 p-3">
@@ -2437,6 +2436,176 @@ function WorktreesSettingsPage({
           <ManagedWorktreesSettingControl open={open} />
         </div>
       </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+function GitInstructionSettingControl({
+  ariaLabel,
+  description,
+  label,
+  onSave,
+  placeholder,
+  value,
+}: {
+  ariaLabel: string;
+  description: string;
+  label: string;
+  onSave: (value: string) => Promise<void>;
+  placeholder: string;
+  value: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setDraft(value), [value]);
+
+  const changed = draft !== value;
+  const save = useCallback(async () => {
+    if (!changed || saving) return;
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } finally {
+      setSaving(false);
+    }
+  }, [changed, draft, onSave, saving]);
+
+  return (
+    <SectionBlock title={label}>
+      <div className="flex items-start justify-between gap-4 p-3 pb-0">
+        <p className="text-sm text-token-text-secondary">{description}</p>
+        <NodexButton
+          variant="secondary"
+          size="sm"
+          disabled={!changed || saving}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save"}
+        </NodexButton>
+      </div>
+      <div className="p-3 pt-2">
+        <textarea
+          aria-label={ariaLabel}
+          className="mt-1.5 w-full resize-y rounded-md border border-token-input-border bg-token-input-background px-2.5 py-2 text-sm text-token-input-foreground outline-none placeholder:text-token-input-placeholder-foreground focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={placeholder}
+          rows={6}
+          value={draft}
+        />
+      </div>
+    </SectionBlock>
+  );
+}
+
+function GitSettingsPage({
+  onWorktreeAutoBranchPrefixChange,
+  open,
+  worktreeAutoBranchPrefix,
+}: SettingsSectionPageProps) {
+  const [settings, setSettings] = useState<CodexGitSettings>({
+    branchPrefix: worktreeAutoBranchPrefix,
+    commitInstructions: "",
+    pullRequestInstructions: "",
+  });
+  const [branchSaving, setBranchSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let disposed = false;
+    void invoke("settings:git:get")
+      .then((next) => {
+        if (disposed) return;
+        if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+        setSettings((current) =>
+          current.branchPrefix === next.branchPrefix
+            && current.commitInstructions === next.commitInstructions
+            && current.pullRequestInstructions === next.pullRequestInstructions
+            ? current
+            : next
+        );
+      })
+      .catch(() => {
+        if (!disposed) toast.danger("Failed to load Git settings");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [open]);
+
+  const saveBranchPrefix = useCallback(async (branchPrefix: string) => {
+    if (branchSaving) return;
+    setBranchSaving(true);
+    try {
+      const next = await invoke("settings:git:update", { branchPrefix });
+      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+      setSettings(next);
+      onWorktreeAutoBranchPrefixChange(next.branchPrefix);
+      toast.success("Saved branch prefix");
+    } catch {
+      toast.danger("Failed to save branch prefix");
+    } finally {
+      setBranchSaving(false);
+    }
+  }, [branchSaving, onWorktreeAutoBranchPrefixChange]);
+
+  const saveInstructions = useCallback(async (
+    patch: Pick<CodexGitSettings, "commitInstructions"> | Pick<CodexGitSettings, "pullRequestInstructions">,
+    successMessage: string,
+    errorMessage: string,
+  ) => {
+    try {
+      const next = await invoke("settings:git:update", patch);
+      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+      setSettings(next);
+      toast.success(successMessage);
+    } catch {
+      toast.danger(errorMessage);
+    }
+  }, []);
+
+  return (
+    <SettingsPageSurface
+      title="Git"
+      subtitle="Branch naming and instructions used by Codex for Git operations."
+    >
+      <SectionBlock title="Branches">
+        <SettingRow
+          label="Branch prefix"
+          description="Prefix used when Codex creates new branches."
+        >
+          <WorktreeAutoBranchPrefixSettingControl
+            disabled={branchSaving}
+            value={settings.branchPrefix}
+            onChange={(branchPrefix) => void saveBranchPrefix(branchPrefix)}
+          />
+        </SettingRow>
+      </SectionBlock>
+      <GitInstructionSettingControl
+        ariaLabel="Commit instructions"
+        description="Added to commit message generation prompts."
+        label="Commit instructions"
+        onSave={(commitInstructions) => saveInstructions(
+          { commitInstructions },
+          "Saved commit instructions",
+          "Failed to save commit instructions",
+        )}
+        placeholder="Add commit message guidance…"
+        value={settings.commitInstructions}
+      />
+      <GitInstructionSettingControl
+        ariaLabel="Pull request instructions"
+        description="Added to PR title and description generation prompts."
+        label="Pull request instructions"
+        onSave={(pullRequestInstructions) => saveInstructions(
+          { pullRequestInstructions },
+          "Saved pull request instructions",
+          "Failed to save pull request instructions",
+        )}
+        placeholder="Add pull request guidance…"
+        value={settings.pullRequestInstructions}
+      />
     </SettingsPageSurface>
   );
 }
@@ -2505,8 +2674,10 @@ const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<Setti
   agent: AgentSettingsPage,
   editor: EditorSettingsPage,
   card: CardSettingsPage,
+  git: GitSettingsPage,
   worktrees: WorktreesSettingsPage,
   "local-environments": LocalEnvironmentsSettingsSectionPage,
+  "hooks-settings": WorkbenchHooksSettingsPage,
   backups: BackupsSettingsPage,
 };
 
@@ -2706,6 +2877,8 @@ export function SettingsRouteShell({
           ) : (
             <ActiveSectionComponent
               open={true}
+              path={path}
+              onPathChange={onPathChange}
               isMacPlatform={isMacPlatform}
               projects={projects}
               activeProjectId={activeProjectId}

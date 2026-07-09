@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
 import { installElementScrollHeight, installMeasuredResizeObserver } from "../../../../test/browser-globals";
-import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { render as renderWithoutTooltip, settleAsyncRender, textContent } from "../../../../test/dom";
 import type {
   CodexMultiAgentActionName,
   CodexMultiAgentActionStatus,
@@ -10,6 +12,24 @@ import type {
 } from "../../../../../shared/codex-transcript-special-items";
 import type { ThreadOpenThreadContext } from "../../thread-stage-types";
 import { MultiAgentActionSurface } from "./multi-agent-action-surface";
+
+function render(ui: ReactElement) {
+  return renderWithoutTooltip(<TooltipProvider>{ui}</TooltipProvider>);
+}
+
+function activityHeaderText(element: HTMLElement): string {
+  const accessible = element.cloneNode(true) as HTMLElement;
+  for (const hidden of accessible.querySelectorAll('[aria-hidden="true"]')) {
+    hidden.remove();
+  }
+  return textContent(accessible);
+}
+
+function multiAgentDisclosureButton(header: HTMLElement): HTMLButtonElement {
+  const button = header.querySelector("button");
+  if (!button) throw new Error("Expected the multi-agent disclosure button");
+  return button;
+}
 
 function buildMultiAgentItem(overrides?: Partial<CodexConversationItem>): CodexConversationItem {
   return {
@@ -110,7 +130,7 @@ describe("MultiAgentActionSurface", () => {
     expect(textContent(header).includes("an agent")).toBe(true);
     expect(Boolean(container.querySelector('[data-subagent-glyph-icon="true"]'))).toBe(true);
 
-    fireEvent.click(header);
+    fireEvent.click(multiAgentDisclosureButton(header));
     await settleAsyncRender();
 
     const rows = getByTestId("multi-agent-action-rows");
@@ -119,7 +139,7 @@ describe("MultiAgentActionSurface", () => {
     expect(Boolean(container.querySelector('[style*="pointer-events: auto"]'))).toBe(true);
   });
 
-  test("keeps in-progress actions open without rendering wait-only entries", () => {
+  test("keeps in-progress actions collapsed but expandable without rendering wait-only entries", async () => {
     const inProgressItem = buildMultiAgentItem({
       status: "inProgress",
       rawItem: {
@@ -148,12 +168,21 @@ describe("MultiAgentActionSurface", () => {
       },
     });
 
-    const { container } = render(<MultiAgentActionSurface items={[inProgressItem, waitItem]} />);
+    const { container, getByTestId } = render(<MultiAgentActionSurface items={[inProgressItem, waitItem]} />);
     const content = textContent(container);
     expect(content.includes("Creating")).toBe(true);
     expect(content.includes("2 agents")).toBe(true);
     expect(content.includes("Created")).toBe(false);
     expect(content.includes("Waiting")).toBe(false);
+    const headerButton = multiAgentDisclosureButton(getByTestId("multi-agent-action-header"));
+    expect(headerButton.getAttribute("aria-expanded")).toBe("false");
+    expect(getByTestId("multi-agent-action-rows").parentElement?.style.visibility).toBe("hidden");
+
+    fireEvent.click(headerButton);
+    await settleAsyncRender();
+
+    expect(headerButton.getAttribute("aria-expanded")).toBe("true");
+    expect(getByTestId("multi-agent-action-rows").parentElement?.style.visibility).toBe("visible");
   });
 
   test("uses Electron header grammar and count labels", () => {
@@ -188,7 +217,7 @@ describe("MultiAgentActionSurface", () => {
           ]}
         />,
       );
-      expect(textContent(getByTestId("multi-agent-action-header"))).toBe(testCase.expected);
+      expect(activityHeaderText(getByTestId("multi-agent-action-header"))).toBe(testCase.expected);
       unmount();
     }
   });
@@ -212,7 +241,7 @@ describe("MultiAgentActionSurface", () => {
         ]}
       />,
     );
-    expect(textContent(getLiveHeader("multi-agent-action-header"))).toBe("Messaging 2 agents");
+    expect(activityHeaderText(getLiveHeader("multi-agent-action-header"))).toBe("Messaging 2 agents");
     unmountLiveHeader();
 
     const { getByTestId: getFailedHeader } = render(
@@ -260,7 +289,7 @@ describe("MultiAgentActionSurface", () => {
       />,
     );
 
-    fireEvent.click(getByTestId("multi-agent-action-header"));
+    fireEvent.click(multiAgentDisclosureButton(getByTestId("multi-agent-action-header")));
     await settleAsyncRender();
 
     const rows = getByTestId("multi-agent-action-rows");
@@ -283,7 +312,7 @@ describe("MultiAgentActionSurface", () => {
       />,
     );
 
-    fireEvent.click(getByTestId("multi-agent-action-header"));
+    fireEvent.click(multiAgentDisclosureButton(getByTestId("multi-agent-action-header")));
     await settleAsyncRender();
 
     const agentButton = getByRole("button", { name: "research" });
@@ -332,7 +361,7 @@ describe("MultiAgentActionSurface", () => {
       />,
     );
 
-    fireEvent.click(getByTestId("multi-agent-action-header"));
+    fireEvent.click(multiAgentDisclosureButton(getByTestId("multi-agent-action-header")));
     await settleAsyncRender();
 
     const content = textContent(container);
@@ -399,7 +428,7 @@ describe("MultiAgentActionSurface", () => {
       />,
     );
 
-    fireEvent.click(getByTestId("multi-agent-action-header"));
+    fireEvent.click(multiAgentDisclosureButton(getByTestId("multi-agent-action-header")));
     await settleAsyncRender();
 
     const content = textContent(container);
@@ -450,7 +479,7 @@ describe("MultiAgentActionSurface", () => {
       />,
     );
 
-    fireEvent.click(getByTestId("multi-agent-action-header"));
+    fireEvent.click(multiAgentDisclosureButton(getByTestId("multi-agent-action-header")));
     await settleAsyncRender();
 
     const content = textContent(container);
@@ -495,7 +524,7 @@ describe("MultiAgentActionSurface", () => {
       />,
     );
 
-    fireEvent.click(getByTestId("multi-agent-action-header"));
+    fireEvent.click(multiAgentDisclosureButton(getByTestId("multi-agent-action-header")));
     await settleAsyncRender();
 
     const agentButtons = getAllByRole("button", { name: "research" });
@@ -560,7 +589,7 @@ describe("MultiAgentActionSurface", () => {
         />,
       );
 
-      fireEvent.click(view.getByTestId("multi-agent-action-header"));
+      fireEvent.click(multiAgentDisclosureButton(view.getByTestId("multi-agent-action-header")));
       await settleAsyncRender();
       fireEvent.click(view.getByRole("button", { name: "research" }));
 
@@ -597,7 +626,7 @@ describe("MultiAgentActionSurface", () => {
 
     expect(textContent(getByTestId("multi-agent-action-header"))).toBe("Failed to close an agent");
 
-    fireEvent.click(getByTestId("multi-agent-action-header"));
+    fireEvent.click(multiAgentDisclosureButton(getByTestId("multi-agent-action-header")));
     await settleAsyncRender();
 
     expect(textContent(getByTestId("multi-agent-action-rows"))).toBe("Failed closing");

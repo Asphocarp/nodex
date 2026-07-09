@@ -92,6 +92,7 @@ function viewContainerHost() {
 const browserTab: ProjectSessionTab = {
   id: "tab-browser",
   sessionId: "session-1",
+  browserTabId: "tab-browser",
   projectId: "alpha",
   panelId: "right",
   kind: "browser",

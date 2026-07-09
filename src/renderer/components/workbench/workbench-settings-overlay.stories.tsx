@@ -179,10 +179,20 @@ function ensureStorybookElectronBridge({
     customDescription: null,
   };
   let commandKeybindingOverrides: CommandKeybindingOverrides = { ...initialCommandKeybindingOverrides };
+  let gitSettings = {
+    branchPrefix: "codex/",
+    commitInstructions: "Keep commits focused and use imperative subjects.",
+    pullRequestInstructions: "Summarize validation and link the relevant issue.",
+  };
 
   window.api = {
     invoke: async (channel: string, ...args: unknown[]) => {
       switch (channel) {
+        case "settings:git:get":
+          return gitSettings;
+        case "settings:git:update":
+          gitSettings = { ...gitSettings, ...(args[0] as Partial<typeof gitSettings>) };
+          return gitSettings;
         case "settings:thread-notifications:get":
           return {
             turnMode: "unfocused",
@@ -469,7 +479,7 @@ function SettingsRouteShellStory({
         onComposerEnterBehaviorChange={() => {}}
         worktreeStartMode="autoBranch"
         onWorktreeStartModeChange={() => {}}
-        worktreeAutoBranchPrefix="nodex/"
+        worktreeAutoBranchPrefix="codex/"
         onWorktreeAutoBranchPrefixChange={() => {}}
         smartPrefixParsingEnabled={true}
         onSmartPrefixParsingEnabledChange={() => {}}
@@ -581,6 +591,10 @@ export const KeyboardShortcutsCustomState: Story = {
 
 export const Backups: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("backups")} />,
+};
+
+export const Git: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("git")} />,
 };
 
 export const InvalidSectionRedirect: Story = {

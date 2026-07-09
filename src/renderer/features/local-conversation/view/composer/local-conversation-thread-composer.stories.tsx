@@ -246,6 +246,7 @@ function buildActions(): ThreadStageActions {
     onCollaborationModeChange: () => { },
     onModelChange: () => { },
     onReasoningEffortChange: () => { },
+    onPersonalityChange: () => { },
     onPermissionModeChange: () => { },
     onQueueingEnabledChange: () => { },
     onRefreshAccount: async () => {
@@ -685,7 +686,7 @@ export const NewThreadGoalDraft: Story = {
     docs: {
       description: {
         story:
-          "New-thread Goal draft. Submitting starts the thread with the objective as the first prompt and carries `threadGoalDraft` for the post-create goal set.",
+          "New-thread Goal draft. Submitting prepares the objective and attachments for the selected local or worktree start target.",
       },
     },
   },

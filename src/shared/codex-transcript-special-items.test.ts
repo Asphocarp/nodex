@@ -85,7 +85,7 @@ describe("codex-transcript-special-items", () => {
     expect(buildAutomaticApprovalReviewTitle({ status: "aborted", riskLevel: null })).toBe("Auto-review stopped");
 
     expect(buildAutomaticApprovalReviewSummary({ status: "timedOut", rationale: null }))
-      .toBe("A carefully prompted reviewer agent timed out before Codex ran this request.");
+      .toBe("A carefully prompted reviewer agent timed out before ChatGPT ran this request");
   });
 
   test("formats automatic approval review action summaries from guardian protocol actions", () => {

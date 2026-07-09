@@ -36,6 +36,7 @@ function buildConversation(
       canCollapseTurns: true,
     },
     ...overrides,
+    hasUnreadTurn: overrides?.hasUnreadTurn ?? false,
   };
 }
 

@@ -12,8 +12,8 @@ import { animate, motion, useMotionValue, useReducedMotion, type MotionValue } f
 import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type { VisibleConversationTurnEntry } from "../selectors";
-import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import type {
+  ThreadComposerShellBackgroundAgentRowModel,
   ThreadPlanSidePanelState,
   ThreadStageActions,
 } from "../thread-stage-types";
@@ -138,14 +138,7 @@ function resolveBaseDistanceWithLatestTurnDelta(input: {
 export type LocalConversationVirtualizedTurnTargetResolver =
   (turnElement: HTMLElement) => HTMLElement | null;
 
-export interface LocalConversationVirtualizedTurnListEntry {
-  turn: VisibleConversationTurnEntry["turn"];
-  turnId: string;
-  turnKey: string;
-  turnSearchKey: string;
-  requests: CodexTurnScopedConversationRequest[];
-  isMostRecentTurn: boolean;
-}
+export type LocalConversationVirtualizedTurnListEntry = VisibleConversationTurnEntry;
 
 export interface LocalConversationVirtualizedTurnListApi {
   scrollToKey: (
@@ -160,6 +153,7 @@ interface LocalConversationVirtualizedTurnListProps {
   entries: LocalConversationVirtualizedTurnListEntry[];
   conversationId: string;
   childMemberships?: readonly CodexConversationChildMembership[];
+  backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   threadCwd: string | null;
   projectWorkspacePath?: string | null;
   editableTurnId: string | null;
@@ -267,6 +261,7 @@ interface MeasuredTurnProps {
   entry: LocalConversationVirtualizedTurnListEntry;
   conversationId: string;
   childMemberships?: readonly CodexConversationChildMembership[];
+  backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   threadCwd: string | null;
   projectWorkspacePath?: string | null;
   persistedCollapsed?: boolean;
@@ -304,6 +299,7 @@ function MeasuredTurnComponent({
   entry,
   conversationId,
   childMemberships,
+  backgroundAgentRows,
   threadCwd,
   projectWorkspacePath,
   persistedCollapsed,
@@ -356,14 +352,12 @@ function MeasuredTurnComponent({
       <LocalConversationTurnEntry
         conversationId={conversationId}
         childMemberships={childMemberships}
-        turnSearchKey={entry.turnSearchKey}
-        turn={entry.turn}
-        requests={entry.requests}
+        backgroundAgentRows={backgroundAgentRows}
+        entry={entry}
         cwd={threadCwd}
-        isMostRecentTurn={entry.isMostRecentTurn}
         persistedCollapsed={persistedCollapsed}
         onSetCollapsed={(collapsed) => {
-          onSetTurnCollapsed(entry.turnId, collapsed);
+          onSetTurnCollapsed(entry.turnKey, collapsed);
         }}
         canEditTurnUserPrefix={canEditTurnUserPrefix}
         canForkTurn={canForkTurn}
@@ -400,6 +394,7 @@ const MeasuredTurn = memo(
   (left, right) =>
     left.entry === right.entry
     && left.conversationId === right.conversationId
+    && left.backgroundAgentRows === right.backgroundAgentRows
     && left.threadCwd === right.threadCwd
     && left.projectWorkspacePath === right.projectWorkspacePath
     && left.persistedCollapsed === right.persistedCollapsed
@@ -428,6 +423,7 @@ function LocalConversationVirtualizedTurnListCore({
   entries,
   conversationId,
   childMemberships,
+  backgroundAgentRows,
   threadCwd,
   projectWorkspacePath,
   editableTurnId,
@@ -1246,10 +1242,11 @@ function LocalConversationVirtualizedTurnListCore({
               entry={entry}
               conversationId={conversationId}
               childMemberships={childMemberships}
+              backgroundAgentRows={backgroundAgentRows}
               threadCwd={threadCwd}
               projectWorkspacePath={projectWorkspacePath}
-              persistedCollapsed={collapsedAgentBodyByTurnId[entry.turnId]}
-              canEditTurnUserPrefix={editableTurnId === entry.turnId}
+              persistedCollapsed={collapsedAgentBodyByTurnId[entry.turnKey]}
+              canEditTurnUserPrefix={entry.turnId !== null && editableTurnId === entry.turnId}
               canForkTurn={canForkFromTurn && entry.turn.status !== "inProgress"}
               onSetTurnCollapsed={onSetTurnCollapsed}
               onEditLastTurnMessage={onEditLastTurnMessage}

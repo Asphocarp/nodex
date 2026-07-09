@@ -10,15 +10,19 @@ import { ReasoningSurface } from "./reasoning-surface";
 import { TodoListSurface } from "./todo-list-surface";
 import {
   ThreadAssistantBodyBlock,
-  ThreadExplorationGroupBlock,
   ThreadContextCompactionBlock,
+  ThreadGeneratedImageGalleryBlock,
+  ThreadImageViewBlock,
+  ThreadMcpServerElicitationBlock,
   ThreadPlanCardBlock,
+  ThreadSubagentActivityInlineGroupBlock,
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
   ThreadSystemBannerBlock,
+  ThreadUserBubbleBlock,
 } from "../blocks/local-conversation-block-leaves";
 import { buildRendererItemStream } from "../../projection/build-renderer-item-stream";
-import type { ThreadExplorationGroupBlockModel, ThreadTranscriptBlockModel } from "../../thread-stage-types";
+import type { ThreadTranscriptBlockModel } from "../../thread-stage-types";
 
 function StorySurface({
   title,
@@ -122,6 +126,47 @@ function buildSpecialTranscriptBlock(entry: CodexConversationItem): ThreadTransc
   return block;
 }
 
+function buildSubagentActivityStoryBlock(): ThreadTranscriptBlockModel {
+  const entries = [
+    ["scout", "Scout", "active"],
+    ["reviewer", "Reviewer", "updated"],
+    ["builder", "Builder", "active"],
+    ["tester", "Tester", "interrupted"],
+  ].map(([id, displayName, displayStatus], index): CodexConversationItem => ({
+    threadId: "thread_story",
+    turnId: "turn_subagent_activity",
+    itemId: `subagent_activity_${id}`,
+    entryId: `subagent_activity_${id}`,
+    type: "subAgentActivity",
+    kind: "systemEvent",
+    semanticKind: "subAgentActivity",
+    status: "completed",
+    subagentActivity: {
+      agentThreadId: `thread_${id}`,
+      displayName,
+      displayStatus: displayStatus as "active" | "updated" | "interrupted",
+    },
+    rawItem: {
+      id: `subagent_activity_${id}`,
+      type: "subAgentActivity",
+      kind: displayStatus === "interrupted"
+        ? "interrupted"
+        : displayStatus === "updated"
+          ? "interacted"
+          : "started",
+      agentThreadId: `thread_${id}`,
+      agentPath: `agents/${displayName}`,
+    },
+    createdAt: index + 1,
+    updatedAt: index + 1,
+  }));
+  const block = buildRendererItemStream({ entries, requests: [] })[0];
+  if (!block || !("entry" in block)) {
+    throw new Error("Expected consecutive subagent activity to project into an inline group.");
+  }
+  return block;
+}
+
 const meta = {
   title: "Workbench/Threads/Transcript Specials",
   component: StorySurface,
@@ -204,82 +249,6 @@ export const CompletedLatestAssistantStatic: Story = {
       </ConversationStorySurface>
     </StorySurface>
   ),
-};
-
-export const ExplorationStreaming: Story = {
-  render: () => {
-    const block: ThreadExplorationGroupBlockModel = {
-      id: "exploration_story_streaming",
-      turnId: "turn_story_streaming",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "exploration",
-      type: "explorationGroup",
-      summary: "Exploration",
-      status: "inProgress",
-      entries: [
-        {
-          threadId: "thread_story",
-          turnId: "turn_story_streaming",
-          itemId: "exec_story_streaming",
-          type: "command_execution",
-          kind: "commandExecution",
-          semanticKind: "exec",
-          status: "completed",
-          command:
-            "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
-          commandActions: [
-            {
-              type: "read",
-              command:
-                "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
-              name: "thread-transcript-specials.stories.tsx",
-              path: "src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
-            },
-          ],
-          aggregatedOutput: "import type { Meta, StoryObj } from \"@storybook/react-vite\";",
-          createdAt: 1,
-          updatedAt: 1,
-          toolCall: {
-            subtype: "command",
-            toolName: "exec_command",
-            args: {
-              command:
-                "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
-            },
-            result: "import type { Meta, StoryObj } from \"@storybook/react-vite\";",
-          },
-        },
-        {
-          threadId: "thread_story",
-          turnId: "turn_story_streaming",
-          itemId: "reasoning_story_streaming",
-          type: "reasoning",
-          kind: "reasoning",
-          semanticKind: "reasoning",
-          status: "inProgress",
-          createdAt: 2,
-          updatedAt: 2,
-          markdownText: "Checking whether the exploration accordion replaces the Thinking placeholder.",
-        },
-      ],
-    };
-
-    return (
-      <StorySurface
-        title="Exploration Streaming"
-        description="Active exploration clusters should render as Exploring in preview mode and replace the Thinking placeholder while the turn is still live."
-      >
-        <ElectronDarkThreadStorySurface>
-          <ThreadExplorationGroupBlock
-            block={block}
-            isLatestTurn
-            isStreamingTurn
-          />
-        </ElectronDarkThreadStorySurface>
-      </StorySurface>
-    );
-  },
 };
 
 export const WritingPlanStreaming: Story = {
@@ -565,15 +534,15 @@ export const TodoListCollapsed: Story = {
   ),
 };
 
-export const AutomaticApprovalReviewCompleted: Story = {
+export const AutomaticApprovalReviewDenied: Story = {
   render: () => (
     <StorySurface
-      title="Automatic Approval Review Completed"
-      description="Standalone automatic approval review items render an action summary activity, with the compact review row nested inside."
+      title="Automatic Approval Review Denied"
+      description="Denied automatic approval reviews are standalone action-summary disclosures with the compact review row nested inside."
     >
       <ConversationStorySurface>
         <AutomaticApprovalReviewSurface
-          item={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.automaticApprovalReviewCompleted}
+          item={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.automaticApprovalReviewDenied}
         />
       </ConversationStorySurface>
     </StorySurface>
@@ -669,7 +638,7 @@ export const AutomaticApprovalReviewInProgress: Story = {
   render: () => (
     <StorySurface
       title="Automatic Approval Review In Progress"
-      description="The in-progress standalone review keeps the reviewed action in the activity header and nests the reviewing row in the body."
+      description="The groupable in-progress review leaf keeps the reviewed action in the activity header and nests the reviewing row in the body."
     >
       <ConversationStorySurface>
         <AutomaticApprovalReviewSurface
@@ -729,7 +698,7 @@ export const MultiAgentActionInProgress: Story = {
   render: () => (
     <StorySurface
       title="Multi-Agent Action In Progress"
-      description="Live background agent activity remains open and keeps the same measured Codex-style transcript lane while work is still running."
+      description="Live background agent activity keeps a shimmering collapsed header and remains user-expandable while work is still running."
     >
       <ConversationStorySurface>
         <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentInProgress} onOpenThread={openStoryAgentThread} />
@@ -761,6 +730,195 @@ export const MultiAgentActionPromptMetadata: Story = {
         <AutoOpenSurface>
           <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentPromptMetadata} onOpenThread={openStoryAgentThread} />
         </AutoOpenSurface>
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const SubagentActivityCompactGroup: Story = {
+  render: () => (
+    <StorySurface
+      title="Subagent Activity Compact Group"
+      description="Consecutive subagent updates render as at most three inline identicon chips followed by the hidden-agent count and shared status."
+    >
+      <ConversationStorySurface>
+        <ThreadSubagentActivityInlineGroupBlock
+          block={buildSubagentActivityStoryBlock()}
+          isLatestTurn
+          isStreamingTurn={false}
+          onOpenThread={openStoryAgentThread}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const HookFeedbackMessage: Story = {
+  render: () => (
+    <StorySurface
+      title="Hook Feedback Message"
+      description="A Stop hook follow-up remains a user-message row and carries its dedicated Hook feedback status."
+    >
+      <ConversationStorySurface>
+        <ThreadUserBubbleBlock
+          block={buildSpecialTranscriptBlock({
+            threadId: "thread-story",
+            turnId: "turn-hook-feedback",
+            itemId: "hook-feedback-story",
+            type: "hookPrompt",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            markdownText: "Please include the failing boundary case in the verification.",
+            hookFeedback: true,
+            createdAt: 1,
+            updatedAt: 1,
+          })}
+          isLatestTurn
+          isStreamingTurn={false}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const InspectedImages: Story = {
+  render: () => {
+    const firstImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Crect width='240' height='160' fill='%232b6cb0'/%3E%3C/svg%3E";
+    const secondImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Crect width='240' height='160' fill='%23c05621'/%3E%3C/svg%3E";
+    const entry: CodexConversationItem = {
+      threadId: "thread-story",
+      turnId: "turn-image-view",
+      itemId: "image-view-story",
+      type: "imageView",
+      kind: "systemEvent",
+      semanticKind: "imageView",
+      status: "completed",
+      imageViewPaths: [firstImage, secondImage],
+      rawItem: { id: "image-view-story", type: "imageView", path: firstImage },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const block = buildSpecialTranscriptBlock(entry);
+    return (
+      <StorySurface
+        title="Inspected Images"
+        description="One consecutive raw image-view run stays one disclosure and opens its ordered paths as a navigable thumbnail strip."
+      >
+        <ConversationStorySurface>
+          <AutoOpenSurface>
+            <ThreadImageViewBlock block={block} isLatestTurn isStreamingTurn={false} />
+          </AutoOpenSurface>
+        </ConversationStorySurface>
+      </StorySurface>
+    );
+  },
+};
+
+export const GeneratedImageOutputs: Story = {
+  render: () => {
+    const firstImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='420'%3E%3Cdefs%3E%3ClinearGradient id='g' x2='1' y2='1'%3E%3Cstop stop-color='%23132238'/%3E%3Cstop offset='1' stop-color='%2350a0a8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='420' fill='url(%23g)'/%3E%3C/svg%3E";
+    const secondImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Crect width='420' height='420' fill='%23b96238'/%3E%3C/svg%3E";
+    return (
+      <StorySurface
+        title="Generated Image Outputs"
+        description="Completed generated images resolve preview/full/download assets independently beside the active turn-output placeholder. Click the first preview to inspect its distinct full asset."
+      >
+        <ConversationStorySurface>
+          <ThreadGeneratedImageGalleryBlock
+            block={{
+              id: "turn-generated-images:generated-image-gallery",
+              turnId: "turn-generated-images",
+              createdAt: 1,
+              updatedAt: 3,
+              searchableText: "",
+              type: "generatedImageGallery",
+              images: [
+                { id: "generated-image-1", previewSrc: firstImage, src: secondImage },
+                { id: "generated-image-2", src: secondImage },
+              ],
+              pendingImageCount: 1,
+            }}
+            isLatestTurn
+            isStreamingTurn
+          />
+        </ConversationStorySurface>
+      </StorySurface>
+    );
+  },
+};
+
+export const CompletedMcpElicitation: Story = {
+  render: () => (
+    <StorySurface
+      title="Completed MCP Elicitation"
+      description="Completed MCP permission requests render as the same collapsed question-and-answer activity used in the thread body."
+    >
+      <ConversationStorySurface>
+        <AutoOpenSurface>
+          <ThreadMcpServerElicitationBlock
+            block={buildSpecialTranscriptBlock({
+              threadId: "thread-story",
+              turnId: "turn-mcp-elicitation",
+              itemId: "mcp-elicitation-story",
+              type: "mcpServerElicitation",
+              kind: "systemEvent",
+              semanticKind: "mcpServerElicitation",
+              status: "completed",
+              rawItem: {
+                type: "mcpServerElicitation",
+                completed: true,
+                requestId: "mcp-elicitation-request-story",
+                action: "accept",
+                elicitation: {
+                  kind: "mcpToolCall",
+                  message: "Allow the connector to read the selected project?",
+                },
+              },
+              createdAt: 1,
+              updatedAt: 1,
+            })}
+            isLatestTurn
+            isStreamingTurn={false}
+          />
+        </AutoOpenSurface>
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const UnsupportedMcpElicitationHidden: Story = {
+  render: () => (
+    <StorySurface
+      title="Unsupported MCP Elicitation Hidden"
+      description="The exact Pp branch treats a completed unsupported OpenAI form as hidden: this story intentionally has no product transcript row."
+    >
+      <ConversationStorySurface>
+        <ThreadMcpServerElicitationBlock
+          block={buildSpecialTranscriptBlock({
+            threadId: "thread-story",
+            turnId: "turn-mcp-elicitation-unsupported",
+            itemId: "mcp-elicitation-unsupported-story",
+            type: "mcpServerElicitation",
+            kind: "systemEvent",
+            semanticKind: "mcpServerElicitation",
+            status: "completed",
+            rawItem: {
+              type: "mcpServerElicitation",
+              completed: true,
+              requestId: "mcp-elicitation-unsupported-request-story",
+              action: "decline",
+              elicitation: {
+                kind: "unsupportedOpenAIForm",
+                serverName: "example-server",
+              },
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          })}
+          isLatestTurn
+          isStreamingTurn={false}
+        />
       </ConversationStorySurface>
     </StorySurface>
   ),

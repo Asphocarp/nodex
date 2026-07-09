@@ -2,6 +2,7 @@ import type {
   CodexThreadDetailLevel,
   CodexPermissionRequest,
   CodexPermissionRequestResponse,
+  CodexProtocolRequestId,
 } from "../../../../../lib/types";
 import type { ReactNode } from "react";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
@@ -19,10 +20,11 @@ import {
   type CodexPermissionRequestFileSystemAccess,
   type CodexPermissionRequestTitleModel,
 } from "../../../../../../shared/codex-permission-request";
+import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/codex-conversation-state/codex-conversation-state";
 
 interface CodexPermissionRequestCardProps {
   request: CodexPermissionRequest;
-  onRespond: (requestId: string, response: CodexPermissionRequestResponse) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, response: CodexPermissionRequestResponse) => Promise<void>;
   onSubmitLocalFollowup?: (prompt: string) => Promise<void>;
 }
 
@@ -60,6 +62,7 @@ function buildPermissionComposerRequest(
   threadDetailLevel: CodexThreadDetailLevel,
 ): RequestComposerRequest {
   const title = formatPermissionTitleText(titleModel);
+  const questionId = buildCodexCanonicalRequestIdentityKey(request.requestId);
   const options = [
     {
       label: ALLOW_ONCE_LABEL,
@@ -76,7 +79,7 @@ function buildPermissionComposerRequest(
   return {
     requestId: request.requestId,
     questions: [{
-      id: request.requestId,
+      id: questionId,
       header: title,
       question: title,
       isOther: true,
@@ -206,9 +209,14 @@ export function CodexPermissionRequestCard({
       showQuestionBodyWhenHeader={false}
       request={composerRequest}
       onSubmit={async (nextRequest, state) => {
-        const selected = state.selectedOptions[nextRequest.requestId];
-        const mode = state.modes[nextRequest.requestId];
-        const freeform = state.drafts[nextRequest.requestId]?.trim() ?? "";
+        const questionId = nextRequest.questions[0]?.id;
+        if (!questionId) {
+          await onRespond(request.requestId, buildDeniedResponse());
+          return;
+        }
+        const selected = state.selectedOptions[questionId];
+        const mode = state.modes[questionId];
+        const freeform = state.drafts[questionId]?.trim() ?? "";
 
         if (mode === "other") {
           await onRespond(request.requestId, buildDeniedResponse());

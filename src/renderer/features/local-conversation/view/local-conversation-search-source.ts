@@ -1,17 +1,11 @@
-import type { CodexConversationTurn } from "../../../lib/types";
-import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
+import type { VisibleConversationTurnEntry } from "../selectors";
 import type { ThreadSearchUnitModel } from "../thread-stage-types";
-import { buildTurnRenderModel } from "../projection/build-turn-render-model";
+import { selectTurnRenderModel } from "../projection/build-turn-render-model";
 
-export interface LocalConversationSearchSourceTurn {
-  turn: CodexConversationTurn;
-  turnKey: string;
-  requests: CodexTurnScopedConversationRequest[];
-}
+export type LocalConversationSearchSourceTurn = VisibleConversationTurnEntry;
 
 interface CachedSearchTurnState {
-  turn: CodexConversationTurn;
-  requests: CodexTurnScopedConversationRequest[];
+  entry: VisibleConversationTurnEntry;
   units: ThreadSearchUnitModel[];
 }
 
@@ -36,22 +30,19 @@ export function createLocalConversationSearchSource(input: LocalConversationSear
       const normalizedQuery = query.trim().toLowerCase();
       if (!normalizedQuery) return [];
 
-      return input.getTurns().flatMap(({ turn, turnKey, requests }) => {
-        const cached = cachedUnitsByTurnKey.get(turnKey);
+      return input.getTurns().flatMap((entry) => {
+        const cached = cachedUnitsByTurnKey.get(entry.turnKey);
         let units: ThreadSearchUnitModel[];
 
-        if (cached && cached.turn === turn && cached.requests === requests) {
+        if (cached?.entry === entry) {
           units = cached.units;
         } else {
-          units = buildTurnRenderModel({
-            turn,
-            requests,
-            isLatestTurn: false,
-            isStreamingTurn: turn.status === "inProgress",
+          units = selectTurnRenderModel({
+            entry,
             canEditTurnUserPrefix: false,
             canForkTurn: false,
           }).searchUnits;
-          cachedUnitsByTurnKey.set(turnKey, { turn, requests, units });
+          cachedUnitsByTurnKey.set(entry.turnKey, { entry, units });
         }
 
         return units.filter((unit) =>

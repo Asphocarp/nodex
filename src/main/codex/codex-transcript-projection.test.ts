@@ -28,6 +28,7 @@ function makeEntry(
     createdAt: input.createdAt ?? 1,
     updatedAt: input.updatedAt ?? 1,
     ...(input.toolCall ? { toolCall: input.toolCall } : {}),
+    ...(input.mcpToolCall ? { mcpToolCall: input.mcpToolCall } : {}),
     ...(input.markdownText ? { markdownText: input.markdownText } : {}),
   };
 }
@@ -72,6 +73,37 @@ describe("finalizeTurnTranscriptState", () => {
 
     const finalized = finalizeTurnTranscriptState(transcript, "turn_terminalize", "interrupted");
     expect(finalized[0]?.status).toBe("interrupted");
+  });
+
+  test("terminal turns complete a lingering MCP view even when the outer row is already terminal", () => {
+    const transcript = [
+      makeEntry({
+        itemId: "mcp_terminal",
+        type: "mcpToolCall",
+        kind: "toolCall",
+        semanticKind: "mcpToolCall",
+        status: "completed",
+        mcpToolCall: {
+          callId: "mcp_terminal",
+          functionName: "docs__search",
+          pluginId: null,
+          mcpAppResourceUri: undefined,
+          source: null,
+          invocation: {
+            server: "docs",
+            tool: "search",
+            arguments: {},
+          },
+          result: null,
+          durationMs: null,
+          completed: false,
+        },
+      }),
+    ];
+
+    const finalized = finalizeTurnTranscriptState(transcript, "turn_terminalize", "completed");
+    expect(finalized[0]?.status).toBe("completed");
+    expect(finalized[0]?.mcpToolCall?.completed).toBe(true);
   });
 });
 

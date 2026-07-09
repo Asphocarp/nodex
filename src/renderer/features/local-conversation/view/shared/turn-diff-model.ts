@@ -95,7 +95,7 @@ export function buildTurnDiffReviewTarget(input: {
   path?: string | null;
 }): CodexTurnDiffReviewTarget | null {
   const payload = extractTurnDiffPayload(input.item);
-  if (!payload) return null;
+  if (!payload || input.item.turnId === null) return null;
 
   return {
     type: "turnDiff",

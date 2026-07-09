@@ -72,8 +72,8 @@ export function buildSessionContextMenuItems(input: SessionContextMenuInput): Na
     { type: "separator" },
     {
       id: SESSION_CONTEXT_MENU_ACTION_IDS.markUnread,
-      label: "Mark as unread",
-      enabled: !session.unread,
+      label: session.unread ? "Mark as read" : "Mark as unread",
+      enabled: true,
       iconKey: "unread",
     },
     {

@@ -26,6 +26,8 @@ import type {
   CodexScheduledAutomationUpdateInput,
   CodexSidebarSyncResult,
   CodexSidebarThreadItem,
+  CodexThreadDetail,
+  CodexThreadStartForSessionResult,
   GitReviewSource,
   Project,
   ProjectSession,
@@ -51,7 +53,6 @@ import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
 import type {
   SidebarCollapsibleSectionId,
   SidebarCollapsibleSectionsState,
-  SidebarPinnedOrganizationMode,
 } from "@/lib/use-workbench-state";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
@@ -70,6 +71,7 @@ import {
   type CommandPaletteShellCommandHandlers,
 } from "@/lib/command-palette-commands";
 import { normalizeCodexManualThreadTitle } from "../../../shared/codex-thread-title";
+import type { CodexPendingWorktreeWarningEvent } from "../../../shared/codex-pending-worktree";
 import type {
   WorkbenchNavigationCommandRequest,
   WorkbenchNavigationCommandState,
@@ -92,10 +94,15 @@ import {
   WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT,
   WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS,
 } from "./workbench-automation-templates";
+import { LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY } from "./local-environment-selection";
 
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let startThreadForSessionCalls: unknown[] = [];
+let startThreadForSessionResult: CodexThreadStartForSessionResult = {
+  kind: "started",
+  detail: { threadId: "thread-started" } as CodexThreadDetail,
+};
 let requestThreadStreamSnapshotCalls: string[] = [];
 let requestThreadStreamSnapshotImpl: ((threadId: string) => Promise<unknown>) | null = null;
 let hydrateBackgroundSubagentThreadsCalls: CodexBackgroundSubagentThreadsHydrateInput[] = [];
@@ -114,6 +121,7 @@ let discardSideChatCalls: string[] = [];
 let sideChatConversations: Record<string, Record<string, unknown>> = {};
 let mockThreadStartProgress: unknown = null;
 let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
+let pendingWorktreeWarningListener: ((event: CodexPendingWorktreeWarningEvent) => void) | null = null;
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
 const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
 const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
@@ -168,7 +176,7 @@ const mockCodexControl = {
   setPermissionMode: async () => undefined,
   startThreadForSession: async (input: unknown) => {
     startThreadForSessionCalls.push(input);
-    return { threadId: "thread-started" };
+    return startThreadForSessionResult;
   },
   startSideChat: async (input: unknown) => {
     startSideChatCalls.push(input);
@@ -366,6 +374,17 @@ vi.mock("@/lib/api", () => ({
   subscribeDesktopNotificationActions: () => () => undefined,
   subscribeCodexScheduledAutomationChanges: () => () => undefined,
   subscribeCodexAutomationRunsUpdates: () => () => undefined,
+  subscribeCodexPendingWorktreesChanged: () => () => undefined,
+  subscribeCodexPendingWorktreeWarnings: (
+    listener: (event: CodexPendingWorktreeWarningEvent) => void,
+  ) => {
+    pendingWorktreeWarningListener = listener;
+    return () => {
+      if (pendingWorktreeWarningListener === listener) {
+        pendingWorktreeWarningListener = null;
+      }
+    };
+  },
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
@@ -1324,6 +1343,8 @@ function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
     ...overrides,
+    browserTabId: overrides.browserTabId
+      ?? (overrides.kind === "browser" ? `browser:${overrides.id}` : null),
   };
   if (
     tab.kind !== "db_view"
@@ -1591,6 +1612,7 @@ function renderWorkbench({
   sessionsByProject = { alpha: [makeSession()] },
   projectlessSessions = [],
   sidebarSnapshotItems = [],
+  manualThreadOrder = null,
   sidebarSyncChangedProjectIds = [],
   sidebarSyncProjectlessChanged = false,
   searchByProject = {},
@@ -1611,6 +1633,7 @@ function renderWorkbench({
   sessionsByProject?: Record<string, ProjectSession[]>;
   projectlessSessions?: ProjectSession[];
   sidebarSnapshotItems?: CodexSidebarThreadItem[];
+  manualThreadOrder?: string[] | null;
   sidebarSyncChangedProjectIds?: string[];
   sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
@@ -1618,7 +1641,6 @@ function renderWorkbench({
   sidebar?: {
     collapsed: boolean;
     width: number;
-    pinnedOrganizationMode?: SidebarPinnedOrganizationMode;
     collapsibleSections?: SidebarCollapsibleSectionsState;
   };
   initialActiveProjectSessionId?: string | null;
@@ -1775,9 +1797,11 @@ function renderWorkbench({
         .map((item) => [item.threadId, item.projectId]),
     ),
     projectlessThreadIds: sidebarSnapshotItems.filter((item) => item.projectless).map((item) => item.threadId),
+    manualThreadOrder,
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
+    if (channel === "codex:pending-worktrees:list") return [];
     if (channel === "project-sessions:list") {
       const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
       return (sessionState[projectId] ?? []).filter((session) => !session.archived);
@@ -2013,6 +2037,7 @@ function renderWorkbench({
           .map((session) => session.thread?.threadId),
         projectAssignments: {},
         projectlessThreadIds: [],
+        manualThreadOrder: null,
         generatedAt: 1,
       };
     }
@@ -2407,6 +2432,7 @@ function renderWorkbench({
         panelId?: ProjectSessionTab["panelId"];
         targetLeafId?: string;
         clientTabId?: string;
+        browserTabId?: string;
         kind: ProjectSession["tabs"][number]["kind"];
         title: string;
         config: ProjectSession["tabs"][number]["config"];
@@ -2463,10 +2489,14 @@ function renderWorkbench({
       if (input.clientTabId && session.tabs.some((tab) => tab.id === input.clientTabId)) {
         throw new Error(`Project session tab id already exists: ${input.clientTabId}`);
       }
+      const tabId = input.clientTabId ?? `created-tab-${session.tabs.length + 1}`;
       const tab = {
-        id: input.clientTabId ?? `created-tab-${session.tabs.length + 1}`,
+        id: tabId,
         sessionId: input.sessionId,
         projectId: input.projectId,
+        browserTabId: input.kind === "browser"
+          ? input.browserTabId ?? `browser:${tabId}`
+          : null,
         panelId,
         kind: input.kind,
         title: input.title,
@@ -2648,7 +2678,6 @@ function renderWorkbench({
   };
 
   const setDbProjectCalls: string[] = [];
-  const pinnedOrganizationModeChanges: SidebarPinnedOrganizationMode[] = [];
   const navigationStateChanges: WorkbenchNavigationCommandState[] = [];
   let requestWorkbenchNavigation: (
     direction: WorkbenchNavigationDirection,
@@ -2757,10 +2786,6 @@ function renderWorkbench({
         setSidebarWidth={(width) => {
           setSidebarState((current) => ({ ...current, width }));
         }}
-        setSidebarPinnedOrganizationMode={(mode) => {
-          pinnedOrganizationModeChanges.push(mode);
-          setSidebarState((current) => ({ ...current, pinnedOrganizationMode: mode }));
-        }}
         setSidebarCollapsibleSectionCollapsed={(sectionId: SidebarCollapsibleSectionId, collapsed: boolean) => {
           setSidebarState((current) => ({
             ...current,
@@ -2797,7 +2822,6 @@ function renderWorkbench({
   return {
     ...result,
     setDbProjectCalls,
-    pinnedOrganizationModeChanges,
     navigationStateChanges,
     openCommandPalette: (mode?: "root" | "chats" | "cards" | "files", initialQuery?: string) => {
       openCommandPalette(mode, initialQuery);
@@ -2846,6 +2870,10 @@ beforeEach(() => {
   delete (window as { api?: typeof window.api }).api;
   invokeCalls = [];
   startThreadForSessionCalls = [];
+  startThreadForSessionResult = {
+    kind: "started",
+    detail: { threadId: "thread-started" } as CodexThreadDetail,
+  };
   requestThreadStreamSnapshotCalls = [];
   requestThreadStreamSnapshotImpl = null;
   hydrateBackgroundSubagentThreadsCalls = [];
@@ -2864,6 +2892,7 @@ beforeEach(() => {
   sideChatConversations = {};
   mockThreadStartProgress = null;
   codexHostMessageListener = null;
+  pendingWorktreeWarningListener = null;
   mockInvokeImpl = null;
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
@@ -3219,6 +3248,30 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBe(true);
   });
 
+  test("consumes a staged fork side-panel snapshot only after a real target session enters", async () => {
+    const target = makeAttachedSession({
+      id: "session:alpha:fork-target",
+      threadId: "thread-fork-target",
+      title: "Fork target",
+    });
+    renderWorkbench({
+      sessionsByProject: { alpha: [target] },
+      initialActiveProjectSessionId: target.id,
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const consumeCalls = invokeCalls.filter((call) =>
+      call[0] === "codex:fork-side-panel-transfer:consume"
+    );
+    expect(consumeCalls.length).toBe(1);
+    expect(JSON.stringify(consumeCalls[0]?.[1])).toBe(JSON.stringify({
+      routeKind: "local-thread",
+      targetConversationId: "thread-fork-target",
+      targetProjectSessionId: "session:alpha:fork-target",
+    }));
+  });
+
   test("switches warm recent DB sessions across projects without cold list fetches or DB remount", async () => {
     const alphaHome = makeSession({
       id: "session:alpha:home",
@@ -3535,6 +3588,95 @@ describe(`workbench session shell / ${scope}`, () => {
     const updatedButton = updatedRow.querySelector("[data-app-action-sidebar-thread-pin-session]");
     expect(updatedButton?.getAttribute("aria-label")).toBe("Unpin chat");
     expect(updatedButton?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
+  });
+
+  test("forks a projectless chat using the exact cwd environment selection", async () => {
+    const sourceCwd = "/Users/asc/repo/projectless/packages/desktop";
+    const selectedConfigPath = `${sourceCwd}/.codex/environments/dev.toml`;
+    const baseSession = makeAttachedSession({
+      id: "session:projectless:fork",
+      projectId: null,
+      threadId: "thread-projectless-fork",
+      title: "Projectless fork",
+      tabs: [],
+    });
+    const projectlessSession: ProjectSession = {
+      ...baseSession,
+      thread: baseSession.thread ? { ...baseSession.thread, cwd: sourceCwd } : null,
+    };
+    const screen = renderWorkbench({
+      projectlessSessions: [projectlessSession],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    localStorage.setItem(
+      LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY,
+      JSON.stringify({ [`local:${sourceCwd}`]: selectedConfigPath }),
+    );
+    const renderInvoke = mockInvokeImpl;
+    if (!renderInvoke) throw new Error("Expected the workbench invoke mock");
+    mockInvokeImpl = async (channel, ...args) => {
+      if (channel === "git:branch:state") {
+        return { currentBranch: "main", defaultBranch: "main", branches: ["main"] };
+      }
+      if (channel === "worktrees:environments:configs:list-for-workspace") {
+        return [{ configPath: selectedConfigPath, state: "success" }];
+      }
+      if (channel === "project-sessions:fork") {
+        return {
+          pendingWorktreeId: "local:pending-projectless-fork",
+          clientThreadId: "client-new-thread:projectless-fork",
+        };
+      }
+      return await renderInvoke(channel, ...args);
+    };
+
+    const originalElectronBridge = window.electronBridge;
+    Object.defineProperty(window, "electronBridge", {
+      configurable: true,
+      writable: true,
+      value: {
+        showContextMenu: async () => "session.forkNewWorktree",
+      },
+    });
+
+    try {
+      await act(async () => {
+        fireEvent.contextMenu(getThreadRow(screen.container, "Projectless fork"));
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(invokeCalls.some((call) => call[0] === "project-sessions:fork")).toBe(true);
+      });
+
+      expect(invokeCalls.some((call) =>
+        call[0] === "worktrees:environments:configs:list-for-workspace"
+        && call[1] === "local"
+        && call[2] === sourceCwd
+      )).toBe(true);
+      expect(invokeCalls.some((call) => {
+        if (call[0] !== "project-sessions:fork" || call[1] !== projectlessSession.id) {
+          return false;
+        }
+        const input = call[2] as {
+          target?: string;
+          localEnvironmentConfigPath?: string | null;
+        };
+        return input.target === "newWorktree"
+          && input.localEnvironmentConfigPath === selectedConfigPath;
+      })).toBe(true);
+    } finally {
+      if (originalElectronBridge === undefined) {
+        Reflect.deleteProperty(window, "electronBridge");
+      } else {
+        Object.defineProperty(window, "electronBridge", {
+          configurable: true,
+          writable: true,
+          value: originalElectronBridge,
+        });
+      }
+    }
   });
 
   test("sidebar archive hover action archives a session-backed chat optimistically", async () => {
@@ -4171,8 +4313,8 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 4"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show more" }));
@@ -4180,8 +4322,8 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 14"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 16"]')).toBe(null);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
@@ -4189,8 +4331,8 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 4"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
   });
 
   test("projectless Chats starts at fifty rows and expands through the pager", async () => {
@@ -4303,6 +4445,7 @@ describe(`workbench session shell / ${scope}`, () => {
         pinnedThreadIds: [],
         projectAssignments: {},
         projectlessThreadIds: [],
+        manualThreadOrder: null,
         generatedAt: 2,
       },
       source: "app-server",
@@ -4429,7 +4572,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null).toBe(true);
   });
 
-  test("default pinned organization places project pinned chats inside their project subtree", async () => {
+  test("keeps individually pinned chats at the top of their project subtree", async () => {
     const pinnedAlpha = makeAttachedSession({
       id: "session:alpha:pinned",
       threadId: "thread-alpha-pinned",
@@ -4459,47 +4602,16 @@ describe(`workbench session shell / ${scope}`, () => {
     const projectsSection = getSidebarSection(screen.container, "Projects");
     const alphaGroup = getSidebarProjectGroup(projectsSection, "alpha");
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-section-heading="Pinned"]')).toBe(null);
-    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify(["Pinned Alpha", "Normal Alpha"]));
+    expect(screen.container.querySelector(
+      '[data-app-action-sidebar-section-heading="Pinned"]',
+    )).toBe(null);
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
+      "Pinned Alpha",
+      "Normal Alpha",
+    ]));
   });
 
-  test("manual pinned organization keeps pinned chats as standalone Pinned rows", async () => {
-    const pinnedAlpha = makeAttachedSession({
-      id: "session:alpha:pinned",
-      threadId: "thread-alpha-pinned",
-      title: "Pinned Alpha",
-      pinned: true,
-      pinnedOrder: 0,
-      order: 1,
-    });
-    const normalAlpha = makeAttachedSession({
-      id: "session:alpha:normal",
-      threadId: "thread-alpha-normal",
-      title: "Normal Alpha",
-      pinned: false,
-      pinnedOrder: null,
-      order: 2,
-    });
-    const screen = renderWorkbench({
-      sessionsByProject: { alpha: [pinnedAlpha, normalAlpha] },
-      sidebarSnapshotItems: [
-        makeSidebarSnapshotItemForSession(pinnedAlpha),
-        makeSidebarSnapshotItemForSession(normalAlpha),
-      ],
-      sidebar: { collapsed: false, width: 300, pinnedOrganizationMode: "manualOrder" },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const pinnedSection = getSidebarSection(screen.container, "Pinned");
-    const projectsSection = getSidebarSection(screen.container, "Projects");
-    const alphaGroup = getSidebarProjectGroup(projectsSection, "alpha");
-
-    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Alpha"]') !== null).toBe(true);
-    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify(["Normal Alpha"]));
-  });
-
-  test("by-project organization keeps projectless pinned chats in the Pinned section", async () => {
+  test("keeps projectless pinned chats in the Pinned section", async () => {
     const projectlessPinnedItem: CodexSidebarThreadItem = {
       key: "local:thread-projectless-pinned",
       kind: "local",
@@ -4532,7 +4644,52 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Projectless"]') !== null).toBe(true);
   });
 
-  test("by-project organization keeps pinned project chats inside the pinned project subtree", async () => {
+  test("projects the global manual order onto Chats while leaving newly discovered rows in canonical slots", async () => {
+    const chatA = makeAttachedSession({
+      id: "session:chat:a",
+      projectId: null,
+      threadId: "thread-chat-a",
+      title: "Chat A",
+      order: 0,
+    });
+    const chatNew = makeAttachedSession({
+      id: "session:chat:new",
+      projectId: null,
+      threadId: "thread-chat-new",
+      title: "Chat New",
+      order: 1,
+    });
+    const chatB = makeAttachedSession({
+      id: "session:chat:b",
+      projectId: null,
+      threadId: "thread-chat-b",
+      title: "Chat B",
+      order: 2,
+    });
+    if (!chatA.thread || !chatNew.thread || !chatB.thread) {
+      throw new Error("Expected attached projectless sessions");
+    }
+    chatA.thread.updatedAt = 300;
+    chatNew.thread.updatedAt = 200;
+    chatB.thread.updatedAt = 100;
+    const projectlessSessions = [chatA, chatNew, chatB];
+    const screen = renderWorkbench({
+      projectlessSessions,
+      sidebarSnapshotItems: projectlessSessions.map(makeSidebarSnapshotItemForSession),
+      manualThreadOrder: ["thread-chat-b", "thread-chat-a"],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const chatsSection = getSidebarSection(screen.container, "Chats");
+    expect(JSON.stringify(getThreadRowTitles(chatsSection))).toBe(JSON.stringify([
+      "Chat B",
+      "Chat New",
+      "Chat A",
+    ]));
+  });
+
+  test("keeps an individually pinned chat inside its pinned project group", async () => {
     const beta = {
       ...makeProject("beta", "Beta"),
       pinned: true,
@@ -4556,6 +4713,30 @@ describe(`workbench session shell / ${scope}`, () => {
       pinnedOrder: null,
       order: 2,
     });
+    const pendingBeta: CodexSidebarThreadItem = {
+      key: "local:client-new-thread:beta-pending",
+      kind: "pending-worktree",
+      pendingWorktreeId: "pending-worktree:beta-pending",
+      clientThreadId: "client-new-thread:beta-pending",
+      pinnedBeforeThreadId: null,
+      hostId: "local",
+      threadId: "client-new-thread:beta-pending",
+      sessionId: null,
+      projectId: "beta",
+      title: "Pending Beta",
+      preview: "",
+      cwd: "/repo/beta",
+      updatedAt: 3,
+      createdAt: 3,
+      pinned: false,
+      pinnedOrder: null,
+      unread: false,
+      archived: false,
+      statusType: "active",
+      statusActiveFlags: [],
+      projectless: false,
+      disabled: false,
+    };
     const screen = renderWorkbench({
       projects: [beta, makeProject()],
       sessionsByProject: {
@@ -4565,6 +4746,7 @@ describe(`workbench session shell / ${scope}`, () => {
       sidebarSnapshotItems: [
         makeSidebarSnapshotItemForSession(pinnedBeta),
         makeSidebarSnapshotItemForSession(normalBeta),
+        pendingBeta,
       ],
     });
     await settleAsyncRender();
@@ -4572,34 +4754,22 @@ describe(`workbench session shell / ${scope}`, () => {
 
     const pinnedSection = getSidebarSection(screen.container, "Pinned");
     const betaGroup = getSidebarProjectGroup(pinnedSection, "beta");
+    const normalTitle = betaGroup.querySelector('[data-app-action-sidebar-thread-title="Normal Beta"]');
+    const pendingTitle = betaGroup.querySelector('[data-app-action-sidebar-thread-title="Pending Beta"]');
+    const normalSortableActivator = normalTitle?.closest('[aria-roledescription="sortable"]');
+    const pendingSortableActivator = pendingTitle?.closest('[aria-roledescription="sortable"]');
 
-    expect(JSON.stringify(getThreadRowTitles(betaGroup))).toBe(JSON.stringify(["Pinned Beta", "Normal Beta"]));
+    expect(JSON.stringify(getThreadRowTitles(betaGroup))).toBe(JSON.stringify([
+      "Pinned Beta",
+      "Normal Beta",
+      "Pending Beta",
+    ]));
+    expect(normalSortableActivator !== null).toBe(true);
+    expect(pendingSortableActivator == null).toBe(true);
   });
 
-  test("projects options menu switches pinned organization to manual order", async () => {
-    const pinnedAlpha = makeAttachedSession({
-      id: "session:alpha:pinned",
-      threadId: "thread-alpha-pinned",
-      title: "Pinned Alpha",
-      pinned: true,
-      pinnedOrder: 0,
-      order: 1,
-    });
-    const normalAlpha = makeAttachedSession({
-      id: "session:alpha:normal",
-      threadId: "thread-alpha-normal",
-      title: "Normal Alpha",
-      pinned: false,
-      pinnedOrder: null,
-      order: 2,
-    });
-    const screen = renderWorkbench({
-      sessionsByProject: { alpha: [pinnedAlpha, normalAlpha] },
-      sidebarSnapshotItems: [
-        makeSidebarSnapshotItemForSession(pinnedAlpha),
-        makeSidebarSnapshotItemForSession(normalAlpha),
-      ],
-    });
+  test("projects options menu does not expose the non-reference Organize pins mode", async () => {
+    const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
@@ -4613,38 +4783,10 @@ describe(`workbench session shell / ${scope}`, () => {
     });
 
     await waitFor(() => {
-      expect(textContent(document.body).includes("Organize pins")).toBe(true);
+      expect(textContent(document.body).includes("Organize sidebar")).toBe(true);
     });
 
-    const organizeText = within(document.body).getByText("Organize pins");
-    const organizeItem = organizeText.closest('[role="menuitem"]');
-    if (!(organizeItem instanceof HTMLElement)) {
-      throw new Error("Expected Organize pins menu item");
-    }
-
-    await act(async () => {
-      fireEvent.pointerMove(organizeItem, { pointerType: "mouse" });
-      fireEvent.keyDown(organizeItem, { key: "ArrowRight" });
-      await Promise.resolve();
-    });
-
-    await waitFor(() => {
-      expect(Boolean(within(document.body).getByRole("menuitemradio", { name: "By project" }))).toBe(true);
-    });
-
-    const byProjectItem = within(document.body).getByRole("menuitemradio", { name: "By project" });
-    const manualOrderItem = within(document.body).getByRole("menuitemradio", { name: "Manual order" });
-    expect(byProjectItem.getAttribute("data-state")).toBe("checked");
-
-    await act(async () => {
-      fireEvent.click(manualOrderItem);
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
-
-    const pinnedSection = getSidebarSection(screen.container, "Pinned");
-    expect(screen.pinnedOrganizationModeChanges.at(-1)).toBe("manualOrder");
-    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Alpha"]') !== null).toBe(true);
+    expect(textContent(document.body).includes("Organize pins")).toBe(false);
   });
 
   test("project row new-chat button reuses an existing blank session", async () => {
@@ -5063,7 +5205,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(props?.newThreadTarget === null).toBe(true);
     expect(selector?.target?.runInTarget).toBe("localProject");
     expect(selector?.target?.worktreeStartMode).toBe("detachedHead");
-    expect(selector?.target?.worktreeBranchPrefix).toBe("nodex/");
+    expect(selector?.target?.worktreeBranchPrefix).toBe("codex/");
     expect(selector?.disabled).toBe(false);
   });
 
@@ -5239,6 +5381,33 @@ describe(`workbench session shell / ${scope}`, () => {
   }
 
   if (scope === "automations-conversation") {
+  test("surfaces pending heartbeat handoff failure from the app-level coordinator", async () => {
+    renderWorkbench();
+
+    await waitFor(() => {
+      if (pendingWorktreeWarningListener) return;
+      throw new Error("Expected the workbench warning subscription.");
+    });
+
+    await act(async () => {
+      pendingWorktreeWarningListener?.({
+        clientThreadId: "client-new-thread:heartbeat-warning",
+        kind: "heartbeat-automation-create-failed",
+        message: "Started task, but could not create the heartbeat",
+        pendingWorktreeId: "local:heartbeat-warning",
+        threadId: "thread-heartbeat-warning",
+      });
+      await Promise.resolve();
+    });
+
+    const snapshot = __getNodexToastSnapshotForTests();
+    expect(snapshot.length).toBe(1);
+    expect(snapshot[0]?.level).toBe("danger");
+    expect(String((snapshot[0] as { title?: unknown }).title ?? "")).toBe(
+      "Started task, but could not create the heartbeat",
+    );
+  });
+
   test("automations route creates updates and deletes scheduled tasks", async () => {
     const originalInnerWidth = window.innerWidth;
     setWindowInnerWidthForTest(1600);
@@ -6412,7 +6581,7 @@ describe(`workbench session shell / ${scope}`, () => {
       runInTarget: "localProject",
       runInEnvironmentPath: null,
       worktreeStartMode: "detachedHead",
-      worktreeBranchPrefix: "nodex/",
+      worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
     }));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBe(true);
@@ -6581,13 +6750,18 @@ describe(`workbench session shell / ${scope}`, () => {
       runInTarget: "localProject",
       runInEnvironmentPath: null,
       worktreeStartMode: "detachedHead",
-      worktreeBranchPrefix: "nodex/",
+      worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
     }));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "beta")).toBe(true);
   });
 
   test("session composer submit passes the selected new-worktree target", async () => {
+    startThreadForSessionResult = {
+      kind: "pending",
+      pendingWorktreeId: "local:pending-session-composer",
+      clientThreadId: "client-new-thread:pending-session-composer",
+    };
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeBlankSession()] },
     });
@@ -6606,6 +6780,9 @@ describe(`workbench session shell / ${scope}`, () => {
 
     const propsAfter = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(JSON.stringify(propsAfter?.newThreadTarget).includes('"runInTarget":"newWorktree"')).toBe(true);
+    const sessionRefreshCountBeforeSubmit = invokeCalls.filter((call) =>
+      call[0] === "project-sessions:list" && call[1] === "alpha"
+    ).length;
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -6621,9 +6798,13 @@ describe(`workbench session shell / ${scope}`, () => {
       runInTarget: "newWorktree",
       runInEnvironmentPath: null,
       worktreeStartMode: "detachedHead",
-      worktreeBranchPrefix: "nodex/",
+      worktreeBranchPrefix: "codex/",
       collaborationMode: "default",
     }));
+    expect(screen.getByTestId("pending-worktree-route-shell") !== null).toBe(true);
+    expect(invokeCalls.filter((call) =>
+      call[0] === "project-sessions:list" && call[1] === "alpha"
+    ).length).toBe(sessionRefreshCountBeforeSubmit);
   });
 
   }

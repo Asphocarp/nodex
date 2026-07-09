@@ -224,6 +224,7 @@ function setElementRect(
 const browserTab: ProjectSessionTab & { preview: true } = {
   id: "tab-browser",
   sessionId: "session-1",
+  browserTabId: "tab-browser",
   projectId: "alpha",
   panelId: "right",
   kind: "browser",
@@ -289,6 +290,7 @@ const activeSession: ProjectSession = {
 const loadedBrowserTab: ProjectSessionTab = {
   id: browserTab.id,
   sessionId: browserTab.sessionId,
+  browserTabId: browserTab.browserTabId,
   projectId: browserTab.projectId,
   panelId: browserTab.panelId,
   kind: browserTab.kind,

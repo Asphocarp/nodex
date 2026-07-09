@@ -246,6 +246,78 @@ describe("buildComposerShellModel", () => {
     expect(model.showComposer).toBe(false);
   });
 
+  test("stacks child permission before a canonical active option request", () => {
+    const model = buildComposerShellModel({
+      conversation: buildConversationSnapshot({
+        turns: [{
+          threadId: "thread_1",
+          turnId: "turn_1",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+        canonicalRequests: [{
+          id: "active-option",
+          method: "item/tool/requestOptionPicker",
+          params: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            question: "Choose a slice",
+            options: [{ label: "UI" }],
+          },
+        }],
+        childMemberships: [{
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "childApproval",
+          actorName: "Worker",
+        }],
+      }),
+      knownConversationsById: {
+        thread_child: buildConversationSnapshot({
+          threadId: "thread_child",
+          turns: [{
+            threadId: "thread_child",
+            turnId: "turn_child",
+            status: "inProgress",
+            itemIds: [],
+            items: [],
+          }],
+          requests: [{
+            type: "permissionRequest",
+            requestId: "child-permission",
+            projectId: "project_1",
+            threadId: "thread_child",
+            turnId: "turn_child",
+            itemId: "child-permission-item",
+            reason: "Allow child access",
+            cwd: "/tmp/project",
+            permissions: { network: null, fileSystem: null },
+            completed: false,
+            response: null,
+            createdAt: 1,
+          }],
+          canonicalRequests: [{
+            id: "child-option",
+            method: "item/tool/requestOptionPicker",
+            params: {
+              threadId: "thread_child",
+              turnId: "turn_child",
+              question: "Private child question",
+              options: [{ label: "Wait" }],
+            },
+          }],
+        }),
+      },
+    });
+
+    expect(model.backgroundRequest?.request.type).toBe("permissionRequest");
+    expect(model.activeRequest?.request.type).toBe("optionPicker");
+    expect(model.showRequestCards).toBe(true);
+    expect(model.showComposer).toBe(false);
+    expect(model.showApprovalMode).toBe(true);
+  });
+
   test("keeps child approval selection in membership order", () => {
     const model = buildComposerShellModel({
       conversation: buildConversationSnapshot({

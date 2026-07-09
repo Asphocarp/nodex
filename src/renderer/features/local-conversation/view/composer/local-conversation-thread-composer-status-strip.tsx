@@ -48,11 +48,11 @@ export function ThreadComposerExternalFooterSlot({
         <motion.div
           key="thread-composer-external-footer"
           data-composer-external-footer-slot="true"
-          initial={{ y: "-100%" }}
+          initial={{ y: "100%" }}
           animate={{ y: 0 }}
-          exit={{ y: "-100%", pointerEvents: "none" }}
+          exit={{ y: "100%", pointerEvents: "none" }}
           transition={THREAD_COMPOSER_EXTERNAL_FOOTER_TRANSITION}
-          className="relative z-0 -mt-2"
+          className="relative z-0 -mb-2"
         >
           {children}
         </motion.div>
@@ -225,7 +225,7 @@ function ThreadComposerStatusStripContent({
     <div
       data-composer-lower-status-row="true"
       className={cn(
-        "-mx-px -mt-4.5 flex flex-nowrap items-center gap-1 overflow-hidden rounded-b-2xl bg-token-side-bar-background px-2 pt-[25px] pb-2 select-none dark:bg-token-bg-fog",
+        "-mx-px -mb-4.5 flex flex-nowrap items-center gap-2 overflow-hidden rounded-t-2xl bg-token-side-bar-background px-2 pt-2 pb-[27px] select-none dark:bg-token-bg-fog electron:relative electron:top-1 electron:mx-[var(--home-composer-inline-inset)] electron:px-1.5 electron:pt-1.5",
         className,
       )}
     >

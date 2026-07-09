@@ -16,9 +16,11 @@ import { requireProjectId } from "../local-store/projects";
 interface DbCodexThread {
   project_id: string | null;
   thread_id: string;
+  forked_from_id: string | null;
   parent_thread_id: string | null;
   thread_name: string | null;
   thread_source: string | null;
+  service_name: string | null;
   agent_nickname: string | null;
   agent_role: string | null;
   thread_preview: string;
@@ -31,6 +33,7 @@ interface DbCodexThread {
   status_active_flags_json: string;
   archived: number;
   pinned: number;
+  has_unread_turn: number;
   created_at: number;
   updated_at: number;
   linked_at: string;
@@ -44,9 +47,11 @@ interface DbCodexPinnedThread {
 const CODEX_THREAD_SUMMARY_COLUMNS = `
   t.project_id,
   t.thread_id,
+  t.forked_from_id,
   t.parent_thread_id,
   t.thread_name,
   t.thread_source,
+  t.service_name,
   t.agent_nickname,
   t.agent_role,
   t.thread_preview,
@@ -59,6 +64,9 @@ const CODEX_THREAD_SUMMARY_COLUMNS = `
   t.status_active_flags_json,
   t.archived,
   CASE WHEN p.thread_id IS NULL THEN 0 ELSE 1 END AS pinned,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM codex_unread_threads u WHERE u.thread_id = t.thread_id
+  ) THEN 1 ELSE 0 END AS has_unread_turn,
   t.created_at,
   t.updated_at,
   t.linked_at
@@ -67,8 +75,10 @@ const CODEX_THREAD_SUMMARY_COLUMNS = `
 export interface UpsertCodexThreadInput {
   projectId?: string | null;
   threadId: string;
+  forkedFromId?: string | null;
   source?: CodexConversationSource | null;
   threadSource?: ThreadSource | null;
+  serviceName?: string | null;
   agentNickname?: string | null;
   agentRole?: string | null;
   threadName?: string | null;
@@ -99,11 +109,13 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
   return {
     threadId: row.thread_id,
     projectId: row.project_id,
+    forkedFromId: row.forked_from_id,
     source: row.parent_thread_id
       ? { parentThreadId: row.parent_thread_id }
       : null,
     threadName: row.thread_name,
     threadSource: row.thread_source,
+    serviceName: row.service_name,
     agentNickname: row.agent_nickname,
     agentRole: row.agent_role,
     threadPreview: row.thread_preview,
@@ -116,6 +128,7 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
     statusActiveFlags: parseStatusActiveFlags(row.status_active_flags_json),
     archived: row.archived === 1,
     pinned: row.pinned === 1,
+    hasUnreadTurn: row.has_unread_turn === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     linkedAt: row.linked_at,
@@ -126,8 +139,10 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
   const database = getDb();
   const hasProjectIdInput = Object.prototype.hasOwnProperty.call(input, "projectId");
   const hasThreadSourceInput = Object.prototype.hasOwnProperty.call(input, "threadSource");
+  const hasServiceNameInput = Object.prototype.hasOwnProperty.call(input, "serviceName");
   const hasAgentNicknameInput = Object.prototype.hasOwnProperty.call(input, "agentNickname");
   const hasAgentRoleInput = Object.prototype.hasOwnProperty.call(input, "agentRole");
+  const hasForkedFromIdInput = Object.prototype.hasOwnProperty.call(input, "forkedFromId");
   const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(input, "managedWorktreePath");
   const hasArchivedInput = Object.prototype.hasOwnProperty.call(input, "archived");
   const hasProjectlessOutputDirectoryInput = Object.prototype.hasOwnProperty.call(input, "projectlessOutputDirectory");
@@ -144,9 +159,11 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       thread_id,
       thread_name,
       thread_source,
+      service_name,
       agent_nickname,
       agent_role,
       parent_thread_id,
+      forked_from_id,
       thread_preview,
       model_provider,
       cwd,
@@ -160,14 +177,16 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       updated_at,
       linked_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
       project_id = CASE WHEN ? = 1 THEN excluded.project_id ELSE codex_threads.project_id END,
       thread_name = COALESCE(excluded.thread_name, codex_threads.thread_name),
       thread_source = CASE WHEN ? = 1 THEN excluded.thread_source ELSE codex_threads.thread_source END,
+      service_name = CASE WHEN ? = 1 THEN excluded.service_name ELSE codex_threads.service_name END,
       agent_nickname = CASE WHEN ? = 1 THEN excluded.agent_nickname ELSE codex_threads.agent_nickname END,
       agent_role = CASE WHEN ? = 1 THEN excluded.agent_role ELSE codex_threads.agent_role END,
       parent_thread_id = COALESCE(excluded.parent_thread_id, codex_threads.parent_thread_id),
+      forked_from_id = CASE WHEN ? = 1 THEN excluded.forked_from_id ELSE codex_threads.forked_from_id END,
       thread_preview = excluded.thread_preview,
       model_provider = excluded.model_provider,
       cwd = COALESCE(excluded.cwd, codex_threads.cwd),
@@ -184,9 +203,11 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     input.threadId,
     input.threadName ?? null,
     input.threadSource ?? null,
+    input.serviceName ?? null,
     input.agentNickname ?? null,
     input.agentRole ?? null,
     input.source?.parentThreadId ?? null,
+    input.forkedFromId ?? null,
     input.threadPreview ?? "",
     input.modelProvider ?? "",
     input.cwd ?? null,
@@ -201,8 +222,10 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     linkedAt,
     hasProjectIdInput ? 1 : 0,
     hasThreadSourceInput ? 1 : 0,
+    hasServiceNameInput ? 1 : 0,
     hasAgentNicknameInput ? 1 : 0,
     hasAgentRoleInput ? 1 : 0,
+    hasForkedFromIdInput ? 1 : 0,
     hasManagedWorktreePathInput ? 1 : 0,
     hasProjectlessOutputDirectoryInput ? 1 : 0,
     hasProjectlessWorkspaceBrowserRootInput ? 1 : 0,
@@ -293,40 +316,102 @@ export function listPinnedCodexThreadIds(): string[] {
   return rows.map((row) => row.thread_id);
 }
 
-export function setCodexThreadPinned(threadId: string, pinned: boolean): string[] {
+export function setCodexThreadPinned(
+  threadId: string,
+  pinned: boolean,
+  beforeThreadId?: string | null,
+): string[] {
   const normalizedThreadId = threadId.trim();
   if (!normalizedThreadId) return listPinnedCodexThreadIds();
 
   const database = getDb();
-  if (!pinned) {
-    database.prepare("DELETE FROM codex_pinned_threads WHERE thread_id = ?").run(normalizedThreadId);
-    return listPinnedCodexThreadIds();
-  }
+  const normalizedBeforeThreadId = beforeThreadId === undefined
+    ? undefined
+    : beforeThreadId?.trim() || null;
+  database.transaction(() => {
+    if (!pinned) {
+      database.prepare("DELETE FROM codex_pinned_threads WHERE thread_id = ?").run(
+        normalizedThreadId,
+      );
+      return;
+    }
 
-  const existing = database
-    .prepare("SELECT pinned_order FROM codex_pinned_threads WHERE thread_id = ?")
-    .get(normalizedThreadId) as { pinned_order: number } | undefined;
-  if (existing) return listPinnedCodexThreadIds();
+    const existing = database
+      .prepare("SELECT pinned_order FROM codex_pinned_threads WHERE thread_id = ?")
+      .get(normalizedThreadId) as { pinned_order: number } | undefined;
+    if (!existing) {
+      const maxPinned = database
+        .prepare("SELECT MAX(pinned_order) AS maxPinnedOrder FROM codex_pinned_threads")
+        .get() as { maxPinnedOrder: number | null } | undefined;
+      const now = new Date().toISOString();
 
-  const maxPinned = database
-    .prepare("SELECT MAX(pinned_order) AS maxPinnedOrder FROM codex_pinned_threads")
-    .get() as { maxPinnedOrder: number | null } | undefined;
+      database.prepare(`
+        INSERT OR IGNORE INTO codex_pinned_threads (
+          thread_id,
+          pinned_order,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?)
+      `).run(
+        normalizedThreadId,
+        (maxPinned?.maxPinnedOrder ?? -1) + 1,
+        now,
+        now,
+      );
+    }
+
+    if (normalizedBeforeThreadId === undefined) return;
+    const current = listPinnedCodexThreadIds().filter((id) => id !== normalizedThreadId);
+    const beforeIndex = normalizedBeforeThreadId === null
+      ? -1
+      : current.indexOf(normalizedBeforeThreadId);
+    const insertionIndex = beforeIndex < 0 ? current.length : beforeIndex;
+    current.splice(insertionIndex, 0, normalizedThreadId);
+    writeCodexPinnedThreadOrder(current);
+  })();
+
+  return listPinnedCodexThreadIds();
+}
+
+export function setCodexThreadPinnedBefore(
+  threadId: string,
+  beforeThreadId: string | null,
+): string[] {
+  return setCodexThreadPinned(threadId, true, beforeThreadId);
+}
+
+function writeCodexPinnedThreadOrder(threadIds: readonly string[]): void {
+  const database = getDb();
   const now = new Date().toISOString();
+  const update = database.prepare(`
+    UPDATE codex_pinned_threads
+    SET pinned_order = ?, updated_at = ?
+    WHERE thread_id = ?
+  `);
+  database.transaction(() => {
+    threadIds.forEach((id, index) => {
+      update.run(index, now, id);
+    });
+  })();
+}
 
-  database.prepare(`
-    INSERT OR IGNORE INTO codex_pinned_threads (
-      thread_id,
-      pinned_order,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?)
-  `).run(
-    normalizedThreadId,
-    (maxPinned?.maxPinnedOrder ?? -1) + 1,
-    now,
-    now,
-  );
-
+export function setCodexPinnedThreadOrder(threadIds: readonly string[]): string[] {
+  const current = listPinnedCodexThreadIds();
+  const currentSet = new Set(current);
+  const seen = new Set<string>();
+  const requested = threadIds.flatMap((threadId) => {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId || seen.has(normalizedThreadId) || !currentSet.has(normalizedThreadId)) {
+      return [];
+    }
+    seen.add(normalizedThreadId);
+    return [normalizedThreadId];
+  });
+  const ordered = [
+    ...requested,
+    ...current.filter((threadId) => !seen.has(threadId)),
+  ];
+  writeCodexPinnedThreadOrder(ordered);
   return listPinnedCodexThreadIds();
 }
 
@@ -340,11 +425,34 @@ export function updateCodexThreadName(threadId: string, threadName: string | nul
 }
 
 export function updateCodexThreadArchived(threadId: string, archived: boolean): CodexThreadSummary | null {
-  const result = getDb().prepare(
+  const database = getDb();
+  const result = database.prepare(
     "UPDATE codex_threads SET archived = ?, updated_at = ? WHERE thread_id = ?"
   ).run(archived ? 1 : 0, Date.now(), threadId);
 
   if (result.changes === 0) return null;
+  if (archived) {
+    database.prepare("DELETE FROM codex_unread_threads WHERE thread_id = ?").run(threadId);
+  }
+  return getCodexThread(threadId);
+}
+
+export function setCodexThreadHasUnreadTurn(
+  threadId: string,
+  hasUnreadTurn: boolean,
+): CodexThreadSummary | null {
+  const existing = getCodexThread(threadId);
+  if (!existing) return null;
+  if (hasUnreadTurn && existing.archived) return existing;
+  if (existing.hasUnreadTurn === hasUnreadTurn) return existing;
+
+  if (hasUnreadTurn) {
+    getDb().prepare(
+      "INSERT OR IGNORE INTO codex_unread_threads (thread_id) VALUES (?)",
+    ).run(threadId);
+  } else {
+    getDb().prepare("DELETE FROM codex_unread_threads WHERE thread_id = ?").run(threadId);
+  }
   return getCodexThread(threadId);
 }
 

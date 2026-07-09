@@ -76,6 +76,11 @@ export type ThreadSummaryPanelOutputOpenTarget =
   | { type: "file"; path: string }
   | { type: "url"; url: string };
 
+export interface CollectTurnEndResourcePathsOptions {
+  cwd?: string | null;
+  projectlessOutputDirectory?: string | null;
+}
+
 interface MarkdownLink {
   label: string;
   destination: string;
@@ -985,6 +990,36 @@ function collectOutputDrafts(
   }
 
   return [...outputs.values()];
+}
+
+export function collectTurnEndResourcePaths(
+  turn: CodexConversationTurn,
+  options: CollectTurnEndResourcePathsOptions = {},
+): string[] {
+  if (!isCompletedTurn(turn)) return [];
+
+  const assistantText = collectAssistantTextByTurn(turn);
+  const linkedOutputs = collectMarkdownLinkedOutputs(
+    assistantText,
+    options.cwd,
+    new Map(),
+    options.projectlessOutputDirectory,
+  );
+  const artifactOutputs = collectTurnArtifactFileOutputs(
+    collectTurnArtifacts(turn),
+    options.cwd,
+    options.projectlessOutputDirectory,
+  );
+  const paths = new Map<string, string>();
+
+  for (const output of [...linkedOutputs, ...artifactOutputs]) {
+    if (output.kind !== "file") continue;
+
+    const key = normalizePathSegments(output.path).toLowerCase();
+    if (!paths.has(key)) paths.set(key, output.path);
+  }
+
+  return [...paths.values()];
 }
 
 function buildGeneratedImageNumbers(outputs: readonly ThreadSummaryPanelOutputDraft[]): Map<string, number> {

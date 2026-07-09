@@ -22,7 +22,7 @@
   --vscode-textPreformat-background: var(--color-background-elevated-secondary);
   --vscode-textBlockQuote-background: var( --color-background-elevated-secondary );
   --vscode-textBlockQuote-border: var(--color-border);
-  --vscode-textCodeBlock-background: var(--color-border);
+  --vscode-textCodeBlock-background: var(--color-background-button-secondary);
   --vscode-sash-hoverBorder: var(--color-border);
   --vscode-badge-background: var(--color-background-button-secondary);
   --vscode-badge-foreground: var(--color-text-foreground-secondary);
@@ -829,4 +829,10 @@
   --color-token-terminal-ansi-bright-magenta: var( --vscode-terminal-ansiBrightMagenta );
   --color-token-terminal-ansi-bright-cyan: var( --vscode-terminal-ansiBrightCyan );
   --color-token-terminal-ansi-bright-white: var( --vscode-terminal-ansiBrightWhite );
+  --color-token-border-heavy: var(--color-border-heavy, color-mix(in oklab, var(--vscode-foreground) 12%, transparent));
+  --color-token-conversation-header: color-mix(in oklab, var(--color-token-foreground) 30%, transparent);
+  --color-token-conversation-body: color-mix(in oklab, var(--color-token-foreground) 60%, transparent);
+  --color-token-non-assistant-body-descendant: color-mix(in oklab, var(--color-token-foreground) 50%, transparent);
+  --color-token-conversation-summary-leading: color-mix(in oklab, var(--color-token-description-foreground) 90%, transparent);
+  --color-token-conversation-summary-trailing: color-mix(in oklab, var(--color-token-foreground) 40%, transparent);
 }

@@ -82,6 +82,11 @@ function buildWebsiteItem(turnId: string): CodexConversationItem {
       toolName: "web_search",
       args: { query: "reference docs" },
     },
+    webSearch: {
+      query: "reference docs",
+      action: null,
+      completed: true,
+    },
     markdownText: "https://example.com/reference",
     createdAt: 4,
     updatedAt: 4,
@@ -103,6 +108,7 @@ function buildMcpAppItem(turnId: string): CodexConversationItem {
       functionName: "calendar__open",
       pluginId: "calendar",
       mcpAppResourceUri: "nodex://mcp-app/calendar/event",
+      source: null,
       invocation: {
         server: "calendar",
         tool: "open",
@@ -112,11 +118,10 @@ function buildMcpAppItem(turnId: string): CodexConversationItem {
         type: "success",
         content: [],
         structuredContent: null,
-        meta: null,
         raw: {
           content: [],
           structuredContent: null,
-          meta: null,
+          _meta: null,
         },
       },
       durationMs: 1,
@@ -181,11 +186,12 @@ function buildTurn(turnId: string, items: CodexConversationItem[]): CodexConvers
 }
 
 function buildEntry(turn: CodexConversationTurn, isMostRecentTurn = false): VisibleConversationTurnEntry {
+  const turnKey = turn.turnId ?? "turn-index-0";
   return {
     turn,
     turnId: turn.turnId,
-    turnKey: turn.turnId,
-    turnSearchKey: turn.turnId,
+    turnKey,
+    turnSearchKey: turnKey,
     requests: [],
     isMostRecentTurn,
   };

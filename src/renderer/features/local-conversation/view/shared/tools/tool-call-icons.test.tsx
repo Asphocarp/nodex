@@ -1,11 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render } from "../../../../../test/dom";
-import type { CodexConversationItem, CodexMcpServerElicitationRequest, CodexTranscriptEntry } from "../../../../../lib/types";
+import type {
+  CodexConversationItem,
+  CodexMcpServerElicitationRequest,
+  CodexTranscriptEntry,
+  ProtocolAppInfo,
+} from "../../../../../lib/types";
 import {
   ConnectorLogo,
   ToolActivityIcon,
-  resolveCollapsedToolActivityIcon,
+  resolveAgentActivityGroupIcon,
   resolveMcpElicitationIcon,
   resolveMcpSourceIcon,
   resolveWebSearchFavicon,
@@ -28,6 +33,26 @@ function buildEntry(overrides: Partial<CodexTranscriptEntry>): CodexTranscriptEn
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
+  };
+}
+
+function buildApp(id: string, name: string, logoUrl: string): ProtocolAppInfo {
+  return {
+    id,
+    name,
+    description: null,
+    logoUrl,
+    logoUrlDark: null,
+    iconAssets: null,
+    iconDarkAssets: null,
+    distributionChannel: null,
+    branding: null,
+    appMetadata: null,
+    labels: null,
+    installUrl: null,
+    isAccessible: true,
+    isEnabled: true,
+    pluginDisplayNames: [],
   };
 }
 
@@ -143,6 +168,9 @@ describe("tool-call icon helpers", () => {
       mcpToolCall: {
         callId: "call-1",
         functionName: "browser-use__open",
+        pluginId: null,
+        mcpAppResourceUri: undefined,
+        source: null,
         invocation: {
           server: "browser-use",
           tool: "open",
@@ -171,11 +199,66 @@ describe("tool-call icon helpers", () => {
       createdAt: 1,
     };
 
-    const mcpIcon = resolveMcpSourceIcon(mcpEntry);
+    const mcpIcon = resolveMcpSourceIcon(mcpEntry, [
+      buildApp("connector_browser_use", "Browser Use", "https://example.com/browser.svg"),
+    ]);
     const elicitationIcon = resolveMcpElicitationIcon(elicitationRequest);
-    expect(mcpIcon.kind === "semantic" ? mcpIcon.icon : "").toBe("browser-use");
+    expect(mcpIcon.kind).toBe("logo");
+    expect(mcpIcon.kind === "logo" ? mcpIcon.logoUrl : "").toBe("https://example.com/browser.svg");
     expect(elicitationIcon.kind).toBe("logo");
     expect(elicitationIcon.kind === "logo" ? elicitationIcon.fallbackIcon : "").toBe("plugin");
+  });
+
+  test("uses canonical MCP source and node-repl icon identities", () => {
+    const browserEntry = buildEntry({
+      semanticKind: "mcpToolCall",
+      mcpToolCall: {
+        callId: "browser-call",
+        functionName: "node_repl__browser",
+        pluginId: null,
+        mcpAppResourceUri: undefined,
+        source: { kind: "browserUse", backend: "iab" },
+        invocation: { server: "node_repl", tool: "browser", arguments: {} },
+        durationMs: null,
+        completed: true,
+        result: null,
+      },
+    });
+    const computerEntry = buildEntry({
+      semanticKind: "mcpToolCall",
+      mcpToolCall: {
+        callId: "computer-call",
+        functionName: "node_repl__computer",
+        pluginId: null,
+        mcpAppResourceUri: undefined,
+        source: { kind: "computerUse", app: null },
+        invocation: { server: "node_repl", tool: "computer", arguments: {} },
+        durationMs: null,
+        completed: true,
+        result: null,
+      },
+    });
+    const nodeEntry = buildEntry({
+      semanticKind: "mcpToolCall",
+      mcpToolCall: {
+        callId: "node-call",
+        functionName: "node_repl__js",
+        pluginId: null,
+        mcpAppResourceUri: undefined,
+        source: null,
+        invocation: { server: "node_repl", tool: "js", arguments: {} },
+        durationMs: null,
+        completed: true,
+        result: null,
+      },
+    });
+
+    const browserIcon = resolveMcpSourceIcon(browserEntry);
+    const computerIcon = resolveMcpSourceIcon(computerEntry);
+    const nodeIcon = resolveMcpSourceIcon(nodeEntry);
+    expect(browserIcon.kind === "semantic" ? browserIcon.icon : "").toBe("browser-use");
+    expect(computerIcon.kind === "semantic" ? computerIcon.icon : "").toBe("computer-use");
+    expect(nodeIcon.kind === "semantic" ? nodeIcon.icon : "").toBe("node-repl");
   });
 
   test("resolves collapsed activity icon priority before MCP fallback", () => {
@@ -200,16 +283,15 @@ describe("tool-call icon helpers", () => {
       },
     }) as CodexConversationItem;
 
-    const descriptor = resolveCollapsedToolActivityIcon([
+    const descriptor = resolveAgentActivityGroupIcon([
       {
-        id: "exploration",
+        id: "command",
         turnId: "turn-1",
         createdAt: 1,
         updatedAt: 1,
         searchableText: "Explored",
-        type: "explorationGroup",
-        entries: [commandEntry],
-        summary: "Explored",
+        type: "exec",
+        entry: commandEntry,
         status: "completed",
       },
       {
@@ -225,6 +307,27 @@ describe("tool-call icon helpers", () => {
 
     expect(descriptor?.kind).toBe("favicon");
     expect(descriptor?.kind === "favicon" ? descriptor.hostname : "").toBe("js.org");
+  });
+
+  test("uses the automatic-review semantic icon for grouped review activity", () => {
+    const entry = buildEntry({
+      semanticKind: "automaticApprovalReview",
+      status: "inProgress",
+      rawItem: { review: { status: "inProgress" } },
+    }) as CodexConversationItem;
+    const descriptor = resolveAgentActivityGroupIcon([{
+      id: "review",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "Auto-reviewing",
+      type: "automaticApprovalReview",
+      entry,
+      status: "inProgress",
+    }]);
+
+    expect(descriptor?.kind).toBe("semantic");
+    expect(descriptor?.kind === "semantic" ? descriptor.icon : "").toBe("automatic-review");
   });
 
   test("web search row resolver falls back to the semantic globe", () => {

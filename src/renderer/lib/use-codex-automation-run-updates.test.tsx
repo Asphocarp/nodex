@@ -70,6 +70,7 @@ function makeSidebarSnapshot(revision: number): CodexSidebarSnapshot {
     pinnedThreadIds: [],
     projectAssignments: {},
     projectlessThreadIds: [],
+    manualThreadOrder: null,
     revision,
     generatedAt: revision,
   };

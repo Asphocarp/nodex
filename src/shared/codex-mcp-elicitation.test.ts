@@ -73,6 +73,11 @@ describe("isRenderableMcpServerElicitationRequest", () => {
       content: null,
       _meta: null,
     }));
+    expect(JSON.stringify(normalizeCodexMcpServerElicitationResponse("accept"))).toBe(JSON.stringify({
+      action: "accept",
+      content: {},
+      _meta: null,
+    }));
     expect(JSON.stringify(buildCodexMcpServerElicitationResponse("accept", {
       library: "react",
     }))).toBe(JSON.stringify({
@@ -80,6 +85,20 @@ describe("isRenderableMcpServerElicitationRequest", () => {
       content: {
         library: "react",
       },
+      _meta: null,
+    }));
+    expect(JSON.stringify(buildCodexMcpServerElicitationResponse("decline", {
+      ignored: true,
+    }))).toBe(JSON.stringify({
+      action: "decline",
+      content: null,
+      _meta: null,
+    }));
+    expect(JSON.stringify(buildCodexMcpServerElicitationResponse("cancel", {
+      ignored: true,
+    }))).toBe(JSON.stringify({
+      action: "cancel",
+      content: null,
       _meta: null,
     }));
   });

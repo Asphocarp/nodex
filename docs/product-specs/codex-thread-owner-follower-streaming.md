@@ -186,6 +186,8 @@ History-sensitive actions must pass the complete-history barrier before they run
 
 Explicit resume hydrates the latest tail and returns the hydrated conversation to the requesting renderer. Main silently updates its recovery/broadcast cache for `resuming` and `resumed` without advancing the renderer stream revision or emitting source-null snapshots. The renderer applies the hydrated conversation, marks itself owner using its current renderer-local stream revision, releases buffered same-thread notifications and requests, then publishes the owner snapshot as the next renderer revision. Resume failure releases the buffer, returns the local conversation to `needs_resume`, and must not use a source-null snapshot to overwrite partial owner state.
 
+Renderer ownership adoption is part of that resume transaction. Main resolves the invoking renderer's registered client ID from the resume IPC event and, after successful hydration but before returning the snapshot, adopts that client only when no different owner exists. A failed, archived, non-resumed, disposed-client, or competing-owner resume never installs or replaces an owner. The first resumed snapshot can therefore publish immediately while unknown and wrong-client publications remain fail-closed.
+
 Background child-agent summaries are not active child-thread streams. Parent thread surfaces may show child memberships and multi-agent-derived row state, but a child thread becomes full-fidelity only when a background-agent detail tab opens it. Multi-agent visible rows are derived from receiver thread display metadata and agent state keys; sparse receiver id lists remain available to membership/reference projection but do not create clickable visible row targets on their own. Receiver display metadata is lightweight catalog data, so friendly agent names and seed-based identicons must not depend on parent-driven child snapshot hydration. The background-agent opener hydrates only the selected child thread id and opens the tab; the detail tab content materializes/resumes the child body and then marks the child thread opened for routed deltas without requiring local parent metadata.
 
 When the owner client disappears, followers reject revision waiters, clear the owner role, mark the conversation `needs_resume`, and recover through explicit resume.
@@ -233,5 +235,6 @@ Required regression coverage includes:
 - owner-loss recovery marks followers `needs_resume`
 - failed resume/start requests do not leave stale main-side renderer owner mappings
 - renderer-owned resume seeds the owner cursor from the renderer-local stream revision, releases the resume buffer, and then publishes the hydrated owner snapshot
+- ordinary resume IPC adopts its invoking renderer before returning, so the first owner snapshot succeeds without test-only owner seeding
 - resume failure releases the buffer and rolls local state back to `needs_resume`
 - parent thread mounts do not mark background child agents opened; only background-agent detail tabs do

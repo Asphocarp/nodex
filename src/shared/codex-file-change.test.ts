@@ -11,16 +11,36 @@ import {
   hasCodexFileChangeEntries,
   resolveCodexFileChangeDisplayStatus,
   resolveCodexPatchSuccess,
+  stripCodexVisualizationDiffBlocks,
   summarizeCodexFileChangePatch,
   summarizeCodexUnifiedDiff,
 } from "./codex-file-change";
-import type { CodexFileChangeMap, CodexItemStatus, CodexTurnDiffPatchBatch } from "./types";
+import type {
+  CodexFileChangeMap,
+  CodexProtocolRequestId,
+  CodexTurnDiffPatchBatch,
+} from "./types";
 
 function countDiffGitSections(diff: string, path: string): number {
   return diff.split("\n").filter((line) => line === `diff --git a/${path} b/${path}`).length;
 }
 
 describe("codex file change turn diff synthesis", () => {
+  test("strips visualization blocks while preserving ordinary turn diff blocks", () => {
+    const ordinary = "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n";
+    const visualization = [
+      "diff --git a/.codex/visualizations/2026/07/11/thread/chart.html b/.codex/visualizations/2026/07/11/thread/chart.html",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/.codex/visualizations/2026/07/11/thread/chart.html",
+      "@@ -0,0 +1 @@",
+      "+<html></html>",
+      "",
+    ].join("\n");
+
+    expect(stripCodexVisualizationDiffBlocks(`${ordinary}${visualization}`)).toBe(ordinary);
+  });
+
   test("folds repeated update changes for the same cwd and path into one diff section", () => {
     const batches: CodexTurnDiffPatchBatch[] = [
       {
@@ -314,21 +334,22 @@ describe("codex file change turn diff synthesis", () => {
 
   test("maps file-change lifecycle to Codex Electron display status precedence", () => {
     const cases: Array<{
-      itemStatus: CodexItemStatus | undefined;
-      approvalRequestId: string | null | undefined;
+      success: boolean | null | undefined;
+      approvalRequestId: CodexProtocolRequestId | null | undefined;
       isTurnCancelled: boolean;
       expected: string;
     }> = [
-      { itemStatus: "completed", approvalRequestId: null, isTurnCancelled: false, expected: "applied" },
-      { itemStatus: "completed", approvalRequestId: "approval-1", isTurnCancelled: true, expected: "applied" },
-      { itemStatus: "failed", approvalRequestId: null, isTurnCancelled: false, expected: "rejected" },
-      { itemStatus: "declined", approvalRequestId: "approval-1", isTurnCancelled: true, expected: "rejected" },
-      { itemStatus: "inProgress", approvalRequestId: "approval-1", isTurnCancelled: false, expected: "pending" },
-      { itemStatus: "interrupted", approvalRequestId: "", isTurnCancelled: true, expected: "pending" },
-      { itemStatus: "inProgress", approvalRequestId: null, isTurnCancelled: true, expected: "stopped" },
-      { itemStatus: "interrupted", approvalRequestId: undefined, isTurnCancelled: true, expected: "stopped" },
-      { itemStatus: "inProgress", approvalRequestId: null, isTurnCancelled: false, expected: "streaming" },
-      { itemStatus: undefined, approvalRequestId: undefined, isTurnCancelled: false, expected: "streaming" },
+      { success: true, approvalRequestId: null, isTurnCancelled: false, expected: "applied" },
+      { success: true, approvalRequestId: "approval-1", isTurnCancelled: true, expected: "applied" },
+      { success: false, approvalRequestId: null, isTurnCancelled: false, expected: "rejected" },
+      { success: false, approvalRequestId: "approval-1", isTurnCancelled: true, expected: "rejected" },
+      { success: null, approvalRequestId: "approval-1", isTurnCancelled: false, expected: "pending" },
+      { success: undefined, approvalRequestId: 73, isTurnCancelled: false, expected: "pending" },
+      { success: null, approvalRequestId: "", isTurnCancelled: true, expected: "pending" },
+      { success: null, approvalRequestId: null, isTurnCancelled: true, expected: "stopped" },
+      { success: undefined, approvalRequestId: undefined, isTurnCancelled: true, expected: "stopped" },
+      { success: null, approvalRequestId: null, isTurnCancelled: false, expected: "streaming" },
+      { success: undefined, approvalRequestId: undefined, isTurnCancelled: false, expected: "streaming" },
     ];
 
     for (const input of cases) {

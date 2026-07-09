@@ -199,7 +199,7 @@ describe("SidebarProjectsSection", () => {
 
     await waitFor(() => {
       expect(textContent(document.body).includes("Archive all chats")).toBe(true);
-      expect(textContent(document.body).includes("Organize pins")).toBe(true);
+      expect(textContent(document.body).includes("Organize pins")).toBe(false);
       expect(textContent(document.body).includes("Organize sidebar")).toBe(true);
       expect(textContent(document.body).includes("Sort by")).toBe(true);
     });

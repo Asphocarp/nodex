@@ -21,6 +21,7 @@ function makeLink(threadId: string): CodexThreadSummary {
     cwd: null,
     statusType: "idle",
     statusActiveFlags: [],
+    hasUnreadTurn: false,
     archived: false,
     createdAt: 1,
     updatedAt: 2,
@@ -199,11 +200,8 @@ describe("codex-session-store", () => {
       expect(detail?.turns.length).toBe(1);
       expect(detail?.turns[0]?.turnId).toBe("turn_1");
       expect(detail?.turns[0]?.tokenUsage?.modelContextWindow).toBe(200_000);
-      expect(detail?.transcript.length).toBe(3);
-      expect(detail?.transcript[1]?.toolCall?.subtype).toBe("command");
-      expect(detail?.transcript[1]?.toolCall?.result ? JSON.stringify(detail.transcript[1].toolCall?.result) : "").toBe(
-        JSON.stringify({ ok: true }),
-      );
+      expect(detail?.transcript.length).toBe(2);
+      expect(detail?.transcript.some((entry) => entry.kind === "toolCall")).toBe(false);
       expect(detail?.threadPreview).toBe("Implement it");
     });
   });
@@ -283,13 +281,12 @@ describe("codex-session-store", () => {
         link: makeLink("thr_commentary"),
       });
 
-      expect(detail?.transcript.length).toBe(4);
+      expect(detail?.transcript.length).toBe(3);
       expect(detail?.transcript[0]?.kind).toBe("userMessage");
       expect(detail?.transcript[1]?.kind).toBe("assistantMessage");
       expect(detail?.transcript[1]?.assistantPhase).toBe("commentary");
-      expect(detail?.transcript[2]?.kind).toBe("toolCall");
-      expect(detail?.transcript[3]?.kind).toBe("assistantMessage");
-      expect(detail?.transcript[3]?.assistantPhase).toBe("final_answer");
+      expect(detail?.transcript[2]?.kind).toBe("assistantMessage");
+      expect(detail?.transcript[2]?.assistantPhase).toBe("final_answer");
       expect(detail?.threadPreview).toBe("run bun test");
     });
   });

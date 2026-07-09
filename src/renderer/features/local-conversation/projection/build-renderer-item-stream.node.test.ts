@@ -140,12 +140,26 @@ describe("buildRendererItemStream", () => {
           userInputQuestions: [],
           userInputAnswers: {},
         }),
+        buildEntry({
+          itemId: "worktree_init_1",
+          type: "worktreeInit",
+          kind: "systemEvent",
+          semanticKind: "worktreeInit",
+          rawItem: {
+            id: "worktree_init_1",
+            type: "worktreeInit",
+            worktreeOutputText: "[info] Worktree created\n",
+            setup: null,
+          },
+        }),
       ],
       requests: [],
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("hook,planImplementation,userInputResponse");
+    expect(items.map((item) => item.type).join(",")).toBe(
+      "hook,planImplementation,userInputResponse,worktreeInit",
+    );
   });
 
   test("maps v2 protocol item types when normalized semantic kind is generic", () => {
@@ -204,6 +218,13 @@ describe("buildRendererItemStream", () => {
           rawItem: { id: "web_1", type: "webSearch", query: "Codex app-server" },
         }),
         buildEntry({
+          itemId: "image_view_1",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          imageViewPaths: ["/tmp/reference.png"],
+          rawItem: { id: "image_view_1", type: "imageView", path: "/tmp/reference.png" },
+        }),
+        buildEntry({
           itemId: "compact_1",
           kind: "systemEvent",
           semanticKind: "systemEvent",
@@ -214,7 +235,46 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("assistantMessage,reasoning,exec,fileChange,mcpToolCall,dynamicToolCall,webSearch,contextCompaction");
+    expect(items.map((item) => item.type).join(",")).toBe("assistantMessage,reasoning,exec,fileChange,mcpToolCall,dynamicToolCall,webSearch,imageView,contextCompaction");
+  });
+
+  test("preserves canonical consecutive image runs across projected barriers", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "image_1",
+          kind: "systemEvent",
+          semanticKind: "imageView",
+          imageViewPaths: ["/tmp/one.png", "/tmp/adjacent.png"],
+          rawItem: { id: "image_1", type: "imageView", path: "/tmp/one.png" },
+        }),
+        buildEntry({
+          itemId: "assistant_between",
+          markdownText: "Compared both references.",
+        }),
+        buildEntry({
+          itemId: "image_2",
+          kind: "systemEvent",
+          semanticKind: "imageView",
+          imageViewPaths: ["/tmp/two.png"],
+          rawItem: { id: "image_2", type: "imageView", path: "/tmp/two.png" },
+          updatedAt: 3,
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    expect(items.map((item) => item.type).join(",")).toBe("imageView,assistantMessage,imageView");
+    const imageView = items[0];
+    expect(imageView?.id).toBe("image_1");
+    expect(imageView?.type === "imageView" ? imageView.imageViewPaths?.join(",") : "").toBe(
+      "/tmp/one.png,/tmp/adjacent.png",
+    );
+    const laterImageView = items[2];
+    expect(laterImageView?.type === "imageView" ? laterImageView.imageViewPaths : []).toEqual([
+      "/tmp/two.png",
+    ]);
   });
 
   test("omits webSearch rows without a visible query", () => {
@@ -311,26 +371,35 @@ describe("buildRendererItemStream", () => {
     expect(items.map((item) => item.type).join(",")).toBe("todoList,proposedPlan,multiAgentAction");
   });
 
-  test("maps subAgentActivity protocol items into inline subagent activity rows", () => {
+  test("groups consecutive typed subagent activities and splits at projected barriers", () => {
     const items = buildRendererItemStream({
       entries: [
         buildEntry({
           itemId: "sub_agent_1",
           kind: "systemEvent",
-          semanticKind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-1",
+            displayName: "Scout",
+            displayStatus: "active",
+          },
           rawItem: {
             id: "sub_agent_1",
             type: "subAgentActivity",
             kind: "started",
             agentThreadId: "thread-child-1",
             agentPath: "agents/@Scout",
-            displayName: "@Scout",
           },
         }),
         buildEntry({
           itemId: "sub_agent_2",
           kind: "systemEvent",
-          semanticKind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-2",
+            displayName: "Reviewer",
+            displayStatus: "updated",
+          },
           rawItem: {
             id: "sub_agent_2",
             type: "subAgentActivity",
@@ -339,32 +408,307 @@ describe("buildRendererItemStream", () => {
             agentPath: "Reviewer",
           },
         }),
+        buildEntry({
+          itemId: "assistant_between_subagents",
+          markdownText: "Checked both agents.",
+        }),
+        buildEntry({
+          itemId: "sub_agent_3",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-3",
+            displayName: null,
+            displayStatus: "interrupted",
+          },
+          rawItem: {
+            id: "sub_agent_3",
+            type: "subAgentActivity",
+            kind: "interrupted",
+            agentThreadId: "thread-child-3",
+            agentPath: "root",
+          },
+        }),
       ],
       requests: [],
       turnStatus: "completed",
     });
 
     const first = items[0];
-    const second = items[1];
+    const second = items[2];
 
-    expect(items.map((item) => item.type).join(",")).toBe("subagentActivityInlineGroup,subagentActivityInlineGroup");
+    expect(items.map((item) => item.type).join(",")).toBe(
+      "subagentActivityInlineGroup,assistantMessage,subagentActivityInlineGroup",
+    );
     expect(first?.type).toBe("subagentActivityInlineGroup");
     expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.displayName : "").toBe("Scout");
     expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.status : "").toBe("active");
     expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.statusSummary : "").toBe("Scout started working");
+    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[1]?.displayName : "").toBe("Reviewer");
+    expect(first && "subagentActivityStatusLabel" in first ? first.subagentActivityStatusLabel : "").toBe("updated");
     expect(second && "subagentActivityRows" in second ? second.subagentActivityRows?.[0]?.displayName : "").toBe("Agent");
-    expect(second && "subagentActivityRows" in second ? second.subagentActivityRows?.[0]?.statusSummary : "").toBe("Agent updated");
-    expect(second && "subagentActivityStatusLabel" in second ? second.subagentActivityStatusLabel : "").toBe("updated");
+    expect(second && "subagentActivityStatusLabel" in second ? second.subagentActivityStatusLabel : "").toBe("interrupted");
   });
 
-  test("omits protocol-only items that do not have an inline renderer surface", () => {
+  test("keeps a hidden non-subagent item as an activity-group boundary", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "sub_agent_before_hidden_boundary",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-1",
+            displayName: "Scout",
+            displayStatus: "active",
+          },
+        }),
+        buildEntry({
+          itemId: "hidden_sleep_boundary",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          rawItem: { id: "hidden_sleep_boundary", type: "sleep" },
+        }),
+        buildEntry({
+          itemId: "sub_agent_after_hidden_boundary",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-2",
+            displayName: "Reviewer",
+            displayStatus: "active",
+          },
+        }),
+      ],
+      requests: [],
+    });
+
+    expect(items.map((item) => item.type)).toEqual([
+      "subagentActivityInlineGroup",
+      "subagentActivityInlineGroup",
+    ]);
+  });
+
+  test("deduplicates each subagent group to the last event and only marks its final parent-turn event done", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "sub_agent_1_started",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-1",
+            displayName: "Scout",
+            displayStatus: "active",
+          },
+        }),
+        buildEntry({
+          itemId: "sub_agent_2_started",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-2",
+            displayName: "Reviewer",
+            displayStatus: "active",
+          },
+        }),
+        buildEntry({
+          itemId: "sub_agent_1_updated",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-1",
+            displayName: "Scout",
+            displayStatus: "updated",
+          },
+        }),
+        buildEntry({
+          itemId: "assistant_between_subagent_groups",
+          markdownText: "Checked the first updates.",
+        }),
+        buildEntry({
+          itemId: "sub_agent_1_final",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-1",
+            displayName: "Scout",
+            displayStatus: "active",
+          },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+      turnKey: "turn_1",
+      backgroundAgents: [
+        {
+          conversationId: "thread-child-1",
+          parentTurnKey: "turn_1",
+          displayName: "Scout",
+          actorName: "Scout",
+          agentRole: "explorer",
+          spawnModel: "gpt-5",
+          status: "done",
+          statusSummary: "Scout completed the audit",
+          showInlineActivity: true,
+          diffStats: null,
+          role: "backgroundChild",
+        },
+        {
+          conversationId: "thread-child-2",
+          parentTurnKey: "turn_1",
+          displayName: "Reviewer",
+          actorName: "Reviewer",
+          agentRole: null,
+          spawnModel: null,
+          status: "done",
+          statusSummary: null,
+          showInlineActivity: true,
+          diffStats: null,
+          role: "backgroundChild",
+        },
+      ],
+    });
+
+    const firstGroup = items[0];
+    const finalGroup = items[2];
+    const firstRows = firstGroup?.type === "subagentActivityInlineGroup"
+      ? firstGroup.subagentActivityRows ?? []
+      : [];
+    const finalRows = finalGroup?.type === "subagentActivityInlineGroup"
+      ? finalGroup.subagentActivityRows ?? []
+      : [];
+
+    expect(firstRows.map((row) => row.conversationId)).toEqual([
+      "thread-child-1",
+      "thread-child-2",
+    ]);
+    expect(firstRows[0]).toMatchObject({
+      status: "done",
+      activityStatus: "updated",
+      statusSummary: "Scout completed the audit",
+    });
+    expect(firstRows[1]).toMatchObject({
+      status: "done",
+      activityStatus: "done",
+      statusSummary: "Reviewer started working",
+    });
+    expect(firstGroup?.type === "subagentActivityInlineGroup"
+      ? firstGroup.subagentActivityStatusLabel
+      : null).toBe("updated");
+    expect(finalRows[0]).toMatchObject({
+      status: "done",
+      activityStatus: "done",
+      statusSummary: "Scout completed the audit",
+    });
+    expect(finalGroup?.type === "subagentActivityInlineGroup"
+      ? finalGroup.subagentActivityStatusLabel
+      : null).toBe("finished");
+  });
+
+  test("uses fallback state for missing or other-parent agents and preserves group-label precedence", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "sub_agent_other_parent",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-other-parent",
+            displayName: "Migrated",
+            displayStatus: "active",
+          },
+        }),
+        buildEntry({
+          itemId: "sub_agent_waiting",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-waiting",
+            displayName: "Waiting",
+            displayStatus: "updated",
+          },
+        }),
+        buildEntry({
+          itemId: "sub_agent_missing",
+          kind: "systemEvent",
+          semanticKind: "subAgentActivity",
+          subagentActivity: {
+            agentThreadId: "thread-child-missing",
+            displayName: null,
+            displayStatus: "interrupted",
+          },
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+      turnKey: "turn_1",
+      backgroundAgents: [
+        {
+          conversationId: "thread-child-other-parent",
+          parentTurnKey: "turn_0",
+          displayName: "Migrated",
+          actorName: "Migrated",
+          agentRole: null,
+          spawnModel: null,
+          status: "active",
+          statusSummary: "Working on a newer turn",
+          showInlineActivity: true,
+          diffStats: null,
+          role: "backgroundChild",
+        },
+        {
+          conversationId: "thread-child-waiting",
+          parentTurnKey: "turn_1",
+          displayName: "Waiting",
+          actorName: "Waiting",
+          agentRole: null,
+          spawnModel: null,
+          status: "waiting",
+          statusSummary: "Waiting for input",
+          showInlineActivity: true,
+          diffStats: null,
+          role: "backgroundChild",
+        },
+      ],
+    });
+
+    const group = items[0];
+    const rows = group?.type === "subagentActivityInlineGroup"
+      ? group.subagentActivityRows ?? []
+      : [];
+
+    expect(rows[0]).toMatchObject({
+      status: "done",
+      activityStatus: "started",
+      statusSummary: "Migrated started working",
+    });
+    expect(rows[1]).toMatchObject({
+      status: "waiting",
+      activityStatus: "updated",
+      statusSummary: "Waiting for input",
+    });
+    expect(rows[2]).toMatchObject({
+      status: "done",
+      activityStatus: "interrupted",
+      statusSummary: "Agent interrupted",
+    });
+    expect(group?.type === "subagentActivityInlineGroup"
+      ? group.subagentActivityStatusLabel
+      : null).toBe("interrupted");
+  });
+
+  test("renders typed hook feedback and generated images while hiding raw-only markers", () => {
     const items = buildRendererItemStream({
       entries: [
         buildEntry({
           itemId: "hook_prompt_1",
-          kind: "systemEvent",
-          semanticKind: "systemEvent",
-          rawItem: { id: "hook_prompt_1", type: "hookPrompt" },
+          type: "hookPrompt",
+          kind: "userMessage",
+          semanticKind: "userMessage",
+          markdownText: "Please address the failing check.",
+          hookFeedback: true,
+          rawItem: { id: "hook_prompt_1", type: "hookPrompt", fragments: [] },
         }),
         buildEntry({
           itemId: "sleep_1",
@@ -375,8 +719,17 @@ describe("buildRendererItemStream", () => {
         buildEntry({
           itemId: "image_generation_1",
           kind: "systemEvent",
-          semanticKind: "systemEvent",
-          rawItem: { id: "image_generation_1", type: "imageGeneration" },
+          semanticKind: "generatedImage",
+          generatedImage: {
+            src: "data:image/png;base64,aW1hZ2U=",
+            status: "completed",
+          },
+          rawItem: {
+            id: "image_generation_1",
+            type: "imageGeneration",
+            result: "aW1hZ2U=",
+            status: "completed",
+          },
         }),
         buildEntry({
           itemId: "entered_review_1",
@@ -395,7 +748,8 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.length).toBe(0);
+    expect(items.map((item) => item.type)).toEqual(["userMessage", "generatedImage"]);
+    expect(items[0]?.type === "userMessage" ? items[0].entry.hookFeedback : false).toBe(true);
   });
 
   test("omits unanswered user-input requests from inline renderer items", () => {

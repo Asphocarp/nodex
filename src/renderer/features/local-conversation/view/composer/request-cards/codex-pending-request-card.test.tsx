@@ -1,10 +1,14 @@
 import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { act, fireEvent } from "@testing-library/react";
+import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type {
+  CodexApprovalRequest,
   CodexMcpServerElicitationRequest,
+  CodexOptionPickerRequest,
   CodexPermissionRequest,
   CodexPlanImplementationRequest,
+  CodexSetupCodexStepRequest,
 } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
 import type {
@@ -75,8 +79,8 @@ function createActions(log: string[]): ThreadStageActions {
     },
     onSteerPrompt: async () => {},
     onInterruptTurn: async () => {},
-    onRespondApproval: async (requestId, decision, context) => {
-      log.push(`approval:${requestId}:${decision}:${context?.conversationId ?? "none"}`);
+    onRespondApproval: async (requestId, kind, decision, context) => {
+      log.push(`approval:${requestId}:${kind}:${decision}:${context?.conversationId ?? "none"}`);
     },
     onRespondUserInput: async (requestId, answers, context) => {
       log.push(`userInput:${requestId}:${answers.q1?.[0] ?? "none"}:${context?.conversationId ?? "none"}`);
@@ -86,6 +90,13 @@ function createActions(log: string[]): ThreadStageActions {
     },
     onRespondPermissionRequest: async (requestId, response, context) => {
       log.push(`permission:${requestId}:${response.scope}:${context?.conversationId ?? "none"}`);
+    },
+    onRespondOptionPicker: async (requestId, response, context) => {
+      log.push(`option:${requestId}:${response.action}:${response.selectedOptions.join(",")}:${context?.conversationId ?? "none"}`);
+    },
+    onRespondSetupCodexStep: async (requestId, response, context) => {
+      const value = response.step === "role" ? response.selectedRoles.join(",") : response.action;
+      log.push(`setup:${requestId}:${response.step}:${value}:${context?.conversationId ?? "none"}`);
     },
     onResolvePlanImplementationRequest: async (threadId, turnId) => {
       log.push(`resolve:${threadId}:${turnId}`);
@@ -114,6 +125,23 @@ describe("CodexPendingRequestCard", () => {
       buttonText: string;
       entry: ThreadComposerShellPendingRequestModel;
     }> = [
+      {
+        buttonText: "Skip",
+        entry: {
+          conversationId: "thread_1",
+          surface: "activeThread",
+          request: {
+            type: "approval",
+            requestId: "approval_1",
+            kind: "file",
+            projectId: "project_1",
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "file_1",
+            createdAt: 2,
+          } satisfies CodexApprovalRequest,
+        },
+      },
       {
         buttonText: "Cancel",
         entry: {
@@ -164,10 +192,12 @@ describe("CodexPendingRequestCard", () => {
 
     for (const { buttonText, entry } of entries) {
       const { getByText, unmount } = render(
-        <CodexPendingRequestCard
-          entry={entry}
-          actions={actions}
-        />,
+        <TooltipProvider>
+          <CodexPendingRequestCard
+            entry={entry}
+            actions={actions}
+          />
+        </TooltipProvider>,
       );
 
       await act(async () => {
@@ -179,6 +209,7 @@ describe("CodexPendingRequestCard", () => {
     }
 
     expect(JSON.stringify(log)).toBe(JSON.stringify([
+      "approval:approval_1:file:decline:thread_1",
       "mcp:mcp_1:decline:thread_1",
       "permission:permission_1:turn:thread_1",
     ]));
@@ -208,6 +239,73 @@ describe("CodexPendingRequestCard", () => {
     expect(log[0]).toBe("resolve:thread_1:turn_plan");
     expect(log[1]).toBe("mode:default");
     expect(log[2]).toBe("send:PLEASE IMPLEMENT THIS PLAN:\n1. Review\n2. Ship:default");
+  });
+
+  test("routes canonical option and setup cards through their owning conversation", async () => {
+    const { CodexPendingRequestCard } = await import("./codex-pending-request-card");
+    const log: string[] = [];
+    const actions = createActions(log);
+    const optionEntry: ThreadComposerShellPendingRequestModel = {
+      conversationId: "thread-option",
+      surface: "activeThread",
+      request: {
+        type: "optionPicker",
+        requestId: 73,
+        projectId: "project_1",
+        threadId: "thread-option",
+        turnId: "turn-option",
+        itemId: "option-item",
+        question: "Choose a slice",
+        options: [{ label: "Composer", description: "Wire it" }],
+        allowMultiple: false,
+        submitLabel: null,
+        skipLabel: null,
+        createdAt: 1,
+      } satisfies CodexOptionPickerRequest,
+    };
+    const optionView = render(
+      <CodexPendingRequestCard entry={optionEntry} actions={actions} />,
+    );
+    await act(async () => {
+      fireEvent.click(optionView.getByRole("radio", { name: "Composer" }));
+      await settleAsyncRender();
+    });
+    await act(async () => {
+      fireEvent.click(optionView.getByText("Submit"));
+      await settleAsyncRender();
+    });
+    optionView.unmount();
+
+    const setupEntry: ThreadComposerShellPendingRequestModel = {
+      conversationId: "thread-setup",
+      surface: "activeThread",
+      request: {
+        type: "setupCodexStep",
+        requestId: "setup-1",
+        projectId: "project_1",
+        threadId: "thread-setup",
+        turnId: "turn-setup",
+        itemId: "setup-item",
+        step: "role",
+        createdAt: 1,
+      } satisfies CodexSetupCodexStepRequest,
+    };
+    const setupView = render(
+      <CodexPendingRequestCard entry={setupEntry} actions={actions} />,
+    );
+    await act(async () => {
+      fireEvent.click(setupView.getByRole("checkbox", { name: "Engineering" }));
+      await settleAsyncRender();
+    });
+    await act(async () => {
+      fireEvent.click(setupView.getByText("Continue"));
+      await settleAsyncRender();
+    });
+
+    expect(JSON.stringify(log)).toBe(JSON.stringify([
+      "option:73:submit:Composer:thread-option",
+      "setup:setup-1:role:engineering:thread-setup",
+    ]));
   });
 
   test("freeform implement-plan follow-ups do not force default mode", async () => {

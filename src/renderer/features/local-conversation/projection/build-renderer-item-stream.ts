@@ -1,5 +1,6 @@
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationItem } from "../../../lib/types";
+import { buildCodexCanonicalRequestIdentityKey } from "../../../../shared/codex-conversation-state/codex-conversation-state";
 import { hasCodexFileChangeEntries } from "../../../../shared/codex-file-change";
 import { stripCodexRemarkDirectiveLines } from "../../../../shared/codex-remark-directives";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
@@ -7,20 +8,28 @@ import type {
   ThreadOpenSubagentStatus,
   ThreadPendingTurnRequestModel,
   ThreadRendererItemModel,
+  ThreadComposerShellBackgroundAgentRowModel,
   ThreadSubagentActivityInlineRowModel,
   ThreadSubagentActivityStatus,
   ThreadTranscriptBlockModel,
+  ThreadTurnSubagentActivityState,
 } from "../thread-stage-types";
 
-interface BuildRendererItemStreamInput {
+export interface BuildRendererItemStreamInput {
   entries: CodexConversationItem[];
   requests: CodexTurnScopedConversationRequest[];
   turnStatus?: "inProgress" | "completed" | "interrupted" | "failed";
   isLatestTurn?: boolean;
+  backgroundAgents?: readonly ThreadComposerShellBackgroundAgentRowModel[];
+  turnKey?: string;
+}
+
+export interface BuildRendererItemStreamProjection {
+  items: ThreadRendererItemModel[];
+  subagentActivityState: ThreadTurnSubagentActivityState;
 }
 
 type ProtocolThreadItemType = ThreadItem["type"];
-type ProtocolSubAgentActivityItem = Extract<ThreadItem, { type: "subAgentActivity" }>;
 type RendererTranscriptType = ThreadTranscriptBlockModel["type"];
 
 const SEMANTIC_FALLBACK = "semanticFallback";
@@ -38,7 +47,7 @@ const PROTOCOL_THREAD_ITEM_RENDERER_TYPES = {
   collabAgentToolCall: SEMANTIC_FALLBACK,
   subAgentActivity: "subagentActivityInlineGroup",
   webSearch: "webSearch",
-  imageView: "assistantMessage",
+  imageView: "imageView",
   sleep: null,
   imageGeneration: null,
   enteredReviewMode: null,
@@ -115,47 +124,12 @@ function hasRenderableWebSearchEntry(entry: CodexConversationItem): boolean {
   return getWebSearchVisibleQuery(entry).length > 0;
 }
 
-function normalizeOptionalText(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function stripLeadingAt(value: string): string {
-  return value.startsWith("@") ? value.slice(1) : value;
-}
-
-function resolveSubagentActivityDisplayName(rawItem: ProtocolSubAgentActivityItem & Record<string, unknown>): string {
-  const directDisplayName = normalizeOptionalText(rawItem.displayName);
-  if (directDisplayName) return stripLeadingAt(directDisplayName);
-
-  return "Agent";
-}
-
-function getSubagentActivityItem(rawItem: unknown): (ProtocolSubAgentActivityItem & Record<string, unknown>) | null {
-  const record = getRecord(rawItem);
-  if (!record || record.type !== "subAgentActivity") return null;
-  if (typeof record.id !== "string") return null;
-  if (typeof record.agentThreadId !== "string" || record.agentThreadId.trim().length === 0) return null;
-  if (typeof record.agentPath !== "string") return null;
-  if (record.kind !== "started" && record.kind !== "interacted" && record.kind !== "interrupted") return null;
-  return record as ProtocolSubAgentActivityItem & Record<string, unknown>;
-}
-
-function normalizeSubagentActivityKind(rawItem: ProtocolSubAgentActivityItem & Record<string, unknown>): ThreadSubagentActivityStatus {
-  const displayStatus = normalizeOptionalText(rawItem.displayStatus);
+function normalizeSubagentActivityStatus(
+  displayStatus: NonNullable<CodexConversationItem["subagentActivity"]>["displayStatus"],
+): ThreadSubagentActivityStatus {
   if (displayStatus === "updated") return "updated";
   if (displayStatus === "interrupted") return "interrupted";
-  if (displayStatus === "done") return "done";
-
-  if (rawItem.kind === "interacted") return "updated";
-  if (rawItem.kind === "interrupted") return "interrupted";
   return "started";
-}
-
-function resolveSubagentActivityOpenStatus(activityStatus: ThreadSubagentActivityStatus): ThreadOpenSubagentStatus {
-  if (activityStatus === "interrupted" || activityStatus === "done") return "done";
-  return "active";
 }
 
 function formatSubagentActivityStatusSummary(
@@ -171,21 +145,92 @@ function formatSubagentActivityStatusSummary(
 function resolveSubagentActivityStatusLabel(rows: readonly ThreadSubagentActivityInlineRowModel[]): string {
   if (rows.some((row) => row.activityStatus === "interrupted")) return "interrupted";
   if (rows.some((row) => row.activityStatus === "updated")) return "updated";
-  if (rows.length > 0 && rows.every((row) => row.activityStatus === "done" || row.status === "done")) return "finished";
+  if (rows.length > 0 && rows.every((row) => row.activityStatus === "done")) return "finished";
   return "started working";
 }
 
-function buildSubagentActivityRow(
-  rawItem: ProtocolSubAgentActivityItem & Record<string, unknown>,
+type SubagentActivity = NonNullable<CodexConversationItem["subagentActivity"]>;
+
+interface SubagentActivityGroup {
+  block: ThreadTranscriptBlockModel;
+  activityItems: SubagentActivity[];
+}
+
+interface ProjectedTranscriptEntry {
+  block: ThreadTranscriptBlockModel | null;
+  subagentActivity: SubagentActivity | null;
+}
+
+function normalizeSubagentConversationId(agentThreadId: string): string {
+  return agentThreadId;
+}
+
+function resolveSubagentActivityRows(input: {
+  activityItems: readonly SubagentActivity[];
+  backgroundAgents: readonly ThreadComposerShellBackgroundAgentRowModel[];
+  laterActivityItems: readonly SubagentActivity[];
+  turnKey?: string;
+}): ThreadSubagentActivityInlineRowModel[] {
+  const backgroundAgentsByConversationId = new Map(
+    input.backgroundAgents.map((agent) => [agent.conversationId, agent]),
+  );
+  const latestActivityByConversationId = new Map<string, SubagentActivity>();
+  for (const activity of input.activityItems) {
+    latestActivityByConversationId.set(
+      normalizeSubagentConversationId(activity.agentThreadId),
+      activity,
+    );
+  }
+
+  return Array.from(latestActivityByConversationId, ([conversationId, activity]) => {
+    const backgroundAgent = backgroundAgentsByConversationId.get(conversationId);
+    const hasLaterActivity = input.laterActivityItems.some(
+      (laterActivity) => laterActivity.agentThreadId === activity.agentThreadId,
+    );
+    const belongsToTurn = backgroundAgent !== undefined
+      && backgroundAgent.parentTurnKey === input.turnKey;
+    const isFinalForTurn = belongsToTurn && !hasLaterActivity;
+    const rawActivityStatus = normalizeSubagentActivityStatus(activity.displayStatus);
+    const status: ThreadOpenSubagentStatus = backgroundAgent === undefined
+      ? activity.displayStatus === "interrupted" ? "done" : "active"
+      : belongsToTurn ? backgroundAgent.status : "done";
+    const activityStatus = activity.displayStatus !== "interrupted"
+      && status === "done"
+      && isFinalForTurn
+      ? "done"
+      : rawActivityStatus;
+    const displayName = activity.displayName ?? "Agent";
+    const fallbackStatusSummary = formatSubagentActivityStatusSummary(
+      displayName,
+      rawActivityStatus,
+    );
+
+    return {
+      conversationId,
+      displayName,
+      agentRole: backgroundAgent?.agentRole ?? null,
+      spawnModel: backgroundAgent?.spawnModel ?? null,
+      status,
+      activityStatus,
+      statusSummary: belongsToTurn
+        ? backgroundAgent?.statusSummary ?? fallbackStatusSummary
+        : fallbackStatusSummary,
+      diffStats: backgroundAgent?.diffStats ?? null,
+    };
+  });
+}
+
+function buildProvisionalSubagentActivityRow(
+  activity: SubagentActivity,
 ): ThreadSubagentActivityInlineRowModel {
-  const activityStatus = normalizeSubagentActivityKind(rawItem);
-  const displayName = resolveSubagentActivityDisplayName(rawItem);
+  const activityStatus = normalizeSubagentActivityStatus(activity.displayStatus);
+  const displayName = activity.displayName ?? "Agent";
   return {
-    conversationId: rawItem.agentThreadId.trim(),
+    conversationId: activity.agentThreadId,
     displayName,
     agentRole: null,
     spawnModel: null,
-    status: resolveSubagentActivityOpenStatus(activityStatus),
+    status: activity.displayStatus === "interrupted" ? "done" : "active",
     activityStatus,
     statusSummary: formatSubagentActivityStatusSummary(displayName, activityStatus),
     diffStats: null,
@@ -232,6 +277,12 @@ function resolveSemanticRendererType(entry: CodexConversationItem): RendererTran
       return "dynamicToolCall";
     case "webSearch":
       return "webSearch";
+    case "imageView":
+      return "imageView";
+    case "generatedImage":
+      return "generatedImage";
+    case "subAgentActivity":
+      return "subagentActivityInlineGroup";
     case "mcpServerElicitation":
       return "mcpServerElicitation";
     case "hook":
@@ -254,6 +305,8 @@ function resolveSemanticRendererType(entry: CodexConversationItem): RendererTran
       return "modelRerouted";
     case "contextCompaction":
       return "contextCompaction";
+    case "worktreeInit":
+      return "worktreeInit";
     case "automaticApprovalReview":
       return "automaticApprovalReview";
     case "autoReviewInterruptionWarning":
@@ -315,9 +368,8 @@ function buildTranscriptBlock(
   const entryId = entry.entryId ?? entry.itemId;
 
   if (type === "subagentActivityInlineGroup") {
-    const rawItem = getSubagentActivityItem(entry.rawItem);
-    if (!rawItem) return null;
-    const row = buildSubagentActivityRow(rawItem);
+    if (!entry.subagentActivity) return null;
+    const row = buildProvisionalSubagentActivityRow(entry.subagentActivity);
     return {
       id: entryId,
       turnId: entry.turnId,
@@ -334,6 +386,23 @@ function buildTranscriptBlock(
       isTurnCancelled: turnStatus === "interrupted",
       subagentActivityRows: [row],
       subagentActivityStatusLabel: resolveSubagentActivityStatusLabel([row]),
+    };
+  }
+
+  if (type === "imageView") {
+    const imageViewPaths = entry.imageViewPaths ?? [];
+    if (imageViewPaths.length === 0) return null;
+    return {
+      id: entryId,
+      turnId: entry.turnId,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      searchableText: imageViewPaths.join("\n"),
+      type,
+      entry,
+      status: "completed",
+      isTurnCancelled: turnStatus === "interrupted",
+      imageViewPaths,
     };
   }
 
@@ -370,12 +439,23 @@ function resolveRequestSearchableText(request: CodexTurnScopedConversationReques
     ].join("\n").trim();
   }
 
+  if (request.type === "optionPicker") {
+    return [
+      request.question,
+      ...request.options.flatMap((option) => [option.label, option.description ?? ""]),
+    ].join("\n").trim();
+  }
+
+  if (request.type === "setupCodexStep") {
+    return request.step;
+  }
+
   return request.planContent.trim();
 }
 
 function buildPendingRequestBlock(request: CodexTurnScopedConversationRequest): ThreadPendingTurnRequestModel {
   return {
-    id: request.requestId,
+    id: buildCodexCanonicalRequestIdentityKey(request.requestId),
     turnId: request.turnId,
     createdAt: request.createdAt,
     updatedAt: request.createdAt,
@@ -385,12 +465,117 @@ function buildPendingRequestBlock(request: CodexTurnScopedConversationRequest): 
   };
 }
 
+function resolveSubagentActivityGroups(
+  projectedEntries: readonly ProjectedTranscriptEntry[],
+  input: Pick<BuildRendererItemStreamInput, "backgroundAgents" | "turnKey">,
+): ThreadTranscriptBlockModel[] {
+  const groupedBlocks: Array<ThreadTranscriptBlockModel | SubagentActivityGroup> = [];
+  let previousEntryWasSubagentActivity = false;
+
+  for (const projectedEntry of projectedEntries) {
+    const { block, subagentActivity } = projectedEntry;
+    if (block === null || subagentActivity === null) {
+      if (block !== null) groupedBlocks.push(block);
+      previousEntryWasSubagentActivity = false;
+      continue;
+    }
+
+    const previousGroup = groupedBlocks.at(-1);
+    if (
+      previousEntryWasSubagentActivity
+      && previousGroup !== undefined
+      && "activityItems" in previousGroup
+    ) {
+      previousGroup.activityItems.push(subagentActivity);
+      previousGroup.block = {
+        ...previousGroup.block,
+        updatedAt: block.updatedAt,
+      };
+    } else {
+      groupedBlocks.push({
+        block,
+        activityItems: [subagentActivity],
+      });
+    }
+    previousEntryWasSubagentActivity = true;
+  }
+
+  const activityGroups = groupedBlocks.filter(
+    (block): block is SubagentActivityGroup => "activityItems" in block,
+  );
+  let activityGroupIndex = 0;
+
+  return groupedBlocks.map((groupedBlock) => {
+    if (!("activityItems" in groupedBlock)) return groupedBlock;
+
+    const laterActivityItems = activityGroups
+      .slice(activityGroupIndex + 1)
+      .flatMap((group) => group.activityItems);
+    const rows = resolveSubagentActivityRows({
+      activityItems: groupedBlock.activityItems,
+      backgroundAgents: input.backgroundAgents ?? [],
+      laterActivityItems,
+      turnKey: input.turnKey,
+    });
+    activityGroupIndex += 1;
+
+    return {
+      ...groupedBlock.block,
+      searchableText: rows.flatMap((row) => [
+        row.displayName,
+        row.statusSummary ?? "",
+      ]).filter(Boolean).join("\n"),
+      subagentActivityRows: rows,
+      subagentActivityStatusLabel: resolveSubagentActivityStatusLabel(rows),
+    };
+  });
+}
+
+function resolveTurnSubagentActivityState(
+  blocks: readonly ThreadTranscriptBlockModel[],
+  input: Pick<BuildRendererItemStreamInput, "backgroundAgents" | "turnKey">,
+): ThreadTurnSubagentActivityState {
+  const anchoredGroups = blocks.filter(
+    (block) => block.type === "subagentActivityInlineGroup",
+  );
+  const rows = anchoredGroups.length > 0
+    ? anchoredGroups.flatMap((group) => group.subagentActivityRows ?? [])
+    : (input.backgroundAgents ?? []).filter(
+        (agent) => agent.showInlineActivity && agent.parentTurnKey === input.turnKey,
+      );
+
+  return {
+    hasActivity: rows.length > 0,
+    hasActiveActivity: rows.some((row) => row.status !== "done"),
+  };
+}
+
+export function buildRendererItemStreamProjection(
+  input: BuildRendererItemStreamInput,
+): BuildRendererItemStreamProjection {
+  const projectedTranscriptEntries = input.entries.map((entry): ProjectedTranscriptEntry => {
+    const block = buildTranscriptBlock(entry, input.turnStatus);
+    return {
+      block,
+      subagentActivity: block?.type === "subagentActivityInlineGroup"
+        ? entry.subagentActivity ?? null
+        : null,
+    };
+  });
+  const transcriptBlocks = resolveSubagentActivityGroups(
+    projectedTranscriptEntries,
+    input,
+  );
+  const requestBlocks = input.requests.map((request) => buildPendingRequestBlock(request));
+
+  return {
+    items: [...transcriptBlocks, ...requestBlocks],
+    subagentActivityState: resolveTurnSubagentActivityState(transcriptBlocks, input),
+  };
+}
+
 export function buildRendererItemStream(
   input: BuildRendererItemStreamInput,
 ): ThreadRendererItemModel[] {
-  const transcriptBlocks = input.entries
-    .map((entry) => buildTranscriptBlock(entry, input.turnStatus))
-    .filter((item): item is ThreadTranscriptBlockModel => item !== null);
-  const requestBlocks = input.requests.map((request) => buildPendingRequestBlock(request));
-  return [...transcriptBlocks, ...requestBlocks];
+  return buildRendererItemStreamProjection(input).items;
 }

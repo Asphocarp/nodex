@@ -7,6 +7,7 @@ import {
 } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type {
+  CodexLiveFileAttachment,
   CodexPermissionState,
   CodexPromptInput,
   CodexReasoningEffort,
@@ -15,6 +16,7 @@ import type {
   CodexThreadGoalMaterializedDraft,
 } from "@/lib/types";
 import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
+import { dedupeCodexLiveFileAttachments } from "../../../../../shared/codex-live-file-attachments";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
   resolveShortcutKeycapTokens,
@@ -223,9 +225,8 @@ const COMPOSER_IMAGE_FILE_EXTENSIONS = new Set([
 ]);
 
 interface ComposerFileAttachment {
-  id: string;
-  label: string;
-  path: string;
+  uiId: string;
+  attachment: CodexLiveFileAttachment;
 }
 
 interface ComposerImageAttachment {
@@ -238,6 +239,10 @@ interface ComposerImageAttachment {
 interface ComposerPastedTextAttachment {
   id: string;
   text: string;
+  file?: CodexLiveFileAttachment;
+  preview?: string;
+  hostId?: string;
+  characterCount?: number;
 }
 
 interface ComposerSkillMentionAttachment {
@@ -248,6 +253,7 @@ interface ComposerSkillMentionAttachment {
 
 interface ComposerAttachmentState {
   fileAttachments: ComposerFileAttachment[];
+  addedFiles: ComposerFileAttachment[];
   imageAttachments: ComposerImageAttachment[];
   pastedTextAttachments: ComposerPastedTextAttachment[];
   skillMentions: ComposerSkillMentionAttachment[];
@@ -283,18 +289,26 @@ function buildComposerPromptInput(input: {
   prompt: string;
   attachments: ComposerAttachmentState;
 }): CodexPromptInput | undefined {
-  const text = input.prompt.trim();
+  const text = input.prompt;
   const images = input.attachments.imageAttachments.map((attachment) => ({
     source: attachment.dataUrl,
     caption: attachment.filename,
   }));
   const textAttachments = input.attachments.pastedTextAttachments.map((attachment) => ({
     text: attachment.text,
+    ...(attachment.file === undefined ? {} : { file: { ...attachment.file } }),
+    ...(attachment.preview === undefined ? {} : { preview: attachment.preview }),
+    ...(attachment.hostId === undefined ? {} : { hostId: attachment.hostId }),
+    ...(attachment.characterCount === undefined
+      ? {}
+      : { characterCount: attachment.characterCount }),
   }));
-  const mentions = input.attachments.fileAttachments.map((attachment) => ({
-    name: attachment.label,
-    path: attachment.path,
-  }));
+  const fileAttachments = dedupeCodexLiveFileAttachments(
+    input.attachments.fileAttachments.map((item) => item.attachment),
+  ).map((attachment) => ({ ...attachment }));
+  const addedFiles = dedupeCodexLiveFileAttachments(
+    input.attachments.addedFiles.map((item) => item.attachment),
+  ).map((attachment) => ({ ...attachment }));
   const skills = input.attachments.skillMentions.map((attachment) => ({
     name: attachment.name,
     path: attachment.path,
@@ -304,7 +318,8 @@ function buildComposerPromptInput(input: {
   if (
     images.length === 0
     && textAttachments.length === 0
-    && mentions.length === 0
+    && fileAttachments.length === 0
+    && addedFiles.length === 0
     && skills.length === 0
     && commentAttachments.length === 0
   ) {
@@ -315,7 +330,8 @@ function buildComposerPromptInput(input: {
     text,
     ...(images.length > 0 ? { images } : {}),
     ...(textAttachments.length > 0 ? { textAttachments } : {}),
-    ...(mentions.length > 0 ? { mentions } : {}),
+    ...(fileAttachments.length > 0 ? { fileAttachments } : {}),
+    ...(addedFiles.length > 0 ? { addedFiles } : {}),
     ...(skills.length > 0 ? { skills } : {}),
     ...(commentAttachments.length > 0 ? { commentAttachments } : {}),
   };
@@ -326,6 +342,26 @@ function getComposerAttachmentNameFromPath(path: string, fallback: string): stri
 }
 
 function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptInput): ComposerAttachmentState {
+  const fileAttachments = promptInput?.fileAttachments !== undefined
+    ? dedupeCodexLiveFileAttachments(promptInput.fileAttachments).map((attachment) => ({
+        uiId: createComposerAttachmentId("file"),
+        attachment: { ...attachment },
+      }))
+    : (promptInput?.mentions ?? []).map((mention) => ({
+        uiId: createComposerAttachmentId("file"),
+        attachment: {
+          label: mention.name.trim()
+            || getComposerAttachmentNameFromPath(mention.path, "Attachment"),
+          path: mention.path,
+          fsPath: mention.path,
+        },
+      }));
+  const addedFiles = dedupeCodexLiveFileAttachments(
+    promptInput?.addedFiles ?? [],
+  ).map((attachment) => ({
+    uiId: createComposerAttachmentId("added_file"),
+    attachment: { ...attachment },
+  }));
   return {
     imageAttachments: (promptInput?.images ?? []).map((image) => ({
       id: createComposerAttachmentId("image"),
@@ -336,12 +372,15 @@ function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptIn
     pastedTextAttachments: (promptInput?.textAttachments ?? []).map((attachment) => ({
       id: createComposerAttachmentId("pasted_text"),
       text: attachment.text,
+      ...(attachment.file === undefined ? {} : { file: { ...attachment.file } }),
+      ...(attachment.preview === undefined ? {} : { preview: attachment.preview }),
+      ...(attachment.hostId === undefined ? {} : { hostId: attachment.hostId }),
+      ...(attachment.characterCount === undefined
+        ? {}
+        : { characterCount: attachment.characterCount }),
     })),
-    fileAttachments: (promptInput?.mentions ?? []).map((mention) => ({
-      id: createComposerAttachmentId("file"),
-      label: mention.name.trim() || getComposerAttachmentNameFromPath(mention.path, "Attachment"),
-      path: mention.path,
-    })),
+    fileAttachments,
+    addedFiles,
     skillMentions: (promptInput?.skills ?? []).map((skill) => ({
       id: createComposerAttachmentId("skill"),
       name: skill.name.trim() || getComposerAttachmentNameFromPath(skill.path, "Skill"),
@@ -362,6 +401,7 @@ function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
 
 function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState): boolean {
   return attachments.fileAttachments.length > 0
+    || attachments.addedFiles.length > 0
     || attachments.imageAttachments.length > 0
     || attachments.pastedTextAttachments.length > 0
     || attachments.skillMentions.length > 0
@@ -375,14 +415,21 @@ function buildThreadGoalSubmissionDraft(
   return {
     ...draft,
     imageAttachments: attachments.imageAttachments.map((attachment) => ({
-      source: attachment.dataUrl,
+      src: attachment.dataUrl,
       localPath: attachment.path,
       filename: attachment.filename,
     })),
     pastedTextAttachments: attachments.pastedTextAttachments.map((attachment) => ({
       text: attachment.text,
+      ...(attachment.file === undefined ? {} : { file: { ...attachment.file } }),
+      ...(attachment.preview === undefined ? {} : { preview: attachment.preview }),
+      ...(attachment.hostId === undefined ? {} : { hostId: attachment.hostId }),
+      ...(attachment.characterCount === undefined
+        ? {}
+        : { characterCount: attachment.characterCount }),
     })),
     hasUnsupportedAttachments: attachments.fileAttachments.length > 0
+      || attachments.addedFiles.length > 0
       || attachments.skillMentions.length > 0
       || attachments.commentAttachments.length > 0,
   };
@@ -395,6 +442,7 @@ function parseSideChatCommand(prompt: string): string | null {
 }
 
 export const __composerAddContextTestUtils = {
+  buildComposerAttachmentStateFromPromptInput,
   buildComposerPromptInput,
   isComposerImageFile,
 };
@@ -1009,6 +1057,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
   const [dictationToastMessage, setDictationToastMessage] = useState<string | null>(null);
   const [fileAttachments, setFileAttachments] = useState<ComposerFileAttachment[]>([]);
+  const [addedFiles, setAddedFiles] = useState<ComposerFileAttachment[]>([]);
   const [imageAttachments, setImageAttachments] = useState<ComposerImageAttachment[]>([]);
   const [pastedTextAttachments, setPastedTextAttachments] = useState<ComposerPastedTextAttachment[]>([]);
   const [skillMentions, setSkillMentions] = useState<ComposerSkillMentionAttachment[]>([]);
@@ -1033,11 +1082,12 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const commentAttachments = useReviewDiffCommentAttachments(composerThreadId);
   const attachmentState = useMemo<ComposerAttachmentState>(() => ({
     fileAttachments,
+    addedFiles,
     imageAttachments,
     pastedTextAttachments,
     skillMentions,
     commentAttachments,
-  }), [commentAttachments, fileAttachments, imageAttachments, pastedTextAttachments, skillMentions]);
+  }), [addedFiles, commentAttachments, fileAttachments, imageAttachments, pastedTextAttachments, skillMentions]);
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
   const incrementAttachmentGeneration = useCallback(() => {
     attachmentGenerationRef.current += 1;
@@ -1045,6 +1095,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const resetComposerAttachments = useCallback(() => {
     incrementAttachmentGeneration();
     setFileAttachments([]);
+    setAddedFiles([]);
     setImageAttachments([]);
     setPastedTextAttachments([]);
     setSkillMentions([]);
@@ -1074,30 +1125,37 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
       setBusyAction("send");
       onErrorMessage(null);
-      let materialized: CodexThreadGoalMaterializedDraft;
-      try {
-        materialized = await materializeThreadGoalDraft({
-          objective: draft.objective,
-          imageAttachments: draft.imageAttachments,
-          pastedTextAttachments: draft.pastedTextAttachments,
-        });
-      } catch {
-        toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
-          id: "thread-goal-materialize-failed",
-        });
-        setBusyAction(null);
-        return false;
+      let prompt = draft.objective;
+      const threadGoalDraft: CodexThreadGoalDraftInput = {
+        objective: draft.objective,
+        imageAttachments: draft.imageAttachments.map((attachment) => ({ ...attachment })),
+        pastedTextAttachments: draft.pastedTextAttachments.map((attachment) => ({ ...attachment })),
+      };
+      let threadGoalMaterializedDraft: CodexThreadGoalMaterializedDraft | undefined;
+      if (target.runInTarget !== "newWorktree") {
+        let materialized: CodexThreadGoalMaterializedDraft;
+        try {
+          materialized = await materializeThreadGoalDraft(threadGoalDraft);
+        } catch {
+          toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
+            id: "thread-goal-materialize-failed",
+          });
+          setBusyAction(null);
+          return false;
+        }
+        prompt = materialized.objective;
+        threadGoalMaterializedDraft = materialized;
       }
 
       try {
         await actions.onStartThreadForSession({
           projectId: target.projectId,
           sessionId: target.sessionId,
-          prompt: materialized.objective,
-          threadGoalDraft: {
-            objective: materialized.objective,
-            attachmentDirectory: materialized.attachmentDirectory,
-          },
+          prompt,
+          threadGoalDraft,
+          ...(threadGoalMaterializedDraft === undefined
+            ? {}
+            : { threadGoalMaterializedDraft }),
           runInTarget: target.runInTarget,
           runInEnvironmentPath: target.runInEnvironmentPath,
           worktreeStartMode: target.worktreeStartMode,
@@ -1178,7 +1236,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       submitAction: StageThreadsComposerSubmitAction | null;
     },
   ) => {
-    const nextPrompt = input.prompt.trim();
+    const nextPrompt = input.prompt;
+    const trimmedPrompt = nextPrompt.trim();
     const promptInput = buildComposerPromptInput({
       prompt: nextPrompt,
       attachments: attachmentState,
@@ -1222,11 +1281,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       return;
     }
 
-    if (!nextPrompt && !hasPromptAttachments) {
+    if (!trimmedPrompt && !hasPromptAttachments) {
       return;
     }
 
-    const sideChatPrompt = parseSideChatCommand(nextPrompt);
+    const sideChatPrompt = parseSideChatCommand(trimmedPrompt);
     if (sideChatPrompt !== null) {
       if (model.conversation?.source?.sideConversation === true) {
         toast.danger("'/side' is unavailable in side chats. Return to the main thread first", {
@@ -1299,7 +1358,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             promptInput,
           });
         } else if (input.submitAction === "steer") {
-          if (!model.activeTurn) {
+          if (!model.activeTurn || model.activeTurn.turnId === null) {
             onErrorMessage("Codex is already running. Wait for the active turn to load or queue the follow-up instead.");
             return;
           }
@@ -1477,9 +1536,12 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         if (!isComposerImageFile(pickedFile)) {
           if (!imagesOnly) {
             nextFileAttachments.push({
-              id: createComposerAttachmentId("file"),
-              label: getComposerPickedFileName(pickedFile),
-              path: pickedFile.path,
+              uiId: createComposerAttachmentId("file"),
+              attachment: {
+                label: getComposerPickedFileName(pickedFile),
+                path: pickedFile.path,
+                fsPath: pickedFile.path,
+              },
             });
           }
           continue;
@@ -1498,7 +1560,13 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         return;
       }
       if (nextFileAttachments.length > 0) {
-        setFileAttachments((current) => [...current, ...nextFileAttachments]);
+        setFileAttachments((current) => {
+          const combined = [...current, ...nextFileAttachments];
+          const retained = new Set(dedupeCodexLiveFileAttachments(
+            combined.map((item) => item.attachment),
+          ));
+          return combined.filter((item) => retained.has(item.attachment));
+        });
       }
       if (nextImageAttachments.length > 0) {
         setImageAttachments((current) => [...current, ...nextImageAttachments]);
@@ -1643,6 +1711,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     const restoredAttachments = buildComposerAttachmentStateFromPromptInput(composerIntent.promptInput);
     incrementAttachmentGeneration();
     setFileAttachments(restoredAttachments.fileAttachments);
+    setAddedFiles(restoredAttachments.addedFiles);
     setImageAttachments(restoredAttachments.imageAttachments);
     setPastedTextAttachments(restoredAttachments.pastedTextAttachments);
     setSkillMentions(restoredAttachments.skillMentions);
@@ -1707,7 +1776,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
   const handleRemoveFileAttachment = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
-    setFileAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+    setFileAttachments((current) => current.filter((attachment) =>
+      attachment.uiId !== attachmentId
+    ));
+  }, [incrementAttachmentGeneration]);
+
+  const handleRemoveAddedFile = useCallback((attachmentId: string) => {
+    incrementAttachmentGeneration();
+    setAddedFiles((current) => current.filter((attachment) =>
+      attachment.uiId !== attachmentId
+    ));
   }, [incrementAttachmentGeneration]);
 
   const handleRemoveImageAttachment = useCallback((attachmentId: string) => {
@@ -2097,6 +2175,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   });
   return (
     <>
+      <ThreadComposerExternalFooterSlot visible={showExternalFooter}>
+        <ThreadComposerStatusStrip
+          model={model}
+          actions={actions}
+          onErrorMessage={onErrorMessage}
+          projectSelectorDisabled={busyAction !== null}
+        />
+      </ThreadComposerExternalFooterSlot>
       <div className="relative">
         <InlineSlashCommandMenu
           open={slashMenuOpen}
@@ -2168,14 +2254,27 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                   ))}
                   {fileAttachments.map((attachment) => (
                     <button
-                      key={attachment.id}
+                      key={attachment.uiId}
                       type="button"
                       className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                      onClick={() => handleRemoveFileAttachment(attachment.id)}
-                      title={`Remove ${attachment.label}`}
+                      onClick={() => handleRemoveFileAttachment(attachment.uiId)}
+                      title={`Remove ${attachment.attachment.label}`}
                     >
                       <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                      <span className="min-w-0 truncate">{attachment.label}</span>
+                      <span className="min-w-0 truncate">{attachment.attachment.label}</span>
+                      <span className="text-token-description-foreground">x</span>
+                    </button>
+                  ))}
+                  {addedFiles.map((attachment) => (
+                    <button
+                      key={attachment.uiId}
+                      type="button"
+                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                      onClick={() => handleRemoveAddedFile(attachment.uiId)}
+                      title={`Remove ${attachment.attachment.label}`}
+                    >
+                      <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                      <span className="min-w-0 truncate">{attachment.attachment.label}</span>
                       <span className="text-token-description-foreground">x</span>
                     </button>
                   ))}
@@ -2407,14 +2506,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         </div>
       </div>
 
-      <ThreadComposerExternalFooterSlot visible={showExternalFooter}>
-        <ThreadComposerStatusStrip
-          model={model}
-          actions={actions}
-          onErrorMessage={onErrorMessage}
-          projectSelectorDisabled={busyAction !== null}
-        />
-      </ThreadComposerExternalFooterSlot>
       <ExpandedSlashCommandDialog
         open={slashDialogOpen}
         commands={slashCommands}

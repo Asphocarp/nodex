@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 type DeclarationMap = Map<string, string>;
 type CssBlock = {
@@ -9,6 +10,34 @@ type CssBlock = {
 
 const codexRuntimeVscodeOverrides: DeclarationMap = new Map([
   ["--vscode-font-weight", "445"],
+  ["--vscode-textCodeBlock-background", "var(--color-background-button-secondary)"],
+]);
+
+const codexRuntimeColorTokenOverrides: DeclarationMap = new Map([
+  [
+    "--color-token-border-heavy",
+    "var(--color-border-heavy, color-mix(in oklab, var(--vscode-foreground) 12%, transparent))",
+  ],
+  [
+    "--color-token-conversation-header",
+    "color-mix(in oklab, var(--color-token-foreground) 30%, transparent)",
+  ],
+  [
+    "--color-token-conversation-body",
+    "color-mix(in oklab, var(--color-token-foreground) 60%, transparent)",
+  ],
+  [
+    "--color-token-non-assistant-body-descendant",
+    "color-mix(in oklab, var(--color-token-foreground) 50%, transparent)",
+  ],
+  [
+    "--color-token-conversation-summary-leading",
+    "color-mix(in oklab, var(--color-token-description-foreground) 90%, transparent)",
+  ],
+  [
+    "--color-token-conversation-summary-trailing",
+    "color-mix(in oklab, var(--color-token-foreground) 40%, transparent)",
+  ],
 ]);
 
 const referencePath = resolve(
@@ -121,6 +150,18 @@ const applyCodexRuntimeVscodeOverrides = (
   return next;
 };
 
+const applyCodexRuntimeColorTokenOverrides = (
+  declarations: DeclarationMap,
+): DeclarationMap => {
+  const next = new Map(declarations);
+
+  for (const [name, value] of codexRuntimeColorTokenOverrides) {
+    next.set(name, value);
+  }
+
+  return next;
+};
+
 const run = (): void => {
   const css = readFileSync(referencePath, "utf8");
   const blocks = collectBlocks(css);
@@ -131,10 +172,12 @@ const run = (): void => {
       "--vscode-",
     ),
   );
-  const colorTokenDeclarations = extractDeclarationsFromBlocks(
-    blocks,
-    ":root, :host",
-    "--color-token-",
+  const colorTokenDeclarations = applyCodexRuntimeColorTokenOverrides(
+    extractDeclarationsFromBlocks(
+      blocks,
+      ":root, :host",
+      "--color-token-",
+    ),
   );
 
   const output = `/*
@@ -155,11 +198,12 @@ ${formatThemeBlock(colorTokenDeclarations)}
   );
 };
 
-if (import.meta.main) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   run();
 }
 
 export {
+  applyCodexRuntimeColorTokenOverrides,
   applyCodexRuntimeVscodeOverrides,
   collectBlocks,
   extractDeclarationsFromBlocks,

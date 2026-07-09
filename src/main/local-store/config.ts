@@ -14,6 +14,9 @@ import {
 import type {
   AppUpdateSettings,
   BackupSettings,
+  CodexDeveloperInstructionSettings,
+  CodexGitSettings,
+  CodexThreadDetailLevel,
   DiagnosticsSettings,
   HistorySettings,
   TelemetrySettings,
@@ -21,6 +24,8 @@ import type {
   ThreadNotificationTurnMode,
   UpdateAppUpdateSettingsInput,
   UpdateBackupSettingsInput,
+  UpdateCodexDeveloperInstructionSettingsInput,
+  UpdateCodexGitSettingsInput,
   UpdateDiagnosticsSettingsInput,
   UpdateHistorySettingsInput,
   UpdateTelemetrySettingsInput,
@@ -57,6 +62,10 @@ interface ServerTomlConfig {
   telemetry_environment?: string;
   telemetry_auto_capture_enabled?: boolean;
   command_keybindings?: Record<string, unknown>;
+  codex_thread_detail_level?: CodexThreadDetailLevel;
+  git_branch_prefix?: string;
+  git_commit_instructions?: string;
+  git_pr_instructions?: string;
 }
 
 interface RootTomlConfig extends Record<string, unknown> {
@@ -82,6 +91,8 @@ const DIAGNOSTICS_REPLAYS_SESSION_SAMPLE_RATE_DEFAULT = 0.1;
 const DIAGNOSTICS_REPLAYS_ON_ERROR_SAMPLE_RATE_DEFAULT = 1;
 const TELEMETRY_ENVIRONMENT_DEFAULT = "production";
 const TELEMETRY_AUTO_CAPTURE_ENABLED_DEFAULT = false;
+const CODEX_THREAD_DETAIL_LEVEL_DEFAULT: CodexThreadDetailLevel = "STEPS_COMMANDS";
+const CODEX_GIT_BRANCH_PREFIX_DEFAULT = "codex/";
 
 function readServerSection(configPath: string): ServerTomlConfig | null {
   try {
@@ -693,6 +704,66 @@ export function updateTelemetrySettings(
 
 export function getThreadNotificationSettings(): ThreadNotificationSettings {
   return threadNotificationSettingsFromConfig(userServerToml);
+}
+
+function isCodexThreadDetailLevel(value: unknown): value is CodexThreadDetailLevel {
+  return value === "STEPS_PROSE"
+    || value === "STEPS_COMMANDS"
+    || value === "STEPS_EXECUTION";
+}
+
+export function getCodexDeveloperInstructionSettings(): CodexDeveloperInstructionSettings {
+  return {
+    detailLevel: isCodexThreadDetailLevel(userServerToml.codex_thread_detail_level)
+      ? userServerToml.codex_thread_detail_level
+      : CODEX_THREAD_DETAIL_LEVEL_DEFAULT,
+  };
+}
+
+export function updateCodexDeveloperInstructionSettings(
+  input: UpdateCodexDeveloperInstructionSettingsInput,
+): CodexDeveloperInstructionSettings {
+  if (!isCodexThreadDetailLevel(input.detailLevel)) {
+    throw new Error("detailLevel must be one of STEPS_PROSE, STEPS_COMMANDS, or STEPS_EXECUTION");
+  }
+  writeUserServerTomlConfig({
+    ...loadUserServerTomlConfig(),
+    codex_thread_detail_level: input.detailLevel,
+  });
+  return getCodexDeveloperInstructionSettings();
+}
+
+export function getCodexGitSettings(): CodexGitSettings {
+  return {
+    branchPrefix: typeof userServerToml.git_branch_prefix === "string"
+      ? userServerToml.git_branch_prefix
+      : CODEX_GIT_BRANCH_PREFIX_DEFAULT,
+    commitInstructions: typeof userServerToml.git_commit_instructions === "string"
+      ? userServerToml.git_commit_instructions
+      : "",
+    pullRequestInstructions: typeof userServerToml.git_pr_instructions === "string"
+      ? userServerToml.git_pr_instructions
+      : "",
+  };
+}
+
+export function updateCodexGitSettings(input: UpdateCodexGitSettingsInput): CodexGitSettings {
+  const entries = Object.entries(input);
+  if (entries.length === 0) return getCodexGitSettings();
+  const allowedKeys = new Set(["branchPrefix", "commitInstructions", "pullRequestInstructions"]);
+  if (entries.some(([key]) => !allowedKeys.has(key))) {
+    throw new Error("Unknown Git setting");
+  }
+  if (entries.some(([, value]) => typeof value !== "string")) {
+    throw new Error("Git setting values must be strings");
+  }
+
+  const next = { ...loadUserServerTomlConfig() };
+  if (input.branchPrefix !== undefined) next.git_branch_prefix = input.branchPrefix;
+  if (input.commitInstructions !== undefined) next.git_commit_instructions = input.commitInstructions;
+  if (input.pullRequestInstructions !== undefined) next.git_pr_instructions = input.pullRequestInstructions;
+  writeUserServerTomlConfig(next);
+  return getCodexGitSettings();
 }
 
 export function getCommandKeybindingOverrides(): CommandKeybindingOverrides {

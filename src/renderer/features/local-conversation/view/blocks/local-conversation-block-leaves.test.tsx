@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
@@ -12,23 +12,26 @@ import { TestQueryProvider } from "../../../../test/query";
 import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../lib/codex-thread-settings";
 import { CodexThreadSettingsProvider } from "../../../../lib/use-codex-thread-settings";
 import { buildCodexFileChangeMap } from "../../../../../shared/codex-file-change";
+import { applyContentSearchDomMarks } from "../../../content-search/content-search-dom";
 import {
   ThreadContextCompactionBlock,
-  ThreadCollapsedToolActivityBlock,
-  ThreadDynamicToolCallGroupBlock,
+  ThreadAgentActivityGroupBlock,
   ThreadAssistantBodyBlock,
-  ThreadExplorationGroupBlock,
-  ThreadPendingMcpToolCallsBlock,
+  ThreadGeneratedImageGalleryBlock,
+  ThreadImageViewBlock,
+  ThreadMcpServerElicitationBlock,
   ThreadPlanCardBlock,
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
   ThreadTurnDiffBlock,
+  ThreadWorktreeInitBlock,
   UserMessageBubble,
+  buildThreadWorktreeInitActivities,
 } from "./local-conversation-block-leaves";
 import { ThreadBlockRenderer } from "./local-conversation-block-renderer";
+import { HookFeedbackSettingsNavigationProvider } from "../hook-feedback-settings-navigation";
 import type {
-  ThreadBlockModel,
-  ThreadCollapsedToolActivitySummaryStats,
+  ThreadAgentActivityGroupSummaryStats,
   ThreadOpenThreadContext,
   ThreadTranscriptBlockModel,
 } from "../../thread-stage-types";
@@ -69,6 +72,24 @@ function buildCommandEntry(
   };
 }
 
+function buildCommandBlock(
+  itemId: string,
+  actions: unknown[],
+  overrides?: Partial<CodexConversationItem>,
+): ThreadTranscriptBlockModel & { type: "exec" } {
+  const entry = buildCommandEntry(itemId, actions, overrides);
+  return {
+    id: entry.entryId ?? entry.itemId,
+    turnId: entry.turnId,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    searchableText: entry.markdownText ?? entry.command ?? "",
+    type: "exec",
+    entry,
+    status: entry.status,
+  };
+}
+
 function buildFileChangeEntry(itemId: string): CodexConversationItem {
   return {
     threadId: "thread-1",
@@ -102,57 +123,6 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
     },
     createdAt: 1,
     updatedAt: 1,
-  };
-}
-
-function buildMultiAgentEntry(itemId: string): CodexConversationItem {
-  return {
-    threadId: "thread-1",
-    turnId: "turn-1",
-    itemId,
-    entryId: itemId,
-    type: "collabAgentToolCall",
-    kind: "toolCall",
-    semanticKind: "multiAgentAction",
-    status: "completed",
-    createdAt: 1,
-    updatedAt: 1,
-    rawItem: {
-      id: itemId,
-      tool: "spawnAgent",
-      status: "completed",
-      senderThreadId: "thread-main",
-      receiverThreadIds: ["thread-agent-1"],
-      receiverThreads: [
-        {
-          threadId: "thread-agent-1",
-          thread: {
-            nickname: "@research",
-            model: "gpt-5.4-mini",
-            agentRole: "worker",
-          },
-        },
-      ],
-      prompt: "Audit the renderer.",
-      model: "gpt-5.4-mini",
-      reasoningEffort: "medium",
-      agentsStates: {},
-    },
-  };
-}
-
-function buildMultiAgentGroupBlock(): Extract<ThreadBlockModel, { type: "multiAgentGroup" }> {
-  const entry = buildMultiAgentEntry("multi-agent-1");
-  return {
-    id: "multi-agent-group-1",
-    turnId: "turn-1",
-    createdAt: 1,
-    updatedAt: 1,
-    searchableText: "multi agent",
-    type: "multiAgentGroup",
-    entries: [entry],
-    summary: "Multi-agent action",
-    status: "completed",
   };
 }
 
@@ -231,50 +201,9 @@ function buildSubagentActivityInlineGroupBlock(): ThreadTranscriptBlockModel {
   };
 }
 
-function buildDynamicToolBlock(
-  itemId: string,
-  tool: string,
-  overrides?: Partial<NonNullable<CodexConversationItem["dynamicToolCall"]>>,
-): ThreadTranscriptBlockModel & { type: "dynamicToolCall" } {
-  const dynamicToolCall = {
-    callId: itemId,
-    namespace: "codex_app",
-    tool,
-    arguments: { threadId: "thread-1" },
-    status: "completed" as const,
-    contentItems: [{ type: "inputText" as const, text: "{\"ok\":true}" }],
-    success: true,
-    durationMs: 1,
-    completed: true,
-    ...overrides,
-  };
-  return {
-    id: itemId,
-    turnId: "turn-1",
-    createdAt: 1,
-    updatedAt: 1,
-    searchableText: tool,
-    type: "dynamicToolCall",
-    status: "completed",
-    entry: {
-      threadId: "thread-1",
-      turnId: "turn-1",
-      itemId,
-      entryId: itemId,
-      type: "dynamicToolCall",
-      kind: "toolCall",
-      semanticKind: "dynamicToolCall",
-      status: "completed",
-      dynamicToolCall,
-      createdAt: 1,
-      updatedAt: 1,
-    },
-  };
-}
-
 function buildCollapsedSummaryStats(
-  overrides: Partial<ThreadCollapsedToolActivitySummaryStats> = {},
-): ThreadCollapsedToolActivitySummaryStats {
+  overrides: Partial<ThreadAgentActivityGroupSummaryStats> = {},
+): ThreadAgentActivityGroupSummaryStats {
   return {
     createdFileCount: 0,
     runningCreatedFileCount: 0,
@@ -440,6 +369,53 @@ describe("UserMessageBubble collapse", () => {
     expect(queryByText("Show less") === null).toBe(true);
   });
 
+  test("labels hook feedback without exposing ordinary edit controls", () => {
+    const block = buildUserMessageBlock("Please address the failed check.");
+    block.entry.hookFeedback = true;
+    block.userMessageActions = { canEdit: false, sentAtMs: null };
+    const { getByText, queryByLabelText } = render(
+      <TooltipProvider>
+        <UserMessageBubble block={block} isLatestTurn isStreamingTurn={false} />
+      </TooltipProvider>,
+    );
+
+    const status = getByText("Hook feedback");
+    expect(status.closest("a")?.getAttribute("href")).toBe("/settings/hooks-settings?hostId=default");
+    expect(queryByLabelText("Edit message")).toBe(null);
+  });
+
+  test("links matching project hook feedback to its filtered settings source", () => {
+    const block = buildUserMessageBlock("Please address the failed check.");
+    block.entry.hookFeedback = true;
+    block.hookFeedbackSources = ["project"];
+    block.userMessageActions = { canEdit: false, sentAtMs: null };
+    const onOpenHooksSettings = vi.fn();
+    const { getByText } = render(
+      <TooltipProvider>
+        <HookFeedbackSettingsNavigationProvider
+          hostId="remote-1"
+          onOpenHooksSettings={onOpenHooksSettings}
+        >
+          <UserMessageBubble
+            block={block}
+            isLatestTurn
+            isStreamingTurn={false}
+            threadCwd="/workspace/nodex"
+          />
+        </HookFeedbackSettingsNavigationProvider>
+      </TooltipProvider>,
+    );
+
+    const link = getByText("Hook feedback").closest("a");
+    expect(link?.getAttribute("href"))
+      .toBe("/settings/hooks-settings?hostId=remote-1&source=project&projectRoot=%2Fworkspace%2Fnodex");
+    fireEvent.click(link as HTMLElement);
+    expect(onOpenHooksSettings).toHaveBeenCalledWith({
+      hostId: "remote-1",
+      selection: { source: "project", projectRoot: "/workspace/nodex" },
+    });
+  });
+
   test("collapses long measured user messages and toggles expansion", async () => {
     installTextCollapseMeasurement({ clientWidth: 320, characterWidthPx: 7 });
     const longMessage = Array.from({ length: 25 }, (_value, index) => `Line ${index + 1}`).join("\n");
@@ -553,542 +529,7 @@ describe("ThreadAssistantBodyBlock streaming markdown", () => {
   });
 });
 
-describe("ThreadExplorationGroupBlock", () => {
-  beforeEach(() => {
-    installElementScrollHeight(160);
-    installMeasuredResizeObserver({ blockSize: 160, inlineSize: 320 });
-  });
-
-  test("renders Codex-style counts and deduplicates read files in the header", async () => {
-    const block = {
-      id: "exploration-1",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "exploration",
-      type: "explorationGroup" as const,
-      summary: "Exploration",
-      status: "completed" as const,
-      entries: [
-        buildCommandEntry("item-1", [
-          { type: "read", command: "cat a.ts", name: "./src/a.ts", path: "./src/a.ts" },
-        ]),
-        buildCommandEntry("item-2", [
-          { type: "read", command: "cat a.ts", name: "./src/a.ts", path: "./src/a.ts" },
-        ]),
-        buildCommandEntry("item-3", [
-          { type: "search", command: "rg thing", query: "thing", path: "src" },
-        ]),
-        buildCommandEntry("item-4", [
-          { type: "listFiles", command: "fd", path: "src" },
-        ]),
-      ],
-    };
-
-    const { container, getByRole, getByTestId } = render(
-      <ThreadExplorationGroupBlock
-        block={block}
-        isLatestTurn={false}
-        isStreamingTurn={false}
-      />,
-    );
-
-    const summaryText = textContent(getByRole("button"));
-    expect(summaryText.includes("Explored")).toBe(true);
-    expect(summaryText.includes("1 file")).toBe(true);
-    expect(summaryText.includes("1 search")).toBe(true);
-    expect(summaryText.includes("1 list")).toBe(true);
-
-    const body = getByTestId("exploration-accordion-body");
-    expect(Boolean(body.getAttribute("style")?.includes("height: 0px"))).toBe(true);
-
-    fireEvent.click(getByRole("button"));
-    await settleAsyncRender();
-
-    const scroller = container.querySelector(".vertical-scroll-fade-mask");
-    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBe(true);
-    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBe(false);
-    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 320px"))).toBe(true);
-    const content = textContent(container);
-    expect(content.includes("Read src/a.ts")).toBe(true);
-    expect(content.includes("Searched for thing in src")).toBe(true);
-    expect(content.includes("Listed files in src")).toBe(true);
-    expect(container.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(1);
-    expect(container.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(0);
-  });
-
-  test("starts in preview mode while exploration is still running", async () => {
-    const block = {
-      id: "exploration-2",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "exploration",
-      type: "explorationGroup" as const,
-      summary: "Exploration",
-      status: "inProgress" as const,
-      entries: [
-        buildCommandEntry(
-          "item-1",
-          [{ type: "read", command: "cat stage.tsx", name: "stage.tsx", path: "stage.tsx" }],
-          { status: "inProgress" },
-        ),
-      ],
-    };
-
-    const { container, getByRole, getByTestId } = render(
-      <ThreadExplorationGroupBlock
-        block={block}
-        isLatestTurn={true}
-        isStreamingTurn={true}
-      />,
-    );
-
-    await settleAsyncRender();
-
-    const body = getByTestId("exploration-accordion-body");
-    const scroller = container.querySelector(".vertical-scroll-fade-mask");
-    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBe(true);
-    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBe(false);
-    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 112px"))).toBe(true);
-
-    const summaryText = textContent(getByRole("button"));
-    expect(summaryText.includes("Exploring")).toBe(true);
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
-  });
-});
-
-describe("ThreadPendingMcpToolCallsBlock", () => {
-  test("keeps the pending MCP bounded body shell while collapsed and renders items on expand", async () => {
-    installWindowApi({
-      invoke: async (channel: string) => {
-        if (channel === "codex:mcp-server-statuses:list") return [];
-        return null;
-      },
-      on: () => () => {},
-    });
-
-    const entry: ThreadTranscriptBlockModel & { type: "mcpToolCall" } = {
-      id: "mcp-1",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "browser click",
-      type: "mcpToolCall",
-      status: "inProgress",
-      entry: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "mcp-1",
-        entryId: "mcp-1",
-        type: "mcpToolCall",
-        kind: "toolCall",
-        semanticKind: "mcpToolCall",
-        status: "inProgress",
-        mcpToolCall: {
-          callId: "mcp-1",
-          functionName: "browser-use__click",
-          invocation: { server: "browser-use", tool: "click", arguments: {} },
-          result: null,
-          durationMs: null,
-          completed: false,
-        },
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    };
-
-    const { container, getAllByRole, getByTestId } = render(
-      <TestQueryProvider>
-        <TooltipProvider>
-          <ThreadPendingMcpToolCallsBlock
-            block={{
-              id: "pending-mcp",
-              turnId: "turn-1",
-              createdAt: 1,
-              updatedAt: 1,
-              searchableText: "Using the browser",
-              type: "pendingMcpToolCalls",
-              entries: [entry],
-              summary: "Using the browser",
-              status: "inProgress",
-            }}
-            isLatestTurn
-            isStreamingTurn
-          />
-        </TooltipProvider>
-      </TestQueryProvider>,
-    );
-
-    const button = getAllByRole("button", { name: "Click" })[0];
-    expect(button.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBe(true);
-    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBe(false);
-    const collapsedList = container.querySelector(".vertical-scroll-fade-mask");
-    expect(Boolean(collapsedList?.getAttribute("style")?.includes("max-height: 0px"))).toBe(true);
-
-    fireEvent.click(button);
-    await settleAsyncRender();
-
-    expect(button.getAttribute("aria-expanded") ?? "").toBe("true");
-    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBe(true);
-    expect(textContent(getByTestId("pending-mcp-tool-calls-body")).includes("Click")).toBe(true);
-  });
-
-  test("renders completed Node REPL pending groups with command-count wording", () => {
-    const entry: ThreadTranscriptBlockModel & { type: "mcpToolCall" } = {
-      id: "mcp-1",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "node repl",
-      type: "mcpToolCall",
-      status: "completed",
-      entry: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "mcp-1",
-        entryId: "mcp-1",
-        type: "mcpToolCall",
-        kind: "toolCall",
-        semanticKind: "mcpToolCall",
-        status: "completed",
-        mcpToolCall: {
-          callId: "mcp-1",
-          functionName: "node_repl__js",
-          invocation: { server: "node_repl", tool: "js", arguments: {} },
-          result: { type: "success", content: [], structuredContent: null, raw: { content: [], structuredContent: null } },
-          durationMs: 1,
-          completed: true,
-        },
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    };
-    const secondEntry = {
-      ...entry,
-      id: "mcp-2",
-      entry: {
-        ...entry.entry,
-        itemId: "mcp-2",
-        entryId: "mcp-2",
-        mcpToolCall: {
-          callId: "mcp-2",
-          functionName: "node_repl__js",
-          invocation: { server: "node_repl", tool: "js", arguments: {} },
-          result: { type: "success", content: [], structuredContent: null, raw: { content: [], structuredContent: null } },
-          durationMs: 1,
-          completed: true,
-        },
-      },
-    } satisfies ThreadTranscriptBlockModel & { type: "mcpToolCall" };
-
-    const { getByRole } = render(
-      <TestQueryProvider>
-        <TooltipProvider>
-          <ThreadPendingMcpToolCallsBlock
-            block={{
-              id: "pending-mcp",
-              turnId: "turn-1",
-              createdAt: 1,
-              updatedAt: 1,
-              searchableText: "Ran commands",
-              type: "pendingMcpToolCalls",
-              entries: [entry, secondEntry],
-              summary: "Using Node repl",
-              status: "completed",
-            }}
-            isLatestTurn={false}
-            isStreamingTurn={false}
-          />
-        </TooltipProvider>
-      </TestQueryProvider>,
-    );
-
-    expect(Boolean(getByRole("button", { name: "Ran 2 commands" }))).toBe(true);
-  });
-});
-
-describe("ThreadDynamicToolCallGroupBlock", () => {
-  test("renders folded dynamic summary parts instead of one total repeat label", () => {
-    const { getByRole } = render(
-      <TooltipProvider>
-        <ThreadDynamicToolCallGroupBlock
-          block={{
-            id: "dynamic-group",
-            turnId: "turn-1",
-            createdAt: 1,
-            updatedAt: 1,
-            searchableText: "dynamic",
-            type: "dynamicToolCallGroup",
-            entries: [
-              buildDynamicToolBlock("read-1", "read_thread"),
-              buildDynamicToolBlock("read-2", "read_thread"),
-              buildDynamicToolBlock("send-1", "send_message_to_thread"),
-            ],
-            summary: "Read thread 2 times · Sent message to thread",
-            summaryParts: [
-              { key: "read", label: "Read thread", count: 2 },
-              { key: "send", label: "Sent message to thread", count: 1 },
-            ],
-            repeatCount: 3,
-            status: "completed",
-          }}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-        />
-      </TooltipProvider>,
-    );
-
-    expect(Boolean(getByRole("button", { name: /Read thread\s*2 times\s*·\s*Sent message to thread/i }))).toBe(true);
-  });
-
-  test("mounts compact dynamic rows inside the inner grouped body on expand", async () => {
-    const { container, getByRole, getByTestId, queryByTestId } = render(
-      <TooltipProvider>
-        <ThreadDynamicToolCallGroupBlock
-          block={{
-            id: "dynamic-group",
-            turnId: "turn-1",
-            createdAt: 1,
-            updatedAt: 1,
-            searchableText: "dynamic",
-            type: "dynamicToolCallGroup",
-            entries: [
-              buildDynamicToolBlock("read-1", "read_thread"),
-              buildDynamicToolBlock("send-1", "send_message_to_thread"),
-            ],
-            summary: "Read thread · Sent message to thread",
-            summaryParts: [
-              { key: "read", label: "Read thread", count: 1 },
-              { key: "send", label: "Sent message to thread", count: 1 },
-            ],
-            repeatCount: 2,
-            status: "completed",
-          }}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-        />
-      </TooltipProvider>,
-    );
-
-    expect(Boolean(queryByTestId("dynamic-tool-call-group-body"))).toBe(false);
-
-    await act(async () => {
-      fireEvent.click(getByRole("button", { name: /Read thread\s*·\s*Sent message to thread/i }));
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => resolve());
-      });
-    });
-
-    const body = getByTestId("dynamic-tool-call-group-body");
-    expect(body.parentElement?.getAttribute("data-testid") ?? "").toBe("");
-    expect(textContent(body).includes("Read thread")).toBe(true);
-    expect(textContent(body).includes("Sent message to thread")).toBe(true);
-    expect(textContent(container).includes("thread-1")).toBe(false);
-    expect(textContent(container).includes("{\"ok\":true}")).toBe(false);
-  });
-
-  test("renders the latest incomplete dynamic item as the active group header", () => {
-    const { getByRole } = render(
-      <TooltipProvider>
-        <ThreadDynamicToolCallGroupBlock
-          block={{
-            id: "dynamic-active",
-            turnId: "turn-1",
-            createdAt: 1,
-            updatedAt: 1,
-            searchableText: "dynamic",
-            type: "dynamicToolCallGroup",
-            entries: [
-              buildDynamicToolBlock("read-1", "read_thread"),
-              buildDynamicToolBlock("send-1", "send_message_to_thread", {
-                status: "inProgress",
-                contentItems: null,
-                success: null,
-                durationMs: null,
-                completed: false,
-              }),
-            ],
-            summary: "Read thread · Sending message to thread",
-            summaryParts: [
-              { key: "read", label: "Read thread", count: 1 },
-              { key: "send", label: "Sending message to thread", count: 1 },
-            ],
-            repeatCount: 2,
-            status: "inProgress",
-          }}
-          isLatestTurn
-          isStreamingTurn
-        />
-      </TooltipProvider>,
-    );
-
-    expect(Boolean(getByRole("button", { name: /Sending message to thread/i }))).toBe(true);
-  });
-
-  test("defers active dynamic summary changes and immediately shows settled aggregate summaries", async () => {
-    const originalDateNow = Date.now;
-    const originalSetTimeout = window.setTimeout;
-    const originalClearTimeout = window.clearTimeout;
-    let now = 0;
-    let nextTimerId = 92_000;
-    let scheduledTimerId: number | null = null;
-    let scheduledDelay = -1;
-    let scheduledCallback: (() => void) | null = null;
-    let clearCount = 0;
-    Date.now = () => now;
-    window.setTimeout = ((callback: TimerHandler, delay?: number) => {
-      const timerId = nextTimerId++;
-      scheduledTimerId = timerId;
-      scheduledDelay = delay ?? 0;
-      scheduledCallback = typeof callback === "function" ? () => callback() : null;
-      return timerId;
-    }) as typeof window.setTimeout;
-    window.clearTimeout = ((timerId?: number) => {
-      if (timerId !== scheduledTimerId) return;
-      clearCount += 1;
-      scheduledTimerId = null;
-      scheduledCallback = null;
-    }) as typeof window.clearTimeout;
-
-    const buildBlock = (
-      entries: ReturnType<typeof buildDynamicToolBlock>[],
-      status: "completed" | "inProgress",
-    ) => ({
-      id: "dynamic-deferred-summary",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 2,
-      searchableText: "dynamic",
-      type: "dynamicToolCallGroup" as const,
-      entries,
-      summary: "Dynamic tools",
-      summaryParts: [],
-      repeatCount: entries.length,
-      status,
-    });
-
-    try {
-      const view = render(
-        <TooltipProvider>
-          <ThreadDynamicToolCallGroupBlock
-            block={buildBlock([
-              buildDynamicToolBlock("read-1", "read_thread", {
-                status: "inProgress",
-                contentItems: null,
-                success: null,
-                durationMs: null,
-                completed: false,
-              }),
-            ], "inProgress")}
-            isLatestTurn
-            isStreamingTurn
-          />
-        </TooltipProvider>,
-      );
-
-      const getHeaderText = () => textContent(view.container.querySelector("button[aria-expanded]") ?? view.container);
-
-      expect(Boolean(getHeaderText().includes("Reading thread"))).toBe(true);
-
-      now = 100;
-      await act(async () => {
-        view.rerender(
-          <TooltipProvider>
-            <ThreadDynamicToolCallGroupBlock
-              block={buildBlock([
-                buildDynamicToolBlock("read-1", "read_thread"),
-                buildDynamicToolBlock("send-1", "send_message_to_thread", {
-                  status: "inProgress",
-                  contentItems: null,
-                  success: null,
-                  durationMs: null,
-                  completed: false,
-                }),
-              ], "inProgress")}
-              isLatestTurn
-              isStreamingTurn
-            />
-          </TooltipProvider>,
-        );
-        await Promise.resolve();
-      });
-
-      expect(Boolean(getHeaderText().includes("Reading thread"))).toBe(true);
-      expect(Boolean(getHeaderText().includes("Sending message to thread"))).toBe(false);
-      expect(scheduledDelay).toBe(900);
-      expect(Boolean(scheduledCallback)).toBe(true);
-
-      now = 150;
-      await act(async () => {
-        view.rerender(
-          <TooltipProvider>
-            <ThreadDynamicToolCallGroupBlock
-              block={buildBlock([
-                buildDynamicToolBlock("read-1", "read_thread"),
-                buildDynamicToolBlock("send-1", "send_message_to_thread"),
-              ], "completed")}
-              isLatestTurn
-              isStreamingTurn
-            />
-          </TooltipProvider>,
-        );
-        await Promise.resolve();
-      });
-
-      const content = getHeaderText();
-      expect(Boolean(content.includes("Read thread · Sent message to thread"))).toBe(true);
-      expect(Boolean(content.includes("Reading thread"))).toBe(false);
-      expect(clearCount).toBe(1);
-      expect(Boolean(scheduledCallback)).toBe(false);
-    } finally {
-      Date.now = originalDateNow;
-      window.setTimeout = originalSetTimeout;
-      window.clearTimeout = originalClearTimeout;
-    }
-  });
-
-  test("does not mount an expandable body for summary-only dynamic groups", () => {
-    const { container, queryByRole } = render(
-      <TooltipProvider>
-        <ThreadDynamicToolCallGroupBlock
-          block={{
-            id: "dynamic-summary-only",
-            turnId: "turn-1",
-            createdAt: 1,
-            updatedAt: 1,
-            searchableText: "handoff status",
-            type: "dynamicToolCallGroup",
-            entries: [
-              buildDynamicToolBlock("status-1", "get_handoff_status", {
-                arguments: { operationId: "operation-1" },
-              }),
-              buildDynamicToolBlock("status-2", "get_handoff_status", {
-                arguments: { operationId: "operation-1" },
-              }),
-            ],
-            summary: "Checked handoff status 2 times",
-            summaryParts: [
-              { key: "status", label: "Checked handoff status", count: 2 },
-            ],
-            canExpand: false,
-            repeatCount: 2,
-            status: "completed",
-          }}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-        />
-      </TooltipProvider>,
-    );
-
-    expect(textContent(container).includes("Checked handoff status 2 times")).toBe(true);
-    expect(Boolean(queryByRole("button", { name: /Checked handoff status 2 times/i }))).toBe(false);
-    expect(Boolean(container.querySelector("[data-testid='dynamic-tool-call-group-body']"))).toBe(false);
-  });
-});
-
-describe("ThreadCollapsedToolActivityBlock", () => {
+describe("ThreadAgentActivityGroupBlock", () => {
   beforeEach(() => {
     installElementScrollHeight(120);
     installMeasuredResizeObserver({ blockSize: 120, inlineSize: 320 });
@@ -1101,31 +542,19 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "activity",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Read a file",
       status: "completed" as const,
       entries: [
-        {
-          id: "exploration-1",
-          turnId: "turn-1",
-          createdAt: 1,
-          updatedAt: 2,
-          searchableText: "exploration",
-          type: "explorationGroup" as const,
-          summary: "Exploration",
-          status: "completed" as const,
-          entries: [
-            buildCommandEntry("item-1", [
-              { type: "read", command: "cat a.ts", name: "./src/a.ts", path: "./src/a.ts" },
-            ]),
-          ],
-        },
+        buildCommandBlock("item-1", [
+          { type: "read", command: "cat a.ts", name: "./src/a.ts", path: "./src/a.ts" },
+        ]),
       ],
     };
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={false}
           isStreamingTurn={false}
@@ -1135,7 +564,12 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const summaryButton = getByRole("button", { name: /Read a file/i });
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(false);
+    expect(applyContentSearchDomMarks({
+      root: container,
+      query: "src/a.ts",
+      idPrefix: "collapsed-activity",
+    }).totalMatches).toBe(0);
 
     await act(async () => {
       fireEvent.click(summaryButton);
@@ -1143,12 +577,22 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     });
     await settleAsyncRender();
 
-    await waitFor(() => {
-      expect(getByRole("button", { name: /Read a file/i }).getAttribute("aria-expanded") ?? "").toBe("true");
-    });
+    expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
+    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(true);
     expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBe(true);
+    expect(applyContentSearchDomMarks({
+      root: container,
+      query: "src/a.ts",
+      idPrefix: "expanded-activity",
+    }).totalMatches > 0).toBe(true);
     expect(Boolean(textContent(container).includes("Exploration"))).toBe(false);
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
+    const scroller = [...container.querySelectorAll<HTMLElement>(".vertical-scroll-fade-mask")]
+      .find((element) => element.style.getPropertyValue("--conversation-patch-file-gap") !== "");
+    const groupedSpacer = scroller?.firstElementChild?.firstElementChild as HTMLElement | null;
+    expect(scroller?.style.getPropertyValue("--conversation-patch-file-gap") ?? "")
+      .toBe("var(--conversation-grouped-item-gap, 4px)");
+    expect(groupedSpacer?.getAttribute("aria-hidden") ?? "").toBe("true");
   });
 
   test("shimmers only the latest streaming active summary", () => {
@@ -1163,7 +607,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "activity active",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Ran 1 command",
       status: "inProgress" as const,
       summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
@@ -1188,7 +632,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const { getByRole } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={true}
           isStreamingTurn={true}
@@ -1198,8 +642,58 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const summaryButton = getByRole("button", { name: /Running bun test/i });
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
-    expect(shimmer?.textContent ?? "").toBe("Running bun test");
+    expect(shimmer?.firstChild?.textContent ?? "").toBe("Running bun test");
     expect(Boolean(textContent(summaryButton).includes("Ran 1 command"))).toBe(false);
+  });
+
+  test("renders the latest open group's Thinking fallback as its only live header", () => {
+    const commandEntry = buildCommandEntry("item-command-completed", [], {
+      status: "completed",
+      command: "pnpm test",
+      exitCode: 0,
+    });
+    const block = {
+      id: "activity-thinking-owner",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "completed command",
+      type: "agentActivityGroup" as const,
+      liveHeaderKind: "thinking" as const,
+      summary: "Ran a command",
+      status: "completed" as const,
+      summaryStats: buildCollapsedSummaryStats({ commandCount: 1 }),
+      runningSummary: {
+        kind: "text" as const,
+        key: "agent-activity-group:item-command-completed:thinking",
+        label: "Thinking",
+      },
+      entries: [{
+        id: commandEntry.entryId ?? commandEntry.itemId,
+        turnId: commandEntry.turnId,
+        createdAt: commandEntry.createdAt,
+        updatedAt: commandEntry.updatedAt,
+        searchableText: "pnpm test",
+        type: "exec" as const,
+        entry: commandEntry,
+        status: commandEntry.status,
+      }],
+    };
+
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadAgentActivityGroupBlock
+          block={block}
+          isLatestTurn={true}
+          isStreamingTurn={true}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryButton = getByRole("button", { name: /Thinking/i });
+    expect(Boolean(textContent(summaryButton).includes("Ran a command"))).toBe(false);
+    expect(summaryButton.querySelectorAll(".loading-shimmer-pure-text").length).toBe(1);
+    expect(container.querySelectorAll("[data-tool-activity-icon]").length).toBe(0);
   });
 
   test("does not shimmer a latest streaming completed fallback summary", () => {
@@ -1238,7 +732,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "completed query",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Searched the web",
       status: "completed" as const,
       summaryStats: buildCollapsedSummaryStats({ webSearchCount: 1, runningWebSearchCount: 0 }),
@@ -1248,21 +742,12 @@ describe("ThreadCollapsedToolActivityBlock", () => {
         key: "web-completed",
         label: "Searching the web for completed query",
       },
-      entries: [{
-        id: "web-group",
-        turnId: "turn-1",
-        createdAt: 1,
-        updatedAt: 2,
-        searchableText: "completed query",
-        type: "webSearchGroup" as const,
-        entries: [webBlock],
-        status: "completed" as const,
-      }],
+      entries: [webBlock],
     };
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={true}
           isStreamingTurn={true}
@@ -1299,7 +784,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: label,
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Running a command",
       status: "inProgress" as const,
       summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
@@ -1314,7 +799,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     try {
       const view = render(
         <TooltipProvider>
-          <ThreadCollapsedToolActivityBlock
+          <ThreadAgentActivityGroupBlock
             block={buildBlock("first", "Running first command")}
             isLatestTurn={true}
             isStreamingTurn={true}
@@ -1328,7 +813,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       await act(async () => {
         view.rerender(
           <TooltipProvider>
-            <ThreadCollapsedToolActivityBlock
+            <ThreadAgentActivityGroupBlock
               block={buildBlock("second", "Running second command")}
               isLatestTurn={true}
               isStreamingTurn={true}
@@ -1372,7 +857,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "activity file live",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Creating a file",
       status: "inProgress" as const,
       summaryStats: buildCollapsedSummaryStats({
@@ -1405,7 +890,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const { container } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={true}
           isStreamingTurn={true}
@@ -1419,7 +904,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(Boolean(textContent(summaryButton).includes("poem.md"))).toBe(true);
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
     expect(Boolean(shimmer)).toBe(true);
-    expect(shimmer?.textContent ?? "").toBe("Creating");
+    expect(shimmer?.firstChild?.textContent ?? "").toBe("Creating");
     expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBe(true);
     expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-5"))).toBe(true);
     expect(Boolean(textContent(summaryButton).includes("Creating a file • writing"))).toBe(false);
@@ -1427,7 +912,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     fireEvent.click(summaryButton);
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('[data-testid="collapsed-tool-activity-body"]'))).toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="agent-activity-group-body"]'))).toBe(true);
     expect(Boolean(textContent(container).includes("Creating"))).toBe(true);
     expect(Boolean(textContent(container).includes("poem.md"))).toBe(true);
     expect(Boolean(textContent(container).includes("Exploration"))).toBe(false);
@@ -1440,32 +925,20 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "activity static",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Read a file, ran a command",
       status: "completed" as const,
       summaryStats: buildCollapsedSummaryStats({ exploredFileCount: 1, commandCount: 1 }),
       entries: [
-        {
-          id: "exploration-static",
-          turnId: "turn-1",
-          createdAt: 1,
-          updatedAt: 1,
-          searchableText: "exploration",
-          type: "explorationGroup" as const,
-          summary: "Exploration",
-          status: "completed" as const,
-          entries: [
-            buildCommandEntry("item-explore-static", [
-              { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
-            ]),
-          ],
-        },
+        buildCommandBlock("item-explore-static", [
+          { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
+        ]),
       ],
     };
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={true}
           isStreamingTurn={false}
@@ -1484,7 +957,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "activity aggregate",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Creating a file • writing 3 lines",
       status: "inProgress" as const,
       summaryStats: buildCollapsedSummaryStats({
@@ -1497,7 +970,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={true}
           isStreamingTurn={true}
@@ -1507,12 +980,11 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const summaryButton = getByRole("button", { name: /Creating a file/i });
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
-    expect(shimmer?.textContent ?? "").toBe("Creating a file");
+    expect(shimmer?.firstChild?.textContent ?? "").toBe("Creating a file");
     expect(Boolean(textContent(summaryButton).includes("• writing 3 lines"))).toBe(true);
-    expect(Boolean(shimmer?.textContent?.includes("writing 3 lines"))).toBe(false);
-    const initiallyMountedBody = container.querySelector<HTMLElement>("[data-testid='collapsed-tool-activity-body']");
-    expect(Boolean(initiallyMountedBody)).toBe(true);
-    expect(initiallyMountedBody?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
+    expect(Boolean(shimmer?.firstChild?.textContent?.includes("writing 3 lines"))).toBe(false);
+    const initiallyMountedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
+    expect(Boolean(initiallyMountedBody)).toBe(false);
   });
 
   test("renders a completed single-file change as an aggregate activity header before the row", async () => {
@@ -1523,7 +995,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "single file activity",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Edited a file",
       status: "completed" as const,
       summaryStats: buildCollapsedSummaryStats({ editedFileCount: 1, changedLineCount: 2 }),
@@ -1543,7 +1015,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={false}
           isStreamingTurn={false}
@@ -1553,7 +1025,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const summaryButton = getByRole("button", { name: /Edited a file/i });
     expect(Boolean(textContent(summaryButton).includes("2 lines"))).toBe(false);
-    expect(Boolean(textContent(container).includes("edited.ts"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(false);
 
     fireEvent.click(summaryButton);
     await waitFor(() => {
@@ -1563,56 +1035,11 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     });
 
     const content = textContent(container);
+    expect(Boolean(container.querySelector("[data-testid='agent-activity-group-body']"))).toBe(true);
     expect(Boolean(content.includes("Edited"))).toBe(true);
     expect(Boolean(content.includes("edited.ts"))).toBe(true);
     expect(Boolean(content.includes("+1"))).toBe(true);
     expect(Boolean(content.includes("-1"))).toBe(true);
-  });
-
-  test("shows aggregate file-change line counts in the prose detail level", () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
-    try {
-      const fileChangeEntry = buildFileChangeEntry("item-file-prose");
-      const block = {
-        id: "activity-file-prose",
-        turnId: "turn-1",
-        createdAt: 1,
-        updatedAt: 2,
-        searchableText: "prose file activity",
-        type: "collapsedToolActivity" as const,
-        summary: "Edited a file",
-        status: "completed" as const,
-        summaryStats: buildCollapsedSummaryStats({ editedFileCount: 1, changedLineCount: 2 }),
-        entries: [
-          {
-            id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
-            turnId: fileChangeEntry.turnId,
-            createdAt: fileChangeEntry.createdAt,
-            updatedAt: fileChangeEntry.updatedAt,
-            searchableText: "file change",
-            type: "fileChange" as const,
-            entry: fileChangeEntry,
-            status: fileChangeEntry.status,
-          },
-        ],
-      };
-
-      const { getByRole } = render(
-        <CodexThreadSettingsProvider>
-          <TooltipProvider>
-            <ThreadCollapsedToolActivityBlock
-              block={block}
-              isLatestTurn={false}
-              isStreamingTurn={false}
-            />
-          </TooltipProvider>
-        </CodexThreadSettingsProvider>,
-      );
-
-      getByRole("button", { name: /Edited a file • 2 lines/i });
-    } finally {
-      localStorage.removeItem(THREAD_SETTINGS_STORAGE_KEY);
-    }
   });
 
   test("keeps the group header icon but strips default icons from nested rows", async () => {
@@ -1627,27 +1054,19 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       createdAt: 1,
       updatedAt: 2,
       searchableText: "activity icons",
-      type: "collapsedToolActivity" as const,
+      type: "agentActivityGroup" as const,
       summary: "Edited a file, explored 1 search, ran 1 command",
       status: "completed" as const,
       entries: [
-        {
-          id: "exploration-icons",
-          turnId: "turn-1",
-          createdAt: 1,
-          updatedAt: 1,
-          searchableText: "exploration",
-          type: "explorationGroup" as const,
-          summary: "Exploration",
-          status: "completed" as const,
-          entries: [
-            buildCommandEntry("item-explore", [
-              { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
-              { type: "search", command: "rg thing", query: "thing", path: "src" },
-              { type: "listFiles", command: "fd", path: "src" },
-            ]),
-          ],
-        },
+        buildCommandBlock("item-read", [
+          { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
+        ]),
+        buildCommandBlock("item-search", [
+          { type: "search", command: "rg thing", query: "thing", path: "src" },
+        ]),
+        buildCommandBlock("item-list", [
+          { type: "listFiles", command: "fd", path: "src" },
+        ]),
         {
           id: commandEntry.entryId ?? commandEntry.itemId,
           turnId: commandEntry.turnId,
@@ -1673,7 +1092,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadCollapsedToolActivityBlock
+        <ThreadAgentActivityGroupBlock
           block={block}
           isLatestTurn={false}
           isStreamingTurn={false}
@@ -1698,6 +1117,77 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(container.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
     expect(container.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(0);
     expect(container.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(0);
+  });
+});
+
+describe("ThreadWorktreeInitBlock", () => {
+  const entry: CodexConversationItem = {
+    threadId: "thread-1",
+    turnId: "turn-worktree-init",
+    itemId: "pending-worktree:4",
+    entryId: "pending-worktree:4",
+    type: "worktreeInit",
+    kind: "systemEvent",
+    semanticKind: "worktreeInit",
+    status: "completed",
+    rawItem: {
+      id: "pending-worktree:4",
+      type: "worktreeInit",
+      worktreeOutputText: "[info] Starting worktree creation\n[info] Worktree created\n",
+      setup: {
+        outcome: "skipped",
+        outputText: "[info] Continuing without local environment setup\n",
+      },
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  test("projects the exact completed worktree and optional setup activities", () => {
+    const activities = buildThreadWorktreeInitActivities(entry);
+
+    expect(activities.length).toBe(2);
+    expect(activities[0]?.id).toBe("pending-worktree:4:worktree");
+    expect(activities[0]?.status).toBe("completed");
+    expect(activities[1]?.id).toBe("pending-worktree:4:setup");
+    expect(activities[1]?.status).toBe("skipped");
+  });
+
+  test("renders completed activities collapsed with shared plain shell output", async () => {
+    const { getByRole, getByText } = render(
+      <TooltipProvider>
+        <ThreadWorktreeInitBlock
+          block={{
+            id: "pending-worktree:4",
+            turnId: "turn-worktree-init",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "Worktree initialization",
+            type: "worktreeInit",
+            status: "completed",
+            entry,
+          }}
+          isLatestTurn
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+
+    getByText("Worktree created");
+    getByText("Environment setup skipped");
+    expect(getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded"))
+      .toBe("false");
+    expect(
+      getByRole("button", { name: "Environment setup skipped" }).getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Environment setup skipped" }));
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+    });
+    getByText("[info] Continuing without local environment setup");
   });
 });
 
@@ -1766,7 +1256,7 @@ describe("ThreadContextCompactionBlock", () => {
       />,
     );
 
-    getByText("Automatically compacting context");
+    getByText("Automatically compacting context", { selector: ".loading-shimmer-pure-text" });
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
     expect(Boolean(container.querySelector("svg"))).toBe(false);
   });
@@ -1954,42 +1444,29 @@ describe("ThreadBlockRenderer proposed-plan block", () => {
   });
 });
 
-describe("ThreadBlockRenderer multi-agent block", () => {
-  beforeEach(() => {
-    installElementScrollHeight(96);
-    installMeasuredResizeObserver({ blockSize: 96, inlineSize: 320 });
-  });
-
-  test("forwards thread navigation actions into agent rows", async () => {
-    const openedThreadIds: string[] = [];
-    const { getByRole, getByTestId } = render(
-      <TooltipProvider>
-        <ThreadBlockRenderer
-          block={buildMultiAgentGroupBlock()}
-          isLatestTurn
-          isStreamingTurn={false}
-          onOpenThread={(threadId) => {
-            openedThreadIds.push(threadId);
-          }}
-        />
-      </TooltipProvider>,
-    );
-
-    fireEvent.click(getByTestId("multi-agent-action-header"));
-    await settleAsyncRender();
-
-    fireEvent.click(getByRole("button", { name: "research" }));
-
-    expect(openedThreadIds.join(",")).toBe("thread-agent-1");
-  });
-});
-
 describe("ThreadBlockRenderer subagent activity block", () => {
   test("renders capped inline chips and opens subagents with inline activity context", () => {
     const opened: Array<{ threadId: string; context?: ThreadOpenThreadContext }> = [];
-    const { container, getByRole, getByTestId, getByText, queryByText } = render(
+    const completeBlock = buildSubagentActivityInlineGroupBlock();
+    const initialBlock = {
+      ...completeBlock,
+      subagentActivityRows: completeBlock.subagentActivityRows?.slice(0, 2),
+    };
+    const view = render(
       <ThreadBlockRenderer
-        block={buildSubagentActivityInlineGroupBlock()}
+        block={initialBlock}
+        isLatestTurn
+        isStreamingTurn={false}
+        onOpenThread={(threadId, context) => {
+          opened.push({ threadId, context });
+        }}
+      />,
+    );
+    expect(Boolean(view.container.querySelector("[data-animate-entrance]"))).toBe(false);
+
+    view.rerender(
+      <ThreadBlockRenderer
+        block={completeBlock}
         isLatestTurn
         isStreamingTurn={false}
         onOpenThread={(threadId, context) => {
@@ -1998,17 +1475,17 @@ describe("ThreadBlockRenderer subagent activity block", () => {
       />,
     );
 
-    const group = getByTestId("subagent-activity-inline-group");
-    const buttons = container.querySelectorAll("button[aria-label$='subagent']");
+    const group = view.getByTestId("subagent-activity-inline-group");
+    const buttons = group.querySelectorAll("button");
 
     expect(Boolean(group)).toBe(true);
     expect(buttons.length).toBe(3);
-    expect(Boolean(getByText("and 1 other subagent updated"))).toBe(true);
-    expect(Boolean(queryByText("Tester"))).toBe(false);
-    expect(Boolean(container.querySelector("[data-animate-entrance]"))).toBe(true);
-    expect(Boolean(container.querySelector('[data-subagent-avatar-seed="thread-child-1"]'))).toBe(true);
+    expect(Boolean(view.getByText("and 1 other subagent updated"))).toBe(true);
+    expect(Boolean(view.queryByText("Tester"))).toBe(false);
+    expect(view.container.querySelectorAll("[data-animate-entrance]").length).toBe(1);
+    expect(Boolean(view.container.querySelector('[data-subagent-avatar-seed="thread-child-1"]'))).toBe(true);
 
-    fireEvent.click(getByRole("button", { name: "Open Scout subagent" }));
+    fireEvent.click(view.getByRole("button", { name: "Scout" }));
 
     expect(opened.length).toBe(1);
     expect(opened[0]?.threadId).toBe("thread-child-1");
@@ -2017,6 +1494,9 @@ describe("ThreadBlockRenderer subagent activity block", () => {
     expect(opened[0]?.context?.subagent?.status).toBe("active");
     expect(opened[0]?.context?.subagent?.statusSummary).toBe("Scout updated");
     expect(opened[0]?.context?.subagent?.showInlineActivity ?? false).toBe(true);
+    expect(opened[0]?.context?.subagent?.agentRole).toBe(null);
+    expect(opened[0]?.context?.subagent?.spawnModel).toBe(null);
+    expect(opened[0]?.context?.subagent?.diffStats).toBe(null);
   });
 });
 
@@ -2102,6 +1582,250 @@ describe("ThreadSystemErrorBlock", () => {
 
     getByText("Failed to reconnect to the stream.");
     expect(Boolean(container.querySelector(".uppercase"))).toBe(false);
+  });
+});
+
+describe("image-view and completed elicitation leaves", () => {
+  beforeEach(() => {
+    installWindowApi({});
+    installMeasuredResizeObserver({ blockSize: 72, inlineSize: 320 });
+  });
+
+  test("keeps turn-wide inspected images behind a default-collapsed gallery disclosure", async () => {
+    const imageOne = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E";
+    const imageTwo = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cpath/%3E%3C/svg%3E";
+    const { container } = render(
+      <ThreadImageViewBlock
+        block={{
+          id: "image-view-1",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 2,
+          searchableText: `${imageOne}\n${imageTwo}`,
+          type: "imageView",
+          status: "completed",
+          imageViewPaths: [imageOne, imageTwo],
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "image-view-1",
+            type: "imageView",
+            kind: "systemEvent",
+            semanticKind: "imageView",
+            status: "completed",
+            rawItem: { id: "image-view-1", type: "imageView", path: imageOne },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }}
+        isLatestTurn
+        isStreamingTurn={false}
+      />,
+    );
+
+    expect(container.querySelectorAll('[role="button"][aria-label="Inspected image"]').length).toBe(0);
+    fireEvent.click(container.querySelector('button[aria-expanded="false"]') as HTMLElement);
+    await settleAsyncRender();
+    expect(container.querySelectorAll('[role="button"][aria-label="Inspected image"]').length).toBe(2);
+  });
+
+  test("renders generated images and pending output in the dedicated preview gallery", async () => {
+    const imageOne = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'/%3E";
+    const imageTwo = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E";
+    const { container, getByLabelText, getByTestId } = render(
+      <TestQueryProvider>
+        <ThreadGeneratedImageGalleryBlock
+          block={{
+            id: "generated-image-gallery",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 2,
+            searchableText: "",
+            type: "generatedImageGallery",
+            images: [
+              { id: "generated-image-1", previewSrc: imageOne, src: imageTwo },
+              { id: "generated-image-2", src: imageTwo },
+            ],
+            pendingImageCount: 1,
+          }}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </TestQueryProvider>,
+    );
+
+    expect(Boolean(getByTestId("generated-image-gallery"))).toBe(true);
+    expect(container.querySelectorAll('[data-testid="generated-image-preview"]').length).toBe(2);
+    expect(Boolean(container.querySelector('[aria-label="Generating image..."]'))).toBe(true);
+    expect(getByLabelText("Generated image 1").querySelector("img")?.getAttribute("src"))
+      .toBe(imageOne);
+    const setDragData = vi.fn();
+    fireEvent.dragStart(getByLabelText("Generated image 1").querySelector("img") as HTMLImageElement, {
+      dataTransfer: { effectAllowed: "none", setData: setDragData },
+    });
+    expect(setDragData).toHaveBeenCalledWith(
+      "application/x-codex-image",
+      JSON.stringify({ filename: "generated-image-1", src: imageTwo }),
+    );
+
+    await act(async () => {
+      fireEvent.click(getByLabelText("Generated image 1"));
+      await Promise.resolve();
+    });
+    expect(Boolean(getByLabelText("Image preview"))).toBe(true);
+    expect(getByLabelText("Image preview").querySelector("img")?.getAttribute("src"))
+      .toBe(imageTwo);
+    expect(getByLabelText("Download image").getAttribute("href")).toBe(imageTwo);
+  });
+
+  test("refetches a failed generated-image preview at most twice for its resolved source", async () => {
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:stable-image-source");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const invoke = vi.fn().mockResolvedValue({
+      ok: true,
+      dataBase64: "aW1hZ2U=",
+      mimeType: "image/png",
+    });
+    installWindowApi({ invoke });
+    try {
+      const { findByLabelText } = render(
+        <TestQueryProvider>
+          <ThreadGeneratedImageGalleryBlock
+            block={{
+              id: "generated-image-gallery",
+              turnId: "turn-1",
+              createdAt: 1,
+              updatedAt: 2,
+              searchableText: "",
+              type: "generatedImageGallery",
+              images: [{ id: "generated-image-1", src: "file-service://asset-1" }],
+              pendingImageCount: 0,
+            }}
+            isLatestTurn
+            isStreamingTurn={false}
+          />
+        </TestQueryProvider>,
+      );
+      const preview = await findByLabelText("Generated image 1");
+      const image = preview.querySelector("img") as HTMLImageElement;
+      expect(invoke).toHaveBeenCalledTimes(1);
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await act(async () => {
+          fireEvent.error(image);
+          await Promise.resolve();
+        });
+        await waitFor(() => {
+          expect(invoke).toHaveBeenCalledTimes(Math.min(attempt + 2, 3));
+        });
+      }
+    } finally {
+      createObjectUrl.mockRestore();
+      revokeObjectUrl.mockRestore();
+    }
+  });
+
+  test("moves the generated-image carousel one slot and restores focus on pointer release", async () => {
+    const measurement = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 74,
+      height: 74,
+      left: 0,
+      right: 320,
+      top: 0,
+      width: 320,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const source = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E";
+    try {
+      const { getByLabelText } = render(
+        <TestQueryProvider>
+          <ThreadGeneratedImageGalleryBlock
+            block={{
+              id: "generated-image-carousel",
+              turnId: "turn-1",
+              createdAt: 1,
+              updatedAt: 2,
+              searchableText: "",
+              type: "generatedImageGallery",
+              images: Array.from({ length: 6 }, (_, index) => ({
+                id: `generated-image-${index + 1}`,
+                src: source,
+              })),
+              pendingImageCount: 0,
+            }}
+            isLatestTurn
+            isStreamingTurn={false}
+          />
+        </TestQueryProvider>,
+      );
+      await waitFor(() => {
+        expect((getByLabelText("Next images") as HTMLButtonElement).disabled).toBe(false);
+      });
+      const previousButton = getByLabelText("Previous images") as HTMLButtonElement;
+      const nextButton = getByLabelText("Next images") as HTMLButtonElement;
+      expect(previousButton.disabled).toBe(true);
+
+      await act(async () => {
+        fireEvent.click(nextButton);
+        nextButton.focus();
+        expect(document.activeElement).toBe(nextButton);
+        fireEvent.pointerUp(nextButton);
+        await Promise.resolve();
+      });
+
+      expect(previousButton.disabled).toBe(false);
+      expect(getByLabelText("Generated image 1").getAttribute("aria-hidden")).toBe("true");
+      expect(document.activeElement === nextButton).toBe(false);
+    } finally {
+      measurement.mockRestore();
+    }
+  });
+
+  test("renders completed MCP elicitation as a collapsed question-and-answer disclosure", async () => {
+    const { container, getByText } = render(
+      <ThreadMcpServerElicitationBlock
+        block={{
+          id: "elicitation-1",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 2,
+          searchableText: "Allow the connector action? Accepted",
+          type: "mcpServerElicitation",
+          status: "completed",
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "elicitation-1",
+            type: "mcpServerElicitation",
+            kind: "systemEvent",
+            semanticKind: "mcpServerElicitation",
+            status: "completed",
+            rawItem: {
+              type: "mcpServerElicitation",
+              completed: true,
+              requestId: "request-1",
+              action: "accept",
+              elicitation: { kind: "mcpToolCall", message: "Allow the connector action?" },
+            },
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        }}
+        isLatestTurn
+        isStreamingTurn={false}
+      />,
+    );
+
+    const collapsedBody = container.querySelector('[aria-hidden="true"][inert]');
+    expect(collapsedBody?.getAttribute("inert")).toBe("");
+    fireEvent.click(container.querySelector('button[aria-expanded="false"]') as HTMLElement);
+    await waitFor(() => {
+      expect(container.querySelector('[aria-hidden="false"]') !== null).toBe(true);
+    });
+    getByText("Allow the connector action?");
+    getByText("Accepted");
   });
 });
 
@@ -2196,5 +1920,47 @@ describe("ThreadTurnDiffBlock", () => {
     );
 
     expect(container.textContent ?? "").toBe("");
+  });
+
+  test("suppresses completed turn diffs in prose detail mode", () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
+    try {
+      const { container } = render(
+        <CodexThreadSettingsProvider>
+          <ThreadTurnDiffBlock
+            block={{
+              id: "turn-diff-completed-prose",
+              turnId: "turn-1",
+              createdAt: 1,
+              updatedAt: 1,
+              searchableText: "1 file changed",
+              type: "turnDiff",
+              entry: {
+                threadId: "thread-1",
+                turnId: "turn-1",
+                itemId: "turn-diff-completed-prose",
+                entryId: "turn-diff-completed-prose",
+                type: "turn_diff",
+                kind: "systemEvent",
+                semanticKind: "diff",
+                status: "completed",
+                rawItem: {
+                  type: "turn-diff",
+                  unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+                },
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            }}
+            isLatestTurn={true}
+            isStreamingTurn={false}
+          />
+        </CodexThreadSettingsProvider>,
+      );
+
+      expect(container.textContent ?? "").toBe("");
+    } finally {
+      localStorage.removeItem(THREAD_SETTINGS_STORAGE_KEY);
+    }
   });
 });

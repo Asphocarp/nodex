@@ -32,7 +32,7 @@ import {
 } from "@/lib/codex-thread-settings";
 import { toast } from "@/components/ui/toast";
 import { useMcpServerStatuses } from "@/lib/use-mcp-queries";
-import type { CodexReasoningEffort } from "@/lib/types";
+import type { CodexPersonality, CodexReasoningEffort } from "@/lib/types";
 import type { ThreadFooterModel, ThreadStageActions } from "../../../thread-stage-types";
 import { getThreadGoalMessage } from "../../../thread-goal-copy";
 import type {
@@ -208,11 +208,22 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
     {
       id: "personality",
       title: "Personality",
-      description: "Choose how Codex responds",
+      description: input.model.selectedPersonality === "pragmatic"
+        ? "Pragmatic"
+        : input.model.selectedPersonality === "none"
+          ? "None"
+          : "Friendly",
       group: "Commands",
       icon: <CodexSlashPersonalityIcon className={iconClassName} />,
       requiresEmptyComposer: true,
-      Content: PersonalityCommandContent,
+      isVisible: Boolean(input.actions.onPersonalityChange),
+      Content: (props) => (
+        <PersonalityCommandContent
+          selectedPersonality={input.model.selectedPersonality ?? "friendly"}
+          onPersonalityChange={input.actions.onPersonalityChange}
+          {...props}
+        />
+      ),
     },
     {
       id: "pet",
@@ -512,14 +523,18 @@ function MemoryCommandContent({
   );
 }
 
-function McpCommandContent({ threadId }: ComposerSlashCommandContentProps & { threadId: string | null | undefined }) {
-  const { data: statuses, error, isPending } = useMcpServerStatuses(threadId ?? null);
+const McpCommandContent: React.ComponentType<
+  ComposerSlashCommandContentProps & { threadId: string | null | undefined }
+> = () => {
+  const { data: response, error, isPending } = useMcpServerStatuses();
   const errorMessage = error
     ? error instanceof Error ? error.message : "Could not load MCP status"
     : null;
 
   if (errorMessage) return <CommandMessage>{errorMessage}</CommandMessage>;
-  if (isPending || !statuses) return <CommandMessage>Loading MCP servers</CommandMessage>;
+  if (isPending || !response) return <CommandMessage>Loading MCP servers</CommandMessage>;
+
+  const statuses = response.data;
   if (statuses.length === 0) return <CommandMessage>No MCP servers</CommandMessage>;
 
   return (
@@ -534,7 +549,7 @@ function McpCommandContent({ threadId }: ComposerSlashCommandContentProps & { th
       ))}
     </CommandPanel>
   );
-}
+};
 
 function formatMcpAuthStatus(status: McpServerStatus["authStatus"]): string {
   if (status === "notLoggedIn") return "Login required";
@@ -598,12 +613,35 @@ function FeedbackCommandContent({
   );
 }
 
-function PersonalityCommandContent({ close }: ComposerSlashCommandContentProps) {
+function PersonalityCommandContent({
+  close,
+  selectedPersonality,
+  onPersonalityChange,
+}: ComposerSlashCommandContentProps & {
+  selectedPersonality: CodexPersonality;
+  onPersonalityChange?: (personality: CodexPersonality) => void | Promise<void>;
+}) {
+  const selectPersonality = async (personality: CodexPersonality) => {
+    if (!onPersonalityChange) return;
+    await runCommand("Failed to change personality", async () => {
+      await onPersonalityChange(personality);
+      close();
+    });
+  };
   return (
     <CommandPanel>
-      <CommandPanelRow title="Default" description="Balanced and direct" selected onClick={close} />
-      <CommandPanelRow title="Concise" description="Shorter answers with fewer details" onClick={close} />
-      <CommandPanelRow title="Explanatory" description="More context and rationale" onClick={close} />
+      <CommandPanelRow
+        title="Friendly"
+        description="Warm, collaborative, and helpful"
+        selected={selectedPersonality === "friendly"}
+        onClick={() => void selectPersonality("friendly")}
+      />
+      <CommandPanelRow
+        title="Pragmatic"
+        description="Concise, task-focused, and direct"
+        selected={selectedPersonality === "pragmatic"}
+        onClick={() => void selectPersonality("pragmatic")}
+      />
     </CommandPanel>
   );
 }

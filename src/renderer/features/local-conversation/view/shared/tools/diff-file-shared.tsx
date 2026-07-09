@@ -2,6 +2,7 @@ import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { ChevronRightIcon } from "../../../../../components/shared/icons";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
+import { summarizeUnifiedDiffChanges } from "../../../../../lib/unified-diff-summary";
 
 export interface DiffSummary {
   additions: number;
@@ -70,17 +71,7 @@ export function resolveOpenPath(path: string | null, basePath: string | null): s
 }
 
 export function summarizeDiff(diffText: string | undefined): DiffSummary {
-  if (!diffText) return { additions: 0, deletions: 0 };
-
-  let additions = 0;
-  let deletions = 0;
-  for (const line of diffText.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) additions += 1;
-    if (line.startsWith("-")) deletions += 1;
-  }
-
-  return { additions, deletions };
+  return summarizeUnifiedDiffChanges(diffText);
 }
 
 export function DiffStats({

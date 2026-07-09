@@ -46,6 +46,7 @@ import {
 } from "../../../../lib/codex-panel-motion";
 import { buildFileUrl } from "../../../../../shared/file-link-openers";
 import { useMcpResource, useMcpServerStatuses } from "../../../../lib/use-mcp-queries";
+import { useCodexMcpApps } from "../../use-codex-mcp-apps";
 import { useGitBranchState } from "../../../../lib/use-git-branch-state";
 import { cn } from "../../../../lib/utils";
 import type {
@@ -57,7 +58,7 @@ import type {
   GhPrStatusResult,
   GitReviewSnapshot,
   GitReviewSource,
-  ProtocolMcpServerStatus,
+  ProtocolListMcpServerStatusResponse,
 } from "../../../../lib/types";
 import { buildBackgroundAgentOpenContext } from "../../projection/background-subagent-open-context";
 import { buildBackgroundSubagentRows } from "../../projection/background-subagent-row-model";
@@ -116,7 +117,10 @@ import {
 
 const EMPTY_CHILD_MEMBERSHIPS: readonly CodexConversationChildMembership[] = [];
 const EMPTY_KNOWN_CONVERSATIONS_BY_ID: Record<string, CodexConversationSnapshot> = {};
-const EMPTY_MCP_SERVER_STATUSES: readonly ProtocolMcpServerStatus[] = [];
+const EMPTY_MCP_SERVER_STATUSES: ProtocolListMcpServerStatusResponse = {
+  data: [],
+  nextCursor: null,
+};
 
 export interface ThreadSummaryPanelContentProps {
   activeThreadId: string | null;
@@ -307,13 +311,13 @@ function useSummarySourceMcpAppInput(
   const immediateInput = item.openAction?.type === "mcpApp" ? item.openAction.input : null;
   const target = item.mcpAppTarget;
   const shouldResolve = enabled && !immediateInput && Boolean(target);
-  const { data: statusData } = useMcpServerStatuses(target?.threadId ?? null, {
+  const { data: statusData } = useMcpServerStatuses({
     enabled: shouldResolve,
   });
-  const serverStatuses = Array.isArray(statusData) ? statusData : EMPTY_MCP_SERVER_STATUSES;
+  const mcpServerStatuses = statusData ?? EMPTY_MCP_SERVER_STATUSES;
   const resourceUri = useMemo(
-    () => target ? resolveMcpAppResourceUri({ payload: target.payload, serverStatuses }) : null,
-    [serverStatuses, target],
+    () => target ? resolveMcpAppResourceUri({ payload: target.payload, mcpServerStatuses }) : null,
+    [mcpServerStatuses, target],
   );
   const resourceParams = useMemo(() => {
     if (!target || !resourceUri) return null;
@@ -331,8 +335,8 @@ function useSummarySourceMcpAppInput(
     [resourceResponse, resourceUri],
   );
   const embeddedResource = useMemo(
-    () => target ? resolveMcpEmbeddedRenderableResource({ payload: target.payload, serverStatuses }) : null,
-    [serverStatuses, target],
+    () => target ? resolveMcpEmbeddedRenderableResource({ payload: target.payload, mcpServerStatuses }) : null,
+    [mcpServerStatuses, target],
   );
   const resource = fetchedResource ?? embeddedResource;
 
@@ -980,7 +984,11 @@ export function ThreadSummaryPanelSurface({
   const gitSummary = useGitSummary(branchCwd, isVisible, gitSummaryRefreshKey);
   const gitActionStatus = useSummaryGitActionStatus(branchCwd, isVisible, gitSummaryRefreshKey);
   const branch = useSummaryPanelBranchState({ cwd: branchCwd, enabled: isVisible, onErrorMessage });
-  const sourceModel = useMemo(() => buildThreadSummaryPanelSourceModel(turns), [turns]);
+  const { data: mcpApps } = useCodexMcpApps({ enabled: isVisible });
+  const sourceModel = useMemo(
+    () => buildThreadSummaryPanelSourceModel(turns, mcpApps ?? []),
+    [mcpApps, turns],
+  );
   const handleOpenSource = useCallback((action: ThreadSummaryPanelSourceOpenAction) => {
     if (action.type === "url") {
       window.open(action.url, "_blank", "noopener,noreferrer");

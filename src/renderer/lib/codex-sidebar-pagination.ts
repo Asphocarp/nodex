@@ -33,14 +33,22 @@ export function paginateCodexSidebarItems<T>(input: {
   const visibleCount = maxItems === null
     ? filteredItems.length
     : maxItems + (input.expanded ? CODEX_SIDEBAR_PAGE_INCREMENT * input.extraPageCount : 0);
-  const visibleItems = filteredItems.slice(0, visibleCount);
-  const hiddenItems = filteredItems.slice(visibleCount);
   const forcedVisibleItem = input.forcedVisibleKey
-    ? hiddenItems.find((item) => input.getKey(item) === input.forcedVisibleKey) ?? null
+    ? filteredItems.find((item) => input.getKey(item) === input.forcedVisibleKey) ?? null
     : null;
-  const finalVisibleItems = forcedVisibleItem === null
-    ? visibleItems
-    : [...visibleItems, forcedVisibleItem];
+  const forcedVisibleKey = forcedVisibleItem === null
+    ? null
+    : input.getKey(forcedVisibleItem);
+  const pageableItems = forcedVisibleItem === null
+    ? filteredItems
+    : filteredItems.filter((item) => input.getKey(item) !== forcedVisibleKey);
+  const visiblePageableItems = pageableItems.slice(0, visibleCount);
+  const visibleItemKeys = new Set([
+    ...visiblePageableItems.map(input.getKey),
+    ...(forcedVisibleKey === null ? [] : [forcedVisibleKey]),
+  ]);
+  const finalVisibleItems = filteredItems.filter((item) => visibleItemKeys.has(input.getKey(item)));
+  const hiddenItems = filteredItems.filter((item) => !visibleItemKeys.has(input.getKey(item)));
   const hasOverflow = hiddenItems.length > 0;
   const pagerEnabled = input.pagerEnabled !== false;
 
@@ -53,7 +61,7 @@ export function paginateCodexSidebarItems<T>(input: {
     showPager: Boolean(
       pagerEnabled
       && maxItems !== null
-      && filteredItems.length > maxItems
+      && pageableItems.length > maxItems
       && (input.expanded || hasOverflow)
     ),
   };

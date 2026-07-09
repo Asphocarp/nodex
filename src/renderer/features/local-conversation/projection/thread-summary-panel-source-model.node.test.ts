@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
+import type {
+  CodexConversationItem,
+  CodexConversationTurn,
+  ProtocolAppInfo,
+} from "../../../lib/types";
 import { buildThreadSummaryPanelSourceModel } from "./thread-summary-panel-source-model";
 
 function makeTurn(items: CodexConversationItem[]): CodexConversationTurn {
@@ -8,6 +12,26 @@ function makeTurn(items: CodexConversationItem[]): CodexConversationTurn {
     status: "completed",
     items,
   } as unknown as CodexConversationTurn;
+}
+
+function makeApp(id: string, name: string, logoUrl: string | null = null): ProtocolAppInfo {
+  return {
+    id,
+    name,
+    description: null,
+    logoUrl,
+    logoUrlDark: logoUrl ? `${logoUrl}-dark` : null,
+    iconAssets: null,
+    iconDarkAssets: null,
+    distributionChannel: null,
+    branding: null,
+    appMetadata: null,
+    labels: null,
+    installUrl: null,
+    isAccessible: true,
+    isEnabled: true,
+    pluginDisplayNames: [],
+  };
 }
 
 function makeMcpItem(
@@ -20,11 +44,19 @@ function makeMcpItem(
     type: "mcpToolCall",
     semanticKind: "mcpToolCall",
     mcpToolCall: {
+      callId: itemId,
+      functionName: `${server}__tool`,
+      pluginId: null,
+      mcpAppResourceUri: undefined,
+      source: null,
       invocation: {
         server,
         tool: "tool",
         arguments: {},
       },
+      result: null,
+      durationMs: null,
+      completed: true,
     },
     rawItem: {
       id: itemId,
@@ -59,6 +91,9 @@ function makeMcpAppItem(itemId: string): CodexConversationItem {
     mcpToolCall: {
       callId: "call-1",
       functionName: "docs__search",
+      pluginId: null,
+      mcpAppResourceUri: undefined,
+      source: null,
       invocation: {
         server: "docs",
         tool: "search",
@@ -75,8 +110,18 @@ function makeMcpAppItem(itemId: string): CodexConversationItem {
           },
         }],
         structuredContent: null,
-        meta: { "openai/outputTemplate": "ui://docs/search.html" },
-        raw: { content: [], structuredContent: null },
+        raw: {
+          content: [{
+            type: "embedded_resource",
+            resource: {
+              uri: "ui://docs/search.html",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<main>Docs app</main>",
+            },
+          }],
+          structuredContent: null,
+          _meta: { "openai/outputTemplate": "ui://docs/search.html" },
+        },
       },
       durationMs: null,
       completed: true,
@@ -109,15 +154,15 @@ describe("buildThreadSummaryPanelSourceModel", () => {
         makeMcpItem("node-repl", "node_repl"),
         makeWebItem("newer-page", { type: "findInPage", url: "https://www.example.com/docs" }),
       ]),
-    ]);
+    ], [makeApp("connector_docs", "Docs", "https://example.test/docs-light.png")]);
 
-    expect(model.count).toBe(3);
+    expect(model.count).toBe(4);
     expect(model.items.map((item) => `${item.kind}:${item.label}:${item.openAction?.type ?? "none"}`).join("|")).toBe(
-      "tool:Docs:none|tool:Context7:none|webPage:example.com/docs:url",
+      "tool:Node Repl:none|tool:Docs:none|tool:Context7:none|webPage:example.com/docs:url",
     );
-    expect(model.items[0]?.logoUrl).toBe("https://example.test/docs-light.png");
-    expect(model.items[0]?.logoUrlDark).toBe("https://example.test/docs-dark.png");
-    const pageAction = model.items[2]?.openAction;
+    expect(model.items[1]?.logoUrl).toBe("https://example.test/docs-light.png");
+    expect(model.items[1]?.logoUrlDark).toBe("https://example.test/docs-light.png-dark");
+    const pageAction = model.items[3]?.openAction;
     expect(pageAction?.type === "url" ? pageAction.url : "").toBe("https://www.example.com/docs");
   });
 

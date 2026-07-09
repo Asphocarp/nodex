@@ -1,6 +1,5 @@
 import { motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
-import { ChevronDownIcon } from "@/components/shared/icons";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   getDisplayCommand,
   resolveCommandExecutionRenderStatus,
@@ -8,20 +7,31 @@ import {
 } from "../../../../../../shared/codex-command-execution";
 import type { CodexCommandAction, CodexTranscriptEntry } from "../../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
+import { invoke } from "../../../../../lib/api";
 import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import { AutomaticApprovalReviewRows, AutomaticApprovalReviewShield } from "../automatic-approval-review-surface";
-import { extractCommandActions, isExplorationAction, resolveExplorationSkillPathInfo } from "./command-actions";
+import {
+  extractCommandActions,
+  isExplorationAction,
+  resolveExplorationPath,
+  resolveExplorationSkillPathInfo,
+} from "./command-actions";
 import {
   ToolActivityIcon,
   resolveExplorationActionIcon,
   semanticToolIcon,
   type ToolActivityIconDescriptor,
 } from "./tool-call-icons";
-import { ThreadActivityDisclosure, ToolErrorDetail } from "./tool-primitives";
+import {
+  ThreadActivityDisclosure,
+  ThreadActivityShell,
+  ThreadRichActivityHeader,
+  ToolErrorDetail,
+} from "./tool-primitives";
 import { ThreadCommandShellBlock } from "./thread-command-shell-block";
 
 interface CommandToolCallProps {
@@ -126,28 +136,27 @@ export function formatCommandMetaText(
   return metaParts.join(" · ");
 }
 
-function useElapsedLabel(status: string | undefined): string | null {
-  const startedAtRef = useRef<number | null>(status === "inProgress" ? Date.now() : null);
-  const [elapsedMs, setElapsedMs] = useState(0);
+function useElapsedLabel(input: {
+  durationMs: number | null;
+  isBackgroundTerminalRunning: boolean;
+  isInProgress: boolean;
+  startedAtMs: number | null;
+}): string | null {
+  const [fallbackStartedAtMs] = useState(() => (
+    input.startedAtMs ?? (input.isInProgress ? Date.now() : null)
+  ));
+  const [nowMs, setNowMs] = useState(Date.now);
+  const startedAtMs = input.startedAtMs ?? fallbackStartedAtMs;
 
   useEffect(() => {
-    if (status === "inProgress") {
-      startedAtRef.current ??= Date.now();
-      const update = () => {
-        if (startedAtRef.current === null) return;
-        setElapsedMs(Date.now() - startedAtRef.current);
-      };
-      update();
-      const intervalId = window.setInterval(update, 1_000);
-      return () => window.clearInterval(intervalId);
-    }
+    if (!input.isInProgress || input.isBackgroundTerminalRunning || startedAtMs === null) return;
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [input.isBackgroundTerminalRunning, input.isInProgress, startedAtMs]);
 
-    if (startedAtRef.current !== null) {
-      setElapsedMs(Date.now() - startedAtRef.current);
-      startedAtRef.current = null;
-    }
-  }, [status]);
-
+  const elapsedMs = input.isInProgress && startedAtMs !== null
+    ? Math.max(nowMs - startedAtMs, 0)
+    : Math.max(input.durationMs ?? 0, 0);
   return formatElapsedDuration(elapsedMs);
 }
 
@@ -300,6 +309,26 @@ function resolveSingleExplorationAction(actions: CodexCommandAction[]): CodexCom
   return action;
 }
 
+function resolveParsedExplorationAction(item: CodexTranscriptEntry): CodexCommandAction | null {
+  const parsed = item.parsedCmd;
+  if (!parsed) return null;
+  if (parsed.type === "read") {
+    return { type: "read", command: parsed.cmd, name: parsed.name, path: parsed.path };
+  }
+  if (parsed.type === "search") {
+    return {
+      type: "search",
+      command: parsed.cmd,
+      query: parsed.query,
+      path: parsed.path,
+    };
+  }
+  if (parsed.type === "list_files") {
+    return { type: "listFiles", command: parsed.cmd, path: parsed.path };
+  }
+  return null;
+}
+
 function formatReadActionLabel(
   action: Extract<CodexCommandAction, { type: "read" }>,
   effectiveStatus: string | undefined,
@@ -387,7 +416,7 @@ function SummaryText({
   const activeLeadingLabel = resolveActiveCommandSummaryLeadingLabel(summaryLabel, isInProgress);
 
   return (
-    <div className="min-w-0 flex-1 text-size-chat truncate text-token-foreground/40 group-hover:text-token-foreground">
+    <span className="min-w-0 flex-1 text-size-chat truncate text-token-foreground/40 group-hover:text-token-foreground">
       {activeLeadingLabel ? (
         <span className={cn("font-sans", labelClassName)}>
           <CodexShimmerText>{activeLeadingLabel.leading}</CodexShimmerText>
@@ -406,7 +435,7 @@ function SummaryText({
         </span>
       ) : null}
       {!isExpanded ? null : <span className="sr-only">{command}</span>}
-    </div>
+    </span>
   );
 }
 
@@ -428,52 +457,72 @@ function resolveActiveCommandSummaryLeadingLabel(
 function SingleExplorationActionRow({
   action,
   automaticApprovalReviews,
+  cwd,
   effectiveStatus,
+  summaryIcon,
   threadDetailLevel,
 }: {
   action: CodexCommandAction;
   automaticApprovalReviews: CodexTranscriptEntry[];
+  cwd?: string;
   effectiveStatus: string | undefined;
+  summaryIcon?: ReactNode;
   threadDetailLevel: string;
 }) {
-  const label = formatSingleExplorationActionLabel(action, effectiveStatus, threadDetailLevel);
+  const plainLabel = formatSingleExplorationActionLabel(action, effectiveStatus, threadDetailLevel);
+  const readPath = action.type === "read" && effectiveStatus !== "inProgress"
+    ? resolveExplorationPath(action.path || action.name, cwd)
+    : null;
+  const label = readPath && action.type === "read" && !isSkillDefinitionReadAction(action) ? (
+    <>
+      <span>Read </span>
+      <span
+        data-agent-activity-file-link
+        role="link"
+        tabIndex={0}
+        className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-hairline underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
+        onClick={(event) => {
+          event.stopPropagation();
+          void invoke("shell:open-file-link", { path: readPath }, itemIdForFileOpen(action));
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.stopPropagation();
+          event.preventDefault();
+          void invoke("shell:open-file-link", { path: readPath }, itemIdForFileOpen(action));
+        }}
+      >
+        {(action.name || action.path).replace(/^\.\//, "")}
+      </span>
+    </>
+  ) : plainLabel;
   if (!label) return null;
 
-  if (automaticApprovalReviews.length > 0) {
-    return (
-      <ThreadActivityDisclosure
-        shouldAnimateInitialCollapse={false}
-        summary={(
-          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground [&_*]:text-token-foreground/30 group-hover/activity-header:[&_*]:text-token-foreground">
-            <CodexShimmerText
-              active={effectiveStatus === "inProgress"}
-              className="min-w-0 truncate"
-            >
-              {label}
-            </CodexShimmerText>
-            <AutomaticApprovalReviewShield />
-          </span>
-        )}
-      >
-        <AutomaticApprovalReviewRows items={automaticApprovalReviews} />
-      </ThreadActivityDisclosure>
-    );
-  }
-
   return (
-    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      <div className="px-0">
-        <div className="flex min-w-0 items-center gap-1 text-token-description-foreground/80">
+    <ThreadActivityDisclosure
+      canExpand={automaticApprovalReviews.length > 0}
+      icon={summaryIcon}
+      summary={(
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground [&_*]:text-token-foreground/30 group-hover/activity-header:[&_*]:text-token-foreground">
           <CodexShimmerText
             active={effectiveStatus === "inProgress"}
-            className="inline-flex min-w-0 max-w-full truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground"
+            className="min-w-0 truncate"
           >
             {label}
           </CodexShimmerText>
-        </div>
-      </div>
-    </div>
+          {automaticApprovalReviews.length > 0 ? <AutomaticApprovalReviewShield /> : null}
+        </span>
+      )}
+    >
+      {automaticApprovalReviews.length > 0
+        ? <AutomaticApprovalReviewRows items={automaticApprovalReviews} />
+        : null}
+    </ThreadActivityDisclosure>
   );
+}
+
+function itemIdForFileOpen(action: Extract<CodexCommandAction, { type: "read" }>): string {
+  return action.path || action.name;
 }
 
 function CommandFooter({
@@ -530,16 +579,28 @@ export function CommandToolCall({
     itemStatus: item.status,
   });
   const isInProgress = effectiveStatus === "inProgress";
+  const isBackgroundTerminalRunning = isInProgress && !isStreamingTurn;
   const hasApprovalReviews = automaticApprovalReviews.length > 0;
-  const elapsedLabel = useElapsedLabel(effectiveStatus);
+  const elapsedLabel = useElapsedLabel({
+    durationMs: item.durationMs ?? null,
+    isBackgroundTerminalRunning,
+    isInProgress,
+    startedAtMs: item.startedAtMs ?? null,
+  });
   const commandActions = extractCommandActions(item);
-  const isExploration = commandActions.length > 0 && commandActions.every(isExplorationAction);
-  const singleExplorationAction = resolveSingleExplorationAction(commandActions);
+  const parsedExplorationAction = resolveParsedExplorationAction(item);
+  const isExploration = parsedExplorationAction !== null
+    || (commandActions.length > 0 && commandActions.every(isExplorationAction));
+  const singleExplorationAction = parsedExplorationAction ?? resolveSingleExplorationAction(commandActions);
+  const explorationStatus = item.parsedCmd
+    ? item.parsedCmd.isFinished ? "completed" : "inProgress"
+    : effectiveStatus;
   const isSingleSkillDefinitionRead = isSkillDefinitionReadAction(singleExplorationAction);
   const shouldHideForProse = threadDetailLevel === "STEPS_PROSE" && !isSingleSkillDefinitionRead;
   const shouldHideUnfinishedParsedAction = singleExplorationAction !== null
-    && effectiveStatus === "inProgress"
-    && !isSingleSkillDefinitionRead;
+    && explorationStatus === "inProgress"
+    && !isSingleSkillDefinitionRead
+    && automaticApprovalReviews.length === 0;
   const [viewState, setViewState] = useState<CommandViewState>("collapsed");
   const { elementHeightPx: bodyHeightPx, elementRef: bodyRef } = useMeasuredElementHeight();
 
@@ -550,7 +611,11 @@ export function CommandToolCall({
       <SingleExplorationActionRow
         action={singleExplorationAction}
         automaticApprovalReviews={automaticApprovalReviews}
-        effectiveStatus={effectiveStatus}
+        cwd={item.cwd ?? undefined}
+        effectiveStatus={explorationStatus}
+        summaryIcon={showExecSummaryIcon
+          ? <ToolActivityIcon descriptor={resolveCommandHeaderIcon([singleExplorationAction], true)} />
+          : undefined}
         threadDetailLevel={threadDetailLevel}
       />
     );
@@ -571,13 +636,13 @@ export function CommandToolCall({
   };
 
   const header = (
-    <div
-      className="group flex items-start gap-1 px-0 py-0 cursor-interaction"
-      data-command-tool-summary-toggle
-      onClick={handleToggle}
-    >
-      <div className="flex min-w-0 items-center gap-1">
-        {showExecSummaryIcon ? <ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} /> : null}
+    <ThreadRichActivityHeader
+      accessory={hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
+      disclosure={{ expanded: isExpanded, onToggle: handleToggle }}
+      icon={showExecSummaryIcon
+        ? <ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />
+        : null}
+      summary={(
         <SummaryText
           command={command}
           summaryLabel={summaryLabel}
@@ -588,14 +653,9 @@ export function CommandToolCall({
           isInProgress={isInProgress}
           tone={execSummaryTone}
         />
-        {hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
-        {!isInProgress ? (
-          <span className={cn("inline-chevron flex-shrink-0 text-token-input-placeholder-foreground transition-opacity duration-200 opacity-0 group-hover:opacity-100", isExpanded && "opacity-100")}>
-            <ChevronDownIcon className={cn("icon-2xs text-current transition-transform duration-300", isExpanded ? "rotate-0" : "-rotate-90")} />
-          </span>
-        ) : null}
-      </div>
-    </div>
+      )}
+      testId="command-tool-summary-toggle"
+    />
   );
 
   const body = isExploration ? (
@@ -632,33 +692,28 @@ export function CommandToolCall({
   const isMeasuredOpen = viewState !== "collapsed";
 
   return (
-    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      <div className="px-0">
-        <div className="relative flex flex-col overflow-clip">
-          {header}
-          <motion.div
-            className={cn(isMeasuredOpen ? "overflow-visible" : "overflow-hidden")}
-            data-testid="exec-shell-body"
-            data-thread-find-skip={isMeasuredOpen ? undefined : true}
-            initial={false}
-            animate={{
-              height: Math.max(measuredHeight, 0),
-              opacity: isMeasuredOpen ? 1 : 0,
-            }}
-            transition={CODEX_THREAD_ACCORDION_TRANSITION}
-            style={{
-              overflow: isExpanded ? "visible" : "hidden",
-              pointerEvents: isMeasuredOpen ? "auto" : "none",
-            }}
-          >
-            {isMeasuredOpen ? (
-              <div ref={bodyRef}>
-                {body}
-              </div>
-            ) : null}
-          </motion.div>
-        </div>
-      </div>
-    </div>
+    <ThreadActivityShell
+      body={(
+        <motion.div
+          className={cn(isMeasuredOpen ? "overflow-visible" : "overflow-hidden")}
+          data-testid="exec-shell-body"
+          data-thread-find-skip={isMeasuredOpen ? undefined : true}
+          initial={false}
+          animate={{
+            height: Math.max(measuredHeight, 0),
+            opacity: isMeasuredOpen ? 1 : 0,
+          }}
+          transition={CODEX_THREAD_ACCORDION_TRANSITION}
+          style={{
+            overflow: isExpanded ? "visible" : "hidden",
+            pointerEvents: isMeasuredOpen ? "auto" : "none",
+          }}
+        >
+          {isMeasuredOpen ? <div ref={bodyRef}>{body}</div> : null}
+        </motion.div>
+      )}
+      className="relative overflow-clip"
+      header={header}
+    />
   );
 }

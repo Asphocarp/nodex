@@ -16,18 +16,17 @@ export const WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY =
 export function readWorktreeAutoBranchPrefix(): string {
   try {
     const raw = localStorage.getItem(WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY);
-    return normalizeWorktreeAutoBranchPrefix(raw);
+    return raw ?? DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX;
   } catch {
     return DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX;
   }
 }
 
 export function writeWorktreeAutoBranchPrefix(value: string): string {
-  const normalized = normalizeWorktreeAutoBranchPrefix(value);
   try {
-    localStorage.setItem(WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY, normalized);
+    localStorage.setItem(WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY, value);
   } catch {
     // Ignore localStorage failures.
   }
-  return normalized;
+  return value;
 }

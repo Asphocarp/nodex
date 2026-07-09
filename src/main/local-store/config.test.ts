@@ -669,6 +669,72 @@ describe("history settings config", () => {
   });
 });
 
+describe("Codex developer instruction settings config", () => {
+  test("persists the prose detail mode used by main-process launch instructions", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const config = await importConfigModule();
+      expect(config.getCodexDeveloperInstructionSettings().detailLevel).toBe("STEPS_COMMANDS");
+
+      const updated = config.updateCodexDeveloperInstructionSettings({
+        detailLevel: "STEPS_PROSE",
+      });
+      expect(updated.detailLevel).toBe("STEPS_PROSE");
+
+      const configPath = path.join(tempHome, ".nodex", "config.toml");
+      const written = fs.readFileSync(configPath, "utf8");
+      expect(written.includes('codex_thread_detail_level = "STEPS_PROSE"')).toBe(true);
+
+      const reloaded = await importConfigModule();
+      expect(reloaded.getCodexDeveloperInstructionSettings().detailLevel).toBe("STEPS_PROSE");
+    });
+  });
+
+  test("rejects invalid detail modes", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      let message = "";
+      try {
+        config.updateCodexDeveloperInstructionSettings({
+          detailLevel: "invalid",
+        } as never);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message.includes("detailLevel must be one of")).toBe(true);
+    });
+  });
+});
+
+describe("Codex Git settings config", () => {
+  test("persists exact Git instruction values and merges field updates", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const config = await importConfigModule();
+      expect(config.getCodexGitSettings().branchPrefix).toBe("codex/");
+      expect(config.getCodexGitSettings().commitInstructions).toBe("");
+      expect(config.getCodexGitSettings().pullRequestInstructions).toBe("");
+
+      config.updateCodexGitSettings({ branchPrefix: "team/" });
+      config.updateCodexGitSettings({ commitInstructions: "Keep commits focused." });
+      const updated = config.updateCodexGitSettings({
+        pullRequestInstructions: "Include validation notes.",
+      });
+      expect(updated.branchPrefix).toBe("team/");
+      expect(updated.commitInstructions).toBe("Keep commits focused.");
+      expect(updated.pullRequestInstructions).toBe("Include validation notes.");
+
+      const written = fs.readFileSync(path.join(tempHome, ".nodex", "config.toml"), "utf8");
+      expect(written.includes('git_branch_prefix = "team/"')).toBe(true);
+      expect(written.includes('git_commit_instructions = "Keep commits focused."')).toBe(true);
+      expect(written.includes('git_pr_instructions = "Include validation notes."')).toBe(true);
+
+      const reloaded = await importConfigModule();
+      expect(reloaded.getCodexGitSettings().branchPrefix).toBe("team/");
+      expect(reloaded.getCodexGitSettings().commitInstructions).toBe("Keep commits focused.");
+      expect(reloaded.getCodexGitSettings().pullRequestInstructions).toBe("Include validation notes.");
+    });
+  });
+});
+
 describe("command keybinding config", () => {
   test("persists custom arrays empty unassigned reset-one and reset-all", async () => {
     await withTempConfigFixture(async ({ tempHome }) => {

@@ -15,9 +15,37 @@ const MODEL_DESCRIPTION =
 
 const THINKING_SCHEMA = {
   type: "string",
-  description: "Optional reasoning effort override.",
-  enum: ["low", "medium", "high", "xhigh", "max"],
+  description: "Optional reasoning effort override. Must be supported by the selected model.",
+  enum: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
 };
+
+interface CodexAppMetaThreadToolModel {
+  readonly model: string;
+  readonly description: string;
+  readonly supportedReasoningEfforts: readonly {
+    readonly reasoningEffort: string;
+  }[];
+}
+
+function buildModelDescription(
+  baseDescription: string,
+  models: readonly CodexAppMetaThreadToolModel[],
+): string {
+  if (models.length === 0) return baseDescription;
+  const combinations = models.map((model) => {
+    const efforts = model.supportedReasoningEfforts
+      .map((option) => option.reasoningEffort)
+      .join(", ");
+    const support = efforts
+      ? `supported reasoning efforts: ${efforts}`
+      : "no reasoning effort overrides";
+    const description = model.description.trim();
+    return description
+      ? `${model.model} (${description}; ${support})`
+      : `${model.model} (${support})`;
+  }).join(", ");
+  return `${baseDescription} Models and supported reasoning efforts on the calling host: ${combinations}. A different destination host's combinations are validated when the tool runs. You may supply a newer model id when explicitly requested, but omit thinking unless its supported reasoning efforts are listed here.`;
+}
 
 export const AUTOMATION_UPDATE_TOOL_NAME = "automation_update";
 const AUTOMATION_COMMON_REQUIRED_FIELDS = ["mode", "kind", "name", "prompt", "rrule", "status"];
@@ -187,7 +215,8 @@ function buildAutomationUpdateToolSchema() {
 }
 
 const STARTING_STATE_SCHEMA = {
-  description: "Starting state for the new worktree.",
+  description:
+    "Only specify this when the user explicitly asks to start from a particular existing git state. Use working-tree to include the current checkout and uncommitted changes. Use branch only for a branch or ref that already exists. Otherwise omit this field so the worktree starts from the project's default branch. Do not use this to name a new branch.",
   anyOf: [
     {
       type: "object",
@@ -218,7 +247,8 @@ const STARTING_STATE_SCHEMA = {
 };
 
 const PROJECT_ENVIRONMENT_SCHEMA = {
-  description: "Project execution environment.",
+  description:
+    "Where the project thread should run: directly in the saved project or in a new worktree.",
   anyOf: [
     {
       type: "object",
@@ -268,7 +298,6 @@ const FORK_ENVIRONMENT_SCHEMA = {
           type: "string",
           enum: ["worktree"],
         },
-        startingState: STARTING_STATE_SCHEMA,
       },
       required: ["type"],
     },
@@ -286,6 +315,7 @@ function withOptionalDeferLoading(
 
 export function buildCodexAppMetaThreadToolSpecs(options?: {
   availableHandoffHosts?: Array<{ id: string; displayName: string }>;
+  availableModels?: readonly CodexAppMetaThreadToolModel[];
   crossHostHandoffEnabled?: boolean;
   deferLoading?: boolean;
 }): DynamicToolSpec[] {
@@ -294,6 +324,7 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
     { id: CODEX_APP_LOCAL_HOST_ID, displayName: "Local" },
   ];
   const crossHostHandoffEnabled = options?.crossHostHandoffEnabled === true;
+  const availableModels = options?.availableModels ?? [];
   const handoffDestinationHostSchema = crossHostHandoffEnabled
     ? {
         destinationHostId: {
@@ -430,7 +461,7 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
           },
           model: {
             type: "string",
-            description: MODEL_DESCRIPTION,
+            description: buildModelDescription(MODEL_DESCRIPTION, availableModels),
           },
           thinking: THINKING_SCHEMA,
         },
@@ -509,7 +540,7 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
           },
           model: {
             type: "string",
-            description: "Optional model override.",
+            description: buildModelDescription("Optional model override.", availableModels),
           },
           thinking: THINKING_SCHEMA,
         },

@@ -105,6 +105,7 @@ function WorkspaceFilesStoryFrame({ selectedPath }: { selectedPath: string | und
           id: "files-tab",
           sessionId: session.id,
           projectId: project.id,
+          browserTabId: null,
           panelId: "right",
           kind: "files",
           title: selectedPath ? selectedPath.split("/").at(-1) ?? "Files" : "Files",

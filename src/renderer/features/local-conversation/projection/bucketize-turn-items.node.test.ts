@@ -74,6 +74,96 @@ function multiAgentRawItem(
 }
 
 describe("bucketizeTurnItems", () => {
+  test("attaches completed generated-image outputs after the final assistant", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          status: "completed",
+          entry: {
+            ...buildItem({}).entry,
+            itemId: "assistant",
+            assistantPhase: "final_answer",
+            markdownText: "Here is the image.",
+          },
+        }),
+        buildItem({
+          id: "generated-image",
+          type: "generatedImage",
+          entry: {
+            ...buildItem({}).entry,
+            itemId: "generated-image",
+            type: "imageGeneration",
+            semanticKind: "generatedImage",
+            generatedImage: {
+              src: "data:image/png;base64,aW1hZ2U=",
+              status: "completed",
+            },
+          },
+        }),
+      ],
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+    const assistant = turn.blocks.find((block) => block.type === "assistantMessage");
+
+    expect(buckets.toolOutputItems.map((item) => item.id)).toEqual(["generated-image"]);
+    expect(assistant?.type === "assistantMessage"
+      ? assistant.assistantAfterBlocks?.map((block) => block.type)
+      : []).toEqual(["generatedImageGallery"]);
+  });
+
+  test("renders pending generated-image output standalone and suppresses completed presentation output", () => {
+    const generated = buildItem({
+      id: "generated-image",
+      type: "generatedImage",
+      entry: {
+        ...buildItem({}).entry,
+        itemId: "generated-image",
+        type: "imageGeneration",
+        semanticKind: "generatedImage",
+        generatedImage: {
+          src: "data:image/png;base64,aW1hZ2U=",
+          status: "completed",
+        },
+      },
+    });
+    const pending = buildItem({
+      id: "pending-image",
+      type: "generatedImage",
+      entry: {
+        ...buildItem({}).entry,
+        itemId: "pending-image",
+        type: "imageGeneration",
+        semanticKind: "generatedImage",
+        generatedImage: { src: null, status: "inProgress" },
+      },
+    });
+    const buckets = bucketizeTurnItems({ items: [generated, pending] });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+      endResourcePaths: ["slides/final.pptx"],
+    });
+    const gallery = turn.blocks.find((block) => block.type === "generatedImageGallery");
+
+    expect(gallery?.type === "generatedImageGallery" ? gallery.images : []).toEqual([]);
+    expect(gallery?.type === "generatedImageGallery" ? gallery.pendingImageCount : 0).toBe(1);
+  });
+
   test("preserves Codex-style turn ordering across user, agent, assistant, and trailing artifacts", () => {
     const buckets = bucketizeTurnItems({
       items: [
@@ -98,7 +188,7 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "modelChanged,userMessage,exec,reasoning,assistantMessage,proposedPlan,forkedFromConversation",
+      "modelChanged,userMessage,agentActivityGroup,assistantMessage,proposedPlan,forkedFromConversation",
     );
     const assistantBlock = turn.blocks.find((block) => block.type === "assistantMessage");
     expect(assistantBlock?.type === "assistantMessage" ? assistantBlock.assistantAfterBlocks?.map((block) => block.type).join(",") ?? "" : "").toBe("turnDiff");
@@ -148,10 +238,113 @@ describe("bucketizeTurnItems", () => {
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage,turnDiff");
   });
 
-  test("keeps blocked streaming turn diffs out of the above-composer portal", () => {
+  test("keeps todo state fixed-only while active and hidden after completion", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({ id: "user", type: "userMessage" }),
+        buildItem({ id: "todo", type: "todoList", status: "completed" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(turn.aboveComposerBlocks?.length ?? 0).toBe(0);
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage");
+  });
+
+  test("keeps live patch visible while fixed todo and diff follow request blocking", () => {
+    const buildPatch = (status: "inProgress" | "completed") => buildItem({
+      id: "patch",
+      type: "fileChange",
+      status,
+      entry: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "patch",
+        type: "file_change",
+        kind: "fileChange",
+        semanticKind: "patch",
+        status,
+        fileChange: {
+          changes: buildCodexFileChangeMap([{
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+          }]),
+        },
+        createdAt: 2,
+        updatedAt: 2,
+      },
+    });
+    const liveBuckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage" }),
+        buildPatch("inProgress"),
+        buildItem({ id: "todo", type: "todoList", status: "inProgress" }),
+        buildItem({ id: "diff", type: "turnDiff", status: "inProgress" }),
+      ],
+      turnStatus: "inProgress",
+    });
+    const buildLiveTurn = (isBlocked: boolean) => buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets: liveBuckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked,
+    });
+
+    const unblocked = buildLiveTurn(false);
+    expect(unblocked.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe(
+      "todoList,turnDiff",
+    );
+    expect(unblocked.blocks.map((block) => block.type).join(",")).toBe(
+      "userMessage,agentActivityGroup",
+    );
+
+    const blocked = buildLiveTurn(true);
+    expect(blocked.aboveComposerBlocks?.length ?? 0).toBe(0);
+    expect(blocked.blocks.map((block) => block.type).join(",")).toBe(
+      "userMessage,agentActivityGroup",
+    );
+
+    const completedBuckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage" }),
+        buildPatch("completed"),
+        buildItem({ id: "todo", type: "todoList", status: "completed" }),
+        buildItem({ id: "diff", type: "turnDiff", status: "completed" }),
+      ],
+      turnStatus: "completed",
+    });
+    const completed = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets: completedBuckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+    expect(completed.aboveComposerBlocks?.length ?? 0).toBe(0);
+    expect(completed.blocks.map((block) => block.type).join(",")).toBe(
+      "userMessage,agentActivityGroup,turnDiff",
+    );
+  });
+
+  test("keeps blocked streaming fixed content out of both portal and transcript", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage" }),
+        buildItem({ id: "todo", type: "todoList", status: "inProgress" }),
         buildItem({ id: "diff", type: "turnDiff", status: "inProgress" }),
       ],
       turnStatus: "inProgress",
@@ -167,7 +360,7 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(turn.aboveComposerBlocks?.length ?? 0).toBe(0);
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage,turnDiff");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage");
   });
 
   test("keeps only the leading contiguous user prefix in userItems", () => {
@@ -185,6 +378,51 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.assistantItem?.id ?? "").toBe("assistant");
     expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,user_2");
+  });
+
+  test("keeps worktree initialization standalone after the optimistic user prefix", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage" }),
+        buildItem({
+          id: "worktree-init",
+          type: "worktreeInit",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "worktree-init",
+            type: "worktreeInit",
+            kind: "systemEvent",
+            semanticKind: "worktreeInit",
+            status: "completed",
+            rawItem: {
+              id: "worktree-init",
+              type: "worktreeInit",
+              worktreeOutputText: "[info] Worktree created\n",
+              setup: null,
+            },
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(buckets.userItems.map((item) => item.id).join(",")).toBe("user");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("worktree-init");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
+      "userMessage,worktreeInit",
+    );
   });
 
   test("groups contiguous completed tool activity while preserving original units", () => {
@@ -230,8 +468,8 @@ describe("bucketizeTurnItems", () => {
     });
     const group = turn.agentBodyUnits[0]?.block;
 
-    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("collapsedToolActivity");
-    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.id).join(",") : "").toBe("exec,file");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
+    expect(group?.type === "agentActivityGroup" ? group.entries.map((entry) => entry.id).join(",") : "").toBe("exec,file");
   });
 
   test("keeps inline assistant prose before a live single-file collapsed activity group", () => {
@@ -270,8 +508,8 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
   });
 
   test("routes leading hooks into preUserItems and trailing hooks into postAssistantItems", () => {
@@ -361,6 +599,52 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.assistantItem?.id ?? "").toBe("final");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,commentary");
     expect(buckets.postAssistantItems.length).toBe(0);
+  });
+
+  test("keeps trailing commentary outside agent activity when no subagent state owns it", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec", status: "completed" }),
+        buildItem({
+          id: "commentary",
+          type: "assistantMessage",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "commentary",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "commentary",
+            status: "completed",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "I updated the renderer.",
+          },
+        }),
+        buildItem({ id: "diff", type: "turnDiff", status: "completed" }),
+      ],
+      turnStatus: "completed",
+    });
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(buckets.assistantItem?.id ?? "").toBe("commentary");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
+      "agentActivityGroup,assistantMessage",
+    );
+    const assistant = turn.blocks.find((block) => block.type === "assistantMessage");
+    expect(assistant?.type === "assistantMessage"
+      ? assistant.assistantAfterBlocks?.map((block) => block.type)
+      : []).toEqual(["turnDiff"]);
   });
 
   test("keeps actions on the normal trailing assistant without adding an action-only block", () => {
@@ -543,10 +827,10 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(buckets.assistantItem).toBe(null);
-    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
     const activityGroup = turn.agentBodyUnits[1]?.block;
-    expect(activityGroup?.type === "collapsedToolActivity" ? activityGroup.entries.map((entry) => entry.type).join(",") : "").toBe(
-      "explorationGroup",
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "exec",
     );
     expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("assistantActions");
     const inlineAssistant = turn.agentBodyUnits[0]?.block;
@@ -590,6 +874,9 @@ describe("bucketizeTurnItems", () => {
             mcpToolCall: {
               callId: "mcp",
               functionName: "docs__search",
+              pluginId: null,
+              mcpAppResourceUri: undefined,
+              source: null,
               invocation: {
                 server: "docs",
                 tool: "search",
@@ -648,6 +935,9 @@ describe("bucketizeTurnItems", () => {
             mcpToolCall: {
               callId: "mcp",
               functionName: "docs__search",
+              pluginId: null,
+              mcpAppResourceUri: undefined,
+              source: null,
               invocation: {
                 server: "docs",
                 tool: "search",
@@ -704,6 +994,9 @@ describe("bucketizeTurnItems", () => {
             mcpToolCall: {
               callId: "mcp",
               functionName: "docs__search",
+              pluginId: null,
+              mcpAppResourceUri: undefined,
+              source: null,
               invocation: {
                 server: "docs",
                 tool: "search",
@@ -783,20 +1076,20 @@ describe("bucketizeTurnItems", () => {
     expect(turn.searchUnits.map((unit) => `${unit.blockType}:${unit.key}`).join(",")).toBe(
       "userMessage:turn_1:user:0,assistantMessage:turn_1:assistant",
     );
-    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,exec");
-    expect(turn.trailingBlocks.map((block) => block.id).join(",")).toBe("turn_1:thinking");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
+    expect(turn.trailingBlocks.length).toBe(0);
     const inlineAssistant = turn.agentBodyUnits[0]?.block;
     expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBe(true);
   });
 
-  test("only allows default collapse for older completed turns with grouped agent body content", () => {
-    const buckets = bucketizeTurnItems({
+  test("allows default collapse only after a final assistant boundary and for non-cancelled turns", () => {
+    const activityOnlyBuckets = bucketizeTurnItems({
       items: [
         buildItem({ id: "exec", type: "exec", searchableText: "bun test" }),
       ],
     });
 
-    const completedTurn = buildTurnViewModel({
+    const activityOnlyTurn = buildTurnViewModel({
       turnId: "turn_1",
       turn: {
         threadId: "thread_1",
@@ -805,34 +1098,70 @@ describe("bucketizeTurnItems", () => {
         itemIds: ["exec"],
         items: [],
       },
-      buckets,
+      buckets: activityOnlyBuckets,
       isLatestTurn: false,
       isStreamingTurn: false,
       isBlocked: false,
     });
 
-    const failedTurn = buildTurnViewModel({
-      turnId: "turn_2",
+    const completedBuckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec", searchableText: "bun test" }),
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            status: "completed",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "Done",
+          },
+        }),
+      ],
+    });
+    const completedTurn = buildTurnViewModel({
+      turnId: "turn_1",
       turn: {
         threadId: "thread_1",
-        turnId: "turn_2",
-        status: "failed",
-        itemIds: ["exec"],
+        turnId: "turn_1",
+        status: "completed",
+        itemIds: ["exec", "assistant"],
         items: [],
       },
-      buckets: {
-        ...buckets,
-        agentItems: buckets.agentItems.map((item) => ({ ...item, turnId: "turn_2" })),
+      buckets: completedBuckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+    const cancelledTurn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "interrupted",
+        itemIds: ["exec", "assistant"],
+        items: [],
       },
-      isLatestTurn: false,
+      buckets: completedBuckets,
+      isLatestTurn: true,
       isStreamingTurn: false,
       isBlocked: false,
     });
 
+    expect(activityOnlyTurn.hasRenderableAgentBodyUnits).toBe(false);
+    expect(activityOnlyTurn.defaultAgentBodyCollapsed).toBe(false);
     expect(completedTurn.hasRenderableAgentBodyUnits).toBe(true);
     expect(completedTurn.defaultAgentBodyCollapsed).toBe(true);
-    expect(failedTurn.hasRenderableAgentBodyUnits).toBe(false);
-    expect(failedTurn.defaultAgentBodyCollapsed).toBe(false);
+    expect(cancelledTurn.hasRenderableAgentBodyUnits).toBe(false);
+    expect(cancelledTurn.defaultAgentBodyCollapsed).toBe(false);
   });
 
   test("groups exploration-only exec sequences without disturbing surrounding agent order", () => {
@@ -885,10 +1214,10 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("collapsedToolActivity");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
     const group = turn.agentBodyUnits[0]?.block;
-    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
-      "explorationGroup",
+    expect(group?.type === "agentActivityGroup" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "exec",
     );
   });
 
@@ -967,8 +1296,8 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(settledTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentGroup");
-    expect(liveTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentGroup");
+    expect(settledTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentAction,multiAgentAction");
+    expect(liveTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentAction");
   });
 
   test("adds a thinking placeholder for an in-progress turn before assistant content starts", () => {
@@ -1056,11 +1385,11 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
     const activityGroup = turn.blocks[0];
-    const explorationBlock = activityGroup?.type === "collapsedToolActivity" ? activityGroup.entries[0] : null;
-    expect(explorationBlock?.type).toBe("explorationGroup");
-    expect(explorationBlock && explorationBlock.type === "explorationGroup" ? explorationBlock.status : undefined).toBe("inProgress");
+    const explorationBlock = activityGroup?.type === "agentActivityGroup" ? activityGroup.entries[0] : null;
+    expect(explorationBlock?.type).toBe("exec");
+    expect(explorationBlock?.status).toBe("completed");
   });
 
   test("keeps a completed trailing exploration cluster settled while the turn is still active", () => {
@@ -1107,13 +1436,128 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity,thinkingPlaceholder");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
     const activityGroup = turn.blocks[0];
-    const explorationBlock = activityGroup?.type === "collapsedToolActivity" ? activityGroup.entries[0] : null;
-    expect(explorationBlock?.type).toBe("explorationGroup");
-    expect(explorationBlock && explorationBlock.type === "explorationGroup" ? explorationBlock.status : undefined).toBe("completed");
-    expect(activityGroup?.type === "collapsedToolActivity" ? activityGroup.summary : "").toBe("Searched code");
-    expect(activityGroup?.type === "collapsedToolActivity" ? activityGroup.runningSummary ?? null : null).toBe(null);
+    const explorationBlock = activityGroup?.type === "agentActivityGroup" ? activityGroup.entries[0] : null;
+    expect(explorationBlock?.type).toBe("exec");
+    expect(explorationBlock?.status).toBe("completed");
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.summary : "").toBe("Read files");
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.liveHeaderKind ?? null : null).toBe("thinking");
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.runningSummary?.label ?? null : null).toBe("Thinking");
+  });
+
+  test("keeps Thinking standalone when a later visible unit follows the completed activity group", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "exec_1",
+          type: "exec",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "exec_1",
+            type: "command_execution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "completed",
+            createdAt: 1,
+            updatedAt: 1,
+            commandActions: [{ type: "unknown", command: "echo done" }],
+          },
+        }),
+        buildItem({
+          id: "compaction_1",
+          type: "contextCompaction",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "compaction_1",
+            type: "context_compaction",
+            kind: "systemEvent",
+            semanticKind: "contextCompaction",
+            status: "completed",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "inProgress",
+        itemIds: ["exec_1", "compaction_1"],
+        items: [],
+      },
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
+      "agentActivityGroup,contextCompaction,thinkingPlaceholder",
+    );
+    const activityGroup = turn.blocks[0];
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.liveHeaderKind ?? null : null).toBe(null);
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.runningSummary ?? null : null).toBe(null);
+  });
+
+  test("does not let a blocked turn leak Thinking through its latest completed activity group", () => {
+    const buckets = bucketizeTurnItems({
+      items: [buildItem({ id: "exec_1", type: "exec", status: "completed" })],
+      turnStatus: "inProgress",
+    });
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: true,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
+    const activityGroup = turn.blocks[0];
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.liveHeaderKind ?? null : null).toBe(null);
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.runningSummary ?? null : null).toBe(null);
+  });
+
+  test("suppresses standalone and group-owned Thinking during safety buffering", () => {
+    const buckets = bucketizeTurnItems({
+      items: [buildItem({ id: "exec_1", type: "exec", status: "completed" })],
+      turnStatus: "inProgress",
+    });
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "inProgress",
+        itemIds: ["exec_1"],
+        items: [],
+        safetyBuffering: {
+          useCases: ["latency"],
+          reasons: ["warming"],
+          showBufferingUi: true,
+          fasterModel: "gpt-5.4-mini",
+        },
+      },
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
+    const activityGroup = turn.blocks[0];
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.liveHeaderKind ?? null : null).toBe(null);
   });
 
   test("does not let a trailing in-progress reasoning row suppress the Thinking placeholder", () => {
@@ -1155,7 +1599,11 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("reasoning,thinkingPlaceholder");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
+    const thinking = turn.blocks[0];
+    expect(thinking?.type === "thinkingPlaceholder" ? thinking.message ?? null : null).toBe(
+      "Checking the bundle.",
+    );
   });
 
   test("suppresses the thinking placeholder while a proposed plan is still streaming", () => {
@@ -1240,7 +1688,7 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,compact");
     expect(buckets.assistantItem?.id ?? "").toBe("assistant");
     expect(buckets.postAssistantItems.length).toBe(0);
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("exec,contextCompaction,assistantMessage");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup,contextCompaction,assistantMessage");
   });
 
   test("keeps context compaction inline after the assistant instead of promoting the assistant", () => {
@@ -1296,7 +1744,7 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,compact,exec");
     expect(buckets.postAssistantItems.length).toBe(0);
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,contextCompaction,exec,assistantActions");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,contextCompaction,agentActivityGroup,assistantActions");
   });
 
   test("still reserves postAssistant for trailing automatic approval reviews", () => {

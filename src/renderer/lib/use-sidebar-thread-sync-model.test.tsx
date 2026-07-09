@@ -26,6 +26,7 @@ const emptySnapshot: CodexSidebarSnapshot = {
   pinnedThreadIds: [],
   projectAssignments: {},
   projectlessThreadIds: [],
+  manualThreadOrder: null,
   generatedAt: 1,
 };
 
@@ -66,6 +67,9 @@ function Harness(props: {
   projects: Project[];
   onSessionsAffected: (result: CodexSidebarSyncResult) => void;
   onSnapshot: (snapshot: CodexSidebarSnapshot) => void;
+  onReorderPinned?: (
+    reorder: (orderedThreadIds: readonly string[]) => Promise<CodexSidebarSnapshot>,
+  ) => void;
 }) {
   const state = useSidebarThreadSyncModel({
     projects: props.projects,
@@ -74,17 +78,22 @@ function Harness(props: {
   useEffect(() => {
     props.onSnapshot(state.snapshot);
   }, [props, state.snapshot]);
+  useEffect(() => {
+    props.onReorderPinned?.(state.reorderPinned);
+  }, [props, state.reorderPinned]);
   return createElement("div", { "data-count": state.snapshot.items.length });
 }
 
 describe("useSidebarThreadSyncModel", () => {
   beforeEach(() => {
+    syncResult = makeSyncResult();
     installWindowApi({
       invoke: async (channel: string, ...args: unknown[]) => {
         invokeCalls.push([channel, ...args]);
         if (channel === "codex:sidebar:snapshot") return emptySnapshot;
         if (channel === "codex:sidebar:sync") return syncResult;
         if (channel === "codex:threads:pinned:set") return syncResult.snapshot;
+        if (channel === "codex:threads:pinned:reorder") return syncResult.snapshot;
         return null;
       },
       on: (channel: string, listener: (...args: unknown[]) => void) => {
@@ -169,6 +178,37 @@ describe("useSidebarThreadSyncModel", () => {
         throw new Error("missing beta snapshot");
       }
     });
+  });
+
+  test("persists the exact realized pinned-thread order through the sidebar boundary", async () => {
+    let reorderPinned: ((
+      orderedThreadIds: readonly string[],
+    ) => Promise<CodexSidebarSnapshot>) | null = null;
+    render(
+      createElement(TestQueryProvider, {
+        client: createTestQueryClient(),
+        children: createElement(Harness, {
+          projects: [makeProject("alpha")],
+          onSessionsAffected: () => undefined,
+          onSnapshot: () => undefined,
+          onReorderPinned: (reorder) => {
+            reorderPinned = reorder;
+          },
+        }),
+      }),
+    );
+    await waitFor(() => {
+      expect(reorderPinned !== null).toBe(true);
+    });
+
+    await act(async () => {
+      await reorderPinned?.(["thread-b", "thread-a"]);
+    });
+
+    expect(invokeCalls.some((call) => JSON.stringify(call) === JSON.stringify([
+      "codex:threads:pinned:reorder",
+      ["thread-b", "thread-a"],
+    ]))).toBe(true);
   });
 
   test("routes project session changes to affected scopes without sidebar sync", async () => {

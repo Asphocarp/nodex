@@ -12,6 +12,7 @@ import {
   parseGeneralDatabaseViewConfig,
   type DatabaseViewFilterNode,
 } from "../../shared/database-kernel";
+import { makeDefaultBrowserSidebarTabId } from "../../shared/browser-sidebar";
 import {
   insertInitialDatabaseViewSession,
   seededPrimaryDatabaseViewId,
@@ -25,7 +26,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 58;
+export const SHIPPED_SCHEMA_VERSION = 58;
+export const CURRENT_SCHEMA_VERSION = 59;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
@@ -90,6 +92,9 @@ const RESETTABLE_TABLES = [
   "codex_automation_runs",
   "codex_scheduled_automations",
   "codex_pinned_threads",
+  "codex_sidebar_chat_order",
+  "codex_project_thread_orders",
+  "codex_unread_threads",
   "codex_threads",
   "codex_card_threads",
   "description_revisions",
@@ -2872,8 +2877,11 @@ export function getSchemaMigrationTargets(
   currentVersion: number,
 ): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26 || currentVersion === 57) {
+  if (currentVersion === SHIPPED_SCHEMA_VERSION) {
     return [CURRENT_SCHEMA_VERSION];
+  }
+  if (currentVersion === 26 || currentVersion === 57) {
+    return [SHIPPED_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION];
   }
   return null;
 }
@@ -6353,6 +6361,179 @@ export function finishShippedSchemaImport(
   upgradeImportedCardRichTitles(db);
 }
 
+interface Schema58ProjectSessionTabRow {
+  readonly id: string;
+  readonly session_id: string;
+  readonly project_id: string;
+  readonly panel_id: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly config_json: string;
+  readonly state_key: number;
+  readonly state_json: string;
+  readonly order: number;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+const rebuildProjectSessionTabsForSchema59 = (
+  db: Database.Database,
+): void => {
+  db.exec(`
+    DROP TABLE IF EXISTS project_session_tabs_next;
+
+    CREATE TABLE project_session_tabs_next (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      browser_tab_id TEXT,
+      panel_id TEXT NOT NULL DEFAULT 'right',
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      state_key INTEGER NOT NULL DEFAULT 0,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      "order" INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+      CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES})),
+      CHECK (project_id IS NOT NULL OR kind = 'browser'),
+      CHECK (
+        (kind = 'browser' AND browser_tab_id IS NOT NULL AND length(trim(browser_tab_id)) > 0)
+        OR (kind <> 'browser' AND browser_tab_id IS NULL)
+      )
+    );
+  `);
+
+  const rows = db
+    .prepare(
+      `SELECT
+         id, session_id, project_id, panel_id, kind, title, config_json,
+         state_key, state_json, "order", created_at, updated_at
+       FROM project_session_tabs
+       ORDER BY
+         session_id ASC,
+         CASE panel_id WHEN 'right' THEN 0 ELSE 1 END ASC,
+         "order" ASC,
+         created_at ASC,
+         id ASC`,
+    )
+    .all() as Schema58ProjectSessionTabRow[];
+  const browserIdsBySession = new Map<string, Set<string>>();
+  const insert = db.prepare(`
+    INSERT INTO project_session_tabs_next (
+      id, session_id, project_id, browser_tab_id, panel_id, kind, title,
+      config_json, state_key, state_json, "order", created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const row of rows) {
+    let browserTabId: string | null = null;
+    if (row.kind === "browser") {
+      const usedIds = browserIdsBySession.get(row.session_id) ?? new Set<string>();
+      let candidate =
+        usedIds.size === 0
+          ? makeDefaultBrowserSidebarTabId(row.session_id)
+          : row.id;
+      while (usedIds.has(candidate)) {
+        candidate = randomUUID();
+      }
+      usedIds.add(candidate);
+      browserIdsBySession.set(row.session_id, usedIds);
+      browserTabId = candidate;
+    }
+
+    insert.run(
+      row.id,
+      row.session_id,
+      row.project_id,
+      browserTabId,
+      row.panel_id,
+      row.kind,
+      row.title,
+      row.config_json,
+      row.state_key,
+      row.state_json,
+      row.order,
+      row.created_at,
+      row.updated_at,
+    );
+  }
+
+  db.exec(`
+    DROP TABLE project_session_tabs;
+    ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
+
+    CREATE INDEX idx_project_session_tabs_session_order
+      ON project_session_tabs(session_id, panel_id, "order", created_at);
+    CREATE INDEX idx_project_session_tabs_project
+      ON project_session_tabs(project_id);
+    CREATE INDEX idx_project_session_tabs_browser_identity
+      ON project_session_tabs(session_id, browser_tab_id);
+  `);
+};
+
+export function migrateSchema58To59(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== SHIPPED_SCHEMA_VERSION) {
+    throw new Error(
+      `Schema v58 to v59 migration requires v58, received v${sourceVersion}`,
+    );
+  }
+
+  const foreignKeysWereEnabled = Boolean(
+    db.pragma("foreign_keys", { simple: true }),
+  );
+  if (foreignKeysWereEnabled) {
+    db.pragma("foreign_keys = OFF");
+  }
+
+  try {
+    const migrate = db.transaction(() => {
+      if (!tableHasColumn(db, "codex_threads", "forked_from_id")) {
+        db.exec("ALTER TABLE codex_threads ADD COLUMN forked_from_id TEXT");
+      }
+      if (!tableHasColumn(db, "codex_threads", "service_name")) {
+        db.exec("ALTER TABLE codex_threads ADD COLUMN service_name TEXT");
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS codex_unread_threads (
+          thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE
+        ) WITHOUT ROWID;
+
+        CREATE TABLE IF NOT EXISTS codex_project_thread_orders (
+          project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+          ordered_thread_ids_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+
+        CREATE TABLE IF NOT EXISTS codex_sidebar_chat_order (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          ordered_thread_ids_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+      `);
+      if (!tableHasColumn(db, "project_session_tabs", "browser_tab_id")) {
+        rebuildProjectSessionTabsForSchema59(db);
+      }
+
+      const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+      if (foreignKeyViolations.length > 0) {
+        throw new Error(
+          `Schema v59 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+        );
+      }
+      setUserVersion(db, CURRENT_SCHEMA_VERSION);
+    });
+    migrate.immediate();
+  } finally {
+    if (foreignKeysWereEnabled) {
+      db.pragma("foreign_keys = ON");
+    }
+  }
+}
+
 export function publishShippedSchemaImport(
   db: Database.Database,
 ): void {
@@ -6369,7 +6550,7 @@ export function publishShippedSchemaImport(
       `Cannot publish v58 while legacy table ${retainedLegacyTable.name} remains`,
     );
   }
-  setUserVersion(db, CURRENT_SCHEMA_VERSION);
+  setUserVersion(db, SHIPPED_SCHEMA_VERSION);
 }
 
 function resetDatabaseToLatestSchema(db: Database.Database): void {
@@ -6387,10 +6568,11 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     createOwnedDocumentEngineGuards(db);
     createExclusiveCardParentTriggers(db);
     assertExclusiveCardParentParity(db);
-    setUserVersion(db, CURRENT_SCHEMA_VERSION);
+    setUserVersion(db, SHIPPED_SCHEMA_VERSION);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
+  migrateSchema58To59(db);
 }
 
 function seedDefaultProjectIfMissing(db: Database.Database): void {
@@ -6435,6 +6617,8 @@ export function ensureDatabase(): void {
     const currentVersion = getUserVersion(db);
     if (currentVersion === 0) {
       resetDatabaseToLatestSchema(db);
+    } else if (currentVersion === SHIPPED_SCHEMA_VERSION) {
+      migrateSchema58To59(db);
     } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
       throw new Error(
         currentVersion === 26 || currentVersion === 57
@@ -6444,7 +6628,6 @@ export function ensureDatabase(): void {
     }
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
-    // Keep additive current-schema invariants idempotent for fresh stores.
     createRetiredBlockIdentitySchema(db);
     createCanvasSceneAuthoritySchema(db);
     createOwnedDocumentEngineGuards(db);

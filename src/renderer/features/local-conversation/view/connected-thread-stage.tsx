@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
 import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex-thread-title";
+import { buildCodexTurnOccurrenceKey } from "../../../../shared/codex-turn-identity";
 import type {
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
+  CodexConversationChildMembership,
   CodexConversationThreadSettings,
 } from "@/lib/types";
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
+import { buildBackgroundSubagentRows } from "../projection/background-subagent-row-model";
 import {
   buildThreadBodyModel,
   resolveThreadStartProgressPresentation,
@@ -22,6 +25,7 @@ import type {
 } from "../thread-stage-types";
 import {
   requestLocalConversationResume,
+  markLocalConversationAsRead,
   markLocalSubagentThreadOpened,
   setLocalConversationThreadViewActive,
   useComposerIntent,
@@ -43,6 +47,8 @@ import {
   useConversationSummaryFields,
   useConversationTurns,
   useCodexDictationState,
+  useCodexAppServerManagerForConversationId,
+  useCodexPermissionState,
   useConversationParentThreadId,
   useLocalConversationAccount,
   useLocalConversationConnection,
@@ -77,6 +83,17 @@ function isKnownCollaborationMode(mode: string | null | undefined): mode is Code
 function normalizeSelectedModel(model: string | null | undefined): string | null {
   const normalized = model?.trim();
   return normalized ? normalized : null;
+}
+
+export function resolveChildConversationIds(
+  activeThreadId: string | null,
+  memberships: readonly CodexConversationChildMembership[],
+): string[] {
+  return Array.from(new Set(
+    memberships
+      .map((membership) => membership.threadId.trim())
+      .filter((threadId) => threadId.length > 0 && threadId !== activeThreadId),
+  ));
 }
 
 export function resolveEffectiveThreadStageSettings({
@@ -122,6 +139,10 @@ export function resolveEffectiveThreadStageSettings({
 
 interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   actions: ThreadStageActions;
+  onForkFromTurnIntoWorktree?: (input: {
+    threadId: string;
+    targetTurnId: string;
+  }) => Promise<void>;
   initialUiState?: ThreadBodyUiStateOverrides;
   backgroundAgentDetail?: boolean;
   rightPanelComposerOverlayEnabled?: boolean;
@@ -199,6 +220,8 @@ function ConnectedThreadStageBody({
   activeThreadId,
   input,
   actions,
+  onForkFromTurnIntoWorktree,
+  isWorktreeThread,
   onErrorMessage,
   contentShiftX,
   footer,
@@ -208,6 +231,11 @@ function ConnectedThreadStageBody({
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
   actions: ThreadStageActions;
+  onForkFromTurnIntoWorktree?: (input: {
+    threadId: string;
+    targetTurnId: string;
+  }) => Promise<void>;
+  isWorktreeThread: boolean;
   onErrorMessage: (message: string | null) => void;
   contentShiftX?: number;
   footer?: ReactNode;
@@ -215,6 +243,7 @@ function ConnectedThreadStageBody({
   turnDiffHoverPreviewDisabled?: boolean;
 }) {
   const turns = useConversationTurns(activeThreadId);
+  const hostId = useCodexAppServerManagerForConversationId(activeThreadId).getHostId();
   const conversationSnapshot = useConversation(activeThreadId);
   const requests = useConversationRequests(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
@@ -226,19 +255,26 @@ function ConnectedThreadStageBody({
   const parentThreadId = useConversationParentThreadId(activeThreadId);
   const parentTurns = useConversationTurns(parentThreadId);
   const childMemberships = useConversationChildMemberships(activeThreadId);
+  const childThreadIds = useMemo(
+    () => resolveChildConversationIds(activeThreadId, childMemberships),
+    [activeThreadId, childMemberships],
+  );
+  const knownConversationsById = useConversationSubset(childThreadIds);
+  const backgroundAgentRows = useMemo(
+    () => buildBackgroundSubagentRows({
+      childMemberships,
+      knownConversationsById,
+      parentTurns: turns,
+    }),
+    [childMemberships, knownConversationsById, turns],
+  );
 
   const body = useMemo(
     () =>
       buildThreadBodyModel({
         activeThreadId,
-        threadId: activeThreadId,
-        turns,
-        turnPagination: conversationSnapshot?.turnPagination ?? null,
-        requests,
-        resumeState,
-        statusType,
-        archived,
-        capabilityFlags,
+        conversation: conversationSnapshot,
+        activeThreadArchived: archived,
         parentTurns,
         isNewThreadTab: input.isNewThreadTab,
         newThreadTarget: input.newThreadTarget,
@@ -250,34 +286,32 @@ function ConnectedThreadStageBody({
     [
       activeThreadId,
       archived,
-      capabilityFlags,
-      conversationSnapshot?.turnPagination,
+      conversationSnapshot,
       input.isNewThreadTab,
       input.newThreadTarget,
       input.threadStartProgress,
       parentTurns,
-      requests,
-      resumeState,
-      statusType,
-      turns,
     ],
   );
 
   const model = useMemo<ThreadBodySurfaceModel>(
     () => ({
       projectId: input.projectId,
+      hostId,
       threadId: activeThreadId,
       isSideChat: Boolean(input.sideChatContext),
       cwd,
       turns,
       turnPagination: conversationSnapshot?.turnPagination ?? null,
       requests,
+      canonicalRequests: conversationSnapshot?.canonicalRequests ?? [],
       resumeState,
       statusType,
       capabilityFlags,
       body,
       parentTurns,
       childMemberships,
+      backgroundAgentRows,
       projectWorkspacePath: input.projectWorkspacePath ?? null,
       searchOpenTick: input.searchOpenTick,
       threadStartProgress: input.threadStartProgress,
@@ -285,11 +319,14 @@ function ConnectedThreadStageBody({
     [
       activeThreadId,
       body,
+      backgroundAgentRows,
       capabilityFlags,
       childMemberships,
       conversationSnapshot?.turnPagination,
+      conversationSnapshot?.canonicalRequests,
       cwd,
       input.projectId,
+      hostId,
       input.projectWorkspacePath,
       input.searchOpenTick,
       input.sideChatContext,
@@ -306,6 +343,8 @@ function ConnectedThreadStageBody({
     <LocalConversationThreadBody
       model={model}
       actions={actions}
+      isWorktreeThread={isWorktreeThread}
+      onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
       onErrorMessage={onErrorMessage}
       contentShiftX={contentShiftX}
       footer={footer}
@@ -357,7 +396,11 @@ function ConnectedThreadStageFooter({
   const liveThreadSettings = useConversationThreadSettings(activeThreadId);
   const account = useLocalConversationAccount();
   const dictation = useCodexDictationState();
-  const childThreadIds = useMemo(() => [] as string[], []);
+  const permissionState = useCodexPermissionState(input.projectId);
+  const childThreadIds = useMemo(
+    () => resolveChildConversationIds(activeThreadId, childMemberships),
+    [activeThreadId, childMemberships],
+  );
   const knownConversationsById = useConversationSubset(childThreadIds);
 
   const composerShell = useMemo(
@@ -366,6 +409,7 @@ function ConnectedThreadStageFooter({
         threadId: activeThreadId,
         turns,
         requests,
+        canonicalRequests: conversationSnapshot?.canonicalRequests ?? [],
         pendingSteers,
         queuedFollowUps,
         backgroundTerminalRows,
@@ -379,6 +423,7 @@ function ConnectedThreadStageFooter({
       activeThreadId,
       backgroundTerminalRows,
       childMemberships,
+      conversationSnapshot?.canonicalRequests,
       knownConversationsById,
       pendingSteers,
       primaryRequest,
@@ -412,18 +457,8 @@ function ConnectedThreadStageFooter({
     () =>
       buildThreadBodyModel({
         activeThreadId,
-        threadId: activeThreadId,
-        turns,
-        requests,
-        resumeState,
-        statusType,
-        archived,
-        capabilityFlags: {
-          canEditLastUserTurn: false,
-          canForkFromTurn: false,
-          canSearch: true,
-          canCollapseTurns: true,
-        },
+        conversation: conversationSnapshot,
+        activeThreadArchived: archived,
         parentTurns: [],
         isNewThreadTab: input.isNewThreadTab,
         newThreadTarget: input.newThreadTarget,
@@ -435,13 +470,10 @@ function ConnectedThreadStageFooter({
     [
       activeThreadId,
       archived,
+      conversationSnapshot,
       input.isNewThreadTab,
       input.newThreadTarget,
       input.threadStartProgress,
-      requests,
-      resumeState,
-      statusType,
-      turns,
     ],
   );
   const model = useMemo<ThreadFooterModel>(
@@ -502,8 +534,11 @@ function ConnectedThreadStageFooter({
       selectedModel,
       availableModels: input.availableModels,
       selectedReasoningEffort,
+      selectedPersonality:
+        liveThreadSettings?.personality ?? input.selectedPersonality ?? "friendly",
       reasoningEffortOptions: input.reasoningEffortOptions,
       permissionMode: input.permissionMode,
+      permissionState,
       isQueueingEnabled: input.isQueueingEnabled,
       composerEnterBehavior: input.composerEnterBehavior,
       composerIntent,
@@ -534,6 +569,7 @@ function ConnectedThreadStageFooter({
       input.newThreadStartInSelector,
       input.newThreadTarget,
       input.permissionMode,
+      permissionState,
       input.projectId,
       input.projectWorkspacePath,
       input.reasoningEffortOptions,
@@ -599,6 +635,7 @@ function NewThreadHomeHero({
 
 export function ConnectedThreadStage({
   actions,
+  onForkFromTurnIntoWorktree,
   initialUiState,
   backgroundAgentDetail = false,
   rightPanelComposerOverlayEnabled = false,
@@ -627,10 +664,14 @@ export function ConnectedThreadStage({
   const statusActiveFlags = useConversationStatusActiveFlags(activeThreadId);
   const primaryRequest = useConversationPrimaryRequest(activeThreadId);
   const turns = useConversationTurns(activeThreadId);
+  const conversation = useConversation(activeThreadId);
   const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
   const childMemberships = useConversationChildMemberships(activeThreadId);
-  const childThreadIds = useMemo(() => [] as string[], []);
+  const childThreadIds = useMemo(
+    () => resolveChildConversationIds(activeThreadId, childMemberships),
+    [activeThreadId, childMemberships],
+  );
   const knownConversationsById = useConversationSubset(childThreadIds);
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
   const activeThreadProjectless = summaryFields.threadId
@@ -649,6 +690,16 @@ export function ConnectedThreadStage({
     || primaryRequest,
   );
   const threadLifecycleActive = threadViewportActive || activeThreadHasRuntimeWork;
+  const newestCanonicalRequest = conversation?.canonicalRequests?.at(-1) ?? null;
+  const latestTurn = turns.at(-1) ?? null;
+  const latestTurnKey = latestTurn
+    ? buildCodexTurnOccurrenceKey(latestTurn.turnId, turns.length - 1)
+    : null;
+  const markActiveConversationAsRead = (requireWindowFocus: boolean) => {
+    if (!threadViewportActive || !activeThreadId || !conversation?.hasUnreadTurn) return;
+    if (requireWindowFocus && typeof document !== "undefined" && !document.hasFocus()) return;
+    void markLocalConversationAsRead(activeThreadId).catch(() => {});
+  };
   const summaryPanelContentProps = useMemo(
     () => ({
       activeThreadId,
@@ -709,6 +760,19 @@ export function ConnectedThreadStage({
   }, [activeThreadId, backgroundAgentDetail]);
 
   useEffect(() => {
+    const handleFocus = () => markActiveConversationAsRead(true);
+    window.addEventListener("focus", handleFocus);
+    if (document.hasFocus()) handleFocus();
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [
+    activeThreadId,
+    latestTurn?.status,
+    latestTurnKey,
+    newestCanonicalRequest,
+    threadViewportActive,
+  ]);
+
+  useEffect(() => {
     if (!input.activeThreadId || input.isNewThreadTab || isSideChat) {
       return;
     }
@@ -743,6 +807,10 @@ export function ConnectedThreadStage({
             activeThreadId={activeThreadId}
             input={input}
             actions={actions}
+            isWorktreeThread={activeThreadIsManagedWorktree}
+            onForkFromTurnIntoWorktree={activeThreadIsManagedWorktree
+              ? undefined
+              : onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}
             initialUiState={initialUiState}
             turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
@@ -802,12 +870,17 @@ export function ConnectedThreadStage({
     <>
       {threadHeaderPortal}
       <LocalConversationStageScreen
+        onReadInteraction={() => markActiveConversationAsRead(false)}
         header={null}
         body={(
           <ConnectedThreadStageBody
             activeThreadId={activeThreadId}
             input={input}
             actions={actions}
+            isWorktreeThread={activeThreadIsManagedWorktree}
+            onForkFromTurnIntoWorktree={activeThreadIsManagedWorktree
+              ? undefined
+              : onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}
             contentShiftX={summaryPanelContentShift}
             footer={(

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { Project, ProjectCreateInput, ProjectUpdateInput } from "../../lib/types";
-import type { SidebarPinnedOrganizationMode, SpaceRef } from "../../lib/use-workbench-state";
+import type { SpaceRef } from "../../lib/use-workbench-state";
 import {
   CodexProjectRow,
   CodexSidebarSection,
@@ -18,8 +18,6 @@ interface SidebarProjectsSectionProps {
   expanded: boolean;
   onToggleExpanded: () => void;
   projectPickerOpenTick: number;
-  pinnedOrganizationMode?: SidebarPinnedOrganizationMode;
-  onPinnedOrganizationModeChange?: (mode: SidebarPinnedOrganizationMode) => void;
 }
 
 function resolveOrderedProjects(projects: Project[], spaces: SpaceRef[]) {
@@ -54,8 +52,6 @@ export function SidebarProjectsSection({
   onDeleteProject,
   onUpdateProject,
   projectPickerOpenTick,
-  pinnedOrganizationMode,
-  onPinnedOrganizationModeChange,
 }: SidebarProjectsSectionProps) {
   const orderedProjects = useMemo(
     () => resolveOrderedProjects(projects, spaces),
@@ -71,8 +67,6 @@ export function SidebarProjectsSection({
         <SidebarProjectsSectionActions
           onCreateProject={onCreateProject}
           openSetupTick={projectPickerOpenTick}
-          pinnedOrganizationMode={pinnedOrganizationMode}
-          onPinnedOrganizationModeChange={onPinnedOrganizationModeChange}
         />
       )}
     >

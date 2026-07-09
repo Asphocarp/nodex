@@ -77,18 +77,31 @@ export function mergeCodexTranscriptEntry(
     role: incoming.role ?? existing.role,
     toolCall: incoming.toolCall ?? existing.toolCall,
     mcpToolCall: incoming.mcpToolCall ?? existing.mcpToolCall,
+    dynamicToolCall: incoming.dynamicToolCall ?? existing.dynamicToolCall,
+    automationUpdate: incoming.automationUpdate ?? existing.automationUpdate,
+    webSearch: incoming.webSearch ?? existing.webSearch,
+    requestId: incoming.requestId ?? existing.requestId,
     markdownText: incoming.markdownText ?? existing.markdownText,
     goal: incoming.goal ?? existing.goal,
     userAttachments: incoming.userAttachments ?? existing.userAttachments,
+    callId: incoming.callId ?? existing.callId,
+    commandExecutionItemId:
+      incoming.commandExecutionItemId ?? existing.commandExecutionItemId,
     command: incoming.command !== undefined ? incoming.command : existing.command,
+    cmd: incoming.cmd ?? existing.cmd,
     cwd: incoming.cwd !== undefined ? incoming.cwd : existing.cwd,
     processId: incoming.processId !== undefined ? incoming.processId : existing.processId,
     commandActions: incoming.commandActions !== undefined ? incoming.commandActions : existing.commandActions,
     aggregatedOutput: incoming.aggregatedOutput !== undefined ? incoming.aggregatedOutput : existing.aggregatedOutput,
     exitCode: incoming.exitCode !== undefined ? incoming.exitCode : existing.exitCode,
     durationMs: incoming.durationMs !== undefined ? incoming.durationMs : existing.durationMs,
+    startedAtMs: incoming.startedAtMs ?? existing.startedAtMs,
+    executionStatus: incoming.executionStatus ?? existing.executionStatus,
+    parsedCmd: incoming.parsedCmd ?? existing.parsedCmd,
     approvalRequestId:
       incoming.approvalRequestId !== undefined ? incoming.approvalRequestId : existing.approvalRequestId,
+    approvalReason:
+      incoming.approvalReason !== undefined ? incoming.approvalReason : existing.approvalReason,
     networkApprovalContext:
       incoming.networkApprovalContext !== undefined
         ? incoming.networkApprovalContext
@@ -97,6 +110,10 @@ export function mergeCodexTranscriptEntry(
       incoming.proposedExecpolicyAmendment !== undefined
         ? incoming.proposedExecpolicyAmendment
         : existing.proposedExecpolicyAmendment,
+    proposedNetworkPolicyAmendments:
+      incoming.proposedNetworkPolicyAmendments !== undefined
+        ? incoming.proposedNetworkPolicyAmendments
+        : existing.proposedNetworkPolicyAmendments,
     grantRoot: incoming.grantRoot !== undefined ? incoming.grantRoot : existing.grantRoot,
     userInputQuestions: incoming.userInputQuestions ?? existing.userInputQuestions,
     userInputAnswers: incoming.userInputAnswers ?? existing.userInputAnswers,

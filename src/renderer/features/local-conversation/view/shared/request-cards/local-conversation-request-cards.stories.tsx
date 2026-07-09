@@ -8,7 +8,14 @@ import {
 import { CodexApprovalRequestCard } from "../../composer/request-cards/codex-approval-request-card";
 import { CodexImplementPlanRequestCard } from "../../composer/request-cards/codex-implement-plan-request-card";
 import { CodexMcpElicitationRequestCard } from "../../composer/request-cards/codex-mcp-elicitation-request-card";
+import { CodexOptionPickerRequestCard } from "../../composer/request-cards/codex-option-picker-request-card";
 import { CodexPermissionRequestCard } from "../../composer/request-cards/codex-permission-request-card";
+import {
+  CodexSetupCodexStepRequestCard,
+  CodexSetupContextRequestCardView,
+} from "../../composer/request-cards/codex-setup-codex-step-request-card";
+import { CodexUserInputRequestCard } from "../../composer/request-cards/codex-user-input-request-card";
+import { AutoReviewApprovalNudge as AutoReviewApprovalNudgeView } from "../../composer/auto-review-approval-nudge";
 import { THREAD_REQUEST_CARD_STORY_DATA } from "../../thread-stage-story-fixtures";
 
 function RequestSurface({
@@ -40,7 +47,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused request-card coverage for approval, permissions, request-user-input, answered user-input transcript rows, and the implement-plan follow-up surface.",
+          "Focused request-card coverage for approval, permissions, option picker, request-user-input, answered user-input transcript rows, and the implement-plan follow-up surface.",
       },
     },
   },
@@ -54,6 +61,17 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+
+const setupRequest = {
+  type: "setupCodexStep" as const,
+  requestId: "setup_codex_story",
+  projectId: "project-story",
+  threadId: "thread-story",
+  turnId: "turn-story",
+  itemId: "setup-codex-story-item",
+  step: "role" as const,
+  createdAt: 1,
+};
 
 export const Approval: Story = {
   render: () => (
@@ -115,6 +133,125 @@ export const UserInput: Story = {
     >
       <UserInputComposerView
         request={THREAD_REQUEST_CARD_STORY_DATA.userInput}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const OnboardingDynamicInput: Story = {
+  render: () => (
+    <RequestSurface
+      title="Onboarding Dynamic Input"
+      description="Dynamic onboarding forces a Something else answer for every question and resolves dismiss with an empty response instead of interrupting the thread."
+    >
+      <CodexUserInputRequestCard
+        request={{
+          ...THREAD_REQUEST_CARD_STORY_DATA.userInput,
+          requestId: "onboarding_dynamic_input_story",
+          isOnboardingDynamicInput: true,
+        }}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const OptionPicker: Story = {
+  render: () => (
+    <RequestSurface
+      title="Option Picker Request"
+      description="Native option-picker request with single or multi-select chips, an inline freeform answer, explicit skip/dismiss actions, and the canonical submit response."
+    >
+      <CodexOptionPickerRequestCard
+        request={THREAD_REQUEST_CARD_STORY_DATA.optionPicker}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const SetupRole: Story = {
+  render: () => (
+    <RequestSurface
+      title="Setup Role"
+      description="Onboarding role picker with shuffled multi-select roles, a fixed Something else tail, and canonical role IDs in the response."
+    >
+      <CodexSetupCodexStepRequestCard
+        request={setupRequest}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const SetupTask: Story = {
+  render: () => (
+    <RequestSurface
+      title="Setup First Task"
+      description="Role-derived first-task suggestions share the native input form and retain the freeform, skip, and dismiss paths."
+    >
+      <CodexSetupCodexStepRequestCard
+        request={{ ...setupRequest, step: "task" }}
+        onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const SetupContext: Story = {
+  render: () => (
+    <RequestSurface
+      title="Setup Context Sources"
+      description="Context source picker with recommended apps, connected/install states, searchable browse popover, and continue/skip/dismiss actions."
+    >
+      <CodexSetupContextRequestCardView
+        request={{ ...setupRequest, step: "context" }}
+        recommendedSources={[
+          {
+            id: "google-drive",
+            name: "Google Drive",
+            description: "Find launch docs and source material",
+            logoUrl: null,
+            logoUrlDark: null,
+            connected: true,
+          },
+          {
+            id: "slack",
+            name: "Slack",
+            description: "Read decisions and team context",
+            logoUrl: null,
+            logoUrlDark: null,
+            connected: false,
+          },
+        ]}
+        browseSources={[
+          {
+            id: "google-drive",
+            name: "Google Drive",
+            description: "Find launch docs and source material",
+            logoUrl: null,
+            logoUrlDark: null,
+            connected: true,
+          },
+          {
+            id: "slack",
+            name: "Slack",
+            description: "Read decisions and team context",
+            logoUrl: null,
+            logoUrlDark: null,
+            connected: false,
+          },
+          {
+            id: "gmail",
+            name: "Gmail",
+            description: "Read customer and sales threads",
+            logoUrl: null,
+            logoUrlDark: null,
+            connected: false,
+          },
+        ]}
+        onConnectSource={() => { }}
         onRespond={async () => { }}
       />
     </RequestSurface>
@@ -212,6 +349,22 @@ export const McpServerElicitation: Story = {
       <CodexMcpElicitationRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation}
         onRespond={async () => { }}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const AutoReviewApprovalNudge: Story = {
+  render: () => (
+    <RequestSurface
+      title="Auto-review Approval Nudge"
+      description="Composer-replacement prompt offered after repeated eligible manual approvals, with persistent manual dismissal and the guardian-approval opt-in action."
+    >
+      <AutoReviewApprovalNudgeView
+        threadId="thread-auto-review-nudge-story"
+        actions={{
+          onPermissionModeChange: async () => { },
+        }}
       />
     </RequestSurface>
   ),

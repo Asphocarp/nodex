@@ -18,6 +18,7 @@ function makeThread(overrides?: Partial<CodexThreadSummary>): CodexThreadSummary
     updatedAt: 1,
     linkedAt: "2026-03-04T00:00:00.000Z",
     ...overrides,
+    hasUnreadTurn: overrides?.hasUnreadTurn ?? false,
   };
 }
 
@@ -62,6 +63,7 @@ function makeDetail(overrides?: Partial<CodexThreadDetail>): CodexThreadDetail {
       },
     ],
     ...overrides,
+    hasUnreadTurn: overrides?.hasUnreadTurn ?? false,
   };
 }
 

@@ -12,6 +12,8 @@ import {
   useThreadNotificationSettings,
 } from "./desktop-notification-controller-deps";
 import type {
+  CodexApprovalKind,
+  CodexProtocolRequestId,
   DesktopNotificationPayload,
   ThreadNotificationTurnMode,
 } from "../../lib/types";
@@ -21,6 +23,7 @@ import {
   normalizeDesktopNotificationText,
   type CodexTurnCompleteNotificationEnvelope,
 } from "../../../shared/codex-turn-notification";
+import { buildCodexCanonicalRequestIdentityKey } from "../../../shared/codex-conversation-state/codex-conversation-state";
 
 const APPROVAL_NOTIFICATION_ACTIONS = [
   {
@@ -211,12 +214,13 @@ export function DesktopNotificationController({
       }
 
       showNotification({
-        id: `approval-${payload.requestId}`,
+        id: `approval-${buildCodexCanonicalRequestIdentityKey(payload.requestId)}`,
         kind: "permission",
         title: payload.kind === "command" ? "Command approval" : "File edit approval",
         body: normalizeDesktopNotificationText(payload.reason) ?? "Approval required",
         conversationId: payload.conversationId,
         requestId: payload.requestId,
+        approvalKind: payload.kind,
         actions: [...APPROVAL_NOTIFICATION_ACTIONS],
       });
     });
@@ -237,7 +241,7 @@ export function DesktopNotificationController({
       }
 
       showNotification({
-        id: `question-${payload.requestId}`,
+        id: `question-${buildCodexCanonicalRequestIdentityKey(payload.requestId)}`,
         kind: "question",
         title:
           normalizeDesktopNotificationText(conversation?.threadName ?? summary?.threadName)
@@ -266,12 +270,14 @@ export function DesktopNotificationController({
     actionType: "open" | "reply" | "approve" | "approve-for-session" | "decline";
     reply?: string;
     conversationId: string | null;
-    requestId: string | null;
+    requestId: CodexProtocolRequestId | null;
+    approvalKind: CodexApprovalKind | null;
   }) => {
     void payload.notificationId;
     void payload.actionId;
     const conversationId = payload.conversationId ?? null;
     const requestId = payload.requestId ?? null;
+    const approvalKind = payload.approvalKind ?? null;
 
     if (conversationId && payload.actionType !== "open") {
       handleOpenThread(conversationId);
@@ -293,7 +299,7 @@ export function DesktopNotificationController({
       return;
     }
 
-    if (!requestId) {
+    if (requestId === null || approvalKind === null) {
       return;
     }
 
@@ -309,7 +315,7 @@ export function DesktopNotificationController({
       return;
     }
 
-    await manager.respondApproval(requestId, decision, conversationId);
+    await manager.respondApproval(requestId, approvalKind, decision, conversationId);
   });
 
   useEffect(() => {

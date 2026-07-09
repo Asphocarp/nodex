@@ -6,6 +6,7 @@ import {
 import type {
   CodexMcpServerElicitationRequest,
   CodexMcpServerElicitationResponse,
+  CodexProtocolRequestId,
 } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import {
@@ -24,7 +25,7 @@ import {
 
 interface CodexMcpElicitationRequestCardProps {
   request: CodexMcpServerElicitationRequest;
-  onRespond: (requestId: string, response: CodexMcpServerElicitationResponse) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse) => Promise<void>;
 }
 
 function formatServerName(serverName: string): string {
@@ -331,7 +332,7 @@ function McpFormRequestCard({
 }: {
   request: CodexMcpServerElicitationRequest;
   model: Extract<CodexMcpElicitationFormModel, { kind: "supported" }>;
-  onRespond: (requestId: string, response: CodexMcpServerElicitationResponse) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse) => Promise<void>;
 }) {
   const [values, setValues] = useState(() => createInitialCodexMcpElicitationFormValues(model.fields));
   const [invalidFieldNames, setInvalidFieldNames] = useState<string[]>([]);
@@ -437,7 +438,7 @@ function UnsupportedMcpFormRequestCard({
 }: {
   request: CodexMcpServerElicitationRequest;
   model: Extract<CodexMcpElicitationFormModel, { kind: "unsupported" }>;
-  onRespond: (requestId: string, response: CodexMcpServerElicitationResponse) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse) => Promise<void>;
 }) {
   const respond = (action: "decline" | "cancel") => {
     void onRespond(request.requestId, buildCodexMcpServerElicitationResponse(action));

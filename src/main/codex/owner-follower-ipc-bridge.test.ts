@@ -62,11 +62,7 @@ class FakeOwnerFollowerService implements CodexOwnerFollowerService {
     input: CodexThreadOwnerStreamStatePublishInput,
   ): boolean {
     const ownerClientId = this.ownerByThread.get(input.conversationId);
-    if (ownerClientId && ownerClientId !== sourceClientId) return false;
-
-    if (!ownerClientId) {
-      this.ownerByThread.set(input.conversationId, sourceClientId);
-    }
+    if (!ownerClientId || ownerClientId !== sourceClientId) return false;
 
     this.hostMessages.push({
       type: "threadStreamStateChanged",

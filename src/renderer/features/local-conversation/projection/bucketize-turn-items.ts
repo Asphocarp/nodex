@@ -20,7 +20,10 @@ function createEmptyBuckets(): ThreadTurnRenderBuckets {
     systemEventItem: null,
     approvalItem: null,
     userInputItem: null,
+    interactiveRequestItem: null,
+    permissionRequestItems: [],
     mcpServerElicitationItems: [],
+    toolOutputItems: [],
     todoListItem: null,
     unifiedDiffItem: null,
     proposedPlanItem: null,
@@ -37,7 +40,12 @@ function createEmptyBuckets(): ThreadTurnRenderBuckets {
 }
 
 function isPendingRequestItem(item: ThreadRendererItemModel): item is ThreadPendingTurnRequestModel {
-  return item.type === "approval" || item.type === "userInput" || item.type === "implementPlan";
+  return item.type === "approval"
+    || item.type === "userInput"
+    || item.type === "optionPicker"
+    || item.type === "setupCodexStep"
+    || item.type === "permissionRequest"
+    || item.type === "implementPlan";
 }
 
 function isTranscriptBlock(item: ThreadRendererItemModel): item is ThreadTranscriptBlockModel {
@@ -77,6 +85,7 @@ function isRenderableAgentItem(item: ThreadRendererItemModel): item is ThreadAge
     case "streamError":
     case "systemError":
     case "contextCompaction":
+    case "worktreeInit":
     case "autoReviewInterruptionWarning":
     case "steered":
     case "reasoning":
@@ -117,7 +126,10 @@ function shouldPushHookToAgentItems(
 ): boolean {
   return items.slice(currentIndex + 1).some((candidate) => {
     if (isPendingRequestItem(candidate)) {
-      return candidate.type === "approval" || candidate.type === "userInput";
+      return candidate.type === "approval"
+        || candidate.type === "userInput"
+        || candidate.type === "optionPicker"
+        || candidate.type === "setupCodexStep";
     }
 
     return candidate.type === "userMessage" || isRenderableAgentItem(candidate);
@@ -139,6 +151,18 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
 
       if (item.type === "userInput") {
         buckets.userInputItem = item;
+        continue;
+      }
+
+      if (item.type === "optionPicker" || item.type === "setupCodexStep") {
+        buckets.interactiveRequestItem = item;
+        continue;
+      }
+
+      if (item.type === "permissionRequest") {
+        if (item.request.type === "permissionRequest" && !item.request.completed) {
+          buckets.permissionRequestItems.push(item);
+        }
       }
       continue;
     }
@@ -197,6 +221,11 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
 
     if (item.type === "modelRerouted") {
       buckets.modelReroutedItems.push(item);
+      continue;
+    }
+
+    if (item.type === "generatedImage") {
+      buckets.toolOutputItems.push(item);
       continue;
     }
 

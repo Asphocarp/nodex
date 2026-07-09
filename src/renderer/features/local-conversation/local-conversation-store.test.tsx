@@ -7,14 +7,21 @@ import type {
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexHostMessage,
+  CodexProtocolRequestId,
   CodexThreadStreamStateChange,
   CodexThreadSummary,
 } from "../../lib/types";
-import type { ThreadGoal, ThreadRollbackResponse, TurnStartResponse } from "@nodex/codex-app-server-protocol/v2";
+import type {
+  ThreadGoal,
+  ThreadRollbackResponse,
+  ThreadSettings,
+  TurnStartResponse,
+} from "@nodex/codex-app-server-protocol/v2";
 import type { CodexAppServerManager as CodexAppServerManagerInstance } from "./local-conversation-store";
 import {
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
+import { createCodexCanonicalHydratedConversationState } from "../../../shared/codex-conversation-state/codex-conversation-state";
 import { getCodexFileChangeList, getCodexFileChangePaths } from "../../../shared/codex-file-change";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 
@@ -31,10 +38,13 @@ let olderThreadTurnsResult: Promise<CodexConversationSnapshot | null> | CodexCon
 let completeThreadTurnsResult: CodexConversationSnapshot | null = null;
 let ownerEditRollbackResult: ThreadRollbackResponse | null = null;
 let ownerTurnStartResult: TurnStartResponse | null = null;
+let ownerTurnStartError: Error | null = null;
 let followerActionResult: unknown = null;
 let followerActionError: Error | null = null;
 let followerActionHandler: ((input: unknown) => unknown | Promise<unknown>) | null = null;
 let ownerStreamPublishHandler: ((input: unknown) => boolean | Promise<boolean>) | null = null;
+let ownerNotificationAckHandler: ((input: unknown) => boolean | Promise<boolean>) | null = null;
+let ownerRequestResponseHandler: ((channel: string, args: unknown[]) => boolean | Promise<boolean>) | null = null;
 const generatedThreadTitleResult: unknown = { title: null };
 const generatedThreadTitleError: Error | null = null;
 
@@ -49,17 +59,18 @@ interface NotificationTestManager {
   }) => void) => () => void;
   addApprovalRequestListener: (listener: (payload: {
     conversationId: string;
-    requestId: string;
+    requestId: CodexProtocolRequestId;
     kind: "command" | "file";
     reason: string | null;
   }) => void) => () => void;
   addUserInputRequestListener: (listener: (payload: {
     conversationId: string;
-    requestId: string;
+    requestId: CodexProtocolRequestId;
     turnId: string;
     questionCount: number;
     firstQuestion: string | null;
   }) => void) => () => void;
+  readConversation: (conversationId: string) => CodexConversationSnapshot | null;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
 }
 
@@ -105,7 +116,7 @@ vi.mock("./local-conversation-deps", () => ({
       if (resumeThreadError) {
         throw resumeThreadError;
       }
-      return resumeThreadResult;
+      return ensureCanonicalResumeFixture(resumeThreadResult);
     }
 
     if (channel === "codex:model:list") {
@@ -167,6 +178,9 @@ vi.mock("./local-conversation-deps", () => ({
         return ownerEditRollbackResult;
       }
       if (input.request?.method === "turn/start") {
+        if (ownerTurnStartError) {
+          throw ownerTurnStartError;
+        }
         if (ownerTurnStartResult) {
           return ownerTurnStartResult;
         }
@@ -202,6 +216,7 @@ vi.mock("./local-conversation-deps", () => ({
               developer_instructions: null,
             },
           },
+          personality: null,
         };
       }
       if (input.request?.method === "thread/goal/set") {
@@ -251,6 +266,9 @@ vi.mock("./local-conversation-deps", () => ({
     }
 
     if (channel === "codex:thread-owner:notification:ack") {
+      if (ownerNotificationAckHandler) {
+        return await ownerNotificationAckHandler(args[0]);
+      }
       return true;
     }
 
@@ -299,8 +317,14 @@ vi.mock("./local-conversation-deps", () => ({
       channel === "codex:approval:respond" ||
       channel === "codex:user-input:respond" ||
       channel === "codex:mcp-elicitation:respond" ||
-      channel === "codex:permission-request:respond"
+      channel === "codex:permission-request:respond" ||
+      channel === "codex:option-picker:respond" ||
+      channel === "codex:setup-context-picker:respond" ||
+      channel === "codex:setup-codex-step:respond"
     ) {
+      if (ownerRequestResponseHandler) {
+        return await ownerRequestResponseHandler(channel, args);
+      }
       return true;
     }
 
@@ -336,6 +360,7 @@ function buildThreadSummary(threadId: string, projectId: string): CodexThreadSum
     statusType: "idle",
     statusActiveFlags: [],
     archived: false,
+    hasUnreadTurn: false,
     createdAt: 1,
     updatedAt: 1,
     linkedAt: "2026-03-30T00:00:00.000Z",
@@ -396,8 +421,15 @@ function buildRollbackResponseFromConversation(conversation: CodexConversationSn
             id: item.itemId,
             type: item.kind === "userMessage" ? "userMessage" : "agentMessage",
             ...(item.kind === "userMessage"
-              ? { content: [{ type: "text", text: item.markdownText ?? "", text_elements: [] }] }
-              : { text: item.markdownText ?? "" }),
+              ? {
+                  clientId: null,
+                  content: [{ type: "text", text: item.markdownText ?? "", text_elements: [] }],
+                }
+              : {
+                  text: item.markdownText ?? "",
+                  phase: null,
+                  memoryCitation: null,
+                }),
           };
         }) as never[],
         itemsView: "full",
@@ -413,6 +445,134 @@ function buildRollbackResponseFromConversation(conversation: CodexConversationSn
   } as unknown as ThreadRollbackResponse;
 }
 
+function withCanonicalState(
+  conversation: CodexConversationSnapshot,
+): CodexConversationSnapshot {
+  const thread = buildRollbackResponseFromConversation(conversation).thread;
+  const canonical = createCodexCanonicalHydratedConversationState(thread, {
+    model: "gpt-test-fixture",
+    reasoningEffort: "high",
+    cwd: conversation.cwd ?? "/workspace/project",
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandboxPolicy: { type: "readOnly", networkAccess: false },
+    activePermissionProfile: null,
+    runtimeWorkspaceRoots: [conversation.cwd ?? "/workspace/project"],
+    pendingRequests: conversation.canonicalRequests,
+    hasUnreadTurn: conversation.hasUnreadTurn,
+  });
+  const latestConversationSettings = conversation.latestThreadSettings;
+  const latestCollaborationMode = latestConversationSettings?.collaborationMode ?? {
+    mode: "default" as const,
+    settings: {
+      model: latestConversationSettings?.model ?? "gpt-test-fixture",
+      reasoning_effort: latestConversationSettings?.reasoningEffort ?? "high",
+      developer_instructions: null,
+    },
+  };
+  const latestThreadSettings = {
+    cwd: conversation.cwd ?? "/workspace/project",
+    approvalPolicy: "on-request" as const,
+    approvalsReviewer: "user" as const,
+    sandboxPolicy: { type: "readOnly" as const, networkAccess: false },
+    activePermissionProfile: null,
+    model: latestConversationSettings?.model ?? "gpt-test-fixture",
+    modelProvider: conversation.modelProvider,
+    serviceTier: null,
+    effort: latestConversationSettings?.reasoningEffort ?? "high",
+    summary: null,
+    collaborationMode: latestCollaborationMode,
+    multiAgentMode: "explicitRequestOnly" as const,
+    personality: latestConversationSettings?.personality ?? null,
+  } satisfies ThreadSettings;
+  const canonicalTurns = canonical.turns.map((turn, index) => {
+    const projected = conversation.turns[index];
+    if (!projected) return turn;
+    return {
+      ...turn,
+      protocol: { ...turn.protocol, id: projected.turnId },
+      sidecar: {
+        ...turn.sidecar,
+        turnStartedAtMs: projected.turnStartedAtMs ?? null,
+        completedAtMs: projected.completedAt ?? null,
+        firstTurnWorkItemStartedAtMs:
+          projected.firstTurnWorkItemStartedAtMs ?? null,
+        finalAssistantStartedAtMs:
+          projected.finalAssistantStartedAtMs ?? null,
+        commandExecutionStartedAtMsById:
+          projected.commandExecutionStartedAtMsById,
+        interruptedCommandExecutionItemIds:
+          projected.interruptedCommandExecutionItemIds,
+        hookRuns: projected.hookRuns,
+      },
+    };
+  });
+  const projectedTurns = conversation.turns.map((turn, turnIndex) => {
+    const canonicalTurn = canonicalTurns[turnIndex];
+    if (!canonicalTurn) return turn;
+    return {
+      ...turn,
+      items: turn.items.map((item) => {
+        const ownerItemId = item.commandExecutionItemId ?? item.itemId;
+        const rawRecord = typeof item.rawItem === "object" && item.rawItem !== null
+          ? item.rawItem as { id?: unknown; type?: unknown }
+          : null;
+        const rawOwner = canonicalTurn.items.find((candidate) => (
+          candidate.id === ownerItemId
+          && (
+            typeof rawRecord?.type !== "string"
+            || candidate.type === rawRecord.type
+          )
+        ));
+        if (!rawOwner) return item;
+        return {
+          ...item,
+          rawItemId: rawOwner.id,
+          rawItemType: rawOwner.type,
+        };
+      }),
+    };
+  });
+  return {
+    ...conversation,
+    turns: projectedTurns,
+    canonicalState: {
+      ...canonical,
+      sidecar: {
+        ...canonical.sidecar,
+        latestThreadSettings,
+        hydrationContext: canonical.sidecar.hydrationContext
+          ? {
+              ...canonical.sidecar.hydrationContext,
+              latestThreadSettings: {
+                ...latestThreadSettings,
+                permissions: null,
+              },
+            }
+          : null,
+        threadGoal: conversation.threadGoal ?? null,
+        completedThreadGoal: conversation.completedThreadGoal ?? null,
+        threadGoalResumeConfirmation: conversation.threadGoalResumeConfirmation ?? null,
+      },
+      turns: canonicalTurns,
+    },
+  };
+}
+
+function ensureCanonicalResumeFixture(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const candidate = value as Partial<CodexConversationSnapshot>;
+  if (
+    typeof candidate.threadId !== "string"
+    || !Array.isArray(candidate.turns)
+    || typeof candidate.resumeState !== "string"
+    || candidate.canonicalState !== undefined
+  ) {
+    return value;
+  }
+  return withCanonicalState(candidate as CodexConversationSnapshot);
+}
+
 function buildAssistantMessage(
   threadId: string,
   turnId: string,
@@ -423,12 +583,21 @@ function buildAssistantMessage(
     threadId,
     turnId,
     itemId,
+    rawItemId: itemId,
+    rawItemType: "agentMessage",
     type: "message",
     kind: "assistantMessage",
     semanticKind: "assistantMessage",
     status: "completed",
     role: "assistant",
     markdownText,
+    rawItem: {
+      id: itemId,
+      type: "agentMessage",
+      text: markdownText,
+      phase: null,
+      memoryCitation: null,
+    },
     createdAt: 1,
     updatedAt: 1,
   };
@@ -444,12 +613,20 @@ function buildUserMessage(
     threadId,
     turnId,
     itemId,
+    rawItemId: itemId,
+    rawItemType: "userMessage",
     type: "user_message",
     kind: "userMessage",
     semanticKind: "userMessage",
     status: "completed",
     role: "user",
     markdownText,
+    rawItem: {
+      id: itemId,
+      type: "userMessage",
+      clientId: null,
+      content: [{ type: "text", text: markdownText, text_elements: [] }],
+    },
     createdAt: 1,
     updatedAt: 1,
   };
@@ -465,25 +642,32 @@ function buildCommandExecutionItem(
     threadId,
     turnId,
     itemId,
+    rawItemId: itemId,
+    rawItemType: "commandExecution",
     entryId: itemId,
     type: "command_execution",
     kind: "commandExecution",
     semanticKind: "exec",
     status: "inProgress",
     command: "bun test",
-    cwd: null,
+    cwd: "/workspace/project",
     processId: null,
     commandActions: [],
     aggregatedOutput,
     exitCode: null,
     durationMs: null,
-    toolCall: {
-      subtype: "command",
-      toolName: "bash",
-      args: {
-        command: "bun test",
-      },
-      result: aggregatedOutput,
+    rawItem: {
+      type: "commandExecution",
+      id: itemId,
+      command: "bun test",
+      cwd: "/workspace/project",
+      processId: null,
+      source: "agent",
+      status: "inProgress",
+      commandActions: [],
+      aggregatedOutput,
+      exitCode: null,
+      durationMs: null,
     },
     createdAt: 1,
     updatedAt: 1,
@@ -499,6 +683,8 @@ function buildMcpToolCallItem(
     threadId,
     turnId,
     itemId,
+    rawItemId: itemId,
+    rawItemType: "mcpToolCall",
     entryId: itemId,
     type: "mcp_tool_call",
     kind: "toolCall",
@@ -507,6 +693,9 @@ function buildMcpToolCallItem(
     mcpToolCall: {
       callId: itemId,
       functionName: "docs__search",
+      pluginId: null,
+      mcpAppResourceUri: undefined,
+      source: null,
       invocation: {
         server: "docs",
         tool: "search",
@@ -517,6 +706,19 @@ function buildMcpToolCallItem(
       result: null,
       durationMs: null,
       completed: false,
+    },
+    rawItem: {
+      type: "mcpToolCall",
+      id: itemId,
+      server: "docs",
+      tool: "search",
+      status: "inProgress",
+      arguments: { query: "streaming parity" },
+      appContext: null,
+      pluginId: null,
+      result: null,
+      error: null,
+      durationMs: null,
     },
     createdAt: 1,
     updatedAt: 1,
@@ -542,6 +744,18 @@ async function waitForCondition(predicate: () => boolean, timeoutMs: number): Pr
 }
 
 describe("local-conversation-store", () => {
+  test("accepts empty thread ids for exact server-request withdrawal parsing", async () => {
+    const { parseOwnerServerRequestResolvedPayload } = await import("./local-conversation-store");
+
+    expect(JSON.stringify(parseOwnerServerRequestResolvedPayload({
+      threadId: "",
+      requestId: 73,
+    }))).toBe(JSON.stringify({ threadId: "", requestId: 73 }));
+    expect(parseOwnerServerRequestResolvedPayload({
+      requestId: 73,
+    })).toBe(null);
+  });
+
   test("dedupes older-turn loads and applies the returned paged snapshot", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -591,10 +805,13 @@ describe("local-conversation-store", () => {
     hostMessageListener = null;
     threadListByProject = {};
     startThreadForSessionResult = {
-      ...buildConversation("thread-auto", "project-1"),
-      threadName: null,
-      threadPreview: "Fallback preview",
-      cwd: "/tmp/project-1",
+      kind: "started",
+      detail: {
+        ...buildConversation("thread-auto", "project-1"),
+        threadName: null,
+        threadPreview: "Fallback preview",
+        cwd: "/tmp/project-1",
+      },
     };
     const {
       CodexAppServerManager,
@@ -629,9 +846,12 @@ describe("local-conversation-store", () => {
     hostMessageListener = null;
     threadListByProject = {};
     startThreadForSessionResult = {
-      ...buildConversation("thread-skip", "project-1"),
-      threadName: null,
-      threadPreview: "",
+      kind: "started",
+      detail: {
+        ...buildConversation("thread-skip", "project-1"),
+        threadName: null,
+        threadPreview: "",
+      },
     };
     const {
       CodexAppServerManager,
@@ -667,8 +887,11 @@ describe("local-conversation-store", () => {
       },
     };
     startThreadForSessionResult = {
-      ...buildThreadSummary("thread-snapshot", "project-1"),
-      threadName: "Start detail",
+      kind: "started",
+      detail: {
+        ...buildThreadSummary("thread-snapshot", "project-1"),
+        threadName: "Start detail",
+      },
     };
     const {
       CodexAppServerManager,
@@ -705,15 +928,56 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("returns pending worktree identity without requesting a thread snapshot or seeding direct progress", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    startThreadForSessionResult = {
+      kind: "pending",
+      pendingWorktreeId: "local:pending-session-start",
+      clientThreadId: "client-new-thread:pending-session-start",
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const result = await manager.startThreadForSession({
+        projectId: "project-1",
+        sessionId: "session-1",
+        prompt: "Build in a retained worktree",
+        runInTarget: "newWorktree",
+      });
+
+      expect(result.kind).toBe("pending");
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread:snapshot:request"
+      )).toBe(false);
+      expect(manager.readThreadStartProgress("project-1", "session-1")).toBe(null);
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("seeds session thread start progress before invoking main", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
     threadListByProject = {};
-    let resolveStart: (value: CodexConversationSnapshot) => void = () => {
+    let resolveStart: (value: {
+      kind: "started";
+      detail: CodexConversationSnapshot;
+    }) => void = () => {
       throw new Error("Expected pending start resolver");
     };
-    startThreadForSessionResult = new Promise<CodexConversationSnapshot>((resolve) => {
+    startThreadForSessionResult = new Promise<{
+      kind: "started";
+      detail: CodexConversationSnapshot;
+    }>((resolve) => {
       resolveStart = resolve;
     });
     const {
@@ -736,7 +1000,10 @@ describe("local-conversation-store", () => {
     expect(seeded?.runInTarget).toBe("localProject");
     expect(seeded?.message).toBe("Sending message…");
 
-    resolveStart(buildConversation("thread-start", "project-1"));
+    resolveStart({
+      kind: "started",
+      detail: buildConversation("thread-start", "project-1"),
+    });
     await startPromise;
   });
 
@@ -1142,7 +1409,7 @@ describe("local-conversation-store", () => {
     const followerManager = new CodexAppServerManager("default");
     let ownerManager: InstanceType<typeof CodexAppServerManager> | null = null;
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -1154,7 +1421,7 @@ describe("local-conversation-store", () => {
             status: "inProgress",
           }],
         }],
-      };
+      });
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
         hostId: "default",
         conversationId: "thread-1",
@@ -1397,7 +1664,7 @@ describe("local-conversation-store", () => {
         createdAt: 1,
         updatedAt: 1,
       };
-      const initialConversation: CodexConversationSnapshot = {
+      const initialConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [
           {
@@ -1425,7 +1692,7 @@ describe("local-conversation-store", () => {
           planContent: "1. Ship the parity plan",
           createdAt: 1,
         }],
-      };
+      });
       const rollbackConversation: CodexConversationSnapshot = {
         ...initialConversation,
         turns: [initialConversation.turns[0]!],
@@ -1509,9 +1776,9 @@ describe("local-conversation-store", () => {
           item: {
             id: "assistant-replacement",
             type: "agentMessage",
-            role: "assistant",
-            status: "inProgress",
             text: "",
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -1586,6 +1853,8 @@ describe("local-conversation-store", () => {
             id: "assistant-replacement",
             type: "agentMessage",
             text: "partial final",
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -1604,9 +1873,12 @@ describe("local-conversation-store", () => {
       });
       await flushAsyncWork(3);
       const completedTurn = followerManager.readConversation("thread-1")?.turns.at(-1);
+      const completedAssistant = completedTurn?.items.find((item) =>
+        item.itemId === "assistant-replacement"
+      );
       expect(completedTurn?.status).toBe("completed");
-      expect(completedTurn?.items[1]?.status).toBe("completed");
-      expect(completedTurn?.items[1]?.markdownText).toBe("partial final");
+      expect(completedAssistant?.status).toBe("completed");
+      expect(completedAssistant?.markdownText).toBe("partial final");
 
       if (!ownerManager.readConversation("thread-1")) {
         throw new Error("Missing owner conversation before normal start");
@@ -2452,6 +2724,157 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("owner request ingress and resolution fail closed without a canonical document", async () => {
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        canonicalState: null,
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: { type: "snapshot", revision: 1, conversationState: baseConversation },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 1,
+        request: {
+          id: "input-without-canonical",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "input-call-1",
+            autoResolutionMs: null,
+            questions: [{
+              id: "q1",
+              header: "Choice",
+              question: "Pick one",
+              isOther: false,
+              isSecret: false,
+              options: [{ label: "A", description: "First" }],
+            }],
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "serverRequest/resolved",
+        sequence: 2,
+        params: { threadId: "thread-1", requestId: "input-without-canonical" },
+      });
+      await flushAsyncWork();
+
+      const conversation = manager.readConversation("thread-1");
+      const acknowledgements = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      ).map((record) => (record.args[0] as { sequence?: number }).sequence);
+      expect(conversation?.canonicalState ?? null).toBe(null);
+      expect(String(conversation?.canonicalRequests?.length ?? 0)).toBe("0");
+      expect(String(conversation?.requests.length ?? -1)).toBe("0");
+      expect(String(conversation?.turns[0]?.items.length ?? -1)).toBe("0");
+      expect(conversation?.resumeState).toBe("needs_resume");
+      expect(JSON.stringify(acknowledgements)).toBe(JSON.stringify([1, 2]));
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )).toBe(false);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner frame reduction fails closed when resume has no canonical document", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        canonicalState: null,
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["assistant-1"],
+          items: [{
+            ...buildAssistantMessage("thread-1", "turn-1", "assistant-1", ""),
+            status: "inProgress",
+          }],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: { type: "snapshot", revision: 1, conversationState: baseConversation },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/agentMessage/delta",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "assistant-1",
+          delta: "must not reconstruct",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      const conversation = manager.readConversation("thread-1");
+      const ack = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      )?.args[0] as { sequence?: number } | undefined;
+      expect(conversation?.turns[0]?.items[0]?.markdownText).toBe("");
+      expect(conversation?.resumeState).toBe("needs_resume");
+      expect(ack?.sequence).toBe(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
   test("owner plan and reasoning deltas publish prose patches from bundle 51692-51755", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -2486,6 +2909,11 @@ describe("local-conversation-store", () => {
               semanticKind: "proposedPlan",
               status: "inProgress",
               markdownText: "",
+              rawItem: {
+                id: "plan-1",
+                type: "plan",
+                text: "",
+              },
               createdAt: 1,
               updatedAt: 1,
             },
@@ -2568,6 +2996,12 @@ describe("local-conversation-store", () => {
       const plan = conversation?.turns[0]?.items.find((item) => item.itemId === "plan-1");
       const reasoning = conversation?.turns[0]?.items.find((item) => item.itemId === "reasoning-1");
       const rawReasoning = reasoning?.rawItem as { summary?: string[]; content?: string[] } | undefined;
+      const canonicalPlan = conversation?.canonicalState?.turns[0]?.items.find((item) =>
+        item.id === "plan-1" && item.type === "plan"
+      );
+      const canonicalReasoning = conversation?.canonicalState?.turns[0]?.items.find((item) =>
+        item.id === "reasoning-1" && item.type === "reasoning"
+      );
       const publishRecords = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       );
@@ -2577,6 +3011,9 @@ describe("local-conversation-store", () => {
       expect(reasoning?.markdownText).toBe("Thinking");
       expect(rawReasoning?.summary?.[0]).toBe("Thinking");
       expect(rawReasoning?.content?.[0]).toBe("private chain");
+      expect(canonicalPlan?.type === "plan" ? canonicalPlan.text : null).toBe("1. Inspect\n");
+      expect(canonicalReasoning?.type === "reasoning" ? canonicalReasoning.summary[0] : null).toBe("Thinking");
+      expect(canonicalReasoning?.type === "reasoning" ? canonicalReasoning.content[0] : null).toBe("private chain");
       expect(String(publishRecords.length)).toBe("1");
       expect(publishInput?.ownerNotificationSequence).toBe(3);
     } finally {
@@ -2681,21 +3118,19 @@ describe("local-conversation-store", () => {
         ownerNotificationSequence?: number;
         change?: { type?: string; baseRevision?: number; revision?: number };
       } | undefined;
-      const clearNotificationPublish = publishRecords
-        .map((record) => record.args[0] as {
-          ownerNotificationSequence?: number;
-          change?: { type?: string; baseRevision?: number; revision?: number };
-        })
-        .find((record) => record.ownerNotificationSequence === 3);
+      const acknowledgedSequences = invokeRecords
+        .filter((record) => record.channel === "codex:thread-owner:notification:ack")
+        .map((record) => (record.args[0] as { sequence?: number }).sequence);
 
       expect(conversation?.threadGoal ?? null).toBe(null);
       expect(conversation?.completedThreadGoal?.status ?? "").toBe("complete");
-      expect(String(publishRecords.length)).toBe("4");
+      expect(conversation?.canonicalState?.sidecar.threadGoal ?? null).toBe(null);
+      expect(conversation?.canonicalState?.sidecar.completedThreadGoal?.status ?? "").toBe("complete");
+      expect(String(publishRecords.length)).toBe("3");
       expect(firstPublish?.ownerNotificationSequence).toBe(1);
       expect(firstPublish?.change?.baseRevision).toBe(2);
       expect(firstPublish?.change?.revision).toBe(3);
-      expect(clearNotificationPublish?.ownerNotificationSequence).toBe(3);
-      expect(clearNotificationPublish?.change?.type).toBe("patches");
+      expect(JSON.stringify(acknowledgedSequences)).toBe(JSON.stringify([3]));
       expect(clearRecord !== undefined).toBe(true);
     } finally {
       resumeThreadResult = null;
@@ -2720,7 +3155,7 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -2729,7 +3164,7 @@ describe("local-conversation-store", () => {
           itemIds: [],
           items: [],
         }],
-      };
+      });
       resumeThreadResult = baseConversation;
 
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
@@ -2756,6 +3191,8 @@ describe("local-conversation-store", () => {
             id: "assistant-1",
             type: "agentMessage",
             text: "",
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -2763,6 +3200,13 @@ describe("local-conversation-store", () => {
 
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("");
+      const finalAssistantStartedAtMs = manager.readConversation("thread-1")
+        ?.turns[0]?.finalAssistantStartedAtMs;
+      expect(typeof finalAssistantStartedAtMs).toBe("number");
+      expect(
+        typeof manager.readConversation("thread-1")
+          ?.turns[0]?.firstTurnWorkItemStartedAtMs,
+      ).toBe("number");
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
@@ -2775,6 +3219,8 @@ describe("local-conversation-store", () => {
             id: "assistant-1",
             type: "agentMessage",
             text: "done",
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -2798,8 +3244,538 @@ describe("local-conversation-store", () => {
       expect(secondPublish?.ownerNotificationSequence).toBe(2);
       expect(secondPublish?.change?.baseRevision).toBe(3);
       expect(secondPublish?.change?.revision).toBe(4);
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("done");
+      expect(
+        manager.readConversation("thread-1")?.turns[0]?.finalAssistantStartedAtMs,
+      ).toBe(finalAssistantStartedAtMs);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner lifecycle retains hidden review-mode identity without rendering a row", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const managerInternals = manager as unknown as {
+      ownerHiddenLifecycleItemTypesByConversationId: Map<
+        string,
+        Map<string | null, Map<string, string>>
+      >;
+    };
+    try {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      });
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAtMs: 100,
+          item: {
+            id: "review-mode-marker",
+            type: "exitedReviewMode",
+            review: "Review the current changes",
+          },
+        },
+      });
+      await flushAsyncWork();
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/completed",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          completedAtMs: 120,
+          item: {
+            id: "review-mode-marker",
+            type: "exitedReviewMode",
+            review: "Review the current changes",
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const turn = manager.readConversation("thread-1")?.turns[0];
+      const hiddenTypes = managerInternals.ownerHiddenLifecycleItemTypesByConversationId
+        .get("thread-1")
+        ?.get("turn-1");
+      expect(turn?.items.length ?? -1).toBe(0);
+      expect(typeof turn?.firstTurnWorkItemStartedAtMs).toBe("number");
+      expect(hiddenTypes?.get("review-mode-marker")).toBe("exitedReviewMode");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner round-trips a visible item through a hidden same-ID slot without reordering", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const managerInternals = manager as unknown as {
+      ownerHiddenLifecycleItemTypesByConversationId: Map<
+        string,
+        Map<string | null, Map<string, string>>
+      >;
+    };
+    try {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["before", "target", "after"],
+          items: ["before", "target", "after"].map((itemId) =>
+            buildCommandExecutionItem("thread-1", "turn-1", itemId)
+          ),
+        }],
+      });
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAtMs: 100,
+          item: {
+            id: "target",
+            type: "enteredReviewMode",
+            review: "Review target",
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      let turn = manager.readConversation("thread-1")?.turns[0];
+      expect(JSON.stringify(turn?.itemIds)).toBe(JSON.stringify(["before", "target", "after"]));
+      expect(JSON.stringify(turn?.items.map((item) => item.itemId))).toBe(
+        JSON.stringify(["before", "after"]),
+      );
+      expect(
+        managerInternals.ownerHiddenLifecycleItemTypesByConversationId
+          .get("thread-1")
+          ?.get("turn-1")
+          ?.get("target"),
+      ).toBe("enteredReviewMode");
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAtMs: 120,
+          item: {
+            id: "target",
+            type: "commandExecution",
+            command: "printf target",
+            cwd: "/tmp",
+            processId: null,
+            source: "agent",
+            status: "inProgress",
+            commandActions: [],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null,
+          },
+        },
+      });
+      await flushAsyncWork();
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/completed",
+        sequence: 3,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          completedAtMs: 130,
+          item: {
+            id: "target",
+            type: "commandExecution",
+            command: "printf target",
+            cwd: "/tmp",
+            processId: null,
+            source: "agent",
+            status: "completed",
+            commandActions: [],
+            aggregatedOutput: "target\n",
+            exitCode: 0,
+            durationMs: 10,
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      turn = manager.readConversation("thread-1")?.turns[0];
+      expect(JSON.stringify(turn?.items.map((item) => item.itemId))).toBe(
+        JSON.stringify(["before", "target", "after"]),
+      );
+      expect(turn?.items[1]?.status).toBe("completed");
+      expect(
+        managerInternals.ownerHiddenLifecycleItemTypesByConversationId
+          .get("thread-1")
+          ?.get("turn-1")
+          ?.has("target") ?? false,
+      ).toBe(false);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner rejects a hidden mismatched completion without removing the visible row", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["shared-id"],
+          firstTurnWorkItemStartedAtMs: 1,
+          items: [buildCommandExecutionItem("thread-1", "turn-1", "shared-id")],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/completed",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          completedAtMs: 110,
+          item: {
+            id: "shared-id",
+            type: "exitedReviewMode",
+            review: "Mismatched hidden completion",
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
+      expect(item?.itemId).toBe("shared-id");
+      expect(item?.kind).toBe("commandExecution");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner does not rebind a hidden-only completed null-ID turn as empty", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const managerInternals = manager as unknown as {
+      ownerHiddenLifecycleItemTypesByConversationId: Map<
+        string,
+        Map<string | null, Map<string, string>>
+      >;
+    };
+    try {
+      const hydratedConversation = withCanonicalState({
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: null as unknown as string,
+          status: "completed",
+          itemIds: [],
+          items: [],
+        }],
+      });
+      const canonicalTurn = hydratedConversation.canonicalState?.turns[0];
+      if (!canonicalTurn) throw new Error("Expected canonical hidden-item fixture turn");
+      const baseConversation: CodexConversationSnapshot = {
+        ...hydratedConversation,
+        canonicalState: {
+          ...hydratedConversation.canonicalState!,
+          turns: [{
+            ...canonicalTurn,
+            items: [{
+              id: "hidden-review-marker",
+              type: "exitedReviewMode",
+              review: "Hidden review marker",
+            }],
+          }],
+        },
+      };
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      managerInternals.ownerHiddenLifecycleItemTypesByConversationId.set(
+        "thread-1",
+        new Map([[
+          null,
+          new Map([["hidden-review-marker", "exitedReviewMode"]]),
+        ]]),
+      );
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-after-hidden-placeholder",
+          startedAtMs: 200,
+          item: {
+            id: "assistant-after-hidden-placeholder",
+            type: "agentMessage",
+            text: "",
+            phase: null,
+            memoryCitation: null,
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const turns = manager.readConversation("thread-1")?.turns ?? [];
+      expect(turns.length).toBe(2);
+      expect((turns[0] as { turnId: string | null } | undefined)?.turnId ?? null).toBe(null);
+      expect(turns[1]?.turnId).toBe("turn-after-hidden-placeholder");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner suppresses a valid heartbeat start when it matches a pending steer", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const heartbeatText = [
+      "<heartbeat>",
+      "<current_time_iso>2026-07-10T00:00:00Z</current_time_iso>",
+      "<instructions>check fixture</instructions>",
+      "</heartbeat>",
+    ].join("\n");
+    const manager = new CodexAppServerManager("default");
+    try {
+      const hydratedConversation = withCanonicalState({
+        ...buildConversation("thread-1", "project-1"),
+        pendingSteers: [{
+          steerId: "steer-heartbeat",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          prompt: heartbeatText,
+          createdAt: 1,
+        }],
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      });
+      const canonicalTurn = hydratedConversation.canonicalState?.turns[0];
+      if (!canonicalTurn) throw new Error("Expected canonical heartbeat fixture turn");
+      const baseConversation: CodexConversationSnapshot = {
+        ...hydratedConversation,
+        canonicalState: {
+          ...hydratedConversation.canonicalState!,
+          turns: [{
+            ...canonicalTurn,
+            items: [{
+              type: "steeringUserMessage",
+              id: "steer-heartbeat",
+              targetTurnId: "turn-1",
+              targetTurnStartedAtMs: null,
+              status: "pending",
+              clientUserMessageId: "steer-heartbeat",
+              input: [{ type: "text", text: heartbeatText, text_elements: [] }],
+              attachments: [],
+              restoreMessage: { context: { commentAttachments: [] } },
+              compareKey: { rawText: heartbeatText, imageCount: 0 },
+            }],
+          }],
+        },
+      };
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            id: "heartbeat-matching-steer",
+            type: "userMessage",
+            clientId: null,
+            content: [{ type: "text", text: heartbeatText, text_elements: [] }],
+          },
+        },
+      });
+      await flushAsyncWork();
+      const afterMatchingHeartbeat = manager.readConversation("thread-1")?.turns[0]?.items ?? [];
+      expect(afterMatchingHeartbeat.map((item) => item.itemId)).toEqual(["steer-heartbeat"]);
+
+      const differentHeartbeatText = heartbeatText.replace("check fixture", "check another fixture");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            id: "heartbeat-not-matching-steer",
+            type: "userMessage",
+            clientId: null,
+            content: [{ type: "text", text: differentHeartbeatText, text_elements: [] }],
+          },
+        },
+      });
+      await flushAsyncWork();
+      expect(manager.readConversation("thread-1")?.turns[0]?.items.some(
+        (item) => item.itemId === "heartbeat-not-matching-steer",
+      )).toBe(true);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -2823,7 +3799,7 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -2832,7 +3808,7 @@ describe("local-conversation-store", () => {
           itemIds: ["assistant-1"],
           items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "")],
         }],
-      };
+      });
       const delta = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
       resumeThreadResult = baseConversation;
 
@@ -2871,6 +3847,8 @@ describe("local-conversation-store", () => {
             id: "assistant-1",
             type: "agentMessage",
             text: delta,
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -2889,7 +3867,7 @@ describe("local-conversation-store", () => {
       expect(deltaPublishIndex >= 0).toBe(true);
       expect(completedPublishIndex > deltaPublishIndex).toBe(true);
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe(delta);
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("completed");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -2984,6 +3962,8 @@ describe("local-conversation-store", () => {
       expect(manager.readConversation("thread-1")?.statusType).toBe("idle");
       expect(manager.readConversation("thread-1")?.turns[0]?.status).toBe("completed");
       expect(manager.readConversation("thread-1")?.turns[0]?.durationMs).toBe(42);
+      expect(manager.readConversation("thread-1")?.canonicalState?.turns[0]?.protocol.status).toBe("completed");
+      expect(manager.readConversation("thread-1")?.canonicalState?.turns[0]?.protocol.durationMs).toBe(42);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -3053,6 +4033,7 @@ describe("local-conversation-store", () => {
       expect(manager.readConversation("thread-1")?.threadRuntimeStatus?.type).toBe("active");
       const runtimeStatus = manager.readConversation("thread-1")?.threadRuntimeStatus;
       expect(runtimeStatus?.type === "active" ? runtimeStatus.activeFlags[0] : null).toBe("waitingOnApproval");
+      expect(manager.readConversation("thread-1")?.canonicalState?.protocol.status.type).toBe("active");
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
       expect(publishInput?.change?.baseRevision).toBe(2);
@@ -3104,6 +4085,7 @@ describe("local-conversation-store", () => {
         sourceClientId: null,
       });
       await manager.requestThreadStreamResume("thread-1");
+      const beforeUpdatedAt = manager.readConversation("thread-1")?.updatedAt;
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
@@ -3125,6 +4107,9 @@ describe("local-conversation-store", () => {
         change?: { type?: string; baseRevision?: number; revision?: number };
       } | undefined;
       expect(manager.readConversation("thread-1")?.turns[0]?.diff).toBe("diff --git a/file.ts b/file.ts");
+      expect(manager.readConversation("thread-1")?.canonicalState?.turns[0]?.sidecar.diff)
+        .toBe("diff --git a/file.ts b/file.ts");
+      expect(manager.readConversation("thread-1")?.updatedAt).toBe(beforeUpdatedAt);
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
       expect(publishInput?.change?.baseRevision).toBe(2);
@@ -3166,6 +4151,7 @@ describe("local-conversation-store", () => {
               developer_instructions: null,
             },
           },
+          personality: null,
         },
         latestCollaborationMode: {
           mode: "default",
@@ -3215,8 +4201,24 @@ describe("local-conversation-store", () => {
         params: {
           threadId: "thread-1",
           threadSettings: {
+            cwd: "/repo-next",
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandboxPolicy: {
+              type: "workspaceWrite",
+              writableRoots: ["/repo-next"],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            activePermissionProfile: null,
             model: "gpt-5.4-codex",
+            modelProvider: "openai-next",
+            serviceTier: "fast",
             effort: "high",
+            summary: "concise",
+            personality: "pragmatic",
+            multiAgentMode: "explicitRequestOnly",
             collaborationMode: {
               mode: "plan",
               settings: {
@@ -3267,7 +4269,14 @@ describe("local-conversation-store", () => {
       expect(conversation?.latestThreadSettings?.model).toBe("gpt-5.4-codex");
       expect(conversation?.latestThreadSettings?.reasoningEffort).toBe("high");
       expect(conversation?.latestThreadSettings?.collaborationMode?.mode).toBe("plan");
+      expect(conversation?.latestThreadSettings?.personality).toBe("pragmatic");
       expect(conversation?.latestTokenUsageInfo?.total.totalTokens).toBe(100);
+      expect(conversation?.canonicalState?.sidecar.latestTokenUsageInfo?.total.totalTokens).toBe(100);
+      expect(conversation?.canonicalState?.protocol.name).toBe("New name");
+      expect(conversation?.canonicalState?.sidecar.latestThreadSettings?.model).toBe("gpt-5.4-codex");
+      expect(conversation?.modelProvider).toBe("openai-next");
+      expect(conversation?.cwd).toBe("/repo-next");
+      expect(conversation?.updatedAt).toBe(baseConversation.updatedAt);
       expect((conversation?.turns[0]?.tokenUsage ?? null) === null).toBe(true);
       expect(String(publishRecords.length)).toBe("2");
       expect(lastPublish?.ownerNotificationSequence).toBe(3);
@@ -3378,6 +4387,9 @@ describe("local-conversation-store", () => {
       expect(conversation?.resumeState).toBe("resumed");
       expect(conversation?.statusType).toBe("idle");
       expect(String(conversation?.turns.length ?? -1)).toBe("1");
+      expect(conversation?.canonicalState?.protocol.name).toBe("Started title");
+      expect(conversation?.canonicalState?.protocol.preview).toBe("Started preview");
+      expect(String(conversation?.canonicalState?.turns.length ?? -1)).toBe("1");
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
       expect(publishInput?.change?.baseRevision).toBe(2);
@@ -3409,6 +4421,10 @@ describe("local-conversation-store", () => {
         ...buildCommandExecutionItem("thread-1", "turn-1", "cmd-1"),
         approvalRequestId: "approval-1",
       };
+      const duplicateAttachedCommand: CodexConversationItem = {
+        ...buildCommandExecutionItem("thread-1", "turn-1", "cmd-2"),
+        approvalRequestId: "approval-1",
+      };
       const baseConversation: CodexConversationSnapshot = {
         ...buildConversation("thread-1", "project-1"),
         statusActiveFlags: ["waitingOnApproval"],
@@ -3416,8 +4432,8 @@ describe("local-conversation-store", () => {
           threadId: "thread-1",
           turnId: "turn-1",
           status: "inProgress",
-          itemIds: ["cmd-1"],
-          items: [commandItem],
+          itemIds: ["cmd-1", "cmd-2"],
+          items: [commandItem, duplicateAttachedCommand],
         }],
         requests: [{
           type: "approval",
@@ -3428,6 +4444,27 @@ describe("local-conversation-store", () => {
           turnId: "turn-1",
           itemId: "cmd-1",
           createdAt: 1,
+        }],
+        canonicalRequests: [{
+          id: "approval-1",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-1",
+            startedAtMs: 1,
+            environmentId: null,
+          },
+        }, {
+          id: "approval-1",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-2",
+            startedAtMs: 2,
+            environmentId: null,
+          },
         }],
       };
       resumeThreadResult = baseConversation;
@@ -3456,7 +4493,7 @@ describe("local-conversation-store", () => {
           explanation: "Plan",
           plan: [
             { step: "Inspect bundle", status: "completed" },
-            { step: "Patch Nodex", status: "in_progress" },
+            { step: "Patch Nodex", status: "inProgress" },
           ],
         },
       });
@@ -3469,6 +4506,7 @@ describe("local-conversation-store", () => {
           turnId: "turn-1",
           error: {
             message: "Tool failed",
+            codexErrorInfo: null,
             additionalDetails: "exit 1",
           },
           willRetry: false,
@@ -3476,8 +4514,20 @@ describe("local-conversation-store", () => {
       });
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
-        method: "serverRequest/resolved",
+        method: "model/rerouted",
         sequence: 3,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          fromModel: "gpt-a",
+          toModel: "gpt-b",
+          reason: "highRiskCyberActivity",
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "serverRequest/resolved",
+        sequence: 4,
         params: {
           threadId: "thread-1",
           requestId: "approval-1",
@@ -3487,9 +4537,11 @@ describe("local-conversation-store", () => {
 
       const conversation = manager.readConversation("thread-1");
       const turn = conversation?.turns[0];
-      const todoItem = turn?.items.find((item) => item.itemId === "todo-list:turn-1");
-      const errorItem = turn?.items.find((item) => item.itemId === "error:turn-1");
+      const todoItem = turn?.items.find((item) => item.semanticKind === "todoList");
+      const errorItem = turn?.items.find((item) => item.semanticKind === "systemError");
+      const reroutedItem = turn?.items.find((item) => item.semanticKind === "modelRerouted");
       const command = turn?.items.find((item) => item.itemId === "cmd-1");
+      const duplicateCommand = turn?.items.find((item) => item.itemId === "cmd-2");
       const publishRecords = invokeRecords.filter((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       );
@@ -3501,14 +4553,21 @@ describe("local-conversation-store", () => {
       expect(todoItem?.markdownText).toBe("1. [x] Inspect bundle\n2. [ ] Patch Nodex");
       expect(errorItem?.semanticKind).toBe("systemError");
       expect(errorItem?.additionalDetails).toBe("exit 1");
+      expect(reroutedItem?.status).toBe("completed");
+      expect(turn?.itemIds.includes(todoItem?.itemId ?? "")).toBe(true);
+      expect(turn?.itemIds.includes(errorItem?.itemId ?? "")).toBe(true);
+      expect(conversation?.canonicalState?.turns[0]?.items.some(
+        (item) => item.id === todoItem?.itemId && item.type === "todo-list",
+      )).toBe(true);
       expect(String(conversation?.requests.length ?? -1)).toBe("0");
       expect(command?.approvalRequestId ?? null).toBe(null);
-      expect(String(conversation?.statusActiveFlags.length ?? -1)).toBe("0");
+      expect(duplicateCommand?.approvalRequestId ?? null).toBe(null);
+      expect(String(conversation?.statusActiveFlags.length ?? -1)).toBe("1");
       expect(String(publishRecords.length)).toBe("2");
       expect(
         (publishRecords[publishRecords.length - 1]?.args[0] as { ownerNotificationSequence?: number } | undefined)
           ?.ownerNotificationSequence,
-      ).toBe(3);
+      ).toBe(4);
       expect(String(ackRecords.length)).toBe("0");
     } finally {
       resumeThreadResult = null;
@@ -3534,14 +4593,18 @@ describe("local-conversation-store", () => {
     const manager = new CodexAppServerManager("default");
     try {
       const commandItem = buildCommandExecutionItem("thread-1", "turn-1", "cmd-1");
+      const duplicateAttachedCommand: CodexConversationItem = {
+        ...buildCommandExecutionItem("thread-1", "turn-1", "cmd-2"),
+        approvalRequestId: "approval-1",
+      };
       const baseConversation: CodexConversationSnapshot = {
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
           turnId: "turn-1",
           status: "inProgress",
-          itemIds: ["cmd-1"],
-          items: [commandItem],
+          itemIds: ["cmd-1", "cmd-2"],
+          items: [commandItem, duplicateAttachedCommand],
         }],
       };
       resumeThreadResult = baseConversation;
@@ -3640,6 +4703,13 @@ describe("local-conversation-store", () => {
       );
 
       expect(String(conversation?.requests.length ?? -1)).toBe("3");
+      expect(JSON.stringify(conversation?.canonicalRequests?.map((request) => request.id) ?? [])).toBe(
+        JSON.stringify(["approval-1", "input-1", "permission-1"]),
+      );
+      expect(JSON.stringify(conversation?.canonicalState?.requests ?? [])).toBe(
+        JSON.stringify(conversation?.canonicalRequests ?? []),
+      );
+      expect(conversation?.hasUnreadTurn).toBe(true);
       expect(conversation?.requests[0]?.type).toBe("approval");
       expect(conversation?.requests[1]?.type).toBe("userInput");
       expect(conversation?.requests[2]?.type).toBe("permissionRequest");
@@ -3647,6 +4717,20 @@ describe("local-conversation-store", () => {
       expect(userInputItem?.kind).toBe("userInputResponse");
       expect(userInputItem?.status).toBe("inProgress");
       expect(String(userInputItem?.userInputQuestions?.length ?? -1)).toBe("1");
+      expect(JSON.stringify(userInputItem?.rawItem)).toBe(JSON.stringify({
+        id: "user-input-response-input-1",
+        type: "userInputResponse",
+        requestId: "input-1",
+        turnId: "turn-1",
+        questions: [{
+          id: "q1",
+          header: "Question",
+          question: "Pick one",
+          options: [{ description: "Option A", label: "A" }],
+        }],
+        answers: {},
+        completed: false,
+      }));
       expect(permissionItem?.semanticKind).toBe("permissionRequest");
       expect(permissionItem?.status).toBe("inProgress");
       expect(permissionItem?.markdownText).toBe("Need network access");
@@ -3657,12 +4741,15 @@ describe("local-conversation-store", () => {
       ).toBe(3);
 
       await manager.respondUserInput("input-1", { q1: ["A"] });
-      await manager.respondApproval("approval-1", "decline");
+      await manager.respondApproval("approval-1", "command", "decline");
       await manager.respondPermissionRequest("permission-1", { permissions: {}, scope: "turn" });
       await flushAsyncWork();
 
       const resolvedConversation = manager.readConversation("thread-1");
       const resolvedCommand = resolvedConversation?.turns[0]?.items.find((item) => item.itemId === "cmd-1");
+      const duplicateResolvedCommand = resolvedConversation?.turns[0]?.items.find((item) =>
+        item.itemId === "cmd-2"
+      );
       const resolvedUserInputItem = resolvedConversation?.turns[0]?.items.find((item) =>
         item.itemId === "user-input-response-input-1"
       );
@@ -3673,7 +4760,11 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread-owner:stream-state:publish"
       );
       expect(String(resolvedConversation?.requests.length ?? -1)).toBe("0");
+      expect(String(resolvedConversation?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(String(resolvedConversation?.canonicalState?.requests.length ?? -1)).toBe("0");
+      expect(resolvedConversation?.hasUnreadTurn).toBe(true);
       expect(resolvedCommand?.approvalRequestId ?? null).toBe(null);
+      expect(duplicateResolvedCommand?.approvalRequestId ?? null).toBe(null);
       expect(resolvedUserInputItem?.status).toBe("completed");
       expect(resolvedUserInputItem?.userInputAnswers?.q1?.[0]).toBe("A");
       expect(resolvedPermissionItem?.status).toBe("completed");
@@ -3696,6 +4787,1030 @@ describe("local-conversation-store", () => {
         },
       }));
       expect(String(resolvedPublishRecords.length)).toBe("5");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner request state keeps numeric and textual ids distinct through resolved", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const commandItem = buildCommandExecutionItem("thread-1", "turn-1", "cmd-1");
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["cmd-1"],
+          items: [commandItem],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+
+      const dispatchApproval = (id: string | number, sequence: number) => {
+        dispatchCodexAppServerMessage("thread-owner-request", {
+          hostId: "default",
+          sequence,
+          request: {
+            id,
+            method: "item/commandExecution/requestApproval",
+            params: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "cmd-1",
+              startedAtMs: sequence,
+              approvalId: null,
+              environmentId: null,
+              reason: `approval ${typeof id}`,
+              command: "bun test",
+              cwd: "/repo",
+              commandActions: null,
+              additionalPermissions: null,
+              proposedExecpolicyAmendment: null,
+              proposedNetworkPolicyAmendments: null,
+              availableDecisions: null,
+            },
+          },
+        });
+      };
+      dispatchApproval(73, 1);
+      dispatchApproval("73", 2);
+      await flushAsyncWork();
+
+      let conversation = manager.readConversation("thread-1");
+      expect(JSON.stringify(conversation?.canonicalRequests?.map((request) => request.id) ?? [])).toBe(
+        JSON.stringify([73, "73"]),
+      );
+      expect(JSON.stringify(conversation?.canonicalState?.requests.map((request) => request.id) ?? [])).toBe(
+        JSON.stringify([73, "73"]),
+      );
+      expect(JSON.stringify(conversation?.requests.map((request) => request.requestId) ?? [])).toBe(
+        JSON.stringify([73, "73"]),
+      );
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "serverRequest/resolved",
+        sequence: 3,
+        params: { threadId: "thread-1", requestId: 73 },
+      });
+      await flushAsyncWork();
+      conversation = manager.readConversation("thread-1");
+      expect(JSON.stringify(conversation?.canonicalRequests?.map((request) => request.id) ?? [])).toBe(
+        JSON.stringify(["73"]),
+      );
+      expect(JSON.stringify(conversation?.canonicalState?.requests.map((request) => request.id) ?? [])).toBe(
+        JSON.stringify(["73"]),
+      );
+      expect(conversation?.turns[0]?.items[0]?.approvalRequestId).toBe("73");
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "serverRequest/resolved",
+        sequence: 4,
+        params: { threadId: "thread-1", requestId: "73" },
+      });
+      await flushAsyncWork();
+      conversation = manager.readConversation("thread-1");
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(String(conversation?.canonicalState?.requests.length ?? -1)).toBe("0");
+      expect(conversation?.turns[0]?.items[0]?.approvalRequestId ?? null).toBe(null);
+      expect(conversation?.hasUnreadTurn).toBe(true);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner request ingress replies and resolved notifications preserve transcript timestamps", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerRequestResponseHandler = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const commandItem: CodexConversationItem = {
+        ...buildCommandExecutionItem("thread-1", "turn-1", "cmd-1"),
+        createdAt: 300,
+        updatedAt: 400,
+      };
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        createdAt: 100,
+        updatedAt: 200,
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["cmd-1"],
+          items: [commandItem],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+
+      const baseline = manager.readConversation("thread-1");
+      const baselineCreatedAt = baseline?.createdAt;
+      const baselineUpdatedAt = baseline?.updatedAt;
+      const baselineItemCreatedAt = baseline?.turns[0]?.items[0]?.createdAt;
+      const baselineItemUpdatedAt = baseline?.turns[0]?.items[0]?.updatedAt;
+      const assertTimestampsUnchanged = () => {
+        const conversation = manager.readConversation("thread-1");
+        const item = conversation?.turns[0]?.items[0];
+        expect(conversation?.createdAt).toBe(baselineCreatedAt);
+        expect(conversation?.updatedAt).toBe(baselineUpdatedAt);
+        expect(item?.createdAt).toBe(baselineItemCreatedAt);
+        expect(item?.updatedAt).toBe(baselineItemUpdatedAt);
+      };
+      const dispatchApproval = (requestId: string, sequence: number) => {
+        dispatchCodexAppServerMessage("thread-owner-request", {
+          hostId: "default",
+          sequence,
+          request: {
+            id: requestId,
+            method: "item/commandExecution/requestApproval",
+            params: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "cmd-1",
+              startedAtMs: 10,
+              approvalId: null,
+              environmentId: null,
+              reason: "Need command access",
+              command: "bun test",
+              cwd: "/repo",
+              commandActions: null,
+              additionalPermissions: null,
+              proposedExecpolicyAmendment: null,
+              proposedNetworkPolicyAmendments: null,
+              availableDecisions: null,
+            },
+          },
+        });
+      };
+
+      dispatchApproval("approval-local", 1);
+      await flushAsyncWork();
+      assertTimestampsUnchanged();
+
+      expect(await manager.respondApproval(
+        "approval-local",
+        "command",
+        "decline",
+        "thread-1",
+      )).toBe(true);
+      await flushAsyncWork();
+      assertTimestampsUnchanged();
+
+      dispatchApproval("approval-resolved", 2);
+      await flushAsyncWork();
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "serverRequest/resolved",
+        sequence: 3,
+        params: {
+          threadId: "thread-1",
+          requestId: "approval-resolved",
+        },
+      });
+      await flushAsyncWork();
+      assertTimestampsUnchanged();
+    } finally {
+      ownerRequestResponseHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner local interactive replies win when resolved arrives before IPC settles", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerRequestResponseHandler = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        createdAt: 100,
+        updatedAt: 200,
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          turnStartedAtMs: 50,
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 1,
+        request: {
+          id: "user-race",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "input-call-1",
+            autoResolutionMs: null,
+            questions: [{
+              id: "q1",
+              header: "Choice",
+              question: "Pick one",
+              isOther: false,
+              isSecret: false,
+              options: [{ label: "A", description: "First" }],
+            }],
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 2,
+        request: {
+          id: "permission-race",
+          method: "item/permissions/requestApproval",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "permission-call-1",
+            environmentId: "env-1",
+            startedAtMs: 12,
+            cwd: "/repo",
+            reason: "Need network",
+            permissions: {
+              network: { enabled: true },
+              fileSystem: null,
+            },
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 3,
+        request: {
+          id: "mcp-race",
+          method: "mcpServer/elicitation/request",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            mode: "openai/form",
+            serverName: "Context7",
+            message: "Allow this call?",
+            requestedSchema: { type: "object", properties: {} },
+            _meta: null,
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const pendingConversation = manager.readConversation("thread-1");
+      const pendingItems = pendingConversation?.turns[0]?.items ?? [];
+      const pendingTimestamps = Object.fromEntries(pendingItems.map((item) => [
+        item.itemId,
+        `${item.createdAt}:${item.updatedAt}`,
+      ]));
+      let resolvedSequence = 4;
+      ownerRequestResponseHandler = async (_channel, args) => {
+        await Promise.resolve();
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "serverRequest/resolved",
+          sequence: resolvedSequence,
+          params: {
+            threadId: String(args[0]),
+            requestId: args[1] as CodexProtocolRequestId,
+          },
+        });
+        resolvedSequence += 1;
+        return true;
+      };
+
+      expect(await manager.respondUserInput("user-race", { q1: ["A"] }, "thread-1")).toBe(true);
+      expect(await manager.respondPermissionRequest("permission-race", {
+        permissions: {},
+        scope: "turn",
+      }, "thread-1")).toBe(true);
+      expect(await manager.respondMcpElicitation("mcp-race", {
+        action: "accept",
+        content: {},
+        _meta: null,
+      }, "thread-1")).toBe(true);
+      await flushAsyncWork(4);
+
+      const conversation = manager.readConversation("thread-1");
+      const items = conversation?.turns[0]?.items ?? [];
+      const userItem = items.find((item) => item.itemId === "user-input-response-user-race");
+      const permissionItem = items.find((item) => item.itemId === "permission-request-permission-race");
+      const mcpItem = items.find((item) => item.itemId === "mcp-server-elicitation-mcp-race");
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(String(conversation?.requests.length ?? -1)).toBe("0");
+      expect(userItem?.userInputAnswers?.q1?.[0]).toBe("A");
+      expect(JSON.stringify((permissionItem?.rawItem as { response?: unknown } | undefined)?.response)).toBe(
+        JSON.stringify({ permissions: {}, scope: "turn" }),
+      );
+      expect((mcpItem?.rawItem as { action?: string | null } | undefined)?.action).toBe("accept");
+      expect(conversation?.createdAt).toBe(100);
+      expect(conversation?.updatedAt).toBe(200);
+      for (const item of [userItem, permissionItem, mcpItem]) {
+        expect(`${item?.createdAt}:${item?.updatedAt}`).toBe(pendingTimestamps[item?.itemId ?? ""]);
+      }
+    } finally {
+      ownerRequestResponseHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner replies scope duplicate scalar request ids to the explicit conversation", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const requestId = "shared-owner-request-id";
+    try {
+      for (const [threadId, turnId] of [
+        ["thread-owner-scope-first", "turn-owner-scope-first"],
+        ["thread-owner-scope-second", "turn-owner-scope-second"],
+      ] as const) {
+        const conversation: CodexConversationSnapshot = {
+          ...buildConversation(threadId, "project-1"),
+          turns: [{ threadId, turnId, status: "inProgress", itemIds: [], items: [] }],
+        };
+        resumeThreadResult = conversation;
+        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          hostId: "default",
+          conversationId: threadId,
+          version: 1,
+          change: { type: "snapshot", revision: 1, conversationState: conversation },
+          sourceClientId: null,
+        });
+        await manager.requestThreadStreamResume(threadId);
+        dispatchCodexAppServerMessage("thread-owner-request", {
+          hostId: "default",
+          sequence: 1,
+          request: {
+            id: requestId,
+            method: "item/commandExecution/requestApproval",
+            params: {
+              threadId,
+              turnId,
+              itemId: `command-${turnId}`,
+              startedAtMs: 1,
+              approvalId: null,
+              environmentId: null,
+              reason: "Conversation-scoped reply",
+              command: "bun test",
+              cwd: "/repo",
+              commandActions: null,
+              additionalPermissions: null,
+              proposedExecpolicyAmendment: null,
+              proposedNetworkPolicyAmendments: null,
+              availableDecisions: null,
+            },
+          },
+        });
+      }
+      await flushAsyncWork();
+      invokeRecords = [];
+
+      expect(await manager.respondApproval(
+        requestId,
+        "command",
+        "decline",
+        "thread-owner-scope-second",
+      )).toBe(true);
+
+      const responseCall = invokeRecords.find((record) => record.channel === "codex:approval:respond");
+      expect(responseCall?.args[0]).toBe("thread-owner-scope-second");
+      expect(manager.readConversation("thread-owner-scope-first")?.canonicalRequests?.length).toBe(1);
+      expect(manager.readConversation("thread-owner-scope-first")?.requests.length).toBe(1);
+      expect(manager.readConversation("thread-owner-scope-second")?.canonicalRequests?.length).toBe(0);
+      expect(manager.readConversation("thread-owner-scope-second")?.requests.length).toBe(0);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("follower request replies wait for the owner stream revision before resolving", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = { accepted: true, streamRevision: 2 };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    let resolved = false;
+    let accepted = false;
+    const commandItem: CodexConversationItem = {
+      ...buildCommandExecutionItem("thread-1", "turn-1", "cmd-follower-approval"),
+      approvalRequestId: "approval-follower",
+    };
+    const pendingConversation: CodexConversationSnapshot = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-1",
+        status: "inProgress",
+        itemIds: ["cmd-follower-approval"],
+        items: [commandItem],
+      }],
+      requests: [{
+        type: "approval",
+        requestId: "approval-follower",
+        kind: "command",
+        projectId: "project-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-follower-approval",
+        createdAt: 1,
+      }],
+      canonicalRequests: [{
+        id: "approval-follower",
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-follower-approval",
+          startedAtMs: 1,
+          environmentId: null,
+        },
+      }],
+    };
+
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: pendingConversation,
+        },
+        sourceClientId: "owner-a",
+      });
+
+      const responsePromise = manager.respondApproval(
+        "approval-follower",
+        "command",
+        "decline",
+        "thread-1",
+      ).then((result) => {
+        resolved = true;
+        accepted = result;
+      });
+      await flushAsyncWork();
+      expect(resolved).toBe(false);
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 2,
+        change: {
+          type: "snapshot",
+          revision: 2,
+          conversationState: {
+            ...pendingConversation,
+            turns: [{
+              ...pendingConversation.turns[0]!,
+              items: [{ ...commandItem, approvalRequestId: null }],
+            }],
+            requests: [],
+            canonicalRequests: [],
+          },
+        },
+        sourceClientId: "owner-a",
+      });
+      await responsePromise;
+
+      const action = invokeRecords.find((record) =>
+        record.channel === "codex:thread-follower:action"
+      )?.args[0] as {
+        action?: {
+          type?: string;
+          conversationId?: string;
+          requestId?: string | number;
+          kind?: "command" | "file";
+        };
+      } | undefined;
+      expect(resolved).toBe(true);
+      expect(accepted).toBe(true);
+      expect(action?.action?.type).toBe("respondApproval");
+      expect(action?.action?.conversationId).toBe("thread-1");
+      expect(action?.action?.requestId).toBe("approval-follower");
+      expect(action?.action?.kind).toBe("command");
+      expect(manager.readConversation("thread-1")?.requests.length).toBe(0);
+    } finally {
+      followerActionResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner approval reducer blocks both routes behind an opposite first same-id envelope", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerRequestResponseHandler = async () => false;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const runCollision = async (input: {
+      threadId: string;
+      requestId: string;
+      firstKind: "command" | "file";
+    }) => {
+      const turnId = `turn-${input.requestId}`;
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation(input.threadId, "project-1"),
+        turns: [{
+          threadId: input.threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: input.threadId,
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume(input.threadId);
+
+      const commandRequest = {
+        id: input.requestId,
+        method: "item/commandExecution/requestApproval" as const,
+        params: {
+          threadId: input.threadId,
+          turnId,
+          itemId: `command-${input.requestId}`,
+          startedAtMs: 1,
+          approvalId: null,
+          environmentId: null,
+          reason: "Command route",
+          command: "bun test",
+          cwd: "/repo",
+          commandActions: null,
+          additionalPermissions: null,
+          proposedExecpolicyAmendment: null,
+          proposedNetworkPolicyAmendments: null,
+          availableDecisions: null,
+        },
+      };
+      const fileRequest = {
+        id: input.requestId,
+        method: "item/fileChange/requestApproval" as const,
+        params: {
+          threadId: input.threadId,
+          turnId,
+          itemId: `file-${input.requestId}`,
+          startedAtMs: 1,
+          reason: "File route",
+          grantRoot: "/repo",
+        },
+      };
+      const firstRequest = input.firstKind === "command" ? commandRequest : fileRequest;
+      const secondRequest = input.firstKind === "command" ? fileRequest : commandRequest;
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 1,
+        request: firstRequest,
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 2,
+        request: secondRequest,
+      });
+      await flushAsyncWork();
+      invokeRecords = [];
+
+      const wrongKind = input.firstKind === "command" ? "file" : "command";
+      expect(await manager.respondApproval(
+        input.requestId,
+        wrongKind,
+        "decline",
+        input.threadId,
+      )).toBe(false);
+
+      const responseCall = invokeRecords.find(
+        (record) => record.channel === "codex:approval:respond",
+      );
+      expect(responseCall?.args[2]).toBe(wrongKind);
+      expect(JSON.stringify(
+        manager.readConversation(input.threadId)?.canonicalRequests?.map(
+          (request) => request.method,
+        ) ?? [],
+      )).toBe(JSON.stringify([firstRequest.method, secondRequest.method]));
+      expect(manager.readConversation(input.threadId)?.requests.length).toBe(2);
+      expect(manager.readConversation(input.threadId)?.resumeState).toBe("resumed");
+      expect(invokeRecords.some(
+        (record) => record.channel === "codex:thread-owner:stream-state:publish",
+      )).toBe(false);
+    };
+
+    try {
+      await runCollision({
+        threadId: "thread-owner-file-first-route",
+        requestId: "owner-file-first-route",
+        firstKind: "file",
+      });
+      await runCollision({
+        threadId: "thread-owner-command-first-route",
+        requestId: "owner-command-first-route",
+        firstKind: "command",
+      });
+    } finally {
+      ownerRequestResponseHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner response actions no-op after the request has already resolved", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const threadId = "thread-owner-resolved-before-action";
+    const conversation = buildConversation(threadId, "project-1");
+    resumeThreadResult = conversation;
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: conversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume(threadId);
+      invokeRecords = [];
+
+      const result = await manager.handleThreadOwnerActionRequest({
+        type: "respondApproval",
+        conversationId: threadId,
+        requestId: "already-resolved",
+        kind: "command",
+        decision: "decline",
+      });
+
+      expect(JSON.stringify(result)).toBe(JSON.stringify({ accepted: true }));
+      expect(manager.readConversation(threadId)?.resumeState).toBe("resumed");
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:approval:respond"
+      )).toBe(false);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("follower approval actions preserve the requested route kind for both opposite-first collisions", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = { accepted: true };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const runCollision = async (input: {
+      threadId: string;
+      requestId: string;
+      firstKind: "command" | "file";
+    }) => {
+      const turnId = `turn-${input.requestId}`;
+      const commandRequest = {
+        id: input.requestId,
+        method: "item/commandExecution/requestApproval" as const,
+        params: {
+          threadId: input.threadId,
+          turnId,
+          itemId: `command-${input.requestId}`,
+          startedAtMs: 1,
+          approvalId: null,
+          environmentId: null,
+          reason: "Command route",
+          command: "bun test",
+          cwd: "/repo",
+          commandActions: null,
+          additionalPermissions: null,
+          proposedExecpolicyAmendment: null,
+          proposedNetworkPolicyAmendments: null,
+          availableDecisions: null,
+        },
+      };
+      const fileRequest = {
+        id: input.requestId,
+        method: "item/fileChange/requestApproval" as const,
+        params: {
+          threadId: input.threadId,
+          turnId,
+          itemId: `file-${input.requestId}`,
+          startedAtMs: 1,
+          reason: "File route",
+          grantRoot: "/repo",
+        },
+      };
+      const firstRequest = input.firstKind === "command" ? commandRequest : fileRequest;
+      const secondRequest = input.firstKind === "command" ? fileRequest : commandRequest;
+      const secondKind = input.firstKind === "command" ? "file" : "command";
+      const pendingConversation: CodexConversationSnapshot = {
+        ...buildConversation(input.threadId, "project-1"),
+        turns: [{
+          threadId: input.threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+        canonicalRequests: [firstRequest, secondRequest],
+        requests: [
+          {
+            type: "approval",
+            requestId: input.requestId,
+            kind: input.firstKind,
+            projectId: "project-1",
+            threadId: input.threadId,
+            turnId,
+            itemId: firstRequest.params.itemId,
+            createdAt: 1,
+          },
+          {
+            type: "approval",
+            requestId: input.requestId,
+            kind: secondKind,
+            projectId: "project-1",
+            threadId: input.threadId,
+            turnId,
+            itemId: secondRequest.params.itemId,
+            createdAt: 2,
+          },
+        ],
+      };
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: input.threadId,
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: pendingConversation,
+        },
+        sourceClientId: "owner-a",
+      });
+      invokeRecords = [];
+
+      const wrongKind = input.firstKind === "command" ? "file" : "command";
+      expect(await manager.respondApproval(
+        input.requestId,
+        wrongKind,
+        "decline",
+        input.threadId,
+      )).toBe(true);
+
+      const routed = invokeRecords.find(
+        (record) => record.channel === "codex:thread-follower:action",
+      )?.args[0] as {
+        action?: { type?: string; kind?: "command" | "file" };
+      } | undefined;
+      expect(routed?.action?.type).toBe("respondApproval");
+      expect(routed?.action?.kind).toBe(wrongKind);
+      expect(manager.readConversation(input.threadId)?.canonicalRequests?.length).toBe(2);
+      expect(manager.readConversation(input.threadId)?.requests.length).toBe(2);
+      expect(invokeRecords.some(
+        (record) => record.channel === "codex:approval:respond",
+      )).toBe(false);
+    };
+
+    try {
+      await runCollision({
+        threadId: "thread-follower-file-first-route",
+        requestId: "follower-file-first-route",
+        firstKind: "file",
+      });
+      await runCollision({
+        threadId: "thread-follower-command-first-route",
+        requestId: "follower-command-first-route",
+        firstKind: "command",
+      });
+    } finally {
+      followerActionResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner unmatched resolved keeps orphan request view but emits a canonical array transition", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const commandItem: CodexConversationItem = {
+        ...buildCommandExecutionItem("thread-1", "turn-1", "cmd-1"),
+        approvalRequestId: "orphan-view",
+      };
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["cmd-1"],
+          items: [commandItem],
+        }],
+        requests: [{
+          type: "approval",
+          requestId: "orphan-view",
+          kind: "command",
+          projectId: "project-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          createdAt: 1,
+        }],
+        canonicalRequests: [{
+          id: "canonical-1",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-1",
+            startedAtMs: 1,
+            environmentId: null,
+          },
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      const before = manager.readConversation("thread-1");
+      let transitions = 0;
+      const stop = manager.addConversationCallback("thread-1", () => {
+        transitions += 1;
+      });
+      try {
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "serverRequest/resolved",
+          sequence: 1,
+          params: {
+            threadId: "thread-1",
+            requestId: "missing",
+          },
+        });
+        await flushAsyncWork();
+      } finally {
+        stop();
+      }
+
+      const after = manager.readConversation("thread-1");
+      expect(after?.requests[0]?.requestId).toBe("orphan-view");
+      expect(after?.turns[0]?.items[0]?.approvalRequestId).toBe("orphan-view");
+      expect(after?.canonicalRequests?.[0]?.id).toBe("canonical-1");
+      expect(after?.canonicalRequests === before?.canonicalRequests).toBe(false);
+      expect(transitions).toBe(1);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -3775,7 +5890,16 @@ describe("local-conversation-store", () => {
       const conversation = manager.readConversation("thread-dynamic");
 
       expect(String(dynamicToolRecords.length)).toBe("1");
-      expect(dynamicToolRecords[0]?.args[0]).toBe("dynamic-1");
+      expect(JSON.stringify(dynamicToolRecords[0]?.args)).toBe(
+        JSON.stringify([
+          "thread-dynamic",
+          "dynamic-1",
+          {
+            permissionMode: "auto",
+            serviceTierSelector: { type: "standard" },
+          },
+        ]),
+      );
       expect(String(ackRecords.length)).toBe("1");
       expect((ackRecords[0]?.args[0] as { conversationId?: string; sequence?: number } | undefined)?.conversationId)
         .toBe("thread-dynamic");
@@ -3789,7 +5913,571 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner model safety buffering notification publishes a turn patch from bundle 51037-51920", async () => {
+  test("owner onboarding, option-picker, and setup-step replies remove only their canonical raw requests", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerRequestResponseHandler = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const threadId = "thread-special-dynamic-owner";
+    const turnId = "turn-special-dynamic-owner";
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation(threadId, "project-1"),
+        turns: [{
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume(threadId);
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 1,
+        request: {
+          id: "onboarding-owner-1",
+          method: "item/tool/call",
+          params: {
+            threadId,
+            turnId,
+            callId: "call-onboarding-owner-1",
+            namespace: "codex_app",
+            tool: "request_onboarding_input",
+            arguments: {
+              questions: [{
+                id: "first_task",
+                header: "Start",
+                question: "What should Codex do first?",
+                options: [{ label: "Audit" }, { label: "Build" }],
+              }],
+            },
+          },
+        },
+      });
+      await flushAsyncWork();
+      expect(manager.readConversation(threadId)?.canonicalRequests?.[0]?.id).toBe(
+        "onboarding-owner-1",
+      );
+      expect(String(manager.readConversation(threadId)?.turns[0]?.items.length ?? -1)).toBe("0");
+
+      invokeRecords = [];
+      expect(await manager.respondUserInput(
+        "onboarding-owner-1",
+        { first_task: ["Audit"] },
+        threadId,
+      )).toBe(true);
+      let conversation = manager.readConversation(threadId);
+      const onboardingCall = invokeRecords.find((record) =>
+        record.channel === "codex:user-input:respond"
+      );
+      expect(JSON.stringify(onboardingCall?.args)).toBe(JSON.stringify([
+        threadId,
+        "onboarding-owner-1",
+        { first_task: ["Audit"] },
+      ]));
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(String(conversation?.requests.length ?? -1)).toBe("0");
+      expect(String(conversation?.turns[0]?.items.length ?? -1)).toBe("0");
+
+      invokeRecords = [];
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 2,
+        request: {
+          id: "option-picker-owner-2",
+          method: "item/tool/requestOptionPicker",
+          params: {
+            threadId,
+            turnId,
+            question: "Choose the next slice",
+            options: [{ label: "Surface" }],
+          },
+        },
+      });
+      await flushAsyncWork();
+      const optionResponse = {
+        action: "submit" as const,
+        selectedOptions: ["Surface"],
+        freeformAnswer: null,
+      };
+      expect(await manager.respondOptionPicker(
+        threadId,
+        "option-picker-owner-2",
+        optionResponse,
+      )).toBe(true);
+      const optionCall = invokeRecords.find((record) =>
+        record.channel === "codex:option-picker:respond"
+      );
+      expect(JSON.stringify(optionCall?.args)).toBe(JSON.stringify([
+        threadId,
+        "option-picker-owner-2",
+        optionResponse,
+      ]));
+      expect(String(manager.readConversation(threadId)?.canonicalRequests?.length ?? -1)).toBe("0");
+
+      invokeRecords = [];
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 3,
+        request: {
+          id: "setup-role-owner-3",
+          method: "item/tool/call",
+          params: {
+            threadId,
+            turnId,
+            callId: "call-setup-role-owner-3",
+            namespace: "codex_app",
+            tool: "setup_codex_step",
+            arguments: { step: "role" },
+          },
+        },
+      });
+      await flushAsyncWork();
+      expect(manager.readConversation(threadId)?.canonicalRequests?.[0]?.id).toBe(
+        "setup-role-owner-3",
+      );
+
+      invokeRecords = [];
+      const roleResponse = {
+        step: "role" as const,
+        action: "submit" as const,
+        selectedRoles: ["engineer"],
+      };
+      expect(await manager.respondSetupCodexStep(
+        threadId,
+        "setup-role-owner-3",
+        roleResponse,
+      )).toBe(true);
+      conversation = manager.readConversation(threadId);
+      const setupCall = invokeRecords.find((record) =>
+        record.channel === "codex:setup-codex-step:respond"
+      );
+      expect(JSON.stringify(setupCall?.args)).toBe(JSON.stringify([
+        threadId,
+        "setup-role-owner-3",
+        roleResponse,
+      ]));
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(String(conversation?.requests.length ?? -1)).toBe("0");
+      expect(String(conversation?.turns[0]?.items.length ?? -1)).toBe("0");
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )).toBe(true);
+    } finally {
+      ownerRequestResponseHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("follower onboarding and setup-step replies preserve raw state until the owner publishes", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    followerActionResult = true;
+    followerActionError = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const threadId = "thread-special-dynamic-follower";
+    const turnId = "turn-special-dynamic-follower";
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation(threadId, "project-1"),
+        hasUnreadTurn: true,
+        turns: [{
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+        canonicalRequests: [
+          {
+            id: "onboarding-follower-1",
+            method: "item/tool/call",
+            params: {
+              threadId,
+              turnId,
+              callId: "call-onboarding-follower-1",
+              namespace: "codex_app",
+              tool: "request_onboarding_input",
+              arguments: {
+                questions: [{
+                  id: "first_task",
+                  question: "What should Codex do first?",
+                  options: [{ label: "Audit" }, { label: "Build" }],
+                }],
+              },
+            },
+          },
+          {
+            id: "option-picker-follower-2",
+            method: "item/tool/requestOptionPicker",
+            params: {
+              threadId,
+              turnId,
+              question: "Choose the next slice",
+              options: [{ label: "Surface" }],
+            },
+          },
+          {
+            id: "setup-task-follower-3",
+            method: "item/tool/call",
+            params: {
+              threadId,
+              turnId,
+              callId: "call-setup-task-follower-3",
+              namespace: "codex_app",
+              tool: "setup_codex_step",
+              arguments: { step: "task" },
+            },
+          },
+        ],
+      };
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 8,
+          conversationState: baseConversation,
+        },
+        sourceClientId: "owner-a",
+      });
+
+      expect(await manager.respondUserInput(
+        "onboarding-follower-1",
+        { first_task: ["Audit"] },
+        threadId,
+      )).toBe(true);
+      const optionResponse = {
+        action: "submit" as const,
+        selectedOptions: ["Surface"],
+        freeformAnswer: null,
+      };
+      expect(await manager.respondOptionPicker(
+        threadId,
+        "option-picker-follower-2",
+        optionResponse,
+      )).toBe(true);
+      const taskResponse = {
+        step: "task" as const,
+        action: "skip" as const,
+        answers: { first_task: { answers: ["Ship parity"] } },
+      };
+      expect(await manager.respondSetupCodexStep(
+        threadId,
+        "setup-task-follower-3",
+        taskResponse,
+      )).toBe(true);
+
+      const followerActions = invokeRecords
+        .filter((record) => record.channel === "codex:thread-follower:action")
+        .map((record) => record.args[0] as {
+          conversationId?: string;
+          action?: {
+            type?: string;
+            conversationId?: string;
+            requestId?: string;
+            answers?: Record<string, string[]>;
+            response?: unknown;
+          };
+        });
+      expect(String(followerActions.length)).toBe("3");
+      expect(JSON.stringify(followerActions[0])).toBe(JSON.stringify({
+        conversationId: threadId,
+        action: {
+          type: "respondUserInput",
+          conversationId: threadId,
+          requestId: "onboarding-follower-1",
+          answers: { first_task: ["Audit"] },
+        },
+      }));
+      expect(JSON.stringify(followerActions[1])).toBe(JSON.stringify({
+        conversationId: threadId,
+        action: {
+          type: "respondOptionPicker",
+          conversationId: threadId,
+          requestId: "option-picker-follower-2",
+          response: optionResponse,
+        },
+      }));
+      expect(JSON.stringify(followerActions[2])).toBe(JSON.stringify({
+        conversationId: threadId,
+        action: {
+          type: "respondSetupCodexStep",
+          conversationId: threadId,
+          requestId: "setup-task-follower-3",
+          response: taskResponse,
+        },
+      }));
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:user-input:respond"
+        || record.channel === "codex:option-picker:respond"
+        || record.channel === "codex:setup-codex-step:respond"
+      )).toBe(false);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )).toBe(false);
+      expect(JSON.stringify(
+        manager.readConversation(threadId)?.canonicalRequests?.map((request) => request.id) ?? [],
+      )).toBe(JSON.stringify([
+        "onboarding-follower-1",
+        "option-picker-follower-2",
+        "setup-task-follower-3",
+      ]));
+      expect(String(manager.readConversation(threadId)?.turns[0]?.items.length ?? -1)).toBe("0");
+    } finally {
+      followerActionResult = null;
+      followerActionError = null;
+      manager.destroy();
+    }
+  });
+
+  test("local and standalone unread changes do not advance the renderer stream revision", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const threadId = "thread-standalone-unread";
+    const managerInternals = manager as unknown as {
+      streamState: { getRevision: (targetThreadId: string) => number | null };
+    };
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 17,
+          conversationState: {
+            ...buildConversation(threadId, "project-1"),
+            hasUnreadTurn: false,
+            unreadMessageCount: 3,
+          },
+        },
+        sourceClientId: null,
+      });
+      invokeRecords = [];
+
+      await manager.markConversationAsRead(threadId);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:conversation-unread:set"
+      )).toBe(false);
+
+      await manager.markConversationAsUnread(threadId);
+      expect(manager.readConversation(threadId)?.hasUnreadTurn).toBe(true);
+      expect(manager.readThreadSummary(threadId)?.hasUnreadTurn).toBe(true);
+      expect(managerInternals.streamState.getRevision(threadId)).toBe(17);
+      expect(JSON.stringify(
+        invokeRecords
+          .filter((record) => record.channel === "codex:conversation-unread:set")
+          .map((record) => record.args),
+      )).toBe(JSON.stringify([[threadId, true]]));
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )).toBe(false);
+
+      dispatchCodexAppServerMessage("thread-read-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        hasUnreadTurn: false,
+      });
+      expect(manager.readConversation(threadId)?.hasUnreadTurn).toBe(false);
+      expect(manager.readConversation(threadId)?.unreadMessageCount).toBe(0);
+      expect(manager.readThreadSummary(threadId)?.hasUnreadTurn).toBe(false);
+      expect(managerInternals.streamState.getRevision(threadId)).toBe(17);
+      expect(String(invokeRecords.filter((record) =>
+        record.channel === "codex:conversation-unread:set"
+      ).length)).toBe("1");
+
+      dispatchCodexAppServerMessage("thread-read-state-changed", {
+        hostId: "other-host",
+        conversationId: threadId,
+        hasUnreadTurn: true,
+      });
+      expect(manager.readConversation(threadId)?.hasUnreadTurn).toBe(false);
+      expect(managerInternals.streamState.getRevision(threadId)).toBe(17);
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("standalone read state survives an older in-flight owner request patch", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerStreamPublishHandler = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const threadId = "thread-unread-owner-race";
+    const publishInputs: Array<{
+      change?: {
+        type?: string;
+        baseRevision?: number;
+        revision?: number;
+        patches?: CodexConversationStateUpdate[];
+      };
+    }> = [];
+    const publishResolvers: Array<(accepted: boolean) => void> = [];
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation(threadId, "project-1"),
+        hasUnreadTurn: true,
+        turns: [{
+          threadId,
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume(threadId);
+      ownerStreamPublishHandler = (input) => {
+        publishInputs.push(input as (typeof publishInputs)[number]);
+        if (publishInputs.length !== 1) return true;
+        return new Promise<boolean>((resolve) => {
+          publishResolvers.push(resolve);
+        });
+      };
+
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 1,
+        request: {
+          id: "input-unread-race",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId,
+            turnId: "turn-1",
+            itemId: "input-unread-race",
+            autoResolutionMs: null,
+            questions: [{
+              id: "q1",
+              header: "Continue",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+              options: [{ label: "Yes", description: "Continue" }],
+            }],
+          },
+        },
+      });
+      await flushAsyncWork();
+      expect(publishInputs.length).toBe(1);
+
+      dispatchCodexAppServerMessage("thread-read-state-changed", {
+        hostId: "default",
+        conversationId: threadId,
+        hasUnreadTurn: false,
+      });
+      expect(manager.readConversation(threadId)?.hasUnreadTurn).toBe(false);
+
+      publishResolvers.shift()?.(true);
+      await flushAsyncWork(4);
+
+      expect(publishInputs.length).toBe(1);
+      expect(manager.readConversation(threadId)?.hasUnreadTurn).toBe(false);
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "model/safetyBuffering/updated",
+        sequence: 2,
+        params: {
+          threadId,
+          turnId: "turn-1",
+          model: "gpt-5.4-codex",
+          useCases: ["latency"],
+          reasons: ["warming"],
+          showBufferingUi: true,
+          fasterModel: "gpt-5.4-mini",
+        },
+      });
+      await flushAsyncWork(4);
+
+      expect(publishInputs.length).toBe(2);
+      expect(publishInputs[1]?.change?.baseRevision).toBe(
+        publishInputs[0]?.change?.revision,
+      );
+      const unreadPatch = publishInputs[1]?.change?.patches?.find((patch) =>
+        patch.path.join(".") === "hasUnreadTurn"
+      );
+      expect(unreadPatch).toBe(undefined);
+      expect(manager.readConversation(threadId)?.hasUnreadTurn).toBe(false);
+    } finally {
+      ownerStreamPublishHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner model safety buffering notification publishes canonical turn metadata", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -3830,6 +6518,7 @@ describe("local-conversation-store", () => {
         sourceClientId: null,
       });
       await manager.requestThreadStreamResume("thread-1");
+      const beforeUpdatedAt = manager.readConversation("thread-1")?.updatedAt;
       invokeRecords = [];
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
@@ -3861,6 +6550,9 @@ describe("local-conversation-store", () => {
       expect(conversation?.turns[0]?.safetyBuffering?.useCases[0]).toBe("latency");
       expect(conversation?.turns[0]?.safetyBuffering?.reasons[0]).toBe("warming");
       expect(conversation?.turns[0]?.safetyBuffering?.fasterModel).toBe("gpt-5.4-mini");
+      expect(conversation?.canonicalState?.turns[0]?.sidecar.safetyBuffering?.fasterModel)
+        .toBe("gpt-5.4-mini");
+      expect(conversation?.updatedAt).toBe(beforeUpdatedAt);
       expect(String(publishRecords.length)).toBe("1");
       expect(publish?.ownerNotificationSequence).toBe(1);
       expect(publish?.change?.type).toBe("patches");
@@ -3872,7 +6564,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner hook lifecycle notifications upsert one hook item from bundle 51435-51490", async () => {
+  test("owner hook lifecycle notifications project one canonical hook occurrence", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -3925,8 +6617,17 @@ describe("local-conversation-store", () => {
           run: {
             id: "hook-run-1",
             eventName: "preToolUse",
+            handlerType: "command",
+            executionMode: "sync",
+            scope: "turn",
+            sourcePath: "/workspace/.codex/hook.json",
+            source: "project",
+            displayOrder: 1n,
             status: "running",
             statusMessage: "Preparing context",
+            startedAt: 10n,
+            completedAt: null,
+            durationMs: null,
             entries: [{ kind: "context", text: "Added AGENTS.md" }],
           },
         },
@@ -3941,8 +6642,17 @@ describe("local-conversation-store", () => {
           run: {
             id: "hook-run-1",
             eventName: "preToolUse",
+            handlerType: "command",
+            executionMode: "sync",
+            scope: "turn",
+            sourcePath: "/workspace/.codex/hook.json",
+            source: "project",
+            displayOrder: 1n,
             status: "completed",
             statusMessage: "Preparing context",
+            startedAt: 10n,
+            completedAt: 20n,
+            durationMs: 10n,
             entries: [{ kind: "context", text: "Added AGENTS.md" }],
           },
         },
@@ -3966,6 +6676,8 @@ describe("local-conversation-store", () => {
       expect(hookItem?.status).toBe("completed");
       expect(hookRun?.run?.status).toBe("completed");
       expect(hookRun?.run?.entries?.[0]?.text).toBe("Added AGENTS.md");
+      expect(conversation?.canonicalState?.turns[0]?.sidecar.hookRuns?.[0]?.id)
+        .toBe("hook-run-1");
       expect(String(publishRecords.length)).toBe("2");
       expect(lastPublish?.ownerNotificationSequence).toBe(2);
       expect(lastPublish?.change?.type).toBe("patches");
@@ -4028,6 +6740,7 @@ describe("local-conversation-store", () => {
           threadId: "thread-1",
           turnId: "turn-1",
           reviewId: "review-1",
+          startedAtMs: 1,
           targetItemId: "item-command-1",
           review: {
             status: "inProgress",
@@ -4059,6 +6772,8 @@ describe("local-conversation-store", () => {
           threadId: "thread-1",
           turnId: "turn-1",
           reviewId: "review-1",
+          startedAtMs: 1,
+          completedAtMs: 2,
           targetItemId: "item-command-1",
           decisionSource: "agent",
           review: {
@@ -5178,7 +7893,7 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -5190,7 +7905,7 @@ describe("local-conversation-store", () => {
             status: "inProgress",
           }],
         }],
-      };
+      });
       const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
       resumeThreadResult = baseConversation;
 
@@ -5242,9 +7957,20 @@ describe("local-conversation-store", () => {
       animationFrameCallbacks.shift()?.(16);
 
       const partialItem = manager.readConversation("thread-1")?.turns[0]?.items[0];
+      const partialPublishRecords = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+      const partialAckRecords = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      );
+      const partialPublishInput = partialPublishRecords[partialPublishRecords.length - 1]?.args[0] as {
+        ownerNotificationSequence?: number;
+      } | undefined;
       expect(partialItem?.markdownText).toBe("abcdefghijklmnopqrstuvwx");
       expect(partialItem?.status).toBe("inProgress");
       expect(String(requestAnimationFrameCallCount)).toBe("2");
+      expect(partialPublishInput?.ownerNotificationSequence).toBe(undefined);
+      expect(String(partialAckRecords.length)).toBe("0");
 
       animationFrameCallbacks.shift()?.(32);
       await flushAsyncWork(3);
@@ -5257,13 +7983,12 @@ describe("local-conversation-store", () => {
         const input = record.args[0] as { ownerNotificationSequence?: number } | undefined;
         return String(input?.ownerNotificationSequence ?? 0);
       });
-      const deltaPublishIndex = ownerSequences.indexOf("1");
       const completedPublishIndex = ownerSequences.indexOf("2");
       expect(completedItem?.markdownText).toBe(delta);
-      expect(completedItem?.status).toBe("completed");
+      expect(completedItem?.status).toBe("inProgress");
       expect(String(requestAnimationFrameCallCount)).toBe("2");
-      expect(deltaPublishIndex >= 0).toBe(true);
-      expect(completedPublishIndex > deltaPublishIndex).toBe(true);
+      expect(ownerSequences.indexOf("1") < 0).toBe(true);
+      expect(completedPublishIndex >= 0).toBe(true);
     } finally {
       if (browserWindow) {
         if (previousRequestAnimationFrame) {
@@ -5280,6 +8005,534 @@ describe("local-conversation-store", () => {
       if (previousVisibilityDescriptor) {
         Object.defineProperty(document, "visibilityState", previousVisibilityDescriptor);
       }
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner no-op ACK cannot leapfrog a sliced assistant delta", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const browserWindow = globalThis.window as (Window & {
+      requestAnimationFrame?: Window["requestAnimationFrame"];
+      cancelAnimationFrame?: Window["cancelAnimationFrame"];
+    }) | undefined;
+    const previousRequestAnimationFrame = browserWindow?.requestAnimationFrame;
+    const previousCancelAnimationFrame = browserWindow?.cancelAnimationFrame;
+    const previousVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    const animationFrameCallbacks: FrameRequestCallback[] = [];
+    if (browserWindow) {
+      browserWindow.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+        animationFrameCallbacks.push(callback);
+        return animationFrameCallbacks.length;
+      }) as Window["requestAnimationFrame"];
+      browserWindow.cancelAnimationFrame = (() => {}) as Window["cancelAnimationFrame"];
+    }
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["assistant-1"],
+          items: [{
+            ...buildAssistantMessage("thread-1", "turn-1", "assistant-1", ""),
+            status: "inProgress",
+          }],
+        }],
+      };
+      const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/agentMessage/delta",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "assistant-1",
+          delta,
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/reasoning/summaryPartAdded",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+          summaryIndex: 0,
+        },
+      });
+
+      expect(String(invokeRecords.length)).toBe("0");
+      animationFrameCallbacks.shift()?.(16);
+      await flushAsyncWork(3);
+
+      const partialPublishes = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+      const partialAcks = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      );
+      const partialPublish = partialPublishes[partialPublishes.length - 1]?.args[0] as {
+        ownerNotificationSequence?: number;
+      } | undefined;
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText)
+        .toBe("abcdefghijklmnopqrstuvwx");
+      expect(partialPublish?.ownerNotificationSequence).toBe(undefined);
+      expect(String(partialAcks.length)).toBe("0");
+
+      animationFrameCallbacks.shift()?.(32);
+      await flushAsyncWork(3);
+
+      const publishes = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+      const finalPublish = publishes[publishes.length - 1]?.args[0] as {
+        ownerNotificationSequence?: number;
+      } | undefined;
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe(delta);
+      expect(finalPublish?.ownerNotificationSequence).toBe(2);
+    } finally {
+      if (browserWindow) {
+        if (previousRequestAnimationFrame) {
+          browserWindow.requestAnimationFrame = previousRequestAnimationFrame;
+        } else {
+          Reflect.deleteProperty(browserWindow, "requestAnimationFrame");
+        }
+        if (previousCancelAnimationFrame) {
+          browserWindow.cancelAnimationFrame = previousCancelAnimationFrame;
+        } else {
+          Reflect.deleteProperty(browserWindow, "cancelAnimationFrame");
+        }
+      }
+      if (previousVisibilityDescriptor) {
+        Object.defineProperty(document, "visibilityState", previousVisibilityDescriptor);
+      }
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner loss discards only that conversation's queued text delta", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const browserWindow = globalThis.window as (Window & {
+      requestAnimationFrame?: Window["requestAnimationFrame"];
+      cancelAnimationFrame?: Window["cancelAnimationFrame"];
+    }) | undefined;
+    const previousRequestAnimationFrame = browserWindow?.requestAnimationFrame;
+    const previousCancelAnimationFrame = browserWindow?.cancelAnimationFrame;
+    const previousVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    const animationFrameCallbacks: FrameRequestCallback[] = [];
+    if (browserWindow) {
+      browserWindow.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+        animationFrameCallbacks.push(callback);
+        return animationFrameCallbacks.length;
+      }) as Window["requestAnimationFrame"];
+      browserWindow.cancelAnimationFrame = (() => {}) as Window["cancelAnimationFrame"];
+    }
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+
+    const manager = new CodexAppServerManager("default");
+    const buildStreamingConversation = (threadId: string): CodexConversationSnapshot => ({
+      ...buildConversation(threadId, "project-1"),
+      turns: [{
+        threadId,
+        turnId: `turn-${threadId}`,
+        status: "inProgress",
+        itemIds: [`assistant-${threadId}`],
+        items: [{
+          ...buildAssistantMessage(
+            threadId,
+            `turn-${threadId}`,
+            `assistant-${threadId}`,
+            "",
+          ),
+          status: "inProgress",
+        }],
+      }],
+    });
+    try {
+      for (const threadId of ["thread-1", "thread-2"]) {
+        const conversation = buildStreamingConversation(threadId);
+        resumeThreadResult = conversation;
+        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          hostId: "default",
+          conversationId: threadId,
+          version: 1,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: conversation,
+          },
+          sourceClientId: null,
+        });
+        await manager.requestThreadStreamResume(threadId);
+      }
+      invokeRecords = [];
+
+      for (const [threadId, delta] of [["thread-1", "discard"], ["thread-2", "preserve"]] as const) {
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "item/agentMessage/delta",
+          sequence: 1,
+          params: {
+            threadId,
+            turnId: `turn-${threadId}`,
+            itemId: `assistant-${threadId}`,
+            delta,
+          },
+        });
+      }
+      dispatchCodexAppServerMessage("thread-owner-unavailable", {
+        hostId: "default",
+        ownerClientId: "lost-owner",
+        conversationIds: ["thread-1"],
+      });
+
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("");
+      expect(manager.readConversation("thread-2")?.turns[0]?.items[0]?.markdownText).toBe("");
+      expect(String(animationFrameCallbacks.length)).toBe("1");
+
+      animationFrameCallbacks.shift()?.(16);
+      await flushAsyncWork(3);
+
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("");
+      expect(manager.readConversation("thread-2")?.turns[0]?.items[0]?.markdownText).toBe("preserve");
+    } finally {
+      if (browserWindow) {
+        if (previousRequestAnimationFrame) {
+          browserWindow.requestAnimationFrame = previousRequestAnimationFrame;
+        } else {
+          Reflect.deleteProperty(browserWindow, "requestAnimationFrame");
+        }
+        if (previousCancelAnimationFrame) {
+          browserWindow.cancelAnimationFrame = previousCancelAnimationFrame;
+        } else {
+          Reflect.deleteProperty(browserWindow, "cancelAnimationFrame");
+        }
+      }
+      if (previousVisibilityDescriptor) {
+        Object.defineProperty(document, "visibilityState", previousVisibilityDescriptor);
+      }
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("rejected standalone owner ACK marks only that conversation unavailable", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerNotificationAckHandler = () => false;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const first = buildConversation("thread-1", "project-1");
+      const second = buildConversation("thread-2", "project-1");
+      for (const conversation of [first, second]) {
+        resumeThreadResult = conversation;
+        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          hostId: "default",
+          conversationId: conversation.threadId,
+          version: 1,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: conversation,
+          },
+          sourceClientId: null,
+        });
+        await manager.requestThreadStreamResume(conversation.threadId);
+      }
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/reasoning/summaryPartAdded",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+          summaryIndex: 0,
+        },
+      });
+      await flushAsyncWork(3);
+
+      expect(manager.readConversation("thread-1")?.resumeState).toBe("needs_resume");
+      expect(manager.readConversation("thread-2")?.resumeState).toBe("resumed");
+    } finally {
+      ownerNotificationAckHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("late ACK failure from a discarded owner generation cannot tear down the current one", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    let ackCallCount = 0;
+    let resolveFirstAck: ((accepted: boolean) => void) | null = null;
+    ownerNotificationAckHandler = () => {
+      ackCallCount += 1;
+      if (ackCallCount > 1) return true;
+      return new Promise<boolean>((resolve) => {
+        resolveFirstAck = resolve;
+      });
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const conversation = buildConversation("thread-1", "project-1");
+      resumeThreadResult = conversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: conversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+
+      const sendNoop = (): void => {
+        dispatchCodexAppServerMessage("thread-owner-notification", {
+          hostId: "default",
+          method: "item/reasoning/summaryPartAdded",
+          sequence: 1,
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "reasoning-1",
+            summaryIndex: 0,
+          },
+        });
+      };
+      sendNoop();
+      await flushAsyncWork();
+      dispatchCodexAppServerMessage("thread-owner-unavailable", {
+        hostId: "default",
+        ownerClientId: "superseded-owner",
+        conversationIds: ["thread-1"],
+      });
+      sendNoop();
+      await flushAsyncWork(3);
+
+      const releaseFirstAck = resolveFirstAck as ((accepted: boolean) => void) | null;
+      releaseFirstAck?.(false);
+      await flushAsyncWork(3);
+
+      expect(String(ackCallCount)).toBe("2");
+      expect(manager.readConversation("thread-1")?.resumeState).toBe("resumed");
+    } finally {
+      ownerNotificationAckHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner loss discards queued command output without applying or ACKing it", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const conversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["cmd-1"],
+          items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
+        }],
+      };
+      resumeThreadResult = conversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: conversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/commandExecution/outputDelta",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          delta: "must be discarded",
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-unavailable", {
+        hostId: "default",
+        ownerClientId: "lost-owner",
+        conversationIds: ["thread-1"],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      const output = manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput;
+      const ackRecords = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      );
+      expect(output ?? "").toBe("");
+      expect(String(ackRecords.length)).toBe("0");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("recognized malformed owner notifications complete instead of blocking later ACKs", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const conversation = buildConversation("thread-1", "project-1");
+      resumeThreadResult = conversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: conversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/reasoning/summaryPartAdded",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+        } as never,
+      });
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/reasoning/summaryPartAdded",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+          summaryIndex: 0,
+        },
+      });
+      await flushAsyncWork(3);
+
+      const ackSequences = invokeRecords
+        .filter((record) => record.channel === "codex:thread-owner:notification:ack")
+        .map((record) => (record.args[0] as { sequence?: number }).sequence)
+        .filter((sequence): sequence is number => typeof sequence === "number");
+      expect(String(ackSequences.at(-1) ?? 0)).toBe("2");
+    } finally {
       resumeThreadResult = null;
       manager.destroy();
     }
@@ -5340,7 +8593,7 @@ describe("local-conversation-store", () => {
       createElement(LocalConversationProvider, null, createElement(Probe)),
     );
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -5352,7 +8605,7 @@ describe("local-conversation-store", () => {
             status: "inProgress",
           }],
         }],
-      };
+      });
       const delta = "short streaming";
       resumeThreadResult = baseConversation;
       await settleAsyncRender();
@@ -5403,6 +8656,8 @@ describe("local-conversation-store", () => {
               id: "assistant-1",
               type: "agentMessage",
               text: delta,
+              phase: null,
+              memoryCitation: null,
             },
           },
         });
@@ -5421,9 +8676,9 @@ describe("local-conversation-store", () => {
         return String(input?.ownerNotificationSequence ?? 0);
       });
       expect(completedItem?.markdownText).toBe(delta);
-      expect(completedItem?.status).toBe("completed");
+      expect(completedItem?.status).toBe("inProgress");
       expect(renderStates.includes(`inProgress:${delta}`)).toBe(true);
-      expect(renderStates.includes(`completed:${delta}`)).toBe(true);
+      expect(renderStates.includes(`completed:${delta}`)).toBe(false);
       expect(ownerSequences.indexOf("2") > ownerSequences.indexOf("1")).toBe(true);
     } finally {
       await act(async () => {
@@ -5587,7 +8842,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner terminal turn lifecycle waits for visible rAF prose drain", async () => {
+  test("owner turn/completed waits for visible rAF prose drain", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -5623,13 +8878,8 @@ describe("local-conversation-store", () => {
       get: () => "visible",
     });
 
-    const scenarios: Array<{
-      method: "turn/completed" | "turn/interrupted" | "turn/failed";
-      status: "completed" | "interrupted" | "failed";
-    }> = [
-      { method: "turn/completed", status: "completed" },
-      { method: "turn/interrupted", status: "interrupted" },
-      { method: "turn/failed", status: "failed" },
+    const scenarios = [
+      { method: "turn/completed" as const, status: "completed" as const },
     ];
 
     try {
@@ -5644,11 +8894,11 @@ describe("local-conversation-store", () => {
               threadId,
               turnId: "turn-1",
               status: "inProgress",
-              itemIds: ["assistant-1"],
+              itemIds: ["assistant-1", "mcp-1"],
               items: [{
                 ...buildAssistantMessage(threadId, "turn-1", "assistant-1", ""),
                 status: "inProgress",
-              }],
+              }, buildMcpToolCallItem(threadId, "turn-1", "mcp-1")],
             }],
           };
           const delta = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -5694,6 +8944,7 @@ describe("local-conversation-store", () => {
 
           expect(manager.readConversation(threadId)?.turns[0]?.status).toBe("inProgress");
           expect(manager.readConversation(threadId)?.turns[0]?.items[0]?.markdownText).toBe("");
+          expect(manager.readConversation(threadId)?.turns[0]?.items[1]?.mcpToolCall?.completed).toBe(false);
 
           animationFrameCallbacks.shift()?.(16);
           expect(manager.readConversation(threadId)?.turns[0]?.status).toBe("inProgress");
@@ -5702,6 +8953,7 @@ describe("local-conversation-store", () => {
           animationFrameCallbacks.shift()?.(32);
           expect(manager.readConversation(threadId)?.turns[0]?.status).toBe(scenario.status);
           expect(manager.readConversation(threadId)?.turns[0]?.items[0]?.markdownText).toBe(delta);
+          expect(manager.readConversation(threadId)?.turns[0]?.items[1]?.mcpToolCall?.completed).toBe(true);
         } finally {
           manager.destroy();
         }
@@ -5780,6 +9032,9 @@ describe("local-conversation-store", () => {
           delta: "owner output\n",
         },
       });
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      )).toBe(false);
 
       await new Promise((resolve) => setTimeout(resolve, 70));
 
@@ -5792,7 +9047,13 @@ describe("local-conversation-store", () => {
       const ackInput = ackRecord?.args[0] as { conversationId?: string; sequence?: number } | undefined;
 
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe("owner output\n");
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.toolCall?.result).toBe("owner output\n");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.toolCall).toBeUndefined();
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.updatedAt).toBe(1);
+      const canonicalCommand = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0]?.items[0];
+      expect(canonicalCommand?.type === "commandExecution"
+        ? canonicalCommand.aggregatedOutput
+        : null).toBe("owner output\n");
       expect(String(publishRecords.length)).toBe("0");
       expect(ackInput?.conversationId).toBe("thread-1");
       expect(ackInput?.sequence).toBe(1);
@@ -5856,6 +9117,12 @@ describe("local-conversation-store", () => {
           stdin: "bun tes",
         },
       });
+      await flushAsyncWork();
+      const partialCanonicalCommand = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0]?.items[0];
+      expect(partialCanonicalCommand?.type === "commandExecution"
+        ? partialCanonicalCommand.commandActions.length
+        : -1).toBe(0);
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
         method: "item/commandExecution/terminalInteraction",
@@ -5883,21 +9150,26 @@ describe("local-conversation-store", () => {
         })
         .join(",");
       const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
+      const canonicalCommand = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0]?.items[0];
       const commandAction = item?.commandActions?.[0];
-      const toolCallArgs = item?.toolCall?.args as { commandActions?: Array<{ command?: string }> } | undefined;
 
       expect(String(publishRecords.length)).toBe("0");
       expect(ackSequences).toBe("thread-1:1,thread-1:2");
       expect(commandAction?.type).toBe("unknown");
       expect(commandAction?.command).toBe("bun test");
-      expect(toolCallArgs?.commandActions?.[0]?.command).toBe("bun test");
+      expect(item?.toolCall).toBeUndefined();
+      expect(canonicalCommand?.type === "commandExecution"
+        ? canonicalCommand.commandActions[0]?.command
+        : null).toBe("bun test");
+      expect(item?.updatedAt).toBe(1);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
     }
   });
 
-  test("owner no-op item notifications ack without visible stream mutation", async () => {
+  test("owner no-op item notifications preserve ordinary MCP progress state without stream mutation", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -5920,6 +9192,7 @@ describe("local-conversation-store", () => {
           threadId: "thread-1",
           turnId: "turn-1",
           status: "inProgress",
+          hookRuns: [],
           itemIds: ["mcp-1"],
           items: [buildMcpToolCallItem("thread-1", "turn-1", "mcp-1")],
         }],
@@ -5938,6 +9211,7 @@ describe("local-conversation-store", () => {
         sourceClientId: null,
       });
       await manager.requestThreadStreamResume("thread-1");
+      const beforeConversation = manager.readConversation("thread-1");
       invokeRecords = [];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
@@ -5988,8 +9262,9 @@ describe("local-conversation-store", () => {
         .join(",");
       const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
 
+      expect(manager.readConversation("thread-1") === beforeConversation).toBe(true);
       expect(String(publishRecords.length)).toBe("0");
-      expect(ackSequences).toBe("thread-1:1,thread-1:2,thread-1:3");
+      expect(ackSequences).toBe("thread-1:1,thread-1:3");
       expect(item?.itemId).toBe("mcp-1");
       expect(item?.status).toBe("inProgress");
       expect(item?.mcpToolCall?.result).toBe(null);
@@ -5999,7 +9274,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner nullable turn notifications resolve to latest turn for prose and completion", async () => {
+  test("owner MCP progress publishes the one-time missing hookRuns repair", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -6016,16 +9291,111 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
+      const mcpItem = buildMcpToolCallItem("thread-1", "turn-1", "mcp-1");
       const baseConversation: CodexConversationSnapshot = {
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
           turnId: "turn-1",
           status: "inProgress",
-          itemIds: ["assistant-1"],
-          items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "")],
+          firstTurnWorkItemStartedAtMs: null,
+          itemIds: ["mcp-1"],
+          items: [mcpItem],
         }],
       };
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      const beforeItem = manager.readConversation("thread-1")?.turns[0]?.items[0];
+      const beforeCanonicalItem = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0]?.items[0];
+      invokeRecords = [];
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/mcpToolCall/progress",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "mcp-1",
+          message: "Connecting",
+        },
+      });
+      await flushAsyncWork(4);
+
+      const turn = manager.readConversation("thread-1")?.turns[0];
+      const publishRecords = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+      const publishInput = publishRecords[0]?.args[0] as {
+        ownerNotificationSequence?: number;
+      } | undefined;
+
+      expect(turn?.hookRuns?.length ?? -1).toBe(0);
+      expect(turn?.firstTurnWorkItemStartedAtMs ?? null).toBe(null);
+      expect(turn?.items[0] === beforeItem).toBe(true);
+      const canonicalTurn = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0];
+      expect(canonicalTurn?.sidecar.hookRuns?.length ?? -1).toBe(0);
+      expect(canonicalTurn?.items[0] === beforeCanonicalItem).toBe(true);
+      expect(publishRecords.length).toBe(1);
+      expect(publishInput?.ownerNotificationSequence).toBe(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner resolves nullable-turn prose but drops turnless lifecycle completion", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
+        ...buildConversation("thread-1", "project-1"),
+        updatedAt: 50,
+        turns: [{
+          threadId: "thread-1",
+          turnId: null as unknown as string,
+          status: "inProgress",
+          itemIds: ["assistant-1"],
+          turnStartedAtMs: 10,
+          firstTurnWorkItemStartedAtMs: 20,
+          finalAssistantStartedAtMs: 30,
+          items: [{
+            ...buildAssistantMessage(
+              "thread-1",
+              null as unknown as string,
+              "assistant-1",
+              "",
+            ),
+            updatedAt: 40,
+          }],
+        }],
+      });
       resumeThreadResult = baseConversation;
 
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
@@ -6054,8 +9424,20 @@ describe("local-conversation-store", () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
 
       const streamingItem = manager.readConversation("thread-1")?.turns[0]?.items[0];
+      const streamingTurn = manager.readConversation("thread-1")?.turns[0];
       expect(streamingItem?.markdownText).toBe("partial");
       expect(streamingItem?.status).toBe("inProgress");
+      expect(streamingItem?.updatedAt).toBe(40);
+      expect(streamingTurn?.turnStartedAtMs).toBe(10);
+      expect(streamingTurn?.firstTurnWorkItemStartedAtMs).toBe(20);
+      expect(streamingTurn?.finalAssistantStartedAtMs).toBe(30);
+      expect((streamingTurn as { turnId: string | null } | undefined)?.turnId ?? null).toBe(null);
+      const canonicalStreamingTurn = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0];
+      const canonicalStreamingItem = canonicalStreamingTurn?.items[0];
+      expect(canonicalStreamingTurn?.protocol.id ?? null).toBe(null);
+      expect(canonicalStreamingItem?.type === "agentMessage" ? canonicalStreamingItem.text : null).toBe("partial");
+      expect(manager.readConversation("thread-1")?.updatedAt).toBe(50);
 
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
@@ -6067,6 +9449,8 @@ describe("local-conversation-store", () => {
             id: "assistant-1",
             type: "agentMessage",
             text: "final",
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -6077,9 +9461,79 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread-owner:stream-state:publish"
       );
 
-      expect(item?.markdownText).toBe("final");
-      expect(item?.status).toBe("completed");
-      expect(String(publishRecords.length)).toBe("2");
+      expect(item?.markdownText).toBe("partial");
+      expect(item?.status).toBe("inProgress");
+      expect(String(publishRecords.length)).toBe("1");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner delta persists completed-empty placeholder rebind even when its item is missing", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: null as unknown as string,
+          status: "completed",
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/plan/delta",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-rebound",
+          itemId: "missing-plan",
+          delta: "still drains",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      const conversation = manager.readConversation("thread-1");
+      const publish = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )?.args[0] as { ownerNotificationSequence?: number } | undefined;
+      expect(conversation?.turns[0]?.turnId).toBe("turn-rebound");
+      expect(conversation?.turns[0]?.status).toBe("inProgress");
+      expect(typeof conversation?.turns[0]?.turnStartedAtMs).toBe("number");
+      expect(conversation?.turns[0]?.items.length).toBe(0);
+      expect(conversation?.canonicalState?.turns[0]?.protocol.id).toBe("turn-rebound");
+      expect(conversation?.canonicalState?.turns[0]?.items.length).toBe(0);
+      expect(publish?.ownerNotificationSequence).toBe(1);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -6103,7 +9557,7 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -6113,7 +9567,7 @@ describe("local-conversation-store", () => {
           itemIds: [],
           items: [],
         } as unknown as CodexConversationSnapshot["turns"][number]],
-      };
+      });
       resumeThreadResult = baseConversation;
 
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
@@ -6140,6 +9594,8 @@ describe("local-conversation-store", () => {
             id: "assistant-1",
             type: "agentMessage",
             text: "",
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -6173,7 +9629,7 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -6182,7 +9638,7 @@ describe("local-conversation-store", () => {
           itemIds: [],
           items: [],
         } as unknown as CodexConversationSnapshot["turns"][number]],
-      };
+      });
       resumeThreadResult = baseConversation;
 
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
@@ -6209,6 +9665,8 @@ describe("local-conversation-store", () => {
             id: "assistant-1",
             type: "agentMessage",
             text: "",
+            phase: null,
+            memoryCitation: null,
           },
         },
       });
@@ -6242,7 +9700,7 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -6251,7 +9709,7 @@ describe("local-conversation-store", () => {
           itemIds: [],
           items: [],
         } as unknown as CodexConversationSnapshot["turns"][number]],
-      };
+      });
       resumeThreadResult = baseConversation;
 
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
@@ -6366,7 +9824,7 @@ describe("local-conversation-store", () => {
       const ackInput = ackRecord?.args[0] as { sequence?: number } | undefined;
 
       expect(item?.aggregatedOutput).toBe("nullable output\n");
-      expect(item?.toolCall?.result).toBe("nullable output\n");
+      expect(item?.toolCall).toBeUndefined();
       expect(String(publishRecords.length)).toBe("0");
       expect(ackInput?.sequence).toBe(1);
     } finally {
@@ -6375,7 +9833,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner fileChange patchUpdated updates local state and acks without stream patches", async () => {
+  test("owner fileChange patchUpdated preserves terminal raw state and view timestamps", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -6392,14 +9850,51 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
+      const rawExtension = { source: "fixture-extension" };
+      const existingChanges = [{
+        path: "src/old.ts",
+        kind: { type: "update" as const },
+        diff: "old diff",
+      }];
+      const existingItem: CodexConversationItem = {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "patch-live",
+        entryId: "patch-live",
+        type: "file_change",
+        kind: "fileChange",
+        semanticKind: "patch",
+        status: "declined",
+        fileChange: {
+          changes: {
+            "src/old.ts": {
+              type: "update",
+              unifiedDiff: "old diff",
+              movePath: null,
+            },
+          },
+        },
+        rawItem: {
+          type: "fileChange",
+          id: "patch-live",
+          changes: existingChanges,
+          status: "declined",
+          extension: rawExtension,
+        },
+        createdAt: 101,
+        updatedAt: 102,
+      };
       const baseConversation: CodexConversationSnapshot = {
         ...buildConversation("thread-1", "project-1"),
+        updatedAt: 103,
         turns: [{
           threadId: "thread-1",
           turnId: "turn-1",
-          status: "inProgress",
-          itemIds: [],
-          items: [],
+          status: "completed",
+          turnStartedAtMs: 104,
+          firstTurnWorkItemStartedAtMs: 105,
+          itemIds: ["patch-live"],
+          items: [existingItem],
         }],
       };
       resumeThreadResult = baseConversation;
@@ -6417,6 +9912,11 @@ describe("local-conversation-store", () => {
       });
       await manager.requestThreadStreamResume("thread-1");
       invokeRecords = [];
+      const changes = [{
+        path: "src/app.ts",
+        kind: { type: "update" as const },
+        diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+      }];
       dispatchCodexAppServerMessage("thread-owner-notification", {
         hostId: "default",
         method: "item/fileChange/patchUpdated",
@@ -6425,11 +9925,7 @@ describe("local-conversation-store", () => {
           threadId: "thread-1",
           turnId: "turn-1",
           itemId: "patch-live",
-          changes: [{
-            path: "src/app.ts",
-            kind: { type: "update" },
-            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
-          }],
+          changes,
         },
       });
       await flushAsyncWork();
@@ -6443,15 +9939,263 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread-owner:notification:ack"
       );
       const ackInput = ackRecord?.args[0] as { sequence?: number } | undefined;
-
-      expect(typeof turn?.firstTurnWorkItemStartedAtMs).toBe("number");
+      const rawItem = item?.rawItem as {
+        changes?: unknown;
+        status?: string;
+        extension?: unknown;
+      } | undefined;
+      expect(turn?.status).toBe("completed");
+      expect(turn?.turnStartedAtMs).toBe(104);
+      expect(turn?.firstTurnWorkItemStartedAtMs).toBe(105);
       expect(item?.itemId ?? "").toBe("patch-live");
-      expect(item?.status ?? "").toBe("inProgress");
+      expect(item?.status ?? "").toBe("declined");
+      expect(item?.createdAt).toBe(101);
+      expect(item?.updatedAt).toBe(102);
       expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
       expect(getCodexFileChangePaths(item?.fileChange?.changes).join(",")).toBe("src/app.ts");
       expect(getCodexFileChangeList(item?.fileChange?.changes)[0]?.type ?? "").toBe("update");
-      expect(String(publishRecords.length)).toBe("0");
+      expect(rawItem?.changes === changes).toBe(true);
+      expect(rawItem?.status).toBe("declined");
+      expect(rawItem?.extension === rawExtension).toBe(true);
+      expect(manager.readConversation("thread-1")?.updatedAt).toBe(103);
+      expect(publishRecords.length).toBe(0);
       expect(ackInput?.sequence).toBe(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner fileChange patchUpdated replaces a same-id wrong type and accepts empty changes", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const wrongType = buildAssistantMessage(
+        "thread-1",
+        "turn-1",
+        "shared-item",
+        "replace me",
+      );
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          turnStartedAtMs: 11,
+          firstTurnWorkItemStartedAtMs: 12,
+          itemIds: ["shared-item"],
+          items: [wrongType],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+      const changes: never[] = [];
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/fileChange/patchUpdated",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "shared-item",
+          changes,
+        },
+      });
+      await flushAsyncWork();
+
+      const turn = manager.readConversation("thread-1")?.turns[0];
+      const item = turn?.items[0];
+      const rawItem = item?.rawItem as {
+        type?: string;
+        changes?: unknown;
+        status?: string;
+      } | undefined;
+      const canonicalItem = manager.readConversation("thread-1")
+        ?.canonicalState?.turns[0]?.items[0];
+      const publishRecords = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+      const ackRecord = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      );
+      const ackInput = ackRecord?.args[0] as { sequence?: number } | undefined;
+
+      expect(turn?.items.length).toBe(0);
+      expect(turn?.itemIds.length).toBe(1);
+      expect(item).toBeUndefined();
+      expect(rawItem).toBeUndefined();
+      expect(canonicalItem?.type).toBe("fileChange");
+      expect(canonicalItem?.type === "fileChange" && canonicalItem.changes === changes).toBe(true);
+      expect(publishRecords.length).toBe(0);
+      expect(ackInput?.sequence).toBe(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner fileChange patchUpdated replaces a hidden identity at canonical order", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const managerInternals = manager as unknown as {
+      ownerHiddenLifecycleItemTypesByConversationId: Map<
+        string,
+        Map<string | null, Map<string, string>>
+      >;
+    };
+    try {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["before", "target", "after"],
+          items: ["before", "target", "after"].map((itemId) =>
+            buildCommandExecutionItem("thread-1", "turn-1", itemId)
+          ),
+        }],
+      });
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/started",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAtMs: 100,
+          item: {
+            id: "target",
+            type: "enteredReviewMode",
+            review: "Review target",
+          },
+        },
+      });
+      await flushAsyncWork(4);
+
+      invokeRecords = [];
+      const liveChanges: never[] = [];
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/fileChange/patchUpdated",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "target",
+          changes: liveChanges,
+        },
+      });
+      await flushAsyncWork();
+
+      let turn = manager.readConversation("thread-1")?.turns[0];
+      let target = turn?.items[1];
+      const targetRaw = target?.rawItem as {
+        type?: string;
+        changes?: unknown;
+      } | undefined;
+      const patchPublishes = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+
+      expect(turn?.items.map((item) => item.itemId).join(",")).toBe("before,after");
+      expect(target?.itemId).toBe("after");
+      expect(targetRaw?.type).toBe("commandExecution");
+      expect(
+        managerInternals.ownerHiddenLifecycleItemTypesByConversationId
+          .get("thread-1")
+          ?.get("turn-1")
+          ?.has("target") ?? false,
+      ).toBe(true);
+      expect(patchPublishes.length).toBe(0);
+
+      invokeRecords = [];
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/completed",
+        sequence: 3,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          completedAtMs: 150,
+          item: {
+            id: "target",
+            type: "fileChange",
+            status: "completed",
+            changes: [{
+              path: "src/final.ts",
+              kind: { type: "add" },
+              diff: "",
+            }],
+          },
+        },
+      });
+      await flushAsyncWork(4);
+
+      turn = manager.readConversation("thread-1")?.turns[0];
+      target = turn?.items[1];
+      expect(turn?.items.map((item) => item.itemId).join(",")).toBe(
+        "before,target,after",
+      );
+      expect(target?.kind).toBe("fileChange");
+      expect(target?.status).toBe("completed");
+      expect(getCodexFileChangePaths(target?.fileChange?.changes).join(",")).toBe(
+        "src/final.ts",
+      );
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -6532,6 +10276,162 @@ describe("local-conversation-store", () => {
       expect(getCodexFileChangePaths(conversation?.turns[0]?.items[0]?.fileChange?.changes).join(",")).toBe("poem.md");
       expect(String(publishRecords.length)).toBe("0");
       expect(ackInput?.sequence).toBe(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner fileChange patchUpdated drops and acks an ordinary missing named turn", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-existing",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      const beforeConversation = manager.readConversation("thread-1");
+      invokeRecords = [];
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/fileChange/patchUpdated",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-missing",
+          itemId: "patch-missing",
+          changes: [],
+        },
+      });
+      await flushAsyncWork();
+
+      const publishRecords = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+      const ackRecord = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:notification:ack"
+      );
+      const ackInput = ackRecord?.args[0] as { sequence?: number } | undefined;
+
+      expect(manager.readConversation("thread-1") === beforeConversation).toBe(true);
+      expect(manager.readConversation("thread-1")?.turns[0]?.turnId).toBe("turn-existing");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items.length).toBe(0);
+      expect(publishRecords.length).toBe(0);
+      expect(ackInput?.sequence).toBe(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner MCP progress rebinds and publishes the sole completed empty placeholder", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        updatedAt: 71,
+        turns: [{
+          threadId: "thread-1",
+          turnId: null,
+          status: "completed",
+          turnStartedAtMs: null,
+          itemIds: [],
+          items: [],
+        } as unknown as CodexConversationSnapshot["turns"][number]],
+      };
+      resumeThreadResult = baseConversation;
+
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/mcpToolCall/progress",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-real",
+          itemId: "mcp-not-yet-started",
+          message: "Connecting",
+        },
+      });
+      await flushAsyncWork(4);
+
+      const conversation = manager.readConversation("thread-1");
+      const turn = conversation?.turns[0];
+      const publishRecords = invokeRecords.filter((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      );
+      const publishInput = publishRecords[0]?.args[0] as {
+        ownerNotificationSequence?: number;
+      } | undefined;
+
+      expect(turn?.turnId).toBe("turn-real");
+      expect(turn?.status).toBe("inProgress");
+      expect(typeof turn?.turnStartedAtMs).toBe("number");
+      expect(turn?.firstTurnWorkItemStartedAtMs ?? null).toBe(null);
+      expect(turn?.items.length).toBe(0);
+      expect(turn?.itemIds.length).toBe(0);
+      expect(conversation?.updatedAt).toBe(71);
+      expect(publishRecords.length).toBe(1);
+      expect(publishInput?.ownerNotificationSequence).toBe(1);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -6686,7 +10586,7 @@ describe("local-conversation-store", () => {
         change: {
           type: "snapshot",
           revision: 1,
-          conversationState: {
+          conversationState: withCanonicalState({
             ...buildConversation("thread-1", "project-1"),
             turns: [{
               threadId: "thread-1",
@@ -6695,7 +10595,7 @@ describe("local-conversation-store", () => {
               itemIds: [],
               items: [],
             }],
-          },
+          }),
         },
         sourceClientId: "owner-a",
       });
@@ -6905,6 +10805,7 @@ describe("local-conversation-store", () => {
                   developer_instructions: null,
                 },
               },
+              personality: null,
             },
             latestCollaborationMode: {
               mode: "plan",
@@ -7078,13 +10979,82 @@ describe("local-conversation-store", () => {
       expect(publishInput?.change?.revision).toBe(2);
       expect(userItem?.kind).toBe("userMessage");
       expect(userItem?.markdownText).toBe("Continue");
+      expect(publishInput?.change?.conversationState?.turns[0]?.turnId).toBe(null);
+      expect(publishInput?.change?.conversationState?.canonicalState?.turns[0]?.protocol.id)
+        .toBe(null);
+      expect(
+        publishInput?.change?.conversationState?.canonicalState?.turns[0]?.sidecar.params
+          .clientUserMessageId,
+      ).toBe(userItem?.rawItem && typeof userItem.rawItem === "object"
+        ? (userItem.rawItem as { clientId?: string }).clientId
+        : undefined);
       expect(publishInputs[1]?.change?.revision).toBe(3);
       expect(publishInputs[1]?.change?.conversationState?.turns[0]?.turnId).toBe("turn-owner-start");
+      expect(publishInputs[1]?.change?.conversationState?.updatedAt)
+        .toBe(publishInputs[0]?.change?.conversationState?.updatedAt);
+      expect(publishInputs[1]?.change?.conversationState?.canonicalState?.turns[0]?.protocol.id)
+        .toBe("turn-owner-start");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.itemId)
+        .toBe("turn-owner-start:input");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("Continue");
       expect(invokeRecords.some((record) => record.channel === "codex:turn:start")).toBe(false);
     } finally {
       resumeThreadResult = null;
       ownerTurnStartResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner start failure keeps the fixed local error and restores its prior runtime status", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      threadRuntimeStatus: { type: "idle" },
+      turns: [],
+    };
+    ownerTurnStartError = new Error("transport exploded");
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      let caught: unknown = null;
+      try {
+        await manager.startTurn("thread-1", "Continue", { permissionMode: "auto" });
+      } catch (error) {
+        caught = error;
+      }
+
+      const publishInputs = invokeRecords
+        .filter((record) => record.channel === "codex:thread-owner:stream-state:publish")
+        .map((record) => record.args[0] as {
+          change?: { conversationState?: CodexConversationSnapshot };
+        });
+      const optimistic = publishInputs[0]?.change?.conversationState;
+      const failed = manager.readConversation("thread-1");
+      const failedItem = failed?.turns[0]?.items.find((item) => item.type === "error");
+
+      expect(caught).toBe(ownerTurnStartError);
+      expect(optimistic?.threadRuntimeStatus?.type).toBe("active");
+      expect(failed?.threadRuntimeStatus?.type).toBe("idle");
+      expect(failed?.statusType).toBe("idle");
+      expect(failed?.turns[0]?.status).toBe("failed");
+      expect(failed?.turns[0]?.errorMessage).toBe("Error submitting message");
+      expect(failedItem?.markdownText).toBe("Error submitting message");
+      expect(failed?.updatedAt).toBe(optimistic?.updatedAt);
+    } finally {
+      resumeThreadResult = null;
+      ownerTurnStartError = null;
       manager.destroy();
     }
   });
@@ -7133,6 +11103,8 @@ describe("local-conversation-store", () => {
       expect(clearGoalResult?.streamRevision).toBe(3);
       expect(String(manager.readConversation("thread-1")?.queuedFollowUps.length ?? -1)).toBe("1");
       expect(manager.readConversation("thread-1")?.threadGoal).toBe(null);
+      expect(manager.readConversation("thread-1")?.canonicalState?.sidecar.threadGoal ?? null)
+        .toBe(null);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -7241,6 +11213,12 @@ describe("local-conversation-store", () => {
       expect(String(publishInputs.length)).toBe("2");
       expect(String(publishInputs[0]?.change?.conversationState?.pendingSteers.length ?? -1)).toBe("1");
       expect(String(publishInputs[1]?.change?.conversationState?.pendingSteers.length ?? -1)).toBe("0");
+      expect(
+        publishInputs[0]?.change?.conversationState?.canonicalState?.turns[0]?.items.at(-1)?.type,
+      ).toBe("steeringUserMessage");
+      expect(
+        publishInputs[1]?.change?.conversationState?.canonicalState?.turns[0]?.items.at(-1)?.type,
+      ).toBe("steeringUserMessage");
       expect(firstPublishIndex >= 0).toBe(true);
       expect(steerIndex > firstPublishIndex).toBe(true);
       expect(invokeRecords.some((record) => record.channel === "codex:turn:steer")).toBe(false);
@@ -7352,8 +11330,8 @@ describe("local-conversation-store", () => {
         sourceClientId: "owner-a",
       });
 
-      const approvalAccepted = await manager.respondApproval("approval-1", "decline");
-      const fileApprovalAccepted = await manager.respondApproval("file-approval-1", "decline");
+      const approvalAccepted = await manager.respondApproval("approval-1", "command", "decline");
+      const fileApprovalAccepted = await manager.respondApproval("file-approval-1", "file", "decline");
       const inputAccepted = await manager.respondUserInput("input-1", { q1: ["A"] });
       const mcpAccepted = await manager.respondMcpElicitation("mcp-1", "decline");
       const permissionAccepted = await manager.respondPermissionRequest("permission-1", {
@@ -7366,7 +11344,9 @@ describe("local-conversation-store", () => {
         .map((record) => record.args[0] as {
           action?: {
             type?: string;
+            conversationId?: string;
             requestId?: string;
+            kind?: "command" | "file";
             decision?: string;
             answers?: Record<string, string[]>;
             response?: { action?: string; scope?: string };
@@ -7379,10 +11359,13 @@ describe("local-conversation-store", () => {
       expect(permissionAccepted).toBe(true);
       expect(String(followerActions.length)).toBe("5");
       expect(followerActions[0]?.action?.type).toBe("respondApproval");
+      expect(followerActions[0]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[0]?.action?.requestId).toBe("approval-1");
+      expect(followerActions[0]?.action?.kind).toBe("command");
       expect(followerActions[0]?.action?.decision).toBe("decline");
       expect(followerActions[1]?.action?.type).toBe("respondApproval");
       expect(followerActions[1]?.action?.requestId).toBe("file-approval-1");
+      expect(followerActions[1]?.action?.kind).toBe("file");
       expect(followerActions[1]?.action?.decision).toBe("decline");
       expect(followerActions[2]?.action?.type).toBe("respondUserInput");
       expect(followerActions[2]?.action?.requestId).toBe("input-1");
@@ -7437,7 +11420,12 @@ describe("local-conversation-store", () => {
         sourceClientId: "owner-a",
       });
 
-      const approvalAccepted = await manager.respondApproval("approval-missed", "decline", "thread-1");
+      const approvalAccepted = await manager.respondApproval(
+        "approval-missed",
+        "command",
+        "decline",
+        "thread-1",
+      );
       const inputAccepted = await manager.respondUserInput("input-missed", { q1: ["A"] }, "thread-1");
       const mcpAccepted = await manager.respondMcpElicitation("mcp-missed", "decline", "thread-1");
       const permissionAccepted = await manager.respondPermissionRequest("permission-missed", {
@@ -7451,6 +11439,7 @@ describe("local-conversation-store", () => {
           conversationId?: string;
           action?: {
             type?: string;
+            conversationId?: string;
             requestId?: string;
             decision?: string;
             answers?: Record<string, string[]>;
@@ -7465,15 +11454,19 @@ describe("local-conversation-store", () => {
       expect(String(followerActions.length)).toBe("4");
       expect(followerActions[0]?.conversationId).toBe("thread-1");
       expect(followerActions[0]?.action?.type).toBe("respondApproval");
+      expect(followerActions[0]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[0]?.action?.requestId).toBe("approval-missed");
       expect(followerActions[0]?.action?.decision).toBe("decline");
       expect(followerActions[1]?.action?.type).toBe("respondUserInput");
+      expect(followerActions[1]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[1]?.action?.requestId).toBe("input-missed");
       expect(followerActions[1]?.action?.answers?.q1?.[0]).toBe("A");
       expect(followerActions[2]?.action?.type).toBe("respondMcpElicitation");
+      expect(followerActions[2]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[2]?.action?.requestId).toBe("mcp-missed");
       expect(followerActions[2]?.action?.response?.action).toBe("decline");
       expect(followerActions[3]?.action?.type).toBe("respondPermissionRequest");
+      expect(followerActions[3]?.action?.conversationId).toBe("thread-1");
       expect(followerActions[3]?.action?.requestId).toBe("permission-missed");
       expect(followerActions[3]?.action?.response?.scope).toBe("turn");
       expect(invokeRecords.some((record) => record.channel === "codex:approval:respond")).toBe(false);
@@ -7580,7 +11573,12 @@ describe("local-conversation-store", () => {
         sourceClientId: "owner-a",
       });
 
-      const approvalAccepted = await manager.respondApproval("approval-1", "decline", "thread-1");
+      const approvalAccepted = await manager.respondApproval(
+        "approval-1",
+        "command",
+        "decline",
+        "thread-1",
+      );
       const inputAccepted = await manager.respondUserInput("input-1", { q1: ["A"] }, "thread-1");
       const mcpAccepted = await manager.respondMcpElicitation("mcp-1", "decline", "thread-1");
       const permissionAccepted = await manager.respondPermissionRequest("permission-1", {
@@ -7678,7 +11676,7 @@ describe("local-conversation-store", () => {
             mode: "openai/form",
             serverName: "Context7",
             message: "Allow this call?",
-            requestedSchema: { type: "object" },
+            requestedSchema: { type: "object", properties: {} },
             _meta: null,
           },
         },
@@ -7704,6 +11702,284 @@ describe("local-conversation-store", () => {
         (publishRecords[publishRecords.length - 1]?.args[0] as { ownerNotificationSequence?: number } | undefined)
           ?.ownerNotificationSequence,
       ).toBe(2);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner completed plan creates the private implementation request and next turn retires it", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const planItem: CodexConversationItem = {
+        threadId: "thread-1",
+        turnId: "turn-plan",
+        itemId: "plan-1",
+        type: "plan",
+        kind: "plan",
+        semanticKind: "proposedPlan",
+        status: "completed",
+        markdownText: "  1. Inspect bundle\n2. Ship parity  ",
+        rawItem: {
+          id: "plan-1",
+          type: "plan",
+          text: "  1. Inspect bundle\n2. Ship parity  ",
+        },
+        createdAt: 30,
+        updatedAt: 40,
+      };
+      const staleImplementationItems: CodexConversationItem[] = ["stale-plan-a", "stale-plan-b"].map(
+        (itemId, index) => ({
+          threadId: "thread-1",
+          turnId: "turn-plan",
+          itemId,
+          type: "planImplementation",
+          kind: "planImplementation",
+          semanticKind: "planImplementation",
+          status: "inProgress",
+          markdownText: "1. Inspect bundle\n2. Ship parity",
+          rawItem: {
+            id: itemId,
+            type: "planImplementation",
+            turnId: "turn-plan",
+            planContent: "1. Inspect bundle\n2. Ship parity",
+            isCompleted: false,
+          },
+          createdAt: 10 + index,
+          updatedAt: 20 + index,
+        }),
+      );
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-plan",
+          status: "inProgress",
+          itemIds: ["plan-1", ...staleImplementationItems.map((item) => item.itemId)],
+          items: [planItem, ...staleImplementationItems],
+        }],
+        requests: [{
+          type: "implementPlan",
+          requestId: "orphan-plan",
+          projectId: "project-1",
+          threadId: "thread-1",
+          turnId: "turn-orphan",
+          itemId: "orphan-plan",
+          planContent: "orphan",
+          createdAt: 5,
+        }],
+        canonicalRequests: [{
+          id: "orphan-plan",
+          method: "item/plan/requestImplementation",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-orphan",
+            planContent: "orphan",
+          },
+        }],
+      });
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "turn/completed",
+        sequence: 1,
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "turn-plan",
+            status: "completed",
+            error: null,
+            startedAt: 1,
+            completedAt: 2,
+            durationMs: 1_000,
+          },
+        },
+      });
+      await flushAsyncWork(3);
+
+      let conversation = manager.readConversation("thread-1");
+      let implementationItem = conversation?.turns[0]?.items.find((item) =>
+        item.itemId === "implement-plan:turn-plan"
+      );
+      const implementationItems = conversation?.turns[0]?.items.filter((item) =>
+        item.type === "planImplementation"
+      ) ?? [];
+      const planRequest = conversation?.requests.find((request) => request.turnId === "turn-plan");
+      const canonicalPlanRequest = conversation?.canonicalRequests?.find((request) =>
+        request.method === "item/plan/requestImplementation" && request.params.turnId === "turn-plan"
+      );
+      expect(implementationItems.length).toBe(1);
+      expect(JSON.stringify(conversation?.turns[0]?.itemIds)).toBe(JSON.stringify([
+        "plan-1",
+        "implement-plan:turn-plan",
+      ]));
+      expect(implementationItem?.status).toBe("inProgress");
+      expect(implementationItem?.markdownText).toBe("1. Inspect bundle\n2. Ship parity");
+      expect(implementationItem?.createdAt).toBe(30);
+      expect(implementationItem?.updatedAt).toBe(40);
+      expect(JSON.stringify(implementationItem?.rawItem)).toBe(JSON.stringify({
+        id: "implement-plan:turn-plan",
+        type: "planImplementation",
+        turnId: "turn-plan",
+        planContent: "1. Inspect bundle\n2. Ship parity",
+        isCompleted: false,
+      }));
+      expect(planRequest?.type).toBe("implementPlan");
+      expect(planRequest?.requestId).toBe("implement-plan:turn-plan");
+      expect(canonicalPlanRequest?.method).toBe("item/plan/requestImplementation");
+      expect(canonicalPlanRequest?.id).toBe("implement-plan:turn-plan");
+      expect(String(conversation?.requests.length ?? -1)).toBe("2");
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("2");
+      expect(conversation?.hasUnreadTurn).toBe(true);
+
+      const firstImplementationItem = implementationItem;
+      const firstCanonicalPlanRequest = canonicalPlanRequest;
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "turn/completed",
+        sequence: 2,
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "turn-plan",
+            status: "completed",
+            error: null,
+            startedAt: 1,
+            completedAt: 2,
+            durationMs: 1_000,
+          },
+        },
+      });
+      await flushAsyncWork(3);
+
+      conversation = manager.readConversation("thread-1");
+      implementationItem = conversation?.turns[0]?.items.find((item) =>
+        item.itemId === "implement-plan:turn-plan"
+      );
+      const repeatedCanonicalPlanRequest = conversation?.canonicalRequests?.find((request) =>
+        request.method === "item/plan/requestImplementation" && request.params.turnId === "turn-plan"
+      );
+      expect(conversation?.turns[0]?.items.filter((item) =>
+        item.type === "planImplementation"
+      ).length).toBe(1);
+      expect(implementationItem === firstImplementationItem).toBe(false);
+      expect(repeatedCanonicalPlanRequest === firstCanonicalPlanRequest).toBe(false);
+      expect(String(conversation?.requests.length ?? -1)).toBe("2");
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("2");
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "item/completed",
+        sequence: 3,
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-plan",
+          item: {
+            id: "plan-whitespace",
+            type: "plan",
+            text: "  \n\t ",
+          },
+        },
+      });
+      await flushAsyncWork(3);
+      const conversationWithWhitespacePlan = manager.readConversation("thread-1");
+      const implementationBeforeWhitespace = conversationWithWhitespacePlan?.turns[0]?.items.find((item) =>
+        item.itemId === "implement-plan:turn-plan"
+      );
+      const requestBeforeWhitespace = conversationWithWhitespacePlan?.canonicalRequests?.find((request) =>
+        request.method === "item/plan/requestImplementation" && request.params.turnId === "turn-plan"
+      );
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "turn/completed",
+        sequence: 4,
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "turn-plan",
+            status: "completed",
+            error: null,
+            startedAt: 1,
+            completedAt: 2,
+            durationMs: 1_000,
+          },
+        },
+      });
+      await flushAsyncWork(3);
+
+      conversation = manager.readConversation("thread-1");
+      implementationItem = conversation?.turns[0]?.items.find((item) =>
+        item.itemId === "implement-plan:turn-plan"
+      );
+      const requestAfterWhitespace = conversation?.canonicalRequests?.find((request) =>
+        request.method === "item/plan/requestImplementation" && request.params.turnId === "turn-plan"
+      );
+      expect(JSON.stringify(implementationItem)).toBe(JSON.stringify(implementationBeforeWhitespace));
+      expect(requestBeforeWhitespace?.id).toBe("implement-plan:turn-plan");
+      expect(requestAfterWhitespace?.id).toBe("implement-plan:turn-plan");
+      expect(conversation?.canonicalRequests?.filter((request) =>
+        request.method === "item/plan/requestImplementation"
+        && request.params.turnId === "turn-plan"
+      ).length).toBe(1);
+      expect(implementationItem?.status).toBe("inProgress");
+      expect(String(conversation?.requests.length ?? -1)).toBe("2");
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("2");
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        method: "turn/started",
+        sequence: 5,
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "turn-next",
+            status: "inProgress",
+            error: null,
+            startedAt: 3,
+            completedAt: null,
+            durationMs: null,
+          },
+        },
+      });
+      await flushAsyncWork(3);
+
+      conversation = manager.readConversation("thread-1");
+      implementationItem = conversation?.turns[0]?.items.find((item) =>
+        item.itemId === "implement-plan:turn-plan"
+      );
+      expect(implementationItem?.status).toBe("completed");
+      expect((implementationItem?.rawItem as { isCompleted?: boolean } | undefined)?.isCompleted).toBe(true);
+      expect(String(conversation?.requests.length ?? -1)).toBe("0");
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(conversation?.turns.at(-1)?.turnId).toBe("turn-next");
+      expect(conversation?.hasUnreadTurn).toBe(true);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -7913,6 +12189,15 @@ describe("local-conversation-store", () => {
           planContent: "1. Ship the fix",
           createdAt: 1,
         }],
+        canonicalRequests: [{
+          id: "implement-plan:turn-plan",
+          method: "item/plan/requestImplementation",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-plan",
+            planContent: "1. Ship the fix",
+          },
+        }],
       };
       await manager.requestThreadStreamResume("thread-1");
       invokeRecords = [];
@@ -7930,10 +12215,17 @@ describe("local-conversation-store", () => {
       const mainSyncIndex = invokeRecords.findIndex((record) =>
         record.channel === "codex:thread:plan-implementation:remove"
       );
+      const publishedSnapshot = (invokeRecords[publishIndex]?.args[0] as {
+        change?: {
+          type?: string;
+          conversationState?: CodexConversationSnapshot;
+        };
+      } | undefined)?.change;
 
       expect(result?.accepted).toBe(true);
       expect(result?.streamRevision).toBe(2);
       expect(String(conversation?.requests.length ?? -1)).toBe("0");
+      expect(String(conversation?.canonicalRequests?.length ?? -1)).toBe("0");
       expect(item?.status).toBe("completed");
       expect(JSON.stringify(item?.rawItem)).toBe(JSON.stringify({
         id: "implement-plan:turn-plan",
@@ -7942,10 +12234,18 @@ describe("local-conversation-store", () => {
         planContent: "1. Ship the fix",
         isCompleted: true,
       }));
+      expect(String(conversation?.canonicalState?.requests.length ?? -1)).toBe("0");
+      const canonicalPlan = conversation?.canonicalState?.turns[0]?.items.find(
+        (candidate) => candidate.type === "planImplementation",
+      );
+      expect(canonicalPlan?.type === "planImplementation" && canonicalPlan.isCompleted)
+        .toBe(true);
       expect(invokeRecords.some((record) =>
         record.channel === "codex:thread:plan-implementation:remove"
       )).toBe(true);
       expect(publishIndex >= 0).toBe(true);
+      expect(publishedSnapshot?.type).toBe("snapshot");
+      expect(String(publishedSnapshot?.conversationState?.canonicalRequests?.length ?? -1)).toBe("0");
       expect(mainSyncIndex > publishIndex).toBe(true);
       expect(invokeRecords.some((record) => record.channel === "codex:thread-follower:action")).toBe(false);
     } finally {
@@ -8078,15 +12378,254 @@ describe("local-conversation-store", () => {
         },
         sourceClientId: "owner-a",
       });
+      const fallbackConversation: CodexConversationSnapshot = {
+        ...baseConversation,
+        resumeState: "needs_resume",
+        turns: [{
+          ...baseConversation.turns[0]!,
+          items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "canonical fallback")],
+        }],
+      };
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 3,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: fallbackConversation,
+        },
+        sourceClientId: null,
+      });
       await flushAsyncWork();
 
       expect(manager.readConversation("thread-1")?.resumeState).toBe("needs_resume");
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("working");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("canonical fallback");
       expect(invokeRecords.some((record) =>
         record.channel === "codex:thread:snapshot:request" &&
         record.args[0] === "thread-1"
       )).toBe(false);
     } finally {
+      manager.destroy();
+    }
+  });
+
+  test("owner interrupt declines every pending raw request family before turn interrupt", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = null;
+    ownerRequestResponseHandler = null;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["cmd-1"],
+          items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
+        }],
+      };
+      resumeThreadResult = baseConversation;
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+      await manager.requestThreadStreamResume("thread-1");
+
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 1,
+        request: {
+          id: "command-1",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "cmd-1",
+            startedAtMs: 1,
+            approvalId: null,
+            environmentId: null,
+            reason: "Need command access",
+            command: "bun test",
+            cwd: "/repo",
+            commandActions: null,
+            additionalPermissions: null,
+            proposedExecpolicyAmendment: null,
+            proposedNetworkPolicyAmendments: null,
+            availableDecisions: null,
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 2,
+        request: {
+          id: "file-1",
+          method: "item/fileChange/requestApproval",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "file-change-1",
+            startedAtMs: 2,
+            reason: "Need write access",
+            grantRoot: "/repo",
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 3,
+        request: {
+          id: "permission-1",
+          method: "item/permissions/requestApproval",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "permission-call-1",
+            environmentId: "env-1",
+            startedAtMs: 3,
+            cwd: "/repo",
+            reason: "Need network",
+            permissions: {
+              network: { enabled: true },
+              fileSystem: null,
+            },
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 4,
+        request: {
+          id: "user-1",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "input-call-1",
+            autoResolutionMs: null,
+            questions: [{
+              id: "q1",
+              header: "Choice",
+              question: "Pick one",
+              isOther: false,
+              isSecret: false,
+              options: [{ label: "A", description: "First" }],
+            }],
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 5,
+        request: {
+          id: "option-1",
+          method: "item/tool/requestOptionPicker",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            question: "Choose",
+            options: [{ label: "Continue", description: "Continue" }],
+            allowMultiple: false,
+            submitLabel: "Submit",
+            skipLabel: null,
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 6,
+        request: {
+          id: "setup-1",
+          method: "item/tool/requestSetupCodexContextPicker",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+          },
+        },
+      });
+      dispatchCodexAppServerMessage("thread-owner-request", {
+        hostId: "default",
+        sequence: 7,
+        request: {
+          id: "mcp-1",
+          method: "mcpServer/elicitation/request",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            mode: "openai/form",
+            serverName: "Context7",
+            message: "Allow this call?",
+            requestedSchema: { type: "object", properties: {} },
+            _meta: null,
+          },
+        },
+      });
+      await flushAsyncWork(4);
+      expect(String(manager.readConversation("thread-1")?.canonicalRequests?.length ?? -1)).toBe("7");
+      invokeRecords = [];
+
+      const interrupted = await manager.handleThreadOwnerActionRequest({
+        type: "interruptTurn",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+      await flushAsyncWork(3);
+
+      const responseOrder = invokeRecords.flatMap((record) => {
+        if (
+          record.channel === "codex:approval:respond" ||
+          record.channel === "codex:permission-request:respond" ||
+          record.channel === "codex:user-input:respond" ||
+          record.channel === "codex:option-picker:respond" ||
+          record.channel === "codex:setup-context-picker:respond" ||
+          record.channel === "codex:mcp-elicitation:respond"
+        ) {
+          return [`${record.channel}:${String(record.args[1])}`];
+        }
+        if (
+          record.channel === "codex:thread-owner:app-server-request" &&
+          (record.args[0] as { request?: { method?: string } }).request?.method === "turn/interrupt"
+        ) {
+          return ["turn/interrupt"];
+        }
+        return [];
+      });
+      expect(interrupted).toBe(true);
+      expect(JSON.stringify(responseOrder)).toBe(JSON.stringify([
+        "codex:approval:respond:command-1",
+        "codex:approval:respond:file-1",
+        "codex:permission-request:respond:permission-1",
+        "codex:user-input:respond:user-1",
+        "codex:option-picker:respond:option-1",
+        "codex:setup-context-picker:respond:setup-1",
+        "codex:mcp-elicitation:respond:mcp-1",
+        "turn/interrupt",
+      ]));
+      expect(String(manager.readConversation("thread-1")?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(String(manager.readConversation("thread-1")?.requests.length ?? -1)).toBe("0");
+    } finally {
+      ownerRequestResponseHandler = null;
+      resumeThreadResult = null;
       manager.destroy();
     }
   });
@@ -8977,6 +13516,8 @@ describe("local-conversation-store", () => {
 
       expect(goal?.status ?? "").toBe("paused");
       expect(manager.readConversation("thread-1")?.threadGoal?.status ?? "").toBe("paused");
+      expect(manager.readConversation("thread-1")?.canonicalState?.sidecar.threadGoal?.status ?? "")
+        .toBe("paused");
       expect(params?.threadId).toBe("thread-1");
       expect(params?.status).toBe("paused");
       expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBe(false);
@@ -9025,9 +13566,14 @@ describe("local-conversation-store", () => {
       expect(turn?.status ?? "").toBe("completed");
       expect(turn?.turnStartedAtMs ?? 0).toBe(1_000);
       expect(item?.kind ?? "").toBe("userMessage");
-      expect(item?.markdownText ?? "").toBe("/goal ship parity");
+      expect(item?.itemId ?? "").toBe("turn-index-0:input");
+      expect(item?.markdownText ?? "").toBe("ship parity");
       expect(item?.goal ?? false).toBe(true);
-      expect(((item?.rawItem as { goal?: boolean } | undefined)?.goal ?? false)).toBe(true);
+      expect(item?.rawItem ?? null).toBe(null);
+      expect(String(conversation?.canonicalState?.turns[0]?.items.length ?? -1)).toBe("0");
+      const rawInput = conversation?.canonicalState?.turns[0]?.sidecar.params.input[0];
+      expect(rawInput?.type).toBe("text");
+      expect(rawInput?.type === "text" ? rawInput.text : "").toBe("/goal ship parity");
       expect(manager.readConversation("thread-1")?.threadGoal?.status ?? "").toBe("active");
     } finally {
       resumeThreadResult = null;
@@ -9096,6 +13642,13 @@ describe("local-conversation-store", () => {
       expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBe(false);
       expect(manager.readConversation("thread-1")?.turns.length ?? 0).toBe(0);
+      expect(
+        manager.readConversation("thread-1")?.canonicalState?.sidecar.latestThreadSettings?.model
+          ?? "",
+      ).toBe("gpt-5.3-codex");
+      expect(
+        manager.readConversation("thread-1")?.canonicalState?.sidecar.threadGoal?.objective ?? "",
+      ).toBe("ship parity");
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -9263,11 +13816,18 @@ describe("local-conversation-store", () => {
     try {
       await manager.requestThreadStreamResume("thread-1");
       invokeRecords = [];
+      expect(manager.getThreadRoleForRendererClientRequest("thread-1")).toBe("owner");
 
       await manager.dismissThreadGoalResumeConfirmation("thread-1");
 
       expect(manager.readConversation("thread-1")?.threadGoal?.status ?? "").toBe("paused");
       expect(manager.readConversation("thread-1")?.threadGoalResumeConfirmation ?? null).toBe(null);
+      expect(manager.readConversation("thread-1")?.canonicalState?.sidecar.threadGoal?.status ?? "")
+        .toBe("paused");
+      expect(
+        manager.readConversation("thread-1")?.canonicalState?.sidecar.threadGoalResumeConfirmation
+          ?? null,
+      ).toBe(null);
       expect(invokeRecords.some((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       )).toBe(true);
@@ -9546,6 +14106,10 @@ describe("local-conversation-store", () => {
       expect(publishCountAfter).toBe(publishCountBefore);
       expect(conversation?.backgroundTerminalRows.length ?? -1).toBe(0);
       expect(conversation?.turns[0]?.interruptedCommandExecutionItemIds?.[0]).toBe("cmd-1");
+      expect(
+        conversation?.canonicalState?.turns[0]?.sidecar
+          .interruptedCommandExecutionItemIds?.[0],
+      ).toBe("cmd-1");
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -9635,6 +14199,69 @@ describe("local-conversation-store", () => {
     const manager = new CodexAppServerManager("default");
     try {
       const olderUser = buildUserMessage("thread-1", "turn-older", "user-older", "Older prompt");
+      const rollbackSpecialItems: CodexConversationItem[] = [
+        {
+          ...olderUser,
+          itemId: "hook-feedback",
+          entryId: "hook-feedback",
+          type: "hookPrompt",
+          kind: "userMessage",
+          semanticKind: "userMessage",
+          markdownText: "Please include the boundary case.",
+          hookFeedback: true,
+          rawItem: {
+            id: "hook-feedback",
+            type: "hookPrompt",
+            fragments: [{ text: "Please include the boundary case.", hookRunId: "hook-run" }],
+          },
+        },
+        ...["one", "two"].map((name): CodexConversationItem => ({
+          ...olderUser,
+          itemId: `image-${name}`,
+          entryId: `image-${name}`,
+          type: "imageView",
+          kind: "systemEvent",
+          semanticKind: "imageView",
+          markdownText: undefined,
+          rawItem: { id: `image-${name}`, type: "imageView", path: `/tmp/${name}.png` },
+        })),
+        {
+          ...olderUser,
+          itemId: "sleep-between-images",
+          entryId: "sleep-between-images",
+          type: "sleep",
+          kind: "systemEvent",
+          semanticKind: "systemEvent",
+          markdownText: undefined,
+          rawItem: { id: "sleep-between-images", type: "sleep", durationMs: 1 },
+        },
+        {
+          ...olderUser,
+          itemId: "image-three",
+          entryId: "image-three",
+          type: "imageView",
+          kind: "systemEvent",
+          semanticKind: "imageView",
+          markdownText: undefined,
+          rawItem: { id: "image-three", type: "imageView", path: "/tmp/three.png" },
+        },
+        {
+          ...olderUser,
+          itemId: "generated-image",
+          entryId: "generated-image",
+          type: "imageGeneration",
+          kind: "systemEvent",
+          semanticKind: "generatedImage",
+          markdownText: undefined,
+          rawItem: {
+            id: "generated-image",
+            type: "imageGeneration",
+            status: "completed",
+            revisedPrompt: null,
+            result: "aW1hZ2U=",
+          },
+        },
+      ];
       const latestUser = buildUserMessage("thread-1", "turn-latest", "user-latest", "Latest prompt");
       const currentConversation: CodexConversationSnapshot = {
         ...buildConversation("thread-1", "project-1"),
@@ -9643,8 +14270,8 @@ describe("local-conversation-store", () => {
             threadId: "thread-1",
             turnId: "turn-older",
             status: "completed",
-            itemIds: ["user-older"],
-            items: [olderUser],
+            itemIds: ["user-older", ...rollbackSpecialItems.map((item) => item.itemId)],
+            items: [olderUser, ...rollbackSpecialItems],
           },
           {
             threadId: "thread-1",
@@ -9675,7 +14302,13 @@ describe("local-conversation-store", () => {
       );
       const publishInputs = invokeRecords
         .filter((record) => record.channel === "codex:thread-owner:stream-state:publish")
-        .map((record) => record.args[0] as { change?: { type?: string; revision?: number } });
+        .map((record) => record.args[0] as {
+          change?: {
+            type?: string;
+            revision?: number;
+            conversationState?: CodexConversationSnapshot;
+          };
+        });
 
       expect(resumeIndex >= 0).toBe(true);
       expect(rollbackIndex > resumeIndex).toBe(true);
@@ -9685,6 +14318,16 @@ describe("local-conversation-store", () => {
       expect(publishInputs[1]?.change?.revision).toBe(2);
       expect(publishInputs[2]?.change?.revision).toBe(3);
       expect(publishInputs[3]?.change?.revision).toBe(4);
+      const rollbackItems = publishInputs[1]?.change?.conversationState?.turns[0]?.items ?? [];
+      expect(rollbackItems.find((item) => item.itemId === "hook-feedback")?.hookFeedback).toBe(true);
+      expect(rollbackItems.filter((item) => item.semanticKind === "imageView").map(
+        (item) => item.imageViewPaths,
+      )).toEqual([
+        ["/tmp/one.png", "/tmp/two.png"],
+        ["/tmp/three.png"],
+      ]);
+      expect(rollbackItems.find((item) => item.itemId === "generated-image")?.generatedImage?.src)
+        .toBe("data:image/png;base64,aW1hZ2U=");
       expect(result.streamRevision).toBe(4);
       expect(invokeRecords.some((record) => record.channel === "codex:thread:edit-last-user-turn")).toBe(false);
       expect(manager.readConversation("thread-1")?.turns.at(-1)?.items[0]?.markdownText).toBe("Rewrite latest prompt");
@@ -9877,6 +14520,16 @@ describe("local-conversation-store", () => {
       expect(publishInputForType?.change?.type).toBe("snapshot");
       expect(publishInputForType?.change?.revision).toBe(2);
       expect(String(publishInputForType?.change?.conversationState?.turns.length ?? -1)).toBe("1");
+      expect(
+        String(
+          publishInputForType?.change?.conversationState?.canonicalState?.turns.length ?? -1,
+        ),
+      ).toBe("1");
+      expect(
+        publishInputForType?.change?.conversationState?.canonicalState?.turns.some(
+          (turn) => turn.protocol.id === "turn-latest",
+        ) ?? true,
+      ).toBe(false);
       expect(optimisticPublishInput?.change?.type).toBe("snapshot");
       expect(optimisticPublishInput?.change?.revision).toBe(3);
       expect(String(optimisticPublishInput?.change?.conversationState?.turns.length ?? -1)).toBe("2");
@@ -10050,7 +14703,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner item lifecycle merges synthetic and live edited user messages", async () => {
+  test("owner item lifecycle accepts a pending steering row and inserts the exact completion marker", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -10069,7 +14722,7 @@ describe("local-conversation-store", () => {
     const manager = new CodexAppServerManager("default");
     try {
       const syntheticUser = buildUserMessage("thread-1", "turn-new", "item-1", "Changed prompt");
-      const currentConversation: CodexConversationSnapshot = {
+      const hydratedConversation = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -10078,6 +14731,33 @@ describe("local-conversation-store", () => {
           itemIds: ["item-1"],
           items: [syntheticUser],
         }],
+      });
+      const canonicalTurn = hydratedConversation.canonicalState?.turns[0];
+      if (!canonicalTurn) throw new Error("Expected canonical steering fixture turn");
+      const currentConversation: CodexConversationSnapshot = {
+        ...hydratedConversation,
+        canonicalState: {
+          ...hydratedConversation.canonicalState!,
+          turns: [{
+            ...canonicalTurn,
+            items: [{
+              type: "steeringUserMessage",
+              id: "item-1",
+              targetTurnId: "turn-new",
+              targetTurnStartedAtMs: null,
+              status: "pending",
+              clientUserMessageId: "item-1",
+              input: [{
+                type: "text",
+                text: "Changed prompt",
+                text_elements: [],
+              }],
+              attachments: [],
+              restoreMessage: { context: { commentAttachments: [] } },
+              compareKey: { rawText: "Changed prompt", imageCount: 0 },
+            }],
+          }],
+        },
       };
       resumeThreadResult = currentConversation;
       await manager.requestThreadStreamResume("thread-1");
@@ -10093,17 +14773,24 @@ describe("local-conversation-store", () => {
           item: {
             id: "user-real",
             type: "userMessage",
-            content: [{ type: "text", text: "Changed prompt" }],
+            clientId: null,
+            content: [{ type: "text", text: "Changed prompt", text_elements: [] }],
           },
         },
       });
       await flushAsyncWork();
 
       const turn = manager.readConversation("thread-1")?.turns[0];
-      expect(String(turn?.items.length ?? -1)).toBe("1");
-      expect(turn?.items[0]?.itemId).toBe("user-real");
+      expect(String(turn?.items.length ?? -1)).toBe("3");
+      expect(turn?.items[0]?.itemId).toBe("turn-new:input");
       expect(turn?.items[0]?.markdownText).toBe("Changed prompt");
-      expect(JSON.stringify(turn?.itemIds ?? [])).toBe(JSON.stringify(["user-real"]));
+      expect(turn?.items[1]?.itemId).toBe("item-1");
+      expect(turn?.items[1]?.markdownText).toBe("Changed prompt");
+      expect(turn?.items[1]?.steeringStatus).toBe("accepted");
+      expect(turn?.items[2]?.itemId).toBe("user-real");
+      expect(turn?.items[2]?.semanticKind).toBe("steered");
+      expect(turn?.items[2]?.acceptedUserMessageItemId).toBe("user-real");
+      expect(JSON.stringify(turn?.itemIds ?? [])).toBe(JSON.stringify(["item-1", "user-real"]));
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -10194,7 +14881,7 @@ describe("local-conversation-store", () => {
         change: {
           type: "snapshot",
           revision: 1,
-          conversationState: {
+          conversationState: withCanonicalState({
             ...buildConversation("thread-1", "project-1"),
             turns: [{
               threadId: "thread-1",
@@ -10203,11 +14890,10 @@ describe("local-conversation-store", () => {
               itemIds: ["cmd-1"],
               items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
             }],
-          },
+          }),
         },
         sourceClientId: null,
       });
-
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
         method: "item/commandExecution/outputDelta",
@@ -10234,7 +14920,7 @@ describe("local-conversation-store", () => {
 
       const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
       expect(item?.aggregatedOutput).toBe("1340 pass\n");
-      expect(item?.toolCall?.result).toBe("1340 pass\n");
+      expect(item?.toolCall).toBeUndefined();
     } finally {
       manager.destroy();
     }
@@ -10263,7 +14949,7 @@ describe("local-conversation-store", () => {
           change: {
             type: "snapshot",
             revision: 1,
-            conversationState: {
+            conversationState: withCanonicalState({
               ...buildConversation(threadId, "project-1"),
               turns: [{
                 threadId,
@@ -10272,7 +14958,7 @@ describe("local-conversation-store", () => {
                 itemIds: ["cmd-1"],
                 items: [buildCommandExecutionItem(threadId, "turn-1", "cmd-1")],
               }],
-            },
+            }),
           },
           sourceClientId: null,
         });
@@ -10292,6 +14978,69 @@ describe("local-conversation-store", () => {
 
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput ?? "missing").toBe("");
       expect(manager.readConversation("thread-2")?.turns[0]?.items[0]?.aggregatedOutput).toBe("target output\n");
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("command output skips a later same-id non-command raw item", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: withCanonicalState({
+            ...buildConversation("thread-1", "project-1"),
+            turns: [{
+              threadId: "thread-1",
+              turnId: "turn-1",
+              status: "inProgress",
+              itemIds: ["shared", "shared"],
+              items: [
+                buildCommandExecutionItem("thread-1", "turn-1", "shared"),
+                buildAssistantMessage("thread-1", "turn-1", "shared", "assistant"),
+              ],
+            }],
+          }),
+        },
+        sourceClientId: null,
+      });
+      const assistantRawItem = manager.readConversation("thread-1")
+        ?.turns[0]?.items[1]?.rawItem;
+
+      dispatchCodexAppServerMessage("mcp-notification", {
+        hostId: "default",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId: "stale-turn-id",
+          itemId: "shared",
+          delta: "exact command output\n",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      const items = manager.readConversation("thread-1")?.turns[0]?.items;
+      expect(items?.[0]?.aggregatedOutput).toBe("exact command output\n");
+      expect(items?.[0]?.updatedAt).toBe(1);
+      expect(items?.[1]?.markdownText).toBe("assistant");
+      expect(items?.[1]?.rawItem).toBe(assistantRawItem);
     } finally {
       manager.destroy();
     }
@@ -10319,7 +15068,7 @@ describe("local-conversation-store", () => {
         change: {
           type: "snapshot",
           revision: 1,
-          conversationState: {
+          conversationState: withCanonicalState({
             ...buildConversation("thread-1", "project-1"),
             turns: [{
               threadId: "thread-1",
@@ -10328,7 +15077,7 @@ describe("local-conversation-store", () => {
               itemIds: [],
               items: [],
             }],
-          },
+          }),
         },
         sourceClientId: null,
       });
@@ -10351,7 +15100,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("flushes queued output before applying snapshots so output is not duplicated", async () => {
+  test("keeps queued command output on its independent timer across snapshots", async () => {
     invokeCalls = [];
     hostMessageListener = null;
     threadListByProject = {};
@@ -10366,7 +15115,7 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      const baseConversation: CodexConversationSnapshot = {
+      const baseConversation: CodexConversationSnapshot = withCanonicalState({
         ...buildConversation("thread-1", "project-1"),
         turns: [{
           threadId: "thread-1",
@@ -10375,7 +15124,7 @@ describe("local-conversation-store", () => {
           itemIds: ["cmd-1"],
           items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
         }],
-      };
+      });
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
         hostId: "default",
         conversationId: "thread-1",
@@ -10405,19 +15154,22 @@ describe("local-conversation-store", () => {
         change: {
           type: "snapshot",
           revision: 2,
-          conversationState: {
+          conversationState: withCanonicalState({
             ...baseConversation,
             turns: [{
               ...baseConversation.turns[0]!,
               items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1", "single append\n")],
             }],
-          },
+          }),
         },
         sourceClientId: null,
       });
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe("single append\n");
       await new Promise((resolve) => setTimeout(resolve, 70));
 
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe("single append\n");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe(
+        "single append\nsingle append\n",
+      );
     } finally {
       manager.destroy();
     }
@@ -10718,8 +15470,9 @@ describe("local-conversation-store", () => {
       heartbeatAssistantMessage: unknown;
       hasPendingContinuation: boolean;
     }> = [];
-    const approvals: string[] = [];
-    const questions: string[] = [];
+    const approvals: CodexProtocolRequestId[] = [];
+    const questions: CodexProtocolRequestId[] = [];
+    const requestVisibilityDuringEffects: boolean[] = [];
     const stopTurnCompleted = manager.addTurnCompletedListener((payload: {
       conversationId: string;
       turnId: string;
@@ -10738,20 +15491,30 @@ describe("local-conversation-store", () => {
     });
     const stopApprovals = manager.addApprovalRequestListener((payload: {
       conversationId: string;
-      requestId: string;
+      requestId: CodexProtocolRequestId;
       kind: "command" | "file";
       reason: string | null;
     }) => {
       approvals.push(payload.requestId);
+      requestVisibilityDuringEffects.push(
+        manager.readConversation(payload.conversationId)?.requests.some((request) =>
+          request.requestId === payload.requestId
+        ) === true,
+      );
     });
     const stopQuestions = manager.addUserInputRequestListener((payload: {
       conversationId: string;
-      requestId: string;
+      requestId: CodexProtocolRequestId;
       turnId: string;
       questionCount: number;
       firstQuestion: string | null;
     }) => {
       questions.push(payload.requestId);
+      requestVisibilityDuringEffects.push(
+        manager.readConversation(payload.conversationId)?.requests.some((request) =>
+          request.requestId === payload.requestId
+        ) === true,
+      );
     });
 
     const initialConversation: CodexConversationSnapshot = {
@@ -10930,6 +15693,7 @@ describe("local-conversation-store", () => {
     expect(approvals[0]).toBe("approval-live");
     expect(String(questions.length)).toBe("1");
     expect(questions[0]).toBe("question-live");
+    expect(JSON.stringify(requestVisibilityDuringEffects)).toBe(JSON.stringify([true, true]));
 
     await act(async () => {
       dispatchThreadSnapshot({

@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CodexAppServerClient } from "./codex-app-server-client";
+import {
+  CODEX_SERVER_REQUEST_NO_RESPONSE,
+  CodexAppServerClient,
+} from "./codex-app-server-client";
 import { subscribeToBackendLogs } from "../logging/logger";
 
 function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
@@ -15,6 +18,8 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
       "import readline from 'node:readline';",
       "const rl = readline.createInterface({ input: process.stdin });",
       "let pendingTriggerId = null;",
+      "let nextIgnoredRequestId = 9100;",
+      "const ignoredRequests = new Map();",
       "function send(msg) { process.stdout.write(JSON.stringify(msg) + '\\n'); }",
       "rl.on('line', (line) => {",
       "  if (!line.trim()) return;",
@@ -39,6 +44,21 @@ function makeMockServerScript(): { scriptPath: string; cleanup: () => void } {
       "        cwd: '/tmp',",
       "      },",
       "    });",
+      "    return;",
+      "  }",
+      "  if (msg.method === 'triggerIgnoredRequest') {",
+      "    const serverRequestId = nextIgnoredRequestId++;",
+      "    const state = { triggerId: msg.id, responded: false };",
+      "    ignoredRequests.set(serverRequestId, state);",
+      "    send({ id: serverRequestId, method: msg.params.method, params: msg.params.params ?? {} });",
+      "    setTimeout(() => {",
+      "      send({ id: state.triggerId, result: { responded: state.responded } });",
+      "      ignoredRequests.delete(serverRequestId);",
+      "    }, 30);",
+      "    return;",
+      "  }",
+      "  if (ignoredRequests.has(msg.id)) {",
+      "    ignoredRequests.get(msg.id).responded = true;",
       "    return;",
       "  }",
       "  if (msg.id === 9001) {",
@@ -141,6 +161,37 @@ describe("codex-app-server-client", () => {
       expect(client.getState().message).toBe("Bundled Codex runtime is missing or corrupted. Reinstall Nodex.");
     } finally {
       await client.stop();
+    }
+  });
+
+  test("can abandon ignored server requests without writing JSON-RPC responses", async () => {
+    const mock = makeMockServerScript();
+    const client = new CodexAppServerClient({
+      binaryPath: process.execPath,
+      args: [mock.scriptPath],
+    });
+
+    try {
+      client.setServerRequestHandler(async () => CODEX_SERVER_REQUEST_NO_RESPONSE);
+      await client.start();
+
+      for (const method of [
+        "account/chatgptAuthTokens/refresh",
+        "attestation/generate",
+        "applyPatchApproval",
+        "execCommandApproval",
+      ]) {
+        const result = await client.request<{ responded: boolean }>("triggerIgnoredRequest", {
+          method,
+          params: method === "account/chatgptAuthTokens/refresh"
+            ? { reason: "unauthorized" }
+            : {},
+        });
+        expect(result.responded).toBe(false);
+      }
+    } finally {
+      await client.stop();
+      mock.cleanup();
     }
   });
 

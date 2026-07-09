@@ -1,6 +1,9 @@
 import { describe, expect, vi, test } from "vitest";
 import { EventEmitter } from "node:events";
-import type { BrowserSidebarCommandResult } from "../shared/browser-sidebar";
+import type {
+  BrowserSidebarCommandResult,
+  BrowserSidebarTabIdentity,
+} from "../shared/browser-sidebar";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
@@ -16,6 +19,11 @@ vi.mock("electron", () => ({
 
 const { BrowserSidebarService } = await import("./browser-sidebar-service");
 type BrowserSidebarServiceInstance = InstanceType<typeof BrowserSidebarService>;
+
+const browserIdentity = {
+  browserConversationId: "session-1",
+  browserTabId: "tab-browser",
+} as const;
 
 class FakeWebContents extends EventEmitter {
   loadUrls: string[] = [];
@@ -93,16 +101,21 @@ function createService(contentsById = new Map<number, FakeWebContents>()) {
 async function registerTab(service: BrowserSidebarServiceInstance) {
   await service.handleCommand({
     type: "register-tab",
-    tabId: "tab-browser",
-    sessionId: "session-1",
+    ...browserIdentity,
     projectId: "alpha",
     initialUrl: "about:blank",
     title: "Browser",
   });
 }
 
-function readTab(service: BrowserSidebarServiceInstance) {
-  const tab = service.getStateSnapshot().tabs.find((item) => item.tabId === "tab-browser");
+function readTab(
+  service: BrowserSidebarServiceInstance,
+  identity: BrowserSidebarTabIdentity = browserIdentity,
+) {
+  const tab = service.getStateSnapshot().tabs.find((item) =>
+    item.browserConversationId === identity.browserConversationId
+    && item.browserTabId === identity.browserTabId
+  );
   if (!tab) throw new Error("Missing browser tab snapshot");
   return tab;
 }
@@ -120,7 +133,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
 
     const result = await service.handleCommand({
       type: "navigate",
-      tabId: "tab-browser",
+      ...browserIdentity,
       url: "https://www.google.com",
       source: "manual",
       initiator: "address_bar",
@@ -131,9 +144,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(readTab(service).url).toBe("https://www.google.com");
 
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 1,
       webContentsId: 101,
@@ -149,19 +161,18 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService(new Map([[101, contents]]));
     await registerTab(service);
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 4,
       webContentsId: 101,
       initialUrl: "https://example.com",
       title: "Example",
     });
-    await service.handleCommand({ type: "set-zoom-percent", tabId: "tab-browser", zoomPercent: 150 });
+    await service.handleCommand({ type: "set-zoom-percent", ...browserIdentity, zoomPercent: 150 });
     await service.handleCommand({
       type: "navigate",
-      tabId: "tab-browser",
+      ...browserIdentity,
       url: "https://example.com/live",
       source: "manual",
       initiator: "address_bar",
@@ -169,8 +180,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
 
     await service.handleCommand({
       type: "register-tab",
-      tabId: "tab-browser",
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
       initialUrl: "about:blank",
       title: "Browser",
@@ -190,9 +200,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService(new Map([[101, contents]]));
     await registerTab(service);
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 1,
       webContentsId: 101,
@@ -205,7 +214,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
 
     const result = await service.handleCommand({
       type: "navigate",
-      tabId: "tab-browser",
+      ...browserIdentity,
       url: "https://www.google.com",
       source: "manual",
       initiator: "address_bar",
@@ -223,9 +232,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService(new Map([[101, contents]]));
     await registerTab(service);
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 1,
       webContentsId: 101,
@@ -233,7 +241,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
     });
     contents.rejectLoadWith = new Error("DNS failure");
 
-    const result = await service.handleCommand({ type: "navigate", tabId: "tab-browser", url: "https://example.test" });
+    const result = await service.handleCommand({ type: "navigate", ...browserIdentity, url: "https://example.test" });
     await flushLoadPromise();
 
     expect(result.ok).toBe(true);
@@ -246,9 +254,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
     await registerTab(service);
 
     const event = {
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel" as const,
       mountGeneration: 1,
       webContentsId: 101,
@@ -265,19 +272,23 @@ describe("BrowserSidebarService webview lifecycle", () => {
   test("destroy acks are generation-safe", async () => {
     const contents = new FakeWebContents();
     const service = createService(new Map([[101, contents]]));
+    const pendingDestroys: import("../shared/browser-sidebar").BrowserSidebarDestroyWebviewRequest[] = [];
+    service.on("destroyWebview", (request) => {
+      pendingDestroys.push(request);
+    });
     await registerTab(service);
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 2,
       webContentsId: 101,
       initialUrl: "https://example.com",
     });
+    await service.handleCommand({ type: "navigate", ...browserIdentity, url: "about:blank" });
 
     await service.handleWebviewDestroyed({
-      tabId: "tab-browser",
+      ...browserIdentity,
       mountGeneration: 1,
       reason: "closed",
       teardownId: "stale",
@@ -285,11 +296,10 @@ describe("BrowserSidebarService webview lifecycle", () => {
     });
     expect(readTab(service).webContentsId).toBe(101);
 
+    const pendingDestroy = pendingDestroys.at(-1);
+    if (!pendingDestroy) throw new Error("Missing pending teardown request");
     await service.handleWebviewDestroyed({
-      tabId: "tab-browser",
-      mountGeneration: 2,
-      reason: "closed",
-      teardownId: "current",
+      ...pendingDestroy,
       webContentsId: 101,
     });
     expect(readTab(service).webContentsId).toBe(null);
@@ -300,17 +310,16 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService(new Map([[101, contents]]));
     await registerTab(service);
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 1,
       webContentsId: 101,
       initialUrl: "https://example.com",
     });
 
-    await service.handleCommand({ type: "reload", tabId: "tab-browser" });
-    await service.handleCommand({ type: "reload", tabId: "tab-browser", ignoreCache: true });
+    await service.handleCommand({ type: "reload", ...browserIdentity });
+    await service.handleCommand({ type: "reload", ...browserIdentity, ignoreCache: true });
 
     expect(contents.reloads).toBe(1);
     expect(contents.hardReloads).toBe(1);
@@ -321,18 +330,17 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService(new Map([[101, contents]]));
     await registerTab(service);
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 1,
       webContentsId: 101,
       initialUrl: "https://example.com",
     });
 
-    await service.handleCommand({ type: "set-zoom-percent", tabId: "tab-browser", zoomPercent: 125 });
-    await service.handleCommand({ type: "step-zoom", tabId: "tab-browser", delta: 25 });
-    await service.handleCommand({ type: "reset-zoom", tabId: "tab-browser" });
+    await service.handleCommand({ type: "set-zoom-percent", ...browserIdentity, zoomPercent: 125 });
+    await service.handleCommand({ type: "step-zoom", ...browserIdentity, delta: 25 });
+    await service.handleCommand({ type: "reset-zoom", ...browserIdentity });
 
     expect(contents.zoomFactors.join(",")).toBe("1.25,1.5,1");
     expect(readTab(service).zoomPercent).toBe(100);
@@ -343,22 +351,21 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService(new Map([[101, contents]]));
     await registerTab(service);
     await service.handleWebviewHostCreated({
-      sessionId: "session-1",
+      ...browserIdentity,
       projectId: "alpha",
-      tabId: "tab-browser",
       hostKind: "panel",
       mountGeneration: 1,
       webContentsId: 101,
       initialUrl: "https://example.com",
     });
 
-    await service.handleCommand({ type: "set-interaction-mode", tabId: "tab-browser", mode: "comment" });
-    await service.handleCommand({ type: "open-find", tabId: "tab-browser" });
-    await service.handleCommand({ type: "set-find-query", tabId: "tab-browser", query: "hello", caseSensitive: true });
-    await service.handleCommand({ type: "find-next", tabId: "tab-browser" });
-    await service.handleCommand({ type: "find-previous", tabId: "tab-browser" });
+    await service.handleCommand({ type: "set-interaction-mode", ...browserIdentity, mode: "comment" });
+    await service.handleCommand({ type: "open-find", ...browserIdentity });
+    await service.handleCommand({ type: "set-find-query", ...browserIdentity, query: "hello", caseSensitive: true });
+    await service.handleCommand({ type: "find-next", ...browserIdentity });
+    await service.handleCommand({ type: "find-previous", ...browserIdentity });
     contents.emit("found-in-page", {}, { activeMatchOrdinal: 2, matches: 5 });
-    await service.handleCommand({ type: "close-find", tabId: "tab-browser" });
+    await service.handleCommand({ type: "close-find", ...browserIdentity });
 
     expect(contents.findCalls.length).toBe(3);
     expect(contents.findCalls[0]?.text).toBe("hello");
@@ -369,35 +376,98 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(readTab(service).findState.open).toBe(false);
   });
 
+  test("keeps the same browser tab id independent across conversations", async () => {
+    const service = createService();
+    const otherIdentity = {
+      browserConversationId: "session-2",
+      browserTabId: browserIdentity.browserTabId,
+    } as const;
+
+    await service.handleCommand({
+      type: "register-tab",
+      ...browserIdentity,
+      projectId: "alpha",
+      initialUrl: "https://one.example",
+      title: "One",
+    });
+    await service.handleCommand({
+      type: "register-tab",
+      ...otherIdentity,
+      projectId: null,
+      initialUrl: "https://two.example",
+      title: "Two",
+    });
+    await service.handleCommand({
+      type: "set-title",
+      ...browserIdentity,
+      title: "Changed only in one",
+    });
+
+    expect(service.getStateSnapshot().tabs.length).toBe(2);
+    expect(readTab(service).title).toBe("Changed only in one");
+    expect(readTab(service, otherIdentity).title).toBe("Two");
+    expect(readTab(service, otherIdentity).projectId).toBe(null);
+    expect(JSON.stringify(service.getConversationBrowserTabIds("session-1"))).toBe(
+      JSON.stringify([]),
+    );
+
+    await service.handleCommand({ type: "close-tab", ...browserIdentity });
+
+    expect(service.getStateSnapshot().tabs.length).toBe(1);
+    expect(readTab(service, otherIdentity).url).toBe("https://two.example");
+  });
+
   test("browser-use commands emit split viewport, cursor, and release events", async () => {
     const service = createService();
     let viewportEvent = "";
-    let cursorEvent = "";
+    const cursorEvents: string[] = [];
     let releasedEvent = "";
     service.on("browserUseViewport", (payload) => {
-      viewportEvent = `${payload.tabId}:${payload.viewportSize?.width ?? 0}x${payload.viewportSize?.height ?? 0}`;
+      viewportEvent = `${payload.browserConversationId}/${payload.browserTabId}:${payload.viewportSize?.width ?? 0}x${payload.viewportSize?.height ?? 0}`;
     });
     service.on("browserUseCursor", (payload) => {
-      cursorEvent = `${payload.tabId}:${payload.x},${payload.y}:${payload.visible}`;
+      cursorEvents.push(`${payload.browserConversationId}/${payload.browserTabId}:${payload.x},${payload.y}:${payload.visible}`);
     });
     service.on("pageReleased", (payload) => {
-      releasedEvent = payload.tabId;
+      releasedEvent = `${payload.browserConversationId}/${payload.browserTabId}`;
+    });
+
+    await service.handleCommand({
+      type: "register-tab",
+      ...browserIdentity,
+      projectId: "alpha",
+      initialUrl: "https://ordinary.example",
+    });
+    await service.handleCommand({
+      type: "set-device-toolbar-visible",
+      ...browserIdentity,
+      visible: true,
     });
 
     await service.handleCommand({
       type: "browser-use-set-viewport",
-      event: { tabId: "tab-browser", viewportSize: { width: 390, height: 844 } },
+      event: { ...browserIdentity, viewportSize: { width: 390, height: 844 } },
     });
     await service.handleCommand({
       type: "browser-use-set-cursor",
-      cursor: { tabId: "tab-browser", x: 12, y: 34, visible: true, updatedAt: 1 },
+      cursor: { ...browserIdentity, x: 12, y: 34, visible: true, updatedAt: 1 },
+    });
+    await service.handleCommand({
+      type: "browser-use-set-cursor",
+      cursor: {
+        browserConversationId: "session-2",
+        browserTabId: browserIdentity.browserTabId,
+        x: 98,
+        y: 76,
+        visible: false,
+        updatedAt: 2,
+      },
     });
     await service.handleCommand({
       type: "browser-use-upsert-tab",
       tab: {
-        tabId: "tab-browser",
+        ...browserIdentity,
         projectId: "alpha",
-        sessionId: "session-1",
         title: "Browser",
         url: "https://example.com",
         webContentsId: 101,
@@ -407,11 +477,77 @@ describe("BrowserSidebarService webview lifecycle", () => {
         updatedAt: 1,
       },
     });
-    await service.handleCommand({ type: "browser-use-release-tab", tabId: "tab-browser" });
+    await service.handleCommand({ type: "browser-use-release-tab", ...browserIdentity });
 
-    expect(viewportEvent).toBe("tab-browser:390x844");
-    expect(cursorEvent).toBe("tab-browser:12,34:true");
-    expect(releasedEvent).toBe("tab-browser");
-    expect(service.getBrowserUseStateSnapshot().activeTabId).toBe(null);
+    expect(viewportEvent).toBe("session-1/tab-browser:390x844");
+    expect(JSON.stringify(cursorEvents)).toBe(JSON.stringify([
+      "session-1/tab-browser:12,34:true",
+      "session-2/tab-browser:98,76:false",
+    ]));
+    expect(releasedEvent).toBe("session-1/tab-browser");
+    expect(service.getBrowserUseStateSnapshot().activeBrowserTabIdsByConversation["session-1"] === undefined).toBe(true);
+    expect(JSON.stringify(service.getBrowserUseStateSnapshot().cursors)).toBe(JSON.stringify([
+      {
+        browserConversationId: "session-2",
+        browserTabId: "tab-browser",
+        x: 98,
+        y: 76,
+        visible: false,
+        updatedAt: 2,
+      },
+    ]));
+    expect(readTab(service).url).toBe("https://ordinary.example");
+    expect(readTab(service).deviceToolbarVisible).toBe(true);
+    expect(readTab(service).deviceToolbarState.toolbarState.isEnabled).toBe(true);
+    expect(service.getDeviceToolbarTabState(browserIdentity).toolbarState.isEnabled).toBe(false);
+  });
+
+  test("conversation teardown removes only that composite browser namespace", async () => {
+    const service = createService();
+    const secondIdentity = {
+      browserConversationId: "session-2",
+      browserTabId: browserIdentity.browserTabId,
+    } as const;
+    let pageReleasedCount = 0;
+    service.on("pageReleased", () => {
+      pageReleasedCount += 1;
+    });
+
+    for (const identity of [browserIdentity, secondIdentity]) {
+      await service.handleCommand({
+        type: "register-tab",
+        ...identity,
+        projectId: null,
+        initialUrl: `https://${identity.browserConversationId}.example`,
+      });
+      await service.handleCommand({
+        type: "browser-use-upsert-tab",
+        tab: {
+          ...identity,
+          projectId: null,
+          title: identity.browserConversationId,
+          url: `https://${identity.browserConversationId}.example`,
+          webContentsId: null,
+          viewport: { width: 390, height: 844, zoomPercent: 100, presetId: "responsive" },
+          captureActive: true,
+          released: false,
+          updatedAt: 1,
+        },
+      });
+      await service.handleCommand({
+        type: "browser-use-set-cursor",
+        cursor: { ...identity, x: 1, y: 2, visible: true, updatedAt: 1 },
+      });
+    }
+
+    service.closeBrowserConversation(browserIdentity.browserConversationId);
+
+    expect(service.getStateSnapshot().tabs.length).toBe(1);
+    expect(readTab(service, secondIdentity).url).toBe("https://session-2.example");
+    expect(service.getBrowserUseStateSnapshot().tabs.length).toBe(1);
+    expect(service.getBrowserUseStateSnapshot().tabs[0]?.browserConversationId).toBe("session-2");
+    expect(service.getBrowserUseStateSnapshot().cursors.length).toBe(1);
+    expect(service.getBrowserUseStateSnapshot().cursors[0]?.browserConversationId).toBe("session-2");
+    expect(pageReleasedCount).toBe(0);
   });
 });

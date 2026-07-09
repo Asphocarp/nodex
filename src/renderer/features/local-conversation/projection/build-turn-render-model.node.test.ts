@@ -1,7 +1,17 @@
 import { describe, expect, test } from "vitest";
-import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
+import type {
+  CodexConversationItem,
+  CodexConversationTurn,
+  CodexOptionPickerRequest,
+  CodexPermissionRequest,
+} from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
-import { buildTurnRenderModel } from "./build-turn-render-model";
+import type { VisibleConversationTurnEntry } from "../selectors";
+import type { ThreadComposerShellBackgroundAgentRowModel } from "../thread-stage-types";
+import {
+  buildTurnRenderModel,
+  createTurnRenderModelSelector,
+} from "./build-turn-render-model";
 
 const LIVE_DIFF = [
   "--- a/src/app.ts",
@@ -23,6 +33,21 @@ function buildTurn(overrides: Partial<CodexConversationTurn> = {}): CodexConvers
   };
 }
 
+function buildVisibleEntry(
+  turn: CodexConversationTurn,
+  isMostRecentTurn = true,
+): VisibleConversationTurnEntry {
+  const turnKey = turn.turnId ?? "turn-index-0";
+  return {
+    turn,
+    turnId: turn.turnId,
+    turnKey,
+    turnSearchKey: turnKey,
+    requests: [],
+    isMostRecentTurn,
+  };
+}
+
 function buildTurnDiffItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
   return {
     threadId: "thread_1",
@@ -41,6 +66,66 @@ function buildTurnDiffItem(overrides: Partial<CodexConversationItem> = {}): Code
     updatedAt: 1,
     ...overrides,
   };
+}
+
+function buildSubagentActivityItem(): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "subagent_activity_1",
+    entryId: "subagent_activity_1",
+    type: "subAgentActivity",
+    kind: "systemEvent",
+    semanticKind: "subAgentActivity",
+    subagentActivity: {
+      agentThreadId: "thread_child",
+      displayName: "Scout",
+      displayStatus: "active",
+    },
+    rawItem: {
+      id: "subagent_activity_1",
+      type: "subAgentActivity",
+      kind: "started",
+      agentThreadId: "thread_child",
+      agentPath: "Scout",
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function buildBackgroundAgent(
+  overrides: Partial<ThreadComposerShellBackgroundAgentRowModel> = {},
+): ThreadComposerShellBackgroundAgentRowModel {
+  return {
+    conversationId: "thread_child",
+    parentTurnKey: "turn_1",
+    displayName: "Scout",
+    actorName: "Scout",
+    agentRole: null,
+    spawnModel: null,
+    status: "active",
+    statusSummary: null,
+    showInlineActivity: true,
+    diffStats: null,
+    role: "backgroundChild",
+    ...overrides,
+  };
+}
+
+function readFirstSubagentActivityStatus(model: ReturnType<typeof buildTurnRenderModel>): string | null {
+  for (const unit of model.agentBodyUnits) {
+    const entries = unit.block.type === "agentActivityGroup"
+      ? unit.block.entries
+      : unit.block.type === "subagentActivityInlineGroup"
+        ? [unit.block]
+        : [];
+    const subagent = entries.find((entry) => entry.type === "subagentActivityInlineGroup");
+    if (subagent?.type === "subagentActivityInlineGroup") {
+      return subagent.subagentActivityRows?.[0]?.activityStatus ?? null;
+    }
+  }
+  return null;
 }
 
 function buildFileChangeItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
@@ -146,6 +231,9 @@ function buildMcpToolItem(overrides: Partial<CodexConversationItem> = {}): Codex
     mcpToolCall: {
       callId: "mcp_1",
       functionName: "browser-use__click",
+      pluginId: null,
+      mcpAppResourceUri: undefined,
+      source: null,
       invocation: { server: "browser-use", tool: "click", arguments: {} },
       result: null,
       durationMs: null,
@@ -176,7 +264,200 @@ function buildAssistantItem(overrides: Partial<CodexConversationItem> = {}): Cod
   };
 }
 
+function buildPermissionRequest(completed = false): CodexPermissionRequest {
+  return {
+    type: "permissionRequest",
+    requestId: "permission-1",
+    projectId: "project-1",
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "permission-item-1",
+    cwd: "/workspace/nodex",
+    reason: "Allow the test runner to access the network",
+    permissions: {
+      network: { enabled: true },
+      fileSystem: null,
+    },
+    response: null,
+    completed,
+    createdAt: 3,
+  };
+}
+
+function buildOptionPickerRequest(): CodexOptionPickerRequest {
+  return {
+    type: "optionPicker",
+    requestId: "option-1",
+    projectId: "project-1",
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "option-item-1",
+    question: "Choose the next slice",
+    options: [{ label: "Composer", description: "Wire the request lane" }],
+    allowMultiple: false,
+    submitLabel: null,
+    skipLabel: null,
+    createdAt: 3,
+  };
+}
+
 describe("buildTurnRenderModel", () => {
+  test("refreshes subagent activity from the background-agent catalog for the parent turn", () => {
+    const turn = buildTurn({
+      itemIds: ["subagent_activity_1"],
+      items: [buildSubagentActivityItem()],
+    });
+    const entry = buildVisibleEntry(turn);
+    const selectModel = createTurnRenderModelSelector();
+    const active = selectModel({
+      entry,
+      backgroundAgents: [buildBackgroundAgent()],
+    });
+    const done = selectModel({
+      entry,
+      backgroundAgents: [buildBackgroundAgent({ status: "done" })],
+    });
+
+    expect(readFirstSubagentActivityStatus(active)).toBe("started");
+    expect(readFirstSubagentActivityStatus(done)).toBe("done");
+    expect(done).not.toBe(active);
+  });
+
+  test("uses no-anchor subagent state for auto-collapse without creating an inline leaf", () => {
+    const turn = buildTurn({
+      status: "completed",
+      itemIds: ["exec_1", "assistant_1"],
+      items: [
+        buildExecItem({ status: "completed" }),
+        buildAssistantItem(),
+      ],
+    });
+    const active = buildTurnRenderModel({
+      turn,
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      backgroundAgents: [buildBackgroundAgent()],
+    });
+    const done = buildTurnRenderModel({
+      turn,
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      backgroundAgents: [buildBackgroundAgent({ status: "done" })],
+    });
+
+    expect(active.hasRenderableAgentBodyUnits).toBe(true);
+    expect(active.defaultAgentBodyCollapsed).toBe(false);
+    expect(done.defaultAgentBodyCollapsed).toBe(true);
+    expect(active.blocks.some((block) => block.type === "subagentActivityInlineGroup")).toBe(false);
+  });
+
+  test("lets a no-anchor subagent move commentary into activity while Thinking stays standalone", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        itemIds: ["assistant_1"],
+        items: [
+          buildAssistantItem({
+            assistantPhase: "commentary",
+            markdownText: "I delegated the audit and will keep working.",
+          }),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      backgroundAgents: [buildBackgroundAgent()],
+    });
+
+    expect(model.agentBodyUnits.map((unit) => unit.block.type)).toEqual(["assistantMessage"]);
+    expect(model.trailingBlocks.map((block) => block.type)).toEqual(["thinkingPlaceholder"]);
+    expect(model.blocks.some((block) => block.type === "subagentActivityInlineGroup")).toBe(false);
+  });
+
+  test("projects one main-surface model per stable entry and action policy", () => {
+    let projectionCount = 0;
+    const selectModel = createTurnRenderModelSelector((input) => {
+      projectionCount += 1;
+      return buildTurnRenderModel(input);
+    });
+    const entry = buildVisibleEntry(buildTurn());
+
+    const bodyRead = selectModel({ entry });
+    const fixedOwnerRead = selectModel({ entry });
+    const virtualRowRead = selectModel({ entry });
+    const navigationRead = selectModel({ entry });
+
+    expect(bodyRead).toBe(fixedOwnerRead);
+    expect(bodyRead).toBe(virtualRowRead);
+    expect(bodyRead).toBe(navigationRead);
+    expect(bodyRead.isLatestTurn).toBe(true);
+    expect(bodyRead.isStreamingTurn).toBe(true);
+    expect(projectionCount).toBe(1);
+
+    const previewRead = selectModel({ entry, surface: "preview" });
+    expect(previewRead === bodyRead).toBe(false);
+    expect(projectionCount).toBe(2);
+
+    const interactiveRead = selectModel({ entry, canEditTurnUserPrefix: true });
+    expect(interactiveRead === bodyRead).toBe(false);
+    expect(projectionCount).toBe(3);
+  });
+
+  test("reprojects when canonical entry identity or recency changes", () => {
+    let projectionCount = 0;
+    const selectModel = createTurnRenderModelSelector((input) => {
+      projectionCount += 1;
+      return buildTurnRenderModel(input);
+    });
+    const turn = buildTurn({ status: "completed" });
+    const latestEntry = buildVisibleEntry(turn, true);
+    const historicalEntry = buildVisibleEntry(turn, false);
+
+    const latest = selectModel({ entry: latestEntry });
+    const historical = selectModel({ entry: historicalEntry });
+
+    expect(latest.isLatestTurn).toBe(true);
+    expect(historical.isLatestTurn).toBe(false);
+    expect(latest.isStreamingTurn).toBe(false);
+    expect(projectionCount).toBe(2);
+  });
+
+  test("treats only unresolved permission requests as first-class turn blockers", () => {
+    const unresolved = buildTurnRenderModel({
+      turn: buildTurn(),
+      requests: [buildPermissionRequest()],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+    const completed = buildTurnRenderModel({
+      turn: buildTurn(),
+      requests: [buildPermissionRequest(true)],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+
+    expect(unresolved.buckets.permissionRequestItems.length).toBe(1);
+    expect(unresolved.isBlocked).toBe(true);
+    expect(unresolved.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(false);
+    expect(completed.buckets.permissionRequestItems.length).toBe(0);
+    expect(completed.isBlocked).toBe(false);
+    expect(completed.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(true);
+  });
+
+  test("blocks the active turn on private picker requests without rendering them inline", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn(),
+      requests: [buildOptionPickerRequest()],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+
+    expect(model.buckets.interactiveRequestItem?.request.type).toBe("optionPicker");
+    expect(model.isBlocked).toBe(true);
+    expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(false);
+  });
+
   test("derives live turn-diff from turn.diff before any fileChange item exists", () => {
     const model = buildTurnRenderModel({
       turn: buildTurn({ diff: LIVE_DIFF, itemIds: [], items: [] }),
@@ -192,6 +473,63 @@ describe("buildTurnRenderModel", () => {
       ? model.aboveComposerBlocks[0].entry.rawItem as { unifiedDiff?: unknown } | undefined
       : null;
     expect(String(rawItem?.unifiedDiff ?? "").includes("+next")).toBe(true);
+  });
+
+  test("never lets a non-latest historical turn own fixed above-composer content", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({ diff: LIVE_DIFF, itemIds: [], items: [] }),
+      requests: [],
+      isLatestTurn: false,
+      isStreamingTurn: true,
+    });
+
+    expect(model.aboveComposerBlocks?.length ?? 0).toBe(0);
+  });
+
+  test("does not create a fixed or completed turn-diff surface without actual changes", () => {
+    const headerOnlyDiff = "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts";
+    const active = buildTurnRenderModel({
+      turn: buildTurn({ diff: headerOnlyDiff, itemIds: [], items: [] }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+    const completed = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        diff: headerOnlyDiff,
+        itemIds: [],
+        items: [],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: false,
+    });
+
+    expect(active.aboveComposerBlocks?.length ?? 0).toBe(0);
+    expect(active.blocks.some((block) => block.type === "turnDiff")).toBe(false);
+    expect(completed.blocks.some((block) => block.type === "turnDiff")).toBe(false);
+  });
+
+  test("drops an explicit transcript turn-diff without actual changes", () => {
+    const headerOnlyDiff = "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts";
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        itemIds: ["turn-diff:turn_1"],
+        items: [buildTurnDiffItem({
+          rawItem: {
+            type: "turn-diff",
+            unifiedDiff: headerOnlyDiff,
+          },
+        })],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: false,
+    });
+
+    expect(model.blocks.some((block) => block.type === "turnDiff")).toBe(false);
   });
 
   test("keeps an addressable search unit for empty user messages", () => {
@@ -244,6 +582,9 @@ describe("buildTurnRenderModel", () => {
             mcpToolCall: {
               callId: "mcp_1",
               functionName: "docs__search",
+              pluginId: null,
+              mcpAppResourceUri: undefined,
+              source: null,
               invocation: { server: "docs", tool: "search", arguments: { query: "HIDDEN_MCP_QUERY" } },
               result: {
                 type: "success",
@@ -252,6 +593,7 @@ describe("buildTurnRenderModel", () => {
                 raw: {
                   content: [{ type: "text", text: "HIDDEN_MCP_RESULT" }],
                   structuredContent: null,
+                  _meta: null,
                 },
               },
               durationMs: 100,
@@ -318,7 +660,7 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
     expect(model.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
-    expect(model.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
+    expect(model.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
   });
 
   test("keeps the live turn-diff portal stable across fileChange streaming updates", () => {
@@ -364,8 +706,8 @@ describe("buildTurnRenderModel", () => {
     expect(beforeFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
     expect(withFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
     expect(withUpdatedFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
-    expect(withFileChange.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
-    expect(withUpdatedFileChange.blocks.map((block) => block.type).join(",")).toBe("collapsedToolActivity");
+    expect(withFileChange.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
+    expect(withUpdatedFileChange.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
   });
 
   test("keeps latest live single dynamic and MCP activity grouped until assistant content starts", () => {
@@ -403,11 +745,11 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: true,
     });
 
-    expect(liveDynamic.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("dynamicToolCallGroup");
-    expect(liveDynamic.blocks.map((block) => block.type).join(",")).toBe("dynamicToolCallGroup");
-    expect(liveMcp.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("pendingMcpToolCalls");
-    expect(afterAssistantStarts.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("dynamicToolCall");
-    expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe("dynamicToolCall,assistantMessage,thinkingPlaceholder");
+    expect(liveDynamic.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
+    expect(liveDynamic.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
+    expect(liveMcp.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
+    expect(afterAssistantStarts.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
+    expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup,assistantMessage");
   });
 
   test("keeps the live turn-diff banner when a live fileChange has no renderable patch entries", () => {
@@ -464,8 +806,8 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: true,
     });
 
-    expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("workedFor,exec");
-    expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,exec");
+    expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("workedFor,agentActivityGroup");
+    expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,agentActivityGroup");
     expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBe(false);
     expect(model.searchableText.includes("Working")).toBe(false);
   });
@@ -537,5 +879,51 @@ describe("buildTurnRenderModel", () => {
     expect(model.workedForItem).toBe(null);
     expect(model.agentBodyUnits.some((unit) => unit.block.type === "workedFor")).toBe(false);
     expect(model.collapsedMessageCount).toBe(1);
+  });
+
+  test("routes the production turn through exact maximal v2 units and identity keys", () => {
+    const handoff = buildDynamicToolItem({
+      itemId: "handoff_1",
+      entryId: "handoff_1",
+      status: "completed",
+      dynamicToolCall: {
+        callId: "handoff_1",
+        namespace: "codex_app",
+        tool: "handoff_thread",
+        arguments: { threadId: "thread_child" },
+        status: "completed",
+        contentItems: null,
+        success: true,
+        durationMs: 10,
+        completed: true,
+      },
+    });
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        itemIds: ["exec_1", "handoff_1", "patch_live"],
+        items: [
+          buildExecItem({ status: "completed" }),
+          handoff,
+          buildFileChangeItem({ status: "completed" }),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: false,
+      isStreamingTurn: false,
+    });
+
+    expect(model.agentBodyUnits.map((unit) => unit.kind).join(",")).toBe(
+      "agentActivityGroup,entry,agentActivityGroup",
+    );
+    expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "agentActivityGroup,dynamicToolCall,agentActivityGroup",
+    );
+    expect(model.agentBodyUnits.map((unit) => unit.block.renderKey).join(",")).toBe(
+      "agent-activity-group:exec:0,agent-activity-standalone:handoff_1,agent-activity-group:patch_live",
+    );
+    expect(model.agentBodyUnits.map((unit) => (
+      unit.targetAttributes?.["data-local-conversation-item-target-ids"] ?? "none"
+    )).join(",")).toBe("none,handoff_1,patch_live");
   });
 });

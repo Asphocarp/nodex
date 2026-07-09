@@ -1,5 +1,7 @@
 import type {
   CodexBackgroundTerminalRow,
+  CodexCanonicalConversationState,
+  CodexCanonicalServerRequest,
   CodexConversationChildMembership,
   CodexConversationCapabilityFlags,
   CodexConversationItem,
@@ -41,8 +43,13 @@ function sortTurnItemsByCanonicalOrder(
   }
 
   const orderByItemId = new Map(turn.itemIds.map((itemId, index) => [itemId, index]));
+  const paramsItemId = turn.turnId === null ? null : `${turn.turnId}:input`;
 
   return [...entries].sort((left, right) => {
+    if (paramsItemId !== null) {
+      if (left.itemId === paramsItemId && right.itemId !== paramsItemId) return -1;
+      if (right.itemId === paramsItemId && left.itemId !== paramsItemId) return 1;
+    }
     const leftOrder = orderByItemId.get(left.itemId);
     const rightOrder = orderByItemId.get(right.itemId);
 
@@ -59,8 +66,12 @@ export function buildCodexConversationTurn(
   detail: CodexThreadDetail,
   turn: CodexThreadDetail["turns"][number],
 ): CodexConversationTurn {
+  const nullableTurnId = (turn as { turnId: string | null }).turnId;
+  const projectedItemIds = new Set(turn.itemIds);
   const items = detail.transcript
-    .filter((entry) => entry.turnId === turn.turnId)
+    .filter((entry) => nullableTurnId === null && projectedItemIds.size > 0
+      ? projectedItemIds.has(entry.itemId)
+      : entry.turnId === turn.turnId)
     .sort(sortConversationItems);
 
   const orderedItems = sortTurnItemsByCanonicalOrder(items, turn)
@@ -76,6 +87,10 @@ export function buildCodexConversationSnapshot(input: {
   detail: CodexThreadDetail;
   resumeState: CodexConversationResumeState;
   requests: CodexConversationServerRequest[];
+  canonicalState?: CodexCanonicalConversationState | null;
+  canonicalRequests?: readonly CodexCanonicalServerRequest[];
+  hasUnreadTurn?: boolean;
+  unreadMessageCount?: number;
   queuedFollowUps?: CodexQueuedFollowUp[];
   pendingSteers?: CodexPendingSteer[];
   backgroundTerminalRows?: CodexBackgroundTerminalRow[];
@@ -108,7 +123,13 @@ export function buildCodexConversationSnapshot(input: {
       itemsView: "full",
     },
     turns: input.detail.turns.map((turn) => buildCodexConversationTurn(input.detail, turn)),
-    requests: [...input.requests].sort((left, right) => left.createdAt - right.createdAt),
+    canonicalState: input.canonicalState ?? null,
+    canonicalRequests: [...(input.canonicalRequests ?? [])],
+    hasUnreadTurn: input.hasUnreadTurn ?? false,
+    ...(input.unreadMessageCount === undefined
+      ? {}
+      : { unreadMessageCount: input.unreadMessageCount }),
+    requests: [...input.requests],
     queuedFollowUps: [...(input.queuedFollowUps ?? [])].sort((left, right) => left.createdAt - right.createdAt),
     pendingSteers: [...(input.pendingSteers ?? [])].sort((left, right) => left.createdAt - right.createdAt),
     backgroundTerminalRows: [...(input.backgroundTerminalRows ?? [])],

@@ -12,6 +12,7 @@ import type {
   BrowserSidebarCommand,
   BrowserSidebarCommandResult,
   BrowserSidebarFindState,
+  BrowserSidebarTabIdentity,
 } from "../../../shared/browser-sidebar";
 import {
   CONTENT_SEARCH_DEBOUNCE_MS,
@@ -52,11 +53,19 @@ export interface ContentSearchLocalSource {
   clear: () => void;
 }
 
-export interface ContentSearchBrowserTarget {
-  tabId: string;
+export interface ContentSearchBrowserTarget extends BrowserSidebarTabIdentity {
   available: boolean;
   findState: BrowserSidebarFindState;
   command: (command: BrowserSidebarCommand) => Promise<BrowserSidebarCommandResult>;
+}
+
+function browserTargetIdentity(
+  target: ContentSearchBrowserTarget,
+): BrowserSidebarTabIdentity {
+  return {
+    browserConversationId: target.browserConversationId,
+    browserTabId: target.browserTabId,
+  };
 }
 
 interface ContentSearchState {
@@ -181,7 +190,7 @@ export function ContentSearchProvider({
     }
     const target = browserTargetRef.current;
     if (target?.available) {
-      void target.command({ type: "close-find", tabId: target.tabId });
+      void target.command({ type: "close-find", ...browserTargetIdentity(target) });
     }
     setState((current) => ({
       ...current,
@@ -261,7 +270,9 @@ export function ContentSearchProvider({
     const domain = state.domain;
     if (domain === "browser") {
       const target = browserTargetRef.current;
-      if (target?.available) void target.command({ type: "find-next", tabId: target.tabId });
+      if (target?.available) {
+        void target.command({ type: "find-next", ...browserTargetIdentity(target) });
+      }
       return;
     }
     stepLocal(domain, 1);
@@ -271,7 +282,9 @@ export function ContentSearchProvider({
     const domain = state.domain;
     if (domain === "browser") {
       const target = browserTargetRef.current;
-      if (target?.available) void target.command({ type: "find-previous", tabId: target.tabId });
+      if (target?.available) {
+        void target.command({ type: "find-previous", ...browserTargetIdentity(target) });
+      }
       return;
     }
     stepLocal(domain, -1);
@@ -327,7 +340,7 @@ export function ContentSearchProvider({
     const query = state.queryByDomain.browser;
     void target.command({
       type: "set-find-query",
-      tabId: target.tabId,
+      ...browserTargetIdentity(target),
       query,
     });
   }, [state.domain, state.open, state.queryByDomain.browser, browserTarget]);

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { FileIcon, LoaderCircleIcon, SparklesIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, LoaderCircleIcon, SparklesIcon } from "lucide-react";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,
@@ -140,13 +140,62 @@ export function ImagePreviewDialog({
   open,
   onOpenChange,
   src,
+  downloadSrc = src,
+  downloadFileName,
   alt = "User attachment",
+  onPreviousImage,
+  onNextImage,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   src: string;
+  downloadSrc?: string;
+  downloadFileName?: string;
   alt?: string;
+  onPreviousImage?: () => void;
+  onNextImage?: () => void;
 }) {
+  const resolvedDownloadFileName = downloadFileName ?? alt;
+  const handleDownload = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!downloadSrc.startsWith("data:")) return;
+
+    event.preventDefault();
+    const [metadata = "", base64 = ""] = downloadSrc.split(",", 2);
+    const mimeType = /^data:([^;,]+)/u.exec(metadata)?.[1] ?? "application/octet-stream";
+    const bytes = metadata.includes(";base64")
+      ? Uint8Array.from(window.atob(base64), (character) => character.charCodeAt(0))
+      : new TextEncoder().encode(decodeURIComponent(base64));
+    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = resolvedDownloadFileName;
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft" && onPreviousImage) {
+        event.preventDefault();
+        onPreviousImage();
+        return;
+      }
+      if (event.key === "ArrowRight" && onNextImage) {
+        event.preventDefault();
+        onNextImage();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onNextImage, onPreviousImage, open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -157,12 +206,43 @@ export function ImagePreviewDialog({
       >
         <DialogTitle className="sr-only">Image preview</DialogTitle>
         <DialogDescription className="sr-only">Preview of the selected image.</DialogDescription>
-        <img
-          src={src}
-          alt={alt}
-          referrerPolicy="no-referrer"
-          className="max-h-[82vh] w-full rounded-lg object-contain"
-        />
+        <a
+          href={downloadSrc}
+          download={resolvedDownloadFileName}
+          aria-label="Download image"
+          className="absolute top-3 right-11 z-20 flex size-8 cursor-interaction items-center justify-center rounded-md text-token-text-secondary hover:bg-token-bg-tertiary hover:text-token-text-primary focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+          onClick={handleDownload}
+        >
+          <DownloadIcon className="icon-xs" aria-hidden="true" />
+        </a>
+        <div className="relative flex min-h-0 items-center justify-center">
+          <img
+            src={src}
+            alt={alt}
+            referrerPolicy="no-referrer"
+            className="max-h-[82vh] w-full rounded-lg object-contain"
+          />
+          {onPreviousImage ? (
+            <button
+              type="button"
+              aria-label="Previous image"
+              className="absolute left-3 flex size-8 cursor-interaction items-center justify-center rounded-full bg-black/55 text-white shadow-sm backdrop-blur-sm hover:bg-black/70 focus-visible:ring-1 focus-visible:ring-white focus-visible:outline-none"
+              onClick={onPreviousImage}
+            >
+              <ChevronLeftIcon className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
+          {onNextImage ? (
+            <button
+              type="button"
+              aria-label="Next image"
+              className="absolute right-3 flex size-8 cursor-interaction items-center justify-center rounded-full bg-black/55 text-white shadow-sm backdrop-blur-sm hover:bg-black/70 focus-visible:ring-1 focus-visible:ring-white focus-visible:outline-none"
+              onClick={onNextImage}
+            >
+              <ChevronRightIcon className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
       </DialogContent>
     </Dialog>
   );

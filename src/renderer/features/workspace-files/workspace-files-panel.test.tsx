@@ -171,6 +171,7 @@ function makeFilesTab(selectedPath?: string): WorkspaceFilesTab {
     id: "files-tab",
     sessionId: activeSession.id,
     projectId: project.id,
+    browserTabId: null,
     panelId: "right",
     kind: "files",
     title: selectedPath ? selectedPath.split("/").at(-1) ?? "Files" : "Files",

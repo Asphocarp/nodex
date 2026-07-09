@@ -1,10 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
-import type { SidebarPinnedOrganizationMode, SpaceRef } from "@/lib/use-workbench-state";
+import type { SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexAutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
+import {
+  codexSidebarProjectThreadContainerId,
+  isCodexSidebarThreadContainerId,
+  readCodexSidebarThreadContainerLocation,
+} from "../../../shared/codex-sidebar-thread-move";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
@@ -32,6 +37,17 @@ import {
   useSidebarGroupReorderController,
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
+import {
+  SidebarThreadDropContainer,
+  SidebarThreadDropIndicator,
+  SidebarThreadReorderDndProvider,
+  SidebarThreadReorderRows,
+  SidebarThreadSortableContext,
+  SidebarThreadSortableItem,
+  useSidebarThreadReorderController,
+  type SidebarThreadDropRequest,
+} from "./sidebar-thread-reorder";
+import { replaceVisibleCodexSidebarThreadKeyOrder } from "@/lib/codex-sidebar-thread-sync";
 import {
   CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
   CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
@@ -409,8 +425,6 @@ function CodexProjectsHarness({
   projects?: Project[];
   revealProjectDisclosureChevrons?: boolean;
 }) {
-  const [pinnedOrganizationMode, setPinnedOrganizationMode] = useState<SidebarPinnedOrganizationMode>("byProject");
-
   useEffect(() => {
     if (!openActionsFor) return;
     const frameId = window.requestAnimationFrame(() => {
@@ -461,8 +475,6 @@ function CodexProjectsHarness({
             onDeleteProject={async () => true}
             onUpdateProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}
             projectPickerOpenTick={0}
-            pinnedOrganizationMode={pinnedOrganizationMode}
-            onPinnedOrganizationModeChange={setPinnedOrganizationMode}
           />
         </div>
       </div>
@@ -694,6 +706,7 @@ function makeStorySession(input: {
         id: tabId,
         sessionId: input.id,
         projectId: "nodex",
+        browserTabId: null,
         panelId: "right",
         kind: "db_view",
         title: "DB View",
@@ -839,6 +852,405 @@ function ThreadRowsList({
         ))}
       </div>
     </div>
+  );
+}
+
+function CodexPinnedThreadsSortableHarness() {
+  const items = useMemo(() => {
+    const first = makeSidebarThreadItem({
+      key: "local:thread-a",
+      threadId: "thread-a",
+      title: "Pinned conversation A",
+      pinned: true,
+      pinnedOrder: 0,
+    });
+    const pending: CodexSidebarThreadItem = {
+      ...makeSidebarThreadItem({
+        key: "local:client-new-thread:pending",
+        threadId: "client-new-thread:pending",
+        title: "Pending delegated conversation",
+        kind: "pending-worktree",
+        pinned: true,
+      }),
+      pendingWorktreeId: "pending-worktree:story",
+      clientThreadId: "client-new-thread:pending",
+      pinnedBeforeThreadId: "thread-b",
+      sessionId: null,
+    };
+    const second = makeSidebarThreadItem({
+      key: "local:thread-b",
+      threadId: "thread-b",
+      title: "Pinned conversation B",
+      pinned: true,
+      pinnedOrder: 1,
+    });
+    return [first, pending, second];
+  }, []);
+  const itemsByKey = useMemo(
+    () => new Map(items.map((item) => [item.key, item] as const)),
+    [items],
+  );
+  const [visibleThreadKeys, setVisibleThreadKeys] = useState(() =>
+    items.map((item) => item.key)
+  );
+  const reorder = useSidebarThreadReorderController({
+    visibleThreadKeys,
+    onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
+      setVisibleThreadKeys(nextVisibleThreadKeys);
+    },
+  });
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Pinned" collapsed={false} onToggle={() => {}}>
+        <SidebarThreadReorderDndProvider>
+          <SidebarThreadSortableContext threadKeys={reorder.displayedVisibleThreadKeys}>
+            <div className="isolate flex flex-col [contain:layout]">
+              <div className="flex flex-col" role="list" aria-label="Pinned chats">
+                {reorder.displayedVisibleThreadKeys.map((threadKey) => {
+                  const item = itemsByKey.get(threadKey);
+                  if (!item) return null;
+                  return (
+                    <Fragment key={threadKey}>
+                      {reorder.dropIndicatorTarget?.beforeThreadKey === threadKey
+                        ? <SidebarThreadDropIndicator />
+                        : null}
+                      <SidebarThreadSortableItem
+                        threadKey={threadKey}
+                        controller={reorder.controller}
+                      >
+                        <CodexSidebarThreadRow
+                          item={item}
+                          active={false}
+                          onSelect={() => {}}
+                          onArchive={() => {}}
+                          onTogglePinned={() => {}}
+                        />
+                      </SidebarThreadSortableItem>
+                    </Fragment>
+                  );
+                })}
+                {reorder.dropIndicatorTarget?.beforeThreadKey === null
+                  ? <SidebarThreadDropIndicator />
+                  : null}
+              </div>
+            </div>
+          </SidebarThreadSortableContext>
+        </SidebarThreadReorderDndProvider>
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
+function CodexPinnedProjectThreadsSortableHarness() {
+  const project = useMemo(() => ({
+    ...SIDEBAR_PARITY_PROJECTS[0]!,
+    pinned: true,
+    pinnedOrder: 0,
+  }), []);
+  const items = useMemo(() => {
+    const first = makeSidebarThreadItem({
+      key: "local:project-thread-a",
+      threadId: "project-thread-a",
+      sessionId: "project-session-a",
+      projectId: project.id,
+      title: "Project-local conversation A",
+    });
+    const pending: CodexSidebarThreadItem = {
+      ...makeSidebarThreadItem({
+        key: "local:project-pending",
+        threadId: "client-new-thread:project-pending",
+        sessionId: null,
+        projectId: project.id,
+        kind: "pending-worktree",
+        title: "Pending worktree (visible, fixed)",
+      }),
+      pendingWorktreeId: "pending-worktree:project-story",
+      clientThreadId: "client-new-thread:project-pending",
+      pinnedBeforeThreadId: null,
+      sessionId: null,
+    };
+    const second = makeSidebarThreadItem({
+      key: "local:project-thread-b",
+      threadId: "project-thread-b",
+      sessionId: "project-session-b",
+      projectId: project.id,
+      title: "Project-local conversation B",
+    });
+    return [first, pending, second];
+  }, [project.id]);
+  const itemsByKey = useMemo(
+    () => new Map(items.map((item) => [item.key, item] as const)),
+    [items],
+  );
+  const sortableThreadKeys = useMemo(
+    () => items.filter((item) => item.sessionId !== null).map((item) => item.key),
+    [items],
+  );
+  const [threadKeys, setThreadKeys] = useState(() => items.map((item) => item.key));
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Pinned" collapsed={false} onToggle={() => {}}>
+        <SidebarThreadReorderDndProvider>
+          <div className="isolate flex flex-col [contain:layout]">
+            <div className="flex flex-col" role="list" aria-label="Pinned projects">
+              <CodexProjectRow
+                project={project}
+                active
+                expanded
+                onActivate={() => {}}
+                onStartNewChat={() => {}}
+                onUpdateProject={async () => project}
+                onDeleteProject={async () => false}
+              >
+                <CodexProjectSessionList project={project}>
+                  <SidebarThreadReorderRows
+                    visibleThreadKeys={threadKeys}
+                    sortableThreadKeys={sortableThreadKeys}
+                    onVisibleThreadOrderChange={async ({
+                      visibleThreadKeys,
+                      nextVisibleThreadKeys,
+                    }) => {
+                      setThreadKeys((current) => replaceVisibleCodexSidebarThreadKeyOrder({
+                        threadKeysInDisplayOrder: current,
+                        visibleThreadKeys,
+                        nextVisibleThreadKeys,
+                      }));
+                    }}
+                    renderThread={(threadKey) => {
+                      const item = itemsByKey.get(threadKey);
+                      if (!item) return null;
+                      return (
+                        <CodexSidebarThreadRow
+                          item={item}
+                          active={false}
+                          onSelect={() => {}}
+                          onArchive={() => {}}
+                          onTogglePinned={() => {}}
+                        />
+                      );
+                    }}
+                  />
+                </CodexProjectSessionList>
+              </CodexProjectRow>
+            </div>
+          </div>
+        </SidebarThreadReorderDndProvider>
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
+function CodexCrossProjectThreadDropHarness() {
+  const projects = useMemo(() => SIDEBAR_PARITY_PROJECTS.slice(0, 2), []);
+  const items = useMemo(() => [
+    makeSidebarThreadItem({
+      key: "local:cross-alpha",
+      threadId: "cross-alpha",
+      sessionId: "session-cross-alpha",
+      projectId: projects[0]?.id ?? "nodex",
+      title: "Drag me between projects",
+    }),
+    makeSidebarThreadItem({
+      key: "local:cross-alpha-pinned",
+      threadId: "cross-alpha-pinned",
+      sessionId: "session-cross-alpha-pinned",
+      projectId: projects[0]?.id ?? "nodex",
+      pinned: true,
+      pinnedOrder: 0,
+      title: "Pinned inside this project",
+    }),
+    makeSidebarThreadItem({
+      key: "local:cross-beta",
+      threadId: "cross-beta",
+      sessionId: "session-cross-beta",
+      projectId: projects[1]?.id ?? "codex-electron",
+      title: "Destination anchor task",
+    }),
+    makeSidebarThreadItem({
+      key: "local:cross-chats",
+      threadId: "cross-chats",
+      sessionId: "session-cross-chats",
+      projectId: null,
+      projectless: true,
+      title: "Projectless Chats task",
+    }),
+    makeSidebarThreadItem({
+      key: "local:cross-projectless-pinned",
+      threadId: "cross-projectless-pinned",
+      sessionId: "session-cross-projectless-pinned",
+      projectId: null,
+      projectless: true,
+      pinned: true,
+      pinnedOrder: 1,
+      title: "Global projectless pin",
+    }),
+  ], [projects]);
+  const itemsByKey = useMemo(
+    () => new Map(items.map((item) => [item.key, item] as const)),
+    [items],
+  );
+  const threadKeyById = useMemo(
+    () => new Map(items.map((item) => [item.threadId, item.key] as const)),
+    [items],
+  );
+  const firstProjectContainerId = `project:${projects[0]?.id ?? "nodex"}`;
+  const firstProjectPinnedContainerId = `project-pinned:${projects[0]?.id ?? "nodex"}`;
+  const secondProjectContainerId = `project:${projects[1]?.id ?? "codex-electron"}`;
+  const secondProjectPinnedContainerId = `project-pinned:${projects[1]?.id ?? "codex-electron"}`;
+  const [threadKeysByContainer, setThreadKeysByContainer] = useState<Record<string, string[]>>({
+    [firstProjectContainerId]: ["local:cross-alpha"],
+    [firstProjectPinnedContainerId]: ["local:cross-alpha-pinned"],
+    [secondProjectContainerId]: ["local:cross-beta"],
+    [secondProjectPinnedContainerId]: [],
+    chats: ["local:cross-chats"],
+    pinned: ["local:cross-projectless-pinned"],
+  });
+  const getThreadId = useCallback(
+    (threadKey: string) => itemsByKey.get(threadKey)?.threadId ?? null,
+    [itemsByKey],
+  );
+  const homeContainerIdByThreadId = useMemo(() => new Map(
+    Object.entries(threadKeysByContainer).flatMap(([containerId, threadKeys]) => (
+      threadKeys.flatMap((threadKey) => {
+        const threadId = getThreadId(threadKey);
+        return threadId ? [[threadId, containerId] as const] : [];
+      })
+    )),
+  ), [getThreadId, threadKeysByContainer]);
+  const handleThreadDrop = useCallback(async (drop: SidebarThreadDropRequest) => {
+    const threadKey = threadKeyById.get(drop.threadId);
+    if (!threadKey) return;
+    setThreadKeysByContainer((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).map(([containerId, threadKeys]) => [
+          containerId,
+          threadKeys.filter((candidate) => candidate !== threadKey),
+        ]),
+      );
+      const targetThreadKeys = next[drop.targetContainerId] ?? [];
+      const beforeThreadKey = drop.beforeThreadId
+        ? threadKeyById.get(drop.beforeThreadId) ?? null
+        : null;
+      const rawInsertionIndex = drop.insertAtEnd || drop.useDefaultOrder
+        ? targetThreadKeys.length
+        : beforeThreadKey === null
+          ? 0
+          : targetThreadKeys.indexOf(beforeThreadKey);
+      const insertionIndex = rawInsertionIndex < 0 ? targetThreadKeys.length : rawInsertionIndex;
+      next[drop.targetContainerId] = [
+        ...targetThreadKeys.slice(0, insertionIndex),
+        threadKey,
+        ...targetThreadKeys.slice(insertionIndex),
+      ];
+      return next;
+    });
+  }, [threadKeyById]);
+  const renderRows = (containerId: string) => {
+    const threadKeys = threadKeysByContainer[containerId] ?? [];
+    return (
+      <SidebarThreadReorderRows
+        containerId={containerId}
+        getThreadId={getThreadId}
+        visibleThreadKeys={threadKeys}
+        sortableThreadKeys={threadKeys}
+        sourceProjectKind="local"
+        targetProjectKind="local"
+        onVisibleThreadOrderChange={async ({ nextVisibleThreadKeys }) => {
+          setThreadKeysByContainer((current) => ({
+            ...current,
+            [containerId]: nextVisibleThreadKeys,
+          }));
+        }}
+        renderThread={(threadKey) => {
+          const item = itemsByKey.get(threadKey);
+          if (!item) return null;
+          if (!isCodexSidebarThreadContainerId(containerId)) return null;
+          const location = readCodexSidebarThreadContainerLocation(containerId);
+          if (location === null) return null;
+          return (
+            <CodexSidebarThreadRow
+              item={{
+                ...item,
+                pinned: location.pinned,
+                projectId: location.projectId,
+                projectless: location.projectId === null,
+              }}
+              active={false}
+              onSelect={() => {}}
+              onArchive={() => {}}
+              onTogglePinned={() => {}}
+            />
+          );
+        }}
+      />
+    );
+  };
+
+  return (
+    <SidebarProjectsChrome>
+      <SidebarThreadReorderDndProvider
+        getThreadIdByThreadKey={getThreadId}
+        homeContainerIdByThreadId={homeContainerIdByThreadId}
+        onThreadDrop={handleThreadDrop}
+      >
+        <CodexSidebarSection heading="Pinned" collapsed={false} onToggle={() => {}}>
+          <SidebarThreadDropContainer containerId="pinned" targetProjectKind="local">
+            <div className="flex flex-col" role="list" aria-label="Projectless pinned chats">
+              {renderRows("pinned")}
+            </div>
+          </SidebarThreadDropContainer>
+        </CodexSidebarSection>
+        <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
+          <div className="isolate flex flex-col [contain:layout]">
+            <div className="flex flex-col" role="list" aria-label="Projects">
+              {projects.map((project) => {
+                const pinnedContainerId = codexSidebarProjectThreadContainerId(project.id, true);
+                const regularContainerId = codexSidebarProjectThreadContainerId(project.id, false);
+                return (
+                  <CodexProjectRow
+                    key={project.id}
+                    project={project}
+                    active={false}
+                    expanded
+                    onActivate={() => {}}
+                    onStartNewChat={() => {}}
+                    onUpdateProject={async () => project}
+                    onDeleteProject={async () => false}
+                  >
+                    <CodexProjectSessionList project={project}>
+                      <SidebarThreadDropContainer
+                        containerId={pinnedContainerId}
+                        targetProjectKind="local"
+                      >
+                        {renderRows(pinnedContainerId)}
+                      </SidebarThreadDropContainer>
+                      <SidebarThreadDropContainer
+                        containerId={regularContainerId}
+                        targetProjectKind="local"
+                      >
+                        {renderRows(regularContainerId)}
+                      </SidebarThreadDropContainer>
+                    </CodexProjectSessionList>
+                  </CodexProjectRow>
+                );
+              })}
+            </div>
+          </div>
+        </CodexSidebarSection>
+        <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+          <SidebarThreadDropContainer
+            containerId="chats"
+            targetProjectKind="local"
+          >
+            <div className="flex flex-col" role="list" aria-label="Chats">
+              {renderRows("chats")}
+            </div>
+          </SidebarThreadDropContainer>
+        </CodexSidebarSection>
+      </SidebarThreadReorderDndProvider>
+    </SidebarProjectsChrome>
   );
 }
 
@@ -1334,6 +1746,25 @@ export const CodexProjectsDraggingOverProject: Story = {
 
 export const CodexPinnedProjects: Story = {
   render: () => <CodexSortableProjectsHarness pinned />,
+};
+
+export const CodexPinnedThreadsSortable: Story = {
+  render: () => <CodexPinnedThreadsSortableHarness />,
+};
+
+export const CodexPinnedProjectThreadsSortable: Story = {
+  render: () => <CodexPinnedProjectThreadsSortableHarness />,
+};
+
+export const CodexCrossProjectThreadDrop: Story = {
+  render: () => <CodexCrossProjectThreadDropHarness />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Interactive lane-aware transfer across project-local pinned and regular rows, plus projectless Pinned and Chats.",
+      },
+    },
+  },
 };
 
 export const CodexPinnedProjectsEmptyDropTarget: Story = {

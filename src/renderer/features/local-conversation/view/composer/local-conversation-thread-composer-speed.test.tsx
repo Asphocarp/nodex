@@ -229,7 +229,6 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     body: {
       threadId: "thread_1",
       turnCount: 1,
-      hasAboveComposerBlocks: false,
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: "turn_1",
@@ -894,23 +893,148 @@ describe("ThreadComposer speed menu", () => {
     });
   });
 
-  test("add-context prompt input keeps file mentions, images, and plugin skills distinct", () => {
+  test("add-context prompt input keeps file and added sidecars, images, and plugin skills distinct", () => {
     const promptInput = __composerAddContextTestUtils.buildComposerPromptInput({
-      prompt: "Use these",
+      prompt: "  Use these\n",
       attachments: {
-        fileAttachments: [{ id: "file_1", label: "notes.md", path: "/tmp/notes.md" }],
+        fileAttachments: [{
+          uiId: "file_1",
+          attachment: {
+            label: "notes.md",
+            path: "/tmp/notes.md",
+            fsPath: "/tmp/notes.md",
+          },
+        }],
+        addedFiles: [{
+          uiId: "added_1",
+          attachment: {
+            label: "generated.md",
+            path: "/tmp/generated.md",
+            fsPath: "/tmp/generated.md",
+          },
+        }],
         imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
-        pastedTextAttachments: [{ id: "pasted_text_1", text: "Pasted requirements" }],
+        pastedTextAttachments: [{
+          id: "pasted_text_1",
+          text: "Pasted requirements",
+          characterCount: 19,
+        }],
         skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
         commentAttachments: [],
       },
     });
 
     expect(JSON.stringify(promptInput)).toBe(
-      "{\"text\":\"Use these\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"text\":\"Pasted requirements\"}],\"mentions\":[{\"name\":\"notes.md\",\"path\":\"/tmp/notes.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
+      "{\"text\":\"  Use these\\n\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"text\":\"Pasted requirements\",\"characterCount\":19}],\"fileAttachments\":[{\"label\":\"notes.md\",\"path\":\"/tmp/notes.md\",\"fsPath\":\"/tmp/notes.md\"}],\"addedFiles\":[{\"label\":\"generated.md\",\"path\":\"/tmp/generated.md\",\"fsPath\":\"/tmp/generated.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
     );
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBe(true);
     expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBe(false);
+  });
+
+  test("restores pasted source metadata exactly and treats an explicit empty file channel as authoritative", () => {
+    const attachmentState = __composerAddContextTestUtils
+      .buildComposerAttachmentStateFromPromptInput({
+        text: "",
+        textAttachments: [{
+          text: "Exact pasted bytes",
+          file: {
+            label: "Pasted text.txt",
+            path: "/attachments/id/pasted-text.txt",
+            fsPath: "/attachments/id/pasted-text.txt",
+          },
+          preview: "Exact pasted bytes",
+          hostId: "local",
+          characterCount: 18,
+        }],
+        fileAttachments: [],
+        mentions: [{ name: "legacy.md", path: "/tmp/legacy.md" }],
+      });
+    const roundTripped = __composerAddContextTestUtils.buildComposerPromptInput({
+      prompt: "",
+      attachments: attachmentState,
+    });
+
+    expect(attachmentState.fileAttachments.length).toBe(0);
+    expect(JSON.stringify(roundTripped)).toBe(JSON.stringify({
+      text: "",
+      textAttachments: [{
+        text: "Exact pasted bytes",
+        file: {
+          label: "Pasted text.txt",
+          path: "/attachments/id/pasted-text.txt",
+          fsPath: "/attachments/id/pasted-text.txt",
+        },
+        preview: "Exact pasted bytes",
+        hostId: "local",
+        characterCount: 18,
+      }],
+    }));
+  });
+
+  test("restores explicit file channels without rewriting attachment identity fields", () => {
+    const attachmentState = __composerAddContextTestUtils
+      .buildComposerAttachmentStateFromPromptInput({
+        text: "",
+        fileAttachments: [{
+          label: "  exact label  ",
+          path: "relative/source.ts",
+          fsPath: "",
+          startLine: null,
+          endLine: 9,
+          hostId: "local",
+          id: "protocol-file-id",
+          appContext: { source: "exact" },
+        }, {
+          label: "  exact label  ",
+          path: "relative/source.ts",
+          fsPath: "",
+          startLine: undefined,
+          endLine: 9,
+          hostId: "duplicate-host-must-not-win",
+          id: "duplicate-protocol-id",
+          appContext: { source: "duplicate" },
+        }],
+        addedFiles: [{
+          label: "added.ts",
+          path: "relative/added.ts",
+          fsPath: "/repo/relative/added.ts",
+          startLine: 3,
+          endLine: 3,
+          id: "protocol-added-id",
+        }, {
+          label: "added.ts",
+          path: "relative/added.ts",
+          fsPath: "/repo/relative/added.ts",
+          startLine: 3,
+          endLine: 3,
+        }],
+      });
+    const roundTripped = __composerAddContextTestUtils.buildComposerPromptInput({
+      prompt: "",
+      attachments: attachmentState,
+    });
+
+    expect(JSON.stringify(roundTripped)).toBe(JSON.stringify({
+      text: "",
+      fileAttachments: [{
+        label: "  exact label  ",
+        path: "relative/source.ts",
+        fsPath: "",
+        startLine: null,
+        endLine: 9,
+        hostId: "local",
+        id: "protocol-file-id",
+        appContext: { source: "exact" },
+      }],
+      addedFiles: [{
+        label: "added.ts",
+        path: "relative/added.ts",
+        fsPath: "/repo/relative/added.ts",
+        startLine: 3,
+        endLine: 3,
+        id: "protocol-added-id",
+      }],
+    }));
   });
 
   test("plugin flyout inserts a structured skill mention", async () => {
@@ -1188,10 +1312,164 @@ describe("ThreadComposer speed menu", () => {
       expect(startThreadCalls.length).toBe(1);
     });
     expect(startThreadCalls[0]).toBe(
-      "{\"projectId\":\"project_1\",\"sessionId\":\"session_1\",\"prompt\":\"Keep refining the migration until tests pass\",\"threadGoalDraft\":{\"objective\":\"Keep refining the migration until tests pass\",\"attachmentDirectory\":null},\"runInTarget\":\"localProject\"}",
+      "{\"projectId\":\"project_1\",\"sessionId\":\"session_1\",\"prompt\":\"Keep refining the migration until tests pass\",\"threadGoalDraft\":{\"objective\":\"Keep refining the migration until tests pass\",\"imageAttachments\":[],\"pastedTextAttachments\":[]},\"threadGoalMaterializedDraft\":{\"objective\":\"Keep refining the migration until tests pass\",\"attachmentDirectory\":null},\"runInTarget\":\"localProject\"}",
     );
     expect(setGoalCalls.length).toBe(0);
     expect(sentPrompts.length).toBe(0);
+  });
+
+  test("new-worktree Goal keeps pasted text and images raw until the pending worktree is ready", async () => {
+    resetStorage();
+    const startThreadCalls: unknown[] = [];
+    const materializeCalls: unknown[] = [];
+    const view = await renderComposer(
+      {
+        threadId: null,
+        conversation: null,
+        isNewThreadTab: true,
+        newThreadTarget: {
+          projectId: "project_1",
+          projectName: "Nodex",
+          sessionId: "session_1",
+          threadTitle: "New thread",
+          runInTarget: "newWorktree",
+        },
+        composerIntent: {
+          prompt: "/goal Keep the worktree goal alive",
+          focusNonce: 1,
+          promptInput: {
+            text: "/goal Keep the worktree goal alive",
+            images: [{
+              source: "data:image/png;base64,aW1hZ2U=",
+              caption: "diagram.png",
+            }],
+            textAttachments: [{ text: "Pasted requirements" }],
+          },
+        },
+      },
+      {
+        onStartThreadForSession: async (input) => {
+          startThreadCalls.push(input);
+        },
+      },
+      async (channel, ...args) => {
+        if (channel === "codex:thread:goal:materialize-draft") {
+          materializeCalls.push(args[0]);
+        }
+        return undefined;
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    await waitFor(() => {
+      expect(startThreadCalls.length).toBe(1);
+    });
+    const start = startThreadCalls[0] as {
+      prompt?: string;
+      runInTarget?: string;
+      threadGoalDraft?: {
+        objective?: string;
+        imageAttachments?: unknown[];
+        pastedTextAttachments?: unknown[];
+      };
+    };
+    expect(materializeCalls.length).toBe(0);
+    expect(start.prompt).toBe("Keep the worktree goal alive");
+    expect(start.runInTarget).toBe("newWorktree");
+    expect(JSON.stringify(start.threadGoalDraft)).toBe(JSON.stringify({
+      objective: "Keep the worktree goal alive",
+      imageAttachments: [{
+        src: "data:image/png;base64,aW1hZ2U=",
+        localPath: "data:image/png;base64,aW1hZ2U=",
+        filename: "diagram.png",
+      }],
+      pastedTextAttachments: [{ text: "Pasted requirements" }],
+    }));
+    expect(Object.prototype.hasOwnProperty.call(
+      start.threadGoalDraft ?? {},
+      "attachmentDirectory",
+    )).toBe(false);
+  });
+
+  test("local-project Goal still materializes pasted text and images before starting", async () => {
+    resetStorage();
+    const startThreadCalls: unknown[] = [];
+    const materializeCalls: unknown[] = [];
+    const view = await renderComposer(
+      {
+        threadId: null,
+        conversation: null,
+        isNewThreadTab: true,
+        newThreadTarget: {
+          projectId: "project_1",
+          projectName: "Nodex",
+          sessionId: "session_1",
+          threadTitle: "New thread",
+          runInTarget: "localProject",
+        },
+        composerIntent: {
+          prompt: "/goal Keep the local goal alive",
+          focusNonce: 1,
+          promptInput: {
+            text: "/goal Keep the local goal alive",
+            images: [{
+              source: "data:image/png;base64,aW1hZ2U=",
+              caption: "diagram.png",
+            }],
+            textAttachments: [{ text: "Pasted requirements" }],
+          },
+        },
+      },
+      {
+        onStartThreadForSession: async (input) => {
+          startThreadCalls.push(input);
+        },
+      },
+      async (channel, ...args) => {
+        if (channel !== "codex:thread:goal:materialize-draft") return undefined;
+        materializeCalls.push(args[0]);
+        return {
+          objective: "Materialized local objective",
+          attachmentDirectory: "/tmp/materialized-goal",
+        };
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    await waitFor(() => {
+      expect(startThreadCalls.length).toBe(1);
+    });
+    const start = startThreadCalls[0] as {
+      prompt?: string;
+      threadGoalDraft?: unknown;
+      threadGoalMaterializedDraft?: unknown;
+    };
+    expect(materializeCalls.length).toBe(1);
+    expect(JSON.stringify(materializeCalls[0])).toBe(JSON.stringify({
+      objective: "Keep the local goal alive",
+      imageAttachments: [{
+        src: "data:image/png;base64,aW1hZ2U=",
+        localPath: "data:image/png;base64,aW1hZ2U=",
+        filename: "diagram.png",
+      }],
+      pastedTextAttachments: [{ text: "Pasted requirements" }],
+    }));
+    expect(start.prompt).toBe("Materialized local objective");
+    expect(JSON.stringify(start.threadGoalDraft)).toBe(JSON.stringify({
+      objective: "Keep the local goal alive",
+      imageAttachments: [{
+        src: "data:image/png;base64,aW1hZ2U=",
+        localPath: "data:image/png;base64,aW1hZ2U=",
+        filename: "diagram.png",
+      }],
+      pastedTextAttachments: [{ text: "Pasted requirements" }],
+    }));
+    expect(JSON.stringify(start.threadGoalMaterializedDraft)).toBe(JSON.stringify({
+      objective: "Materialized local objective",
+      attachmentDirectory: "/tmp/materialized-goal",
+    }));
   });
 
   test("empty goal mode submit clears goal mode without sending a prompt", async () => {
@@ -1606,7 +1884,7 @@ describe("ThreadComposer speed menu", () => {
     expect(externalFooterSlot !== null).toBe(true);
     expect(formFooter !== null).toBe(true);
     expect(externalFooterSlot?.contains(lowerStatusRow)).toBe(true);
-    expect(composerFrame?.nextElementSibling === externalFooterSlot).toBe(true);
+    expect(composerFrame?.previousElementSibling === externalFooterSlot).toBe(true);
     expect(lowerStatusRow?.contains(projectSelector)).toBe(true);
     expect(formFooter?.contains(projectSelector)).toBe(false);
     expect(lowerText.indexOf("Nodex") >= 0).toBe(true);
@@ -1688,7 +1966,6 @@ describe("ThreadComposer speed menu", () => {
       body: {
         threadId: null,
         turnCount: 0,
-        hasAboveComposerBlocks: false,
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,

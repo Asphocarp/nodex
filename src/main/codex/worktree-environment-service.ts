@@ -471,11 +471,17 @@ export async function readWorktreeEnvironmentDefinition(input: {
   setupScript: string | null;
 }> {
   const record = await readWorktreeEnvironmentRecord(input);
+  const setup = record.environment?.setup;
+  const platformSetupScript = process.platform === "darwin"
+    || process.platform === "linux"
+    || process.platform === "win32"
+    ? setup?.platformScripts[process.platform] ?? null
+    : null;
 
   return {
     path: record.configPath,
     name: record.name,
-    setupScript: record.environment?.setup.script ?? null,
+    setupScript: platformSetupScript ?? setup?.script ?? null,
   };
 }
 

@@ -1,0 +1,91 @@
+import { describe, expect, test } from "vitest";
+import type {
+  CodexCanonicalConversationState,
+  CodexCanonicalSteeringUserMessageItem,
+} from "./codex-conversation-state";
+import {
+  removeCodexCanonicalSteeringItem,
+  upsertCodexCanonicalSteeringItem,
+} from "./codex-steering-state";
+import { createCodexCanonicalHydratedConversationState } from "./codex-conversation-state";
+
+function buildState(): CodexCanonicalConversationState {
+  return createCodexCanonicalHydratedConversationState({
+    id: "thread-a",
+    extra: null,
+    sessionId: "session-a",
+    forkedFromId: null,
+    parentThreadId: null,
+    preview: "",
+    ephemeral: false,
+    historyMode: "paginated",
+    modelProvider: "openai",
+    createdAt: 0,
+    updatedAt: 0,
+    recencyAt: null,
+    status: { type: "active", activeFlags: [] },
+    path: null,
+    cwd: "/workspace",
+    cliVersion: "test",
+    source: "appServer",
+    threadSource: "appServer",
+    name: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    turns: [{
+      id: "turn-a",
+      items: [],
+      itemsView: "full",
+      status: "inProgress",
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      durationMs: null,
+    }],
+  }, {
+    model: "gpt-test",
+    reasoningEffort: null,
+    cwd: "/workspace",
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandboxPolicy: { type: "readOnly", networkAccess: false },
+    activePermissionProfile: null,
+    runtimeWorkspaceRoots: [],
+  });
+}
+
+function buildSteer(id = "steer-a"): CodexCanonicalSteeringUserMessageItem {
+  return {
+    type: "steeringUserMessage",
+    id,
+    targetTurnId: "turn-a",
+    targetTurnStartedAtMs: 10,
+    status: "pending",
+    clientUserMessageId: id,
+    input: [{ type: "text", text: "continue", text_elements: [] }],
+    attachments: [{ path: "/workspace/file.ts" }],
+    restoreMessage: { context: { commentAttachments: [] }, prompt: "continue" },
+    compareKey: { rawText: "continue", imageCount: 0 },
+  };
+}
+
+describe("canonical steering state", () => {
+  test("upserts the pending steer into the target raw turn", () => {
+    const state = buildState();
+    const next = upsertCodexCanonicalSteeringItem(state, "turn-a", buildSteer());
+
+    expect(next.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
+    expect(next.turns[0]?.items[0]?.id).toBe("steer-a");
+    expect(next.turns[0]?.items[0] === buildSteer()).toBe(false);
+  });
+
+  test("removes only the failed pending steer", () => {
+    const first = upsertCodexCanonicalSteeringItem(buildState(), "turn-a", buildSteer());
+    const second = upsertCodexCanonicalSteeringItem(first, "turn-a", buildSteer("steer-b"));
+    const next = removeCodexCanonicalSteeringItem(second, "turn-a", "steer-a");
+
+    expect(next.turns[0]?.items.length).toBe(1);
+    expect(next.turns[0]?.items[0]?.id).toBe("steer-b");
+  });
+});

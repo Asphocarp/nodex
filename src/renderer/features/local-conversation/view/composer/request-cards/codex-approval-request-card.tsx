@@ -2,6 +2,7 @@ import type {
   CodexApprovalDecision,
   CodexApprovalRequest,
   CodexConversationItem,
+  CodexProtocolRequestId,
 } from "../../../../../lib/types";
 import type { ReactNode } from "react";
 import {
@@ -16,13 +17,14 @@ import {
   buildCodexCommandApprovalPreview,
   formatCodexExecPolicyAmendmentMenuSummary,
 } from "../../../../../../shared/codex-command-execution";
+import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/codex-conversation-state/codex-conversation-state";
 
 interface CodexApprovalRequestCardProps {
   request: CodexApprovalRequest;
   requestItem?: CodexConversationItem | null;
   actorName?: string | null;
   approvalQuestionActor?: ReactNode;
-  onRespond: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, decision: CodexApprovalDecision) => Promise<void>;
   onSubmitLocalFollowup?: (prompt: string) => Promise<void>;
 }
 
@@ -86,6 +88,7 @@ function buildRequestQuestion(
 ): RequestComposerRequest {
   const prompt = buildPromptText(request, actorName);
   const execAmendmentSummary = buildExecAmendmentSummary(request);
+  const questionId = buildCodexCanonicalRequestIdentityKey(request.requestId);
 
   const options = request.kind === "command"
     ? request.networkApprovalContext
@@ -113,7 +116,7 @@ function buildRequestQuestion(
   return {
     requestId: request.requestId,
     questions: [{
-      id: request.requestId,
+      id: questionId,
       header: prompt,
       question: prompt,
       isOther: true,
@@ -237,9 +240,14 @@ export function CodexApprovalRequestCard({
       showQuestionBodyWhenHeader={false}
       request={composerRequest}
       onSubmit={async (nextRequest, state) => {
-        const selected = state.selectedOptions[nextRequest.requestId];
-        const mode = state.modes[nextRequest.requestId];
-        const freeform = state.drafts[nextRequest.requestId]?.trim() ?? "";
+        const questionId = nextRequest.questions[0]?.id;
+        if (!questionId) {
+          await onRespond(request.requestId, "decline");
+          return;
+        }
+        const selected = state.selectedOptions[questionId];
+        const mode = state.modes[questionId];
+        const freeform = state.drafts[questionId]?.trim() ?? "";
 
         if (mode === "other") {
           await onRespond(request.requestId, "decline");

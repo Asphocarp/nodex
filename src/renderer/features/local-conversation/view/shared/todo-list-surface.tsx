@@ -1,4 +1,4 @@
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
@@ -151,6 +151,50 @@ function TodoListCompactTooltip({ steps }: { steps: TodoStep[] }) {
   );
 }
 
+function TodoProgressDonut({ percent }: { percent: number }) {
+  const reducedMotion = useReducedMotion();
+  const clampedPercent = Math.max(0, Math.min(100, percent));
+  const strokeDashoffset = 100 - clampedPercent;
+
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      className="shrink-0 text-token-charts-blue"
+    >
+      <circle
+        cx="6"
+        cy="6"
+        r="5"
+        stroke="currentColor"
+        strokeWidth="2"
+        fill="none"
+        opacity="0.16"
+      />
+      <motion.circle
+        cx="6"
+        cy="6"
+        r="5"
+        stroke="currentColor"
+        strokeWidth="2"
+        opacity={clampedPercent === 0 ? 0 : 1}
+        strokeLinecap="round"
+        fill="none"
+        pathLength="100"
+        strokeDasharray="100"
+        initial={reducedMotion ? false : { strokeDashoffset: 100 }}
+        animate={{ strokeDashoffset }}
+        transition={reducedMotion
+          ? { duration: 0 }
+          : { delay: 0.15, duration: 0.3, ease: "easeOut" }}
+        transform="rotate(-90 6 6)"
+      />
+    </svg>
+  );
+}
+
 export function TodoListCompactPillContent({
   item,
 }: TodoListSurfaceProps) {
@@ -159,8 +203,8 @@ export function TodoListCompactPillContent({
   const activeStepIndex = useMemo(() => resolveActiveStepIndex(steps, completedCount), [completedCount, steps]);
   if (steps.length === 0 || activeStepIndex < 0) return null;
 
-  const activeStep = steps[activeStepIndex];
   const stepNumber = activeStepIndex + 1;
+  const progressPercent = (completedCount / steps.length) * 100;
 
   return (
     <NodexTooltip
@@ -175,12 +219,10 @@ export function TodoListCompactPillContent({
       }}
     >
       <span
-        tabIndex={0}
-        aria-label={`Todo progress: Step ${stepNumber} of ${steps.length}`}
-        className="inline-flex max-w-full min-w-0 cursor-interaction rounded-sm hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+        className="inline-flex max-w-full min-w-0 cursor-interaction hover:text-token-foreground"
       >
         <span className="text-size-chat flex max-w-full min-w-0 items-center gap-1.5 text-token-text-secondary">
-          <TodoStatusIcon status={activeStep?.status ?? "pending"} />
+          <TodoProgressDonut percent={progressPercent} />
           <span className="whitespace-nowrap tabular-nums">
             Step {stepNumber} / {steps.length}
           </span>

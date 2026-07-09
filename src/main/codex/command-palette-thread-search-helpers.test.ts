@@ -18,6 +18,7 @@ function makeConversation(): CodexConversationSnapshot {
     cwd: null,
     statusType: "notLoaded",
     statusActiveFlags: [],
+    hasUnreadTurn: false,
     archived: false,
     createdAt: 1,
     updatedAt: 2,

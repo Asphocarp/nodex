@@ -164,12 +164,18 @@ describe("CodexApprovalRequestCard", () => {
   });
 
   test("maps approval submit and skip actions to distinct response paths", async () => {
+    const numericRequest: CodexApprovalRequest = {
+      ...approvalRequest,
+      requestId: 73,
+    };
     const decisions: string[] = [];
+    const requestIds: CodexApprovalRequest["requestId"][] = [];
     const { container, getByText } = render(
       <TooltipProvider>
         <CodexApprovalRequestCard
-          request={approvalRequest}
-          onRespond={async (_requestId, decision) => {
+          request={numericRequest}
+          onRespond={async (requestId, decision) => {
+            requestIds.push(requestId);
             decisions.push(typeof decision === "string" ? decision : JSON.stringify(decision));
           }}
           onSubmitLocalFollowup={async () => { }}
@@ -189,6 +195,7 @@ describe("CodexApprovalRequestCard", () => {
     });
 
     expect(decisions[0]).toBe("accept");
+    expect(requestIds[0]).toBe(73);
 
     await act(async () => {
       fireEvent.click(getByText("Skip"));
@@ -196,6 +203,7 @@ describe("CodexApprovalRequestCard", () => {
     });
 
     expect(decisions[1]).toBe("decline");
+    expect(requestIds[1]).toBe(73);
   });
 
   test("renders file approval previews from the shared path-keyed patch model", async () => {

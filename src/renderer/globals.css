@@ -1456,7 +1456,6 @@
 }
 
 .codex-cadenced-shimmer {
-  color: var(--shimmer-text-secondary);
   text-fill-color: currentColor;
   -webkit-text-fill-color: currentColor;
   background: 0 0;
@@ -1466,20 +1465,31 @@
   position: relative;
 }
 
+@layer components {
+  .codex-cadenced-shimmer,
+  .codex-cadenced-shimmer * {
+    color: var(--shimmer-text-secondary) !important;
+  }
+
+  .codex-cadenced-shimmer .codex-cadenced-shimmer-highlight,
+  .codex-cadenced-shimmer .codex-cadenced-shimmer-highlight * {
+    color: var(--shimmer-contrast) !important;
+  }
+}
+
 .codex-cadenced-shimmer-sweep {
   pointer-events: none;
-  width: 50%;
+  width: 100%;
   position: absolute;
   inset: 0 auto 0 0;
   overflow: hidden;
-  transform: translate(-100%);
-  -webkit-mask-image: linear-gradient(90deg, #0000 0%, #000 40% 60%, #0000 100%);
-  mask-image: linear-gradient(90deg, #0000 0%, #000 40% 60%, #0000 100%);
+  transform: translate(-50%);
+  -webkit-mask-image: linear-gradient(90deg, #0000 0%, #000 20% 30%, #0000 50% 100%);
+  mask-image: linear-gradient(90deg, #0000 0%, #000 20% 30%, #0000 50% 100%);
 }
 
 .codex-cadenced-shimmer-highlight {
-  width: 200%;
-  color: var(--shimmer-contrast);
+  width: 100%;
   text-fill-color: currentColor;
   -webkit-text-fill-color: currentColor;
   display: block;
@@ -1510,10 +1520,10 @@
 
 @keyframes codex-cadenced-loading-shimmer-sweep {
   0% {
-    transform: translate(-100%);
+    transform: translate(-50%);
   }
   to {
-    transform: translate(250%);
+    transform: translate(125%);
   }
 }
 

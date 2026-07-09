@@ -1,18 +1,25 @@
-import { fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
 import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
-import { TestQueryProvider } from "@/test/query";
+import { createTestQueryClient, TestQueryProvider } from "@/test/query";
+import {
+  applyCodexHostCatalogEvent,
+  NodexQueryProvider,
+} from "./query-client";
+import { queryKeys } from "./query-keys";
 import type {
   WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentDefinition,
   WorktreeEnvironmentSettingsSnapshot,
+  CodexEvent,
+  ProtocolAppInfo,
 } from "./types";
 import {
   useLocalEnvironmentConfigs,
   useSaveLocalEnvironmentConfigMutation,
 } from "./use-local-environment-queries";
-import { useMcpServerStatuses } from "./use-mcp-queries";
+import { useMcpApps, useMcpServerStatuses } from "./use-mcp-queries";
 
 const ENVIRONMENT: WorktreeEnvironmentDefinition = {
   version: 1,
@@ -56,7 +63,7 @@ function makeSnapshot(configs: WorktreeEnvironmentConfigRecord[]): WorktreeEnvir
 function ServerStateHarness() {
   const { data: configs } = useLocalEnvironmentConfigs("project-1");
   const saveConfig = useSaveLocalEnvironmentConfigMutation();
-  useMcpServerStatuses("thread-1", { enabled: false });
+  useMcpServerStatuses({ enabled: false });
 
   return (
     <button
@@ -75,18 +82,54 @@ function ServerStateHarness() {
   );
 }
 
+function McpCatalogConsumer({ label }: { label: string }) {
+  const { data } = useMcpServerStatuses();
+  return <div data-testid={label}>{data?.data.length ?? 0}</div>;
+}
+
+function makeApp(name: string): ProtocolAppInfo {
+  return {
+    id: `connector_${name.toLowerCase()}`,
+    name,
+    description: null,
+    logoUrl: null,
+    logoUrlDark: null,
+    iconAssets: null,
+    iconDarkAssets: null,
+    distributionChannel: null,
+    branding: null,
+    appMetadata: null,
+    labels: null,
+    installUrl: null,
+    isAccessible: true,
+    isEnabled: true,
+    pluginDisplayNames: [],
+  };
+}
+
+function AppsCatalogConsumer() {
+  const { data = [] } = useMcpApps();
+  return <div data-testid="apps">{data.map((app) => app.name).join(",")}</div>;
+}
+
 describe("server state query hooks", () => {
   let configs: WorktreeEnvironmentConfigRecord[];
   let configListCalls = 0;
   let mcpStatusCalls = 0;
+  let mcpStatusArgs: unknown[] = [];
+  let appListCalls = 0;
+  let codexEventListeners = new Set<(...args: unknown[]) => void>();
 
   beforeEach(() => {
     configs = [makeConfig("/tmp/project-1/.codex/environment.json")];
     configListCalls = 0;
     mcpStatusCalls = 0;
+    mcpStatusArgs = [];
+    appListCalls = 0;
+    codexEventListeners = new Set();
 
     installWindowApi({
-      invoke: async (channel: string) => {
+      invoke: async (channel: string, ...args: unknown[]) => {
         if (channel === "worktrees:environments:configs:list") {
           configListCalls += 1;
           return configs;
@@ -102,12 +145,32 @@ describe("server state query hooks", () => {
 
         if (channel === "codex:mcp-server-statuses:list") {
           mcpStatusCalls += 1;
-          return [];
+          mcpStatusArgs = args;
+          return {
+            data: [{
+              name: "docs",
+              serverInfo: null,
+              tools: {},
+              resources: [],
+              resourceTemplates: [],
+              authStatus: "unsupported",
+            }],
+            nextCursor: null,
+          };
+        }
+
+        if (channel === "codex:mcp-apps:list") {
+          appListCalls += 1;
+          return [makeApp("Docs")];
         }
 
         throw new Error(`Unexpected channel: ${channel}`);
       },
-      on: () => () => {},
+      on: (channel: string, listener: (...args: unknown[]) => void) => {
+        if (channel !== "codex:event") return () => {};
+        codexEventListeners.add(listener);
+        return () => codexEventListeners.delete(listener);
+      },
     });
   });
 
@@ -132,5 +195,57 @@ describe("server state query hooks", () => {
     });
     expect(configListCalls).toBe(2);
     expect(mcpStatusCalls).toBe(0);
+  });
+
+  test("shares one host catalog request across independent MCP consumers", async () => {
+    const view = render(
+      <TestQueryProvider>
+        <McpCatalogConsumer label="first" />
+        <McpCatalogConsumer label="second" />
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByTestId("first").textContent).toBe("1");
+      expect(view.getByTestId("second").textContent).toBe("1");
+    });
+    expect(mcpStatusCalls).toBe(1);
+    expect(mcpStatusArgs).toEqual([]);
+  });
+
+  test("replaces an observed Apps catalog from the host update event", async () => {
+    const view = render(
+      <NodexQueryProvider>
+        <AppsCatalogConsumer />
+      </NodexQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByTestId("apps").textContent).toBe("Docs");
+    });
+    expect(appListCalls).toBe(1);
+
+    await act(async () => {
+      const event: CodexEvent = { type: "appsUpdated", apps: [makeApp("Calendar")] };
+      for (const listener of codexEventListeners) listener(event);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(view.getByTestId("apps").textContent).toBe("Calendar");
+    });
+    expect(appListCalls).toBe(1);
+  });
+
+  test("does not warm an unobserved Apps cache from a host update", () => {
+    const client = createTestQueryClient();
+    const event: CodexEvent = { type: "appsUpdated", apps: [makeApp("Calendar")] };
+
+    applyCodexHostCatalogEvent(client, event);
+    expect(client.getQueryData(queryKeys.mcp.apps())).toBeUndefined();
+
+    client.setQueryData(queryKeys.mcp.apps(), [makeApp("Docs")]);
+    applyCodexHostCatalogEvent(client, event);
+    expect(client.getQueryData<ProtocolAppInfo[]>(queryKeys.mcp.apps())?.[0]?.name).toBe("Calendar");
   });
 });

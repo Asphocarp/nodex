@@ -1,14 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { motion } from "motion/react";
-import type { Transition } from "motion/react";
 import { cn } from "../../../../../lib/utils";
-import {
-  CODEX_THREAD_ACCORDION_TRANSITION,
-  CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
-  CODEX_THREAD_DIVIDER_EXIT,
-} from "../thread-motion";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 
 const THREAD_ACTIVITY_SUMMARY_DEFER_MS = 1000;
 
@@ -34,12 +29,27 @@ export function ThreadActivityChevron({ expanded }: { expanded: boolean }) {
     <ChevronRightIcon
       aria-hidden="true"
       className={cn(
-        "icon-2xs shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300",
-        "group-hover/activity-header:text-token-foreground group-hover/activity-header:opacity-100",
+        "icon-2xs shrink-0 text-token-conversation-body opacity-0 transition-transform duration-relaxed",
         "group-focus-visible/activity-header:text-token-foreground group-focus-visible/activity-header:opacity-100",
+        "group-has-[:focus-visible]/activity-header:text-token-foreground group-has-[:focus-visible]/activity-header:opacity-100",
+        "[@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:opacity-100",
         expanded && "rotate-90 opacity-100",
       )}
     />
+  );
+}
+
+function ThreadActivityHeaderContent({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
+      {children}
+    </span>
   );
 }
 
@@ -52,15 +62,15 @@ export function ThreadActivityHeader({
 }: ThreadActivityHeaderProps) {
   const content = (
     <>
-      <span className="text-size-chat flex min-w-0 shrink items-center gap-1.5 truncate">
+      <ThreadActivityHeaderContent className="text-size-chat shrink truncate">
         {children}
-      </span>
+      </ThreadActivityHeaderContent>
       {accessory}
       {disclosure ? <ThreadActivityChevron expanded={disclosure.expanded} /> : null}
     </>
   );
   const headerClassName = cn(
-    "group/activity-header inline-flex min-w-0 max-w-full self-start items-center gap-1.5 p-0 text-left",
+    "group/activity-header inline-flex min-w-0 max-w-full self-start items-center gap-1 p-0 text-left",
     disclosure && "cursor-interaction",
     className,
   );
@@ -203,7 +213,7 @@ export function ThreadActivitySummaryText({
   return (
     <span
       className={cn(
-        "text-token-conversation-summary-trailing flex min-w-0 max-w-full items-center truncate",
+        "text-token-conversation-body flex min-w-0 max-w-full items-center truncate",
         className,
       )}
     >
@@ -213,6 +223,7 @@ export function ThreadActivitySummaryText({
 }
 
 export interface ThreadActivityDisclosureProps {
+  accessibleLabel?: string;
   bodyClassName?: string;
   bodyTestId?: string;
   canExpand?: boolean;
@@ -221,6 +232,7 @@ export interface ThreadActivityDisclosureProps {
   defaultExpanded?: boolean;
   headerClassName?: string;
   headerTestId?: string;
+  icon?: ReactNode;
   onExpand?: () => void;
   shouldAnimateInitialCollapse?: boolean;
   summary: ReactNode;
@@ -228,10 +240,96 @@ export interface ThreadActivityDisclosureProps {
   summaryKey?: string | null;
   summaryTransition?: ThreadActivitySummaryTransition;
   testId?: string;
-  transition?: Transition;
+}
+
+export type ThreadActivityDisclosurePhase = "opening" | "expanded" | "closing" | "collapsed";
+
+export function completeThreadActivityDisclosureAnimation(
+  phase: ThreadActivityDisclosurePhase,
+): ThreadActivityDisclosurePhase {
+  return phase === "closing" ? "collapsed" : phase;
+}
+
+export function completeThreadActivityDisclosureOpeningFrame(
+  phase: ThreadActivityDisclosurePhase,
+): ThreadActivityDisclosurePhase {
+  return phase === "opening" ? "expanded" : phase;
+}
+
+export function ThreadRichActivityHeader({
+  accessibleLabel,
+  accessory,
+  className,
+  disclosure,
+  icon,
+  summary,
+  summaryClassName,
+  testId,
+}: {
+  accessibleLabel?: string;
+  accessory?: ReactNode;
+  className?: string;
+  disclosure?: ThreadActivityDisclosureState;
+  icon: ReactNode;
+  summary: ReactNode;
+  summaryClassName?: string;
+  testId?: string;
+}) {
+  const summaryId = useId();
+  const content = (
+    <>
+      <span className="contents text-token-conversation-body">{icon}</span>
+      <span
+        id={disclosure ? summaryId : undefined}
+        className={cn(
+          "min-w-0 flex-1 truncate text-token-conversation-body [&_.loading-shimmer-pure-text]:align-top [&_*:not(button)]:!text-token-conversation-body",
+          disclosure
+            && "[@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:!text-token-foreground [@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:[&_*:not(button)]:!text-token-foreground",
+          summaryClassName,
+        )}
+      >
+        {summary}
+      </span>
+    </>
+  );
+
+  if (!disclosure) {
+    return (
+      <ThreadActivityHeader className={cn("max-w-full", className)} testId={testId}>
+        {content}
+      </ThreadActivityHeader>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "group/activity-header relative inline-flex max-w-full min-w-0 items-center gap-1 self-start",
+        className,
+      )}
+      data-testid={testId}
+    >
+      <button
+        type="button"
+        aria-label={accessibleLabel}
+        aria-labelledby={accessibleLabel === undefined ? summaryId : undefined}
+        aria-expanded={disclosure.expanded}
+        className="absolute inset-0 cursor-interaction focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:ring-inset focus-visible:outline-none"
+        onClick={disclosure.onToggle}
+      />
+      <ThreadActivityHeaderContent className="text-size-chat pointer-events-none relative shrink truncate [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+        {content}
+      </ThreadActivityHeaderContent>
+      {accessory}
+      <span className="pointer-events-none relative flex">
+        <ThreadActivityChevron expanded={disclosure.expanded} />
+      </span>
+    </div>
+  );
 }
 
 export function ThreadActivityDisclosure({
+  accessibleLabel,
   bodyClassName,
   bodyTestId,
   canExpand = true,
@@ -240,6 +338,7 @@ export function ThreadActivityDisclosure({
   defaultExpanded = false,
   headerClassName,
   headerTestId,
+  icon,
   onExpand,
   shouldAnimateInitialCollapse = false,
   summary,
@@ -247,73 +346,72 @@ export function ThreadActivityDisclosure({
   summaryKey,
   summaryTransition,
   testId,
-  transition = CODEX_THREAD_ACCORDION_TRANSITION,
 }: ThreadActivityDisclosureProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [bodyMounted, setBodyMounted] = useState(
-    (shouldAnimateInitialCollapse || defaultExpanded) && canExpand,
-  );
-  const expansionFrameRef = useRef<number | null>(null);
+  const hasBody = canExpand && children !== null && children !== undefined;
+  const [disclosureState, setDisclosureState] = useState<ThreadActivityDisclosurePhase>(() => {
+    if (!hasBody) return "collapsed";
+    if (defaultExpanded) return "expanded";
+    return shouldAnimateInitialCollapse ? "closing" : "collapsed";
+  });
+  const animationFrameRef = useRef<number | null>(null);
+  const expanded = disclosureState === "opening" || disclosureState === "expanded";
+  const fullyExpanded = disclosureState === "expanded";
 
-  useEffect(() => {
-    return () => {
-      if (expansionFrameRef.current === null) return;
-      window.cancelAnimationFrame(expansionFrameRef.current);
-    };
+  useEffect(() => () => {
+    if (animationFrameRef.current === null) return;
+    window.cancelAnimationFrame(animationFrameRef.current);
   }, []);
 
   const handleToggle = () => {
     if (expanded) {
-      setExpanded(false);
+      setDisclosureState("closing");
       return;
     }
-
     onExpand?.();
-
-    if (bodyMounted) {
-      setExpanded(true);
+    if (disclosureState === "closing") {
+      setDisclosureState("expanded");
       return;
     }
-
-    setBodyMounted(true);
-    expansionFrameRef.current = window.requestAnimationFrame(() => {
-      expansionFrameRef.current = null;
-      setExpanded(true);
+    setDisclosureState("opening");
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      setDisclosureState(completeThreadActivityDisclosureOpeningFrame);
     });
   };
 
-  const header = (
-    <ThreadActivityHeader
-      className={headerClassName}
-      disclosure={canExpand ? { expanded, onToggle: handleToggle } : undefined}
-      testId={headerTestId}
-    >
-      <ThreadActivitySummaryText
-        className={summaryClassName}
-        summaryKey={summaryKey}
-        summaryTransition={summaryTransition}
-      >
+  const disclosure = hasBody ? { expanded, onToggle: handleToggle } : undefined;
+  const header = icon === undefined ? (
+    <ThreadActivityHeader className={headerClassName} disclosure={disclosure} testId={headerTestId}>
+      <ThreadActivitySummaryText className={summaryClassName} summaryKey={summaryKey} summaryTransition={summaryTransition}>
         {summary}
       </ThreadActivitySummaryText>
     </ThreadActivityHeader>
+  ) : (
+    <ThreadRichActivityHeader
+      accessibleLabel={accessibleLabel}
+      className={headerClassName}
+      disclosure={disclosure}
+      icon={icon}
+      summary={summary}
+      summaryClassName={summaryClassName}
+      testId={headerTestId}
+    />
   );
-  const body = canExpand && bodyMounted ? (
+  const body = hasBody && disclosureState !== "collapsed" ? (
     <motion.div
       initial={false}
-      animate={expanded ? CODEX_THREAD_DIVIDER_ENTER_ANIMATE : CODEX_THREAD_DIVIDER_EXIT}
-      transition={transition}
-      className={bodyClassName}
+      animate={fullyExpanded
+        ? { height: "auto", opacity: 1 }
+        : { height: 0, opacity: 0 }}
+      className="overflow-hidden"
       data-testid={bodyTestId}
-      data-thread-find-skip={expanded ? undefined : true}
-      style={{
-        overflow: "hidden",
-        pointerEvents: expanded ? "auto" : "none",
-      }}
+      style={{ pointerEvents: fullyExpanded ? "auto" : "none" }}
+      transition={CODEX_THREAD_ACCORDION_TRANSITION}
       onAnimationComplete={() => {
-        if (!expanded) setBodyMounted(false);
+        setDisclosureState(completeThreadActivityDisclosureAnimation);
       }}
     >
-      {children}
+      {bodyClassName ? <div className={bodyClassName}>{children}</div> : children}
     </motion.div>
   ) : null;
 

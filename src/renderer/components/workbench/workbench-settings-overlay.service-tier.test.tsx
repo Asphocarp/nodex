@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -57,6 +57,12 @@ function installSettingsWindowApi() {
     invoke: async (channel: string, ...args: unknown[]) => {
       invokedChannels.push({ channel, args });
       switch (channel) {
+        case "settings:git:get":
+          return {
+            branchPrefix: "codex/",
+            commitInstructions: "",
+            pullRequestInstructions: "",
+          };
         case "settings:thread-notifications:get":
           return {
             turnMode: "unfocused",
@@ -164,22 +170,28 @@ describe("SettingsRouteShell service tier", () => {
     let backCalls = 0;
 
     const view = renderOverlay({
-      path: buildSettingsPath("worktrees"),
+      path: buildSettingsPath("git"),
       onBackToApp: () => {
         backCalls += 1;
       },
     });
     await settleAsyncRender();
 
-    const autoBranchPrefixInput = view.getByLabelText("Auto branch prefix");
-    autoBranchPrefixInput.focus();
-    fireEvent.keyDown(window, { key: "Escape" });
+    const autoBranchPrefixInput = view.getByLabelText("Branch prefix");
+    await act(async () => {
+      autoBranchPrefixInput.focus();
+      fireEvent.keyDown(window, { key: "Escape" });
+      await Promise.resolve();
+    });
     await settleAsyncRender();
 
     expect(backCalls).toBe(0);
 
-    autoBranchPrefixInput.blur();
-    fireEvent.keyDown(window, { key: "Escape" });
+    await act(async () => {
+      autoBranchPrefixInput.blur();
+      fireEvent.keyDown(window, { key: "Escape" });
+      await Promise.resolve();
+    });
     await settleAsyncRender();
 
     expect(backCalls).toBe(1);

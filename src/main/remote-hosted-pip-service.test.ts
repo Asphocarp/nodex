@@ -55,11 +55,11 @@ function createHarness() {
 
 function createBrowserUseTab(overrides: Partial<BrowserUseTabState> = {}): BrowserUseTabState {
   return {
+    browserConversationId: "session-1",
+    browserTabId: "tab-1",
     captureActive: true,
     projectId: "project-1",
     released: false,
-    sessionId: "session-1",
-    tabId: "tab-1",
     title: "Example",
     updatedAt: 1,
     url: "https://example.com",
@@ -78,14 +78,10 @@ function createBrowserUseSnapshot(
   tabs: BrowserUseTabState[],
 ): BrowserSidebarBrowserUseStateSnapshot {
   return {
-    activeTabId: tabs[0]?.tabId ?? null,
-    cursor: {
-      tabId: null,
-      updatedAt: 1,
-      visible: false,
-      x: 0,
-      y: 0,
-    },
+    activeBrowserTabIdsByConversation: Object.fromEntries(
+      tabs.map((tab) => [tab.browserConversationId, tab.browserTabId]),
+    ),
+    cursors: [],
     tabs,
   };
 }
@@ -160,17 +156,13 @@ describe("RemoteHostedPipService", () => {
   });
 
   test("ignores BrowserUse tabs that cannot back a real PiP stream", () => {
-    const { broadcasts, service, sessionThreads } = createHarness();
-    const tabWithoutSession = createBrowserUseTab();
-    delete tabWithoutSession.sessionId;
-    sessionThreads.delete("session-2");
+    const { broadcasts, service } = createHarness();
 
     service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      tabWithoutSession,
-      createBrowserUseTab({ captureActive: false, tabId: "tab-inactive" }),
-      createBrowserUseTab({ released: true, tabId: "tab-released" }),
-      createBrowserUseTab({ tabId: "tab-detached", webContentsId: null }),
-      createBrowserUseTab({ sessionId: "session-2", tabId: "tab-unmapped" }),
+      createBrowserUseTab({ captureActive: false, browserTabId: "tab-inactive" }),
+      createBrowserUseTab({ released: true, browserTabId: "tab-released" }),
+      createBrowserUseTab({ browserTabId: "tab-detached", webContentsId: null }),
+      createBrowserUseTab({ browserConversationId: "session-unmapped", browserTabId: "tab-unmapped" }),
     ]));
 
     expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(JSON.stringify([]));
@@ -186,7 +178,7 @@ describe("RemoteHostedPipService", () => {
       conversationId: "thread-2",
     });
     service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
-      createBrowserUseTab({ sessionId: "session-1" }),
+      createBrowserUseTab({ browserConversationId: "session-1" }),
     ]));
 
     expect(JSON.stringify(broadcasts)).toBe(JSON.stringify([
@@ -209,6 +201,27 @@ describe("RemoteHostedPipService", () => {
         },
       },
     ]));
+  });
+
+  test("tracks equal browser tab ids as distinct conversation-scoped PiP sources", () => {
+    const { service } = createHarness();
+
+    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+      createBrowserUseTab({ browserConversationId: "session-1", browserTabId: "shared" }),
+      createBrowserUseTab({ browserConversationId: "session-2", browserTabId: "shared", webContentsId: 202 }),
+    ]));
+
+    expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(
+      JSON.stringify(["thread-1", "thread-2"]),
+    );
+
+    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+      createBrowserUseTab({ browserConversationId: "session-2", browserTabId: "shared", webContentsId: 202 }),
+    ]));
+
+    expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(
+      JSON.stringify(["thread-2"]),
+    );
   });
 
   test("broadcasts visibility requests from renderer messages", () => {

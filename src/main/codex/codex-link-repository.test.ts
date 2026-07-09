@@ -9,7 +9,9 @@ import {
   listCodexChildThreadLinks,
   listPinnedCodexThreadIds,
   listCodexProjectThreads,
+  setCodexPinnedThreadOrder,
   setCodexThreadPinned,
+  setCodexThreadPinnedBefore,
   updateCodexThreadArchived,
   updateCodexThreadName,
   updateCodexThreadPinned,
@@ -58,6 +60,7 @@ describe("codex-link-repository", () => {
       const first = upsertCodexThread({
         projectId: projectId,
         threadId: "thr_test_1",
+        forkedFromId: "thr_fork_root",
         source: { parentThreadId: "thr_parent" },
         threadSource: "appServer",
         agentNickname: "@Nash",
@@ -73,6 +76,7 @@ describe("codex-link-repository", () => {
       expect(first.threadId).toBe("thr_test_1");
       expect(first.threadName).toBe("Thread One");
       expect(first.archived).toBe(false);
+      expect(first.forkedFromId).toBe("thr_fork_root");
       expect(first.source?.parentThreadId).toBe("thr_parent");
       expect(first.threadSource).toBe("appServer");
       expect(first.agentNickname).toBe("@Nash");
@@ -93,6 +97,7 @@ describe("codex-link-repository", () => {
       expect(second.threadName).toBe("Thread One Updated");
       expect(second.statusType).toBe("active");
       expect(second.statusActiveFlags.length).toBe(1);
+      expect(second.forkedFromId).toBe("thr_fork_root");
       expect(second.source?.parentThreadId).toBe("thr_parent");
       expect(second.threadSource).toBe("appServer");
       expect(second.managedWorktreePath).toBe("/tmp/codex/.worktrees/thr_test_1");
@@ -120,6 +125,12 @@ describe("codex-link-repository", () => {
       expect(childThreads[0]?.source?.parentThreadId).toBe("thr_parent");
       expect(childThreads[0]?.agentNickname).toBe("@Nash");
       expect(childThreads[0]?.agentRole).toBe("worker");
+
+      const clearedForkLineage = upsertCodexThread({
+        threadId: "thr_test_1",
+        forkedFromId: null,
+      });
+      expect(clearedForkLineage.forkedFromId).toBe(null);
     });
 
     if (!ran) expect(true).toBe(true);
@@ -215,6 +226,32 @@ describe("codex-link-repository", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("persists service identity and preserves it across unrelated thread refreshes", async () => {
+    const ran = await withTempDatabase(async () => {
+      const created = upsertCodexThread({
+        projectId,
+        threadId: "thr_service_identity",
+        serviceName: "codex-subagent-service",
+      });
+      expect(created.serviceName).toBe("codex-subagent-service");
+
+      const preserved = upsertCodexThread({
+        threadId: "thr_service_identity",
+        threadName: "Refreshed without service metadata",
+      });
+      expect(preserved.serviceName).toBe("codex-subagent-service");
+      expect(getCodexThread("thr_service_identity")?.serviceName).toBe("codex-subagent-service");
+
+      const cleared = upsertCodexThread({
+        threadId: "thr_service_identity",
+        serviceName: null,
+      });
+      expect(cleared.serviceName ?? null).toBe(null);
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("project update keeps linked thread rows", async () => {
     const ran = await withTempDatabase(async () => {
       upsertCodexThread({
@@ -245,7 +282,18 @@ describe("codex-link-repository", () => {
       expect(JSON.stringify(setCodexThreadPinned("thr_pin_b", true))).toBe(JSON.stringify(["thr_pin_b"]));
       expect(JSON.stringify(setCodexThreadPinned("thr_pin_a", true))).toBe(JSON.stringify(["thr_pin_b", "thr_pin_a"]));
       expect(JSON.stringify(setCodexThreadPinned("thr_pin_b", true))).toBe(JSON.stringify(["thr_pin_b", "thr_pin_a"]));
-      expect(JSON.stringify(setCodexThreadPinned("thr_pin_c", true))).toBe(JSON.stringify(["thr_pin_b", "thr_pin_a", "thr_pin_c"]));
+      expect(JSON.stringify(setCodexThreadPinned("thr_pin_c", true, "thr_pin_a"))).toBe(
+        JSON.stringify(["thr_pin_b", "thr_pin_c", "thr_pin_a"]),
+      );
+      expect(JSON.stringify(setCodexThreadPinnedBefore("thr_pin_c", null))).toBe(
+        JSON.stringify(["thr_pin_b", "thr_pin_a", "thr_pin_c"]),
+      );
+      expect(JSON.stringify(setCodexPinnedThreadOrder([
+        "thr_pin_a",
+        "unknown",
+        "thr_pin_b",
+        "thr_pin_a",
+      ]))).toBe(JSON.stringify(["thr_pin_a", "thr_pin_b", "thr_pin_c"]));
 
       updateCodexThreadArchived("thr_pin_b", true);
       expect(JSON.stringify(listPinnedCodexThreadIds())).toBe(JSON.stringify(["thr_pin_a", "thr_pin_c"]));

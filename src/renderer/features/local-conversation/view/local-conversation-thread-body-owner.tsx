@@ -22,14 +22,11 @@ import {
   applyContentSearchDomMarks,
   clearContentSearchMarks,
 } from "@/features/content-search/content-search-dom";
-import {
-  readSkipForkFromOlderTurnConfirm,
-  writeSkipForkFromOlderTurnConfirm,
-} from "@/lib/thread-fork-confirm-settings";
 import { cn } from "../../../lib/utils";
 import type {
   CardRunInTarget,
   CodexConversationCapabilityFlags,
+  CodexCanonicalServerRequest,
   CodexConversationChildMembership,
   CodexConversationResumeState,
   CodexConversationServerRequest,
@@ -42,10 +39,10 @@ import { selectVisibleConversationTurnEntries } from "../selectors";
 import type {
   ThreadBodyModel,
   ThreadBodyUiStateOverrides,
+  ThreadComposerShellBackgroundAgentRowModel,
   ThreadPlanSidePanelState,
   ThreadStageActions,
 } from "../thread-stage-types";
-import { buildTurnRenderModel } from "../projection/build-turn-render-model";
 import { buildThreadUserMessageNavigationItems } from "../projection/thread-user-message-navigation-items";
 import {
   LocalConversationVirtualizedTurnList,
@@ -53,7 +50,6 @@ import {
   type LocalConversationVirtualizedTurnListEntry,
 } from "./local-conversation-virtualized-turn-list";
 import type { ThreadUserMessageNavigationItem } from "../thread-stage-types";
-import { LocalConversationAboveComposerPortal } from "./local-conversation-above-composer-portal";
 import { LocalConversationForkFromTurnDialog } from "./local-conversation-fork-from-turn-dialog";
 import {
   useLocalConversationThreadScrollController,
@@ -117,11 +113,11 @@ function nextAnimationFrame(): Promise<void> {
 
 function isConversationSearchMatchMeta(
   value: unknown,
-): value is { unitKey: string; turnId: string; occurrenceIndex: number } {
+): value is { unitKey: string; turnKey: string; occurrenceIndex: number } {
   if (!value || typeof value !== "object") return false;
-  const meta = value as { unitKey?: unknown; turnId?: unknown; occurrenceIndex?: unknown };
+  const meta = value as { unitKey?: unknown; turnKey?: unknown; occurrenceIndex?: unknown };
   return typeof meta.unitKey === "string"
-    && typeof meta.turnId === "string"
+    && typeof meta.turnKey === "string"
     && typeof meta.occurrenceIndex === "number";
 }
 
@@ -289,11 +285,13 @@ interface LocalConversationThreadBodyOwnerProps {
   turns: CodexConversationTurn[];
   turnPagination: CodexConversationTurnPagination | null;
   requests: CodexConversationServerRequest[];
+  canonicalRequests: CodexCanonicalServerRequest[];
   resumeState: CodexConversationResumeState | null;
   capabilityFlags: CodexConversationCapabilityFlags;
   statusType: CodexThreadStatusType | null;
   parentTurns: readonly CodexConversationTurn[];
   childMemberships: readonly CodexConversationChildMembership[];
+  backgroundAgentRows: readonly ThreadComposerShellBackgroundAgentRowModel[];
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
@@ -305,11 +303,22 @@ interface LocalConversationThreadBodyOwnerProps {
     updatedAt: number;
   } | null;
   actions: ThreadStageActions;
+  isWorktreeThread?: boolean;
+  onForkFromTurnIntoWorktree?: LocalConversationForkIntoWorktreeHandler;
   planSidePanelState?: ThreadPlanSidePanelState | null;
   onErrorMessage: (message: string | null) => void;
   initialUiState?: ThreadBodyUiStateOverrides;
   turnDiffHoverPreviewDisabled?: boolean;
 }
+
+export interface LocalConversationForkIntoWorktreeInput {
+  threadId: string;
+  targetTurnId: string;
+}
+
+export type LocalConversationForkIntoWorktreeHandler = (
+  input: LocalConversationForkIntoWorktreeInput,
+) => Promise<void>;
 
 export function LocalConversationThreadBodyOwner({
   body,
@@ -320,14 +329,18 @@ export function LocalConversationThreadBodyOwner({
   turns,
   turnPagination,
   requests,
+  canonicalRequests,
   resumeState,
   capabilityFlags,
   statusType,
   parentTurns,
   childMemberships,
+  backgroundAgentRows,
   projectWorkspacePath,
   threadStartProgress,
   actions,
+  isWorktreeThread = false,
+  onForkFromTurnIntoWorktree,
   planSidePanelState,
   onErrorMessage,
   initialUiState,
@@ -398,6 +411,7 @@ export function LocalConversationThreadBodyOwner({
             turnPagination: turnPagination ?? undefined,
             turns,
             requests,
+            canonicalRequests,
             queuedFollowUps: [],
             pendingSteers: [],
             backgroundTerminalRows: [],
@@ -405,10 +419,9 @@ export function LocalConversationThreadBodyOwner({
             capabilityFlags,
           }
         : null,
-    [capabilityFlags, childMemberships, cwd, requests, resumeState, statusType, threadId, turnPagination, turns],
+    [canonicalRequests, capabilityFlags, childMemberships, cwd, requests, resumeState, statusType, threadId, turnPagination, turns],
   );
 
-  const latestTurnId = body.latestTurnId;
   const editableTurnId =
     capabilityFlags.canEditLastUserTurn
       ? resolveLatestEditableTurnId(turns)
@@ -432,40 +445,6 @@ export function LocalConversationThreadBodyOwner({
       : [],
     [isDeferredBodyReady, turnEntries],
   );
-  const turnKeyByTurnId = useMemo(
-    () => new Map(turnEntries.map((entry) => [entry.turnId, entry.turnKey] as const)),
-    [turnEntries],
-  );
-
-  const activeTurnRenderModel = useMemo(
-    () => {
-      const activeEntry = body.activeTurnId
-        ? turnEntries.find((entry) => entry.turnId === body.activeTurnId) ?? null
-        : null;
-      if (!activeEntry) {
-        return null;
-      }
-
-      return buildTurnRenderModel({
-        turn: activeEntry.turn,
-        requests: activeEntry.requests,
-        isLatestTurn: latestTurnId === activeEntry.turnId,
-        isStreamingTurn: true,
-        canEditTurnUserPrefix: editableTurnId === activeEntry.turnId,
-        canForkTurn:
-          canForkFromTurn && activeEntry.turn.status !== "inProgress",
-      });
-    },
-    [
-      body.activeTurnId,
-      turnEntries,
-      canForkFromTurn,
-      editableTurnId,
-      latestTurnId,
-    ],
-  );
-  const aboveComposerBlocks = activeTurnRenderModel?.aboveComposerBlocks ?? [];
-
   const currentTurnEntriesRef = useRef(turnEntries);
   currentTurnEntriesRef.current = turnEntries;
 
@@ -549,13 +528,10 @@ export function LocalConversationThreadBodyOwner({
         scrollAdapter: {
           scrollToTurn: async (turnKey, options) => {
             if (options?.signal?.aborted) return;
-            const turnId = currentTurnEntriesRef.current.find(
-              (entry) => entry.turnKey === turnKey,
-            )?.turnId;
-            if (turnId && collapsedAgentBodyByTurnId[turnId] === true) {
+            if (collapsedAgentBodyByTurnId[turnKey] === true) {
               setCollapsedAgentBodyByTurnId((current) => ({
                 ...current,
-                [turnId]: false,
+                [turnKey]: false,
               }));
               await new Promise<void>((resolve) => {
                 requestAnimationFrame(() => {
@@ -668,7 +644,7 @@ export function LocalConversationThreadBodyOwner({
             label: unit.text,
             meta: {
               unitKey: unit.key,
-              turnId: unit.turnId,
+              turnKey: unit.turnKey,
               occurrenceIndex,
             },
           });
@@ -685,10 +661,7 @@ export function LocalConversationThreadBodyOwner({
     },
     async ensureVisible(match, { signal }) {
       if (!isConversationSearchMatchMeta(match.meta)) return;
-      const turnKey = turnKeyByTurnId.get(match.meta.turnId);
-      if (turnKey) {
-        await searchSource.scrollAdapter.scrollToTurn(turnKey, { signal });
-      }
+      await searchSource.scrollAdapter.scrollToTurn(match.meta.turnKey, { signal });
     },
     activate(match, query) {
       if (!isConversationSearchMatchMeta(match.meta)) return;
@@ -710,7 +683,7 @@ export function LocalConversationThreadBodyOwner({
     clear() {
       clearContentSearchMarks(contentRootRef.current);
     },
-  }), [searchSource, turnKeyByTurnId]);
+  }), [searchSource]);
   useRegisterContentSearchSource(contentSearchSource);
 
   const handleEditLastUserTurn = useCallback(
@@ -730,30 +703,49 @@ export function LocalConversationThreadBodyOwner({
     [actions, onErrorMessage],
   );
 
-  const runForkFromTurn = useCallback(
-    async (
-      input: { threadId: string; turnId: string; message: string },
-      opts?: { skipConfirm?: boolean },
-    ) => {
+  const runForkChoice = useCallback(
+    async (fork: () => Promise<void>, fallbackError: string) => {
       setIsForkSubmitting(true);
       onErrorMessage(null);
       try {
-        if (opts?.skipConfirm) {
-          writeSkipForkFromOlderTurnConfirm(true);
-        }
-        await actions.onForkFromTurn(input);
+        await fork();
         setForkDialogState(null);
       } catch (error) {
         onErrorMessage(
           error instanceof Error
             ? error.message
-            : "Could not fork the conversation",
+            : fallbackError,
         );
       } finally {
         setIsForkSubmitting(false);
       }
     },
-    [actions, onErrorMessage],
+    [onErrorMessage],
+  );
+
+  const runForkFromTurn = useCallback(
+    async (input: { threadId: string; turnId: string; message: string }) => {
+      await runForkChoice(
+        () => actions.onForkFromTurn(input),
+        "Could not fork the conversation",
+      );
+    },
+    [actions, runForkChoice],
+  );
+
+  const runForkFromTurnIntoWorktree = useCallback(
+    async (input: { threadId: string; turnId: string; message: string }) => {
+      if (!onForkFromTurnIntoWorktree) return;
+
+      await runForkChoice(
+        () => onForkFromTurnIntoWorktree({
+          threadId: input.threadId,
+          targetTurnId: input.turnId,
+        }),
+        "Could not fork the conversation into a new worktree",
+      );
+    },
+    [onForkFromTurnIntoWorktree, runForkChoice],
   );
 
   const handleForkFromTurn = useCallback(
@@ -763,7 +755,7 @@ export function LocalConversationThreadBodyOwner({
       message: string;
       isLatestTurn: boolean;
     }) => {
-      if (input.isLatestTurn || readSkipForkFromOlderTurnConfirm()) {
+      if (input.isLatestTurn) {
         await runForkFromTurn(input);
         return;
       }
@@ -809,8 +801,6 @@ export function LocalConversationThreadBodyOwner({
     [],
   );
 
-  const shouldRenderAboveComposerPortal =
-    aboveComposerBlocks.length > 0 && body.activeTurnId !== null;
   const selectedTextSideChatOverlayEnabled = Boolean(
     threadId
     && !isSideChat
@@ -829,25 +819,6 @@ export function LocalConversationThreadBodyOwner({
         scrollElement={scrollElement}
         onOpenSideChat={actions.onOpenSideChat}
       />
-      {shouldRenderAboveComposerPortal ? (
-        <LocalConversationAboveComposerPortal
-          blocks={aboveComposerBlocks}
-          isLatestTurn={body.latestTurnId === body.activeTurnId}
-          isStreamingTurn={true}
-          projectWorkspacePath={projectWorkspacePath}
-          threadCwd={cwd}
-          onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
-          onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
-          onOpenSideChat={actions.onOpenSideChat}
-          onOpenThread={actions.onOpenThread}
-          onOpenSummaryScheduledAutomation={actions.onOpenSummaryScheduledAutomation}
-          onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
-          onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
-          onClosePlanSidePanel={actions.onClosePlanSidePanel}
-          planSidePanelState={planSidePanelState}
-          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-        />
-      ) : null}
       <div className="flex flex-col">
         {body.showThreadStartProgressPanel && threadStartProgress ? (
           <div className="flex items-center justify-center py-10">
@@ -939,6 +910,7 @@ export function LocalConversationThreadBodyOwner({
                 onClosePlanSidePanel={actions.onClosePlanSidePanel}
                 planSidePanelState={planSidePanelState}
                 childMemberships={childMemberships}
+                backgroundAgentRows={backgroundAgentRows}
                 turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
                 initialScrollOffset={initialRestoreSnapshot?.distanceFromBottomPx ?? 0}
                 initialRestoreState={initialRestoreSnapshot?.virtualizedTurnList ?? null}
@@ -962,15 +934,20 @@ export function LocalConversationThreadBodyOwner({
       </div>
       <LocalConversationForkFromTurnDialog
         open={forkDialogState !== null}
-        message={forkDialogState?.message ?? ""}
         busy={isForkSubmitting}
+        isWorktreeThread={isWorktreeThread}
+        showWorktreeOption={onForkFromTurnIntoWorktree !== undefined}
         onOpenChange={(open) => {
           if (open) return;
           setForkDialogState(null);
         }}
-        onConfirm={(skipConfirm) => {
+        onForkIntoLocal={() => {
           if (!forkDialogState) return;
-          void runForkFromTurn(forkDialogState, { skipConfirm });
+          void runForkFromTurn(forkDialogState);
+        }}
+        onForkIntoWorktree={() => {
+          if (!forkDialogState) return;
+          void runForkFromTurnIntoWorktree(forkDialogState);
         }}
       />
     </>

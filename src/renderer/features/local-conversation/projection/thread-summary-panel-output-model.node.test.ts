@@ -1,12 +1,16 @@
 import { describe, expect, test } from "vitest";
+import type { McpToolCallResult, ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import {
   buildThreadSummaryPanelOutputRows,
+  collectTurnEndResourcePaths,
   isThreadSummaryPanelImagePreviewableOutput,
   resolveThreadSummaryPanelOutputOpenTarget,
   type ThreadSummaryPanelOutputRow,
 } from "./thread-summary-panel-output-model";
+
+type ProtocolMcpToolCallItem = Extract<ThreadItem, { type: "mcpToolCall" }>;
 
 function buildTurn(items: CodexConversationItem[]): CodexConversationTurn {
   return {
@@ -56,8 +60,8 @@ function buildMcpSuccessItem(
   input: {
     server: string;
     tool: string;
-    structuredContent: Record<string, unknown>;
-    arguments?: Record<string, unknown>;
+    structuredContent: McpToolCallResult["structuredContent"];
+    arguments?: ProtocolMcpToolCallItem["arguments"];
   },
 ): CodexConversationItem {
   return buildItem(itemId, "mcpToolCall", {
@@ -67,7 +71,8 @@ function buildMcpSuccessItem(
       callId: itemId,
       functionName: `${input.server}__${input.tool}`,
       pluginId: null,
-      mcpAppResourceUri: null,
+      mcpAppResourceUri: undefined,
+      source: null,
       invocation: {
         server: input.server,
         tool: input.tool,
@@ -80,6 +85,7 @@ function buildMcpSuccessItem(
         raw: {
           content: [],
           structuredContent: input.structuredContent,
+          _meta: null,
         },
       },
       durationMs: null,
@@ -494,5 +500,46 @@ describe("buildThreadSummaryPanelOutputRows", () => {
     const target = rows[0] ? resolveThreadSummaryPanelOutputOpenTarget(rows[0]) : null;
     expect(target?.type ?? "").toBe("file");
     expect(target?.type === "file" ? target.path : "").toBe("/repo/project/dist/index.html");
+  });
+});
+
+describe("collectTurnEndResourcePaths", () => {
+  test("collects linked presentation outputs while excluding fenced-code examples", () => {
+    const paths = collectTurnEndResourcePaths(buildTurn([
+      buildItem("assistant-1", "agentMessage", {
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        markdownText: [
+          "Download [the completed deck](slides/final.pptx).",
+          "```md",
+          "[example only](slides/not-created.pptx)",
+          "```",
+        ].join("\n"),
+      }),
+    ]));
+
+    expect(paths).toEqual(["slides/final.pptx"]);
+  });
+
+  test("collects edited and referenced presentation artifacts once", () => {
+    const paths = collectTurnEndResourcePaths(buildTurn([
+      buildItem("file-change", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        fileChange: {
+          label: "slides",
+          changes: buildCodexFileChangeMap([
+            { type: "add", path: "slides/review.pptx", content: "presentation" },
+          ]),
+        },
+      }),
+      buildItem("assistant-1", "agentMessage", {
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        markdownText: "Created \u3010slides/review.pptx\u2020L1\u3011.",
+      }),
+    ]));
+
+    expect(paths).toEqual(["slides/review.pptx"]);
   });
 });

@@ -53,6 +53,7 @@ function createSession(overrides: Partial<ProjectSession> = {}): ProjectSession 
         id: "tab-1",
         projectId: "project-1",
         sessionId: overrides.id ?? "session-1",
+        browserTabId: null,
         panelId: "right",
         kind: "db_view",
         title: "DB View",

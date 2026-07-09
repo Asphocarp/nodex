@@ -750,7 +750,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const readStatus = (): GitActionStatusResult => ({
       cwd: "/repo/project",
       isGitRepository: true,
-      currentBranch: branchCreated ? "nodex/detached-fix" : null,
+      currentBranch: branchCreated ? "codex/detached-fix" : null,
       defaultBranch: "main",
       upstreamBranch: null,
       remotes: ["origin"],
@@ -769,9 +769,9 @@ describe("ThreadFloatingSummaryPanel", () => {
       if (channel === "git:branch:state") {
         return {
           cwd: "/repo/project",
-          currentBranch: branchCreated ? "nodex/detached-fix" : null,
+          currentBranch: branchCreated ? "codex/detached-fix" : null,
           defaultBranch: "main",
-          branches: branchCreated ? ["nodex/detached-fix", "main"] : ["main"],
+          branches: branchCreated ? ["codex/detached-fix", "main"] : ["main"],
           errorMessage: null,
         };
       }
@@ -781,9 +781,9 @@ describe("ThreadFloatingSummaryPanel", () => {
         branchCreated = true;
         return {
           cwd: "/repo/project",
-          currentBranch: "nodex/detached-fix",
+          currentBranch: "codex/detached-fix",
           defaultBranch: "main",
-          branches: ["nodex/detached-fix", "main"],
+          branches: ["codex/detached-fix", "main"],
           errorMessage: null,
         };
       }
@@ -833,7 +833,7 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const branchNameInput = getBranchSetupInput("detached-fix");
     await act(async () => {
-      branchNameInput.value = "nodex/detached-fix";
+      branchNameInput.value = "codex/detached-fix";
       fireEvent.input(branchNameInput);
       await settleAsyncRender();
     });
@@ -852,7 +852,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(JSON.stringify(branchCreateInputs[0])).toBe(
       JSON.stringify({
         cwd: "/repo/project",
-        branch: "nodex/detached-fix",
+        branch: "codex/detached-fix",
       }),
     );
 
@@ -952,7 +952,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const readStatus = (): GitActionStatusResult => ({
       cwd: "/repo/project",
       isGitRepository: true,
-      currentBranch: branchCreated ? "nodex/default-worktree" : "main",
+      currentBranch: branchCreated ? "codex/default-worktree" : "main",
       defaultBranch: "main",
       upstreamBranch: branchCreated ? null : "origin/main",
       remotes: ["origin"],
@@ -971,10 +971,10 @@ describe("ThreadFloatingSummaryPanel", () => {
       if (channel === "git:branch:state") {
         return {
           cwd: "/repo/project",
-          currentBranch: branchCreated ? "nodex/default-worktree" : "main",
+          currentBranch: branchCreated ? "codex/default-worktree" : "main",
           defaultBranch: "main",
           branches: branchCreated
-            ? ["main", "nodex/default-worktree"]
+            ? ["main", "codex/default-worktree"]
             : ["main"],
           errorMessage: null,
         };
@@ -985,9 +985,9 @@ describe("ThreadFloatingSummaryPanel", () => {
         branchCreated = true;
         return {
           cwd: "/repo/project",
-          currentBranch: "nodex/default-worktree",
+          currentBranch: "codex/default-worktree",
           defaultBranch: "main",
-          branches: ["main", "nodex/default-worktree"],
+          branches: ["main", "codex/default-worktree"],
           errorMessage: null,
         };
       }
@@ -1039,7 +1039,7 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const branchNameInput = getBranchSetupInput("default-worktree");
     await act(async () => {
-      branchNameInput.value = "nodex/default-worktree";
+      branchNameInput.value = "codex/default-worktree";
       fireEvent.input(branchNameInput);
       await settleAsyncRender();
     });
@@ -1060,14 +1060,14 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(JSON.stringify(branchCreateInputs[0])).toBe(
       JSON.stringify({
         cwd: "/repo/project",
-        branch: "nodex/default-worktree",
+        branch: "codex/default-worktree",
       }),
     );
 
     await waitFor(() => {
       if (
         !textContent(view.baseElement).includes(
-          "Push nodex/default-worktree and set upstream.",
+          "Push codex/default-worktree and set upstream.",
         )
       ) {
         throw new Error("Expected push workflow dialog after branch setup.");
@@ -1922,7 +1922,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const readStatus = (): GitActionStatusResult => ({
       cwd: "/repo/project",
       isGitRepository: true,
-      currentBranch: branchCreated ? "nodex/default-pr-worktree" : "main",
+      currentBranch: branchCreated ? "codex/default-pr-worktree" : "main",
       defaultBranch: "main",
       upstreamBranch: branchCreated ? null : "origin/main",
       remotes: ["origin"],
@@ -1941,10 +1941,10 @@ describe("ThreadFloatingSummaryPanel", () => {
       if (channel === "git:branch:state") {
         return {
           cwd: "/repo/project",
-          currentBranch: branchCreated ? "nodex/default-pr-worktree" : "main",
+          currentBranch: branchCreated ? "codex/default-pr-worktree" : "main",
           defaultBranch: "main",
           branches: branchCreated
-            ? ["main", "nodex/default-pr-worktree"]
+            ? ["main", "codex/default-pr-worktree"]
             : ["main"],
           errorMessage: null,
         };
@@ -1955,9 +1955,9 @@ describe("ThreadFloatingSummaryPanel", () => {
         branchCreated = true;
         return {
           cwd: "/repo/project",
-          currentBranch: "nodex/default-pr-worktree",
+          currentBranch: "codex/default-pr-worktree",
           defaultBranch: "main",
-          branches: ["main", "nodex/default-pr-worktree"],
+          branches: ["main", "codex/default-pr-worktree"],
           errorMessage: null,
         };
       }
@@ -2016,7 +2016,7 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     const branchNameInput = getBranchSetupInput("default-pr-worktree");
     await act(async () => {
-      branchNameInput.value = "nodex/default-pr-worktree";
+      branchNameInput.value = "codex/default-pr-worktree";
       fireEvent.input(branchNameInput);
       await settleAsyncRender();
     });
@@ -2038,7 +2038,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(JSON.stringify(branchCreateInputs[0])).toBe(
       JSON.stringify({
         cwd: "/repo/project",
-        branch: "nodex/default-pr-worktree",
+        branch: "codex/default-pr-worktree",
       }),
     );
   });
@@ -2123,9 +2123,19 @@ describe("ThreadFloatingSummaryPanel", () => {
             itemId: "mcp",
             type: "mcpToolCall",
             mcpToolCall: {
+              callId: "mcp",
+              functionName: "context7__query",
+              pluginId: null,
+              mcpAppResourceUri: undefined,
+              source: null,
               invocation: {
                 server: "context7",
+                tool: "query",
+                arguments: {},
               },
+              result: null,
+              durationMs: null,
+              completed: false,
             },
           },
           {
@@ -2759,6 +2769,9 @@ describe("ThreadFloatingSummaryPanel", () => {
             mcpToolCall: {
               callId: "call-1",
               functionName: "docs__search",
+              pluginId: null,
+              mcpAppResourceUri: undefined,
+              source: null,
               invocation: {
                 server: "docs",
                 tool: "search",
@@ -2777,8 +2790,18 @@ describe("ThreadFloatingSummaryPanel", () => {
                   },
                 ],
                 structuredContent: null,
-                meta: { "openai/outputTemplate": "ui://docs/search.html" },
-                raw: { content: [], structuredContent: null },
+                raw: {
+                  content: [{
+                    type: "embedded_resource",
+                    resource: {
+                      uri: "ui://docs/search.html",
+                      mimeType: "text/html;profile=mcp-app",
+                      text: "<main>Docs app</main>",
+                    },
+                  }],
+                  structuredContent: null,
+                  _meta: { "openai/outputTemplate": "ui://docs/search.html" },
+                },
               },
               durationMs: null,
               completed: true,
@@ -2828,7 +2851,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       await import("./thread-floating-summary-panel");
     const openCalls: unknown[] = [];
     mockInvokeImpl = async (channel) => {
-      if (channel === "codex:mcp-server-statuses:list") return [];
+      if (channel === "codex:mcp-server-statuses:list") return { data: [], nextCursor: null };
       if (channel === "codex:mcp-resource:read") {
         return {
           contents: [
@@ -2861,6 +2884,9 @@ describe("ThreadFloatingSummaryPanel", () => {
             mcpToolCall: {
               callId: "call-1",
               functionName: "docs__search",
+              pluginId: null,
+              mcpAppResourceUri: undefined,
+              source: null,
               invocation: {
                 server: "docs",
                 tool: "search",
@@ -2870,8 +2896,11 @@ describe("ThreadFloatingSummaryPanel", () => {
                 type: "success",
                 content: [],
                 structuredContent: null,
-                meta: { "openai/outputTemplate": "ui://docs/search.html" },
-                raw: { content: [], structuredContent: null },
+                raw: {
+                  content: [],
+                  structuredContent: null,
+                  _meta: { "openai/outputTemplate": "ui://docs/search.html" },
+                },
               },
               durationMs: null,
               completed: true,
@@ -3349,7 +3378,8 @@ describe("ThreadFloatingSummaryPanel", () => {
                 callId: "drive-tool",
                 functionName: "google-drive__create_document",
                 pluginId: null,
-                mcpAppResourceUri: null,
+                mcpAppResourceUri: undefined,
+                source: null,
                 invocation: {
                   server: "google-drive",
                   tool: "create_document",
@@ -3368,6 +3398,7 @@ describe("ThreadFloatingSummaryPanel", () => {
                       title: "Reference Roadmap",
                       document_url: driveUrl,
                     },
+                    _meta: null,
                   },
                 },
                 durationMs: null,

@@ -71,6 +71,23 @@ function applyHostMessage(message: CodexHostMessage): void {
     return;
   }
 
+  if (message.type === "threadReadStateChanged") {
+    dispatchCodexAppServerMessage("thread-read-state-changed", {
+      hostId: message.hostId,
+      conversationId: message.conversationId,
+      hasUnreadTurn: message.hasUnreadTurn,
+    });
+    return;
+  }
+
+  if (message.type === "threadArchived") {
+    dispatchCodexAppServerMessage("thread-archived", {
+      hostId: message.hostId,
+      conversationId: message.conversationId,
+    });
+    return;
+  }
+
   if (message.type === "threadDeleted") {
     dispatchCodexAppServerMessage("thread-deleted", {
       hostId: message.hostId,

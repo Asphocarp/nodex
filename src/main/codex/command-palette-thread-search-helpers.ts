@@ -4,6 +4,7 @@ import type {
   CommandPaletteSearchSnippetSegment,
 } from "../../shared/types";
 import { tokenizeSearchQuery } from "../../shared/search-text";
+import { buildCodexTurnOccurrenceKey } from "../../shared/codex-turn-identity";
 
 export interface ThreadSearchUnit {
   unitKey: string;
@@ -35,26 +36,27 @@ export function extractThreadSearchUnitsFromConversation(
 ): ThreadSearchUnit[] {
   if (!conversation) return [];
 
-  return conversation.turns.flatMap((turn) =>
-    turn.items.flatMap((item): ThreadSearchUnit[] => {
+  return conversation.turns.flatMap((turn, turnIndex) => {
+    const turnKey = buildCodexTurnOccurrenceKey(turn.turnId, turnIndex);
+    return turn.items.flatMap((item): ThreadSearchUnit[] => {
       const role = item.role;
       const text = (item.markdownText ?? "").trim();
       if (!isSearchableRole(role) || !text) return [];
       return [{
         unitKey: buildThreadSearchUnitKey({
           threadId: conversation.threadId,
-          turnId: turn.turnId,
+          turnId: turnKey,
           itemId: item.itemId,
           role,
         }),
         threadId: conversation.threadId,
-        turnId: turn.turnId,
+        turnId: turnKey,
         itemId: item.itemId,
         role,
         text,
       }];
-    }),
-  );
+    });
+  });
 }
 
 export function extractThreadSearchUnitsFromDetail(
@@ -68,15 +70,22 @@ export function extractThreadSearchUnitsFromDetail(
     if (!isSearchableRole(role) || !text) return [];
     if (entry.kind !== "userMessage" && entry.kind !== "assistantMessage") return [];
 
+    const turnIndex = detail.turns.findIndex((turn) => turn.turnId === null
+      ? turn.itemIds.includes(entry.itemId)
+      : turn.turnId === entry.turnId);
+    const turnKey = buildCodexTurnOccurrenceKey(
+      entry.turnId,
+      Math.max(0, turnIndex),
+    );
     return [{
       unitKey: buildThreadSearchUnitKey({
         threadId: detail.threadId,
-        turnId: entry.turnId,
+        turnId: turnKey,
         itemId: entry.itemId,
         role,
       }),
       threadId: detail.threadId,
-      turnId: entry.turnId,
+      turnId: turnKey,
       itemId: entry.itemId,
       role,
       text,

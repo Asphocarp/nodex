@@ -9,6 +9,10 @@ import type {
   ServerRequest,
 } from "@nodex/codex-app-server-protocol";
 import type { CodexConnectionState } from "../../shared/types";
+import type {
+  CodexCanonicalOptionPickerRequest,
+  CodexCanonicalSetupContextPickerRequest,
+} from "../../shared/codex-conversation-state/codex-conversation-state";
 import { getLogger } from "../logging/logger";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 20_000;
@@ -27,6 +31,13 @@ const DEFAULT_EXTRA_BINARY_SEARCH_PATHS =
       ]
     : [`${os.homedir()}/.bun/bin`, `${os.homedir()}/.local/bin`];
 const logger = getLogger({ subsystem: "codex", component: "app-server-client" });
+
+/**
+ * A server request can be withdrawn by the app-server before the local handler
+ * finishes. Returning this sentinel settles local work without writing a late
+ * JSON-RPC response for a request the server no longer owns.
+ */
+export const CODEX_SERVER_REQUEST_NO_RESPONSE = Symbol("codex-server-request-no-response");
 
 type JsonRpcId = number | string;
 
@@ -81,16 +92,19 @@ interface PendingRequest {
   reject: (reason?: unknown) => void;
 }
 
-export interface CodexServerRequest {
+export interface CodexInboxItemsCreateServerRequest {
   id: JsonRpcId;
-  method: ServerRequest["method"];
-  params: ServerRequest["params"];
+  method: "inbox-items-create";
+  params: unknown;
 }
 
-export interface CodexServerNotification {
-  method: ServerNotification["method"];
-  params: ServerNotification["params"];
-}
+export type CodexServerRequest =
+  | ServerRequest
+  | CodexCanonicalOptionPickerRequest
+  | CodexCanonicalSetupContextPickerRequest
+  | CodexInboxItemsCreateServerRequest;
+
+export type CodexServerNotification = ServerNotification;
 
 export interface CodexAppServerClientOptions {
   binaryPath?: string;
@@ -698,6 +712,13 @@ export class CodexAppServerClient extends EventEmitter {
 
     try {
       const result = await this.serverRequestHandler(request);
+      if (result === CODEX_SERVER_REQUEST_NO_RESPONSE) {
+        logger.info("Codex server request completed without a client response", {
+          requestId: request.id,
+          method: request.method,
+        });
+        return;
+      }
       logger.info("Resolved Codex server request", {
         requestId: request.id,
         method: request.method,

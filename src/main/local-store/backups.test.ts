@@ -58,7 +58,7 @@ vi.mock("./backup-store-validation", () => ({
     const content = fs.readFileSync(databasePath, "utf8");
     if (content.startsWith("invalid")) throw new Error("invalid database");
     return {
-      schemaVersion: 58,
+      schemaVersion: 59,
       storeEpoch: "epoch-before",
       projectCount: 1,
       documentCount: 1,
@@ -69,7 +69,7 @@ vi.mock("./backup-store-validation", () => ({
     const content = fs.readFileSync(databasePath, "utf8");
     if (content.startsWith("invalid")) throw new Error("invalid database");
     return {
-      schemaVersion: 58,
+      schemaVersion: 59,
       storeEpoch: "epoch-restored",
       projectCount: 1,
       documentCount: 1,

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { act, fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { render, textContent } from "../../../../../test/dom";
 import {
+  completeThreadActivityDisclosureAnimation,
   ThreadActivityDisclosure,
   ThreadActivityHeader,
   ThreadActivityList,
@@ -85,72 +86,102 @@ describe("ThreadActivityShell", () => {
 });
 
 describe("ThreadActivityDisclosure", () => {
-  test("separates first-open body mount from expanded state with requestAnimationFrame", async () => {
+  test("uses a rich overlay button labelled by its summary while preserving nested controls", () => {
+    const { container } = render(
+      <ThreadActivityDisclosure
+        headerTestId="activity-header"
+        icon={<span aria-hidden="true">icon</span>}
+        summary={<a href="/file.ts" data-agent-activity-file-link>Edited file.ts</a>}
+      >
+        <div>patch rows</div>
+      </ThreadActivityDisclosure>,
+    );
+
+    const header = container.querySelector<HTMLElement>("[data-testid='activity-header']");
+    const overlayButton = header?.querySelector<HTMLButtonElement>(":scope > button");
+    const summary = header?.querySelector<HTMLElement>("[id]");
+    expect(header?.tagName).toBe("DIV");
+    expect(overlayButton?.getAttribute("aria-labelledby") ?? "").toBe(summary?.id ?? "missing");
+    expect(overlayButton?.getAttribute("aria-expanded") ?? "").toBe("false");
+    expect(Boolean(header?.querySelector("a[data-agent-activity-file-link]"))).toBe(true);
+  });
+
+  test("prefers an explicit accessible label for a rich overlay button", () => {
+    const { container } = render(
+      <ThreadActivityDisclosure
+        accessibleLabel="Toggle activity details"
+        headerTestId="activity-header"
+        icon={<span aria-hidden="true">icon</span>}
+        summary="Edited file.ts"
+      >
+        <div>patch rows</div>
+      </ThreadActivityDisclosure>,
+    );
+
+    const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header'] > button");
+    expect(button?.getAttribute("aria-label") ?? "").toBe("Toggle activity details");
+    expect(button?.getAttribute("aria-labelledby") ?? "").toBe("");
+  });
+
+  test("mounts a collapsed body on open, then expands it on the next animation frame", async () => {
     const originalRequestAnimationFrame = window.requestAnimationFrame;
     const originalCancelAnimationFrame = window.cancelAnimationFrame;
-    const pendingFrames: FrameRequestCallback[] = [];
+    let animationFrameCallback: FrameRequestCallback | null = null;
     let expandCount = 0;
-    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
-      pendingFrames.push(callback);
-      return pendingFrames.length;
+    window.requestAnimationFrame = (callback) => {
+      animationFrameCallback = callback;
+      return 1;
     };
     window.cancelAnimationFrame = () => {};
 
+    const { container } = render(
+      <ThreadActivityDisclosure
+        bodyTestId="activity-body"
+        headerTestId="activity-header"
+        onExpand={() => {
+          expandCount += 1;
+        }}
+        summary="Edited a file"
+      >
+        <div>patch rows</div>
+      </ThreadActivityDisclosure>,
+    );
+
+    const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
+    expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
+    expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(false);
+
     try {
-      const { container } = render(
-        <ThreadActivityDisclosure
-          bodyTestId="activity-body"
-          headerTestId="activity-header"
-          onExpand={() => {
-            expandCount += 1;
-          }}
-          summary="Edited a file"
-        >
-          <div>patch rows</div>
-        </ThreadActivityDisclosure>,
-      );
-
-      const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
-      expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-      expect(Boolean(container.querySelector("[data-testid='activity-body']"))).toBe(false);
-
       await act(async () => {
         fireEvent.click(button as HTMLButtonElement);
         await Promise.resolve();
       });
 
-      const mountedBeforeFrame = container.querySelector<HTMLElement>("[data-testid='activity-body']");
+      const openingBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
       expect(expandCount).toBe(1);
-      expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
-      expect(Boolean(mountedBeforeFrame)).toBe(true);
-      expect(mountedBeforeFrame?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
-      expect(mountedBeforeFrame?.style.pointerEvents ?? "").toBe("none");
+      expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
+      expect(Boolean(openingBody)).toBe(true);
+      expect(openingBody?.style.pointerEvents ?? "").toBe("none");
 
       await act(async () => {
-        const nextFrame = pendingFrames.shift();
-        nextFrame?.(0);
+        animationFrameCallback?.(0);
         await Promise.resolve();
       });
 
-      const expandedBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
-      expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
-      expect(Boolean(expandedBody)).toBe(true);
-      expect(expandedBody?.getAttribute("data-thread-find-skip") ?? "").toBe("");
-      expect(expandedBody?.style.pointerEvents ?? "").toBe("auto");
+      expect(container.querySelector<HTMLElement>("[data-testid='activity-body']")?.style.pointerEvents ?? "").toBe("auto");
     } finally {
       window.requestAnimationFrame = originalRequestAnimationFrame;
       window.cancelAnimationFrame = originalCancelAnimationFrame;
     }
   });
 
-  test("keeps the body mounted while collapsing and unmounts after animation completion", async () => {
+  test("keeps the body mounted and non-interactive while closing", async () => {
     const { container } = render(
       <ThreadActivityDisclosure
         bodyTestId="activity-body"
         defaultExpanded
         headerTestId="activity-header"
         summary="Searched the web"
-        transition={{ duration: 0.02 }}
       >
         <div>search rows</div>
       </ThreadActivityDisclosure>,
@@ -168,25 +199,18 @@ describe("ThreadActivityDisclosure", () => {
     const collapsingBody = container.querySelector<HTMLElement>("[data-testid='activity-body']");
     expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
     expect(Boolean(collapsingBody)).toBe(true);
-    expect(collapsingBody?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
     expect(collapsingBody?.style.pointerEvents ?? "").toBe("none");
-
-    await waitFor(() => {
-      if (container.querySelector("[data-testid='activity-body']")) {
-        throw new Error("Expected collapsed body to unmount");
-      }
-    });
   });
 
-  test("can mount an initially collapsed body for first-render collapse animation", () => {
+  test("starts an initial collapse mounted and can reopen it synchronously", async () => {
     const { container } = render(
       <ThreadActivityDisclosure
         bodyTestId="activity-body"
         headerTestId="activity-header"
         shouldAnimateInitialCollapse
-        summary="Edited files"
+        summary="Editing files"
       >
-        <div>initial body</div>
+        <div>live rows</div>
       </ThreadActivityDisclosure>,
     );
 
@@ -194,8 +218,55 @@ describe("ThreadActivityDisclosure", () => {
     const body = container.querySelector<HTMLElement>("[data-testid='activity-body']");
     expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
     expect(Boolean(body)).toBe(true);
-    expect(body?.getAttribute("data-thread-find-skip") ?? "").toBe("true");
     expect(body?.style.pointerEvents ?? "").toBe("none");
+
+    await act(async () => {
+      fireEvent.click(button as HTMLButtonElement);
+      await Promise.resolve();
+    });
+    expect(button?.getAttribute("aria-expanded") ?? "").toBe("true");
+    expect(container.querySelector<HTMLElement>("[data-testid='activity-body']")?.style.pointerEvents ?? "").toBe("auto");
+  });
+
+  test("unmounts only after a closing animation completes", () => {
+    expect(completeThreadActivityDisclosureAnimation("closing")).toBe("collapsed");
+    expect(completeThreadActivityDisclosureAnimation("opening")).toBe("opening");
+    expect(completeThreadActivityDisclosureAnimation("expanded")).toBe("expanded");
+  });
+
+  test("preserves an expanded body node across streaming summary updates", async () => {
+    const view = render(
+      <ThreadActivityDisclosure
+        defaultExpanded
+        headerTestId="activity-header"
+        summary="Running command"
+        summaryKey="active:command"
+        summaryTransition="deferred"
+      >
+        <div data-testid="stable-activity-body">stream output</div>
+      </ThreadActivityDisclosure>,
+    );
+    const initialBody = view.container.querySelector<HTMLElement>("[data-testid='stable-activity-body']");
+
+    await act(async () => {
+      view.rerender(
+        <ThreadActivityDisclosure
+          defaultExpanded
+          headerTestId="activity-header"
+          summary="Ran command"
+          summaryKey="summary"
+          summaryTransition="immediate"
+        >
+          <div data-testid="stable-activity-body">stream output complete</div>
+        </ThreadActivityDisclosure>,
+      );
+      await Promise.resolve();
+    });
+
+    const updatedBody = view.container.querySelector<HTMLElement>("[data-testid='stable-activity-body']");
+    expect(updatedBody).toBe(initialBody);
+    expect(view.container.querySelector("[data-testid='activity-header']")?.getAttribute("aria-expanded") ?? "")
+      .toBe("true");
   });
 
   test("renders static headers and no body when expansion is disabled", () => {

@@ -1,6 +1,7 @@
 import type {
   CodexBackgroundTerminalRow,
   CodexConversationChildMembership,
+  CodexCanonicalServerRequest,
   CodexConversationLiveRequest,
   CodexConversationSnapshot,
   CodexConversationServerRequest,
@@ -19,6 +20,7 @@ import {
   buildComposerQueuedFollowUpRows,
 } from "./build-composer-follow-up-lane-model";
 import {
+  selectPrimaryBackgroundConversationRequest,
   selectPrimaryConversationRequest,
 } from "../conversation-request-helpers";
 import { buildBackgroundSubagentRows } from "./background-subagent-row-model";
@@ -27,6 +29,7 @@ interface ExplicitBuildComposerShellModelInput {
   threadId: string | null;
   turns: CodexConversationTurn[];
   requests: CodexConversationServerRequest[];
+  canonicalRequests?: CodexCanonicalServerRequest[];
   pendingSteers: CodexPendingSteer[];
   queuedFollowUps: CodexQueuedFollowUp[];
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
@@ -55,6 +58,7 @@ function normalizeBuildComposerShellModelInput(
       threadId: input.conversation.threadId,
       turns: input.conversation.turns,
       requests: input.conversation.requests,
+      canonicalRequests: input.conversation.canonicalRequests,
       pendingSteers: input.conversation.pendingSteers,
       queuedFollowUps: input.conversation.queuedFollowUps,
       backgroundTerminalRows: input.conversation.backgroundTerminalRows,
@@ -85,8 +89,8 @@ function resolveBackgroundRequest(
 ): ThreadComposerShellPendingRequestModel | null {
   for (const membership of input.childMemberships) {
     const childConversation = knownConversationsById[membership.threadId];
-    const request = selectPrimaryConversationRequest(childConversation ?? null);
-    if (!request || request.type !== "approval") {
+    const request = selectPrimaryBackgroundConversationRequest(childConversation ?? null);
+    if (!request) {
       continue;
     }
 
@@ -138,6 +142,7 @@ export function buildComposerShellModel(
     latestCollaborationMode: undefined,
     resumeState: "resumed",
     turns: normalized.turns,
+    canonicalRequests: normalized.canonicalRequests,
     requests: normalized.requests,
     queuedFollowUps: normalized.queuedFollowUps,
     pendingSteers: normalized.pendingSteers,
@@ -156,7 +161,9 @@ export function buildComposerShellModel(
   );
 
   const showRequestCards = activeRequest !== null || backgroundRequest !== null;
-  const showApprovalMode = activeRequest?.type === "approval" || backgroundRequest !== null;
+  const showApprovalMode = activeRequest?.type === "approval"
+    || activeRequest?.type === "permissionRequest"
+    || backgroundRequest !== null;
 
   return {
     activeRequest: activeRequest

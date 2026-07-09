@@ -1,6 +1,7 @@
 import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { render, settleAsyncRender } from "../../test/dom";
+import type { CodexProtocolRequestId } from "../../lib/types";
 
 const invokeCalls: Array<[string, ...unknown[]]> = [];
 let currentFocusState = true;
@@ -11,7 +12,8 @@ let desktopNotificationActionListener:
       actionType: "open" | "reply" | "approve" | "approve-for-session" | "decline";
       reply?: string;
       conversationId: string | null;
-      requestId: string | null;
+      requestId: CodexProtocolRequestId | null;
+      approvalKind: "command" | "file" | null;
     }) => void)
   | null = null;
 let windowFocusChangeListener: ((isFocused: boolean) => void) | null = null;
@@ -41,7 +43,7 @@ let turnCompletedListener:
 let approvalRequestListener:
   | ((payload: {
       conversationId: string;
-      requestId: string;
+      requestId: CodexProtocolRequestId;
       kind: "command" | "file";
       reason: string | null;
     }) => void)
@@ -49,14 +51,19 @@ let approvalRequestListener:
 let userInputRequestListener:
   | ((payload: {
       conversationId: string;
-      requestId: string;
+      requestId: CodexProtocolRequestId;
       turnId: string;
       questionCount: number;
       firstQuestion: string | null;
     }) => void)
   | null = null;
 const startTurnCalls: Array<[string, string]> = [];
-const respondApprovalCalls: Array<[string, string, string | null]> = [];
+const respondApprovalCalls: Array<[
+  CodexProtocolRequestId,
+  "command" | "file",
+  string,
+  string | null,
+]> = [];
 
 const mockManager = {
   addTurnCompletedListener(listener: NonNullable<typeof turnCompletedListener>) {
@@ -113,8 +120,13 @@ const mockManager = {
     startTurnCalls.push([threadId, prompt]);
     return null;
   },
-  async respondApproval(requestId: string, decision: string, conversationId: string | null) {
-    respondApprovalCalls.push([requestId, decision, conversationId]);
+  async respondApproval(
+    requestId: CodexProtocolRequestId,
+    kind: "command" | "file",
+    decision: string,
+    conversationId: string | null,
+  ) {
+    respondApprovalCalls.push([requestId, kind, decision, conversationId]);
     return true;
   },
 };
@@ -348,7 +360,43 @@ describe("DesktopNotificationController", () => {
     expect(String(showCalls.length)).toBe("0");
   });
 
-  test("routes reply and approval actions back through thread navigation and manager methods", async () => {
+  test("uses type-tagged notification identities for numeric and textual request ids", async () => {
+    resetTestState();
+    currentFocusState = false;
+    const { DesktopNotificationController } = await import("./desktop-notification-controller");
+
+    render(createElement(DesktopNotificationController, {
+      activeThreadId: "thread-2",
+      focusedStage: "cards",
+      threadsProjectId: "project-default",
+      onOpenThread: () => undefined,
+    }));
+    await settleAsyncRender();
+
+    approvalRequestListener?.({
+      conversationId: "thread-1",
+      requestId: 73,
+      kind: "command",
+      reason: "Numeric request",
+    });
+    approvalRequestListener?.({
+      conversationId: "thread-1",
+      requestId: "73",
+      kind: "command",
+      reason: "Text request",
+    });
+    await settleAsyncRender();
+
+    const notificationIds = invokeCalls
+      .filter((call) => call[0] === "desktop-notification:show")
+      .map((call) => (call[1] as { id?: string }).id ?? "");
+    expect(JSON.stringify(notificationIds)).toBe(JSON.stringify([
+      "approval-number:73",
+      "approval-string:73",
+    ]));
+  });
+
+  test("routes reply and numeric-zero approval actions through thread navigation and manager methods", async () => {
     resetTestState();
     currentFocusState = false;
     const openThreadCalls: Array<[string, string]> = [];
@@ -371,6 +419,7 @@ describe("DesktopNotificationController", () => {
       reply: "Ship the change",
       conversationId: "thread-1",
       requestId: null,
+      approvalKind: null,
     });
     await settleAsyncRender();
 
@@ -379,7 +428,8 @@ describe("DesktopNotificationController", () => {
       actionId: "approve-session",
       actionType: "approve-for-session",
       conversationId: "thread-1",
-      requestId: "request-1",
+      requestId: 0,
+      approvalKind: "command",
     });
     await settleAsyncRender();
 
@@ -388,8 +438,9 @@ describe("DesktopNotificationController", () => {
     expect(startTurnCalls[0]?.[0]).toBe("thread-1");
     expect(startTurnCalls[0]?.[1]).toBe("Ship the change");
     expect(openThreadCalls[1]?.[1]).toBe("thread-1");
-    expect(respondApprovalCalls[0]?.[0]).toBe("request-1");
-    expect(respondApprovalCalls[0]?.[1]).toBe("acceptForSession");
-    expect(respondApprovalCalls[0]?.[2]).toBe("thread-1");
+    expect(respondApprovalCalls[0]?.[0]).toBe(0);
+    expect(respondApprovalCalls[0]?.[1]).toBe("command");
+    expect(respondApprovalCalls[0]?.[2]).toBe("acceptForSession");
+    expect(respondApprovalCalls[0]?.[3]).toBe("thread-1");
   });
 });

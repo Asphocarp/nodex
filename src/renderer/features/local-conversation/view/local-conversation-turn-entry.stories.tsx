@@ -1,4 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
+import type { CodexConversationTurn } from "../../../lib/types";
+import type { VisibleConversationTurnEntry } from "../selectors";
 import { LocalConversationTurnEntry } from "./local-conversation-turn-entry";
 import {
   buildStoryConversationItem,
@@ -136,6 +139,63 @@ const stoppedToolGroupBeforeActionsTurn = buildStoryConversationTurn({
         toolName: "exec_command",
         args: {},
       },
+    }),
+  ],
+});
+
+const v2MaximalActivityUnitsTurn = buildStoryConversationTurn({
+  turnId: "turn_story_v2_maximal_activity_units",
+  status: "completed",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_v2_maximal_activity_units",
+      itemId: "exec_story_v2",
+      type: "command_execution",
+      kind: "commandExecution",
+      semanticKind: "exec",
+      status: "completed",
+      commandActions: [{ type: "unknown", command: "bun run typecheck" }],
+      toolCall: { subtype: "command", toolName: "exec_command", args: {} },
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_v2_maximal_activity_units",
+      itemId: "handoff_story_v2",
+      type: "dynamic_tool_call",
+      kind: "toolCall",
+      semanticKind: "dynamicToolCall",
+      status: "completed",
+      dynamicToolCall: {
+        callId: "handoff_story_v2",
+        namespace: "codex_app",
+        tool: "handoff_thread",
+        arguments: { threadId: "thread_child" },
+        status: "completed",
+        contentItems: null,
+        success: true,
+        durationMs: 120,
+        completed: true,
+      },
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_v2_maximal_activity_units",
+      itemId: "patch_story_v2",
+      type: "file_change",
+      kind: "fileChange",
+      semanticKind: "patch",
+      status: "completed",
+      fileChange: {
+        changes: buildCodexFileChangeMap([{
+          type: "add",
+          path: "src/renderer/features/local-conversation/projection/agent-activity-v2.ts",
+          content: "export const activityVersion = 2;",
+        }]),
+      },
+      createdAt: 3_000,
+      updatedAt: 3_000,
     }),
   ],
 });
@@ -545,16 +605,64 @@ const steeringParityTurn = buildStoryConversationTurn({
   ],
 });
 
+const worktreeInitTurn = buildStoryConversationTurn({
+  turnId: "turn_story_worktree_init",
+  status: "completed",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_worktree_init",
+      itemId: "pending-worktree-story:1",
+      type: "worktreeInit",
+      kind: "systemEvent",
+      semanticKind: "worktreeInit",
+      status: "completed",
+      rawItem: {
+        id: "pending-worktree-story:1",
+        type: "worktreeInit",
+        worktreeOutputText: [
+          "[info] Starting worktree creation",
+          "[info] \u001b[32mCreated worktree at /workspace/.codex/worktrees/parity-a1b2\u001b[0m",
+          "",
+        ].join("\n"),
+        setup: {
+          outcome: "skipped",
+          outputText: "[info] No local environment selected\n",
+        },
+      },
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+  ],
+});
+
+const localWorktreeInitTurn: CodexConversationTurn = {
+  ...worktreeInitTurn,
+  turnId: null,
+  items: worktreeInitTurn.items.map((item) => ({ ...item, turnId: null })),
+};
+
+function storyEntry(
+  turn: CodexConversationTurn,
+  isMostRecentTurn = true,
+): VisibleConversationTurnEntry {
+  const turnKey = turn.turnId ?? "turn-index-0";
+  return {
+    turn,
+    turnId: turn.turnId,
+    turnKey,
+    turnSearchKey: turnKey,
+    requests: [],
+    isMostRecentTurn,
+  };
+}
+
 const meta = {
   title: "Workbench/Threads/Turn Entry",
   component: LocalConversationTurnEntry,
   args: {
     conversationId: "thread_storybook",
-    turnSearchKey: longThreadTurn.turnId,
-    turn: longThreadTurn,
-    requests: [],
+    entry: storyEntry(longThreadTurn),
     cwd: "/workspace/nodex",
-    isMostRecentTurn: true,
     canEditTurnUserPrefix: true,
     canForkTurn: true,
     projectWorkspacePath: "/workspace/nodex",
@@ -574,16 +682,13 @@ export const Default: Story = {};
 
 export const AssistantThenExecInline: Story = {
   args: {
-    turnSearchKey: assistantThenExecTurn.turnId,
-    turn: assistantThenExecTurn,
+    entry: storyEntry(assistantThenExecTurn),
   },
 };
 
 export const StoppedToolGroupBeforeActions: Story = {
   args: {
-    turnSearchKey: stoppedToolGroupBeforeActionsTurn.turnId,
-    turn: stoppedToolGroupBeforeActionsTurn,
-    isMostRecentTurn: true,
+    entry: storyEntry(stoppedToolGroupBeforeActionsTurn),
     canEditTurnUserPrefix: false,
     canForkTurn: true,
   },
@@ -599,11 +704,17 @@ export const StoppedToolGroupBeforeActions: Story = {
   ],
 };
 
+export const V2MaximalActivityUnits: Story = {
+  args: {
+    entry: storyEntry(v2MaximalActivityUnitsTurn, false),
+    canEditTurnUserPrefix: false,
+    canForkTurn: false,
+  },
+};
+
 export const ActionStripParity: Story = {
   args: {
-    turnSearchKey: longThreadTurn.turnId,
-    turn: longThreadTurn,
-    isMostRecentTurn: false,
+    entry: storyEntry(longThreadTurn, false),
     canEditTurnUserPrefix: true,
     canForkTurn: true,
   },
@@ -621,9 +732,7 @@ export const ActionStripParity: Story = {
 
 export const AssistantAfterDiffBeforeActions: Story = {
   args: {
-    turnSearchKey: assistantAfterDiffTurn.turnId,
-    turn: assistantAfterDiffTurn,
-    isMostRecentTurn: true,
+    entry: storyEntry(assistantAfterDiffTurn),
     canEditTurnUserPrefix: false,
     canForkTurn: true,
   },
@@ -641,9 +750,7 @@ export const AssistantAfterDiffBeforeActions: Story = {
 
 export const HistoricalWorkedForCollapsed: Story = {
   args: {
-    turnSearchKey: historicalWorkedForTurn.turnId,
-    turn: historicalWorkedForTurn,
-    isMostRecentTurn: false,
+    entry: storyEntry(historicalWorkedForTurn, false),
     persistedCollapsed: true,
     canEditTurnUserPrefix: false,
     canForkTurn: true,
@@ -652,9 +759,7 @@ export const HistoricalWorkedForCollapsed: Story = {
 
 export const WorkingTurnActiveDivider: Story = {
   args: {
-    turnSearchKey: workingTurnActiveDivider.turnId,
-    turn: workingTurnActiveDivider,
-    isMostRecentTurn: true,
+    entry: storyEntry(workingTurnActiveDivider),
     canEditTurnUserPrefix: false,
     canForkTurn: true,
   },
@@ -662,44 +767,45 @@ export const WorkingTurnActiveDivider: Story = {
 
 export const SingleLocalImage: Story = {
   args: {
-    turnSearchKey: singleLocalImageTurn.turnId,
-    turn: singleLocalImageTurn,
+    entry: storyEntry(singleLocalImageTurn),
   },
 };
 
 export const MixedAttachments: Story = {
   args: {
-    turnSearchKey: mixedAttachmentTurn.turnId,
-    turn: mixedAttachmentTurn,
+    entry: storyEntry(mixedAttachmentTurn),
   },
 };
 
 export const LongUserMessageCollapsed: Story = {
   args: {
-    turnSearchKey: longUserMessageTurn.turnId,
-    turn: longUserMessageTurn,
+    entry: storyEntry(longUserMessageTurn),
   },
 };
 
 export const MultilineUserMessageCollapsed: Story = {
   args: {
-    turnSearchKey: multilineUserMessageTurn.turnId,
-    turn: multilineUserMessageTurn,
+    entry: storyEntry(multilineUserMessageTurn),
   },
 };
 
 export const RemoteImageLoading: Story = {
   args: {
-    turnSearchKey: remoteImageTurn.turnId,
-    turn: remoteImageTurn,
+    entry: storyEntry(remoteImageTurn),
   },
 };
 
 export const SteeringParity: Story = {
   args: {
-    turnSearchKey: steeringParityTurn.turnId,
-    turn: steeringParityTurn,
-    isMostRecentTurn: true,
+    entry: storyEntry(steeringParityTurn),
+    canEditTurnUserPrefix: false,
+    canForkTurn: false,
+  },
+};
+
+export const WorktreeInitialization: Story = {
+  args: {
+    entry: storyEntry(localWorktreeInitTurn),
     canEditTurnUserPrefix: false,
     canForkTurn: false,
   },

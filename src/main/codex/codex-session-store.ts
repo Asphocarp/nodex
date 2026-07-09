@@ -5,7 +5,6 @@ import type {
   CodexThreadDetail,
   CodexThreadSummary,
   CodexThreadTokenUsage,
-  CodexToolCallSubtype,
   CodexTurnSummary,
 } from "../../shared/types";
 import {
@@ -157,16 +156,6 @@ export function hasCodexSessionMaterialized(threadId: string): boolean {
   }
 }
 
-function parseJsonString(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
 }
@@ -203,17 +192,10 @@ function hasMatchingReplayMessage(
 
 function buildReplayItemId(
   threadId: string,
-  kind: "user" | "msg" | "reasoning" | "tool" | "tool-output" | "system",
+  kind: "user" | "msg" | "reasoning" | "system",
   index: number,
 ): string {
   return `replay:${kind}:${threadId}:${index}`;
-}
-
-function resolveToolSubtype(toolName: string): CodexToolCallSubtype {
-  if (toolName === "exec_command") return "command";
-  if (toolName === "apply_patch") return "fileChange";
-  if (toolName.includes("search")) return "webSearch";
-  return "generic";
 }
 
 function ensureTurn(
@@ -369,7 +351,6 @@ function parseSessionJsonl(
 
   const turnsById = new Map<string, MutableTurnRecord>();
   const transcript: CodexTranscriptEntry[] = [];
-  const toolIndexByCallId = new Map<string, number>();
   const sessionIndexEntry = readSessionIndexEntry(input.threadId);
 
   let currentTurnId = `turn-${input.threadId}`;
@@ -584,90 +565,13 @@ function parseSessionJsonl(
       continue;
     }
 
-    if (responseType === "function_call" || responseType === "web_search_call") {
-      const toolName = typeof payload.name === "string"
-        ? payload.name
-        : responseType === "web_search_call"
-          ? "web_search"
-          : "tool";
-      const itemId = typeof payload.call_id === "string" && payload.call_id.trim().length > 0
-        ? payload.call_id
-        : buildReplayItemId(input.threadId, "tool", lineIndex);
-      const item: Omit<CodexTranscriptEntry, "sequence"> = {
-        threadId: input.threadId,
-        turnId: turn.turnId,
-        entryId: itemId,
-        itemId,
-        type: responseType,
-        kind: "toolCall",
-        semanticKind: responseType === "web_search_call" ? "webSearch" : "toolCall",
-        status: "inProgress",
-        source: "replay",
-        toolCall: {
-          subtype: responseType === "web_search_call" ? "webSearch" : resolveToolSubtype(toolName),
-          toolName,
-          args: parseJsonString(payload.arguments),
-        },
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        rawItem: payload,
-      };
-      const transcriptIndex = appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, item);
-      toolIndexByCallId.set(itemId, transcriptIndex);
-      continue;
-    }
-
-    if (responseType === "function_call_output") {
-      const callId = typeof payload.call_id === "string" && payload.call_id.trim().length > 0
-        ? payload.call_id
-        : buildReplayItemId(input.threadId, "tool-output", lineIndex);
-      const existingIndex = toolIndexByCallId.get(callId);
-      if (existingIndex !== undefined) {
-        const existing = transcript[existingIndex];
-        if (existing) {
-          transcript[existingIndex] = {
-            ...existing,
-            status: "completed",
-            updatedAt: timestamp,
-            toolCall: existing.toolCall
-              ? {
-                  ...existing.toolCall,
-                  result: parseJsonString(payload.output),
-                }
-              : undefined,
-          };
-          addItemToTurn(turn, callId, timestamp);
-        }
-        if (turn.status === "inProgress") {
-          turn.status = "completed";
-        }
-        continue;
-      }
-
-      const itemId = callId;
-      appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
-        threadId: input.threadId,
-        turnId: turn.turnId,
-        entryId: itemId,
-        itemId,
-        type: "function_call_output",
-        kind: "toolCall",
-        semanticKind: "toolCall",
-        status: "completed",
-        source: "replay",
-        toolCall: {
-          subtype: "generic",
-          toolName: "tool",
-          result: parseJsonString(payload.output),
-        },
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        rawItem: payload,
-      });
-      if (turn.status === "inProgress") {
-        turn.status = "completed";
-      }
-    }
+    // Responses JSONL calls do not carry the generated v2 ThreadItem contract.
+    // Fail closed: canonical app-server resume owns every tool-family projection.
+    if (
+      responseType === "function_call"
+      || responseType === "web_search_call"
+      || responseType === "function_call_output"
+    ) continue;
   }
 
   const turns = sortTurns(turnsById);

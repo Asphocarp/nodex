@@ -17,6 +17,18 @@ import { hasCodexScheduledAutomationRruleFrequency } from "@/lib/codex-scheduled
 export const DEFAULT_WORKBENCH_AUTOMATION_RRULE = "FREQ=DAILY;BYHOUR=9;BYMINUTE=0";
 export const DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT = "medium";
 
+function isScheduledAutomationReasoningEffort(
+  value: string,
+): value is CodexScheduledAutomationReasoningEffort {
+  return value === "none"
+    || value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh"
+    || value === "max";
+}
+
 export interface WorkbenchAutomationDraft {
   id: string | null;
   kind: CodexScheduledAutomationKind;
@@ -188,7 +200,9 @@ export function resolveWorkbenchAutomationDraftModelSettings(input: {
     models: input.models,
     fallbackReasoningEffort: DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT,
   });
-  const reasoningEffort = selection.reasoningEffort || DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT;
+  const reasoningEffort = isScheduledAutomationReasoningEffort(selection.reasoningEffort)
+    ? selection.reasoningEffort
+    : DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT;
 
   if (
     input.draft.model === selection.model

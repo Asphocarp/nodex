@@ -7,6 +7,7 @@ import { installWindowApi } from "../../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import { createTestQueryClient, TestQueryProvider } from "../../../../../test/query";
 import { queryKeys } from "../../../../../lib/query-keys";
+import { CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL } from "../../../../../../shared/codex-mcp-tool-call";
 import { McpToolCall } from "./mcp-tool-call";
 import { buildMcpAppSidePanelInput } from "./mcp-tool-call-resource-utils";
 
@@ -23,6 +24,9 @@ function buildMcpView(overrides?: Partial<CodexMcpToolCallView>): CodexMcpToolCa
   return {
     callId: "call_9L9LUlz6nkg1Jp2LA4mrAL8o",
     functionName: "context7__resolve-library-id",
+    pluginId: null,
+    mcpAppResourceUri: undefined,
+    source: null,
     invocation: {
       server: "context7",
       tool: "resolve-library-id",
@@ -50,6 +54,7 @@ function buildMcpView(overrides?: Partial<CodexMcpToolCallView>): CodexMcpToolCa
           },
         ],
         structuredContent: null,
+        _meta: null,
       },
     },
     ...overrides,
@@ -120,7 +125,7 @@ describe("McpToolCall", () => {
   beforeEach(() => {
     installWindowApi({
       invoke: async (channel: string) => {
-        if (channel === "codex:mcp-server-statuses:list") return [];
+        if (channel === "codex:mcp-server-statuses:list") return { data: [], nextCursor: null };
         if (channel === "codex:mcp-resource:read") return { contents: [] };
         throw new Error(`Unexpected channel: ${channel}`);
       },
@@ -153,6 +158,7 @@ describe("McpToolCall", () => {
                   structuredContent: {
                     snippetCount: 3,
                   },
+                  _meta: null,
                 },
               },
             }),
@@ -245,6 +251,7 @@ describe("McpToolCall", () => {
                     },
                   ],
                   structuredContent: null,
+                  _meta: null,
                 },
               },
             }),
@@ -311,6 +318,33 @@ describe("McpToolCall", () => {
 
     const summary = textContent(getByRole("button", { name: /List MCP resources/i }));
     expect(summary).toBe("List MCP resources");
+  });
+
+  test("uses canonical browser-source labels and icons", async () => {
+    const chromeItem = buildMcpEntry({
+      mcpToolCall: buildMcpView({
+        source: { kind: "browserUse", backend: "chrome" },
+        invocation: { server: "node_repl", tool: "browser_action", arguments: {} },
+      }),
+    });
+    const browserItem = buildMcpEntry({
+      mcpToolCall: buildMcpView({
+        source: { kind: "browserUse", backend: "iab" },
+        invocation: { server: "node_repl", tool: "browser_action", arguments: {} },
+      }),
+    });
+    const { container: chromeContainer, getByRole: getChromeRole } = renderMcp(
+      <TooltipProvider><McpToolCall item={chromeItem} /></TooltipProvider>,
+    );
+    const { container: browserContainer, getByRole: getBrowserRole } = renderMcp(
+      <TooltipProvider><McpToolCall item={browserItem} /></TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    expect(textContent(getChromeRole("button", { name: /Used Chrome/i }))).toBe("Used Chrome");
+    expect(textContent(getBrowserRole("button", { name: /Used the browser/i }))).toBe("Used the browser");
+    expect(chromeContainer.querySelector("img")?.getAttribute("src")).toBe(CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL);
+    expect(Boolean(browserContainer.querySelector("[data-tool-activity-icon='browser-use']"))).toBe(true);
   });
 
   test("renders plaintext content and opens the raw output dialog", async () => {
@@ -393,14 +427,14 @@ describe("McpToolCall", () => {
     };
     installWindowApi({
       invoke: async (channel: string) => {
-        if (channel === "codex:mcp-server-statuses:list") return [];
+        if (channel === "codex:mcp-server-statuses:list") return { data: [], nextCursor: null };
         if (channel === "codex:mcp-resource:read") return mcpAppResourceResponse;
         throw new Error(`Unexpected channel: ${channel}`);
       },
       on: () => () => {},
     });
     const client = createTestQueryClient();
-    client.setQueryData(queryKeys.mcp.statuses("thread-1"), []);
+    client.setQueryData(queryKeys.mcp.statuses(), { data: [], nextCursor: null });
     client.setQueryData(queryKeys.mcp.resource({
       threadId: "thread-1",
       server: "context7",
@@ -420,6 +454,7 @@ describe("McpToolCall", () => {
                 raw: {
                   content: [],
                   structuredContent: null,
+                  _meta: null,
                 },
               },
             }),
@@ -468,6 +503,7 @@ describe("McpToolCall", () => {
                   structuredContent: {
                     snippetCount: 3,
                   },
+                  _meta: null,
                 },
               },
             }),
@@ -510,6 +546,7 @@ describe("McpToolCall", () => {
                   structuredContent: {
                     snippetCount: 3,
                   },
+                  _meta: null,
                 },
               },
             }),
@@ -556,12 +593,12 @@ describe("McpToolCall", () => {
                 structuredContent: {
                   hidden: true,
                 },
-                meta: { "openai/outputTemplate": "ui://context7/docs-app" },
                 raw: {
                   content: [],
                   structuredContent: {
                     hidden: true,
                   },
+                  _meta: { "openai/outputTemplate": "ui://context7/docs-app" },
                 },
               },
             }),
@@ -576,6 +613,7 @@ describe("McpToolCall", () => {
 
     expect(Boolean(container.querySelector("iframe"))).toBe(true);
     expect(hasExactText(container, "plaintext")).toBe(false);
+    expect(Boolean(textContent(container).includes("\"hidden\": true"))).toBe(false);
   });
 
   test("renders protocol errors without the no-content fallback", async () => {
@@ -633,6 +671,7 @@ describe("McpToolCall", () => {
                     },
                   ],
                   structuredContent: null,
+                  _meta: null,
                 },
               },
             }),
@@ -662,9 +701,8 @@ describe("McpToolCall", () => {
                     uri: "file:///workspace/docs.md",
                     title: "Docs",
                     annotations: {
-                      audience: ["agent"],
+                      audience: ["assistant"],
                       priority: 0.75,
-                      extra: "ignored",
                     },
                   },
                 ],
@@ -672,6 +710,7 @@ describe("McpToolCall", () => {
                 raw: {
                   content: [],
                   structuredContent: null,
+                  _meta: null,
                 },
               },
             }),
@@ -684,9 +723,8 @@ describe("McpToolCall", () => {
     await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Read Docs"))).toBe(true);
-    expect(Boolean(textContent(container).includes("audience=agent"))).toBe(true);
+    expect(Boolean(textContent(container).includes("audience=assistant"))).toBe(true);
     expect(Boolean(textContent(container).includes("priority=0.75"))).toBe(true);
-    expect(Boolean(textContent(container).includes("extra=ignored"))).toBe(false);
   });
 
   test("renders image and audio content blocks with supported annotations", async () => {
@@ -704,7 +742,6 @@ describe("McpToolCall", () => {
                     mimeType: "image/png",
                     annotations: {
                       audience: ["user", "assistant"],
-                      extra: "ignored",
                     },
                   },
                   {
@@ -720,6 +757,7 @@ describe("McpToolCall", () => {
                 raw: {
                   content: [],
                   structuredContent: null,
+                  _meta: null,
                 },
               },
             }),
@@ -735,7 +773,6 @@ describe("McpToolCall", () => {
     expect(container.querySelector("audio")?.getAttribute("src") ?? "").toBe("data:audio/wav;base64,AA==");
     expect(Boolean(textContent(container).includes("Annotations: audience=user, assistant"))).toBe(true);
     expect(Boolean(textContent(container).includes("Annotations: lastModified=2026-07-06T00:00:00Z"))).toBe(true);
-    expect(Boolean(textContent(container).includes("extra=ignored"))).toBe(false);
   });
 
   test("renders embedded resources with URI, MIME type, annotations, and content", async () => {
@@ -754,9 +791,8 @@ describe("McpToolCall", () => {
                       mimeType: "application/json",
                       text: "{\"ok\":true}",
                       annotations: {
-                        audience: ["agent"],
+                        audience: ["user"],
                         lastModified: "2026-07-06",
-                        hidden: "ignored",
                       },
                     },
                   },
@@ -765,6 +801,7 @@ describe("McpToolCall", () => {
                 raw: {
                   content: [],
                   structuredContent: null,
+                  _meta: null,
                 },
               },
             }),
@@ -782,9 +819,8 @@ describe("McpToolCall", () => {
     expect(hasExactText(container, "Content")).toBe(true);
     expect(Boolean(textContent(container).includes("file:///workspace/report.json"))).toBe(true);
     expect(Boolean(textContent(container).includes("application/json"))).toBe(true);
-    expect(Boolean(textContent(container).includes("audience=agent; lastModified=2026-07-06"))).toBe(true);
+    expect(Boolean(textContent(container).includes("audience=user; lastModified=2026-07-06"))).toBe(true);
     expect(Boolean(textContent(container).includes("{\"ok\":true}"))).toBe(true);
-    expect(Boolean(textContent(container).includes("hidden=ignored"))).toBe(false);
   });
 
   test("builds Codex-style MCP app side-panel ids from renderable resources", () => {

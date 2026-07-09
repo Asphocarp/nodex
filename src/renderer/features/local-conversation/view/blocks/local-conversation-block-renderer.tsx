@@ -1,16 +1,14 @@
 import {
   ThreadAutomaticApprovalReviewBlock,
-  ThreadCollapsedToolActivityBlock,
-  ThreadDynamicToolCallGroupBlock,
-  ThreadMultiAgentGroupBlock,
+  ThreadAgentActivityGroupBlock,
   ThreadMultiAgentActionBlock,
   ThreadAssistantActionsBlock,
   ThreadAssistantBodyBlock,
   ThreadContextCompactionBlock,
-  ThreadExplorationGroupBlock,
   ThreadHookBlock,
+  ThreadGeneratedImageGalleryBlock,
+  ThreadImageViewBlock,
   ThreadMcpServerElicitationBlock,
-  ThreadPendingMcpToolCallsBlock,
   ThreadPlanCardBlock,
   ThreadPlanImplementationBlock,
   ThreadReasoningBlock,
@@ -25,7 +23,7 @@ import {
   ThreadToolSurfaceBlock,
   ThreadUserInputResponseCard,
   ThreadUserBubbleBlock,
-  ThreadWebSearchGroupBlock,
+  ThreadWorktreeInitBlock,
   ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
 import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../../lib/types";
@@ -82,82 +80,9 @@ export function ThreadBlockRenderer({
   allowInProgressTurnDiff = false,
   turnDiffHoverPreviewDisabled = false,
 }: ThreadBlockRendererProps) {
-  if (block.type === "explorationGroup") {
+  if (block.type === "agentActivityGroup") {
     return (
-      <ThreadExplorationGroupBlock
-        block={block}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        projectWorkspacePath={projectWorkspacePath}
-        childMemberships={childMemberships}
-        threadCwd={threadCwd}
-      />
-    );
-  }
-
-  if (block.type === "multiAgentGroup") {
-    return (
-      <ThreadMultiAgentGroupBlock
-        block={block}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        projectWorkspacePath={projectWorkspacePath}
-        childMemberships={childMemberships}
-        threadCwd={threadCwd}
-        onOpenThread={onOpenThread}
-      />
-    );
-  }
-
-  if (block.type === "webSearchGroup") {
-    return (
-      <ThreadWebSearchGroupBlock
-        block={block}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-      />
-    );
-  }
-
-  if (block.type === "pendingMcpToolCalls") {
-    return (
-      <ThreadPendingMcpToolCallsBlock
-        block={block}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        projectWorkspacePath={projectWorkspacePath}
-        threadCwd={threadCwd}
-        onOpenTurnDiffReview={onOpenTurnDiffReview}
-        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-        onOpenThread={onOpenThread}
-        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
-        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-      />
-    );
-  }
-
-  if (block.type === "dynamicToolCallGroup") {
-    return (
-      <ThreadDynamicToolCallGroupBlock
-        block={block}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        projectWorkspacePath={projectWorkspacePath}
-        threadCwd={threadCwd}
-        onOpenTurnDiffReview={onOpenTurnDiffReview}
-        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-        onOpenThread={onOpenThread}
-        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
-        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-      />
-    );
-  }
-
-  if (block.type === "collapsedToolActivity") {
-    return (
-      <ThreadCollapsedToolActivityBlock
+      <ThreadAgentActivityGroupBlock
         block={block}
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
@@ -263,6 +188,7 @@ export function ThreadBlockRenderer({
         onEditLastUserTurn={onEditLastUserTurn}
         onForkFromTurn={onForkFromTurn}
         onOpenSideChat={onOpenSideChat}
+        threadCwd={threadCwd}
       />
     );
   }
@@ -382,6 +308,20 @@ export function ThreadBlockRenderer({
     return <ThreadMcpServerElicitationBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
+  if (block.type === "imageView") {
+    return <ThreadImageViewBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "generatedImageGallery") {
+    return (
+      <ThreadGeneratedImageGalleryBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
+  }
+
   if (block.type === "hook") {
     return <ThreadHookBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
@@ -392,6 +332,10 @@ export function ThreadBlockRenderer({
 
   if (block.type === "contextCompaction") {
     return <ThreadContextCompactionBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "worktreeInit") {
+    return <ThreadWorktreeInitBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
   if (block.type === "streamError") {

@@ -1,15 +1,26 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
-import { createElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render as renderDom } from "@testing-library/react";
+import { createElement, type ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import { render, settleAsyncRender } from "../../../test/dom";
+import { settleAsyncRender } from "../../../test/dom";
 import type {
   CodexConversationItem,
   CodexConversationTurn,
 } from "../../../lib/types";
+import type { VisibleConversationTurnEntry } from "../selectors";
 import { formatThreadMessageTimestamp } from "./shared/thread-message-timestamp";
 
 const renderCounts = new Map<string, number>();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+function render(ui: ReactElement) {
+  return renderDom(ui, {
+    wrapper: ({ children }) => createElement(QueryClientProvider, { client: queryClient }, children),
+  });
+}
 
 function buildUserEntry(
   turnId: string,
@@ -113,9 +124,69 @@ function buildTurn(
   };
 }
 
+function buildVisibleTurnEntry(
+  turn: CodexConversationTurn,
+  requests: VisibleConversationTurnEntry["requests"],
+  isMostRecentTurn: boolean,
+): VisibleConversationTurnEntry {
+  const turnKey = turn.turnId ?? "turn-index-0";
+  return {
+    turn,
+    turnId: turn.turnId,
+    turnKey,
+    turnSearchKey: turnKey,
+    requests,
+    isMostRecentTurn,
+  };
+}
+
 describe("LocalConversationTurnEntry", () => {
   beforeEach(() => {
     renderCounts.clear();
+    queryClient.clear();
+  });
+
+  test("owns latest streaming fixed content from the same main-row projection", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const { LocalConversationAboveComposerPortalHost } = await import(
+      "./local-conversation-above-composer-portal"
+    );
+    const turn = buildTurn("turn_fixed_owner", "Edit the file", "", {
+      status: "inProgress",
+      diff: [
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+      ].join("\n"),
+      items: [buildUserEntry("turn_fixed_owner", "turn_fixed_owner_user", "Edit the file")],
+      itemIds: ["turn_fixed_owner_user"],
+    });
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationAboveComposerPortalHost, {
+          conversationId: "thread_1",
+        }),
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
+          cwd: "/tmp/project",
+          canEditTurnUserPrefix: false,
+          canForkTurn: false,
+          threadCwd: "/tmp/project",
+        }),
+      ),
+    );
+
+    await settleAsyncRender();
+
+    const host = view.container.querySelector("[data-above-composer-portal]");
+    expect(host?.querySelector("[data-above-composer-fixed-content]") !== null).toBe(true);
+    expect(host?.textContent?.includes("1 file changed") ?? false).toBe(true);
   });
 
   test("renders user copy time and optional edit without a user fork action", async () => {
@@ -139,11 +210,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
           onOpenSideChat: async () => {},
@@ -176,11 +244,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: false,
         }),
@@ -204,11 +269,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: emptyGoalTurn.turnId,
-          turn: emptyGoalTurn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(emptyGoalTurn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: false,
         }),
@@ -241,11 +303,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: false,
           canForkTurn: false,
         }),
@@ -255,7 +314,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(view.container.textContent?.includes("Steering conversation"))).toBe(true);
     expect(Boolean(view.container.textContent?.includes("Try the compact path."))).toBe(true);
     expect(Boolean(view.container.textContent?.includes("Tighten the layout."))).toBe(true);
-    expect(view.getAllByText("Steered conversation").length).toBe(2);
+    expect(view.getAllByText("Steered conversation").length).toBe(1);
   });
 
   test("renders assistant actions in Codex order and forks with an empty composer draft", async () => {
@@ -280,11 +339,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, false),
           cwd: "/tmp/project",
-          isMostRecentTurn: false,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
           onForkTurnMessage: (input) => {
@@ -340,11 +396,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
         }),
@@ -382,11 +435,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: streamingTurn.turnId,
-          turn: streamingTurn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(streamingTurn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
         }),
@@ -403,11 +453,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: emptyTurn.turnId,
-          turn: emptyTurn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(emptyTurn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
         }),
@@ -445,7 +492,10 @@ describe("LocalConversationTurnEntry", () => {
             args: {},
           },
         },
-        buildAssistantEntry("turn_worked_for", "turn_worked_for_assistant", "Done"),
+        buildAssistantEntry("turn_worked_for", "turn_worked_for_assistant", "Done", {
+          assistantPhase: "final_answer",
+          status: "completed",
+        }),
       ],
     };
     const view = render(
@@ -454,11 +504,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, false),
           cwd: "/tmp/project",
-          isMostRecentTurn: false,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
         }),
@@ -516,11 +563,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
         }),
@@ -560,22 +604,16 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: older.turnId,
-          turn: older,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(older, stableRequests, false),
           cwd: "/tmp/project",
-          isMostRecentTurn: false,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
           onRendered: recordRender,
         }),
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: latest.turnId,
-          turn: latest,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(latest, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
           onRendered: recordRender,
@@ -643,11 +681,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
         }),
@@ -718,11 +753,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: assistantOnlyTurn.turnId,
-          turn: assistantOnlyTurn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(assistantOnlyTurn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
         }),
@@ -735,11 +767,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: assistantThenExecTurn.turnId,
-          turn: assistantThenExecTurn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(assistantThenExecTurn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
         }),
@@ -750,7 +779,17 @@ describe("LocalConversationTurnEntry", () => {
     if (!(assistantAfter instanceof HTMLElement)) {
       throw new Error("expected assistant body after exec");
     }
-    const execToggle = view.container.querySelector("[data-command-tool-summary-toggle]");
+    const activityToggle = view.container.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    if (!(activityToggle instanceof HTMLElement)) {
+      throw new Error("expected activity summary toggle");
+    }
+    await act(async () => {
+      fireEvent.click(activityToggle);
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+    });
+    const execToggle = view.container.querySelector("[data-testid='command-tool-summary-toggle'] > button");
     if (!(execToggle instanceof HTMLElement)) {
       throw new Error("expected exec summary toggle");
     }
@@ -820,11 +859,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: assistantOnlyTurn.turnId,
-          turn: assistantOnlyTurn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(assistantOnlyTurn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
         }),
@@ -837,11 +873,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: assistantThenExploreTurn.turnId,
-          turn: assistantThenExploreTurn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(assistantThenExploreTurn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurn: true,
         }),
@@ -852,7 +885,7 @@ describe("LocalConversationTurnEntry", () => {
     if (!(assistantAfter instanceof HTMLElement)) {
       throw new Error("expected assistant body after exploration rows");
     }
-    const activityButton = view.getByRole("button", { name: /Read a file/i });
+    const activityButton = view.getByRole("button", { name: "Read files" });
     fireEvent.click(activityButton);
     await settleAsyncRender();
 
@@ -903,11 +936,8 @@ describe("LocalConversationTurnEntry", () => {
         null,
         createElement(LocalConversationTurnEntry, {
           conversationId: "thread_1",
-          turnSearchKey: turn.turnId,
-          turn,
-          requests: stableRequests,
+          entry: buildVisibleTurnEntry(turn, stableRequests, true),
           cwd: "/tmp/project",
-          isMostRecentTurn: true,
           canEditTurnUserPrefix: false,
           canForkTurn: true,
         }),
@@ -915,7 +945,7 @@ describe("LocalConversationTurnEntry", () => {
     );
 
     const assistantBlock = view.container.querySelector('[data-content-search-unit-key="turn_stopped_order:assistant"]');
-    const explorationButton = view.getByRole("button", { name: /Read a file/i });
+    const explorationButton = view.getByRole("button", { name: "Read files" });
     const copyButton = view.getByLabelText("Copy");
     const actionAnchor = view.container.querySelector('[data-assistant-actions-anchor="assistant_1"]');
     if (

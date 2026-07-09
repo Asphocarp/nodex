@@ -21,11 +21,14 @@ function parseFiniteNumber(value: unknown): number | null {
 }
 
 export const CodexReasoningEffortSchema = z.enum([
+  "none",
   "minimal",
   "low",
   "medium",
   "high",
   "xhigh",
+  "max",
+  "ultra",
 ]) satisfies z.ZodType<CodexReasoningEffort>;
 
 export const CodexThreadDetailLevelSchema = z.enum([

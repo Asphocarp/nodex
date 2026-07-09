@@ -2,9 +2,21 @@ import { describe, expect, test } from "vitest";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { CodexConversationItem, CodexConversationSnapshot } from "../../../lib/types";
 import {
-  buildThreadBodyModel,
+  buildThreadBodyModel as buildCanonicalThreadBodyModel,
   resolveThreadStartProgressPresentation,
+  type ThreadBodyModelInput,
 } from "./build-thread-body-model";
+
+function buildThreadBodyModel(
+  input: Omit<ThreadBodyModelInput, "activeThreadArchived"> & {
+    activeThreadArchived?: boolean;
+  },
+) {
+  return buildCanonicalThreadBodyModel({
+    ...input,
+    activeThreadArchived: input.activeThreadArchived ?? false,
+  });
+}
 
 function buildEntry(overrides: Partial<CodexConversationItem>): CodexConversationItem {
   return {
@@ -97,7 +109,57 @@ describe("buildThreadBodyModel", () => {
     expect(model.emptyState.type).toBe("none");
   });
 
-  test("marks active-turn above-composer portal presence without building whole-thread turn arrays", () => {
+  test("prepares a selected thread explicitly while its canonical snapshot is unavailable", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: null,
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.threadId).toBe("thread_1");
+    expect(model.emptyState.type).toBe("resumingThread");
+    if (model.emptyState.type === "resumingThread") {
+      expect(model.emptyState.status).toBe("needs_resume");
+    }
+  });
+
+  test("fails closed when the loaded snapshot belongs to another selected thread", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_2",
+      conversation: buildConversation(),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.threadId).toBe("thread_2");
+    expect(model.turnCount).toBe(0);
+    expect(model.emptyState.type).toBe("resumingThread");
+  });
+
+  test("keeps selected archive state authoritative before a snapshot is mounted", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: null,
+      activeThreadArchived: true,
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.threadId).toBe("thread_1");
+    expect(model.emptyState.type).toBe("archivedThread");
+  });
+
+  test("keeps fixed-content candidates inside the active turn shell entry", () => {
     const model = buildThreadBodyModel({
       activeThreadId: "thread_1",
       conversation: buildConversation({
@@ -133,10 +195,57 @@ describe("buildThreadBodyModel", () => {
       threadStartProgress: null,
     });
 
-    expect(model.hasAboveComposerBlocks).toBe(true);
+    expect(model.activeTurnId).toBe("turn_1");
+    expect(model.latestTurnId).toBe("turn_1");
   });
 
-  test("keeps above-composer portal presence when live fileChange rows coexist with turn diff", () => {
+  test("keeps canonical blocking state scoped to the active turn projection", () => {
+    const conversation = buildConversation({
+      turns: [
+        {
+          threadId: "thread_1",
+          turnId: "turn_1",
+          status: "inProgress",
+          itemIds: ["todo_1"],
+          items: [
+            buildEntry({
+              itemId: "todo_1",
+              type: "todo_list",
+              kind: "plan",
+              semanticKind: "todoList",
+              markdownText: "- [ ] ship it",
+            }),
+          ],
+        },
+      ],
+    });
+    const model = buildThreadBodyModel({
+      activeThreadId: conversation.threadId,
+      conversation: buildConversation({
+        turns: conversation.turns,
+        canonicalRequests: [{
+          id: "option_active",
+          method: "item/tool/requestOptionPicker",
+          params: {
+            threadId: conversation.threadId,
+            turnId: "turn_1",
+            question: "Choose the next slice",
+            options: [{ label: "UI" }],
+          },
+        }],
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.activeTurnId).toBe("turn_1");
+    expect(model.turnCount).toBe(1);
+  });
+
+  test("keeps one active shell entry when live fileChange rows coexist with turn diff", () => {
     const liveDiff = [
       "--- a/src/app.ts",
       "+++ b/src/app.ts",
@@ -190,7 +299,8 @@ describe("buildThreadBodyModel", () => {
       threadStartProgress: null,
     });
 
-    expect(model.hasAboveComposerBlocks).toBe(true);
+    expect(model.activeTurnId).toBe("turn_1");
+    expect(model.turnCount).toBe(1);
   });
 
   test("renders archived threads as restorable instead of resuming", () => {

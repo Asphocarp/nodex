@@ -2,13 +2,16 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from "react";
 import {
   readCodexThreadSettings,
+  resolveCodexThreadDetailLevel,
   writeCodexThreadSettings,
 } from "./codex-thread-settings";
+import { invoke } from "./api";
 import type { CodexThreadDetailLevel, CodexThreadSettings } from "./types";
 
 interface CodexThreadSettingsContextValue {
@@ -29,6 +32,12 @@ const CodexThreadSettingsContext = createContext<CodexThreadSettingsContextValue
 
 function useCodexThreadSettingsInternal(): CodexThreadSettingsContextValue {
   const [settings, setSettingsState] = useState<CodexThreadSettings>(() => readCodexThreadSettings() ?? {});
+
+  useEffect(() => {
+    void invoke("settings:codex-developer:update", {
+      detailLevel: resolveCodexThreadDetailLevel(settings.detailLevel),
+    }).catch(() => undefined);
+  }, [settings.detailLevel]);
 
   const setSettings = useCallback((value: CodexThreadSettings) => {
     const next = { ...value };

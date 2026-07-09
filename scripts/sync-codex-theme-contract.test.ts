@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  applyCodexRuntimeColorTokenOverrides,
   applyCodexRuntimeVscodeOverrides,
   collectBlocks,
   extractDeclarationsFromBlocks,
@@ -75,7 +76,35 @@ describe("sync-codex-theme-contract", () => {
     const normalized = applyCodexRuntimeVscodeOverrides(declarations);
 
     expect(normalized.get("--vscode-font-weight")).toBe("445");
+    expect(normalized.get("--vscode-textCodeBlock-background")).toBe(
+      "var(--color-background-button-secondary)",
+    );
     expect(normalized.get("--vscode-font-family")).toBe("inherit");
     expect(normalized.get("--vscode-editor-font-weight")).toBe("normal");
+  });
+
+  test("restores exact leaf-surface tokens omitted by the readable design source", () => {
+    const normalized = applyCodexRuntimeColorTokenOverrides(new Map([
+      ["--color-token-foreground", "var(--vscode-foreground)"],
+    ]));
+
+    expect(normalized.get("--color-token-border-heavy")).toBe(
+      "var(--color-border-heavy, color-mix(in oklab, var(--vscode-foreground) 12%, transparent))",
+    );
+    expect(normalized.get("--color-token-conversation-header")).toBe(
+      "color-mix(in oklab, var(--color-token-foreground) 30%, transparent)",
+    );
+    expect(normalized.get("--color-token-conversation-body")).toBe(
+      "color-mix(in oklab, var(--color-token-foreground) 60%, transparent)",
+    );
+    expect(normalized.get("--color-token-non-assistant-body-descendant")).toBe(
+      "color-mix(in oklab, var(--color-token-foreground) 50%, transparent)",
+    );
+    expect(normalized.get("--color-token-conversation-summary-leading")).toBe(
+      "color-mix(in oklab, var(--color-token-description-foreground) 90%, transparent)",
+    );
+    expect(normalized.get("--color-token-conversation-summary-trailing")).toBe(
+      "color-mix(in oklab, var(--color-token-foreground) 40%, transparent)",
+    );
   });
 });

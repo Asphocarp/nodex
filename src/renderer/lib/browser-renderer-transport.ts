@@ -1,4 +1,5 @@
 import { toApiUrl } from "./http-base";
+import { browserPendingWorktreeFallback } from "./browser-pending-worktree-fallback";
 import {
   applyCommandKeybindingUpdate,
   createCommandKeymapState,
@@ -135,6 +136,7 @@ function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
 
 let browserWindowSessionLayout = createDefaultWorkbenchLayoutSnapshot();
 let browserCommandKeybindingOverrides: CommandKeybindingOverrides = {};
+let browserCodexPersonality: import("../../shared/types").CodexPersonality = "friendly";
 
 function createBrowserWindowSessionBootstrap(
   layout: WorkbenchLayoutSnapshot,
@@ -262,6 +264,62 @@ function toStoryReviewDiffResult(snapshot: StoryGitReviewSnapshot) {
 
 async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   switch (channel) {
+    case "codex:personality:get":
+      return browserCodexPersonality;
+    case "codex:personality:set":
+      if (args[0] !== "none" && args[0] !== "friendly" && args[0] !== "pragmatic") {
+        throw new Error(`Unsupported Codex personality: ${String(args[0])}`);
+      }
+      browserCodexPersonality = args[0];
+      return undefined;
+    case "codex:pending-worktrees:list":
+      return browserPendingWorktreeFallback.list();
+    case "codex:pending-worktree:create":
+      return browserPendingWorktreeFallback.create(
+        args[0] as import("../../shared/codex-pending-worktree").CodexPendingWorktreeCreateInput,
+      );
+    case "codex:pending-worktree:resolve-thread":
+      return browserPendingWorktreeFallback.resolveThread(String(args[0] ?? ""));
+    case "codex:pending-worktree:retry":
+      browserPendingWorktreeFallback.retry(String(args[1] ?? ""));
+      return undefined;
+    case "codex:pending-worktree:continue":
+      browserPendingWorktreeFallback.continueWithoutSetup(String(args[1] ?? ""));
+      return undefined;
+    case "codex:pending-worktree:cancel":
+      browserPendingWorktreeFallback.cancel(String(args[1] ?? ""));
+      return undefined;
+    case "codex:pending-worktree:dismiss":
+      browserPendingWorktreeFallback.dismiss(String(args[1] ?? ""));
+      return undefined;
+    case "codex:pending-worktree:rename":
+      browserPendingWorktreeFallback.rename(
+        String(args[1] ?? ""),
+        String(args[2] ?? ""),
+      );
+      return undefined;
+    case "codex:pending-worktree:set-pinned":
+      browserPendingWorktreeFallback.setPinned(
+        String(args[1] ?? ""),
+        args[2] === true,
+      );
+      return undefined;
+    case "codex:pending-worktree:set-pinned-before-thread":
+      browserPendingWorktreeFallback.setPinnedBeforeThreadId(
+        String(args[1] ?? ""),
+        typeof args[2] === "string" ? args[2] : null,
+      );
+      return undefined;
+    case "codex:pending-worktree:clear-attention":
+      browserPendingWorktreeFallback.clearAttention(String(args[1] ?? ""));
+      return undefined;
+    case "codex:pending-worktree:work-locally":
+      browserPendingWorktreeFallback.cancel(String(args[1] ?? ""));
+      throw new Error("Starting a Codex thread is unavailable in the browser renderer");
+    case "codex:pending-worktree:auto-fix":
+      throw new Error("Pending worktree Auto-fix is unavailable in the browser renderer");
+    case "codex:pending-worktree:discard-fork-side-panel-transfer":
+      return undefined;
     case "projects:list": {
       const res = await fetch(toApiUrl("/api/projects"));
       const data = await res.json();
@@ -500,6 +558,63 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         },
       );
       return res.ok ? res.json() : null;
+    }
+    case "codex:sidebar:thread:move": {
+      const [input] = args as [object];
+      const res = await fetch(toApiUrl("/api/codex/sidebar/thread-move"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof error.error === "string"
+            ? error.error
+            : "Couldn’t move task",
+        );
+      }
+      return res.json();
+    }
+    case "codex:sidebar:project-thread-order:set": {
+      const [input] = args as [object];
+      const res = await fetch(
+        toApiUrl("/api/codex/sidebar/project-thread-order"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof error.error === "string"
+            ? error.error
+            : "Failed to reorder project tasks",
+        );
+      }
+      return res.json();
+    }
+    case "codex:sidebar:chats-thread-order:set": {
+      const [input] = args as [object];
+      const res = await fetch(
+        toApiUrl("/api/codex/sidebar/chats-thread-order"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(
+          typeof error.error === "string"
+            ? error.error
+            : "Failed to reorder Chats tasks",
+        );
+      }
+      return res.json();
     }
     case "project-sessions:mark-unread": {
       const [sessionId, input] = args as [string, { unread: boolean }];
@@ -2003,6 +2118,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "worktrees:environments:configs:list": {
       return [];
     }
+    case "worktrees:environments:configs:list-for-workspace": {
+      return [];
+    }
     case "worktrees:environments:config:read": {
       const [projectId] = args as [string, string | null | undefined];
       return {
@@ -2267,6 +2385,13 @@ function subscribeCodexHostMessages(
   return () => {};
 }
 
+function subscribeCodexEvents(
+  callback: (event: import("./types").CodexEvent) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 function subscribeCodexRendererClientRequests(
   callback: (
     message: import("./types").CodexRendererClientRequestMessage,
@@ -2280,7 +2405,8 @@ function subscribeDesktopNotificationActions(
   callback: (
     payload: import("./types").DesktopNotificationActionPayload & {
       conversationId: string | null;
-      requestId: string | null;
+      requestId: import("./types").CodexProtocolRequestId | null;
+      approvalKind: import("./types").CodexApprovalKind | null;
     },
   ) => void,
 ): () => void {
@@ -2329,6 +2455,32 @@ function subscribeCodexScheduledAutomationChanges(
 
 function subscribeCodexAutomationRunsUpdates(
   callback: (event: import("./types").CodexAutomationRunsUpdatedEvent) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
+function subscribeCodexHooksChanged(
+  callback: (
+    event: import("../../shared/codex-hooks").CodexHooksChangedEvent,
+  ) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
+function subscribeCodexPendingWorktreesChanged(
+  callback: (
+    event: import("../../shared/codex-pending-worktree").CodexPendingWorktreesChangedEvent,
+  ) => void,
+): () => void {
+  return browserPendingWorktreeFallback.subscribe(callback);
+}
+
+function subscribeCodexPendingWorktreeWarnings(
+  callback: (
+    event: import("../../shared/codex-pending-worktree").CodexPendingWorktreeWarningEvent,
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
@@ -2623,6 +2775,7 @@ export const browserRendererTransport = {
   subscribeProjectSessionChanges,
   subscribeProjectChanges,
   subscribeCodexHostMessages,
+  subscribeCodexEvents,
   subscribeCodexRendererClientRequests,
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,
@@ -2631,6 +2784,9 @@ export const browserRendererTransport = {
   subscribeCommandPaletteThreadIndexUpdates,
   subscribeCodexScheduledAutomationChanges,
   subscribeCodexAutomationRunsUpdates,
+  subscribeCodexHooksChanged,
+  subscribeCodexPendingWorktreesChanged,
+  subscribeCodexPendingWorktreeWarnings,
   subscribePersistedAtomUpdates,
   getWindowFocusState,
   subscribeWindowFocusChanges,

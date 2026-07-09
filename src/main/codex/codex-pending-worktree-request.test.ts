@@ -1,0 +1,376 @@
+import { describe, expect, test } from "vitest";
+import { buildCodexDynamicPendingPermissionSelection } from "./codex-dynamic-create-permissions";
+import {
+  allocateCodexPendingWorktreeRequest,
+  appendCodexPendingPastedTextAttachments,
+  buildCodexPendingComposerPrompt,
+  buildCodexPendingFirstTurnAttachments,
+  buildCodexPendingStartConversationParams,
+  buildCodexPendingThreadStartConfig,
+  dedupeCodexLiveFileAttachments,
+  projectCodexPendingThreadStart,
+  shouldSendCodexPendingPermissionOverrides,
+} from "./codex-pending-worktree-request";
+
+describe("pending worktree request allocation", () => {
+  test("allocates only a host-scoped pending identity for stable worktrees", () => {
+    const ids = ["pending-stable"];
+    const allocated = allocateCodexPendingWorktreeRequest({
+      hostId: "local",
+      label: "Persistent project",
+      sourceWorkspaceRoot: "/repo",
+      startingState: { type: "branch", branchName: "HEAD" },
+      localEnvironmentConfigPath: null,
+      prompt: "Create a persistent project worktree",
+      launchMode: "create-stable-worktree",
+      startConversationParamsInput: null,
+      sourceConversationId: null,
+      sourceCollaborationMode: null,
+    }, () => ids.shift() ?? "unexpected");
+
+    expect(allocated.result.pendingWorktreeId).toBe("local:pending-stable");
+    expect(allocated.result.clientThreadId).toBe(null);
+    expect(allocated.request.id).toBe("local:pending-stable");
+    expect("clientThreadId" in allocated.request).toBe(false);
+  });
+
+  test("allocates pending and client identities for conversation modes", () => {
+    const ids = ["pending-fork", "client-fork"];
+    const allocated = allocateCodexPendingWorktreeRequest({
+      hostId: "local",
+      label: "Forked task",
+      sourceWorkspaceRoot: "/repo",
+      startingState: { type: "working-tree" },
+      localEnvironmentConfigPath: null,
+      prompt: "Forking task",
+      launchMode: "fork-conversation",
+      startConversationParamsInput: null,
+      sourceConversationId: "thread-source",
+      sourceCollaborationMode: null,
+      targetTurnId: "turn-older",
+      threadSource: "user",
+    }, () => ids.shift() ?? "unexpected");
+
+    expect(allocated.result.pendingWorktreeId).toBe("local:pending-fork");
+    expect(allocated.result.clientThreadId).toBe("client-new-thread:client-fork");
+    expect(allocated.request.launchMode).toBe("fork-conversation");
+    if (allocated.request.launchMode !== "fork-conversation") {
+      throw new Error("Expected fork request");
+    }
+    expect(allocated.request.clientThreadId).toBe("client-new-thread:client-fork");
+    expect(allocated.request.targetTurnId).toBe("turn-older");
+  });
+});
+
+describe("pending worktree frozen start payload", () => {
+  test("appends pasted source labels and dedupes the exact five-field identity first-wins", () => {
+    const first = {
+      label: "notes.md",
+      path: "/repo/notes.md",
+      fsPath: "/repo/notes.md",
+      startLine: undefined,
+      hostId: "first-host",
+    };
+    const duplicate = {
+      ...first,
+      startLine: null,
+      hostId: "second-host",
+    };
+    const pasted = appendCodexPendingPastedTextAttachments([first], [{
+      file: {
+        label: "pasted-text.txt",
+        path: "/attachments/pasted-text.txt",
+        fsPath: "/attachments/pasted-text.txt",
+      },
+      preview: "",
+    }, {
+      file: {
+        label: "pasted-text.txt",
+        path: "/attachments/requirements.txt",
+        fsPath: "/attachments/requirements.txt",
+      },
+      preview: "Requirements excerpt",
+    }]);
+    const normalized = dedupeCodexLiveFileAttachments([
+      ...pasted,
+      duplicate,
+    ]);
+
+    expect(normalized.length).toBe(3);
+    expect(normalized[0] === first).toBe(true);
+    expect(normalized[0]?.hostId).toBe("first-host");
+    expect(normalized[1]?.label).toBe("pasted-text");
+    expect(normalized[2]?.label).toBe("Requirements excerpt");
+  });
+
+  test("filters only goal pasted sources before appending and normalizing added files", () => {
+    const source = {
+      label: "Goal source",
+      path: "/attachments/goal/pasted-text.txt",
+      fsPath: "/attachments/goal/pasted-text.txt",
+    };
+    const ordinary = {
+      label: "notes.md",
+      path: "/repo/notes.md",
+      fsPath: "/repo/notes.md",
+    };
+    const added = {
+      label: "Added goal source",
+      path: source.path,
+      fsPath: source.fsPath,
+    };
+
+    const attachments = buildCodexPendingFirstTurnAttachments({
+      fileAttachments: [source, ordinary],
+      addedFiles: [added, { ...ordinary }],
+      threadGoalDraft: {
+        objective: "Use the goal source",
+        pastedTextAttachments: [{
+          text: "goal source",
+          file: source,
+        }],
+        imageAttachments: [],
+      },
+    });
+
+    expect(JSON.stringify(attachments)).toBe(JSON.stringify([ordinary, added]));
+  });
+
+  test("builds the exact attachment-aware pending prompt and pasted-only request sentence", () => {
+    const prompt = buildCodexPendingComposerPrompt({
+      prompt: "",
+      fileAttachments: [{
+        label: "source.ts",
+        path: "/repo/source.ts",
+        fsPath: "/repo/source.ts",
+        startLine: 4,
+        endLine: 8,
+      }],
+      pastedTextAttachments: [{
+        file: {
+          label: "pasted-text.txt",
+          path: "/attachments/pasted-text.txt",
+          fsPath: "/attachments/pasted-text.txt",
+        },
+        preview: "Pasted request",
+      }],
+      addedFiles: [{
+        label: "added.md",
+        path: "/repo/added.md",
+        fsPath: "/repo/added.md",
+        startLine: 2,
+      }],
+    });
+
+    expect(prompt).toBe([
+      "",
+      "# Files mentioned by the user:",
+      "",
+      "## added.md: /repo/added.md (line 2)",
+      "",
+      "## source.ts: /repo/source.ts (lines 4-8)",
+      "",
+      "## Pasted request: /attachments/pasted-text.txt",
+      "",
+      "The attached pasted text file(s) contain the user's request. Read and act on that content.",
+      "",
+      "## My request for Codex:",
+      "",
+      "",
+    ].join("\n"));
+  });
+
+  test("preserves raw user-request whitespace in the attachment-aware prompt", () => {
+    const rawPrompt = "  first line\nsecond line  \n";
+    const prompt = buildCodexPendingComposerPrompt({
+      prompt: rawPrompt,
+      fileAttachments: [{
+        label: "source.ts",
+        path: "/repo/source.ts",
+        fsPath: "/repo/source.ts",
+      }],
+      addedFiles: [],
+    });
+
+    expect(prompt).toBe([
+      "",
+      "# Files mentioned by the user:",
+      "",
+      "## source.ts: /repo/source.ts",
+      "",
+      "## My request for Codex:",
+      rawPrompt,
+      "",
+    ].join("\n"));
+  });
+
+  test("uses app-server permission defaults only for unnamed custom permission state", () => {
+    expect(shouldSendCodexPendingPermissionOverrides({
+      effectivePreset: "custom",
+    })).toBe(false);
+    expect(shouldSendCodexPendingPermissionOverrides({
+      effectivePreset: "custom",
+      permissionProfileId: "team-profile",
+    })).toBe(true);
+    expect(shouldSendCodexPendingPermissionOverrides({
+      effectivePreset: "auto",
+    })).toBe(true);
+  });
+
+  test("forwards exact optional fields while keeping the full config available for permissions", () => {
+    const frozen = buildCodexPendingStartConversationParams({
+      input: [{ type: "text", text: "Ship the change", text_elements: [] }],
+      commentAttachments: [],
+      sourceWorkspaceRoot: "/source/repo",
+      fileAttachments: [],
+      addedFiles: [],
+      agentMode: "custom",
+      permissionProfileId: "team-profile",
+      shouldSendPermissionOverrides: true,
+      model: null,
+      serviceTier: "fast",
+      reasoningEffort: "high",
+      collaborationMode: null,
+      config: {
+        approval_policy: "on-request",
+        sandbox_mode: "workspace-write",
+        sandbox_workspace_write: null,
+        expanded_only_marker: "permission-input",
+      },
+      configOverrides: { model_reasoning_effort: "high" },
+      memoryPreferences: { generateMemories: true, useMemories: false },
+      mode: "work",
+      threadStartKind: "composer",
+      baseInstructions: "Base instructions",
+      additionalDeveloperInstructions: "Additional instructions",
+      threadSource: "user",
+      workspaceKind: "project",
+      projectAssignment: {
+        projectKind: "local",
+        projectId: "project-1",
+        path: "/source/repo",
+        pendingCoreUpdate: false,
+      },
+      serviceName: "responses",
+    });
+
+    expect(frozen.cwd).toBe("/source/repo");
+    expect(JSON.stringify(frozen.workspaceRoots)).toBe(JSON.stringify(["/source/repo"]));
+    expect(frozen.permissionProfileId).toBe("team-profile");
+    expect(frozen.reasoningEffort).toBe("high");
+    expect(frozen.memoryPreferences?.generateMemories ?? false).toBe(true);
+    expect(frozen.memoryPreferences?.useMemories ?? true).toBe(false);
+    expect(frozen.mode).toBe("work");
+    expect(frozen.threadStartKind).toBe("composer");
+    expect(frozen.baseInstructions).toBe("Base instructions");
+    expect(frozen.additionalDeveloperInstructions).toBe("Additional instructions");
+
+    const selection = buildCodexDynamicPendingPermissionSelection({
+      mode: frozen.agentMode,
+      workspaceRoot: "/worktree/repo",
+      config: frozen.config,
+      ...(frozen.permissionProfileId === undefined
+        ? {}
+        : { permissionProfileId: frozen.permissionProfileId }),
+    });
+    expect(selection.context.activePermissionProfile?.id ?? null).toBe("team-profile");
+    expect(JSON.stringify(selection.context.runtimeWorkspaceRoots)).toBe(
+      JSON.stringify(["/worktree/repo"]),
+    );
+  });
+
+  test("projects only platform config, memory preferences, and frozen overrides into thread/start", () => {
+    const frozen = buildCodexPendingStartConversationParams({
+      input: [{ type: "text", text: "Ship the change", text_elements: [] }],
+      commentAttachments: [],
+      sourceWorkspaceRoot: "/source/repo",
+      fileAttachments: [],
+      addedFiles: [],
+      agentMode: "auto",
+      shouldSendPermissionOverrides: true,
+      model: null,
+      serviceTier: null,
+      reasoningEffort: null,
+      collaborationMode: null,
+      config: { expanded_only_marker: "must-not-leak" },
+      configOverrides: {
+        override_only_marker: "override",
+        "memories.use_memories": true,
+      },
+      memoryPreferences: { generateMemories: true, useMemories: false },
+      threadSource: "user",
+      workspaceKind: "project",
+      projectAssignment: null,
+    });
+
+    const projected = buildCodexPendingThreadStartConfig({
+      platform_only_marker: "platform",
+      "memories.generate_memories": false,
+    }, frozen);
+
+    expect(JSON.stringify(projected)).toBe(JSON.stringify({
+      platform_only_marker: "platform",
+      "memories.generate_memories": true,
+      "memories.use_memories": true,
+      override_only_marker: "override",
+    }));
+    expect(Object.prototype.hasOwnProperty.call(projected, "expanded_only_marker")).toBe(false);
+  });
+
+  test("promotes only a true onboarding control flag into builder feature defaults", () => {
+    const promoted = projectCodexPendingThreadStart({
+      defaultFeatureOverrides: { thread_tools: true },
+      frozen: {
+        configOverrides: {
+          "features.onboarding_interactive_tools": true,
+          ordinary_override: "kept",
+        },
+      },
+    });
+    expect(
+      promoted.defaultFeatureOverrides?.["features.onboarding_interactive_tools"],
+    ).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(
+      promoted.configOverrides,
+      "features.onboarding_interactive_tools",
+    )).toBe(false);
+    expect(buildCodexPendingThreadStartConfig({
+      "features.onboarding_interactive_tools": true,
+    }, promoted)["features.onboarding_interactive_tools"]).toBe(true);
+    expect(buildCodexPendingThreadStartConfig({}, promoted).ordinary_override).toBe("kept");
+
+    const strippedFalse = projectCodexPendingThreadStart({
+      defaultFeatureOverrides: {
+        "features.onboarding_interactive_tools": true,
+      },
+      frozen: {
+        configOverrides: {
+          "features.onboarding_interactive_tools": false,
+        },
+      },
+    });
+    expect(
+      strippedFalse.defaultFeatureOverrides?.["features.onboarding_interactive_tools"],
+    ).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(
+      strippedFalse.configOverrides,
+      "features.onboarding_interactive_tools",
+    )).toBe(false);
+    expect(buildCodexPendingThreadStartConfig({
+      "features.onboarding_interactive_tools": true,
+    }, strippedFalse)["features.onboarding_interactive_tools"]).toBe(true);
+
+    const absentFalse = projectCodexPendingThreadStart({
+      defaultFeatureOverrides: { thread_tools: true },
+      frozen: {
+        configOverrides: {
+          "features.onboarding_interactive_tools": false,
+        },
+      },
+    });
+    expect(Object.prototype.hasOwnProperty.call(
+      buildCodexPendingThreadStartConfig({}, absentFalse),
+      "features.onboarding_interactive_tools",
+    )).toBe(false);
+  });
+});

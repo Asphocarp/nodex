@@ -1,12 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { act, fireEvent } from "@testing-library/react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { render, textContent } from "../../../../../test/dom";
 import { describeWebSearchAction } from "../../../web-search-display";
 import {
   getWebSearchSummaryDetail,
   WebSearchToolCall,
-  WebSearchToolCallGroup,
 } from "./web-search-tool-call";
 
 function buildWebSearchEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
@@ -109,7 +107,7 @@ describe("WebSearchToolCall", () => {
     expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(true);
   });
 
-  test("shimmers the Codex active summary verb while the search is running", () => {
+  test("shimmers the complete Codex summary while the search is running", () => {
     const { container } = render(
       <WebSearchToolCall
         item={buildWebSearchEntry({
@@ -119,13 +117,14 @@ describe("WebSearchToolCall", () => {
     );
 
     expect(Boolean(textContent(container).includes("Searching the web"))).toBe(true);
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
+    const shimmer = container.querySelector(".loading-shimmer-pure-text");
+    expect(Boolean(shimmer)).toBe(true);
+    expect(Boolean(textContent(shimmer ?? container).includes("for storybook react vite args"))).toBe(true);
   });
 
-  test("renders favicon-only detail rows inside collapsed activity bodies", () => {
+  test("uses the same favicon summary leaf inside collapsed activity bodies", () => {
     const { container } = render(
       <WebSearchToolCall
-        hideHeader
         item={buildWebSearchEntry({
           rawItem: {
             action: {
@@ -142,10 +141,9 @@ describe("WebSearchToolCall", () => {
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
-  test("omits the semantic globe in detail rows when no favicon URL exists", () => {
+  test("omits an icon when no favicon URL exists", () => {
     const { container } = render(
       <WebSearchToolCall
-        hideHeader
         item={buildWebSearchEntry({
           toolCall: {
             subtype: "webSearch",
@@ -171,159 +169,23 @@ describe("WebSearchToolCall", () => {
     expect(Boolean(textContent(container).includes("no domain here"))).toBe(true);
     expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBe(false);
   });
-});
 
-describe("WebSearchToolCallGroup", () => {
-  test("renders the active header with the newest incomplete detail", async () => {
+  test("renders only the verb when the projected detail is empty", () => {
     const { container } = render(
-      <WebSearchToolCallGroup
-        isActive
-        items={[
-          buildWebSearchEntry({
-            itemId: "web-old",
-            entryId: "web-old",
-            status: "completed",
-            toolCall: {
-              subtype: "webSearch",
-              toolName: "web_search",
-              args: { query: "old query" },
-              result: { type: "search", query: "old query" },
-            },
-            rawItem: { action: { type: "search", query: "old query" } },
-          }),
-          buildWebSearchEntry({
-            itemId: "web-new",
-            entryId: "web-new",
-            status: "inProgress",
-            toolCall: {
-              subtype: "webSearch",
-              toolName: "web_search",
-              args: { query: "site:github.com/openai/codex renderer OR site:www.example.com docs" },
-              result: {
-                type: "search",
-                query: "site:github.com/openai/codex renderer OR site:www.example.com docs",
-              },
-            },
-            rawItem: {
-              action: {
-                type: "search",
-                query: "site:github.com/openai/codex renderer OR site:www.example.com docs",
-              },
-            },
-          }),
-        ]}
+      <WebSearchToolCall
+        item={buildWebSearchEntry({
+          toolCall: {
+            subtype: "webSearch",
+            toolName: "web_search",
+            args: {},
+            result: {},
+          },
+          rawItem: { action: { type: "other" }, query: "" },
+        })}
       />,
     );
 
-    const renderedText = textContent(container);
-    expect(Boolean(renderedText.includes("Searching the web"))).toBe(true);
-    expect(Boolean(renderedText.includes("for renderer docs | github.com \u00b7 example.com"))).toBe(true);
-    expect(Boolean(renderedText.includes("old query"))).toBe(false);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(false);
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
-
-    const collapsedList = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
-    expect(collapsedList?.style.maxHeight ?? "").toBe("0px");
-    expect(Boolean(textContent(collapsedList ?? container).includes("old query"))).toBe(false);
-
-    await act(async () => {
-      fireEvent.click(container.querySelector("button") as HTMLButtonElement);
-      await Promise.resolve();
-    });
-
-    const expandedList = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
-    expect(expandedList?.style.maxHeight ?? "").toBe("20rem");
-    expect(Boolean(expandedList?.classList.contains("vertical-scroll-fade-mask"))).toBe(true);
-    expect(Boolean(expandedList?.classList.contains("flex-col-reverse"))).toBe(false);
-    expect(Boolean(textContent(expandedList ?? container).includes("old query"))).toBe(true);
-    expect(Boolean(textContent(expandedList ?? container).includes("renderer docs | github.com \u00b7 example.com"))).toBe(true);
-  });
-
-  test("renders the completed header without detail text", () => {
-    const { container } = render(
-      <WebSearchToolCallGroup
-        items={[
-          buildWebSearchEntry({
-            itemId: "web-completed",
-            entryId: "web-completed",
-            status: "completed",
-            toolCall: {
-              subtype: "webSearch",
-              toolName: "web_search",
-              args: { query: "completed query" },
-              result: { type: "search", query: "completed query" },
-            },
-            rawItem: { action: { type: "search", query: "completed query" } },
-          }),
-        ]}
-      />,
-    );
-
-    const renderedText = textContent(container);
-    expect(renderedText).toBe("Searched the web");
-    expect(Boolean(renderedText.includes("completed query"))).toBe(false);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
-  });
-
-  test("settles the header when isActive is true but every line completed", () => {
-    const { container } = render(
-      <WebSearchToolCallGroup
-        isActive
-        items={[
-          buildWebSearchEntry({
-            itemId: "web-completed-active-prop",
-            entryId: "web-completed-active-prop",
-            status: "completed",
-            toolCall: {
-              subtype: "webSearch",
-              toolName: "web_search",
-              args: { query: "completed query" },
-              result: { type: "search", query: "completed query" },
-            },
-            rawItem: { action: { type: "search", query: "completed query" } },
-          }),
-        ]}
-      />,
-    );
-
-    const renderedText = textContent(container);
-    expect(renderedText).toBe("Searched the web");
-    expect(Boolean(renderedText.includes("completed query"))).toBe(false);
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
-  });
-
-  test("renders nested body-only groups through the shared bounded list", () => {
-    const { container } = render(
-      <WebSearchToolCallGroup
-        hideHeader
-        items={[
-          buildWebSearchEntry({
-            itemId: "web-body",
-            entryId: "web-body",
-            status: "completed",
-            toolCall: {
-              subtype: "webSearch",
-              toolName: "web_search",
-              args: { query: "site:github.com/openai/codex body detail" },
-              result: { type: "search", query: "site:github.com/openai/codex body detail" },
-            },
-            rawItem: {
-              action: { type: "search", query: "site:github.com/openai/codex body detail" },
-            },
-          }),
-        ]}
-      />,
-    );
-
-    const list = container.querySelector<HTMLElement>("[data-testid='web-search-group-lines']");
-    expect(list?.style.maxHeight ?? "").toBe("20rem");
-    expect(Boolean(list?.classList.contains("vertical-scroll-fade-mask"))).toBe(true);
-    expect(Boolean(list?.classList.contains("flex-col-reverse"))).toBe(false);
-    expect(Boolean(textContent(list ?? container).includes("body detail | github.com"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(false);
-    expect(Boolean(container.querySelector("button"))).toBe(false);
+    expect(textContent(container)).toBe("Searched the web");
+    expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBe(false);
   });
 });

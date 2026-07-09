@@ -6,11 +6,13 @@ import { writeTextToClipboard } from "../../../../../lib/clipboard";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { CopyMessageActionButton, CopyMessageIcon } from "../thread-message-actions";
+import { TerminalAnsiText } from "./terminal-ansi-text";
 
 export type ThreadCommandShellVariant = "embedded" | "default";
 
 interface ThreadCommandShellBlockProps {
   variant: ThreadCommandShellVariant;
+  embeddedAppearance?: "default" | "plain";
   command: string;
   output: string;
   cwd?: string;
@@ -173,6 +175,7 @@ function ShellOutputFooter({
 
 export function ThreadCommandShellBlock({
   variant,
+  embeddedAppearance = "default",
   command,
   output,
   cwd,
@@ -188,6 +191,7 @@ export function ThreadCommandShellBlock({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const renderedOutput = resolveShellOutputText(output, isInProgress);
   const showCommandLine = variant === "embedded" && command.trim().length > 0;
+  const isPlainEmbedded = variant === "embedded" && embeddedAppearance === "plain";
   const scrollFadeState = useScrollFadeState(
     scrollRef,
     variant === "default",
@@ -267,25 +271,25 @@ export function ThreadCommandShellBlock({
           </div>
         </div>
       ) : null}
-      <div className="group/output relative min-h-[1.25rem]">
+      <div className="group/output relative min-h-[1.25rem] pr-0">
         <div
           ref={scrollRef}
           className={cn(
-            "vertical-scroll-fade-mask text-token-description-foreground max-h-[140px] [--edge-fade-distance:2rem] box-border flex flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium [animation-direction:reverse]",
+            "vertical-scroll-fade-mask max-h-[140px] [--edge-fade-distance:2rem] box-border flex flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre font-vscode-editor font-medium [animation-direction:reverse]",
+            isPlainEmbedded ? "p-3 text-token-foreground" : "p-2 text-token-description-foreground",
             variant === "embedded"
               ? "text-size-chat-sm"
               : "text-size-code-sm",
           )}
         >
-          <code
+          <TerminalAnsiText
             className={cn(
               variant === "embedded"
-                ? "text-token-description-foreground"
+                ? isPlainEmbedded ? "text-token-foreground" : "text-token-description-foreground"
                 : "text-token-input-placeholder-foreground opacity-80",
             )}
-          >
-            <span>{renderedOutput}</span>
-          </code>
+            value={renderedOutput}
+          />
         </div>
         <CopyMessageActionButton
           text={output}
@@ -313,10 +317,19 @@ export function ThreadCommandShellBlock({
 
   if (variant === "embedded") {
     return (
-      <div className="group flex flex-col overflow-hidden rounded-lg border border-token-input-background bg-token-text-code-block-background">
-        <div className="flex items-center justify-between gap-2 px-2 py-1 font-sans text-sm text-token-description-foreground select-none">
-          <span>{shellLabel}</span>
-        </div>
+      <div
+        className={cn(
+          "group flex flex-col overflow-hidden rounded-lg border",
+          isPlainEmbedded
+            ? "border-token-border-heavy bg-token-main-surface-primary"
+            : "border-token-input-background bg-token-text-code-block-background",
+        )}
+      >
+        {isPlainEmbedded ? null : (
+          <div className="flex items-center justify-between gap-2 px-2 py-1 font-sans text-sm text-token-description-foreground select-none">
+            <span>{shellLabel}</span>
+          </div>
+        )}
         <div className="flex flex-col overflow-clip rounded-none border-none">
           {shellBody}
           {footer}

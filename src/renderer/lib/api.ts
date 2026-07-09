@@ -67,6 +67,9 @@ import type { BlockTransferCommandResult } from "../../shared/block-transfer";
 import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
+  "codex:sidebar:thread:move",
+  "codex:sidebar:project-thread-order:set",
+  "codex:sidebar:chats-thread-order:set",
   "codex:thread:archive",
   "codex:thread:unarchive",
 ]);
@@ -359,6 +362,12 @@ export function subscribeCodexHostMessages(
   return resolveRendererTransport().subscribeCodexHostMessages(callback);
 }
 
+export function subscribeCodexEvents(
+  callback: (event: import("./types").CodexEvent) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexEvents(callback);
+}
+
 export function subscribeCodexRendererClientRequests(
   callback: (
     message: import("./types").CodexRendererClientRequestMessage,
@@ -373,7 +382,8 @@ export function subscribeDesktopNotificationActions(
   callback: (
     payload: import("./types").DesktopNotificationActionPayload & {
       conversationId: string | null;
-      requestId: string | null;
+      requestId: import("./types").CodexProtocolRequestId | null;
+      approvalKind: import("./types").CodexApprovalKind | null;
     },
   ) => void,
 ): () => void {
@@ -428,6 +438,30 @@ export function subscribeCodexAutomationRunsUpdates(
   return resolveRendererTransport().subscribeCodexAutomationRunsUpdates(
     callback,
   );
+}
+
+export function subscribeCodexHooksChanged(
+  callback: (
+    event: import("../../shared/codex-hooks").CodexHooksChangedEvent,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexHooksChanged(callback);
+}
+
+export function subscribeCodexPendingWorktreesChanged(
+  callback: (
+    event: import("../../shared/codex-pending-worktree").CodexPendingWorktreesChangedEvent,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexPendingWorktreesChanged(callback);
+}
+
+export function subscribeCodexPendingWorktreeWarnings(
+  callback: (
+    event: import("../../shared/codex-pending-worktree").CodexPendingWorktreeWarningEvent,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexPendingWorktreeWarnings(callback);
 }
 
 export function getWindowFocusState(): Promise<boolean> {

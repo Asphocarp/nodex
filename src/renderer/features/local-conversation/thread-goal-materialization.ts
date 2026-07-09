@@ -7,8 +7,7 @@ import { invoke } from "@/lib/api";
 const THREAD_GOAL_LONG_OBJECTIVE_THRESHOLD = 4000;
 
 function hasThreadGoalMaterializedAttachments(draft: CodexThreadGoalDraftInput): boolean {
-  return (draft.pastedTextAttachments?.length ?? 0) > 0
-    || (draft.imageAttachments?.length ?? 0) > 0;
+  return draft.pastedTextAttachments.length > 0 || draft.imageAttachments.length > 0;
 }
 
 function normalizeMaterializedDraftResponse(response: unknown): CodexThreadGoalMaterializedDraft {
@@ -33,10 +32,12 @@ export async function materializeThreadGoalDraft(
   draft: CodexThreadGoalDraftInput,
 ): Promise<CodexThreadGoalMaterializedDraft> {
   const trimmedObjective = draft.objective.trim();
-  if (
-    !hasThreadGoalMaterializedAttachments(draft)
-    && Array.from(trimmedObjective).length <= THREAD_GOAL_LONG_OBJECTIVE_THRESHOLD
-  ) {
+  const hasAttachments = hasThreadGoalMaterializedAttachments(draft);
+  if (!trimmedObjective && !hasAttachments) {
+    throw new Error("Goal objective must not be empty");
+  }
+
+  if (!hasAttachments && Array.from(trimmedObjective).length <= THREAD_GOAL_LONG_OBJECTIVE_THRESHOLD) {
     return {
       objective: trimmedObjective,
       attachmentDirectory: null,
@@ -52,7 +53,18 @@ export async function cleanupMaterializedThreadGoalDraft(
   materialized: CodexThreadGoalMaterializedDraft | null,
 ): Promise<void> {
   if (!materialized?.attachmentDirectory) return;
-  await invoke("codex:thread:goal:materialized-cleanup", materialized.attachmentDirectory);
+  await runBestEffortThreadGoalCleanup(async () => {
+    await invoke(
+      "codex:thread:goal:materialized-cleanup",
+      materialized.attachmentDirectory,
+    );
+  });
+}
+
+export async function runBestEffortThreadGoalCleanup(
+  cleanup: () => Promise<unknown>,
+): Promise<void> {
+  await cleanup().catch(() => undefined);
 }
 
 export async function readThreadGoalEditableObjective(objective: string): Promise<string> {

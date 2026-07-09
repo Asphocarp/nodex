@@ -4,7 +4,8 @@ import {
   upsertCodexTranscriptEntry,
 } from "../../shared/codex-thread-detail-reducer";
 import { shouldTerminalizeItemWithTurn } from "../../shared/codex-turn-terminalization";
-import { projectCodexItemViewToTranscriptEntry } from "../../shared/codex-item-normalizer";
+import { projectCodexItemViewToTranscriptEntry } from "../../shared/codex-transcript-entry-projection";
+import { completeCodexMcpToolCallForTurn } from "../../shared/codex-mcp-tool-call";
 import type {
   CodexItemView,
   CodexTranscriptEntry,
@@ -124,15 +125,23 @@ export function finalizeTurnTranscriptState(
 ): CodexTranscriptEntry[] {
   if (turnStatus === "inProgress") return transcript;
 
-  const nextEntries = transcript.map((entry) =>
-    entry.turnId === turnId && shouldTerminalizeItemWithTurn(entry, turnStatus)
-      ? {
-          ...entry,
-          status: turnStatus,
-          updatedAt: Math.max(entry.updatedAt, Date.now()),
-        }
-      : entry,
-  );
+  const nextEntries = transcript.map((entry) => {
+    if (entry.turnId !== turnId) return entry;
+
+    const mcpToolCall = entry.mcpToolCall
+      ? completeCodexMcpToolCallForTurn(entry.mcpToolCall, turnStatus)
+      : undefined;
+    const shouldTerminalize = shouldTerminalizeItemWithTurn(entry, turnStatus);
+    const didCompleteMcp = mcpToolCall !== entry.mcpToolCall;
+    if (!shouldTerminalize && !didCompleteMcp) return entry;
+
+    return {
+      ...entry,
+      ...(didCompleteMcp ? { mcpToolCall } : {}),
+      ...(shouldTerminalize ? { status: turnStatus } : {}),
+      updatedAt: Math.max(entry.updatedAt, Date.now()),
+    };
+  });
 
   return dedupeCodexTranscriptEntries(nextEntries);
 }

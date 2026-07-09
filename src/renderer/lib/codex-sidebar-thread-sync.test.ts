@@ -1,8 +1,20 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildCodexSidebarProjectSessionOrder,
+  buildCodexSidebarPinnedReorderMutation,
   buildSidebarThreadSyncModel,
+  listReorderableCodexSidebarProjectThreadKeys,
+  listPendingPinnedBeforeThreadUpdates,
+  listRealThreadIdsForSidebarKeys,
+  mergeVisibleCodexPinnedThreadOrder,
+  mergePendingWorktreesIntoSidebarSnapshot,
+  orderCodexSidebarThreadKeysByManualThreadIds,
+  orderCodexSidebarPinnedThreadKeys,
+  resolveCodexSidebarThreadHomeContainerId,
+  sortCodexSidebarProjectThreadKeysBySessionOrder,
   sortSidebarThreadKeysForDisplay,
 } from "./codex-sidebar-thread-sync";
+import type { CodexPendingWorktreeEntry } from "../../shared/codex-pending-worktree";
 import type { CodexSidebarSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "./types";
 
 function makeProject(id: string, name: string): Project {
@@ -59,7 +71,29 @@ function makeSnapshot(items: CodexSidebarThreadItem[]): CodexSidebarSnapshot {
         .map((item) => [item.threadId, item.projectId]),
     ),
     projectlessThreadIds: items.filter((item) => item.projectless).map((item) => item.threadId),
+    manualThreadOrder: null,
     generatedAt: 1,
+  };
+}
+
+function makePendingThreadItem(input: {
+  key: string;
+  id: string;
+  anchor: string | null;
+  pinned?: boolean;
+}): CodexSidebarThreadItem {
+  return {
+    ...makeThread({
+      threadId: `client-new-thread:${input.id}`,
+      projectId: null,
+      pinned: input.pinned ?? true,
+    }),
+    key: input.key,
+    kind: "pending-worktree",
+    pendingWorktreeId: `pending:${input.id}`,
+    clientThreadId: `client-new-thread:${input.id}`,
+    pinnedBeforeThreadId: input.anchor,
+    sessionId: null,
   };
 }
 
@@ -105,9 +139,252 @@ describe("buildSidebarThreadSyncModel", () => {
     });
 
     expect(JSON.stringify(model.pinnedThreadKeys)).toBe(JSON.stringify(["local:thread-pinned"]));
+    expect(JSON.stringify(model.projectGroups[0]?.pinnedThreadKeys)).toBe(
+      JSON.stringify(["local:thread-pinned"]),
+    );
     expect(JSON.stringify(model.projectGroups[0]?.threadKeys)).toBe(JSON.stringify(["local:thread-alpha"]));
+    expect(JSON.stringify(model.projectGroups[1]?.pinnedThreadKeys)).toBe(JSON.stringify([]));
     expect(JSON.stringify(model.projectGroups[1]?.threadKeys)).toBe(JSON.stringify(["local:thread-beta"]));
     expect(JSON.stringify(model.projectlessThreadKeys)).toBe(JSON.stringify(["local:thread-free"]));
+  });
+
+  test("projects pending worktrees with exact phase, attention, pin, and route identity", () => {
+    const base = {
+      id: "local:pending-1",
+      hostId: "local",
+      label: "Pending task",
+      sourceWorkspaceRoot: "/work/alpha",
+      startingState: { type: "branch", branchName: "main" } as const,
+      localEnvironmentConfigPath: null,
+      prompt: "Do it",
+      launchMode: "start-conversation" as const,
+      clientThreadId: "client-new-thread:one",
+      startConversationParamsInput: {
+        input: [], commentAttachments: [], workspaceRoots: ["/work/alpha"], cwd: "/work/alpha",
+        fileAttachments: [], addedFiles: [], agentMode: "auto" as const,
+        permissionProfileId: undefined, shouldSendPermissionOverrides: true as const,
+        model: null, serviceTier: null, reasoningEffort: null, collaborationMode: null,
+        config: {}, threadSource: "subagent" as const, workspaceKind: "project" as const,
+        serviceName: undefined,
+        projectAssignment: {
+          projectKind: "local" as const,
+          projectId: "alpha",
+          pendingCoreUpdate: false as const,
+        },
+      },
+      sourceConversationId: null,
+      sourceCollaborationMode: null,
+      createdAt: 10,
+      attempt: 1,
+      labelEdited: false,
+      worktreeOutputText: "",
+      setupOutputText: "",
+      errorMessage: null,
+      worktreeWorkspaceRoot: null,
+      worktreeGitRoot: null,
+      isPinned: true,
+      pinnedBeforeThreadId: null,
+    };
+    const phases = [
+      { phase: "creating", needsAttention: false, status: "active", unread: false },
+      { phase: "setting-up", needsAttention: false, status: "idle", unread: false },
+      { phase: "worktree-ready", needsAttention: false, status: "idle", unread: false },
+      { phase: "failed", needsAttention: true, status: "systemError", unread: true },
+    ] as const;
+
+    for (const phase of phases) {
+      const snapshot = mergePendingWorktreesIntoSidebarSnapshot(makeSnapshot([]), [
+        { ...base, phase: phase.phase, needsAttention: phase.needsAttention } as CodexPendingWorktreeEntry,
+      ]);
+      const item = snapshot.items[0];
+      expect(item?.threadId).toBe("client-new-thread:one");
+      expect(item?.pendingWorktreeId).toBe("local:pending-1");
+      expect(item?.statusType).toBe(phase.status);
+      expect(item?.unread).toBe(phase.unread);
+      expect(item?.pinned).toBe(true);
+    }
+  });
+
+  test("keeps one stable client-thread key and lets the realized conversation win", () => {
+    const realized = {
+      ...makeThread({ threadId: "conversation-1", projectId: "alpha" }),
+      key: "local:client-new-thread:one",
+      clientThreadId: "client-new-thread:one",
+    };
+    const pending = {
+      id: "pending-1",
+      hostId: "local",
+      label: "Pending task",
+      sourceWorkspaceRoot: "/work/alpha",
+      startingState: { type: "branch", branchName: "main" } as const,
+      localEnvironmentConfigPath: null,
+      prompt: "Do it",
+      launchMode: "start-conversation" as const,
+      clientThreadId: "client-new-thread:one",
+      startConversationParamsInput: {
+        input: [], commentAttachments: [], workspaceRoots: ["/work/alpha"], cwd: "/work/alpha",
+        fileAttachments: [], addedFiles: [], agentMode: "auto" as const,
+        permissionProfileId: undefined, shouldSendPermissionOverrides: true as const,
+        model: null, serviceTier: null, reasoningEffort: null, collaborationMode: null,
+        config: {}, threadSource: "subagent" as const, workspaceKind: "project" as const,
+        projectAssignment: {
+          projectKind: "local" as const,
+          projectId: "alpha",
+          pendingCoreUpdate: false as const,
+        },
+        serviceName: undefined,
+      },
+      sourceConversationId: null,
+      sourceCollaborationMode: null,
+      createdAt: 10,
+      attempt: 1,
+      phase: "creating" as const,
+      labelEdited: false,
+      worktreeOutputText: "",
+      setupOutputText: "",
+      errorMessage: null,
+      worktreeWorkspaceRoot: null,
+      worktreeGitRoot: null,
+      needsAttention: false,
+      isPinned: false,
+      pinnedBeforeThreadId: null,
+    } satisfies CodexPendingWorktreeEntry;
+
+    const merged = mergePendingWorktreesIntoSidebarSnapshot(makeSnapshot([realized]), [pending]);
+    expect(merged.items.length).toBe(1);
+    expect(merged.items[0]?.key).toBe("local:client-new-thread:one");
+    expect(merged.items[0]?.kind).toBe("local");
+    expect(merged.items[0]?.threadId).toBe("conversation-1");
+  });
+});
+
+describe("pending-aware pinned thread order", () => {
+  test("inserts anchor, null, missing, and remote-compatible pending buckets exactly", () => {
+    const a = { ...makeThread({ threadId: "A", projectId: null, pinned: true }), key: "local:A" };
+    const remote = {
+      ...makeThread({ threadId: "R", projectId: null, pinned: true }),
+      key: "remote:R",
+      kind: "remote" as const,
+      hostId: "remote-host",
+    };
+    const pendingA2 = makePendingThreadItem({ key: "local:p2", id: "p2", anchor: "A" });
+    const pendingA1 = makePendingThreadItem({ key: "local:p1", id: "p1", anchor: "A" });
+    const pendingRemote = makePendingThreadItem({ key: "local:pR", id: "pR", anchor: "R" });
+    const pendingNull = makePendingThreadItem({ key: "local:pN", id: "pN", anchor: null });
+    const pendingMissing = makePendingThreadItem({ key: "local:pX", id: "pX", anchor: "X" });
+    const items = [pendingA2, pendingMissing, pendingA1, pendingRemote, pendingNull, a, remote];
+    const itemsByKey = new Map(items.map((item) => [item.key, item] as const));
+
+    const ordered = orderCodexSidebarPinnedThreadKeys({
+      threadKeys: items.map((item) => item.key),
+      pinnedThreadIds: ["A", "R"],
+      itemsByKey,
+    });
+
+    expect(JSON.stringify(ordered)).toBe(JSON.stringify([
+      "local:p2",
+      "local:p1",
+      "local:A",
+      "local:pR",
+      "remote:R",
+      "local:pN",
+      "local:pX",
+    ]));
+  });
+
+  test("places an anchored pending row even when its realized row is unloaded", () => {
+    const b = { ...makeThread({ threadId: "B", projectId: null, pinned: true }), key: "local:B" };
+    const pendingA = makePendingThreadItem({ key: "local:pA", id: "pA", anchor: "A" });
+    const pendingB = makePendingThreadItem({ key: "local:pB", id: "pB", anchor: "B" });
+    const itemsByKey = new Map([pendingA, pendingB, b].map((item) => [item.key, item] as const));
+
+    expect(JSON.stringify(orderCodexSidebarPinnedThreadKeys({
+      threadKeys: [pendingA.key, pendingB.key, b.key],
+      pinnedThreadIds: ["A", "B"],
+      itemsByKey,
+    }))).toBe(JSON.stringify([pendingA.key, pendingB.key, b.key]));
+  });
+
+  test("derives changed pending anchors from the next realized local or remote row", () => {
+    const a = { ...makeThread({ threadId: "A", projectId: null, pinned: true }), key: "local:A" };
+    const remote = {
+      ...makeThread({ threadId: "R", projectId: null, pinned: true }),
+      key: "remote:R",
+      kind: "remote" as const,
+    };
+    const pending1 = makePendingThreadItem({ key: "local:p1", id: "p1", anchor: "A" });
+    const pending2 = makePendingThreadItem({ key: "local:p2", id: "p2", anchor: "R" });
+    const items = [a, remote, pending1, pending2];
+    const itemsByKey = new Map(items.map((item) => [item.key, item] as const));
+    const nextKeys = [a.key, pending1.key, pending2.key, remote.key];
+
+    expect(JSON.stringify(listPendingPinnedBeforeThreadUpdates({
+      sortablePinnedThreadKeys: nextKeys,
+      itemsByKey,
+    }))).toBe(JSON.stringify([
+      { pendingWorktreeId: "pending:p1", beforeThreadId: "R" },
+    ]));
+    expect(JSON.stringify(listRealThreadIdsForSidebarKeys(nextKeys, itemsByKey))).toBe(
+      JSON.stringify(["A", "R"]),
+    );
+  });
+
+  test("replaces only visible realized slots and leaves hidden pinned ids in place", () => {
+    const a = { ...makeThread({ threadId: "A", projectId: null, pinned: true }), key: "local:A" };
+    const b = { ...makeThread({ threadId: "B", projectId: null, pinned: true }), key: "local:B" };
+    const pending = makePendingThreadItem({ key: "local:p", id: "p", anchor: "B" });
+    const items = [a, b, pending];
+    const itemsByKey = new Map(items.map((item) => [item.key, item] as const));
+
+    expect(JSON.stringify(mergeVisibleCodexPinnedThreadOrder({
+      pinnedThreadIds: ["A", "hidden", "B"],
+      visibleThreadKeys: [a.key, pending.key, b.key],
+      nextVisibleThreadKeys: [b.key, pending.key, a.key],
+      itemsByKey,
+    }))).toBe(JSON.stringify(["B", "hidden", "A"]));
+  });
+
+  test("separates pending anchor writes from the persisted realized order", () => {
+    const a = { ...makeThread({ threadId: "A", projectId: null, pinned: true }), key: "local:A" };
+    const b = { ...makeThread({ threadId: "B", projectId: null, pinned: true }), key: "local:B" };
+    const pending = makePendingThreadItem({ key: "local:p", id: "p", anchor: "B" });
+    const items = [a, b, pending];
+    const itemsByKey = new Map(items.map((item) => [item.key, item] as const));
+
+    const mutation = buildCodexSidebarPinnedReorderMutation({
+      pinnedThreadIds: ["A", "hidden", "B"],
+      visibleThreadKeys: [pending.key, a.key, b.key],
+      nextVisibleThreadKeys: [b.key, pending.key, a.key],
+      itemsByKey,
+    });
+
+    expect(JSON.stringify(mutation.pendingUpdates)).toBe(JSON.stringify([
+      { pendingWorktreeId: "pending:p", beforeThreadId: "A" },
+    ]));
+    expect(JSON.stringify(mutation.pinnedThreadIds)).toBe(JSON.stringify([
+      "B",
+      "hidden",
+      "A",
+    ]));
+  });
+
+  test("keeps the realized order payload when only a pending anchor changes", () => {
+    const a = { ...makeThread({ threadId: "A", projectId: null, pinned: true }), key: "local:A" };
+    const b = { ...makeThread({ threadId: "B", projectId: null, pinned: true }), key: "local:B" };
+    const pending = makePendingThreadItem({ key: "local:p", id: "p", anchor: "A" });
+    const itemsByKey = new Map([a, b, pending].map((item) => [item.key, item] as const));
+
+    const mutation = buildCodexSidebarPinnedReorderMutation({
+      pinnedThreadIds: ["A", "B"],
+      visibleThreadKeys: [pending.key, a.key, b.key],
+      nextVisibleThreadKeys: [a.key, pending.key, b.key],
+      itemsByKey,
+    });
+
+    expect(JSON.stringify(mutation.pendingUpdates)).toBe(JSON.stringify([
+      { pendingWorktreeId: "pending:p", beforeThreadId: "B" },
+    ]));
+    expect(JSON.stringify(mutation.pinnedThreadIds)).toBe(JSON.stringify(["A", "B"]));
   });
 });
 
@@ -199,5 +476,186 @@ describe("sortSidebarThreadKeysForDisplay", () => {
     });
 
     expect(JSON.stringify(sorted)).toBe(JSON.stringify([databaseView.key, pinnedSnapshotThread.key]));
+  });
+});
+
+describe("manual Chats order", () => {
+  test("reorders only stored real-thread slots and preserves pending, new, and stale identities", () => {
+    const threadIdByKey = new Map([
+      ["thread:a", "A"],
+      ["thread:new", "NEW"],
+      ["thread:b", "B"],
+      ["thread:b:duplicate-view", "B"],
+    ]);
+
+    const ordered = orderCodexSidebarThreadKeysByManualThreadIds({
+      threadKeys: [
+        "thread:a",
+        "pending:fixed",
+        "thread:new",
+        "thread:b",
+        "thread:b:duplicate-view",
+        "database:fixed",
+      ],
+      orderedThreadIds: ["STALE", "B", "A", "B"],
+      getThreadId: (threadKey) => threadIdByKey.get(threadKey) ?? null,
+    });
+
+    expect(JSON.stringify(ordered)).toBe(JSON.stringify([
+      "thread:b",
+      "thread:b:duplicate-view",
+      "pending:fixed",
+      "thread:new",
+      "thread:a",
+      "database:fixed",
+    ]));
+  });
+
+  test("projects one global order independently onto all-unpinned and projectless task slots", () => {
+    const threadIdByKey = new Map([
+      ["project:one", "P1"],
+      ["chat:a", "A"],
+      ["project:two", "P2"],
+      ["chat:new", "NEW"],
+      ["chat:b", "B"],
+    ]);
+    const getThreadId = (threadKey: string) => threadIdByKey.get(threadKey) ?? null;
+    const orderedThreadIds = ["B", "P1", "A", "P2"];
+
+    expect(JSON.stringify(orderCodexSidebarThreadKeysByManualThreadIds({
+      threadKeys: ["project:one", "chat:a", "project:two", "chat:new", "chat:b"],
+      orderedThreadIds,
+      getThreadId,
+    }))).toBe(JSON.stringify([
+      "chat:b",
+      "project:one",
+      "chat:a",
+      "chat:new",
+      "project:two",
+    ]));
+    expect(JSON.stringify(orderCodexSidebarThreadKeysByManualThreadIds({
+      threadKeys: ["chat:a", "chat:new", "chat:b"],
+      orderedThreadIds,
+      getThreadId,
+    }))).toBe(JSON.stringify(["chat:b", "chat:new", "chat:a"]));
+  });
+});
+
+describe("pinned project thread order", () => {
+  test("enables child DnD only for a non-null precomputed order and excludes pending rows", () => {
+    const sessionIdByThreadKey = new Map([
+      ["thread:a", "session:a"],
+      ["thread:b", "session:b"],
+    ]);
+
+    expect(JSON.stringify(listReorderableCodexSidebarProjectThreadKeys({
+      visibleThreadKeys: ["thread:a", "pending:x", "thread:b"],
+      projectThreadKeysInDisplayOrder: null,
+      sessionIdByThreadKey,
+    }))).toBe(JSON.stringify([]));
+    expect(JSON.stringify(listReorderableCodexSidebarProjectThreadKeys({
+      visibleThreadKeys: ["thread:a", "pending:x", "thread:b"],
+      projectThreadKeysInDisplayOrder: ["thread:a", "pending:x", "thread:b"],
+      sessionIdByThreadKey,
+    }))).toBe(JSON.stringify(["thread:a", "thread:b"]));
+  });
+
+  test("projects the project-local session order while keeping unresolved rows stable at the end", () => {
+    const sorted = sortCodexSidebarProjectThreadKeysBySessionOrder({
+      threadKeys: ["thread:b", "pending:x", "thread:a", "database-view"],
+      projectSessionIdsInOrder: ["session:database", "session:a", "session:b"],
+      sessionIdByThreadKey: new Map([
+        ["thread:a", "session:a"],
+        ["thread:b", "session:b"],
+        ["database-view", "session:database"],
+      ]),
+    });
+
+    expect(JSON.stringify(sorted)).toBe(JSON.stringify([
+      "database-view",
+      "thread:a",
+      "thread:b",
+      "pending:x",
+    ]));
+  });
+
+  test("persists one project's full order and preserves every hidden session slot", () => {
+    const orderedSessionIds = buildCodexSidebarProjectSessionOrder({
+      projectSessionIdsInOrder: [
+        "session:a",
+        "session:hidden-database",
+        "session:b",
+        "session:hidden-unloaded",
+        "session:c",
+      ],
+      visibleThreadKeys: ["thread:a", "thread:b", "thread:c"],
+      nextVisibleThreadKeys: ["thread:c", "thread:a", "thread:b"],
+      sessionIdByThreadKey: new Map([
+        ["thread:a", "session:a"],
+        ["thread:b", "session:b"],
+        ["thread:c", "session:c"],
+        ["other-project", "session:other-project"],
+      ]),
+    });
+
+    expect(JSON.stringify(orderedSessionIds)).toBe(JSON.stringify([
+      "session:c",
+      "session:hidden-database",
+      "session:a",
+      "session:hidden-unloaded",
+      "session:b",
+    ]));
+  });
+});
+
+describe("resolveCodexSidebarThreadHomeContainerId", () => {
+  const knownProjectIds = new Set(["alpha"]);
+
+  test("keeps membership and pin state as independent sidebar dimensions", () => {
+    expect(resolveCodexSidebarThreadHomeContainerId({
+      kind: "local",
+      pinned: true,
+      projectId: "alpha",
+      projectless: false,
+      knownProjectIds,
+    })).toBe("project-pinned:alpha");
+    expect(resolveCodexSidebarThreadHomeContainerId({
+      kind: "local",
+      pinned: false,
+      projectId: "alpha",
+      projectless: false,
+      knownProjectIds,
+    })).toBe("project:alpha");
+    expect(resolveCodexSidebarThreadHomeContainerId({
+      kind: "local",
+      pinned: true,
+      projectId: null,
+      projectless: true,
+      knownProjectIds,
+    })).toBe("pinned");
+    expect(resolveCodexSidebarThreadHomeContainerId({
+      kind: "local",
+      pinned: false,
+      projectId: null,
+      projectless: true,
+      knownProjectIds,
+    })).toBe("chats");
+  });
+
+  test("falls back only unknown pinned projects to the global pinned lane", () => {
+    expect(resolveCodexSidebarThreadHomeContainerId({
+      kind: "local",
+      pinned: true,
+      projectId: "missing",
+      projectless: false,
+      knownProjectIds,
+    })).toBe("pinned");
+    expect(resolveCodexSidebarThreadHomeContainerId({
+      kind: "local",
+      pinned: false,
+      projectId: "missing",
+      projectless: false,
+      knownProjectIds,
+    })).toBe(null);
   });
 });

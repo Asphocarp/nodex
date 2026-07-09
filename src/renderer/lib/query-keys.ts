@@ -125,7 +125,8 @@ export const queryKeys = {
   },
   mcp: {
     all: () => ["mcp"] as const,
-    statuses: (threadId?: string | null) => ["mcp", "statuses", normalizeNullable(threadId)] as const,
+    apps: () => ["mcp", "apps"] as const,
+    statuses: () => ["mcp", "statuses"] as const,
     resource: (params: ProtocolMcpResourceReadParams) =>
       ["mcp", "resource", normalizeNullable(params.threadId), params.server, params.uri] as const,
   },
@@ -137,6 +138,15 @@ export const queryKeys = {
   codexModels: {
     all: () => ["codexModels"] as const,
     list: () => ["codexModels", "list"] as const,
+  },
+  codexExperimentalFeatures: {
+    all: () => ["codexExperimentalFeatures"] as const,
+    list: () => ["codexExperimentalFeatures", "list"] as const,
+  },
+  codexHooks: {
+    all: () => ["codexHooks"] as const,
+    host: (hostId: string) => ["codexHooks", hostId] as const,
+    list: (hostId: string, cwds: readonly string[]) => ["codexHooks", hostId, cwds] as const,
   },
   codexScheduledAutomations: {
     all: () => ["codexScheduledAutomations"] as const,
@@ -165,5 +175,9 @@ export const queryKeys = {
       ["workspaceFiles", "text", normalizeHostId(input.hostId), input.workspaceRoot, input.path, input.maxBytes ?? 0] as const,
     binary: (input: WorkspaceFileRequest) =>
       ["workspaceFiles", "binary", normalizeHostId(input.hostId), input.workspaceRoot, input.path] as const,
+  },
+  codexConversationImageAssets: {
+    resolve: (pointer: string) =>
+      ["file", "image-src", pointer, "codex"] as const,
   },
 };

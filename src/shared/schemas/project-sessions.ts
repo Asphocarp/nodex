@@ -55,7 +55,7 @@ export const ProjectSessionTerminalTabConfigSchema = z.object({
 }) satisfies z.ZodType<ProjectSessionTerminalTabConfig>;
 
 export const ProjectSessionBrowserTabConfigSchema = z.object({
-  projectId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
   url: z.string().optional(),
   title: z.string().optional(),
   faviconUrl: z.string().optional(),
@@ -184,8 +184,7 @@ export const ProjectSessionUnreadInputSchema = z.object({
 
 export const ProjectSessionForkInputSchema = z.object({
   target: z.enum(["local", "newWorktree"]),
-  worktreeStartMode: z.enum(["autoBranch", "detachedHead"]).optional(),
-  worktreeBranchPrefix: z.string().trim().min(1).max(48).optional(),
+  localEnvironmentConfigPath: z.string().trim().min(1).nullable().optional(),
   turnId: z.string().trim().min(1).optional(),
   message: z.string().optional(),
   collaborationMode: z.enum(["default", "plan"]).optional(),
@@ -202,10 +201,11 @@ export const ProjectSessionTabKindSchema = z.enum([
 
 export const ProjectSessionTabCreateInputSchema = z.object({
   sessionId: z.string().min(1),
-  projectId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
   panelId: PanelIdSchema,
   targetLeafId: z.string().min(1).optional(),
   clientTabId: z.string().regex(/^[A-Za-z0-9:_-]{1,160}$/).optional(),
+  browserTabId: z.string().trim().min(1).optional(),
   kind: ProjectSessionTabKindSchema,
   title: titleSchema,
   config: z.unknown(),
@@ -303,6 +303,7 @@ export const ProjectSessionThreadLinkInputSchema = z.object({
   sessionId: z.string().min(1),
   projectId: z.string().min(1).nullable(),
   threadId: z.string().min(1),
+  forkedFromId: z.string().nullable().optional(),
   parentThreadId: z.string().nullable().optional(),
   threadName: z.string().nullable().optional(),
   threadPreview: z.string().optional(),

@@ -79,6 +79,20 @@ import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "./database-views";
+import type {
+  CodexSidebarThreadMoveInput,
+  CodexSidebarThreadMoveResult,
+  CodexSidebarChatsThreadOrderInput,
+  CodexSidebarChatsThreadOrderResult,
+  CodexSidebarProjectThreadOrderInput,
+  CodexSidebarProjectThreadOrderResult,
+} from "./codex-sidebar-thread-move";
+import type {
+  CodexHooksChangedEvent,
+  CodexHooksListInput,
+  CodexHooksListResponse,
+  CodexHooksStateUpdateInput,
+} from "./codex-hooks";
 
 import type {
   BackupRecord,
@@ -90,19 +104,29 @@ import type {
   BoardSummary,
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexApprovalKind,
+  CodexCanonicalOptionPickerResponse,
+  CodexCanonicalSetupContextPickerResponse,
+  CodexCanonicalSetupCodexStepResponse,
   CodexBackgroundProcessRow,
   CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexConversationSnapshot,
   CodexConnectionState,
+  CodexDeveloperInstructionSettings,
+  CodexGitSettings,
   CodexDictationStateSnapshot,
+  CodexConversationImageAssetResolveInput,
+  CodexConversationImageAssetResolveResult,
   ProtocolDynamicToolCallResponse,
   CodexCollaborationModePreset,
   CodexCollaborationModeState,
   CodexConversationThreadSettings,
   CodexConversationThreadSettingsPatch,
+  CodexPersonality,
   CodexEvent,
   CodexOwnerAppServerRequestInput,
+  CodexAgentMode,
   CodexReviewStartParams,
   CodexReviewStartResponse,
   CodexRendererClientRequestMessage,
@@ -189,20 +213,22 @@ import type {
   CodexMcpServerElicitationResponse,
   CodexPermissionMode,
   CodexPermissionRequestResponse,
+  CodexProtocolRequestId,
   CodexPermissionState,
   CodexSteerTurnInput,
   CodexSideChatStartInput,
   CodexSideChatStartResult,
   CodexThreadStartForSessionInput,
+  CodexThreadStartForSessionResult,
   CodexThreadGoalDraftInput,
   CodexThreadGoalSetActionInput,
   CodexThreadGoalMaterializedDraft,
-  CodexThreadDetail,
   CodexThreadSummary,
   ProtocolAppInfo,
+  ProtocolExperimentalFeature,
   ProtocolMcpResourceReadParams,
   ProtocolMcpResourceReadResponse,
-  ProtocolMcpServerStatus,
+  ProtocolListMcpServerStatusResponse,
   CodexTurnStartOptions,
   CodexTurnSummary,
   ManagedWorktreeRecord,
@@ -210,6 +236,8 @@ import type {
   WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentSettingsSnapshot,
   UpdateWorktreeEnvironmentConfigInput,
+  UpdateCodexDeveloperInstructionSettingsInput,
+  UpdateCodexGitSettingsInput,
   CalendarOccurrence,
   ClipboardPasteInspectionResult,
   CardOccurrenceActionInput,
@@ -300,6 +328,14 @@ import type {
   NativeContextMenuOptions,
 } from "./native-context-menu";
 import type {
+  CodexPendingWorktreeCreateInput,
+  CodexPendingWorktreeCreateResult,
+  CodexPendingWorktreeEntry,
+  CodexPendingWorktreeThreadResolution,
+  CodexPendingWorktreeWarningEvent,
+  CodexPendingWorktreesChangedEvent,
+} from "./codex-pending-worktree";
+import type {
   CodexDesktopMessageFromView,
   RemoteHostedPipStreamStateChangedMessage,
   RemoteHostedPipVisibilityRequestedMessage,
@@ -326,9 +362,11 @@ import type {
   BrowserSidebarCommandResult,
   BrowserSidebarLocalServersSnapshot,
   BrowserSidebarStateSnapshot,
+  BrowserSidebarTabIdentity,
   BrowserSidebarWebviewAttached,
   BrowserSidebarWebviewDestroyed,
   BrowserSidebarWebviewHostCreated,
+  BrowserUseCursorState,
 } from "./browser-sidebar";
 import type {
   FeedbackUploadParams,
@@ -386,6 +424,7 @@ export type ProjectSessionChangeType =
   | "create"
   | "update"
   | "delete"
+  | "move"
   | "reorder"
   | "pin"
   | "archive"
@@ -857,6 +896,19 @@ export interface IpcApi {
     args: [input: UpdateWindowRestoreSettingsInput];
     result: WindowRestoreSettings;
   };
+  "settings:codex-developer:get": {
+    args: [];
+    result: CodexDeveloperInstructionSettings;
+  };
+  "settings:codex-developer:update": {
+    args: [input: UpdateCodexDeveloperInstructionSettingsInput];
+    result: CodexDeveloperInstructionSettings;
+  };
+  "settings:git:get": { args: []; result: CodexGitSettings };
+  "settings:git:update": {
+    args: [input: UpdateCodexGitSettingsInput];
+    result: CodexGitSettings;
+  };
   "codex-command-keymap-state": { args: []; result: CommandKeymapState };
   "set-codex-command-keybinding": {
     args: [commandId: string, update: CommandKeybindingUpdate];
@@ -1109,6 +1161,10 @@ export interface IpcApi {
     args: [];
     result: CodexDictationStateSnapshot;
   };
+  "codex:conversation-image-asset:resolve": {
+    args: [input: CodexConversationImageAssetResolveInput];
+    result: CodexConversationImageAssetResolveResult;
+  };
   "codex:account:login:start": {
     args: [input: { type: "chatgpt" } | { type: "apiKey"; apiKey: string }];
     result:
@@ -1138,12 +1194,28 @@ export interface IpcApi {
     ];
     result: CodexSidebarSyncResult;
   };
+  "codex:sidebar:thread:move": {
+    args: [input: CodexSidebarThreadMoveInput];
+    result: CodexSidebarThreadMoveResult;
+  };
+  "codex:sidebar:project-thread-order:set": {
+    args: [input: CodexSidebarProjectThreadOrderInput];
+    result: CodexSidebarProjectThreadOrderResult;
+  };
+  "codex:sidebar:chats-thread-order:set": {
+    args: [input: CodexSidebarChatsThreadOrderInput];
+    result: CodexSidebarChatsThreadOrderResult;
+  };
   "codex:threads:pinned:list": {
     args: [];
     result: string[];
   };
   "codex:threads:pinned:set": {
     args: [threadId: string, input: { pinned: boolean }];
+    result: CodexSidebarSnapshot;
+  };
+  "codex:threads:pinned:reorder": {
+    args: [orderedThreadIds: string[]];
     result: CodexSidebarSnapshot;
   };
   "codex:thread:ensure-session": {
@@ -1218,13 +1290,21 @@ export interface IpcApi {
     args: [];
     result: CodexModelOption[];
   };
+  "codex:hooks:list": {
+    args: [input: CodexHooksListInput];
+    result: CodexHooksListResponse;
+  };
+  "codex:hooks:state:update": {
+    args: [input: CodexHooksStateUpdateInput];
+    result: void;
+  };
   "codex:collaboration-mode:list": {
     args: [];
     result: CodexCollaborationModePreset[];
   };
   "codex:thread:start-for-session": {
     args: [CodexThreadStartForSessionInput];
-    result: CodexThreadDetail;
+    result: CodexThreadStartForSessionResult;
   };
   "codex:thread:side-chat:start": {
     args: [CodexSideChatStartInput];
@@ -1263,7 +1343,16 @@ export interface IpcApi {
     result: unknown;
   };
   "codex:dynamic-tool-call:respond": {
-    args: [requestId: string];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      context: {
+        permissionMode: CodexAgentMode;
+        serviceTierSelector:
+          | { type: "standard" }
+          | { type: "custom"; serviceTier: string };
+      },
+    ];
     result: ProtocolDynamicToolCallResponse | null;
   };
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };
@@ -1275,6 +1364,10 @@ export interface IpcApi {
     args: [projectId: string];
     result: WorktreeEnvironmentConfigRecord[];
   };
+  "worktrees:environments:configs:list-for-workspace": {
+    args: [hostId: string, workspaceRoot: string];
+    result: WorktreeEnvironmentConfigRecord[];
+  };
   "worktrees:environments:config:read": {
     args: [projectId: string, configPath?: string | null];
     result: WorktreeEnvironmentSettingsSnapshot;
@@ -1284,6 +1377,70 @@ export interface IpcApi {
     result: WorktreeEnvironmentSettingsSnapshot;
   };
   "worktrees:delete": { args: [threadId: string]; result: boolean };
+  "codex:pending-worktrees:list": {
+    args: [];
+    result: CodexPendingWorktreeEntry[];
+  };
+  "codex:pending-worktree:create": {
+    args: [input: CodexPendingWorktreeCreateInput];
+    result: CodexPendingWorktreeCreateResult;
+  };
+  "codex:pending-worktree:auto-fix": {
+    args: [hostId: string, pendingWorktreeId: string, agentMode: CodexAgentMode];
+    result: CodexPendingWorktreeCreateResult;
+  };
+  "codex:pending-worktree:retry": {
+    args: [hostId: string, pendingWorktreeId: string];
+    result: void;
+  };
+  "codex:pending-worktree:work-locally": {
+    args: [hostId: string, pendingWorktreeId: string];
+    result: void;
+  };
+  "codex:pending-worktree:continue": {
+    args: [hostId: string, pendingWorktreeId: string];
+    result: void;
+  };
+  "codex:pending-worktree:cancel": {
+    args: [hostId: string, pendingWorktreeId: string];
+    result: void;
+  };
+  "codex:pending-worktree:dismiss": {
+    args: [hostId: string, pendingWorktreeId: string];
+    result: void;
+  };
+  "codex:pending-worktree:rename": {
+    args: [hostId: string, pendingWorktreeId: string, label: string];
+    result: void;
+  };
+  "codex:pending-worktree:set-pinned": {
+    args: [hostId: string, pendingWorktreeId: string, isPinned: boolean];
+    result: void;
+  };
+  "codex:pending-worktree:set-pinned-before-thread": {
+    args: [hostId: string, pendingWorktreeId: string, beforeThreadId: string | null];
+    result: void;
+  };
+  "codex:pending-worktree:clear-attention": {
+    args: [hostId: string, pendingWorktreeId: string];
+    result: void;
+  };
+  "codex:pending-worktree:discard-fork-side-panel-transfer": {
+    args: [pendingWorktreeId: string];
+    result: void;
+  };
+  "codex:pending-worktree:resolve-thread": {
+    args: [clientThreadId: string];
+    result: CodexPendingWorktreeThreadResolution | null;
+  };
+  "codex:fork-side-panel-transfer:consume": {
+    args: [input: {
+      routeKind: "local-thread";
+      targetConversationId: string;
+      targetProjectSessionId: string;
+    }];
+    result: boolean;
+  };
   "codex:thread:snapshot:request": {
     args: [threadId: string];
     result: CodexConversationSnapshot | null;
@@ -1333,6 +1490,8 @@ export interface IpcApi {
     args: [threadId: string, collaborationMode: "default" | "plan"];
     result: CodexCollaborationModeState;
   };
+  "codex:personality:get": { args: []; result: CodexPersonality };
+  "codex:personality:set": { args: [personality: CodexPersonality]; result: void };
   "codex:thread:settings:update": {
     args: [threadId: string, patch: CodexConversationThreadSettingsPatch];
     result: CodexConversationThreadSettings;
@@ -1443,27 +1602,52 @@ export interface IpcApi {
     result: ProtocolMcpResourceReadResponse;
   };
   "codex:mcp-apps:list": {
-    args: [threadId?: string | null];
+    args: [];
     result: ProtocolAppInfo[];
   };
+  "codex:experimental-features:list": {
+    args: [];
+    result: ProtocolExperimentalFeature[];
+  };
   "codex:mcp-server-statuses:list": {
-    args: [threadId?: string | null];
-    result: ProtocolMcpServerStatus[];
+    args: [];
+    result: ProtocolListMcpServerStatusResponse;
   };
   "codex:approval:respond": {
-    args: [requestId: string, decision: CodexApprovalDecision];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      kind: CodexApprovalKind,
+      decision: CodexApprovalDecision,
+    ];
     result: boolean;
   };
   "codex:user-input:respond": {
-    args: [requestId: string, answers: Record<string, string[]>];
+    args: [conversationId: string, requestId: CodexProtocolRequestId, answers: Record<string, string[]>];
     result: boolean;
   };
   "codex:mcp-elicitation:respond": {
-    args: [requestId: string, response: CodexMcpServerElicitationResponse];
+    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse];
     result: boolean;
   };
   "codex:permission-request:respond": {
-    args: [requestId: string, response: CodexPermissionRequestResponse];
+    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexPermissionRequestResponse];
+    result: boolean;
+  };
+  "codex:option-picker:respond": {
+    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexCanonicalOptionPickerResponse];
+    result: boolean;
+  };
+  "codex:setup-context-picker:respond": {
+    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexCanonicalSetupContextPickerResponse];
+    result: boolean;
+  };
+  "codex:setup-codex-step:respond": {
+    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexCanonicalSetupCodexStepResponse];
+    result: boolean;
+  };
+  "codex:conversation-unread:set": {
+    args: [conversationId: string, hasUnreadTurn: boolean];
     result: boolean;
   };
   "codex:permission:mode:set": {
@@ -1511,20 +1695,24 @@ export interface IpcEvents {
   "codex:threads:palette:index-updated": CommandPaletteThreadIndexUpdatedEvent;
   "codex:scheduled-automations:changed": CodexScheduledAutomationChangedEvent;
   "codex:automation-runs:updated": CodexAutomationRunsUpdatedEvent;
+  "codex:hooks:changed": CodexHooksChangedEvent;
+  "codex:pending-worktrees:changed": CodexPendingWorktreesChangedEvent;
+  "codex:pending-worktree:warning": CodexPendingWorktreeWarningEvent;
   "browser-sidebar-state": BrowserSidebarStateSnapshot;
   "browser-sidebar-local-servers": BrowserSidebarLocalServersSnapshot;
   "browser-sidebar-browser-use-state": BrowserSidebarBrowserUseStateSnapshot;
   "browser-sidebar-browser-use-viewport": BrowserSidebarBrowserUseViewportEvent;
   "browser-sidebar-browser-use-capture-surface": BrowserSidebarBrowserUseCaptureSurfaceEvent;
-  "browser-sidebar-browser-use-cursor-state": BrowserSidebarBrowserUseStateSnapshot["cursor"];
-  "browser-sidebar-browser-use-page-released": { tabId: string };
+  "browser-sidebar-browser-use-cursor-state": BrowserUseCursorState;
+  "browser-sidebar-browser-use-page-released": BrowserSidebarTabIdentity;
   "browser-sidebar-webview-attached": BrowserSidebarWebviewAttached;
   "browser-sidebar-destroy-webview": BrowserSidebarDestroyWebviewRequest;
   "remote-hosted-pip-stream-state-changed": RemoteHostedPipStreamStateChangedMessage;
   "remote-hosted-pip-visibility-requested": RemoteHostedPipVisibilityRequestedMessage;
   "desktop-notification:action": DesktopNotificationActionPayload & {
     conversationId: string | null;
-    requestId: string | null;
+    requestId: CodexProtocolRequestId | null;
+    approvalKind: CodexApprovalKind | null;
   };
   "electron-window:focus-changed": { isFocused: boolean };
   "electron-window-opaque-surface-changed": {

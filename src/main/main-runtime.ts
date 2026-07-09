@@ -83,7 +83,10 @@ import {
   type WorkbenchSidebarToggleHostChannel,
   type WorkbenchNavigationHostChannel,
 } from "../shared/window-navigation";
-import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
+import {
+  BROWSER_SIDEBAR_PARTITION,
+  parseBrowserSidebarRoutePartition,
+} from "../shared/browser-sidebar";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
 import { collectSecondInstancesForStartupReplay } from "./main-runtime-startup-events";
 import {
@@ -749,12 +752,25 @@ function createWindow(
     shell.openExternal(url);
     return { action: "deny" };
   });
-  window.webContents.on("will-attach-webview", (_event, webPreferences, params) => {
+  window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
     const webviewParams = params as typeof params & {
+      "data-browser-sidebar-browser-tab-id"?: string;
+      "data-browser-sidebar-conversation-id"?: string;
       nodeintegration?: string;
       preload?: string;
       webpreferences?: string;
     };
+    const routeIdentity = parseBrowserSidebarRoutePartition(params.partition);
+    if (
+      routeIdentity === null
+      || webviewParams["data-browser-sidebar-conversation-id"]
+        !== routeIdentity.browserConversationId
+      || webviewParams["data-browser-sidebar-browser-tab-id"]
+        !== routeIdentity.browserTabId
+    ) {
+      event.preventDefault();
+      return;
+    }
     params.partition = BROWSER_SIDEBAR_PARTITION;
     delete webviewParams.nodeintegration;
     delete webviewParams.preload;

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { CodexMcpToolCallView, ProtocolMcpResourceReadResponse, ProtocolMcpServerStatus } from "../../../../../lib/types";
+import type {
+  CodexMcpToolCallView,
+  ProtocolListMcpServerStatusResponse,
+  ProtocolMcpResourceReadResponse,
+} from "../../../../../lib/types";
 import {
   MCP_APP_HTML_MAX_BYTES,
   getMcpAppHtmlByteSize,
@@ -18,6 +22,9 @@ function buildPayload(overrides: Partial<CodexMcpToolCallView> = {}): CodexMcpTo
   return {
     callId: "call-1",
     functionName: "docs__search",
+    pluginId: null,
+    mcpAppResourceUri: undefined,
+    source: null,
     invocation: { server: "docs", tool: "search", arguments: {} },
     result: null,
     durationMs: null,
@@ -34,64 +41,74 @@ describe("mcp-tool-call-resource-utils", () => {
         type: "success",
         content: [],
         structuredContent: null,
-        meta: { "openai/outputTemplate": "ui://result.html" },
-        raw: { content: [], structuredContent: null },
-      },
-    });
-    const statuses: ProtocolMcpServerStatus[] = [{
-      name: "docs",
-      serverInfo: null,
-      tools: {
-        search: {
-          name: "search",
-          inputSchema: {},
-          _meta: { "openai/outputTemplate": "ui://tool.html" },
+        raw: {
+          content: [],
+          structuredContent: null,
+          _meta: { "openai/outputTemplate": "ui://result.html" },
         },
       },
-      resources: [],
-      resourceTemplates: [],
-      authStatus: "unsupported",
-    }];
+    });
+    const statuses: ProtocolListMcpServerStatusResponse = {
+      data: [{
+        name: "docs",
+        serverInfo: null,
+        tools: {
+          search: {
+            name: "search",
+            inputSchema: {},
+            _meta: { "openai/outputTemplate": "ui://tool.html" },
+          },
+        },
+        resources: [],
+        resourceTemplates: [],
+        authStatus: "unsupported",
+      }],
+      nextCursor: null,
+    };
 
-    expect(resolveMcpAppResourceUri({ payload, serverStatuses: statuses })).toBe("ui://tool.html");
-    expect(resolveMcpAppResourceScopeUri({ payload, serverStatuses: statuses })).toBe("ui://tool.html");
+    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: statuses })).toBe("ui://tool.html");
+    expect(resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses: statuses })).toBe("ui://tool.html");
   });
 
   test("matches server status tool metadata by tool name when the map key differs", () => {
     const payload = buildPayload({
       invocation: { server: "docs", tool: "search", arguments: {} },
     });
-    const statuses: ProtocolMcpServerStatus[] = [{
-      name: "docs",
-      serverInfo: null,
-      tools: {
-        aliased: {
-          name: "search",
-          inputSchema: {},
-          _meta: { "openai/outputTemplate": "ui://named-tool.html" },
+    const statuses: ProtocolListMcpServerStatusResponse = {
+      data: [{
+        name: "docs",
+        serverInfo: null,
+        tools: {
+          aliased: {
+            name: "search",
+            inputSchema: {},
+            _meta: { "openai/outputTemplate": "ui://named-tool.html" },
+          },
         },
-      },
-      resources: [],
-      resourceTemplates: [],
-      authStatus: "unsupported",
-    }];
+        resources: [],
+        resourceTemplates: [],
+        authStatus: "unsupported",
+      }],
+      nextCursor: null,
+    };
 
-    expect(resolveMcpAppResourceUri({ payload, serverStatuses: statuses })).toBe("ui://named-tool.html");
+    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: statuses })).toBe("ui://named-tool.html");
   });
 
-  test("keeps item resource URI separate from metadata resource scope", () => {
+  test("promotes a completed item resource URI into the rendered resource scope", () => {
     const payload = buildPayload({
       mcpAppResourceUri: "ui://item.html",
       result: {
         type: "success",
         content: [],
         structuredContent: null,
-        raw: { content: [], structuredContent: null },
+        raw: { content: [], structuredContent: null, _meta: null },
       },
     });
 
-    expect(resolveMcpAppResourceScopeUri({ payload, serverStatuses: [] })).toBe(null);
-    expect(resolveMcpAppResourceUri({ payload, serverStatuses: [] })).toBe("ui://item.html");
+    const emptyStatuses: ProtocolListMcpServerStatusResponse = { data: [], nextCursor: null };
+    expect(resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses: emptyStatuses })).toBe("ui://item.html");
+    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: emptyStatuses })).toBe("ui://item.html");
   });
 
   test("parses widget metadata aliases", () => {
@@ -142,12 +159,22 @@ describe("mcp-tool-call-resource-utils", () => {
             uri: "ui://docs/search.html",
             mimeType: "text/html;profile=mcp-app",
             text: "<main>Embedded Docs</main>",
-            meta: { "openai/widgetHeightHint": 360 },
           },
         }],
         structuredContent: null,
-        meta: { "openai/outputTemplate": "ui://docs/search.html" },
-        raw: { content: [], structuredContent: null },
+        raw: {
+          content: [{
+            type: "embedded_resource",
+            resource: {
+              uri: "ui://docs/search.html",
+              mimeType: "text/html;profile=mcp-app",
+              text: "<main>Embedded Docs</main>",
+              _meta: { "openai/widgetHeightHint": 360 },
+            },
+          }],
+          structuredContent: null,
+          _meta: { "openai/outputTemplate": "ui://docs/search.html" },
+        },
       },
     });
 
@@ -198,7 +225,7 @@ describe("mcp-tool-call-resource-utils", () => {
 
   test("keeps annotated JSON text visible because it is not a structured duplicate", () => {
     const display = resolveMcpExpandedSuccessDisplay({
-      content: [{ type: "text", text: "{\"ok\":true}", annotations: { source: "tool" } }],
+      content: [{ type: "text", text: "{\"ok\":true}", annotations: { audience: ["assistant"] } }],
       structuredContentJson: "{\n  \"ok\": true\n}",
       isExpanded: true,
     });

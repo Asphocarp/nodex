@@ -21,8 +21,11 @@ The authoritative rendering model is:
 The corresponding Nodex implementation lives in:
 
 - `src/renderer/features/local-conversation/projection/build-renderer-item-stream.ts`
+- `src/renderer/features/local-conversation/projection/build-turn-render-model.ts`
 - `src/renderer/features/local-conversation/projection/bucketize-turn-items.ts`
 - `src/renderer/features/local-conversation/projection/build-turn-view-model.ts`
+- `src/renderer/features/local-conversation/projection/agent-activity-v2.ts`
+- `src/renderer/features/local-conversation/projection/agent-activity-group.ts`
 - `src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx`
 
 ## Canonical Turn Pipeline In Nodex
@@ -34,8 +37,10 @@ Important rules:
 
 - it preserves the canonical per-turn item order from the conversation snapshot
 - it maps raw semantic kinds into renderer block families
-- it can synthesize an internal `workedFor` transcript block for the latest completed/qualifying turn so the downstream classifier sees the required blocking signal
+- it projects visible transcript blocks and auxiliary subagent activity state from the same canonical turn input
 - pending request cards still stay as dedicated request items instead of becoming ordinary transcript rows
+
+`buildTurnRenderModel(...)` then derives and inserts the internal `workedFor` block before bucketization so the downstream classifier sees the required blocking signal. Stream projection itself does not own that synthetic.
 
 The renderer must not sort transcript blocks by timestamp, id, or local heuristics after this point.
 
@@ -63,7 +68,7 @@ They are not interchangeable.
 ### 3. Build turn view state from the classified buckets
 `buildTurnViewModel(...)` consumes the buckets and derives:
 
-- grouped exploration/multi-agent entries
+- v2 hidden/standalone/groupable activity units and generic group summaries
 - visible turn lanes
 - search units
 - worked-for adornment usage
@@ -105,12 +110,17 @@ The fallback ordered candidate list includes:
 - `exec`
 - `fileChange`
 - `mcpToolCall`
+- `dynamicToolCall`
 - non-empty `webSearch`
 - `automaticApprovalReview`
 - `multiAgentAction`
+- `subagentActivityInlineGroup`
 - `streamError`
 - `systemError`
 - `contextCompaction`
+- `worktreeInit`
+- `autoReviewInterruptionWarning`
+- `steered`
 - `reasoning`
 - `userInputResponse`
 - completed `mcpServerElicitation`
@@ -124,6 +134,8 @@ After side-slot extraction and trailing automatic-approval-review peel:
 - otherwise `assistantItem` stays `null` and every assistant remains inline in `agentItems`
 
 This is the central classifier rule. The renderer must not "helpfully" promote the latest assistant just because one exists.
+
+After this extraction, same-turn subagent activity has one narrow override: a renderable trailing assistant in `commentary` phase moves back into `agentItems` when anchored or null-anchor subagent activity owns the turn. Final-answer assistants are not moved by this rule.
 
 ### Trailing automatic approval review
 Trailing `automaticApprovalReview` rows are peeled off the end of the agent candidate list first.
@@ -272,7 +284,10 @@ The agent body is driven by grouped `agentItems`, not by "all items before the f
 Consequences:
 
 - `assistant -> exec` may collapse together as one agent-work section
-- completion can change collapse affordance
+- a renderable final-answer boundary, or settled subagent activity, establishes collapse eligibility
+- eligible latest and historical turns both default collapsed unless persisted disclosure state overrides that default
+- interrupted turns never collapse, and active subagent activity prevents automatic collapse
+- null-anchor subagent state may affect eligibility without creating a visible item, wrapper, or DOM anchor
 - completion must not silently promote the assistant into a dedicated final slot
 
 ### Worked-for divider
@@ -314,11 +329,14 @@ This causes:
 ## Files To Recheck Before Touching This Feature Again
 
 - `src/renderer/features/local-conversation/projection/build-renderer-item-stream.ts`
+- `src/renderer/features/local-conversation/projection/build-turn-render-model.ts`
 - `src/renderer/features/local-conversation/projection/bucketize-turn-items.ts`
 - `src/renderer/features/local-conversation/projection/build-turn-view-model.ts`
-- `src/renderer/features/local-conversation/projection/group-exploration-blocks.ts`
+- `src/renderer/features/local-conversation/projection/agent-activity-v2.ts`
+- `src/renderer/features/local-conversation/projection/agent-activity-group.ts`
 - `src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx`
-- `src/renderer/features/local-conversation/projection/bucketize-turn-items.test.ts`
+- `src/renderer/features/local-conversation/projection/bucketize-turn-items.node.test.ts`
+- `src/renderer/features/local-conversation/projection/agent-activity-v2.test.ts`
 - `src/renderer/features/local-conversation/view/local-conversation-turn-entry.test.tsx`
 
 ## Acceptance Criteria
@@ -328,4 +346,5 @@ Any future refactor is valid only if all are true:
 - `assistantItem` is conditional
 - `worked-for` blocks assistant promotion before becoming label/divider input
 - latest assistant search ownership survives when `assistantItem` is `null`
+- subagent commentary ownership and null-anchor collapse state never manufacture visible activity
 - visible order matches semantic slot order across the scenario matrix above

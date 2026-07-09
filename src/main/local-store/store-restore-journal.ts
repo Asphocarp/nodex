@@ -3,7 +3,7 @@ import * as path from "node:path";
 import Database from "better-sqlite3";
 import { getDatabasePath, getLocalStoreDir } from "./config";
 import { validateBackupStore } from "./backup-store-validation";
-import { CURRENT_SCHEMA_VERSION } from "./schema";
+import { CURRENT_SCHEMA_VERSION, SHIPPED_SCHEMA_VERSION } from "./schema";
 
 const JOURNAL_FILE_NAME = ".store-restore-journal.json";
 const JOURNAL_VERSION = 1;
@@ -156,14 +156,21 @@ const validateShippedMigrationRollbackSource = (
 };
 
 const validateJournalStorePath = (databasePath: string): number => {
-  let currentValidationError: unknown;
-  try {
-    const current = validateBackupStore(databasePath);
-    if (current.schemaVersion === CURRENT_SCHEMA_VERSION) {
-      return current.schemaVersion;
+  const validationErrors: unknown[] = [];
+  for (const expectedSchemaVersion of [
+    CURRENT_SCHEMA_VERSION,
+    SHIPPED_SCHEMA_VERSION,
+  ]) {
+    try {
+      const validated = validateBackupStore(databasePath, {
+        expectedSchemaVersion,
+      });
+      if (validated.schemaVersion === expectedSchemaVersion) {
+        return validated.schemaVersion;
+      }
+    } catch (error) {
+      validationErrors.push(error);
     }
-  } catch (error) {
-    currentValidationError = error;
   }
 
   let database: Database.Database | null = null;
@@ -177,7 +184,7 @@ const validateJournalStorePath = (databasePath: string): number => {
       simple: true,
     }) as number;
   } catch (error) {
-    throw currentValidationError ?? error;
+    throw validationErrors[0] ?? error;
   } finally {
     database?.close();
   }
@@ -295,6 +302,7 @@ export function createStoreRestoreJournal(input: {
   readonly backupId: string;
   readonly stagingDirectoryPath: string;
   readonly rollbackDirectoryPath: string;
+  readonly expectedInstalledSchemaVersion?: number;
 }, paths: StoreRestorePaths = defaultStoreRestorePaths()): StoreRestoreJournal {
   if (fs.existsSync(journalPath(paths))) {
     throw new Error("An interrupted whole-store restore must be recovered first");
@@ -304,9 +312,11 @@ export function createStoreRestoreJournal(input: {
   const installedSchemaVersion = validateJournalStorePath(
     path.join(input.stagingDirectoryPath, "nodex.db"),
   );
-  if (installedSchemaVersion !== CURRENT_SCHEMA_VERSION) {
+  const expectedInstalledSchemaVersion =
+    input.expectedInstalledSchemaVersion ?? CURRENT_SCHEMA_VERSION;
+  if (installedSchemaVersion !== expectedInstalledSchemaVersion) {
     throw new Error(
-      `Staged store schema v${installedSchemaVersion} is not current v${CURRENT_SCHEMA_VERSION}`,
+      `Staged store schema v${installedSchemaVersion} is not expected v${expectedInstalledSchemaVersion}`,
     );
   }
   const journal: StoreRestoreJournal = {

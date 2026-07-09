@@ -6,9 +6,11 @@ import {
 import type {
   CodexCollaborationModeKind,
   CodexReasoningEffort,
+  CodexThreadGoalMaterializedDraft,
   ProjectSession,
 } from "@/lib/types";
 import type { useCodexAppServerControl } from "./local-conversation-store";
+import { cleanupMaterializedThreadGoalDraft } from "./thread-goal-materialization";
 import type { ThreadStageActions } from "./thread-stage-types";
 
 type AccountActions = ReturnType<typeof useCodexAccountActions>;
@@ -26,7 +28,11 @@ export interface ThreadActionControllerInput {
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
+  cleanupThreadGoalMaterializedDraft?: (
+    materialized: CodexThreadGoalMaterializedDraft | null,
+  ) => Promise<void>;
   onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onOpenPendingWorktree?: (clientThreadId: string) => void;
   onForkSessionFromTurn?: (input: {
     threadId: string;
     turnId: string;
@@ -40,6 +46,7 @@ export interface ThreadActionControllerInput {
   onNewThreadStartInEnvironmentChange: NonNullable<ThreadStageActions["onNewThreadStartInEnvironmentChange"]>;
   onRefreshNewThreadStartInEnvironments: NonNullable<ThreadStageActions["onRefreshNewThreadStartInEnvironments"]>;
   onOpenNewThreadLocalEnvironmentsSettings: NonNullable<ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]>;
+  onOpenHooksSettings?: ThreadStageActions["onOpenHooksSettings"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
@@ -108,8 +115,18 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onReasoningEffortChange: (reasoningEffort) => {
       updateThreadSettingsOrDraft({ reasoningEffort });
     },
-    onPermissionModeChange: (mode) => {
-      void input.codexControl.setPermissionMode(input.projectId, mode);
+    onPersonalityChange: async (personality) => {
+      await Promise.all([
+        input.codexControl.setPersonality(personality),
+        ...(input.activeThreadId
+          ? [input.codexControl.setConversationThreadSettings(input.activeThreadId, {
+              personality,
+            })]
+          : []),
+      ]);
+    },
+    onPermissionModeChange: async (mode) => {
+      await input.codexControl.setPermissionMode(input.projectId, mode);
     },
     onQueueingEnabledChange: input.onQueueingEnabledChange,
     onStartThreadForSession: async ({
@@ -118,26 +135,42 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       prompt,
       promptInput,
       threadGoalDraft,
+      threadGoalMaterializedDraft,
       runInTarget,
       runInEnvironmentPath,
       worktreeStartMode,
       worktreeBranchPrefix,
     }) => {
-      const targetSession = projectId === input.currentSessionProjectId
-        ? null
-        : await input.onEnsureBlankSessionForProject(projectId);
-      await input.codexControl.startThreadForSession({
+      let targetSession: ProjectSession | null = null;
+      if (projectId !== input.currentSessionProjectId) {
+        try {
+          targetSession = await input.onEnsureBlankSessionForProject(projectId);
+        } catch (error) {
+          await (input.cleanupThreadGoalMaterializedDraft
+            ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
+          throw error;
+        }
+      }
+      const result = await input.codexControl.startThreadForSession({
         projectId,
         sessionId: targetSession?.id ?? sessionId,
         prompt,
         promptInput,
         threadGoalDraft,
+        threadGoalMaterializedDraft,
         runInTarget,
         runInEnvironmentPath,
         worktreeStartMode,
         worktreeBranchPrefix: worktreeBranchPrefix ?? undefined,
         collaborationMode: input.selectedCollaborationMode,
       });
+      if (result.kind === "pending") {
+        if (!input.onOpenPendingWorktree) {
+          throw new Error("Pending worktree navigation is unavailable");
+        }
+        input.onOpenPendingWorktree(result.clientThreadId);
+        return;
+      }
       await input.onRefreshProjectSessions(projectId);
     },
     onNewThreadProjectChange: input.onNewThreadProjectChange,
@@ -189,8 +222,13 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       const threadId = requireActiveThreadId(input.activeThreadId, "Stopping Codex");
       await input.codexControl.interruptTurn(threadId, turnId);
     },
-    onRespondApproval: async (requestId, decision, context) => {
-      await input.codexControl.respondApproval(requestId, decision, context?.conversationId ?? null);
+    onRespondApproval: async (requestId, kind, decision, context) => {
+      await input.codexControl.respondApproval(
+        requestId,
+        kind,
+        decision,
+        context?.conversationId ?? null,
+      );
     },
     onRespondUserInput: async (requestId, answers, context) => {
       await input.codexControl.respondUserInput(requestId, answers, context?.conversationId ?? null);
@@ -200,6 +238,20 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     },
     onRespondPermissionRequest: async (requestId, response, context) => {
       await input.codexControl.respondPermissionRequest(requestId, response, context?.conversationId ?? null);
+    },
+    onRespondOptionPicker: async (requestId, response, context) => {
+      const conversationId = context?.conversationId ?? input.activeThreadId;
+      if (!conversationId) {
+        throw new Error("Responding to an option picker requires an active thread");
+      }
+      await input.codexControl.respondOptionPicker(conversationId, requestId, response);
+    },
+    onRespondSetupCodexStep: async (requestId, response, context) => {
+      const conversationId = context?.conversationId ?? input.activeThreadId;
+      if (!conversationId) {
+        throw new Error("Responding to a setup step requires an active thread");
+      }
+      await input.codexControl.respondSetupCodexStep(conversationId, requestId, response);
     },
     onResolvePlanImplementationRequest: async (threadId, turnId) => {
       await input.codexControl.removePlanImplementationRequest(threadId, turnId);
@@ -264,6 +316,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       await input.onRefreshProjectSessions(projectId);
     },
     onOpenTurnDiffReview: input.onOpenTurnDiffReview,
+    ...(input.onOpenHooksSettings ? { onOpenHooksSettings: input.onOpenHooksSettings } : {}),
     ...(input.onOpenTurnDiffFileInSidePanel ? { onOpenTurnDiffFileInSidePanel: input.onOpenTurnDiffFileInSidePanel } : {}),
     onConsumeComposerIntent: input.codexControl.consumeComposerIntent,
     onOpenThread: async (threadId, context) => {

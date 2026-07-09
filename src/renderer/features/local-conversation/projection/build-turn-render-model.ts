@@ -1,10 +1,17 @@
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
+import { hasUnifiedDiffChanges } from "../../../lib/unified-diff-summary";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
+import type { VisibleConversationTurnEntry } from "../selectors";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
-import { buildRendererItemStream } from "./build-renderer-item-stream";
+import {
+  buildRendererItemStream,
+  buildRendererItemStreamProjection,
+} from "./build-renderer-item-stream";
+import { collectTurnEndResourcePaths } from "./thread-summary-panel-output-model";
 import { buildTurnViewModel } from "./build-turn-view-model";
 import type {
   ThreadRendererItemModel,
+  ThreadComposerShellBackgroundAgentRowModel,
   ThreadTranscriptBlockModel,
   ThreadTurnModel,
   ThreadWorkedForBlockModel,
@@ -17,7 +24,22 @@ export interface BuildTurnRenderModelInput {
   isStreamingTurn: boolean;
   canEditTurnUserPrefix?: boolean;
   canForkTurn?: boolean;
+  backgroundAgents?: readonly ThreadComposerShellBackgroundAgentRowModel[];
+  turnKey?: string;
 }
+
+export type TurnRenderSurface = "main" | "preview";
+
+export interface SelectTurnRenderModelInput {
+  entry: VisibleConversationTurnEntry;
+  surface?: TurnRenderSurface;
+  canEditTurnUserPrefix?: boolean;
+  canForkTurn?: boolean;
+  backgroundAgents?: readonly ThreadComposerShellBackgroundAgentRowModel[];
+}
+
+type TurnRenderModelBuilder = (input: BuildTurnRenderModelInput) => ThreadTurnModel;
+type TurnRenderModelSelector = (input: SelectTurnRenderModelInput) => ThreadTurnModel;
 
 function hasIncompleteElicitation(
   items: ReturnType<typeof buildRendererItemStream>,
@@ -27,21 +49,30 @@ function hasIncompleteElicitation(
   );
 }
 
-function hasTranscriptTurnDiffItem(entries: readonly CodexConversationItem[]): boolean {
-  return entries.some((entry) => {
-    if (entry.semanticKind === "diff") return true;
-    if (entry.type === "turn_diff" || entry.type === "turn-diff") return true;
-    if (entry.rawItem && typeof entry.rawItem === "object") {
-      return (entry.rawItem as { type?: unknown }).type === "turn-diff";
-    }
-    return false;
-  });
+function isTranscriptTurnDiffItem(entry: CodexConversationItem): boolean {
+  if (entry.semanticKind === "diff") return true;
+  if (entry.type === "turn_diff" || entry.type === "turn-diff") return true;
+  if (entry.rawItem && typeof entry.rawItem === "object") {
+    return (entry.rawItem as { type?: unknown }).type === "turn-diff";
+  }
+  return false;
 }
 
-function buildDerivedTurnDiffEntry(turn: CodexConversationTurn): CodexConversationItem | null {
+function hasTranscriptTurnDiffChanges(entry: CodexConversationItem): boolean {
+  if (!isTranscriptTurnDiffItem(entry)) return false;
+  if (typeof entry.rawItem !== "object" || entry.rawItem === null) return false;
+  const unifiedDiff = (entry.rawItem as { unifiedDiff?: unknown }).unifiedDiff;
+  return typeof unifiedDiff === "string" && hasUnifiedDiffChanges(unifiedDiff);
+}
+
+function buildDerivedTurnDiffEntry(
+  turn: CodexConversationTurn,
+  entries: readonly CodexConversationItem[],
+): CodexConversationItem | null {
   const unifiedDiff = turn.diff?.trim();
   if (!unifiedDiff) return null;
-  if (hasTranscriptTurnDiffItem(turn.items)) return null;
+  if (!hasUnifiedDiffChanges(unifiedDiff)) return null;
+  if (entries.some(hasTranscriptTurnDiffChanges)) return null;
 
   const timestamp = turn.completedAt ?? turn.startedAt ?? turn.turnStartedAtMs ?? Date.now();
   const itemId = `turn-diff:${turn.turnId}`;
@@ -66,9 +97,12 @@ function buildDerivedTurnDiffEntry(turn: CodexConversationTurn): CodexConversati
 }
 
 function appendDerivedTurnDiffEntry(turn: CodexConversationTurn): CodexConversationItem[] {
-  const derived = buildDerivedTurnDiffEntry(turn);
-  if (!derived) return [...turn.items];
-  return [...turn.items, derived];
+  const renderableEntries = turn.items.filter((entry) => (
+    !isTranscriptTurnDiffItem(entry) || hasTranscriptTurnDiffChanges(entry)
+  ));
+  const derived = buildDerivedTurnDiffEntry(turn, renderableEntries);
+  if (!derived) return renderableEntries;
+  return [...renderableEntries, derived];
 }
 
 function resolveFiniteTimestamp(value: number | null | undefined): number | null {
@@ -141,6 +175,7 @@ function resolveWorkedForCompletedAtMs(
 function buildWorkedForItem(
   turn: CodexConversationTurn,
   items: ThreadRendererItemModel[],
+  turnKey: string,
 ): ThreadWorkedForBlockModel | null {
   const startedAtMs = resolveFiniteTimestamp(turn.firstTurnWorkItemStartedAtMs);
   if (startedAtMs === null) return null;
@@ -153,7 +188,7 @@ function buildWorkedForItem(
   if (turn.status !== "inProgress" && completedAtMs === null) return null;
 
   return {
-    id: `${turn.turnId}:worked-for`,
+    id: `${turnKey}:worked-for`,
     turnId: turn.turnId,
     createdAt: startedAtMs,
     updatedAt: completedAtMs ?? startedAtMs,
@@ -187,14 +222,21 @@ function insertWorkedForItem(
 export function buildTurnRenderModel(
   input: BuildTurnRenderModelInput,
 ): ThreadTurnModel {
+  const turnKey = input.turnKey ?? input.turn.turnId;
+  if (turnKey === null) {
+    throw new Error("A nullable local turn requires its occurrence key");
+  }
   const entries = appendDerivedTurnDiffEntry(input.turn);
-  const baseItems = buildRendererItemStream({
+  const rendererProjection = buildRendererItemStreamProjection({
     entries,
     requests: input.requests,
     turnStatus: input.turn.status,
     isLatestTurn: input.isLatestTurn,
+    backgroundAgents: input.backgroundAgents,
+    turnKey,
   });
-  const workedForItem = buildWorkedForItem(input.turn, baseItems);
+  const baseItems = rendererProjection.items;
+  const workedForItem = buildWorkedForItem(input.turn, baseItems, turnKey);
   const workedForTiming = workedForItem
     ? {
         status: workedForItem.status,
@@ -210,10 +252,13 @@ export function buildTurnRenderModel(
   const isBlocked =
     buckets.approvalItem !== null
     || buckets.userInputItem !== null
+    || buckets.interactiveRequestItem !== null
+    || buckets.permissionRequestItems.length > 0
     || hasIncompleteElicitation(items);
 
   return buildTurnViewModel({
     turnId: input.turn.turnId,
+    turnKey,
     turn: input.turn,
     buckets,
     workedForItem,
@@ -222,7 +267,57 @@ export function buildTurnRenderModel(
     isLatestTurn: input.isLatestTurn,
     isStreamingTurn: input.isStreamingTurn,
     isBlocked,
-    canEditTurnUserPrefix: input.canEditTurnUserPrefix,
-    canForkTurn: input.canForkTurn,
+    subagentActivityState: rendererProjection.subagentActivityState,
+    canEditTurnUserPrefix: input.turn.turnId !== null && input.canEditTurnUserPrefix,
+    canForkTurn: input.turn.turnId !== null && input.canForkTurn,
+    endResourcePaths: collectTurnEndResourcePaths(input.turn),
   });
 }
+
+export function createTurnRenderModelSelector(
+  build: TurnRenderModelBuilder = buildTurnRenderModel,
+): TurnRenderModelSelector {
+  const modelsByEntry = new WeakMap<VisibleConversationTurnEntry, Map<string, ThreadTurnModel>>();
+
+  return (input) => {
+    const surface = input.surface ?? "main";
+    const canEditTurnUserPrefix = input.canEditTurnUserPrefix === true;
+    const canForkTurn = input.canForkTurn === true;
+    const cacheKey = JSON.stringify([
+      surface,
+      canEditTurnUserPrefix,
+      canForkTurn,
+      input.entry.turnKey,
+      (input.backgroundAgents ?? []).map((row) => [
+        row.conversationId,
+        row.parentTurnKey,
+        row.displayName,
+        row.status,
+        row.statusSummary,
+        row.showInlineActivity,
+      ]),
+    ]);
+    const cachedModels = modelsByEntry.get(input.entry);
+    const cached = cachedModels?.get(cacheKey);
+    if (cached) return cached;
+
+    const model = build({
+      turn: input.entry.turn,
+      requests: input.entry.requests,
+      isLatestTurn: input.entry.isMostRecentTurn,
+      isStreamingTurn: input.entry.turn.status === "inProgress",
+      canEditTurnUserPrefix,
+      canForkTurn,
+      backgroundAgents: input.backgroundAgents,
+      turnKey: input.entry.turnKey,
+    });
+    const nextModels = cachedModels ?? new Map<string, ThreadTurnModel>();
+    nextModels.set(cacheKey, model);
+    if (!cachedModels) {
+      modelsByEntry.set(input.entry, nextModels);
+    }
+    return model;
+  };
+}
+
+export const selectTurnRenderModel = createTurnRenderModelSelector();

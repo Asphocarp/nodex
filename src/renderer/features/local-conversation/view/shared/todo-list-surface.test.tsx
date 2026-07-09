@@ -59,6 +59,10 @@ describe("TodoListSurface", () => {
 
     expect(Boolean(textContent(container).includes("Step 2 / 3"))).toBe(true);
     expect(Boolean(textContent(container).includes("1 out of 3 tasks completed"))).toBe(false);
+    const donut = container.querySelector("svg");
+    expect(donut?.getAttribute("width")).toBe("12");
+    expect(donut?.querySelectorAll("circle").length).toBe(2);
+    expect(donut?.querySelector("circle:last-child")?.getAttribute("pathLength")).toBe("100");
   });
 
   test("renders the Codex-style completion summary and expandable step list", () => {

@@ -5,6 +5,7 @@ import type {
   CodexFileChangeMap,
   CodexFileChangePatch,
   CodexItemStatus,
+  CodexProtocolRequestId,
   CodexTurnDiffPatchBatch,
   ReviewFileSafety,
   ReviewSkipReason,
@@ -42,6 +43,43 @@ export interface CodexFileChangePatchSummary {
   deletions: number;
   firstPath: string | null;
   hasChanges: boolean;
+}
+
+const CODEX_VISUALIZATION_PATH_PATTERN =
+  /(?:^|[\\/])\.codex[\\/]visualizations[\\/]\d{4}[\\/]\d{2}[\\/]\d{2}[\\/][a-zA-Z0-9_-]+[\\/][a-z0-9]+(?:-[a-z0-9]+)*\.html$/;
+
+export function isCodexVisualizationPath(path: string): boolean {
+  return CODEX_VISUALIZATION_PATH_PATTERN.test(path);
+}
+
+function extractGitDiffDestinationPath(header: string): string | null {
+  const payload = header.slice("diff --git ".length);
+  if (payload.startsWith('"')) {
+    const match = /^"[^"]*"\s+"b\/([^"]+)"$/.exec(payload);
+    return match?.[1] ?? null;
+  }
+  const destinationIndex = payload.lastIndexOf(" b/");
+  return destinationIndex < 0 ? null : payload.slice(destinationIndex + 3);
+}
+
+/** Exact VGe behavior: omit visualization-only git diff blocks from turn diff. */
+export function stripCodexVisualizationDiffBlocks(diff: string): string {
+  const retained: string[] = [];
+  let block = "";
+  let keepBlock = true;
+
+  for (const line of diff.split(/(?<=\n)/)) {
+    if (line.startsWith("diff --git ")) {
+      if (keepBlock) retained.push(block);
+      block = line;
+      const path = extractGitDiffDestinationPath(line.replace(/\r?\n$/, ""));
+      keepBlock = !isCodexVisualizationPath(path ?? "");
+      continue;
+    }
+    block += line;
+  }
+  if (keepBlock) retained.push(block);
+  return retained.join("");
 }
 
 function normalizeText(value: string): string {
@@ -260,13 +298,12 @@ export function resolveCodexPatchSuccess(status: CodexItemStatus | undefined): b
 }
 
 export function resolveCodexFileChangeDisplayStatus(input: {
-  itemStatus: CodexItemStatus | undefined;
-  approvalRequestId: string | null | undefined;
+  success: boolean | null | undefined;
+  approvalRequestId: CodexProtocolRequestId | null | undefined;
   isTurnCancelled: boolean;
 }): CodexFileChangeDisplayStatus {
-  const success = resolveCodexPatchSuccess(input.itemStatus);
-  if (success === true) return "applied";
-  if (success === false) return "rejected";
+  if (input.success === true) return "applied";
+  if (input.success === false) return "rejected";
   if (input.approvalRequestId != null) return "pending";
   if (input.isTurnCancelled) return "stopped";
   return "streaming";

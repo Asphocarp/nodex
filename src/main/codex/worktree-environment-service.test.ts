@@ -183,6 +183,43 @@ describe("worktree-environment-service", () => {
     }
   });
 
+  test("prefers the current platform setup script over the generic fallback", async () => {
+    const workspacePath = createWorkspace();
+    writeEnvironmentFile(workspacePath, "environment.toml", [
+      'name = "Platform setup"',
+      "",
+      "[setup]",
+      'script = "generic setup"',
+      "",
+      "[setup.darwin]",
+      'script = "darwin setup"',
+      "",
+      "[setup.linux]",
+      'script = "linux setup"',
+      "",
+      "[setup.win32]",
+      'script = "windows setup"',
+      "",
+    ].join("\n"));
+
+    try {
+      const definition = await readWorktreeEnvironmentDefinition({
+        workspacePath,
+        environmentPath: ".codex/environments/environment.toml",
+      });
+      const expected = process.platform === "darwin"
+        ? "darwin setup"
+        : process.platform === "linux"
+          ? "linux setup"
+          : process.platform === "win32"
+            ? "windows setup"
+            : "generic setup";
+      expect(definition.setupScript).toBe(expected);
+    } finally {
+      removeWorkspace(workspacePath);
+    }
+  });
+
   test("serializes actions only when they are complete and rejects paths outside .codex/environments", async () => {
     const serialized = serializeWorktreeEnvironmentDefinition({
       version: 1,

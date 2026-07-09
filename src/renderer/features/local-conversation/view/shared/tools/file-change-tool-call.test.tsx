@@ -9,10 +9,12 @@ import {
 } from "../../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexFileChange, CodexFileChangeView, CodexTranscriptEntry } from "../../../../../lib/types";
-import { normalizeThreadItem } from "../../../../../../shared/codex-item-normalizer";
+import { projectCodexCanonicalTurnItemViews } from "../../../../../../shared/codex-canonical-item-projector";
 import {
   buildCodexFileChangeMap,
+  resolveCodexPatchSuccess,
 } from "../../../../../../shared/codex-file-change";
+import { projectCodexItemViewToTranscriptEntry } from "../../../../../../shared/codex-transcript-entry-projection";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
 
 function buildFileChangeView(changes: CodexFileChange[]): CodexFileChangeView {
@@ -44,7 +46,14 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
       ].join("\n"),
     },
   ];
-  const fileChange = overrides?.fileChange ?? buildFileChangeView(defaultChanges);
+  const status = overrides?.status ?? "completed";
+  const sourceFileChange = overrides?.fileChange ?? buildFileChangeView(defaultChanges);
+  const fileChange = {
+    ...sourceFileChange,
+    success: sourceFileChange.success === undefined
+      ? resolveCodexPatchSuccess(status)
+      : sourceFileChange.success,
+  };
   const label = fileChange.label ?? buildFileChangeLabel(defaultChanges[0]);
 
   return {
@@ -54,7 +63,6 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
     entryId: "tool-1",
     type: "file_change",
     kind: "fileChange",
-    status: "completed",
     toolCall: {
       subtype: "fileChange",
       toolName: "file_change",
@@ -63,59 +71,45 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
       },
       result: { changes: fileChange.changes },
     },
-    fileChange,
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
+    status,
+    fileChange,
   };
 }
 
 function buildNormalizedFileChangeEntry(input: {
-  status?: string;
+  status?: "inProgress" | "completed" | "failed" | "declined";
   changes: Array<{
     path: string;
     kind: { type: "add" | "delete" } | { type: "update"; move_path: string | null };
     diff: string;
   }>;
 }): CodexTranscriptEntry {
-  const item = normalizeThreadItem(
-    {
+  const item = projectCodexCanonicalTurnItemViews({
+    threadId: "thread-1",
+    turnId: "turn-1",
+    observedAtMs: 1,
+    turnStatus: "inProgress",
+    items: [{
       id: "item-file-change",
       type: "fileChange",
       status: input.status ?? "completed",
       changes: input.changes,
-    },
-    "thread-1",
-    "turn-1",
-  );
+    }],
+  })[0];
   if (!item) throw new Error("Expected normalized file change entry");
-  return {
-    threadId: item.threadId,
-    turnId: item.turnId,
-    entryId: item.itemId,
-    itemId: item.itemId,
-    type: item.type,
-    kind: item.normalizedKind,
-    semanticKind: item.semanticKind,
-    assistantPhase: item.assistantPhase,
-    timeLabel: item.timeLabel,
-    status: item.status,
-    role: item.role,
-    toolCall: item.toolCall,
-    fileChange: item.fileChange,
-    markdownText: item.markdownText,
-    additionalDetails: item.additionalDetails,
-    willRetry: item.willRetry,
-    userInputQuestions: item.userInputQuestions,
-    userInputAnswers: item.userInputAnswers,
-    rawItem: item.rawItem,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-  };
+  return projectCodexItemViewToTranscriptEntry(item, "live", 0);
 }
 
 function fileChangeHeaders(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>("[data-file-change-row-header]"));
+  const headers = Array.from(container.querySelectorAll<HTMLElement>(
+    "[data-file-change-row-header], [data-testid='file-change-row-header']",
+  ));
+  return headers.map((header) =>
+    header.querySelector<HTMLElement>(":scope > button[aria-expanded]") ?? header
+  );
 }
 
 describe("FileChangeToolCall", () => {
@@ -174,7 +168,7 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(textContent(container).includes("+2"))).toBe(true);
     expect(Boolean(textContent(container).includes("-0"))).toBe(true);
     expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBe(false);
-    expect(Boolean(container.querySelector("[data-tool-activity-icon='edit-files']"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='edit-files']"))).toBe(true);
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
   });
 
@@ -201,6 +195,99 @@ describe("FileChangeToolCall", () => {
     expect(pendingRows[0]?.showActionLabel ?? true).toBe(false);
     expect(stoppedRows[0]?.state ?? "").toBe("stopped");
     expect(stoppedRows[0]?.label ?? "").toBe("Stopped creating");
+  });
+
+  test("uses canonical patch success before approval, cancellation, or generic item status", () => {
+    const explicitUnknownRows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildFileChangeEntry({
+        status: "completed",
+        fileChange: {
+          ...buildFileChangeView([{ type: "add", path: "poem.md", content: "line\n" }]),
+          success: null,
+        },
+      }),
+      "/tmp/project",
+      undefined,
+    );
+    const explicitAppliedRows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildFileChangeEntry({
+        status: "inProgress",
+        approvalRequestId: "approval-1",
+        fileChange: {
+          ...buildFileChangeView([{ type: "add", path: "poem.md", content: "line\n" }]),
+          success: true,
+        },
+      }),
+      "/tmp/project",
+      undefined,
+      true,
+    );
+
+    expect(explicitUnknownRows[0]?.state ?? "").toBe("streaming");
+    expect(explicitAppliedRows[0]?.state ?? "").toBe("applied");
+  });
+
+  test("prefers grantRoot when resolving patch paths", () => {
+    const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildFileChangeEntry({ grantRoot: "/tmp/granted" }),
+      "/tmp/thread-cwd",
+      "/tmp/project",
+    );
+
+    expect(rows[0]?.openPath ?? null).toBe(
+      "/tmp/granted/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+    );
+  });
+
+  test("renders visualization-only patches with create precedence and lifecycle visibility", () => {
+    const fileChange = {
+      changes: {},
+      visualizationActivities: [
+        { path: "/tmp/chart.html", kind: "update" as const },
+        { path: "/tmp/new-chart.html", kind: "create" as const },
+      ],
+      success: true,
+    };
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall item={buildFileChangeEntry({ fileChange })} />
+      </TooltipProvider>,
+    );
+
+    expect(textContent(container)).toBe("Created visualization");
+    expect(Boolean(container.querySelector("[data-file-change-visualization-status]"))).toBe(true);
+
+    const stopped = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry({
+            status: "inProgress",
+            fileChange: { ...fileChange, success: null },
+          })}
+          isTurnCancelled
+        />
+      </TooltipProvider>,
+    );
+    expect(stopped.container.textContent ?? "").toBe("");
+  });
+
+  test("keeps detail-disabled patch rows static and non-disclosable", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry()}
+          threadCwd="/tmp/project"
+          showDiffDetails={false}
+        />
+      </TooltipProvider>,
+    );
+
+    const header = container.querySelector<HTMLElement>("[data-testid='file-change-row-header']");
+    expect(Boolean(header)).toBe(true);
+    expect(header?.getAttribute("aria-expanded") ?? null).toBe(null);
+    expect(Boolean(header?.querySelector("button[aria-expanded]"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-file-change-row-body]"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-thread-find-skip]"))).toBe(false);
   });
 
   test("keeps empty update diffs as a visible streaming edit row", () => {
@@ -248,12 +335,39 @@ describe("FileChangeToolCall", () => {
       </TooltipProvider>,
     );
 
-    const filenameButton = container.querySelector('button[data-state="closed"].max-w-full');
-    expect(Boolean(filenameButton)).toBe(true);
-    fireEvent.click(filenameButton as HTMLElement);
+    const filenameLink = container.querySelector("[data-agent-activity-file-link][role='link']");
+    expect(Boolean(filenameLink)).toBe(true);
+    fireEvent.click(filenameLink as HTMLElement);
     await settleAsyncRender();
 
     expect(Boolean(container.textContent?.includes("Edited file"))).toBe(false);
+  });
+
+  test("opens collapsed patch paths in the side panel unless the click is modified", () => {
+    let sidePanelPath: string | null = null;
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry()}
+          threadCwd="/tmp/project"
+          onOpenFileInSidePanel={(target) => {
+            sidePanelPath = target.path;
+          }}
+        />
+      </TooltipProvider>,
+    );
+    const filenameLink = container.querySelector<HTMLElement>(
+      "[data-agent-activity-file-link][role='link']",
+    );
+    expect(Boolean(filenameLink)).toBe(true);
+
+    fireEvent.click(filenameLink as HTMLElement, { metaKey: true });
+    expect(sidePanelPath).toBe(null);
+
+    fireEvent.click(filenameLink as HTMLElement);
+    expect(sidePanelPath).toBe(
+      "/tmp/project/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+    );
   });
 
   test("derives parsed file diff stats from actual changed lines", () => {
@@ -701,7 +815,7 @@ describe("FileChangeToolCall", () => {
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBe(true);
-    expect(Boolean(summaryToggle?.querySelector("svg"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-testid='file-change-row-header'] svg"))).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();

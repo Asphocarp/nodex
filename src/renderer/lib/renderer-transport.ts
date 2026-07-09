@@ -124,6 +124,9 @@ export interface RendererTransport {
   subscribeCodexHostMessages: (
     callback: (message: import("./types").CodexHostMessage) => void,
   ) => () => void;
+  subscribeCodexEvents: (
+    callback: (event: import("./types").CodexEvent) => void,
+  ) => () => void;
   subscribeCodexRendererClientRequests: (
     callback: (
       message: import("./types").CodexRendererClientRequestMessage,
@@ -133,7 +136,8 @@ export interface RendererTransport {
     callback: (
       payload: import("./types").DesktopNotificationActionPayload & {
         conversationId: string | null;
-        requestId: string | null;
+        requestId: import("./types").CodexProtocolRequestId | null;
+        approvalKind: import("./types").CodexApprovalKind | null;
       },
     ) => void,
   ) => () => void;
@@ -160,6 +164,15 @@ export interface RendererTransport {
     callback: (
       event: import("../../shared/types").CodexAutomationRunsUpdatedEvent,
     ) => void,
+  ) => () => void;
+  subscribeCodexHooksChanged: (
+    callback: (event: import("../../shared/codex-hooks").CodexHooksChangedEvent) => void,
+  ) => () => void;
+  subscribeCodexPendingWorktreesChanged: (
+    callback: (event: import("../../shared/codex-pending-worktree").CodexPendingWorktreesChangedEvent) => void,
+  ) => () => void;
+  subscribeCodexPendingWorktreeWarnings: (
+    callback: (event: import("../../shared/codex-pending-worktree").CodexPendingWorktreeWarningEvent) => void,
   ) => () => void;
   subscribePersistedAtomUpdates: (
     callback: (

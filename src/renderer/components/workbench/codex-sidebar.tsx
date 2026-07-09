@@ -21,6 +21,7 @@ import {
   CodexSessionPinFilledIcon,
   CodexSessionPinIcon,
   ChevronDownIcon,
+  WorktreeStatusIcon,
 } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
@@ -52,6 +53,12 @@ import {
   type SidebarGroupDndPayload,
   useSidebarProjectDndState,
 } from "./sidebar-project-group-dnd";
+import {
+  useSidebarThreadDropContainer,
+  useSidebarThreadProjectDropContainerId,
+} from "./sidebar-thread-reorder";
+import { StableWorktreeCreateDialog } from "./stable-worktree-create-dialog";
+import { suggestStableWorktreeProjectName } from "./stable-worktree-production";
 
 type SidebarRowActionEvent =
   | MouseEvent<HTMLElement>
@@ -260,20 +267,34 @@ export function CodexProjectActionsMenu({
   onUpdateProject,
   onDeleteProject,
   onSetProjectPinned,
+  onCreateStableWorktree,
+  canCreateStableWorktree = false,
+  stableWorktreeWorkspaceRootOptions = [],
+  stableWorktreeWorkspaceRootLabels = {},
 }: {
   project: Project;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  onCreateStableWorktree?: (project: Project, projectName: string) => Promise<void>;
+  canCreateStableWorktree?: boolean;
+  stableWorktreeWorkspaceRootOptions?: readonly string[];
+  stableWorktreeWorkspaceRootLabels?: Readonly<Record<string, string | undefined>>;
 }) {
   const [open, setOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [iconOpen, setIconOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [createStableWorktreeOpen, setCreateStableWorktreeOpen] = useState(false);
   const [draftName, setDraftName] = useState(project.name);
   const [draftIcon, setDraftIcon] = useState(project.icon ?? "");
   const [draftSources, setDraftSources] = useState<string[]>(() => normalizeProjectSources(project));
   const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
+  const initialStableWorktreeProjectName = suggestStableWorktreeProjectName({
+    base: project.name,
+    workspaceRootOptions: stableWorktreeWorkspaceRootOptions,
+    workspaceRootLabels: stableWorktreeWorkspaceRootLabels,
+  });
 
   useEffect(() => {
     if (renameOpen) setDraftName(project.name);
@@ -392,6 +413,17 @@ export function CodexProjectActionsMenu({
               Open in Finder
             </NodexDropdownItem>
           ) : null}
+          {primaryWorkspaceRoot && onCreateStableWorktree && canCreateStableWorktree ? (
+            <NodexDropdownItem
+              leftSlot={<WorktreeStatusIcon className="icon-sm" />}
+              onSelect={() => {
+                setOpen(false);
+                setCreateStableWorktreeOpen(true);
+              }}
+            >
+              Create permanent worktree
+            </NodexDropdownItem>
+          ) : null}
           <NodexDropdownItem
             leftSlot={<FolderPlus className="icon-sm" />}
             onSelect={() => {
@@ -508,6 +540,16 @@ export function CodexProjectActionsMenu({
           </NodexDialogFooter>
         </NodexDialogContent>
       </NodexDialog>
+
+      <StableWorktreeCreateDialog
+        open={createStableWorktreeOpen}
+        initialProjectName={initialStableWorktreeProjectName}
+        onOpenChange={setCreateStableWorktreeOpen}
+        onCreate={async (projectName) => {
+          if (!onCreateStableWorktree) return;
+          await onCreateStableWorktree(project, projectName);
+        }}
+      />
     </>
   );
 }
@@ -525,6 +567,9 @@ export function CodexProjectRow({
   onUpdateProject,
   onDeleteProject,
   onSetProjectPinned,
+  onCreateStableWorktree,
+  stableWorktreeWorkspaceRootOptions,
+  stableWorktreeWorkspaceRootLabels,
   children,
 }: {
   project: Project;
@@ -539,9 +584,34 @@ export function CodexProjectRow({
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  onCreateStableWorktree?: (project: Project, projectName: string) => Promise<void>;
+  stableWorktreeWorkspaceRootOptions?: readonly string[];
+  stableWorktreeWorkspaceRootLabels?: Readonly<Record<string, string | undefined>>;
   children?: ReactNode;
 }) {
   const sortableEnabled = allowProjectReorder && Boolean(groupDndController);
+  const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
+  const [canCreateStableWorktree, setCanCreateStableWorktree] = useState(false);
+  const threadContainerId = useSidebarThreadProjectDropContainerId(project.id);
+  const wholeThreadDropTarget = useSidebarThreadDropContainer({
+    containerId: threadContainerId,
+    targetProjectKind: "local",
+  });
+  const rowThreadDropTarget = useSidebarThreadDropContainer({
+    containerId: threadContainerId,
+    projectDropZone: "project-row",
+    targetProjectKind: "local",
+  });
+  const iconThreadDropTarget = useSidebarThreadDropContainer({
+    containerId: threadContainerId,
+    projectDropZone: "project-icon",
+    targetProjectKind: "local",
+  });
+  const gutterThreadDropTarget = useSidebarThreadDropContainer({
+    containerId: threadContainerId,
+    projectDropZone: "project-gutter",
+    targetProjectKind: "local",
+  });
   const sortableId = getSidebarGroupDndId(project.id);
   const { activeProjectId, projectDragActive } = useSidebarProjectDndState();
   const dragOverlay = useMemo(() => (
@@ -585,12 +655,44 @@ export function CodexProjectRow({
     </CodexProjectChildrenDisclosure>
   ) : null;
 
+  useEffect(() => {
+    if (!onCreateStableWorktree || !primaryWorkspaceRoot) {
+      setCanCreateStableWorktree(false);
+      return;
+    }
+
+    let disposed = false;
+    setCanCreateStableWorktree(false);
+    void invoke("git:branch:state", primaryWorkspaceRoot)
+      .then((state) => {
+        if (disposed) return;
+        setCanCreateStableWorktree(Boolean(
+          state.currentBranch
+          || state.defaultBranch
+          || state.branches.length > 0,
+        ));
+      })
+      .catch(() => {
+        if (!disposed) setCanCreateStableWorktree(false);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [onCreateStableWorktree, primaryWorkspaceRoot]);
+
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node);
+        wholeThreadDropTarget.setNodeRef(node);
+      }}
       className={cn(
         "group/cwd relative flex flex-col",
         activeProjectDrag && "opacity-20",
+        wholeThreadDropTarget.isExternalThreadDropTarget
+          && wholeThreadDropTarget.isOver
+          && "rounded-lg bg-token-list-hover-background",
       )}
       style={sortableStyle}
       inert={activeProjectDrag ? true : undefined}
@@ -598,6 +700,7 @@ export function CodexProjectRow({
       aria-label={project.name}
     >
       <div
+        ref={rowThreadDropTarget.setNodeRef}
         {...(sortableEnabled ? attributes : {})}
         data-app-action-sidebar-project-collapsed={String(!expanded)}
         data-app-action-sidebar-project-id={project.id}
@@ -607,6 +710,9 @@ export function CodexProjectRow({
         className={cn(
           CODEX_SIDEBAR_PROJECT_ROW_CLASS,
           active && "bg-token-list-hover-background",
+          rowThreadDropTarget.isExternalThreadDropTarget
+            && rowThreadDropTarget.isOver
+            && "bg-token-list-hover-background",
           projectDragActive && "pointer-events-none",
         )}
         role="button"
@@ -620,7 +726,15 @@ export function CodexProjectRow({
         onKeyDown={(event) => handleProjectRowKeyboard(event, onActivate)}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
-          <span className="relative flex h-6 w-6 items-center justify-center">
+          <span
+            ref={iconThreadDropTarget.setNodeRef}
+            className={cn(
+              "relative flex h-6 w-6 items-center justify-center",
+              iconThreadDropTarget.isExternalThreadDropTarget
+                && iconThreadDropTarget.isOver
+                && "rounded-md bg-token-list-hover-background",
+            )}
+          >
             {expanded ? (
               <CodexProjectFolderOpenIcon className="icon-xs shrink-0" />
             ) : (
@@ -669,6 +783,10 @@ export function CodexProjectRow({
             onUpdateProject={onUpdateProject}
             onDeleteProject={onDeleteProject}
             onSetProjectPinned={onSetProjectPinned}
+            onCreateStableWorktree={onCreateStableWorktree}
+            canCreateStableWorktree={canCreateStableWorktree}
+            stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
+            stableWorktreeWorkspaceRootLabels={stableWorktreeWorkspaceRootLabels}
           />
           {onStartNewChat ? (
             <SidebarProjectNewChatButton
@@ -690,6 +808,16 @@ export function CodexProjectRow({
           }}
         />
       </div>
+      <div
+        ref={gutterThreadDropTarget.setNodeRef}
+        aria-hidden
+        className={cn(
+          "absolute bottom-0 left-0 top-[var(--height-token-nav-row)] z-10 w-2",
+          gutterThreadDropTarget.isExternalThreadDropTarget
+            && gutterThreadDropTarget.isOver
+            && "bg-token-list-hover-background",
+        )}
+      />
       {projectChildren}
     </div>
   );
@@ -1022,10 +1150,10 @@ export function CodexSidebarThreadRow({
           <div className="flex h-full w-full items-center px-row-x text-sm leading-4">
             <div className="w-4 shrink-0">
               <div className="relative flex items-center justify-center">
-                {item.unread ? (
+                {item.unread || item.needsAttention ? (
                   <span
                     className="size-1.5 rounded-full bg-token-charts-blue"
-                    aria-label="Unread"
+                    aria-label={item.needsAttention ? "Needs attention" : "Unread"}
                   />
                 ) : null}
               </div>

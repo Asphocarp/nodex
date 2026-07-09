@@ -6,8 +6,12 @@ import type {
   CardRunInTarget,
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexApprovalKind,
   CodexBackgroundTerminalRow,
+  CodexCanonicalOptionPickerResponse,
+  CodexCanonicalSetupCodexStepResponse,
   CodexCollaborationModeKind,
+  CodexPermissionState,
   CodexComposerIntent,
   CodexCollaborationModePreset,
   CodexConnectionState,
@@ -19,6 +23,7 @@ import type {
   CodexConversationLiveRequest,
   CodexConversationResumeState,
   CodexConversationServerRequest,
+  CodexCanonicalServerRequest,
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationResponse,
   CodexConversationSnapshot,
@@ -26,10 +31,13 @@ import type {
   CodexConversationTurnPagination,
   CodexModelOption,
   CodexPermissionMode,
+  CodexPersonality,
   CodexPermissionRequestResponse,
+  CodexProtocolRequestId,
   CodexPromptInput,
   CodexSteerTurnInput,
   CodexThreadGoalDraftInput,
+  CodexThreadGoalMaterializedDraft,
   CodexThreadGoalSetActionInput,
   CodexThreadStatusType,
   CodexThreadSummary,
@@ -40,10 +48,12 @@ import type {
   CodexTurnDiffReviewTarget,
   GitReviewSource,
   PanelId,
+  ProtocolAppInfo,
   WorktreeEnvironmentOption,
   WorktreeStartMode,
 } from "../../lib/types";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
+import type { CodexHooksSettingsTarget } from "../../lib/codex-hooks-route";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
 import type { NewChatProjectSelectorOption } from "../../lib/new-chat-project-selector";
 import type { NewChatStartInTarget } from "../../lib/new-chat-start-in-selector";
@@ -198,6 +208,7 @@ export interface ThreadStageRouteInput {
   selectedCollaborationMode: CodexCollaborationModeKind;
   selectedModel: string;
   selectedReasoningEffort: CodexReasoningEffort;
+  selectedPersonality?: CodexPersonality;
   reasoningEffortOptions: CodexReasoningEffortOption[];
   permissionMode: CodexPermissionMode;
   isQueueingEnabled: boolean;
@@ -221,7 +232,8 @@ export interface ThreadStageActions {
   onCollaborationModeChange: (mode: CodexCollaborationModeKind) => void | Promise<void>;
   onModelChange: (model: string) => void | Promise<void>;
   onReasoningEffortChange: (reasoningEffort: CodexReasoningEffort) => void | Promise<void>;
-  onPermissionModeChange: (mode: CodexPermissionMode) => void;
+  onPersonalityChange?: (personality: CodexPersonality) => void | Promise<void>;
+  onPermissionModeChange: (mode: CodexPermissionMode) => void | Promise<void>;
   onQueueingEnabledChange: (enabled: boolean) => void;
   onComposerIdeContextEnabledChange?: (enabled: boolean) => void;
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
@@ -235,6 +247,7 @@ export interface ThreadStageActions {
     prompt: string;
     promptInput?: CodexPromptInput;
     threadGoalDraft?: CodexThreadGoalDraftInput;
+    threadGoalMaterializedDraft?: CodexThreadGoalMaterializedDraft;
     runInTarget?: CardRunInTarget;
     runInEnvironmentPath?: string | null;
     worktreeStartMode?: WorktreeStartMode;
@@ -244,6 +257,7 @@ export interface ThreadStageActions {
   onNewThreadStartInEnvironmentChange?: (environmentPath: string | null) => void;
   onRefreshNewThreadStartInEnvironments?: () => Promise<void>;
   onOpenNewThreadLocalEnvironmentsSettings?: () => void;
+  onOpenHooksSettings?: (target: CodexHooksSettingsTarget) => void;
   onNewThreadProjectChange?: (projectId: string) => void;
   onRequestNewChatProjectCreate?: () => void;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
@@ -264,23 +278,34 @@ export interface ThreadStageActions {
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
   onRespondApproval: (
-    requestId: string,
+    requestId: CodexProtocolRequestId,
+    kind: CodexApprovalKind,
     decision: CodexApprovalDecision,
     context?: ThreadRequestResponseContext,
   ) => Promise<void>;
   onRespondUserInput: (
-    requestId: string,
+    requestId: CodexProtocolRequestId,
     answers: Record<string, string[]>,
     context?: ThreadRequestResponseContext,
   ) => Promise<void>;
   onRespondMcpElicitation: (
-    requestId: string,
+    requestId: CodexProtocolRequestId,
     response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
     context?: ThreadRequestResponseContext,
   ) => Promise<void>;
   onRespondPermissionRequest?: (
-    requestId: string,
+    requestId: CodexProtocolRequestId,
     response: CodexPermissionRequestResponse,
+    context?: ThreadRequestResponseContext,
+  ) => Promise<void>;
+  onRespondOptionPicker?: (
+    requestId: CodexProtocolRequestId,
+    response: CodexCanonicalOptionPickerResponse,
+    context?: ThreadRequestResponseContext,
+  ) => Promise<void>;
+  onRespondSetupCodexStep?: (
+    requestId: CodexProtocolRequestId,
+    response: CodexCanonicalSetupCodexStepResponse,
     context?: ThreadRequestResponseContext,
   ) => Promise<void>;
   onResolvePlanImplementationRequest: (threadId: string, turnId: string) => Promise<void>;
@@ -388,7 +413,7 @@ export interface ThreadRenderKeyedBlockFields {
 
 export interface ThreadAssistantActionsBlockModel {
   id: string;
-  turnId: string;
+  turnId: string | null;
   createdAt: number;
   updatedAt: number;
   searchableText: string;
@@ -399,16 +424,17 @@ export interface ThreadAssistantActionsBlockModel {
 
 export interface ThreadThinkingPlaceholderBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
-  turnId: string;
+  turnId: string | null;
   createdAt: number;
   updatedAt: number;
   searchableText: string;
+  message?: string;
   type: "thinkingPlaceholder";
 }
 
 export interface ThreadWorkedForBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
-  turnId: string;
+  turnId: string | null;
   createdAt: number;
   updatedAt: number;
   searchableText: string;
@@ -431,9 +457,14 @@ export interface ThreadSubagentActivityInlineRowModel {
   diffStats: ThreadSubagentDiffStats | null;
 }
 
+export interface ThreadTurnSubagentActivityState {
+  hasActivity: boolean;
+  hasActiveActivity: boolean;
+}
+
 export interface ThreadTranscriptBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
-  turnId: string;
+  turnId: string | null;
   createdAt: number;
   updatedAt: number;
   searchableText: string;
@@ -452,6 +483,11 @@ export interface ThreadTranscriptBlockModel extends ThreadRenderKeyedBlockFields
     | "hook"
     | "planImplementation"
     | "mcpServerElicitation"
+    | "automationUpdate"
+    | "generatedImage"
+    | "imageView"
+    | "permissionRequest"
+    | "realtimeTranscript"
     | "streamError"
     | "systemError"
     | "remoteTaskCreated"
@@ -460,28 +496,35 @@ export interface ThreadTranscriptBlockModel extends ThreadRenderKeyedBlockFields
     | "modelChanged"
     | "modelRerouted"
     | "contextCompaction"
+    | "worktreeInit"
     | "automaticApprovalReview"
     | "autoReviewInterruptionWarning"
     | "multiAgentAction"
     | "subagentActivityInlineGroup"
     | "steered"
     | "systemEvent"
-    | "userInputResponse";
+    | "userInputResponse"
+    | "userInput";
   entry: CodexConversationItem;
   status?: CodexConversationItem["status"];
   isTurnCancelled?: boolean;
+  isMcpAppWidgetSuperseded?: boolean;
   automaticApprovalReviews?: CodexConversationItem[];
   userMessageActions?: ThreadUserMessageActionsModel;
   assistantMessageActions?: ThreadAssistantMessageActionsModel;
   assistantAfterBlocks?: ThreadBlockModel[];
   searchUnitKey?: string;
+  hookFeedbackSources?: Array<
+    NonNullable<CodexConversationTurn["hookRuns"]>[number]["run"]["source"]
+  >;
+  imageViewPaths?: string[];
   subagentActivityRows?: ThreadSubagentActivityInlineRowModel[];
   subagentActivityStatusLabel?: string;
 }
 
 export interface ThreadUserAttachmentStripBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
-  turnId: string;
+  turnId: string | null;
   createdAt: number;
   updatedAt: number;
   searchableText: string;
@@ -489,75 +532,26 @@ export interface ThreadUserAttachmentStripBlockModel extends ThreadRenderKeyedBl
   attachments: CodexUserAttachment[];
 }
 
-export interface ThreadExplorationGroupBlockModel extends ThreadRenderKeyedBlockFields {
+export interface ThreadGeneratedImageGalleryItemModel {
   id: string;
-  turnId: string;
+  previewSrc?: string;
+  src: string;
+}
+
+export interface ThreadGeneratedImageGalleryBlockModel extends ThreadRenderKeyedBlockFields {
+  id: string;
+  turnId: string | null;
   createdAt: number;
   updatedAt: number;
   searchableText: string;
-  type: "explorationGroup";
-  entries: CodexConversationItem[];
-  summary: string;
-  status?: CodexConversationItem["status"];
-  automaticApprovalReviews?: CodexConversationItem[];
+  type: "generatedImageGallery";
+  images: ThreadGeneratedImageGalleryItemModel[];
+  pendingImageCount: number;
 }
 
-export interface ThreadMultiAgentGroupBlockModel extends ThreadRenderKeyedBlockFields {
-  id: string;
-  turnId: string;
-  createdAt: number;
-  updatedAt: number;
-  searchableText: string;
-  type: "multiAgentGroup";
-  entries: CodexConversationItem[];
-  summary: string;
-  status?: CodexConversationItem["status"];
-}
+export type ThreadAgentActivityGroupEntryModel = ThreadTranscriptBlockModel;
 
-export interface ThreadWebSearchGroupBlockModel extends ThreadRenderKeyedBlockFields {
-  id: string;
-  turnId: string;
-  createdAt: number;
-  updatedAt: number;
-  searchableText: string;
-  type: "webSearchGroup";
-  entries: Array<ThreadTranscriptBlockModel & { type: "webSearch" }>;
-  status?: CodexConversationItem["status"];
-}
-
-export interface ThreadPendingMcpToolCallsBlockModel extends ThreadRenderKeyedBlockFields {
-  id: string;
-  turnId: string;
-  createdAt: number;
-  updatedAt: number;
-  searchableText: string;
-  type: "pendingMcpToolCalls";
-  entries: Array<ThreadTranscriptBlockModel & { type: "mcpToolCall" }>;
-  summary: string;
-  status?: CodexConversationItem["status"];
-}
-
-export interface ThreadDynamicToolCallGroupBlockModel extends ThreadRenderKeyedBlockFields {
-  id: string;
-  turnId: string;
-  createdAt: number;
-  updatedAt: number;
-  searchableText: string;
-  type: "dynamicToolCallGroup";
-  entries: Array<ThreadTranscriptBlockModel & { type: "dynamicToolCall" }>;
-  summary: string;
-  summaryParts?: Array<{ key: string; label: string; count: number }>;
-  canExpand?: boolean;
-  repeatCount: number;
-  status?: CodexConversationItem["status"];
-}
-
-export type ThreadCollapsedToolActivityEntryModel =
-  | ThreadTranscriptBlockModel
-  | ThreadExplorationGroupBlockModel
-  | ThreadWebSearchGroupBlockModel;
-
-export interface ThreadCollapsedToolActivitySummaryStats {
+export interface ThreadAgentActivityGroupSummaryStats {
   createdFileCount: number;
   runningCreatedFileCount: number;
   stoppedCreatedFileCount: number;
@@ -586,12 +580,12 @@ export interface ThreadCollapsedToolActivitySummaryStats {
   runningHookCount: number;
   mcpToolCallCount: number;
   runningMcpToolCallCount: number;
-  mcpToolCallSources: ThreadCollapsedToolActivityMcpSourceStats[];
+  mcpToolCallSources: ThreadAgentActivityGroupMcpSourceStats[];
   webSearchCount: number;
   runningWebSearchCount: number;
 }
 
-export interface ThreadCollapsedToolActivityMcpSourceStats {
+export interface ThreadAgentActivityGroupMcpSourceStats {
   key: string;
   logoUrl: string | null;
   logoUrlDark: string | null;
@@ -601,7 +595,7 @@ export interface ThreadCollapsedToolActivityMcpSourceStats {
   runningCount: number;
 }
 
-export type ThreadCollapsedToolActivityActiveSummary =
+export type ThreadAgentActivityGroupActiveSummary =
   | {
     kind: "text";
     key: string;
@@ -616,24 +610,27 @@ export type ThreadCollapsedToolActivityActiveSummary =
     deletions: number;
   };
 
-export interface ThreadCollapsedToolActivitySummaryCues {
-  runningSummary: ThreadCollapsedToolActivityActiveSummary | null;
-  continuitySummary: ThreadCollapsedToolActivityActiveSummary | null;
+export interface ThreadAgentActivityGroupSummaryCues {
+  runningSummary: ThreadAgentActivityGroupActiveSummary | null;
+  continuitySummary: ThreadAgentActivityGroupActiveSummary | null;
 }
 
-export interface ThreadCollapsedToolActivityBlockModel extends ThreadRenderKeyedBlockFields {
+export interface ThreadAgentActivityGroupBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
-  turnId: string;
+  turnId: string | null;
   createdAt: number;
   updatedAt: number;
   searchableText: string;
-  type: "collapsedToolActivity";
-  entries: ThreadCollapsedToolActivityEntryModel[];
+  type: "agentActivityGroup";
+  canExpand?: boolean;
+  entries: ThreadAgentActivityGroupEntryModel[];
+  mcpApps?: readonly ProtocolAppInfo[];
   summary: string;
-  summaryStats?: ThreadCollapsedToolActivitySummaryStats;
+  summaryStats?: ThreadAgentActivityGroupSummaryStats;
   summaryParts?: string[];
-  runningSummary?: ThreadCollapsedToolActivityActiveSummary | null;
-  continuitySummary?: ThreadCollapsedToolActivityActiveSummary | null;
+  liveHeaderKind?: "active" | "thinking";
+  runningSummary?: ThreadAgentActivityGroupActiveSummary | null;
+  continuitySummary?: ThreadAgentActivityGroupActiveSummary | null;
   status?: CodexConversationItem["status"];
 }
 
@@ -656,56 +653,62 @@ export type ThreadAgentItemModel =
   | ThreadTranscriptBlockModel
   | ThreadWorkedForBlockModel;
 
+/** Exact v2 activity-classifier result shape. `null` is the hidden result. */
+export type ThreadAgentActivityGrouping = "groupable" | "standalone";
+
+export interface ThreadAgentActivityItem<TItem = ThreadAgentItemModel> {
+  item: TItem;
+  grouping: ThreadAgentActivityGrouping;
+}
+
+export type ThreadAgentActivityClassification<TItem = ThreadAgentItemModel> =
+  | ThreadAgentActivityItem<TItem>
+  | null;
+
+/** `sourceIndex` exists only between classification and final unit construction. */
+export interface ThreadIndexedAgentActivityItem<TItem = ThreadAgentItemModel> {
+  activityItem: ThreadAgentActivityItem<TItem>;
+  sourceIndex: number;
+}
+
+export type ThreadAgentActivityUnit<TItem = ThreadAgentItemModel> =
+  | {
+      kind: "group";
+      key: string;
+      items: readonly [ThreadAgentActivityItem<TItem>, ...ThreadAgentActivityItem<TItem>[]];
+    }
+  | {
+      kind: "standalone";
+      key: string;
+      item: ThreadAgentActivityItem<TItem>;
+    };
+
 export type ThreadAgentEntryModel =
   | ThreadAgentItemModel
-  | ThreadExplorationGroupBlockModel
-  | ThreadMultiAgentGroupBlockModel
-  | ThreadWebSearchGroupBlockModel
-  | ThreadPendingMcpToolCallsBlockModel
-  | ThreadDynamicToolCallGroupBlockModel
-  | ThreadCollapsedToolActivityBlockModel;
+  | ThreadAgentActivityGroupBlockModel;
 
-export type ThreadAgentRenderEntryBlockModel =
-  | ThreadAgentItemModel
-  | ThreadExplorationGroupBlockModel;
+export type ThreadAgentRenderEntryBlockModel = ThreadAgentItemModel;
 
-export type ThreadAgentRenderUnit =
+export type ThreadAgentRenderUnit = (
   | {
       kind: "entry";
       block: ThreadAgentRenderEntryBlockModel;
     }
   | {
-      kind: "webSearchGroup";
-      block: ThreadWebSearchGroupBlockModel;
+      kind: "agentActivityGroup";
+      block: ThreadAgentActivityGroupBlockModel;
     }
-  | {
-      kind: "multiAgentGroup";
-      block: ThreadMultiAgentGroupBlockModel;
-    }
-  | {
-      kind: "collapsedToolActivity";
-      block: ThreadCollapsedToolActivityBlockModel;
-    }
-  | {
-      kind: "dynamicToolCallGroup";
-      block: ThreadDynamicToolCallGroupBlockModel;
-    }
-  | {
-      kind: "pendingMcpToolCalls";
-      block: ThreadPendingMcpToolCallsBlockModel;
-    };
+) & {
+  targetAttributes?: Record<"data-local-conversation-item-target-ids", string>;
+};
 
 export type ThreadBlockModel =
   | ThreadTranscriptBlockModel
   | ThreadAssistantActionsBlockModel
+  | ThreadGeneratedImageGalleryBlockModel
   | ThreadUserAttachmentStripBlockModel
   | ThreadWorkedForBlockModel
-  | ThreadExplorationGroupBlockModel
-  | ThreadMultiAgentGroupBlockModel
-  | ThreadWebSearchGroupBlockModel
-  | ThreadPendingMcpToolCallsBlockModel
-  | ThreadDynamicToolCallGroupBlockModel
-  | ThreadCollapsedToolActivityBlockModel
+  | ThreadAgentActivityGroupBlockModel
   | ThreadThinkingPlaceholderBlockModel;
 
 export interface ThreadTurnRenderBuckets {
@@ -716,7 +719,10 @@ export interface ThreadTurnRenderBuckets {
   systemEventItem: ThreadTranscriptBlockModel | null;
   approvalItem: ThreadPendingTurnRequestModel | null;
   userInputItem: ThreadPendingTurnRequestModel | null;
+  interactiveRequestItem: ThreadPendingTurnRequestModel | null;
+  permissionRequestItems: ThreadPendingTurnRequestModel[];
   mcpServerElicitationItems: ThreadTranscriptBlockModel[];
+  toolOutputItems: ThreadTranscriptBlockModel[];
   todoListItem: ThreadTranscriptBlockModel | null;
   unifiedDiffItem: ThreadTranscriptBlockModel | null;
   proposedPlanItem: ThreadTranscriptBlockModel | null;
@@ -732,9 +738,11 @@ export interface ThreadTurnRenderBuckets {
 }
 
 export interface ThreadTurnModel {
-  turnId: string;
+  turnId: string | null;
+  turnKey: string;
   turn: CodexConversationTurn | null;
   buckets: ThreadTurnRenderBuckets;
+  agentActivitySourceItems: ThreadAgentItemModel[];
   leadingBlocks: ThreadBlockModel[];
   agentBodyUnits: ThreadAgentRenderUnit[];
   trailingBlocks: ThreadBlockModel[];
@@ -746,6 +754,8 @@ export interface ThreadTurnModel {
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   isBlocked: boolean;
+  isAgentActivitySliceClosed?: boolean;
+  isAgentActivityExploring?: boolean;
   searchableText: string;
   searchUnits: ThreadSearchUnitModel[];
   hasRenderableAgentBodyUnits: boolean;
@@ -755,7 +765,8 @@ export interface ThreadTurnModel {
 
 export interface ThreadSearchUnitModel {
   key: string;
-  turnId: string;
+  turnId: string | null;
+  turnKey: string;
   text: string;
   blockType: "userMessage" | "assistantMessage";
 }
@@ -778,7 +789,7 @@ export interface ThreadUserMessageNavigationOutput {
 
 export interface ThreadUserMessageNavigationItem {
   id: string;
-  turnId: string;
+  turnId: string | null;
   turnKey: string;
   ordinal: number;
   label: string;
@@ -790,7 +801,6 @@ export interface ThreadUserMessageNavigationItem {
 export interface ThreadBodyModel {
   threadId: string | null;
   turnCount: number;
-  hasAboveComposerBlocks: boolean;
   isThreadRunning: boolean;
   activeTurnId: string | null;
   latestTurnId: string | null;
@@ -869,18 +879,21 @@ export type ThreadSummaryPanelMode = "hidden" | "pinned" | "popover";
 
 export interface ThreadBodySurfaceModel {
   projectId: string;
+  hostId: string;
   threadId: string | null;
   isSideChat: boolean;
   cwd: string | null;
   turns: CodexConversationTurn[];
   turnPagination?: CodexConversationTurnPagination | null;
   requests: CodexConversationServerRequest[];
+  canonicalRequests?: CodexCanonicalServerRequest[];
   resumeState: CodexConversationResumeState | null;
   statusType: CodexThreadStatusType | null;
   capabilityFlags: CodexConversationCapabilityFlags;
   body: ThreadBodyModel;
   parentTurns: readonly CodexConversationTurn[];
   childMemberships: readonly CodexConversationChildMembership[];
+  backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
@@ -915,8 +928,10 @@ export interface ThreadFooterModel {
   selectedModel: string;
   availableModels: CodexModelOption[];
   selectedReasoningEffort: CodexReasoningEffort;
+  selectedPersonality?: CodexPersonality;
   reasoningEffortOptions: CodexReasoningEffortOption[];
   permissionMode: CodexPermissionMode;
+  permissionState?: CodexPermissionState;
   isQueueingEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
   composerIntent: CodexComposerIntent | null;
@@ -938,6 +953,7 @@ export interface ThreadStageScreenProps {
   footer?: ReactNode;
   floatingContent?: ReactNode;
   contentShiftX?: number;
+  onReadInteraction?: () => void;
 }
 
 export interface ThreadBodyUiStateOverrides {

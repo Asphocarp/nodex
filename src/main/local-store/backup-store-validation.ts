@@ -300,6 +300,7 @@ const validateOpenDatabase = (
   database: Database.Database,
   options: {
     readonly assetsPath: string;
+    readonly expectedSchemaVersion: number;
   },
 ): ValidatedBackupStore => {
   database.pragma("foreign_keys = ON");
@@ -308,9 +309,9 @@ const validateOpenDatabase = (
   const schemaVersion = database.pragma("user_version", {
     simple: true,
   }) as number;
-  if (schemaVersion !== CURRENT_SCHEMA_VERSION) {
+  if (schemaVersion !== options.expectedSchemaVersion) {
     throw new BackupStoreValidationError(
-      `Backup schema v${schemaVersion} is not the current v${CURRENT_SCHEMA_VERSION}`,
+      `Backup schema v${schemaVersion} is not the expected v${options.expectedSchemaVersion}`,
     );
   }
 
@@ -585,6 +586,7 @@ export function validateBackupStore(
   databasePath: string,
   options: {
     readonly assetsPath?: string;
+    readonly expectedSchemaVersion?: number;
   } = {},
 ): ValidatedBackupStore {
   let database: Database.Database | null = null;
@@ -596,6 +598,8 @@ export function validateBackupStore(
     return validateOpenDatabase(database, {
       assetsPath:
         options.assetsPath ?? path.join(path.dirname(databasePath), "assets"),
+      expectedSchemaVersion:
+        options.expectedSchemaVersion ?? CURRENT_SCHEMA_VERSION,
     });
   } catch (error) {
     if (error instanceof BackupStoreValidationError) throw error;

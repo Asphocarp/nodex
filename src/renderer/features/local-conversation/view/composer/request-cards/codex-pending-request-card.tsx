@@ -2,48 +2,71 @@ import type { ThreadComposerShellPendingRequestModel, ThreadStageActions } from 
 import { CodexApprovalRequestCard } from "./codex-approval-request-card";
 import { CodexImplementPlanRequestCard } from "./codex-implement-plan-request-card";
 import { CodexMcpElicitationRequestCard } from "./codex-mcp-elicitation-request-card";
+import { CodexOptionPickerRequestCard } from "./codex-option-picker-request-card";
 import { CodexPermissionRequestCard } from "./codex-permission-request-card";
+import { CodexSetupCodexStepRequestCard } from "./codex-setup-codex-step-request-card";
 import { CodexUserInputRequestCard } from "./codex-user-input-request-card";
 
 interface CodexPendingRequestCardProps {
   entry: ThreadComposerShellPendingRequestModel;
   actions: ThreadStageActions;
+  onManualApproval?: (conversationId: string) => void | Promise<void>;
 }
 
 const PLAN_IMPLEMENTATION_PROMPT_PREFIX = "PLEASE IMPLEMENT THIS PLAN:";
 
+function isAcceptedApprovalDecision(
+  decision: Parameters<ThreadStageActions["onRespondApproval"]>[2],
+): boolean {
+  return decision !== "decline" && decision !== "cancel";
+}
+
 export function CodexPendingRequestCard({
   entry,
   actions,
+  onManualApproval,
 }: CodexPendingRequestCardProps) {
   const approvalQuestionActor = entry.surface === "backgroundThread" && entry.actorName?.trim()
     ? (
-        <span className="font-medium">
+        <span className="font-medium text-token-foreground">
           {entry.actorName.trim()}
         </span>
       )
     : undefined;
 
   switch (entry.request.type) {
-    case "approval":
+    case "approval": {
+      const request = entry.request;
       return (
         <CodexApprovalRequestCard
-          request={entry.request}
+          request={request}
           requestItem={entry.requestItem}
           actorName={entry.actorName ?? null}
           approvalQuestionActor={approvalQuestionActor}
           onRespond={async (requestId, decision) => {
-            await actions.onRespondApproval(requestId, decision, { conversationId: entry.conversationId });
+            await actions.onRespondApproval(
+              requestId,
+              request.kind,
+              decision,
+              { conversationId: entry.conversationId },
+            );
+            if (isAcceptedApprovalDecision(decision)) {
+              await onManualApproval?.(entry.conversationId);
+            }
           }}
           onSubmitLocalFollowup={async (prompt) => {
             await actions.onSendPrompt(prompt);
           }}
         />
       );
+    }
     case "userInput":
       return (
         <CodexUserInputRequestCard
           request={entry.request}
+          onInterrupt={async () => {
+            await actions.onInterruptTurn(entry.request.turnId);
+          }}
           onRespond={async (requestId, answers) => {
             await actions.onRespondUserInput(requestId, answers, { conversationId: entry.conversationId });
           }}
@@ -68,9 +91,36 @@ export function CodexPendingRequestCard({
               response,
               { conversationId: entry.conversationId },
             );
+            await onManualApproval?.(entry.conversationId);
           }}
           onSubmitLocalFollowup={async (prompt) => {
             await actions.onSendPrompt(prompt);
+          }}
+        />
+      );
+    case "optionPicker":
+      return (
+        <CodexOptionPickerRequestCard
+          request={entry.request}
+          onRespond={async (requestId, response) => {
+            await (actions.onRespondOptionPicker ?? (async () => {}))(
+              requestId,
+              response,
+              { conversationId: entry.conversationId },
+            );
+          }}
+        />
+      );
+    case "setupCodexStep":
+      return (
+        <CodexSetupCodexStepRequestCard
+          request={entry.request}
+          onRespond={async (requestId, response) => {
+            await (actions.onRespondSetupCodexStep ?? (async () => {}))(
+              requestId,
+              response,
+              { conversationId: entry.conversationId },
+            );
           }}
         />
       );

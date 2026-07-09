@@ -10,6 +10,7 @@ import type {
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexConversationTurn,
+  CodexCanonicalServerRequest,
   CodexMcpToolCallView,
   CodexModelOption,
   CodexPermissionMode,
@@ -43,8 +44,19 @@ export type ThreadStageStoryPresetId =
   | "long-thread-search-open"
   | "completed-collapsed"
   | "tool-call-mixed"
+  | "blocked-fixed-content"
   | "approval-lane"
+  | "file-approval-lane"
   | "user-input-lane"
+  | "onboarding-input-lane"
+  | "permission-lane"
+  | "mcp-elicitation-lane"
+  | "option-picker-lane"
+  | "setup-role-lane"
+  | "setup-task-lane"
+  | "setup-context-lane"
+  | "auto-review-nudge"
+  | "background-permission-option"
   | "implement-plan"
   | "background-activity"
   | "search-open"
@@ -93,6 +105,7 @@ export interface ThreadStageStoryScenario {
   transportCard: Card;
   permissionDescription: string;
   autoAction?: "openEdit" | "submitEditFailure" | "openOlderFork" | "triggerLatestFork";
+  activateAutoReviewNudge?: boolean;
 }
 
 interface StorybookElectronBridgeListenerMap {
@@ -243,14 +256,69 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
     description: "Production-like completed thread with command, file edit, web, MCP, dynamic, turn diff, auto-review, and multi-agent activity.",
   },
   {
+    id: "blocked-fixed-content",
+    name: "Blocked Fixed Content",
+    description: "Blocked active turn where live patch activity remains in the transcript while todo, turn diff, and Thinking yield to the request owner.",
+  },
+  {
     id: "approval-lane",
     name: "Approval Lane",
     description: "Blocked active turn with the approval request surface above the composer.",
   },
   {
+    id: "file-approval-lane",
+    name: "File Approval Lane",
+    description: "Blocked active turn with a file-change approval preview surface.",
+  },
+  {
     id: "user-input-lane",
     name: "User Input Lane",
     description: "Blocked active turn with a multi-question request-user-input card.",
+  },
+  {
+    id: "onboarding-input-lane",
+    name: "Onboarding Input Lane",
+    description: "Blocked active turn with the dynamic onboarding user-input variant.",
+  },
+  {
+    id: "permission-lane",
+    name: "Permission Lane",
+    description: "Blocked active turn with the canonical permission request surface.",
+  },
+  {
+    id: "mcp-elicitation-lane",
+    name: "MCP Elicitation Lane",
+    description: "Blocked active turn with a pending MCP form elicitation.",
+  },
+  {
+    id: "option-picker-lane",
+    name: "Option Picker Lane",
+    description: "Blocked active turn with a canonical option-picker request.",
+  },
+  {
+    id: "setup-role-lane",
+    name: "Setup Role Lane",
+    description: "Blocked active turn with the setup role selector.",
+  },
+  {
+    id: "setup-task-lane",
+    name: "Setup Task Lane",
+    description: "Blocked active turn with the setup first-task selector.",
+  },
+  {
+    id: "setup-context-lane",
+    name: "Setup Context Lane",
+    description: "Blocked active turn with the setup context source selector.",
+  },
+  {
+    id: "auto-review-nudge",
+    name: "Auto-review Nudge",
+    description: "Idle thread whose repeated manual approvals give the nudge exclusive composer ownership.",
+  },
+  {
+    id: "background-permission-option",
+    name: "Background Permission + Option",
+    description: "Background permission stays visible before an active private option picker.",
   },
   {
     id: "implement-plan",
@@ -260,7 +328,7 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "background-activity",
     name: "Background Activity",
-    description: "Active thread plus background child approval and side-channel rows.",
+    description: "Active thread plus a no-anchor inline subagent, background child approval, and side-channel rows.",
   },
   {
     id: "search-open",
@@ -622,6 +690,89 @@ function buildApprovalRequestConversation(): CodexConversationSnapshot {
   });
 }
 
+function buildBlockedFixedContentConversation(): CodexConversationSnapshot {
+  const conversation = buildApprovalRequestConversation();
+  const unifiedDiff = [
+    "--- a/src/renderer/features/local-conversation/projection/build-turn-view-model.ts",
+    "+++ b/src/renderer/features/local-conversation/projection/build-turn-view-model.ts",
+    "@@ -1 +1 @@",
+    "-const owner = 'transcript';",
+    "+const owner = 'fixed';",
+  ].join("\n");
+
+  return {
+    ...conversation,
+    turns: conversation.turns.map((turn) => {
+      if (turn.turnId !== "turn_story_streaming") return turn;
+
+      const items = [
+        ...turn.items,
+        buildStoryConversationItem({
+          turnId: turn.turnId,
+          itemId: "patch_story_blocked_fixed",
+          type: "file_change",
+          kind: "fileChange",
+          semanticKind: "patch",
+          status: "inProgress",
+          fileChange: {
+            changes: buildCodexFileChangeMap([{
+              type: "update",
+              path: "src/renderer/features/local-conversation/projection/build-turn-view-model.ts",
+              unifiedDiff,
+              movePath: null,
+            }]),
+            label: "Edited build-turn-view-model.ts",
+          },
+          toolCall: {
+            subtype: "fileChange",
+            toolName: "file_change",
+            result: { diff: unifiedDiff },
+          },
+          createdAt: 25_100,
+          updatedAt: 25_100,
+        }),
+        buildStoryConversationItem({
+          turnId: turn.turnId,
+          itemId: "todo_story_blocked_fixed",
+          type: "plan",
+          kind: "plan",
+          semanticKind: "todoList",
+          status: "inProgress",
+          markdownText: "1. [x] Inspect bundle\n2. [ ] Align fixed ownership",
+          rawItem: {
+            plan: [
+              { step: "Inspect bundle", status: "completed" },
+              { step: "Align fixed ownership", status: "in_progress" },
+            ],
+          },
+          createdAt: 25_200,
+          updatedAt: 25_200,
+        }),
+        buildStoryConversationItem({
+          turnId: turn.turnId,
+          itemId: "turn_diff_story_blocked_fixed",
+          type: "turn_diff",
+          kind: "systemEvent",
+          semanticKind: "diff",
+          rawItem: {
+            type: "turn-diff",
+            cwd: STORY_WORKSPACE_PATH,
+            unifiedDiff,
+          },
+          createdAt: 25_300,
+          updatedAt: 25_300,
+        }),
+      ];
+
+      return {
+        ...turn,
+        itemIds: items.map((item) => item.itemId),
+        items,
+      };
+    }),
+  };
+}
+
 function buildUserInputQuestions(): StoryUserInputQuestion[] {
   return [
     {
@@ -782,6 +933,7 @@ function buildBackgroundConversation(): {
         parentThreadId: STORY_THREAD_ID,
         role: "backgroundChild",
         actorName: "Worker 1",
+        showInlineActivity: true,
         thread: {
           nickname: "Worker 1",
           model: null,
@@ -991,7 +1143,7 @@ function buildMixedToolCallConversation(): CodexConversationSnapshot {
     THREAD_TOOL_CALL_STORY_ITEMS.webSearch,
     THREAD_TOOL_CALL_STORY_ITEMS.mcp,
     buildMixedDynamicToolCallItem(turnId),
-    THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.automaticApprovalReviewCompleted,
+    THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.automaticApprovalReviewDenied,
     ...THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled,
     THREAD_TOOL_CALL_STORY_ITEMS.turnDiff,
   ].map((entry, index) => cloneStoryEntryForTurn(entry, turnId, index + 1));
@@ -1058,6 +1210,9 @@ function buildMcpToolCallView(overrides: Partial<CodexMcpToolCallView>): CodexMc
   return {
     callId: "call_story_mcp",
     functionName: `${invocation.server}__${invocation.tool}`,
+    pluginId: null,
+    mcpAppResourceUri: undefined,
+    source: null,
     invocation,
     durationMs: 0,
     completed: true,
@@ -1109,6 +1264,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     kind: "fileChange",
     fileChange: {
       label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+      success: true,
       changes: {
         "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx": {
           type: "update",
@@ -1214,16 +1370,16 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         "@@ -61,6 +61,7 @@",
         "     );",
         " ",
-        "     expect(Boolean(container.textContent?.includes(\"2 files changed\"))).toBeTrue();",
-        "+    expect(Boolean(container.textContent?.includes(\"files changed\"))).toBeTrue();",
-        "     expect(Boolean(container.textContent?.includes(\"+2\"))).toBeTrue();",
-        "     expect(Boolean(container.textContent?.includes(\"-2\"))).toBeTrue();",
+        "     expect(Boolean(container.textContent?.includes(\"2 files changed\"))).toBe(true);",
+        "+    expect(Boolean(container.textContent?.includes(\"files changed\"))).toBe(true);",
+        "     expect(Boolean(container.textContent?.includes(\"+2\"))).toBe(true);",
+        "     expect(Boolean(container.textContent?.includes(\"-2\"))).toBe(true);",
         "     expect(container.querySelectorAll('[role=\"button\"][aria-expanded=\"false\"]').length).toBe(2);",
         "@@ -108,6 +109,7 @@",
         "     );",
         " ",
-        "     expect(Boolean(container.textContent?.includes(\"2 files changed\"))).toBeTrue();",
-        "+    expect(Boolean(container.textContent?.includes(\"files changed\"))).toBeTrue();",
+        "     expect(Boolean(container.textContent?.includes(\"2 files changed\"))).toBe(true);",
+        "+    expect(Boolean(container.textContent?.includes(\"files changed\"))).toBe(true);",
         "     expect(container.querySelectorAll('[role=\"button\"]').length).toBe(0);",
         "   });",
         " });",
@@ -1370,6 +1526,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
               text: "Available Libraries:\n\n- Title: Storybook\n- Context7-compatible library ID: /storybookjs/storybook",
             },
           ],
+          structuredContent: null,
+          _meta: null,
         },
       },
     },
@@ -1448,6 +1606,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
             },
           ],
           structuredContent: null,
+          _meta: null,
         },
       },
     }),
@@ -1523,6 +1682,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
               ].join("\n"),
             },
           ],
+          structuredContent: null,
+          _meta: null,
         },
       },
     },
@@ -1594,6 +1755,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
             snippetCount: 3,
             section: "args",
           },
+          _meta: null,
         },
       },
     }),
@@ -1678,6 +1840,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
             },
           ],
           structuredContent: null,
+          _meta: null,
         },
       },
     }),
@@ -1763,6 +1926,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
             },
           ],
           structuredContent: null,
+          _meta: null,
         },
       },
     }),
@@ -1838,9 +2002,9 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
       status: "in_progress",
     },
   }),
-  automaticApprovalReviewCompleted: buildToolItemBase({
-    itemId: "story_automatic_approval_review_completed",
-    entryId: "story_automatic_approval_review_completed",
+  automaticApprovalReviewDenied: buildToolItemBase({
+    itemId: "story_automatic_approval_review_denied",
+    entryId: "story_automatic_approval_review_denied",
     type: "automaticApprovalReview",
     kind: "systemEvent",
     semanticKind: "automaticApprovalReview",
@@ -1848,10 +2012,10 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
     rawItem: {
       targetItemId: "item-command",
       review: {
-        status: "approved",
-        riskScore: 0.11,
-        riskLevel: "low",
-        rationale: "Only local Storybook and renderer tests are executed before packaging.",
+        status: "denied",
+        riskScore: 0.91,
+        riskLevel: "high",
+        rationale: "The requested command can modify generated package output outside the active workspace.",
       },
       action: {
         type: "command",
@@ -2080,6 +2244,24 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
 };
 
 export const THREAD_REQUEST_CARD_STORY_DATA = {
+  optionPicker: {
+    type: "optionPicker" as const,
+    requestId: "option_picker_story_card",
+    projectId: STORY_PROJECT_ID,
+    threadId: STORY_THREAD_ID,
+    turnId: "turn_story_request",
+    itemId: "call_option_picker_story_card",
+    question: "Which parity slice should Codex implement next?",
+    options: [
+      { label: "Request projection", description: "Align canonical request selection." },
+      { label: "Composer surface", description: "Align request-card behavior and styling." },
+      { label: "Response route", description: "Align owner and follower replies." },
+    ],
+    allowMultiple: true,
+    submitLabel: "Continue",
+    skipLabel: "Not now",
+    createdAt: 1,
+  },
   approval: {
     type: "approval" as const,
     requestId: "approval_story_card",
@@ -2140,6 +2322,7 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
           ].join("\n"),
         },
       ]),
+      success: null,
     },
     createdAt: 1,
     updatedAt: 1,
@@ -2247,6 +2430,187 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     createdAt: 1,
   },
 };
+
+type StoryDynamicToolArguments = Extract<
+  CodexCanonicalServerRequest,
+  { method: "item/tool/call" }
+>["params"]["arguments"];
+
+function buildStoryDynamicRequest(input: {
+  id: string;
+  tool: string;
+  arguments: StoryDynamicToolArguments;
+}): CodexCanonicalServerRequest {
+  return {
+    id: input.id,
+    method: "item/tool/call",
+    params: {
+      threadId: STORY_THREAD_ID,
+      turnId: "turn_story_streaming",
+      callId: `call_${input.id}`,
+      namespace: "codex_app",
+      tool: input.tool,
+      arguments: input.arguments,
+    },
+  };
+}
+
+function buildOnboardingInputRequestConversation(): CodexConversationSnapshot {
+  return buildStreamingConversation({
+    canonicalRequests: [buildStoryDynamicRequest({
+      id: "onboarding_story_active",
+      tool: "request_onboarding_input",
+      arguments: {
+        questions: [{
+          id: "first_goal",
+          question: "What should Codex help you accomplish first?",
+          options: [
+            { label: "Build a feature", description: "Start with implementation." },
+            { label: "Review code", description: "Start with a focused review." },
+          ],
+        }],
+      },
+    })],
+  });
+}
+
+function buildPermissionRequestConversation(): CodexConversationSnapshot {
+  return buildStreamingConversation({
+    requests: [{
+      ...THREAD_REQUEST_CARD_STORY_DATA.permissionRequest,
+      requestId: "permission_story_active",
+      turnId: "turn_story_streaming",
+      itemId: "reasoning_story_streaming",
+      createdAt: 26_000,
+    }],
+  });
+}
+
+function buildFileApprovalRequestConversation(): CodexConversationSnapshot {
+  const conversation = buildStreamingConversation();
+  const turns = conversation.turns.map((turn) => turn.turnId === "turn_story_streaming"
+    ? {
+        ...turn,
+        itemIds: [...turn.itemIds, "file_story_streaming"],
+        items: [
+          ...turn.items,
+          {
+            ...THREAD_REQUEST_CARD_STORY_DATA.fileApprovalItem,
+            threadId: STORY_THREAD_ID,
+            turnId: "turn_story_streaming",
+            itemId: "file_story_streaming",
+            entryId: "file_story_streaming",
+          },
+        ],
+      }
+    : turn);
+  return {
+    ...conversation,
+    turns,
+    requests: [{
+      ...THREAD_REQUEST_CARD_STORY_DATA.fileApproval,
+      requestId: "file_approval_story_active",
+      turnId: "turn_story_streaming",
+      itemId: "file_story_streaming",
+      createdAt: 26_000,
+    }],
+  };
+}
+
+function buildMcpElicitationRequestConversation(): CodexConversationSnapshot {
+  return buildStreamingConversation({
+    requests: [{
+      ...THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation,
+      requestId: "mcp_story_active",
+      turnId: "turn_story_streaming",
+      itemId: "reasoning_story_streaming",
+      createdAt: 26_000,
+    }],
+  });
+}
+
+function buildOptionPickerRequestConversation(): CodexConversationSnapshot {
+  return buildStreamingConversation({
+    canonicalRequests: [{
+      id: "option_story_active",
+      method: "item/tool/requestOptionPicker",
+      params: {
+        threadId: STORY_THREAD_ID,
+        turnId: "turn_story_streaming",
+        question: THREAD_REQUEST_CARD_STORY_DATA.optionPicker.question,
+        options: THREAD_REQUEST_CARD_STORY_DATA.optionPicker.options,
+        allowMultiple: true,
+        submitLabel: "Continue",
+        skipLabel: "Not now",
+      },
+    }],
+  });
+}
+
+function buildSetupStepRequestConversation(step: "role" | "task" | "context"): CodexConversationSnapshot {
+  const request: CodexCanonicalServerRequest = step === "context"
+    ? {
+        id: "setup_context_story_active",
+        method: "item/tool/requestSetupCodexContextPicker",
+        params: {
+          threadId: STORY_THREAD_ID,
+          turnId: "turn_story_streaming",
+        },
+      }
+    : buildStoryDynamicRequest({
+        id: `setup_${step}_story_active`,
+        tool: "setup_codex_step",
+        arguments: { step },
+      });
+  return buildStreamingConversation({ canonicalRequests: [request] });
+}
+
+function buildAutoReviewNudgeConversation(): CodexConversationSnapshot {
+  const conversation = buildApprovalRequestConversation();
+  return {
+    ...conversation,
+    statusType: "idle",
+    turns: conversation.turns.map((turn) => ({ ...turn, status: "completed" as const })),
+  };
+}
+
+function buildBackgroundPermissionOptionConversation(): {
+  conversation: CodexConversationSnapshot;
+  knownConversationsById: Record<string, CodexConversationSnapshot>;
+} {
+  const background = buildBackgroundConversation();
+  const childId = background.conversation.childMemberships[0]?.threadId;
+  if (!childId) return background;
+  const childConversation = background.knownConversationsById[childId];
+  if (!childConversation) return background;
+
+  const conversation = {
+    ...background.conversation,
+    requests: [],
+    canonicalRequests: buildOptionPickerRequestConversation().canonicalRequests,
+  };
+  const permissionRequest = {
+    ...THREAD_REQUEST_CARD_STORY_DATA.permissionRequest,
+    requestId: "permission_story_background",
+    threadId: childId,
+    turnId: "turn_story_background",
+    itemId: "user_story_background",
+    reason: "Worker 1 needs read access to verify the generated request matrix.",
+    createdAt: 26_500,
+  };
+  const nextChildConversation = {
+    ...childConversation,
+    requests: [permissionRequest],
+  };
+  return {
+    conversation,
+    knownConversationsById: {
+      ...background.knownConversationsById,
+      [conversation.threadId]: conversation,
+      [childId]: nextChildConversation,
+    },
+  };
+}
 
 function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageStoryScenario {
   const preset = resolveThreadStageStoryPreset(controls.preset);
@@ -2467,6 +2831,38 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     };
   }
 
+  if (controls.preset === "blocked-fixed-content") {
+    const conversation = buildBlockedFixedContentConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "file-approval-lane") {
+    const conversation = buildFileApprovalRequestConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
   if (controls.preset === "tool-call-mixed") {
     const conversation = buildMixedToolCallConversation();
     return {
@@ -2499,6 +2895,112 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     };
   }
 
+  if (controls.preset === "onboarding-input-lane") {
+    const conversation = buildOnboardingInputRequestConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "permission-lane") {
+    const conversation = buildPermissionRequestConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "mcp-elicitation-lane") {
+    const conversation = buildMcpElicitationRequestConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "option-picker-lane") {
+    const conversation = buildOptionPickerRequestConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (
+    controls.preset === "setup-role-lane"
+    || controls.preset === "setup-task-lane"
+    || controls.preset === "setup-context-lane"
+  ) {
+    const step = controls.preset === "setup-role-lane"
+      ? "role"
+      : controls.preset === "setup-task-lane"
+        ? "task"
+        : "context";
+    const conversation = buildSetupStepRequestConversation(step);
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "auto-review-nudge") {
+    const conversation = buildAutoReviewNudgeConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+      activateAutoReviewNudge: true,
+    };
+  }
+
   if (controls.preset === "implement-plan") {
     const conversation = buildImplementPlanConversation();
     return {
@@ -2516,6 +3018,22 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
 
   if (controls.preset === "background-activity") {
     const background = buildBackgroundConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: background.conversation,
+        conversation: background.conversation,
+        knownConversationsById: background.knownConversationsById,
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "background-permission-option") {
+    const background = buildBackgroundPermissionOptionConversation();
     return {
       preset,
       runtime: {
@@ -2627,6 +3145,7 @@ export function buildThreadStageStorySurfaceModels(
   const conversation = runtime.conversation;
   const turns = conversation?.turns ?? [];
   const requests = conversation?.requests ?? [];
+  const canonicalRequests = conversation?.canonicalRequests ?? [];
   const resumeState = conversation?.resumeState ?? null;
   const statusType = conversation?.statusType ?? null;
   const capabilityFlags = conversation?.capabilityFlags ?? {
@@ -2638,13 +3157,8 @@ export function buildThreadStageStorySurfaceModels(
   const parentTurns: readonly CodexConversationTurn[] = [];
   const body = buildThreadBodyModel({
     activeThreadId,
-    threadId: activeThreadId,
-    turns,
-    requests,
-    resumeState,
-    statusType,
-    archived: conversation?.archived ?? false,
-    capabilityFlags,
+    conversation,
+    activeThreadArchived: conversation?.archived ?? false,
     parentTurns,
     isNewThreadTab: runtime.isNewThreadTab,
     newThreadTarget: runtime.newThreadTarget,
@@ -2667,6 +3181,7 @@ export function buildThreadStageStorySurfaceModels(
     threadId: activeThreadId,
     turns,
     requests,
+    canonicalRequests,
     pendingSteers: conversation?.pendingSteers ?? [],
     queuedFollowUps: conversation?.queuedFollowUps ?? [],
     backgroundTerminalRows: conversation?.backgroundTerminalRows ?? [],
@@ -2702,6 +3217,31 @@ export function buildThreadStageStorySurfaceModels(
     selectedReasoningEffort: "high",
     reasoningEffortOptions: DEFAULT_REASONING_OPTIONS,
     permissionMode: controls.permissionMode,
+    permissionState: {
+      mode: controls.permissionMode,
+      effectivePreset: controls.permissionMode === "custom" ? "custom" : controls.permissionMode,
+      availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+      approvalPolicy: "on-request",
+      approvalsReviewer: controls.permissionMode === "guardian-approvals" ? "auto_review" : "user",
+      sandboxMode: controls.permissionMode === "full-access" ? "danger-full-access" : "workspace-write",
+      sandbox: controls.permissionMode === "full-access"
+        ? { type: "dangerFullAccess" }
+        : {
+            type: "workspaceWrite",
+            writableRoots: [STORY_WORKSPACE_PATH],
+            networkAccess: false,
+            excludeTmpdirEnvVar: false,
+            excludeSlashTmp: false,
+          },
+      autoReviewAvailable: true,
+      configTarget: {
+        source: "user",
+        filePath: `${STORY_WORKSPACE_PATH}/.codex/config.toml`,
+      },
+      customDescription: controls.permissionMode === "custom"
+        ? "Custom Storybook permissions"
+        : null,
+    },
     isQueueingEnabled: controls.isQueueingEnabled,
     composerEnterBehavior: "enter",
     composerIntent: runtime.composerIntent,
@@ -2710,6 +3250,7 @@ export function buildThreadStageStorySurfaceModels(
 
   const bodyModel: ThreadBodySurfaceModel = {
     projectId: STORY_PROJECT_ID,
+    hostId: "default",
     threadId: activeThreadId,
     isSideChat: false,
     cwd: conversation?.cwd ?? null,
@@ -2721,6 +3262,7 @@ export function buildThreadStageStorySurfaceModels(
     body,
     parentTurns,
     childMemberships: conversation?.childMemberships ?? [],
+    backgroundAgentRows: composerShell.backgroundAgentRows,
     projectWorkspacePath: STORY_WORKSPACE_PATH,
     searchOpenTick: runtime.searchOpenTick,
     threadStartProgress: runtime.threadStartProgress,

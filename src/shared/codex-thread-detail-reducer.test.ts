@@ -39,4 +39,23 @@ describe("codex thread detail reducer", () => {
     expect(merged[0]?.firstTurnWorkItemStartedAtMs ?? 0).toBe(456);
     expect(merged[0]?.itemIds.join(",") ?? "").toBe("exec_1,assistant_1");
   });
+
+  test("keeps the whole observed command-start map over hydrated timing refreshes", () => {
+    const merged = mergeCodexTurnSummary(
+      buildTurn({
+        commandExecutionStartedAtMsById: {
+          observed: 100,
+        },
+      }),
+      buildTurn({
+        commandExecutionStartedAtMsById: {
+          observed: 200,
+          hydratedOnly: 300,
+        },
+      }),
+    );
+
+    expect(merged.commandExecutionStartedAtMsById?.observed).toBe(100);
+    expect(merged.commandExecutionStartedAtMsById?.hydratedOnly).toBe(undefined);
+  });
 });

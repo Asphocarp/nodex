@@ -45,6 +45,7 @@ describe("resolveCodexSubagentDisplayName", () => {
       cwd: "/tmp/project",
       statusType: "idle",
       statusActiveFlags: [],
+      hasUnreadTurn: false,
       threadRuntimeStatus: null,
       archived: false,
       createdAt: 1,

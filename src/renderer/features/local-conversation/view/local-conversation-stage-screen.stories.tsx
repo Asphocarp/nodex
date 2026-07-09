@@ -143,6 +143,22 @@ export const ToolCallMixed: Story = {
   },
 };
 
+export const BlockedFixedContent: Story = {
+  args: {
+    preset: "blocked-fixed-content",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Production lifecycle fixture: a pending approval replaces the composer and suppresses active todo, aggregate diff, and Thinking, while the live patch row remains visible in the transcript.",
+      },
+    },
+  },
+};
+
 export const ApprovalLane: Story = {
   args: {
     preset: "approval-lane",
@@ -151,9 +167,82 @@ export const ApprovalLane: Story = {
   },
 };
 
+export const FileApprovalLane: Story = {
+  args: {
+    preset: "file-approval-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
 export const UserInputLane: Story = {
   args: {
     preset: "user-input-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const OnboardingInputLane: Story = {
+  args: {
+    preset: "onboarding-input-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const PermissionLane: Story = {
+  args: {
+    preset: "permission-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const McpElicitationLane: Story = {
+  args: {
+    preset: "mcp-elicitation-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const OptionPickerLane: Story = {
+  args: {
+    preset: "option-picker-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const SetupRoleLane: Story = {
+  args: {
+    preset: "setup-role-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const SetupTaskLane: Story = {
+  args: {
+    preset: "setup-task-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const SetupContextLane: Story = {
+  args: {
+    preset: "setup-context-lane",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const AutoReviewNudge: Story = {
+  args: {
+    preset: "auto-review-nudge",
+    permissionMode: "auto",
     isQueueingEnabled: false,
     collapseAgentBody: false,
   },
@@ -169,6 +258,14 @@ export const ImplementPlan: Story = {
 export const BackgroundActivity: Story = {
   args: {
     preset: "background-activity",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const BackgroundPermissionOption: Story = {
+  args: {
+    preset: "background-permission-option",
     isQueueingEnabled: false,
     collapseAgentBody: false,
   },

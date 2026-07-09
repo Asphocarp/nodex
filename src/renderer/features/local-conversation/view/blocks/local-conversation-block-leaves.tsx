@@ -1,21 +1,19 @@
 import {
   useCallback,
   useEffect,
-  useEffectEvent,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from "react";
 import { motion } from "motion/react";
-import { ChevronRightIcon, CodexGoalTargetIcon } from "@/components/shared/icons";
+import { ChevronRightIcon, CodexGoalTargetIcon, CodexHooksIcon } from "@/components/shared/icons";
 import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
 import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-review-surface";
 import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
+import { ImageViewSurface } from "../shared/image-view-surface";
+import { GeneratedImageGallery } from "../shared/generated-image-gallery";
+import { CompletedRequestActivitySurface } from "../shared/completed-request-activity-surface";
 import { PlanMessage } from "../shared/plan-message";
 import { ReasoningSurface } from "../shared/reasoning-surface";
 import { SubagentAvatar } from "../shared/subagent-avatar";
@@ -33,39 +31,16 @@ import {
 } from "../shared/thread-message-actions";
 import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
-import { DynamicToolCallSummary } from "../shared/tools/dynamic-tool-call";
-import {
-  buildDynamicToolCallSummaryPartKey,
-  continuesCodexAppLiveActivityBetweenCalls,
-} from "../shared/tools/dynamic-tool-call-utils";
-import { WebSearchToolCallGroup } from "../shared/tools/web-search-tool-call";
+import { WorktreeInitActivityList } from "../shared/tools/worktree-init-activity-list";
 import { AnimatedDiffStats } from "../shared/tools/diff-file-shared";
 import {
   JsonBlock,
   ThreadActivityDisclosure,
-  ThreadActivityHeader,
-  ThreadActivityList,
-  THREAD_ACTIVITY_LIST_7_TO_20_REM_MAX_HEIGHT_BY_STATE,
-  THREAD_ACTIVITY_LIST_20_REM_MAX_HEIGHT_BY_STATE,
-  ThreadActivityShell,
   type ThreadActivitySummaryTransition,
 } from "../shared/tools/tool-primitives";
-import { resolveMcpToolDisplayName } from "../shared/tools/mcp-tool-call-labels";
-import {
-  extractCommandActions,
-  normalizeExplorationPath,
-  resolveExplorationPath,
-  resolveExplorationSkillPathInfo,
-} from "../shared/tools/command-actions";
-import { buildCollapsedToolActivitySummary } from "../../projection/collapsed-tool-activity-summary";
-import { shouldDisplayCollapsedToolActivityActiveSummary } from "../../projection/group-exploration-blocks";
 import {
   ToolActivityIcon,
-  resolveCollapsedToolActivityIcon,
-  resolveExplorationEntriesIcon,
-  resolveMcpSourceIcon,
-  semanticToolIcon,
-  type ToolActivityIconDescriptor,
+  resolveAgentActivityGroupIcon,
 } from "../shared/tools/tool-call-icons";
 import { UserMessageText } from "../shared/user-message-collapse";
 import {
@@ -78,17 +53,21 @@ import { CodexShimmerText } from "../shared/codex-shimmer-text";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import { useWorkedForLabelText } from "../shared/use-worked-for-label";
-import type { CodexCommandAction } from "../../../../lib/types";
+import type { CodexWorktreeInitActivity } from "../../../../lib/codex-worktree-init-activity";
 import type { CodexConversationChildMembership, CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
 import { logAssistantStreamingDebugState } from "../../../../lib/assistant-streaming-debug";
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../lib/utils";
 import { stripCodexRemarkDirectiveLines } from "../../../../../shared/codex-remark-directives";
+import { DEFAULT_CODEX_HOST_ID } from "../../../../../shared/codex-host";
+import { resolveCompletedMcpServerElicitationView } from "../../projection/mcp-server-elicitation-view";
+import { buildHookFeedbackSettingsHref } from "../../projection/hook-feedback-settings";
+import { resolveHookFeedbackSettingsTarget } from "../../../../lib/codex-hooks-route";
 import type {
   ThreadAssistantMessageActionsModel,
   ThreadBlockModel,
-  ThreadCollapsedToolActivityActiveSummary,
+  ThreadAgentActivityGroupActiveSummary,
   ThreadPlanSidePanelState,
   ThreadStageActions,
   ThreadSubagentActivityInlineRowModel,
@@ -96,6 +75,7 @@ import type {
   ThreadWorkedForBlockModel,
 } from "../../thread-stage-types";
 import { THREAD_VISUAL_TOKENS } from "./local-conversation-visual-tokens";
+import { useHookFeedbackSettingsNavigation } from "../hook-feedback-settings-navigation";
 
 export interface ThreadLeafBlockProps {
   block: ThreadTranscriptBlockModel;
@@ -142,12 +122,6 @@ export interface ThreadSpecialBlockProps {
   turnDiffHoverPreviewDisabled?: boolean;
 }
 
-interface ExplorationDisplayLine {
-  key: string;
-  label: string;
-  leadingIcon?: ToolActivityIconDescriptor;
-}
-
 function SteeringStatusIcon() {
   return (
     <svg viewBox="0 0 21 21" className="icon-2xs shrink-0 text-token-description-foreground" fill="none" aria-hidden="true">
@@ -174,303 +148,33 @@ function UserMessageGoalStatus() {
   );
 }
 
-interface ExplorationAccordionModel {
-  lines: ExplorationDisplayLine[];
-  uniqueReadFileCount: number;
-  searchCount: number;
-  listCount: number;
+function UserMessageHookFeedbackStatus({
+  href,
+  onOpen,
+}: {
+  href: string;
+  onOpen?: () => void;
+}) {
+  return (
+    <a
+      href={href}
+      className="text-size-chat-sm inline-flex cursor-interaction items-center gap-1 rounded-md px-1 py-0.5 !text-token-description-foreground hover:!text-token-foreground"
+      onClick={(event) => {
+        if (!onOpen) return;
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        onOpen();
+      }}
+    >
+      <CodexHooksIcon aria-hidden className="icon-2xs shrink-0" />
+      <span>Hook feedback</span>
+    </a>
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
   return value as Record<string, unknown>;
-}
-
-function extractCommandCwd(entry: CodexConversationItem): string | null {
-  return entry.cwd ?? null;
-}
-
-function formatExplorationLine(action: CodexCommandAction, cwd: string | null): string {
-  const resolvedSkillPath = action.type === "read"
-    ? resolveExplorationPath(action.path || action.name, cwd)
-    : action.type === "search" || action.type === "listFiles"
-      ? resolveExplorationPath(action.path, cwd)
-      : null;
-  const resolvedSkill = resolveExplorationSkillPathInfo(resolvedSkillPath);
-
-  if (resolvedSkill) {
-    if (action.type === "read") return `Read ${resolvedSkill.skillName} skill`;
-    if (action.type === "search") {
-      return action.query && action.query.trim().length > 0
-        ? `Searched for ${action.query} in ${resolvedSkill.skillName} skill`
-        : `Searched in ${resolvedSkill.skillName} skill`;
-    }
-    if (action.type === "listFiles") return `Listed files in ${resolvedSkill.skillName} skill`;
-  }
-
-  if (action.type === "read") {
-    return `Read ${normalizeExplorationPath(action.name) ?? action.name}`;
-  }
-
-  if (action.type === "search") {
-    if (action.query && action.path) return `Searched for ${action.query} in ${action.path}`;
-    if (action.query) return `Searched for ${action.query}`;
-    return "Searched for files";
-  }
-
-  if (action.type === "listFiles") {
-    return action.path ? `Listed files in ${action.path}` : "Listed files";
-  }
-
-  return action.command;
-}
-
-export function buildExplorationAccordionModel(entries: CodexConversationItem[]): ExplorationAccordionModel {
-  const flattenedActions = entries.flatMap((entry, entryIndex) => {
-    const cwd = extractCommandCwd(entry);
-    return extractCommandActions(entry).map((action, actionIndex) => ({
-      key: `${entry.entryId ?? entry.itemId}:${entryIndex}:${action.type}:${actionIndex}`,
-      action,
-      cwd,
-    }));
-  });
-
-  const seenReadPaths = new Set<string>();
-  let searchCount = 0;
-  let listCount = 0;
-
-  for (const flattenedAction of flattenedActions) {
-    if (flattenedAction.action.type === "search") searchCount += 1;
-    if (flattenedAction.action.type === "listFiles") listCount += 1;
-    if (flattenedAction.action.type !== "read") continue;
-
-    const resolvedPath = resolveExplorationPath(
-      flattenedAction.action.path || flattenedAction.action.name,
-      flattenedAction.cwd,
-    );
-    if (!resolvedPath) continue;
-    seenReadPaths.add(resolvedPath);
-  }
-
-  return {
-    lines: flattenedActions.map((flattenedAction) => ({
-      key: flattenedAction.key,
-      label: formatExplorationLine(flattenedAction.action, flattenedAction.cwd),
-    })),
-    uniqueReadFileCount: seenReadPaths.size,
-    searchCount,
-    listCount,
-  };
-}
-
-function ExplorationChevron({ expanded }: { expanded: boolean }) {
-  return (
-    <ChevronRightIcon
-      className={cn(
-        "inline-chevron ml-1 text-token-input-placeholder-foreground group-hover:text-token-foreground transition-all duration-500 opacity-0 group-hover:opacity-100",
-        expanded && "opacity-100 rotate-90",
-      )}
-    />
-  );
-}
-
-function ExplorationCountParts({
-  fileCount,
-  searchCount,
-  listCount,
-}: {
-  fileCount: number;
-  searchCount: number;
-  listCount: number;
-}) {
-  const parts: string[] = [];
-  if (fileCount > 0) parts.push(`${fileCount} ${fileCount === 1 ? "file" : "files"}`);
-  if (searchCount > 0) parts.push(`${searchCount} ${searchCount === 1 ? "search" : "searches"}`);
-  if (listCount > 0) parts.push(`${listCount} ${listCount === 1 ? "list" : "lists"}`);
-  if (parts.length === 0) return null;
-
-  return (
-    <>
-      {parts.map((part, index) => (
-        <span key={`${part}:${index}`}>
-          {index > 0 ? <span>, </span> : null}
-          <span>{part}</span>
-        </span>
-      ))}
-    </>
-  );
-}
-
-type ExplorationViewState = "preview" | "expanded" | "collapsed";
-
-const EXPLORATION_PREVIEW_MAX_HEIGHT_PX = 7 * 16;
-const EXPLORATION_EXPANDED_MAX_HEIGHT_PX = 20 * 16;
-
-function ThreadExplorationAccordion({ entries, status }: { entries: CodexConversationItem[]; status?: CodexConversationItem["status"] }) {
-  const accordionId = useId();
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const wasExploringRef = useRef(status === "inProgress");
-  const hasAutoScrolledRef = useRef(false);
-  const isExploring = status === "inProgress";
-  const model = useMemo(() => buildExplorationAccordionModel(entries), [entries]);
-  const [viewState, setViewState] = useState<ExplorationViewState>(isExploring ? "preview" : "collapsed");
-  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
-
-  const resetViewState = useEffectEvent(() => {
-    setViewState(isExploring ? "preview" : "collapsed");
-    if (isExploring) return;
-    hasAutoScrolledRef.current = false;
-  });
-
-  useEffect(() => {
-    resetViewState();
-  }, [isExploring]);
-
-  useLayoutEffect(() => {
-    const scrollElement = scrollRef.current;
-    if (!scrollElement) return;
-    const justStartedExploring = isExploring && !wasExploringRef.current;
-    wasExploringRef.current = isExploring;
-
-    if (!isExploring) return;
-    if (viewState === "collapsed") return;
-
-    scrollElement.scrollTo({
-      top: scrollElement.scrollHeight,
-      behavior: hasAutoScrolledRef.current && !justStartedExploring ? "smooth" : "auto",
-    });
-    hasAutoScrolledRef.current = true;
-  }, [entries.length, isExploring, viewState]);
-
-  const countParts = isExploring && model.lines.length === 1
-    ? null
-    : (
-        <ExplorationCountParts
-          fileCount={model.uniqueReadFileCount}
-          searchCount={model.searchCount}
-          listCount={model.listCount}
-        />
-      );
-  const isExpanded = viewState !== "collapsed";
-  const maxVisibleHeightPx = viewState === "preview"
-    ? EXPLORATION_PREVIEW_MAX_HEIGHT_PX
-    : viewState === "expanded"
-      ? EXPLORATION_EXPANDED_MAX_HEIGHT_PX
-      : 0;
-  const measuredHeightPx = isExpanded ? Math.min(elementHeightPx, maxVisibleHeightPx) : 0;
-
-  return (
-    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      <div className="flex flex-col">
-        <div className="gap-1 px-0">
-          <div className="relative">
-            <button
-              type="button"
-              aria-expanded={isExpanded}
-              aria-controls={accordionId}
-              className="flex w-full items-center gap-1.5 px-0 py-0 cursor-interaction group text-left"
-              onClick={() => {
-                setViewState((currentState) => {
-                  if (currentState === "expanded") return isExploring ? "preview" : "collapsed";
-                  return "expanded";
-                });
-              }}
-            >
-              <span className="inline-flex min-w-0 flex-1 items-center gap-1 text-token-foreground/40 group-hover:text-token-foreground">
-                <ToolActivityIcon descriptor={resolveExplorationEntriesIcon(entries)} />
-                {isExploring ? (
-                  <>
-                    <CodexShimmerText className="text-token-description-foreground/90 group-hover:text-token-foreground">
-                      Exploring
-                    </CodexShimmerText>
-                    {countParts ? (
-                      <>
-                        <span className="text-token-description-foreground/90 group-hover:text-token-foreground"> </span>
-                        <span className="text-token-foreground/40 group-hover:text-token-foreground">{countParts}</span>
-                      </>
-                    ) : null}
-                  </>
-                ) : (
-                  <span className="text-token-description-foreground/90 group-hover:text-token-foreground">
-                    Explored
-                    {countParts ? (
-                      <>
-                        {" "}
-                        <span className="text-token-foreground/40 group-hover:text-token-foreground">{countParts}</span>
-                      </>
-                    ) : null}
-                  </span>
-                )}
-                <ExplorationChevron expanded={viewState === "expanded"} />
-              </span>
-            </button>
-            <motion.div
-              id={accordionId}
-              data-testid="exploration-accordion-body"
-              initial={false}
-              animate={{
-                height: measuredHeightPx,
-                opacity: isExpanded ? 1 : 0,
-              }}
-              transition={CODEX_THREAD_ACCORDION_TRANSITION}
-              className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
-              style={{
-                pointerEvents: isExpanded ? "auto" : "none",
-              }}
-            >
-              <div ref={elementRef} className="pt-0 text-token-foreground/60 [&_*]:text-token-foreground/50">
-                <div className="-mx-2.5 mt-1">
-                  <div
-                    ref={scrollRef}
-                    className="vertical-scroll-fade-mask [--edge-fade-distance:1.5rem] overflow-y-auto scroll-contain text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80"
-                    style={{
-                      maxHeight: `${maxVisibleHeightPx}px`,
-                    }}
-                  >
-                    <div className={cn("flex flex-col gap-1", viewState === "preview" && "pb-1")}>
-                      {model.lines.map((line) => (
-                        <div key={line.key}>
-                          <div className="flex min-w-0 items-center gap-1.5 truncate">
-                            {line.leadingIcon ? <ToolActivityIcon descriptor={line.leadingIcon} className="icon-2xs" /> : null}
-                            <span className="min-w-0 truncate">{line.label}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ThreadExplorationBodyOnly({ entries }: { entries: CodexConversationItem[] }) {
-  const model = useMemo(() => buildExplorationAccordionModel(entries), [entries]);
-
-  if (model.lines.length === 0) return null;
-
-  return (
-    <div className="pt-0 text-token-foreground/60 [&_*]:text-token-foreground/50">
-      <div className="-mx-2.5 mt-1">
-        <div className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80">
-          <div className="flex flex-col gap-1">
-            {model.lines.map((line) => (
-              <div key={line.key} className="truncate">
-                <div className="flex min-w-0 items-center gap-1.5 truncate">
-                  {line.leadingIcon ? <ToolActivityIcon descriptor={line.leadingIcon} className="icon-2xs" /> : null}
-                  <span className="min-w-0 truncate">{line.label}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function humanizeBlockType(type: ThreadBlockModel["type"]): string {
@@ -491,6 +195,8 @@ function humanizeBlockType(type: ThreadBlockModel["type"]): string {
       return "Model rerouted";
     case "contextCompaction":
       return "Context automatically compacted";
+    case "worktreeInit":
+      return "Worktree initialization";
     case "automaticApprovalReview":
       return "Approval review";
     case "autoReviewInterruptionWarning":
@@ -506,8 +212,6 @@ function humanizeBlockType(type: ThreadBlockModel["type"]): string {
     case "multiAgentAction":
       return "Multi-agent action";
     case "webSearch":
-      return "Web search";
-    case "webSearchGroup":
       return "Web search";
     case "userInputResponse":
       return "User input response";
@@ -530,374 +234,6 @@ function resizeEditMessageTextarea(element: HTMLTextAreaElement): void {
   element.style.overflowY = element.scrollHeight > maxHeightPx ? "auto" : "hidden";
 }
 
-export function ThreadExplorationGroupBlock({
-  block,
-}: ThreadSpecialBlockProps) {
-  const { settings } = useCodexThreadSettings();
-  if (block.type !== "explorationGroup") return null;
-  if (resolveCodexThreadDetailLevel(settings.detailLevel) === "STEPS_PROSE") return null;
-  return <ThreadExplorationAccordion entries={block.entries} status={block.status} />;
-}
-
-export function ThreadMultiAgentGroupBlock({
-  block,
-  childMemberships,
-  onOpenThread,
-}: ThreadSpecialBlockProps) {
-  if (block.type !== "multiAgentGroup") return null;
-
-  return (
-    <MultiAgentActionSurface
-      childMemberships={childMemberships}
-      items={block.entries}
-      onOpenThread={onOpenThread}
-    />
-  );
-}
-
-export function ThreadWebSearchGroupBlock({
-  block,
-  isLatestTurn,
-  isStreamingTurn,
-}: ThreadSpecialBlockProps & { nestedInCollapsedActivity?: boolean }) {
-  if (block.type !== "webSearchGroup") return null;
-
-  return (
-    <WebSearchToolCallGroup
-      items={block.entries.map((entry) => entry.entry)}
-      isActive={isLatestTurn && isStreamingTurn && block.entries.some((entry) => entry.status === "inProgress")}
-    />
-  );
-}
-
-function getMcpCallServer(entry: ThreadTranscriptBlockModel & { type: "mcpToolCall" }): string {
-  return entry.entry.mcpToolCall?.invocation.server ?? entry.entry.toolCall?.server ?? "";
-}
-
-function getPendingMcpSourceList(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): string {
-  const prefix = "Using ";
-  if (block.summary.startsWith(prefix)) return block.summary.slice(prefix.length);
-  return block.entries.length === 1 ? "tool" : `${block.entries.length} tools`;
-}
-
-function isPendingMcpNodeReplGroup(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): boolean {
-  return block.entries.length > 0
-    && block.entries.every((entry) => getMcpCallServer(entry) === "node_repl" && !entry.entry.mcpToolCall?.pluginId && !entry.entry.mcpToolCall?.mcpAppResourceUri);
-}
-
-function isPendingMcpIntegrationGroup(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): boolean {
-  return block.entries.length > 0
-    && block.entries.every((entry) => Boolean(entry.entry.mcpToolCall?.pluginId || entry.entry.mcpToolCall?.mcpAppResourceUri));
-}
-
-function getPendingMcpCompletedSummary(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): string {
-  if (isPendingMcpNodeReplGroup(block)) {
-    return block.entries.length === 1 ? "Ran a command" : `Ran ${block.entries.length} commands`;
-  }
-
-  const sourceList = getPendingMcpSourceList(block);
-  if (isPendingMcpIntegrationGroup(block)) {
-    return block.entries.length === 1 ? `Used ${sourceList} integration` : `Used ${sourceList} integrations`;
-  }
-
-  return `Used ${sourceList}`;
-}
-
-function getPendingMcpActiveEntry(block: Extract<ThreadBlockModel, { type: "pendingMcpToolCalls" }>): (ThreadTranscriptBlockModel & { type: "mcpToolCall" }) | null {
-  for (let index = block.entries.length - 1; index >= 0; index -= 1) {
-    const entry = block.entries[index];
-    if (!entry) continue;
-    if (entry.entry.mcpToolCall?.completed === false || entry.status === "inProgress") return entry;
-  }
-  return block.entries.at(-1) ?? null;
-}
-
-export function ThreadPendingMcpToolCallsBlock({
-  block,
-  isLatestTurn,
-  isStreamingTurn,
-  projectWorkspacePath,
-  threadCwd,
-  onOpenTurnDiffReview,
-  onOpenTurnDiffFileInSidePanel,
-  onOpenThread,
-  onOpenSummaryScheduledAutomation,
-  onOpenMcpAppSidePanel,
-  turnDiffHoverPreviewDisabled,
-}: ThreadSpecialBlockProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  if (block.type !== "pendingMcpToolCalls") return null;
-  const activeEntry = isLatestTurn && isStreamingTurn && block.status === "inProgress"
-    ? getPendingMcpActiveEntry(block)
-    : null;
-  const iconEntry = activeEntry?.entry ?? block.entries.at(-1)?.entry ?? block.entries[0]?.entry;
-  const icon = iconEntry ? resolveMcpSourceIcon(iconEntry) : semanticToolIcon("connector");
-  const activePayload = activeEntry?.entry.mcpToolCall ?? null;
-  const summary = activePayload ? (
-    <CodexShimmerText active className="min-w-0 truncate select-none text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground">
-      {resolveMcpToolDisplayName(activePayload)}
-    </CodexShimmerText>
-  ) : (
-    <span className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground">
-      {getPendingMcpCompletedSummary(block)}
-    </span>
-  );
-
-  const bodyItems = block.entries.map((entry) => ({
-    key: entry.entry.mcpToolCall?.callId ?? entry.id,
-    node: (
-      <ThreadToolSurfaceBlock
-        block={entry}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        projectWorkspacePath={projectWorkspacePath}
-        threadCwd={threadCwd}
-        onOpenTurnDiffReview={onOpenTurnDiffReview}
-        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-        onOpenThread={onOpenThread}
-        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
-        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-        nestedInCollapsedActivity
-      />
-    ),
-  }));
-
-  return (
-    <ThreadActivityShell
-      body={(
-        <div
-          className="pt-0 text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant"
-          data-testid="pending-mcp-tool-calls-body"
-          data-thread-find-skip={isExpanded ? undefined : true}
-        >
-          <div className="-mx-2.5">
-            <ThreadActivityList
-              autoScrollToBottom={false}
-              className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80"
-              contentClassName="pt-1"
-              items={bodyItems}
-              maxHeightByState={THREAD_ACTIVITY_LIST_7_TO_20_REM_MAX_HEIGHT_BY_STATE}
-              viewState={isExpanded ? "expanded" : "collapsed"}
-            />
-          </div>
-        </div>
-      )}
-      className="pt-0 text-token-conversation-body"
-      header={(
-        <ThreadActivityHeader
-          disclosure={{
-            expanded: isExpanded,
-            onToggle: () => {
-              setIsExpanded((value) => !value);
-            },
-          }}
-        >
-          <ToolActivityIcon descriptor={icon} />
-          <span className="text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground min-w-0 shrink truncate">
-            {summary}
-          </span>
-        </ThreadActivityHeader>
-      )}
-    />
-  );
-}
-
-type DynamicToolCallGroupEntry = Extract<ThreadBlockModel, { type: "dynamicToolCallGroup" }>["entries"][number];
-
-interface DynamicToolCallGroupSummaryPart {
-  key: string;
-  item: NonNullable<DynamicToolCallGroupEntry["entry"]["dynamicToolCall"]>;
-  count: number;
-}
-
-function buildDynamicToolCallGroupSummaryViewParts(
-  entries: DynamicToolCallGroupEntry[],
-): DynamicToolCallGroupSummaryPart[] {
-  const parts: DynamicToolCallGroupSummaryPart[] = [];
-  for (const entry of entries) {
-    const call = entry.entry.dynamicToolCall;
-    if (!call) continue;
-
-    const key = buildDynamicToolCallSummaryPartKey(call);
-    const existing = parts.find((part) => part.key === key);
-    if (existing) {
-      existing.count += 1;
-      continue;
-    }
-
-    parts.push({ key, item: call, count: 1 });
-  }
-  return parts;
-}
-
-function getDynamicToolCallGroupActiveEntry(
-  entries: DynamicToolCallGroupEntry[],
-): DynamicToolCallGroupEntry | null {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (entry?.entry.dynamicToolCall && !entry.entry.dynamicToolCall.completed) return entry;
-  }
-  return null;
-}
-
-function isDynamicToolCallGroupActive(
-  entries: DynamicToolCallGroupEntry[],
-  isActiveTurn: boolean,
-): boolean {
-  if (!isActiveTurn) return false;
-  if (entries.some((entry) => entry.entry.dynamicToolCall && !entry.entry.dynamicToolCall.completed)) return true;
-  const lastCall = entries.at(-1)?.entry.dynamicToolCall;
-  return continuesCodexAppLiveActivityBetweenCalls(lastCall);
-}
-
-function DynamicToolCallGroupSummary({
-  entries,
-}: {
-  entries: DynamicToolCallGroupEntry[];
-}) {
-  const parts = buildDynamicToolCallGroupSummaryViewParts(entries);
-  const firstPart = parts[0];
-  if (!firstPart) return null;
-
-  if (parts.length === 1) {
-    return (
-      <DynamicToolCallGroupSummaryPartLabel
-        item={firstPart.item}
-        count={firstPart.count}
-        variant="summary"
-      />
-    );
-  }
-
-  const allCodexApp = entries.every((entry) => entry.entry.dynamicToolCall?.namespace === "codex_app");
-  const icon = allCodexApp ? semanticToolIcon("plugin") : semanticToolIcon("connector");
-
-  return (
-    <span className="text-size-chat inline-flex min-w-0 items-center gap-2">
-      <ToolActivityIcon descriptor={icon} className="icon-xs shrink-0 text-token-text-secondary" />
-      <span className="truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground">
-        {parts.map((part, index) => (
-          <span key={part.key}>
-            {index > 0 ? " · " : null}
-            <DynamicToolCallGroupSummaryPartLabel
-              item={part.item}
-              count={part.count}
-              variant="summary-text"
-            />
-          </span>
-        ))}
-      </span>
-    </span>
-  );
-}
-
-function DynamicToolCallGroupSummaryPartLabel({
-  item,
-  count,
-  variant,
-}: {
-  item: NonNullable<DynamicToolCallGroupEntry["entry"]["dynamicToolCall"]>;
-  count: number;
-  variant: "summary" | "summary-text";
-}) {
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1">
-      <DynamicToolCallSummary call={item} variant={variant} />
-      {count > 1 ? (
-        <span className="shrink-0 text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground">
-          {` ${count} times`}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-export function ThreadDynamicToolCallGroupBlock({
-  block,
-  isLatestTurn,
-  isStreamingTurn,
-  projectWorkspacePath,
-  threadCwd,
-  onOpenTurnDiffReview,
-  onOpenTurnDiffFileInSidePanel,
-  onOpenThread,
-  onOpenSummaryScheduledAutomation,
-  onOpenMcpAppSidePanel,
-  turnDiffHoverPreviewDisabled,
-}: ThreadSpecialBlockProps) {
-  if (block.type !== "dynamicToolCallGroup") return null;
-  const canExpand = block.canExpand ?? true;
-  const isActiveGroup = isDynamicToolCallGroupActive(block.entries, isLatestTurn && isStreamingTurn);
-  const activeEntry = isActiveGroup ? getDynamicToolCallGroupActiveEntry(block.entries) : null;
-  const activeCall = activeEntry?.entry.dynamicToolCall ?? null;
-  const lastCall = block.entries.at(-1)?.entry.dynamicToolCall ?? null;
-  const summaryKey = activeCall
-    ? `active:${activeCall.callId}`
-    : `completed:${lastCall?.callId ?? block.id}:${block.entries.length}`;
-  const summaryTransition: ThreadActivitySummaryTransition = isLatestTurn && isStreamingTurn
-    ? activeCall ? "deferred" : "immediate"
-    : "static";
-  const summary = activeCall
-    ? (
-      <DynamicToolCallSummary
-        call={{
-          ...activeCall,
-          completed: false,
-        }}
-        variant="summary"
-      />
-    )
-    : <DynamicToolCallGroupSummary entries={block.entries} />;
-  const bodyItems = block.entries.map((entry) => ({
-    key: entry.entry.dynamicToolCall?.callId ?? entry.id,
-    node: (
-      <ThreadToolSurfaceBlock
-        block={entry}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        projectWorkspacePath={projectWorkspacePath}
-        threadCwd={threadCwd}
-        onOpenTurnDiffReview={onOpenTurnDiffReview}
-        onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-        onOpenThread={onOpenThread}
-        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
-        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-        nestedInCollapsedActivity
-      />
-    ),
-  }));
-
-  return (
-    <ThreadActivityDisclosure
-      canExpand={canExpand}
-      className="pt-0 text-token-conversation-body"
-      shouldAnimateInitialCollapse={isLatestTurn && isStreamingTurn && canExpand}
-      summary={summary}
-      summaryClassName={canExpand
-        ? "shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/activity-header:text-token-foreground"
-        : undefined}
-      summaryKey={summaryKey}
-      summaryTransition={summaryTransition}
-    >
-      <div
-        className="-mx-2.5 mt-1 text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant"
-        data-testid="dynamic-tool-call-group-body"
-      >
-        <ThreadActivityList
-          autoScrollToBottom={false}
-          className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80"
-          items={bodyItems}
-          maxHeightByState={THREAD_ACTIVITY_LIST_20_REM_MAX_HEIGHT_BY_STATE}
-          viewState="expanded"
-        />
-      </div>
-    </ThreadActivityDisclosure>
-  );
-}
-
 function renderCollapsedActivityEntry({
   entry,
   isLatestTurn,
@@ -911,7 +247,7 @@ function renderCollapsedActivityEntry({
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: {
-  entry: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"][number];
+  entry: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["entries"][number];
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
@@ -936,15 +272,17 @@ function renderCollapsedActivityEntry({
     turnDiffHoverPreviewDisabled,
   };
 
-  if (entry.type === "explorationGroup") return <ThreadExplorationBodyOnly entries={entry.entries} />;
-  if (entry.type === "webSearchGroup") {
-    return <WebSearchToolCallGroup items={entry.entries.map((item) => item.entry)} hideHeader />;
-  }
   if (entry.type === "automaticApprovalReview") return <ThreadAutomaticApprovalReviewBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "streamError") return <ThreadStreamErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "systemError") return <ThreadSystemErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "contextCompaction") return <ThreadContextCompactionBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
-  if (entry.type === "exec" || entry.type === "fileChange" || entry.type === "mcpToolCall" || entry.type === "webSearch") {
+  if (
+    entry.type === "exec"
+    || entry.type === "fileChange"
+    || entry.type === "mcpToolCall"
+    || entry.type === "dynamicToolCall"
+    || entry.type === "webSearch"
+  ) {
     return <ThreadToolSurfaceBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} nestedInCollapsedActivity />;
   }
   if (entry.type === "hook") {
@@ -954,12 +292,8 @@ function renderCollapsedActivityEntry({
   return null;
 }
 
-function isEverydayWorkMode(threadDetailLevel: ReturnType<typeof resolveCodexThreadDetailLevel>): boolean {
-  return threadDetailLevel === "STEPS_PROSE";
-}
-
 function shouldShimmerCollapsedActivitySummary(
-  stats: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["summaryStats"],
+  stats: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["summaryStats"],
 ): boolean {
   if (!stats) return false;
   return stats.runningCreatedFileCount > 0
@@ -1007,7 +341,7 @@ function CollapsedActivitySummaryText({
 function CollapsedActivityActiveSummaryText({
   summary,
 }: {
-  summary: ThreadCollapsedToolActivityActiveSummary;
+  summary: ThreadAgentActivityGroupActiveSummary;
 }) {
   if (summary.kind === "fileChange") {
     return (
@@ -1032,7 +366,7 @@ function CollapsedActivityActiveSummaryText({
 }
 
 function buildCollapsedActivityAggregateSummaryKey(
-  stats: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["summaryStats"],
+  stats: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["summaryStats"],
   fallbackSummary: string,
 ): string {
   if (!stats) return `summary:${fallbackSummary}`;
@@ -1058,7 +392,7 @@ function buildCollapsedActivityAggregateSummaryKey(
   ].join(":");
 }
 
-export function ThreadCollapsedToolActivityBlock({
+export function ThreadAgentActivityGroupBlock({
   block,
   isLatestTurn,
   isStreamingTurn,
@@ -1071,24 +405,16 @@ export function ThreadCollapsedToolActivityBlock({
   onOpenMcpAppSidePanel,
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
-  const { settings } = useCodexThreadSettings();
-
-  if (block.type !== "collapsedToolActivity") return null;
-  const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
-  const showFileChangeLineCount = isEverydayWorkMode(threadDetailLevel);
-  const showRunningCommandSummary = isEverydayWorkMode(threadDetailLevel);
-  const icon = resolveCollapsedToolActivityIcon(block.entries);
+  if (block.type !== "agentActivityGroup") return null;
+  const icon = block.liveHeaderKind === "thinking"
+    ? null
+    : resolveAgentActivityGroupIcon(block.entries, block.mcpApps);
   const runningSummary = isLatestTurn
     && isStreamingTurn
-    && shouldDisplayCollapsedToolActivityActiveSummary(block.runningSummary, threadDetailLevel)
+    && block.runningSummary != null
     ? block.runningSummary
     : null;
-  const aggregateSummary = block.summaryStats
-    ? buildCollapsedToolActivitySummary(block.summaryStats, {
-      showFileChangeLineCount,
-      showRunningCommandSummary,
-    })?.summary ?? block.summary
-    : block.summary;
+  const aggregateSummary = block.summary;
   const shouldShimmerAggregate = !runningSummary
     && isLatestTurn
     && isStreamingTurn
@@ -1098,7 +424,7 @@ export function ThreadCollapsedToolActivityBlock({
   const summaryTransition: ThreadActivitySummaryTransition = runningSummary
     ? shouldAnimateSummaryChanges ? "deferred" : "static"
     : shouldAnimateSummaryChanges ? shouldShimmerAggregate ? "deferred" : "immediate" : "static";
-  const canExpand = block.entries.length > 0 || (isLatestTurn && isStreamingTurn);
+  const canExpand = block.canExpand ?? (block.entries.length > 0 || (isLatestTurn && isStreamingTurn));
   const summary = (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
       {icon ? <ToolActivityIcon descriptor={icon} /> : null}
@@ -1113,12 +439,18 @@ export function ThreadCollapsedToolActivityBlock({
   );
   const body = (
     <div
-      className="flex flex-col"
-      style={{ "--conversation-patch-file-gap": "4px" } as CSSProperties}
+      className="vertical-scroll-fade-mask flex max-h-56 flex-col overflow-x-hidden overflow-y-auto [--edge-fade-distance:1.5rem]"
+      style={{
+        "--conversation-patch-file-gap": "var(--conversation-grouped-item-gap, 4px)",
+      } as CSSProperties}
     >
       {block.entries.map((entry) => (
         <div key={entry.id}>
-          <div style={{ height: "var(--conversation-patch-file-gap)" }} />
+          <div
+            aria-hidden="true"
+            className="w-full"
+            style={{ height: "var(--conversation-grouped-item-gap, 4px)" }}
+          />
           {renderCollapsedActivityEntry({
             entry,
             isLatestTurn,
@@ -1139,9 +471,8 @@ export function ThreadCollapsedToolActivityBlock({
 
   return (
     <ThreadActivityDisclosure
-      bodyTestId="collapsed-tool-activity-body"
+      bodyTestId="agent-activity-group-body"
       canExpand={canExpand}
-      shouldAnimateInitialCollapse={isLatestTurn && isStreamingTurn && summaryKey !== "thinking"}
       summary={summary}
       summaryKey={summaryKey}
       summaryTransition={summaryTransition}
@@ -1158,7 +489,7 @@ export function ThreadThinkingPlaceholderBlock({ block }: ThreadSpecialBlockProp
     <div className="min-w-0 py-0">
       <div className="flex items-center gap-1.5">
         <CodexShimmerText className="text-size-chat truncate text-token-foreground/30">
-          Thinking
+          {block.message ?? "Thinking"}
         </CodexShimmerText>
       </div>
     </div>
@@ -1170,6 +501,7 @@ export function ThreadToolSurfaceBlock({
   isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
+  onOpenTurnDiffFileInSidePanel,
   onOpenThread,
   onOpenSummaryScheduledAutomation,
   onOpenMcpAppSidePanel,
@@ -1194,8 +526,10 @@ export function ThreadToolSurfaceBlock({
       isStreamingTurn={isStreamingTurn}
       automaticApprovalReviews={block.automaticApprovalReviews ?? []}
       execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
-      hideHeader={nestedInCollapsedActivity && block.type === "webSearch"}
+      showDiffDetails={threadDetailLevel !== "STEPS_PROSE"}
       showExecSummaryIcon={!nestedInCollapsedActivity}
+      showToolSummaryIcon={!nestedInCollapsedActivity}
+      onOpenFileInSidePanel={onOpenTurnDiffFileInSidePanel}
       onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
       onOpenThread={onOpenThread}
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
@@ -1217,7 +551,7 @@ export function ThreadTurnDiffBlock({
   const { settings } = useCodexThreadSettings();
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
   if (isStreamingTurn && !allowInProgressTurnDiff) return null;
-  if (isStreamingTurn && threadDetailLevel === "STEPS_PROSE") return null;
+  if (threadDetailLevel === "STEPS_PROSE") return null;
 
   return (
     <TurnDiffSurface
@@ -1273,15 +607,14 @@ function SubagentActivityInlineChip({
     <>
       <SubagentAvatar
         seed={row.conversationId}
-        active={row.status === "active"}
         className="size-4"
       />
       <span className="min-w-0 truncate text-base">{row.displayName}</span>
     </>
   );
   const className = cn(
-    "subagent-activity-chip inline-flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full border border-token-border-light bg-token-main-surface-secondary pr-2 pl-1.5 text-token-conversation-summary-leading",
-    onClick && "cursor-interaction hover:border-token-border-default hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:outline-2 focus-visible:outline-offset-2 active:bg-token-bg-secondary",
+    "subagent-activity-chip mr-1.5 inline-flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full border border-token-border-light bg-token-main-surface-secondary pr-2 pl-1.5 align-middle first:-ml-1.5",
+    onClick && "cursor-interaction hover:border-token-border hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:outline-2 focus-visible:outline-offset-2 active:bg-token-bg-secondary",
   );
 
   if (!onClick) {
@@ -1299,7 +632,6 @@ function SubagentActivityInlineChip({
   return (
     <button
       type="button"
-      aria-label={`Open ${row.displayName} subagent`}
       className={className}
       data-animate-entrance={animateEntrance ? "" : undefined}
       onAnimationEnd={animateEntrance ? onAnimationEnd : undefined}
@@ -1312,14 +644,14 @@ function SubagentActivityInlineChip({
 
 export function ThreadSubagentActivityInlineGroupBlock({ block, onOpenThread }: ThreadLeafBlockProps) {
   const rows = block.type === "subagentActivityInlineGroup" ? block.subagentActivityRows ?? [] : [];
-  const [animatedConversationIds, setAnimatedConversationIds] = useState<ReadonlySet<string>>(
+  const [seenConversationIds, setSeenConversationIds] = useState<ReadonlySet<string>>(
     () => new Set(rows.map((row) => row.conversationId)),
   );
-  const clearAnimation = useCallback((conversationId: string) => {
-    setAnimatedConversationIds((current) => {
-      if (!current.has(conversationId)) return current;
+  const markAnimationComplete = useCallback((conversationId: string) => {
+    setSeenConversationIds((current) => {
+      if (current.has(conversationId)) return current;
       const next = new Set(current);
-      next.delete(conversationId);
+      next.add(conversationId);
       return next;
     });
   }, []);
@@ -1331,24 +663,24 @@ export function ThreadSubagentActivityInlineGroupBlock({ block, onOpenThread }: 
   const statusLabel = block.subagentActivityStatusLabel ?? resolveSubagentActivityStatusLabel(rows);
 
   return (
-    <div className="-ml-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-sm leading-5" data-testid="subagent-activity-inline-group">
-      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
+      <div className="min-w-0 text-sm leading-5 text-token-conversation-body" data-testid="subagent-activity-inline-group">
         {visibleRows.map((row) => (
           <SubagentActivityInlineChip
             key={row.conversationId}
             row={row}
-            animateEntrance={animatedConversationIds.has(row.conversationId)}
-            onAnimationEnd={() => clearAnimation(row.conversationId)}
+            animateEntrance={!seenConversationIds.has(row.conversationId)}
+            onAnimationEnd={() => markAnimationComplete(row.conversationId)}
             onClick={onOpenThread
               ? () => {
                   void onOpenThread(row.conversationId, {
                     subagent: {
-                      agentRole: row.agentRole,
+                      agentRole: null,
                       conversationId: row.conversationId,
-                      diffStats: row.diffStats,
+                      diffStats: null,
                       displayName: row.displayName,
                       showInlineActivity: true,
-                      spawnModel: row.spawnModel,
+                      spawnModel: null,
                       status: row.status,
                       statusSummary: row.statusSummary,
                     },
@@ -1357,11 +689,11 @@ export function ThreadSubagentActivityInlineGroupBlock({ block, onOpenThread }: 
               : undefined}
           />
         ))}
-      </span>
-      <span className="text-base text-token-conversation-summary-leading">
-        {hiddenCount > 0 ? `and ${hiddenCount} other ${hiddenCount === 1 ? "subagent" : "subagents"} ` : null}
-        {statusLabel}
-      </span>
+        <span className="align-middle text-base">
+          {hiddenCount > 0 ? `and ${hiddenCount} other ${hiddenCount === 1 ? "subagent" : "subagents"} ` : null}
+          {statusLabel}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1376,14 +708,27 @@ export function UserMessageBubble({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onEditLastUserTurn,
+  threadCwd,
 }: ThreadLeafBlockProps) {
   const content = block.entry.markdownText ?? "";
   const userActions = block.userMessageActions;
   const canEdit = userActions?.canEdit ?? false;
   const steeringStatusLabel = resolveSteeringStatusLabel(block.entry.steeringStatus);
   const isGoalMessage = block.entry.goal === true;
+  const isHookFeedback = block.entry.hookFeedback === true;
+  const hookSettingsNavigation = useHookFeedbackSettingsNavigation();
+  const hookFeedbackSettingsTarget = resolveHookFeedbackSettingsTarget({
+    hostId: hookSettingsNavigation?.hostId ?? DEFAULT_CODEX_HOST_ID,
+    cwd: threadCwd,
+    sources: block.hookFeedbackSources,
+  });
+  const hookFeedbackSettingsHref = buildHookFeedbackSettingsHref({
+    hostId: hookFeedbackSettingsTarget.hostId,
+    cwd: threadCwd,
+    sources: block.hookFeedbackSources,
+  });
   const hasMessageContent = content.trim().length > 0;
-  const shouldRenderFooter = hasMessageContent || isGoalMessage;
+  const shouldRenderFooter = hasMessageContent || isGoalMessage || isHookFeedback;
   const [isEditing, setIsEditing] = useState(false);
   const [draftMessage, setDraftMessage] = useState(content);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
@@ -1400,7 +745,7 @@ export function UserMessageBubble({
 
   const handleEditSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!onEditLastUserTurn || isSubmittingEdit) return;
+    if (!onEditLastUserTurn || isSubmittingEdit || block.turnId === null) return;
 
     setIsSubmittingEdit(true);
     try {
@@ -1495,6 +840,14 @@ export function UserMessageBubble({
         {shouldRenderFooter ? (
           <div className="flex flex-row-reverse items-center gap-1">
             {isGoalMessage ? <UserMessageGoalStatus /> : null}
+            {isHookFeedback ? (
+              <UserMessageHookFeedbackStatus
+                href={hookFeedbackSettingsHref}
+                onOpen={hookSettingsNavigation?.onOpenHooksSettings
+                  ? () => hookSettingsNavigation.onOpenHooksSettings?.(hookFeedbackSettingsTarget)
+                  : undefined}
+              />
+            ) : null}
             {isEditing || !hasMessageContent ? null : (
               <ThreadMessageActionRow align="end">
                 <MessageTimestamp sentAtMs={userActions?.sentAtMs ?? null} />
@@ -1574,6 +927,7 @@ export function ThreadPlanCardBlock({
   const isInProgress = item.status === "inProgress";
   const shouldParseIncompleteMarkdown = isStreamingTurn && (isInProgress || isLatestTurn);
   const planKey = item.turnId || item.itemId;
+  const boundTurnId = item.turnId;
   const isSidePanelActive = Boolean(
     block.type === "proposedPlan"
     && !isInProgress
@@ -1592,12 +946,15 @@ export function ThreadPlanCardBlock({
         parseIncompleteMarkdown={shouldParseIncompleteMarkdown}
         isSidePanelActive={isSidePanelActive}
         onOpenInSidePanel={
-          !isInProgress && planSidePanelState?.rightPanelEnabled && onOpenPlanInSidePanel
+          !isInProgress
+            && boundTurnId !== null
+            && planSidePanelState?.rightPanelEnabled
+            && onOpenPlanInSidePanel
             ? () =>
                 onOpenPlanInSidePanel({
                   planKey,
                   threadId: item.threadId,
-                  turnId: item.turnId,
+                  turnId: boundTurnId,
                   itemId: item.itemId,
                   content: item.markdownText ?? "",
                   cwd: item.cwd ?? threadCwd ?? null,
@@ -1738,7 +1095,7 @@ function AssistantMessageActionsRow({
 }: {
   actions: ThreadAssistantMessageActionsModel;
   threadId: string;
-  turnId: string;
+  turnId: string | null;
   isLatestTurn: boolean;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
 }) {
@@ -1771,7 +1128,7 @@ function AssistantMessageActionsRow({
           ) : null}
         </>
       ) : null}
-      {actions.canFork ? (
+      {actions.canFork && turnId !== null ? (
         <ThreadActionIconButton
           label="Fork from this point"
           tooltip="Fork"
@@ -1898,43 +1255,28 @@ export function ThreadUserInputResponseCard({ block }: ThreadLeafBlockProps) {
   return <AnsweredUserInputBlock item={block.entry} />;
 }
 
-function resolveMcpServerElicitationSummary(entry: CodexConversationItem): {
-  title: string;
-  body: string | null;
-} {
-  const raw = asRecord(entry.rawItem);
-  const serverName = typeof raw?.serverName === "string" ? raw.serverName.trim() : "";
-  const message = typeof raw?.message === "string" ? raw.message.trim() : "";
-  const action = typeof raw?.action === "string" ? raw.action.trim() : "";
-  const title = serverName.length > 0 ? `MCP elicitation: ${serverName}` : "MCP elicitation";
-  const body = [message, action.length > 0 ? `Action: ${action}` : ""]
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0)
-    .join("\n");
+export function ThreadImageViewBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "imageView") return null;
+  return <ImageViewSurface imagePaths={block.imageViewPaths ?? []} />;
+}
 
-  return {
-    title,
-    body: body.length > 0 ? body : null,
-  };
+export function ThreadGeneratedImageGalleryBlock({ block }: ThreadSpecialBlockProps) {
+  if (block.type !== "generatedImageGallery") return null;
+  return (
+    <div className="flex w-full flex-col gap-3">
+      <GeneratedImageGallery
+        images={block.images}
+        pendingImageCount={block.pendingImageCount}
+      />
+    </div>
+  );
 }
 
 export function ThreadMcpServerElicitationBlock({ block }: ThreadLeafBlockProps) {
   if (block.type !== "mcpServerElicitation") return null;
-
-  const summary = resolveMcpServerElicitationSummary(block.entry);
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
-        <ToolActivityIcon descriptor={semanticToolIcon("connector")} />
-        {summary.title}
-      </div>
-      {summary.body ? (
-        <div className="text-size-chat whitespace-pre-wrap text-token-text-secondary">
-          {summary.body}
-        </div>
-      ) : null}
-    </div>
-  );
+  const view = resolveCompletedMcpServerElicitationView(block.entry.rawItem);
+  if (!view) return null;
+  return <CompletedRequestActivitySurface view={view} />;
 }
 
 export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
@@ -1950,6 +1292,44 @@ export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
       parseIncompleteMarkdown={false}
     />
   );
+}
+
+export function buildThreadWorktreeInitActivities(
+  entry: CodexConversationItem,
+): CodexWorktreeInitActivity[] {
+  const rawItem = asRecord(entry.rawItem);
+  if (rawItem?.type !== "worktreeInit") return [];
+  if (typeof rawItem.id !== "string") return [];
+  if (typeof rawItem.worktreeOutputText !== "string") return [];
+
+  const activities: CodexWorktreeInitActivity[] = [{
+    id: `${rawItem.id}:worktree`,
+    kind: "worktree",
+    status: "completed",
+    outputText: rawItem.worktreeOutputText,
+  }];
+  if (rawItem.setup === null || rawItem.setup === undefined) return activities;
+
+  const setup = asRecord(rawItem.setup);
+  if (!setup) return activities;
+  if (setup.outcome !== "completed" && setup.outcome !== "skipped") return activities;
+  if (typeof setup.outputText !== "string") return activities;
+
+  activities.push({
+    id: `${rawItem.id}:setup`,
+    kind: "setup",
+    status: setup.outcome,
+    outputText: setup.outputText,
+  });
+  return activities;
+}
+
+export function ThreadWorktreeInitBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "worktreeInit") return null;
+  const activities = buildThreadWorktreeInitActivities(block.entry);
+  if (activities.length === 0) return null;
+
+  return <WorktreeInitActivityList activities={activities} />;
 }
 
 function ContextCompactionIcon({ className }: { className?: string }) {

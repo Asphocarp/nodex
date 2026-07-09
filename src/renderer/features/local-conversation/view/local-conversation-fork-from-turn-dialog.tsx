@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import {
+  BranchStatusIcon,
+  LocalStatusIcon,
+  WorktreeStatusIcon,
+} from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog as Dialog,
@@ -11,69 +15,113 @@ import {
 
 interface LocalConversationForkFromTurnDialogProps {
   open: boolean;
-  message: string;
   busy: boolean;
+  isWorktreeThread: boolean;
+  showWorktreeOption: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (skipConfirm: boolean) => void;
+  onForkIntoLocal: () => void;
+  onForkIntoWorktree: () => void;
+}
+
+const choiceClassName =
+  "group flex w-full items-center gap-3 rounded-lg px-[var(--padding-row-x)] py-2 text-left text-token-foreground outline-hidden enabled:cursor-interaction enabled:hover:bg-token-list-hover-background enabled:focus:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-50";
+
+function ForkChoice({
+  icon,
+  title,
+  description,
+  disabled,
+  onClick,
+}: {
+  icon: "local" | "worktree";
+  title: string;
+  description: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const Icon = icon === "worktree" ? WorktreeStatusIcon : LocalStatusIcon;
+
+  return (
+    <button
+      type="button"
+      className={choiceClassName}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon className="icon-xs shrink-0 opacity-75 group-hover:opacity-100 group-focus:opacity-100" />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-sm font-medium electron:text-base">{title}</span>
+        <span className="text-xs whitespace-normal text-token-description-foreground">
+          {description}
+        </span>
+      </span>
+    </button>
+  );
 }
 
 export function LocalConversationForkFromTurnDialog({
   open,
-  message,
   busy,
+  isWorktreeThread,
+  showWorktreeOption,
   onOpenChange,
-  onConfirm,
+  onForkIntoLocal,
+  onForkIntoWorktree,
 }: LocalConversationForkFromTurnDialogProps) {
-  const [skipConfirm, setSkipConfirm] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setSkipConfirm(false);
-    }
-  }, [open]);
-
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => {
-      if (busy && !nextOpen) return;
-      onOpenChange(nextOpen);
-    }}
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (busy && !nextOpen) return;
+        onOpenChange(nextOpen);
+      }}
     >
-      <DialogContent className="max-w-lg gap-4" showCloseButton={!busy}>
-        <DialogHeader>
-          <DialogTitle>Fork from this turn?</DialogTitle>
-          <DialogDescription>
-            This will open a new thread from the selected point in the conversation.
-          </DialogDescription>
-        </DialogHeader>
-
-        {message.trim().length > 0 ? (
-          <div className="rounded-xl border border-(--border) bg-(--background-secondary) px-3 py-2.5">
-            <div className="text-xs font-medium tracking-wide text-(--foreground-tertiary) uppercase">
-              Composer draft
-            </div>
-            <div className="mt-1 text-sm whitespace-pre-wrap text-(--foreground-secondary)">
-              {message.trim()}
+      <DialogContent
+        className="max-w-[420px] gap-4 rounded-2xl p-5"
+        showCloseButton={false}
+      >
+        <DialogHeader className="text-left">
+          <div className="flex items-start gap-3">
+            <BranchStatusIcon className="icon-sm shrink-0 text-token-foreground" />
+            <div className="flex min-w-0 flex-col gap-1">
+              <DialogTitle className="text-base">Continue from this message?</DialogTitle>
+              <DialogDescription>
+                This keeps your current files and worktree unchanged. If later turns changed files,
+                the new task may not match what is on disk.
+              </DialogDescription>
             </div>
           </div>
-        ) : null}
+        </DialogHeader>
 
-        <label className="flex items-start gap-3 rounded-lg px-1 py-1 text-sm text-(--foreground-secondary)">
-          <input
-            type="checkbox"
-            className="mt-0.5 size-4 rounded border border-(--border) bg-(--background)"
-            checked={skipConfirm}
-            onChange={(event) => setSkipConfirm(event.target.checked)}
+        <div className="flex flex-col gap-1">
+          <ForkChoice
+            icon={isWorktreeThread ? "worktree" : "local"}
+            title={isWorktreeThread ? "Continue in same worktree" : "Continue in new task"}
+            description={isWorktreeThread
+              ? "Continue from this message in the same worktree"
+              : "Continue from this message in a new local task"}
             disabled={busy}
+            onClick={onForkIntoLocal}
           />
-          <span>Don&apos;t ask again when forking from an older turn</span>
-        </label>
+          {showWorktreeOption ? (
+            <ForkChoice
+              icon="worktree"
+              title="Continue in new worktree"
+              description="Continue from this message in a new worktree"
+              disabled={busy}
+              onClick={onForkIntoWorktree}
+            />
+          ) : null}
+        </div>
 
-        <DialogFooter className="gap-2 sm:flex-row">
-          <NodexButton type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+        <DialogFooter>
+          <NodexButton
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => onOpenChange(false)}
+          >
             Cancel
-          </NodexButton>
-          <NodexButton type="button" onClick={() => onConfirm(skipConfirm)} disabled={busy}>
-            {busy ? "Forking…" : "Fork thread"}
           </NodexButton>
         </DialogFooter>
       </DialogContent>

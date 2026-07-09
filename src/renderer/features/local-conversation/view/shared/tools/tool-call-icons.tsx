@@ -10,16 +10,19 @@ import {
 } from "react";
 import type {
   CodexCommandAction,
-  CodexConversationItem,
   CodexMcpServerElicitationRequest,
   CodexTranscriptEntry,
+  ProtocolAppInfo,
 } from "../../../../../lib/types";
+import { resolveCodexMcpVisualSource } from "../../../../../../shared/codex-mcp-tool-call";
 import { useTheme } from "../../../../../lib/use-theme";
 import { cn } from "../../../../../lib/utils";
 import type { ThreadBlockModel } from "../../../thread-stage-types";
-import { extractCommandActions } from "./command-actions";
 import {
+  CodexAutomaticApprovalReviewIcon,
+  CodexBrowserUseIcon,
   CodexCheckCircleIcon,
+  CodexComputerUseIcon,
   CodexConnectorFallbackIcon,
   CodexEditFilesIcon,
   CodexFoldersIcon,
@@ -35,6 +38,7 @@ import {
 
 export type ToolActivityIconId =
   | "approved"
+  | "automatic-review"
   | "browser-use"
   | "code-searching"
   | "computer-use"
@@ -43,6 +47,7 @@ export type ToolActivityIconId =
   | "edit-files"
   | "hooks"
   | "list-files"
+  | "node-repl"
   | "plugin"
   | "run-command"
   | "settings"
@@ -105,9 +110,13 @@ function SemanticToolIcon({
   switch (icon) {
     case "approved":
       return <CodexCheckCircleIcon aria-hidden className={iconClassName} />;
+    case "automatic-review":
+      return <CodexAutomaticApprovalReviewIcon aria-hidden className={iconClassName} />;
     case "browser-use":
-    case "connector":
+      return <CodexBrowserUseIcon aria-hidden className={iconClassName} />;
     case "computer-use":
+      return <CodexComputerUseIcon aria-hidden className={iconClassName} />;
+    case "connector":
       return <CodexConnectorFallbackIcon aria-hidden className={iconClassName} />;
     case "code-searching":
       return <CodexSearchIcon aria-hidden className={iconClassName} />;
@@ -119,6 +128,8 @@ function SemanticToolIcon({
       return <CodexHooksIcon aria-hidden className={iconClassName} />;
     case "list-files":
       return <CodexFoldersIcon aria-hidden className={iconClassName} />;
+    case "node-repl":
+      return <CodexTerminalIcon aria-hidden className={iconClassName} />;
     case "plugin":
       return <CodexPluginCubeIcon aria-hidden className={iconClassName} />;
     case "settings":
@@ -396,14 +407,6 @@ export function resolveExplorationActionIcon(action: CodexCommandAction): ToolAc
   return "run-command";
 }
 
-export function resolveExplorationEntriesIcon(entries: readonly CodexConversationItem[]): ToolActivityIconDescriptor {
-  const actions = entries.flatMap((entry) => extractCommandActions(entry));
-  if (actions.some((action) => resolveExplorationActionIcon(action) === "skill")) return semanticToolIcon("skill");
-  if (actions.some((action) => action.type === "search")) return semanticToolIcon("code-searching");
-  if (actions.some((action) => action.type === "listFiles")) return semanticToolIcon("list-files");
-  return semanticToolIcon("run-command");
-}
-
 function extractAction(item: CodexTranscriptEntry): unknown {
   const rawItem = asRecord(item.rawItem);
   if (Object.prototype.hasOwnProperty.call(rawItem ?? {}, "action")) return rawItem?.action;
@@ -452,42 +455,37 @@ function extractLogoMetadata(value: unknown): { logoUrl: string | null; logoDark
   return { logoUrl: null, logoDarkUrl: null, nativeIconPath: null };
 }
 
-export function resolveMcpSourceIcon(item: CodexTranscriptEntry): ToolActivityIconDescriptor {
-  const server = item.mcpToolCall?.invocation.server ?? item.toolCall?.server ?? "MCP";
-  const normalizedServer = server.trim().toLowerCase();
-  const rawLogoMetadata = extractLogoMetadata(item.rawItem);
-  const toolLogoMetadata = extractLogoMetadata(item.toolCall);
-  const logoMetadata = {
-    logoUrl: rawLogoMetadata.logoUrl ?? toolLogoMetadata.logoUrl,
-    logoDarkUrl: rawLogoMetadata.logoDarkUrl ?? toolLogoMetadata.logoDarkUrl,
-    nativeIconPath: rawLogoMetadata.nativeIconPath ?? toolLogoMetadata.nativeIconPath,
-  };
-  const alt = `${server} logo`;
+export function resolveMcpSourceIcon(
+  item: CodexTranscriptEntry,
+  resolvedApps: readonly ProtocolAppInfo[] = [],
+): ToolActivityIconDescriptor {
+  const payload = item.mcpToolCall;
+  if (!payload) return semanticToolIcon("connector");
+  const source = resolveCodexMcpVisualSource({
+    functionName: payload.functionName,
+    invocation: payload.invocation,
+    resolvedApps,
+    source: payload.source,
+  });
+  if (!source) return semanticToolIcon("connector");
 
-  if (logoMetadata.nativeIconPath) {
+  const fallbackIcon: ToolActivityIconId = source.key === "browser-use"
+    ? "browser-use"
+    : source.key === "computer-use" || source.key.startsWith("native-app:")
+      ? "computer-use"
+      : source.key === "server:node_repl"
+        ? "node-repl"
+        : "connector";
+  if (source.logoUrl || source.logoUrlDark) {
     return {
       kind: "logo",
-      alt,
-      logoUrl: logoMetadata.nativeIconPath,
-      logoDarkUrl: null,
-      fallbackIcon: normalizedServer.includes("computer") ? "computer-use" : "connector",
+      alt: `${source.name} logo`,
+      logoUrl: source.logoUrl,
+      logoDarkUrl: source.logoUrlDark,
+      fallbackIcon,
     };
   }
-
-  if (logoMetadata.logoUrl || logoMetadata.logoDarkUrl) {
-    return {
-      kind: "logo",
-      alt,
-      logoUrl: logoMetadata.logoUrl,
-      logoDarkUrl: logoMetadata.logoDarkUrl,
-      fallbackIcon: normalizedServer.includes("plugin") ? "plugin" : "connector",
-    };
-  }
-
-  if (normalizedServer === "browser-use" || normalizedServer.includes("browser-use")) return semanticToolIcon("browser-use");
-  if (normalizedServer.includes("computer-use") || normalizedServer.includes("computer use")) return semanticToolIcon("computer-use");
-  if (normalizedServer.includes("plugin")) return semanticToolIcon("plugin");
-  return semanticToolIcon("connector");
+  return semanticToolIcon(fallbackIcon);
 }
 
 export function resolveMcpElicitationIcon(request: CodexMcpServerElicitationRequest): ToolActivityIconDescriptor {
@@ -517,51 +515,44 @@ export function resolveApprovalIcon(status: string | undefined): ToolActivityIco
   return null;
 }
 
-function resolveTranscriptEntryIcon(block: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"][number]): ToolActivityIconDescriptor | null {
-  if (block.type === "explorationGroup") return resolveExplorationEntriesIcon(block.entries);
-  if (block.type === "webSearchGroup") {
-    const activeEntry = [...block.entries].reverse().find((entry) => entry.status === "inProgress") ?? block.entries.at(-1);
-    return activeEntry ? resolveWebSearchIcon(activeEntry.entry) : semanticToolIcon("web-search");
-  }
+function resolveTranscriptEntryIcon(
+  block: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["entries"][number],
+  resolvedApps: readonly ProtocolAppInfo[],
+): ToolActivityIconDescriptor | null {
   if (block.type === "webSearch") return resolveWebSearchIcon(block.entry);
   if (block.type === "fileChange") return semanticToolIcon("edit-files");
   if (block.type === "exec") return semanticToolIcon("run-command");
-  if (block.type === "automaticApprovalReview") return resolveApprovalIcon(block.entry.status);
+  if (block.type === "automaticApprovalReview") return semanticToolIcon("automatic-review");
   if (block.type === "hook") return semanticToolIcon("hooks");
-  if (block.type === "mcpToolCall") return resolveMcpSourceIcon(block.entry);
+  if (block.type === "mcpToolCall") return resolveMcpSourceIcon(block.entry, resolvedApps);
   return null;
 }
 
-export function resolveCollapsedToolActivityIcon(
-  entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
+export function resolveAgentActivityGroupIcon(
+  entries: Extract<ThreadBlockModel, { type: "agentActivityGroup" }>["entries"],
+  resolvedApps: readonly ProtocolAppInfo[] = [],
 ): ToolActivityIconDescriptor | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const activeEntry = entries[index];
     if (!activeEntry || activeEntry.status !== "inProgress") continue;
-    const activeIcon = resolveTranscriptEntryIcon(activeEntry);
+    const activeIcon = resolveTranscriptEntryIcon(activeEntry, resolvedApps);
     if (activeIcon) return activeIcon;
   }
 
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (!entry) continue;
-    const explicitIcon = resolveTranscriptEntryIcon(entry);
+    const explicitIcon = resolveTranscriptEntryIcon(entry, resolvedApps);
     if (explicitIcon) return explicitIcon;
   }
 
   const priority: Array<(entry: (typeof entries)[number]) => ToolActivityIconDescriptor | null> = [
-    (entry) => {
-      if (entry.type !== "webSearchGroup") return null;
-      const activeEntry = [...entry.entries].reverse().find((item) => item.status === "inProgress") ?? entry.entries.at(-1);
-      return activeEntry ? resolveWebSearchIcon(activeEntry.entry) : semanticToolIcon("web-search");
-    },
     (entry) => (entry.type === "webSearch" ? resolveWebSearchIcon(entry.entry) : null),
-    (entry) => (entry.type === "explorationGroup" ? resolveExplorationEntriesIcon(entry.entries) : null),
     (entry) => (entry.type === "fileChange" ? semanticToolIcon("edit-files") : null),
     (entry) => (entry.type === "exec" ? semanticToolIcon("run-command") : null),
-    (entry) => (entry.type === "automaticApprovalReview" ? resolveApprovalIcon(entry.entry.status) : null),
+    (entry) => (entry.type === "automaticApprovalReview" ? semanticToolIcon("automatic-review") : null),
     (entry) => (entry.type === "hook" ? semanticToolIcon("hooks") : null),
-    (entry) => (entry.type === "mcpToolCall" ? resolveMcpSourceIcon(entry.entry) : null),
+    (entry) => (entry.type === "mcpToolCall" ? resolveMcpSourceIcon(entry.entry, resolvedApps) : null),
   ];
 
   for (const resolve of priority) {

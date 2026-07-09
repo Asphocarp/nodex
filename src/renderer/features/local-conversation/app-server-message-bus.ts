@@ -33,6 +33,17 @@ export interface CodexThreadTitleUpdatedEvent {
   title: string;
 }
 
+export interface CodexThreadReadStateChangedEvent {
+  hostId: string;
+  conversationId: string;
+  hasUnreadTurn: boolean;
+}
+
+export interface CodexThreadArchivedEvent {
+  hostId: string;
+  conversationId: string;
+}
+
 export interface CodexThreadDeletedEvent {
   hostId: string;
   threadId: string;
@@ -70,6 +81,8 @@ interface CodexAppServerMessageMap {
   "thread-stream-state-changed": CodexThreadStreamStateChangedEvent;
   "client-status-changed": CodexClientStatusChangedEvent;
   "thread-title-updated": CodexThreadTitleUpdatedEvent;
+  "thread-read-state-changed": CodexThreadReadStateChangedEvent;
+  "thread-archived": CodexThreadArchivedEvent;
   "thread-deleted": CodexThreadDeletedEvent;
   "thread-owner-notification": CodexThreadOwnerNotificationEvent;
   "thread-owner-request": CodexThreadOwnerRequestEvent;
@@ -85,6 +98,8 @@ const listenersByType: {
   "thread-stream-state-changed": new Set(),
   "client-status-changed": new Set(),
   "thread-title-updated": new Set(),
+  "thread-read-state-changed": new Set(),
+  "thread-archived": new Set(),
   "thread-deleted": new Set(),
   "thread-owner-notification": new Set(),
   "thread-owner-request": new Set(),

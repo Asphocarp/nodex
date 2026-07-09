@@ -1,0 +1,126 @@
+import { useEffect, useState } from "react";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogDescription,
+  NodexDialogFooter,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
+
+const STABLE_WORKTREE_CREATE_ERROR_PREFIX =
+  "Failed to create permanent worktree:";
+
+function createErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${STABLE_WORKTREE_CREATE_ERROR_PREFIX} ${message}`;
+}
+
+export interface StableWorktreeCreateDialogProps {
+  open: boolean;
+  initialProjectName: string;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (projectName: string) => void | Promise<void>;
+}
+
+export function StableWorktreeCreateDialog({
+  open,
+  initialProjectName,
+  onOpenChange,
+  onCreate,
+}: StableWorktreeCreateDialogProps) {
+  const [projectName, setProjectName] = useState(initialProjectName);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const trimmedProjectName = projectName.trim();
+  const createDisabled = creating || trimmedProjectName.length === 0;
+
+  useEffect(() => {
+    if (!open) return;
+    setProjectName(initialProjectName);
+    setErrorMessage(null);
+    setCreating(false);
+  }, [initialProjectName, open]);
+
+  const createWorktree = async () => {
+    if (createDisabled) return;
+
+    setErrorMessage(null);
+    setCreating(true);
+    try {
+      await onCreate(trimmedProjectName);
+      onOpenChange(false);
+    } catch (error) {
+      setErrorMessage(createErrorMessage(error));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <NodexDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onOpenChange(false);
+      }}
+    >
+      <NodexDialogContent
+        className="max-w-[420px] gap-0 rounded-2xl p-5"
+        showCloseButton={false}
+      >
+        <form
+          className="flex flex-col gap-0"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createWorktree();
+          }}
+        >
+          <NodexDialogHeader className="gap-1 pb-4 text-left">
+            <NodexDialogTitle className="text-base">
+              Create worktree and save as a project
+            </NodexDialogTitle>
+            <NodexDialogDescription>
+              Create a new git worktree from HEAD, add it as a project, and keep it until you remove it
+            </NodexDialogDescription>
+          </NodexDialogHeader>
+
+          <div className="flex flex-col gap-2 pb-5">
+            <input
+              aria-label="Project name"
+              autoFocus
+              className="rounded-xl border border-token-border px-3 py-2 text-base text-token-input-foreground shadow-sm outline-none"
+              placeholder="Project name"
+              value={projectName}
+              onChange={(event) => setProjectName(event.currentTarget.value)}
+              onInput={(event) => setProjectName(event.currentTarget.value)}
+            />
+            {errorMessage ? (
+              <p role="alert" className="text-sm text-token-error-foreground">
+                {errorMessage}
+              </p>
+            ) : null}
+          </div>
+
+          <NodexDialogFooter>
+            <NodexButton
+              type="button"
+              variant="outline"
+              disabled={creating}
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </NodexButton>
+            <NodexButton
+              type="submit"
+              variant="primary"
+              disabled={createDisabled}
+            >
+              Create
+            </NodexButton>
+          </NodexDialogFooter>
+        </form>
+      </NodexDialogContent>
+    </NodexDialog>
+  );
+}

@@ -1,6 +1,8 @@
 import type {
   AppUpdateStatus,
+  CodexEvent,
   CodexHostMessage,
+  CodexProtocolRequestId,
   CodexRendererClientRequestMessage,
   CommandPaletteThreadIndexUpdatedEvent,
   DesktopNotificationActionPayload,
@@ -228,6 +230,13 @@ export function createElectronRendererTransport(
         callback(payload);
       });
     },
+    subscribeCodexEvents(callback: (event: CodexEvent) => void) {
+      return bridge.on("codex:event", (...args: unknown[]) => {
+        const payload = args[0] as CodexEvent | undefined;
+        if (!payload || typeof payload.type !== "string") return;
+        callback(payload);
+      });
+    },
     subscribeCodexRendererClientRequests(
       callback: (message: CodexRendererClientRequestMessage) => void,
     ) {
@@ -250,7 +259,8 @@ export function createElectronRendererTransport(
       callback: (
         message: DesktopNotificationActionPayload & {
           conversationId: string | null;
-          requestId: string | null;
+          requestId: CodexProtocolRequestId | null;
+          approvalKind: import("./types").CodexApprovalKind | null;
         },
       ) => void,
     ) {
@@ -258,7 +268,8 @@ export function createElectronRendererTransport(
         const payload = args[0] as
           | (DesktopNotificationActionPayload & {
               conversationId?: string | null;
-              requestId?: string | null;
+              requestId?: CodexProtocolRequestId | null;
+              approvalKind?: import("./types").CodexApprovalKind | null;
             })
           | undefined;
         if (
@@ -268,10 +279,27 @@ export function createElectronRendererTransport(
         ) {
           return;
         }
+        if (
+          payload.requestId !== undefined
+          && payload.requestId !== null
+          && typeof payload.requestId !== "string"
+          && typeof payload.requestId !== "number"
+        ) {
+          return;
+        }
+        if (
+          payload.approvalKind !== undefined
+          && payload.approvalKind !== null
+          && payload.approvalKind !== "command"
+          && payload.approvalKind !== "file"
+        ) {
+          return;
+        }
         callback({
           ...payload,
           conversationId: payload.conversationId ?? null,
           requestId: payload.requestId ?? null,
+          approvalKind: payload.approvalKind ?? null,
         });
       });
     },
@@ -349,9 +377,44 @@ export function createElectronRendererTransport(
         },
       );
     },
-    subscribePersistedAtomUpdates(
-      callback: (update: PersistedAtomUpdate) => void,
+    subscribeCodexHooksChanged(
+      callback: (
+        event: import("../../shared/codex-hooks").CodexHooksChangedEvent,
+      ) => void,
     ) {
+      return bridge.on("codex:hooks:changed", (...args: unknown[]) => {
+        const payload = args[0] as
+          | import("../../shared/codex-hooks").CodexHooksChangedEvent
+          | undefined;
+        if (!payload || typeof payload.hostId !== "string") return;
+        callback(payload);
+      });
+    },
+    subscribeCodexPendingWorktreesChanged(
+      callback: (
+        event: import("../../shared/codex-pending-worktree").CodexPendingWorktreesChangedEvent,
+      ) => void,
+    ) {
+      return bridge.on("codex:pending-worktrees:changed", (...args: unknown[]) => {
+        const payload = args[0];
+        if (!Array.isArray(payload)) return;
+        callback(payload as import("../../shared/codex-pending-worktree").CodexPendingWorktreesChangedEvent);
+      });
+    },
+    subscribeCodexPendingWorktreeWarnings(
+      callback: (
+        event: import("../../shared/codex-pending-worktree").CodexPendingWorktreeWarningEvent,
+      ) => void,
+    ) {
+      return bridge.on("codex:pending-worktree:warning", (...args: unknown[]) => {
+        const payload = args[0] as
+          | import("../../shared/codex-pending-worktree").CodexPendingWorktreeWarningEvent
+          | undefined;
+        if (!payload || payload.kind !== "heartbeat-automation-create-failed") return;
+        callback(payload);
+      });
+    },
+    subscribePersistedAtomUpdates(callback: (update: PersistedAtomUpdate) => void) {
       return bridge.on("persisted-atom:updated", (...args: unknown[]) => {
         const payload = args[0] as PersistedAtomUpdate | undefined;
         if (!payload || typeof payload.key !== "string") return;

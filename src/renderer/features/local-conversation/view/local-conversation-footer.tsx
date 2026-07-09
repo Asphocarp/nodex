@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DownArrowIcon } from "@/components/shared/icons";
 import { AnimatePresence, motion } from "motion/react";
-import { buildTurnRenderModel } from "../projection/build-turn-render-model";
+import { selectTurnRenderModel } from "../projection/build-turn-render-model";
 import { selectVisibleConversationTurnEntries } from "../selectors";
 import type {
   ThreadFooterModel,
@@ -52,11 +52,16 @@ function LocalConversationFooterChrome({
   latestTurnPreview?: ReactNode;
   showComposer?: boolean;
 }) {
+  const [hasFixedPortalContent, setHasFixedPortalContent] = useState(false);
+
   return (
     <div className="flex flex-col" data-thread-find-composer="true">
       {catchUpControl}
       <div className="flex flex-col" data-thread-footer-stack="true">
-        <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
+        <LocalConversationAboveComposerPortalHost
+          conversationId={model.threadId}
+          onContentPresenceChange={setHasFixedPortalContent}
+        />
         <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
         {latestTurnPreview}
         {showComposer ? (
@@ -65,6 +70,7 @@ function LocalConversationFooterChrome({
             actions={actions}
             errorMessage={errorMessage}
             onErrorMessage={onErrorMessage}
+            hasFixedPortalContent={hasFixedPortalContent}
           />
         ) : null}
       </div>
@@ -113,11 +119,9 @@ function LocalConversationFooterComponent({
     const latestVisibleTurn = visibleTurns[visibleTurns.length - 1] ?? null;
     if (!latestVisibleTurn) return null;
 
-    return buildTurnRenderModel({
-      turn: latestVisibleTurn.turn,
-      requests: latestVisibleTurn.requests,
-      isLatestTurn: true,
-      isStreamingTurn: latestVisibleTurn.turn.status === "inProgress",
+    return selectTurnRenderModel({
+      entry: latestVisibleTurn,
+      surface: "preview",
       canEditTurnUserPrefix: false,
       canForkTurn: false,
     });
@@ -126,7 +130,7 @@ function LocalConversationFooterComponent({
     if (!rightPanelOverlayEnabled || !latestTurn) return;
 
     setLatestTurnPreviewState("preview");
-  }, [latestTurn?.turnId, rightPanelOverlayEnabled]);
+  }, [latestTurn?.turnKey, rightPanelOverlayEnabled]);
   useEffect(
     () => addScrollListener(setScrollDistanceFromBottomPx),
     [addScrollListener],

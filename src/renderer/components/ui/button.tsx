@@ -123,13 +123,17 @@ export function NodexIconButton({
 }
 
 export interface NodexSwitchProps {
+  ariaLabel?: string;
   checked: boolean;
+  className?: string;
   disabled?: boolean;
   onCheckedChange: (nextChecked: boolean) => void;
 }
 
 export function NodexSwitch({
+  ariaLabel,
   checked,
+  className,
   disabled = false,
   onCheckedChange,
 }: NodexSwitchProps) {
@@ -137,6 +141,7 @@ export function NodexSwitch({
     <button
       type="button"
       role="switch"
+      aria-label={ariaLabel}
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
@@ -148,6 +153,7 @@ export function NodexSwitch({
           : checked
             ? "bg-(--accent-blue)"
             : "bg-token-foreground/8",
+        className,
       )}
     >
       <span

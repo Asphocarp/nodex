@@ -1,11 +1,12 @@
 import { describe, expect, vi, test } from "vitest";
-import { act, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import type {
   CodexConnectionState,
+  CodexConversationChildMembership,
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexHostMessage,
@@ -84,6 +85,7 @@ describe("resolveEffectiveThreadStageSettings", () => {
             developer_instructions: null,
           },
         },
+        personality: "pragmatic",
       },
       liveMode: null,
       fallbackMode: "default",
@@ -115,6 +117,7 @@ describe("resolveEffectiveThreadStageSettings", () => {
             developer_instructions: null,
           },
         },
+        personality: "pragmatic",
       },
       liveMode: null,
       fallbackMode: "default",
@@ -129,6 +132,25 @@ describe("resolveEffectiveThreadStageSettings", () => {
     expect(settings.selectedCollaborationMode).toBe("default");
     expect(settings.selectedModel).toBe("gpt-draft");
     expect(settings.selectedReasoningEffort).toBe("high");
+  });
+});
+
+describe("resolveChildConversationIds", () => {
+  test("returns the unique non-active child conversations needed by background surfaces", async () => {
+    const { resolveChildConversationIds } = await import("./connected-thread-stage");
+    const membership = (threadId: string): CodexConversationChildMembership => ({
+      threadId,
+      parentThreadId: "thread_parent",
+      role: "backgroundChild",
+    });
+
+    expect(resolveChildConversationIds("thread_parent", [
+      membership(" thread_child "),
+      membership("thread_child"),
+      membership("thread_parent"),
+      membership("  "),
+      membership("thread_other"),
+    ])).toStrictEqual(["thread_child", "thread_other"]);
   });
 });
 
@@ -152,7 +174,7 @@ function buildThreadSummary(archived: boolean): CodexThreadSummary {
 
 function buildConversation(
   threadId: string,
-  overrides?: { source?: CodexConversationSnapshot["source"] },
+  overrides: Partial<CodexConversationSnapshot> = {},
 ): CodexConversationSnapshot {
   const userItem: CodexConversationItem = {
     threadId,
@@ -170,7 +192,7 @@ function buildConversation(
   return {
     threadId,
     projectId: "project_1",
-    source: overrides?.source ?? null,
+    source: overrides.source ?? null,
     threadName: "Ready thread",
     threadPreview: "Remove redundant transitions.",
     modelProvider: "openai",
@@ -200,6 +222,7 @@ function buildConversation(
       canSearch: true,
       canCollapseTurns: true,
     },
+    ...overrides,
   };
 }
 
@@ -589,6 +612,182 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         call.channel === "codex:thread:resume:request" &&
         call.threadId === "thread_active"),
     ).toBe(true);
+  });
+});
+
+describe("ConnectedThreadStage read-state control plane", () => {
+  test("marks newly active unread work as read while the thread viewport is focused", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+    const hasFocusDescriptor = Object.getOwnPropertyDescriptor(document, "hasFocus");
+    Object.defineProperty(document, "hasFocus", {
+      configurable: true,
+      value: () => true,
+    });
+    const view = await renderStage(buildThreadSummary(false));
+    const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+
+    try {
+      invokeCalls = [];
+      await act(async () => {
+        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          hostId: "default",
+          conversationId: "thread_active",
+          version: 1,
+          sourceClientId: null,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: buildConversation("thread_active", {
+              hasUnreadTurn: true,
+            }),
+          },
+        });
+        await settleAsyncRender();
+      });
+
+      await waitFor(() => {
+        if (!invokeCalls.some((call) =>
+          call.channel === "codex:conversation-unread:set"
+          && JSON.stringify(call.args) === JSON.stringify(["thread_active", false])
+        )) {
+          throw new Error("Expected focused unread thread to be marked read.");
+        }
+      });
+    } finally {
+      view.unmount();
+      if (hasFocusDescriptor) {
+        Object.defineProperty(document, "hasFocus", hasFocusDescriptor);
+      } else {
+        Reflect.deleteProperty(document, "hasFocus");
+      }
+    }
+  });
+
+  test("does not immediately clear an explicit mark-unread state without new thread activity", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+    const hasFocusDescriptor = Object.getOwnPropertyDescriptor(document, "hasFocus");
+    Object.defineProperty(document, "hasFocus", {
+      configurable: true,
+      value: () => true,
+    });
+    const view = await renderStage(buildThreadSummary(false));
+    const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+
+    try {
+      await act(async () => {
+        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          hostId: "default",
+          conversationId: "thread_active",
+          version: 1,
+          sourceClientId: null,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: buildConversation("thread_active", {
+              hasUnreadTurn: false,
+            }),
+          },
+        });
+        await settleAsyncRender();
+      });
+      invokeCalls = [];
+
+      await act(async () => {
+        dispatchCodexAppServerMessage("thread-read-state-changed", {
+          hostId: "default",
+          conversationId: "thread_active",
+          hasUnreadTurn: true,
+        });
+        await settleAsyncRender();
+      });
+
+      expect(invokeCalls.some((call) =>
+        call.channel === "codex:conversation-unread:set"
+      )).toBe(false);
+    } finally {
+      view.unmount();
+      if (hasFocusDescriptor) {
+        Object.defineProperty(document, "hasFocus", hasFocusDescriptor);
+      } else {
+        Reflect.deleteProperty(document, "hasFocus");
+      }
+    }
+  });
+
+  test("marks unread work as read on pointer, keyboard, and wheel interactions even before focus settles", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+    const hasFocusDescriptor = Object.getOwnPropertyDescriptor(document, "hasFocus");
+    Object.defineProperty(document, "hasFocus", {
+      configurable: true,
+      value: () => false,
+    });
+    const view = await renderStage(buildThreadSummary(false));
+    const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+
+    try {
+      await act(async () => {
+        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          hostId: "default",
+          conversationId: "thread_active",
+          version: 1,
+          sourceClientId: null,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: buildConversation("thread_active", {
+              hasUnreadTurn: true,
+            }),
+          },
+        });
+        await settleAsyncRender();
+      });
+      expect(invokeCalls.some((call) =>
+        call.channel === "codex:conversation-unread:set"
+      )).toBe(false);
+
+      const stage = view.container.firstElementChild;
+      if (!(stage instanceof HTMLElement)) {
+        throw new Error("Expected connected thread stage root.");
+      }
+      const interactions = [
+        () => fireEvent.pointerDown(stage),
+        () => fireEvent.keyDown(stage, { key: "ArrowDown" }),
+        () => fireEvent.wheel(stage),
+      ];
+
+      for (const interact of interactions) {
+        invokeCalls = [];
+        await act(async () => {
+          dispatchCodexAppServerMessage("thread-read-state-changed", {
+            hostId: "default",
+            conversationId: "thread_active",
+            hasUnreadTurn: true,
+          });
+          await settleAsyncRender();
+        });
+        await act(async () => {
+          interact();
+          await settleAsyncRender();
+        });
+        expect(invokeCalls.some((call) =>
+          call.channel === "codex:conversation-unread:set"
+          && JSON.stringify(call.args) === JSON.stringify(["thread_active", false])
+        )).toBe(true);
+      }
+    } finally {
+      view.unmount();
+      if (hasFocusDescriptor) {
+        Object.defineProperty(document, "hasFocus", hasFocusDescriptor);
+      } else {
+        Reflect.deleteProperty(document, "hasFocus");
+      }
+    }
   });
 });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CodexHostMessage } from "./types";
 import type {
@@ -9,10 +9,12 @@ import type {
   Project,
 } from "./types";
 import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
+import type { CodexPendingWorktreeEntry } from "../../shared/codex-pending-worktree";
 import {
   invoke,
   subscribeCodexAutomationRunsUpdates,
   subscribeCodexHostMessages,
+  subscribeCodexPendingWorktreesChanged,
   subscribeProjectChanges,
   subscribeProjectSessionChanges,
   subscribeWindowFocusChanges,
@@ -20,6 +22,7 @@ import {
 import { queryKeys } from "./query-keys";
 import {
   buildSidebarThreadSyncModel,
+  mergePendingWorktreesIntoSidebarSnapshot,
   type CodexSidebarThreadSyncModel,
 } from "./codex-sidebar-thread-sync";
 import { invalidateProjectSessionScope } from "./project-session-query-cache";
@@ -29,6 +32,7 @@ const EMPTY_SIDEBAR_SNAPSHOT: CodexSidebarSnapshot = {
   pinnedThreadIds: [],
   projectAssignments: {},
   projectlessThreadIds: [],
+  manualThreadOrder: null,
   revision: 0,
   generatedAt: 0,
 };
@@ -80,13 +84,18 @@ export function useSidebarThreadSyncModel(input: {
   snapshot: CodexSidebarSnapshot;
   model: CodexSidebarThreadSyncModel;
   loading: boolean;
+  applySnapshot: (snapshot: CodexSidebarSnapshot) => void;
   refresh: () => Promise<CodexSidebarSnapshot>;
   setPinned: (threadId: string, pinned: boolean) => Promise<CodexSidebarSnapshot>;
+  reorderPinned: (orderedThreadIds: readonly string[]) => Promise<CodexSidebarSnapshot>;
 } {
   const { projects, onSessionsAffected } = input;
   const queryClient = useQueryClient();
   const onSessionsAffectedRef = useRef(onSessionsAffected);
   const focusedRef = useRef(true);
+  const [pendingWorktrees, setPendingWorktrees] = useState<
+    readonly CodexPendingWorktreeEntry[]
+  >([]);
   const hostMessageSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -170,6 +179,22 @@ export function useSidebarThreadSyncModel(input: {
     void syncSidebarThreads("stale", "host-message").catch(() => undefined);
   }), [syncSidebarThreads]);
 
+  useEffect(() => {
+    let disposed = false;
+    void invoke("codex:pending-worktrees:list")
+      .then((entries) => {
+        if (!disposed) setPendingWorktrees(Array.isArray(entries) ? entries : []);
+      })
+      .catch(() => undefined);
+    const unsubscribe = subscribeCodexPendingWorktreesChanged((entries) => {
+      setPendingWorktrees([...entries]);
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
+
   useEffect(() => subscribeProjectChanges(() => {
     void syncSidebarThreads("force", "project-change").catch(() => undefined);
   }), [syncSidebarThreads]);
@@ -206,7 +231,10 @@ export function useSidebarThreadSyncModel(input: {
     return () => window.clearInterval(handle);
   }, [syncSidebarThreads]);
 
-  const snapshot = query.data ?? EMPTY_SIDEBAR_SNAPSHOT;
+  const snapshot = useMemo(() => mergePendingWorktreesIntoSidebarSnapshot(
+    query.data ?? EMPTY_SIDEBAR_SNAPSHOT,
+    pendingWorktrees,
+  ), [pendingWorktrees, query.data]);
   const model = useMemo(() => buildSidebarThreadSyncModel({
     snapshot,
     projects,
@@ -216,12 +244,22 @@ export function useSidebarThreadSyncModel(input: {
     snapshot,
     model,
     loading: query.isLoading,
+    applySnapshot: (nextSnapshot) => {
+      queryClient.setQueryData(queryKeys.codexSidebar.snapshot(), nextSnapshot);
+      queryClient.setQueryData(queryKeys.codexSidebar.pinnedThreads(), nextSnapshot.pinnedThreadIds);
+    },
     refresh: async () => {
       const result = await syncSidebarThreads("force", "manual");
       return result.snapshot;
     },
     setPinned: async (threadId: string, pinned: boolean) => {
       const refreshed = await invoke("codex:threads:pinned:set", threadId, { pinned });
+      queryClient.setQueryData(queryKeys.codexSidebar.snapshot(), refreshed);
+      queryClient.setQueryData(queryKeys.codexSidebar.pinnedThreads(), refreshed.pinnedThreadIds);
+      return refreshed;
+    },
+    reorderPinned: async (orderedThreadIds: readonly string[]) => {
+      const refreshed = await invoke("codex:threads:pinned:reorder", [...orderedThreadIds]);
       queryClient.setQueryData(queryKeys.codexSidebar.snapshot(), refreshed);
       queryClient.setQueryData(queryKeys.codexSidebar.pinnedThreads(), refreshed.pinnedThreadIds);
       return refreshed;

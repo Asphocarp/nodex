@@ -50,6 +50,7 @@ function baseConversation(overrides: Partial<CodexConversationSnapshot> = {}): C
       canCollapseTurns: true,
     },
     ...overrides,
+    hasUnreadTurn: overrides.hasUnreadTurn ?? false,
   };
 }
 

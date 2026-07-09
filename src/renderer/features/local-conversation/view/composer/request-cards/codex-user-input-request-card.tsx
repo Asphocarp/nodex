@@ -1,4 +1,7 @@
-import type { CodexUserInputRequest } from "../../../../../lib/types";
+import type {
+  CodexProtocolRequestId,
+  CodexUserInputRequest,
+} from "../../../../../lib/types";
 import {
   RequestComposerView,
   buildUserInputAnswers,
@@ -6,21 +9,38 @@ import {
 
 interface CodexUserInputRequestCardProps {
   request: CodexUserInputRequest;
-  onRespond: (requestId: string, answers: Record<string, string[]>) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, answers: Record<string, string[]>) => Promise<void>;
+  onInterrupt?: () => Promise<void>;
 }
 
 export function CodexUserInputRequestCard({
   request,
   onRespond,
+  onInterrupt,
 }: CodexUserInputRequestCardProps) {
+  const viewRequest = request.isOnboardingDynamicInput
+    ? {
+        ...request,
+        questions: request.questions.map((question) => ({
+          ...question,
+          isOther: true,
+          otherPlaceholder: "Something else",
+        })),
+      }
+    : request;
+
   return (
     <RequestComposerView
-      request={request}
+      request={viewRequest}
       onSubmit={async (nextRequest, state) => {
         await onRespond(nextRequest.requestId, buildUserInputAnswers(nextRequest, state));
       }}
       onEscapeDismiss={async (nextRequest) => {
-        await onRespond(nextRequest.requestId, {});
+        if (request.isOnboardingDynamicInput || request.autoResolutionMs != null) {
+          await onRespond(nextRequest.requestId, {});
+          return;
+        }
+        await onInterrupt?.();
       }}
       submitErrorMessage="Could not submit input request"
       dismissErrorMessage="Could not dismiss input request"

@@ -10,13 +10,15 @@ import {
   selectTurnScopedConversationRequests,
   type CodexTurnScopedConversationRequest,
 } from "./conversation-request-helpers";
+import { buildCodexTurnOccurrenceKey } from "../../../shared/codex-turn-identity";
 
 export { selectConversationLiveRequests, selectPlanImplementationRequest } from "./conversation-request-helpers";
 
 export interface LocalConversationSearchUnit {
   key: string;
   threadId: string;
-  turnId: string;
+  turnId: string | null;
+  turnKey: string;
   itemId: string;
   role: "user" | "assistant";
   text: string;
@@ -24,7 +26,7 @@ export interface LocalConversationSearchUnit {
 
 export interface VisibleConversationTurnEntry {
   turn: CodexConversationTurn;
-  turnId: string;
+  turnId: string | null;
   turnKey: string;
   turnSearchKey: string;
   requests: CodexTurnScopedConversationRequest[];
@@ -51,6 +53,20 @@ function isRenderableConversationTurn(
   turn: CodexConversationTurn,
   requests: readonly CodexTurnScopedConversationRequest[],
 ): boolean {
+  const isStartupToolPrewarm = turn.items.some((item) => {
+    if (typeof item.rawItem !== "object" || item.rawItem === null) return false;
+    const rawItem = item.rawItem as {
+      readonly type?: unknown;
+      readonly content?: readonly { readonly type?: unknown; readonly text?: unknown }[];
+    };
+    return rawItem.type === "userMessage"
+      && rawItem.content?.some((content) =>
+        content.type === "text"
+        && typeof content.text === "string"
+        && content.text.startsWith("<startup_tool_prewarm>")
+      ) === true;
+  });
+  if (isStartupToolPrewarm) return false;
   return turn.items.length > 0 || requests.length > 0 || (turn.diff?.trim().length ?? 0) > 0;
 }
 
@@ -60,7 +76,7 @@ function createVisibleConversationTurnEntry(input: {
   requests: CodexTurnScopedConversationRequest[];
   isMostRecentTurn: boolean;
 }): VisibleConversationTurnEntry {
-  const turnKey = input.turn.turnId || `turn-index-${input.index}`;
+  const turnKey = buildCodexTurnOccurrenceKey(input.turn.turnId, input.index);
   const candidates = visibleTurnEntriesByTurn.get(input.turn) ?? [];
   const cached = candidates.find((candidate) =>
     candidate.requests === input.requests
@@ -95,9 +111,7 @@ function selectMergedVisibleTurnIds(input: {
 
   const parentTurnIds = new Set<string>();
   for (const turn of input.parentTurns) {
-    if (turn.turnId.length > 0) {
-      parentTurnIds.add(turn.turnId);
-    }
+    if (turn.turnId !== null) parentTurnIds.add(turn.turnId);
   }
 
   if (parentTurnIds.size === 0) {
@@ -106,7 +120,7 @@ function selectMergedVisibleTurnIds(input: {
 
   const visibleTurnIds = new Set<string>();
   for (const turn of input.turns) {
-    if (turn.turnId.length === 0 || !parentTurnIds.has(turn.turnId)) {
+    if (turn.turnId !== null && !parentTurnIds.has(turn.turnId)) {
       visibleTurnIds.add(turn.turnId);
     }
   }
@@ -146,19 +160,25 @@ export function selectVisibleConversationTurnEntries(input: {
     return cached.entries;
   }
 
-  const latestTurnId = turns[turns.length - 1]?.turnId ?? null;
+  const latestTurnIndex = turns.length - 1;
   const mergedVisibleTurnIds = selectMergedVisibleTurnIds({
     turns,
     parentTurns,
     resumeState: conversation.resumeState,
   });
   const entries = turns.flatMap((turn, index) => {
-    const requests = selectTurnScopedConversationRequests(requestsByTurnId, turn.turnId);
+    const requests = turn.turnId === null
+      ? []
+      : selectTurnScopedConversationRequests(requestsByTurnId, turn.turnId);
     if (!isRenderableConversationTurn(turn, requests)) {
       return [];
     }
 
-    if (mergedVisibleTurnIds && !mergedVisibleTurnIds.has(turn.turnId)) {
+    if (
+      mergedVisibleTurnIds
+      && turn.turnId !== null
+      && !mergedVisibleTurnIds.has(turn.turnId)
+    ) {
       return [];
     }
 
@@ -166,7 +186,7 @@ export function selectVisibleConversationTurnEntries(input: {
       turn,
       index,
       requests,
-      isMostRecentTurn: latestTurnId === turn.turnId,
+      isMostRecentTurn: latestTurnIndex === index,
     })];
   });
 
@@ -210,19 +230,21 @@ export function selectConversationSearchUnits(
 ): LocalConversationSearchUnit[] {
   if (!conversation) return [];
 
-  return conversation.turns.flatMap((turn) =>
-    turn.items
+  return conversation.turns.flatMap((turn, turnIndex) => {
+    const turnKey = buildCodexTurnOccurrenceKey(turn.turnId, turnIndex);
+    return turn.items
       .filter((item) =>
         (item.role === "user" || item.role === "assistant")
         && (item.markdownText ?? "").trim().length > 0,
       )
       .map((item) => ({
-        key: `${turn.turnId}:${item.itemId}`,
+        key: `${turnKey}:${item.itemId}`,
         threadId: conversation.threadId,
         turnId: turn.turnId,
+        turnKey,
         itemId: item.itemId,
         role: item.role as "user" | "assistant",
         text: (item.markdownText ?? "").trim(),
-      })),
-  );
+      }));
+  });
 }

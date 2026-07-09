@@ -40,8 +40,8 @@ describe("AutomaticApprovalReviewSurface", () => {
     const item = buildReviewItem();
     const { getByRole, container } = render(<AutomaticApprovalReviewSurface item={item} />);
 
-    const trigger = getByRole("button");
-    const summary = textContent(trigger);
+    const trigger = getByRole("button", { name: "bun test" });
+    const summary = textContent(container);
     expect(summary.includes("bun test")).toBe(true);
     expect(summary.includes("Auto-review approved")).toBe(false);
     expect(summary.includes("Automatic approval review")).toBe(false);
@@ -79,8 +79,8 @@ describe("AutomaticApprovalReviewSurface", () => {
     });
 
     const { getByRole, container } = render(<AutomaticApprovalReviewSurface item={item} />);
-    const trigger = getByRole("button");
-    const summary = textContent(trigger);
+    const trigger = getByRole("button", { name: "Request" });
+    const summary = textContent(container);
     expect(summary.includes("Request")).toBe(true);
     expect(summary.includes("Auto-review denied high risk")).toBe(false);
     expect(summary.includes("High risk")).toBe(false);
@@ -93,9 +93,9 @@ describe("AutomaticApprovalReviewSurface", () => {
     expect(body.includes("High risk")).toBe(false);
   });
 
-  test("keeps the reviewed action in the standalone header while the review is in progress", async () => {
+  test("keeps the reviewed action shimmering from canonical review status", async () => {
     const item = buildReviewItem({
-      status: "inProgress",
+      status: "completed",
       rawItem: {
         targetItemId: "item-command",
         review: {
@@ -114,12 +114,13 @@ describe("AutomaticApprovalReviewSurface", () => {
     });
 
     const { getByRole, container } = render(<AutomaticApprovalReviewSurface item={item} />);
-    const trigger = getByRole("button");
-    const content = textContent(trigger);
+    const trigger = getByRole("button", { name: "bun test" });
+    const content = textContent(container);
     expect(content.includes("bun test")).toBe(true);
     expect(content.includes("Auto-reviewing")).toBe(false);
     expect(content.includes("Medium risk")).toBe(false);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".codex-cadenced-shimmer") === null).toBe(false);
 
     fireEvent.click(trigger);
     await waitFor(() => {

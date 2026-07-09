@@ -1,10 +1,13 @@
 import { z } from "zod";
-import type { CodexUserInputRequest } from "../../../../../lib/types";
+import type {
+  CodexProtocolRequestId,
+  CodexUserInputRequest,
+} from "../../../../../lib/types";
 
 type CodexUserInputQuestion = CodexUserInputRequest["questions"][number];
 export type RequestComposerQuestion = CodexUserInputQuestion & { otherPlaceholder?: string };
 export type RequestComposerRequest = {
-  requestId: string;
+  requestId: CodexProtocolRequestId;
   questions: RequestComposerQuestion[];
 };
 

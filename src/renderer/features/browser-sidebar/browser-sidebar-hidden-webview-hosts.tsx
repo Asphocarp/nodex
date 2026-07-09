@@ -7,6 +7,7 @@ import type {
   BrowserSidebarWebviewHostCreated,
   BrowserSidebarWebviewHostKind,
 } from "../../../shared/browser-sidebar";
+import { requireProjectSessionBrowserTabId } from "../../../shared/browser-sidebar";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../../../shared/browser-url";
 import type { ProjectSessionTab } from "@/lib/types";
 import { invoke } from "@/lib/api";
@@ -25,9 +26,9 @@ interface BrowserSidebarHiddenWebviewHostsProps {
 }
 
 interface HiddenHostDescriptor {
-  sessionId: string;
-  projectId: string;
-  tabId: string;
+  browserConversationId: string;
+  browserTabId: string;
+  projectId: string | null;
   hostKind: BrowserSidebarWebviewHostKind;
   initialUrl: string;
   title?: string;
@@ -66,20 +67,25 @@ export function BrowserSidebarHiddenWebviewHosts({
   }, []);
 
   const descriptors = useMemo(() => {
-    const snapshotsByTabId = new Map(snapshots.map((snapshot) => [snapshot.tabId, snapshot]));
+    const snapshotsByTabId = new Map(
+      snapshots
+        .filter((snapshot) => snapshot.browserConversationId === sessionId)
+        .map((snapshot) => [snapshot.browserTabId, snapshot]),
+    );
     const browserDescriptors = tabs.flatMap((tab): HiddenHostDescriptor[] => {
       if (tab.kind !== "browser") return [];
       if (visibleTabIds.has(tab.id)) return [];
-      const snapshot = snapshotsByTabId.get(tab.id);
+      const browserTabId = requireProjectSessionBrowserTabId(tab);
+      const snapshot = snapshotsByTabId.get(browserTabId);
       const snapshotUrl = snapshot?.url && !isBlankBrowserUrl(snapshot.url) ? snapshot.url : null;
       const configUrl = readBrowserConfigUrl(tab);
       const initialUrl = snapshotUrl ?? configUrl;
       if (isBlankBrowserUrl(initialUrl)) return [];
       if (snapshot && !snapshot.hasBrowserPage) return [];
       return [{
-        sessionId,
+        browserConversationId: sessionId,
+        browserTabId,
         projectId: tab.projectId,
-        tabId: tab.id,
         hostKind: "background",
         initialUrl,
         title: snapshot?.title ?? readBrowserConfigTitle(tab) ?? tab.title,
@@ -88,16 +94,17 @@ export function BrowserSidebarHiddenWebviewHosts({
       }];
     });
 
-    const activeBrowserUseTabId = browserUseState?.activeTabId ?? null;
+    const activeBrowserUseTabId =
+      browserUseState?.activeBrowserTabIdsByConversation[sessionId] ?? null;
     const browserUseDescriptors = (browserUseState?.tabs ?? []).flatMap((tab): HiddenHostDescriptor[] => {
-      if (tab.sessionId !== sessionId) return [];
+      if (tab.browserConversationId !== sessionId) return [];
       if (tab.released) return [];
-      if (tab.tabId === activeBrowserUseTabId) return [];
+      if (tab.browserTabId === activeBrowserUseTabId) return [];
       if (isBlankBrowserUrl(tab.url)) return [];
       return [{
-        sessionId: tab.sessionId,
+        browserConversationId: tab.browserConversationId,
+        browserTabId: tab.browserTabId,
         projectId: tab.projectId,
-        tabId: tab.tabId,
         hostKind: "retained",
         initialUrl: tab.url,
         title: tab.title,
@@ -111,7 +118,7 @@ export function BrowserSidebarHiddenWebviewHosts({
     <>
       {descriptors.map((descriptor) => (
         <HiddenBrowserWebviewHost
-          key={`${descriptor.hostKind}:${descriptor.sessionId}:${descriptor.tabId}`}
+          key={`${descriptor.hostKind}:${descriptor.browserConversationId}:${descriptor.browserTabId}`}
           descriptor={descriptor}
         />
       ))}
@@ -126,27 +133,27 @@ function HiddenBrowserWebviewHost({ descriptor }: { descriptor: HiddenHostDescri
     if (!window.api) return;
     void invoke("browser-sidebar-command", {
       type: "register-tab",
-      tabId: descriptor.tabId,
-      sessionId: descriptor.sessionId,
+      browserConversationId: descriptor.browserConversationId,
+      browserTabId: descriptor.browserTabId,
       projectId: descriptor.projectId,
       initialUrl,
       title: descriptor.title,
       faviconUrl: descriptor.faviconUrl,
       deviceToolbarVisible: descriptor.deviceToolbarVisible,
     });
-  }, [descriptor.deviceToolbarVisible, descriptor.faviconUrl, descriptor.projectId, descriptor.sessionId, descriptor.tabId, descriptor.title, initialUrl]);
+  }, [descriptor.browserConversationId, descriptor.browserTabId, descriptor.deviceToolbarVisible, descriptor.faviconUrl, descriptor.projectId, descriptor.title, initialUrl]);
 
   useLayoutEffect(() => {
     if (!window.api) return undefined;
     if (isBlankBrowserUrl(initialUrl)) return undefined;
     const mountGeneration = browserSidebarRendererWebviewManager.claimMountGeneration({
-      sessionId: descriptor.sessionId,
-      tabId: descriptor.tabId,
+      browserConversationId: descriptor.browserConversationId,
+      browserTabId: descriptor.browserTabId,
     });
     browserSidebarRendererWebviewManager.syncWebview({
-      sessionId: descriptor.sessionId,
+      browserConversationId: descriptor.browserConversationId,
+      browserTabId: descriptor.browserTabId,
       projectId: descriptor.projectId,
-      tabId: descriptor.tabId,
       hostKind: descriptor.hostKind,
       initialUrl,
       bounds: null,
@@ -160,11 +167,11 @@ function HiddenBrowserWebviewHost({ descriptor }: { descriptor: HiddenHostDescri
 
     return () => {
       browserSidebarRendererWebviewManager.detachWebview({
-        sessionId: descriptor.sessionId,
-        tabId: descriptor.tabId,
+        browserConversationId: descriptor.browserConversationId,
+        browserTabId: descriptor.browserTabId,
       }, mountGeneration);
     };
-  }, [descriptor.hostKind, descriptor.projectId, descriptor.sessionId, descriptor.tabId, initialUrl]);
+  }, [descriptor.browserConversationId, descriptor.browserTabId, descriptor.hostKind, descriptor.projectId, initialUrl]);
 
   return null;
 }

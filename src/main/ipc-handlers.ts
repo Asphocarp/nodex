@@ -36,6 +36,8 @@ import {
   getAppUpdateSettings,
   getBackupSettings,
   getCommandKeymapState,
+  getCodexDeveloperInstructionSettings,
+  getCodexGitSettings,
   getDiagnosticsSettings,
   getHistorySettings,
   getTelemetrySettings,
@@ -43,6 +45,8 @@ import {
   getWindowRestoreSettings,
   resetCommandKeybindings,
   updateCommandKeybinding,
+  updateCodexDeveloperInstructionSettings,
+  updateCodexGitSettings,
   updateAppUpdateSettings,
   updateBackupSettings,
   updateDiagnosticsSettings,
@@ -61,6 +65,9 @@ import type {
   CodexBackgroundProcessRunActionInput,
   CodexHeartbeatAutomationThreadStateChangedInput,
   CodexHeartbeatAutomationsEnabledChangedInput,
+  CodexApprovalKind,
+  CodexProtocolRequestId,
+  CodexReasoningEffort,
 } from "../shared/types";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
@@ -75,12 +82,6 @@ import {
   sendRendererOwnerHostMessage,
 } from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
-import {
-  getThreadGoalAttachmentsRoot,
-  materializeThreadGoalDraft,
-  readThreadGoalEditableObjective,
-  removeOwnedThreadGoalAttachmentDirectory,
-} from "./thread-goal-attachments";
 import {
   listWorkspaceDirectoryEntries,
   readWorkspaceFile,
@@ -111,6 +112,11 @@ import {
   browserSidebarService,
   broadcastBrowserSidebarEvent,
 } from "./browser-sidebar-service";
+import {
+  deleteProjectSessionTabWithBrowserCleanup,
+  deleteProjectSessionWithBrowserCleanup,
+  deleteProjectWithBrowserCleanup,
+} from "./project-session-browser-ownership";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -157,8 +163,10 @@ import type {
   AppUpdateStatus,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexConversationThreadSettingsPatch,
+  CodexPersonality,
   CodexPromptInput,
   CodexThreadGoalSetActionInput,
+  CodexThreadStartForSessionInput,
 } from "../shared/types";
 import type {
   BrowserBrowsingDataKind,
@@ -180,6 +188,7 @@ import {
   recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
 import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
+import { registerCodexHooksIpcHandlers } from "./codex-hooks-ipc-handlers";
 import {
   type DocumentSyncClientTarget,
   DocumentSyncHub,
@@ -205,6 +214,10 @@ import {
 } from "./card-lifecycle-ipc";
 import { registerCardHistoryIpcHandler } from "./card-history-ipc";
 import { registerCardMetadataPropertySnapshotIpcHandler } from "./card-metadata-property-snapshot-ipc";
+import {
+  registerCodexPendingWorktreeIpcHandlers,
+  type CodexPendingWorktreeIpcService,
+} from "./codex/codex-pending-worktree-ipc";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -223,6 +236,15 @@ function boardCardCount(board: {
   columns: Array<{ cards: unknown[] }>;
 }): number {
   return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
+}
+
+function requireNonBlankStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => (
+    typeof item !== "string" || item.trim().length === 0
+  ))) {
+    throw new Error(`${label} must contain only non-empty strings`);
+  }
+  return [...value];
 }
 
 function registerHandle<Channel extends keyof IpcApi>(
@@ -668,6 +690,42 @@ export function registerIpcHandlers(
     );
   });
 
+  registerCodexPendingWorktreeIpcHandlers({
+    registerHandle,
+    service: codexService as unknown as CodexPendingWorktreeIpcService,
+    subscribePendingWorktreesChanged: (listener) => {
+      codexService.on("pendingWorktreesChanged", listener);
+    },
+    broadcastPendingWorktreesChanged: (entries) => {
+      broadcastIpcEvent("codex:pending-worktrees:changed", entries);
+    },
+  });
+  codexService.on("pendingWorktreeWarning", (event) => {
+    broadcastIpcEvent("codex:pending-worktree:warning", event);
+  });
+  registerHandle(
+    "codex:pending-worktree:discard-fork-side-panel-transfer",
+    (_, pendingWorktreeId) => {
+      if (!pendingWorktreeId.trim()) throw new Error("Pending worktree id is required");
+      codexService.discardPendingForkSidePanelTransfer(pendingWorktreeId);
+    },
+  );
+  registerHandle("codex:fork-side-panel-transfer:consume", (_, input) => {
+    const consumed = codexService.consumeForkSidePanelTransfer(input);
+    if (!consumed) return false;
+    const session = projectSessionService.getProjectSession(
+      input.targetProjectSessionId,
+    );
+    if (session) {
+      dbNotifier.notifyProjectSessionsChanged(
+        session.projectId,
+        "update",
+        session.id,
+      );
+    }
+    return true;
+  });
+
   registerHandle("diagnostics:renderer-log", (_, input) => {
     if (process.env.NODEX_ASSISTANT_STREAMING_DEBUG !== "1") {
       return;
@@ -727,8 +785,13 @@ export function registerIpcHandlers(
       input,
     );
   });
-  registerHandle("codex:dynamic-tool-call:respond", (_, requestId: string) =>
-    codexService.respondToDynamicToolCall(requestId),
+  registerHandle("codex:dynamic-tool-call:respond", (
+    _,
+    conversationId: string,
+    requestId: CodexProtocolRequestId,
+    context,
+  ) =>
+    codexService.respondToDynamicToolCall(requestId, conversationId, context),
   );
 
   registerHandle("document-sync:subscribe", (event, request) => {
@@ -1189,7 +1252,11 @@ export function registerIpcHandlers(
   });
 
   registerHandle("projects:delete", async (_, projectId: string) =>
-    await projectDeletionRuntime.deleteProject(projectId),
+    await deleteProjectWithBrowserCleanup(
+      projectId,
+      browserSidebarService,
+      (targetProjectId) => projectDeletionRuntime.deleteProject(targetProjectId),
+    )
   );
 
   // Project sessions
@@ -1325,9 +1392,12 @@ export function registerIpcHandlers(
     }),
   );
 
-  registerHandle("project-sessions:delete", (_, sessionId: string) => {
+  registerHandle("project-sessions:delete", async (_, sessionId: string) => {
     const existing = projectSessionService.getProjectSession(sessionId);
-    const success = projectSessionService.deleteProjectSession(sessionId);
+    const success = await deleteProjectSessionWithBrowserCleanup(
+      sessionId,
+      browserSidebarService,
+    );
     if (success && existing) {
       dbNotifier.notifyProjectSessionsChanged(
         existing.projectId,
@@ -1439,11 +1509,13 @@ export function registerIpcHandlers(
         sessionId,
         input,
       );
-      dbNotifier.notifyProjectSessionsChanged(
-        result.session.projectId,
-        "create",
-        result.session.id,
-      );
+      if ("session" in result) {
+        dbNotifier.notifyProjectSessionsChanged(
+          result.session.projectId,
+          "create",
+          result.session.id,
+        );
+      }
       return result;
     },
   );
@@ -1500,8 +1572,8 @@ export function registerIpcHandlers(
       ),
   );
 
-  registerHandle("project-session-tabs:delete", (_, input) =>
-    projectSessionService.deleteProjectSessionTab(input),
+  registerHandle("project-session-tabs:delete", async (_, input) =>
+    await deleteProjectSessionTabWithBrowserCleanup(input, browserSidebarService),
   );
 
   registerHandle("project-session-tabs:reorder", (_, input) =>
@@ -1716,6 +1788,20 @@ export function registerIpcHandlers(
     updateThreadNotificationSettings(input),
   );
 
+  registerHandle("settings:codex-developer:get", () =>
+    getCodexDeveloperInstructionSettings(),
+  );
+
+  registerHandle("settings:codex-developer:update", (_, input) =>
+    updateCodexDeveloperInstructionSettings(input),
+  );
+
+  registerHandle("settings:git:get", () => getCodexGitSettings());
+
+  registerHandle("settings:git:update", (_, input) =>
+    updateCodexGitSettings(input),
+  );
+
   registerHandle("desktop-notification:show", (event, notification) => {
     if (!options.desktopNotificationManager) {
       return;
@@ -1735,6 +1821,7 @@ export function registerIpcHandlers(
             ...action,
             conversationId: notification.conversationId ?? null,
             requestId: notification.requestId ?? null,
+            approvalKind: notification.approvalKind ?? null,
           },
         ]);
       },
@@ -2264,6 +2351,10 @@ export function registerIpcHandlers(
     codexService.readDictationStateSnapshot(),
   );
 
+  registerHandle("codex:conversation-image-asset:resolve", (_, input) =>
+    codexService.resolveConversationImageAsset(input),
+  );
+
   registerHandle("codex:account:login:start", (_, input) =>
     codexService.startAccountLogin(input),
   );
@@ -2332,12 +2423,30 @@ export function registerIpcHandlers(
     return result;
   });
 
+  registerHandle("codex:sidebar:thread:move", (_, input) =>
+    codexService.moveSidebarThread(input),
+  );
+
+  registerHandle("codex:sidebar:project-thread-order:set", (_, input) =>
+    codexService.setSidebarProjectThreadOrder(input),
+  );
+
+  registerHandle("codex:sidebar:chats-thread-order:set", (_, input) =>
+    codexService.setSidebarChatsThreadOrder(input),
+  );
+
   registerHandle("codex:threads:pinned:list", () =>
     codexService.listPinnedThreads(),
   );
 
   registerHandle("codex:threads:pinned:set", (_, threadId: string, input) =>
     codexService.setThreadPinned(threadId, input.pinned),
+  );
+
+  registerHandle("codex:threads:pinned:reorder", (_, orderedThreadIds) =>
+    codexService.setPinnedThreadOrder(
+      requireNonBlankStringArray(orderedThreadIds, "Pinned thread order"),
+    ),
   );
 
   registerHandle("codex:thread:ensure-session", (_, threadId: string) =>
@@ -2393,6 +2502,15 @@ export function registerIpcHandlers(
 
   registerHandle("codex:model:list", () => codexService.listModels());
 
+  registerCodexHooksIpcHandlers({
+    registerHandle,
+    listHooks: (input) => codexService.listHooks(input),
+    updateHooksState: (input) => codexService.updateHooksState(input),
+    broadcastHooksChanged: (event) => {
+      broadcastIpcEvent("codex:hooks:changed", event);
+    },
+  });
+
   registerHandle("codex:collaboration-mode:list", () =>
     codexService.listCollaborationModes(),
   );
@@ -2401,36 +2519,18 @@ export function registerIpcHandlers(
     "codex:thread:start-for-session",
     async (
       event,
-      input: {
-        projectId: string;
-        sessionId: string;
-        prompt: string;
-        promptInput?: CodexPromptInput;
-        threadGoalDraft?: {
-          objective: string;
-          attachmentDirectory?: string | null;
-        };
-        threadName?: string;
-        skipAutoTitleGeneration?: boolean;
-        model?: string;
-        serviceTier?: null | "fast";
-        permissionMode?:
-          "auto" | "guardian-approvals" | "full-access" | "custom";
-        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-        collaborationMode?: "default" | "plan";
-        runInTarget?: "localProject" | "newWorktree" | "cloud";
-        runInEnvironmentPath?: string | null;
-        worktreeStartMode?: "autoBranch" | "detachedHead";
-        worktreeBranchPrefix?: string;
-        heartbeatAutomation?: {
-          name: string;
-          prompt: string;
-          rrule: string;
-        } | null;
-      },
+      input: CodexThreadStartForSessionInput,
     ) => {
-      const detail = await codexService.startThreadForSession(input);
-      return detail;
+      const controller = new AbortController();
+      const abortWhenRendererCloses = (): void => controller.abort();
+      event.sender.once("destroyed", abortWhenRendererCloses);
+      try {
+        return await codexService.startThreadForSession(input, {
+          signal: controller.signal,
+        });
+      } finally {
+        event.sender.removeListener("destroyed", abortWhenRendererCloses);
+      }
     },
   );
 
@@ -2448,7 +2548,7 @@ export function registerIpcHandlers(
         serviceTier?: null | "fast";
         permissionMode?:
           "auto" | "guardian-approvals" | "full-access" | "custom";
-        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+        reasoningEffort?: CodexReasoningEffort;
         collaborationMode?: "default" | "plan";
       },
     ) => codexService.startSideChat(input),
@@ -2471,6 +2571,12 @@ export function registerIpcHandlers(
   );
 
   registerHandle(
+    "worktrees:environments:configs:list-for-workspace",
+    (_, hostId: string, workspaceRoot: string) =>
+      codexService.listWorktreeEnvironmentConfigsForWorkspace(hostId, workspaceRoot),
+  );
+
+  registerHandle(
     "worktrees:environments:config:read",
     (_, projectId: string, configPath?: string | null) =>
       codexService.readWorktreeEnvironmentConfig(projectId, configPath),
@@ -2488,9 +2594,13 @@ export function registerIpcHandlers(
     codexService.requestConversationSnapshot(threadId),
   );
 
-  registerHandle("codex:thread:resume:request", (_, threadId: string) =>
-    codexService.requestRendererConversationResume(threadId),
-  );
+  registerHandle("codex:thread:resume:request", (event, threadId: string) => {
+    const ownerClientId = resolveRendererClientId(event);
+    if (!ownerClientId) {
+      throw new Error("Renderer client is not registered");
+    }
+    return codexService.requestRendererConversationResume(threadId, ownerClientId);
+  });
 
   registerHandle(
     "codex:thread:background-subagents:hydrate",
@@ -2566,6 +2676,11 @@ export function registerIpcHandlers(
       ),
   );
 
+  registerHandle("codex:personality:get", () => codexService.getPersonality());
+  registerHandle("codex:personality:set", (_, personality: CodexPersonality) => {
+    codexService.setPersonality(personality);
+  });
+
   registerHandle(
     "codex:thread:settings:update",
     (_, threadId: string, patch: CodexConversationThreadSettingsPatch) =>
@@ -2587,7 +2702,7 @@ export function registerIpcHandlers(
       opts?: {
         model?: string;
         serviceTier?: null | "fast";
-        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+        reasoningEffort?: CodexReasoningEffort;
         permissionMode?:
           "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
@@ -2611,7 +2726,7 @@ export function registerIpcHandlers(
       opts?: {
         model?: string;
         serviceTier?: null | "fast";
-        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+        reasoningEffort?: CodexReasoningEffort;
         permissionMode?:
           "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
@@ -2657,26 +2772,17 @@ export function registerIpcHandlers(
   );
 
   registerHandle("codex:thread:goal:materialize-draft", (_, draft) =>
-    materializeThreadGoalDraft({
-      attachmentsRoot: getThreadGoalAttachmentsRoot(app.getPath("userData")),
-      draft,
-    }),
+    codexService.materializeThreadGoalDraft(draft),
   );
 
   registerHandle(
     "codex:thread:goal:materialized-cleanup",
     (_, attachmentDirectory) =>
-      removeOwnedThreadGoalAttachmentDirectory(
-        attachmentDirectory,
-        getThreadGoalAttachmentsRoot(app.getPath("userData")),
-      ),
+      codexService.cleanupThreadGoalMaterializedDraft(attachmentDirectory),
   );
 
   registerHandle("codex:thread:goal:editable-objective:read", (_, objective) =>
-    readThreadGoalEditableObjective({
-      attachmentsRoot: getThreadGoalAttachmentsRoot(app.getPath("userData")),
-      objective,
-    }),
+    codexService.readThreadGoalEditableObjective(objective),
   );
 
   registerHandle(
@@ -2761,34 +2867,72 @@ export function registerIpcHandlers(
     codexService.readMcpResource(params),
   );
 
-  registerHandle("codex:mcp-apps:list", (_, threadId?: string | null) =>
-    codexService.listMcpApps(threadId),
+  registerHandle("codex:mcp-apps:list", () =>
+    codexService.listMcpApps(),
+  );
+
+  registerHandle("codex:experimental-features:list", () =>
+    codexService.listExperimentalFeatures(),
   );
 
   registerHandle(
     "codex:mcp-server-statuses:list",
-    (_, threadId?: string | null) =>
-      codexService.listMcpServerStatuses(threadId),
+    () => codexService.listMcpServerStatuses(),
   );
 
-  registerHandle("codex:approval:respond", (_, requestId: string, decision) =>
-    codexService.respondToApproval(requestId, decision),
+  registerHandle("codex:approval:respond", (
+    _,
+    conversationId: string,
+    requestId: CodexProtocolRequestId,
+    kind: CodexApprovalKind,
+    decision,
+  ) =>
+    codexService.respondToApproval(requestId, kind, decision, conversationId),
   );
 
-  registerHandle("codex:user-input:respond", (_, requestId: string, answers) =>
-    codexService.respondToUserInput(requestId, answers),
+  registerHandle("codex:user-input:respond", (
+    _,
+    conversationId: string,
+    requestId: CodexProtocolRequestId,
+    answers,
+  ) =>
+    codexService.respondToUserInput(requestId, answers, conversationId),
   );
 
   registerHandle(
     "codex:mcp-elicitation:respond",
-    (_, requestId: string, response) =>
-      codexService.respondToMcpServerElicitation(requestId, response),
+    (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
+      codexService.respondToMcpServerElicitation(requestId, response, conversationId),
   );
 
   registerHandle(
     "codex:permission-request:respond",
-    (_, requestId: string, response) =>
-      codexService.respondToPermissionRequest(requestId, response),
+    (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
+      codexService.respondToPermissionRequest(requestId, response, conversationId),
+  );
+
+  registerHandle(
+    "codex:option-picker:respond",
+    (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
+      codexService.respondToOptionPicker(conversationId, requestId, response),
+  );
+
+  registerHandle(
+    "codex:setup-context-picker:respond",
+    (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
+      codexService.respondToSetupContextPicker(conversationId, requestId, response),
+  );
+
+  registerHandle(
+    "codex:setup-codex-step:respond",
+    (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
+      codexService.respondToSetupCodexStep(conversationId, requestId, response),
+  );
+
+  registerHandle(
+    "codex:conversation-unread:set",
+    (_, conversationId: string, hasUnreadTurn: boolean) =>
+      codexService.setConversationUnreadState(conversationId, hasUnreadTurn),
   );
 
   registerHandle(

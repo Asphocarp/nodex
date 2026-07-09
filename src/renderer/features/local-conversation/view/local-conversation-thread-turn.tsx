@@ -3,6 +3,9 @@ import { Fragment, type ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
+import { useMcpServerStatuses } from "../../../lib/use-mcp-queries";
+import { useCodexMcpApps } from "../use-codex-mcp-apps";
+import { buildV2AgentRenderUnits } from "../projection/build-turn-view-model";
 import type {
   ThreadAgentRenderUnit,
   ThreadBlockModel,
@@ -18,11 +21,11 @@ import {
 } from "./shared/thread-motion";
 import { useWorkedForLabelText } from "./shared/use-worked-for-label";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
+import { ThreadMcpAppsProvider } from "./shared/tools/mcp-apps-context";
 
 interface ThreadTurnProps {
   turn: ThreadTurnModel;
   agentBodyCollapsed: boolean;
-  hasPersistedAgentBodyCollapsedState: boolean;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
   projectWorkspacePath?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
@@ -101,16 +104,23 @@ function renderSpacedBlocks<TBlock extends { id: string }>(
   ));
 }
 
-function renderSpacedAgentUnits(
+function renderAgentUnits(
   units: ThreadAgentRenderUnit[],
   renderUnit: (unit: ThreadAgentRenderUnit, index: number) => ReactNode,
 ) {
-  return units.map((unit, index) => (
-    <Fragment key={resolveThreadBlockRenderKey(unit.block)}>
-      {index > 0 ? <ThreadGap /> : null}
-      {renderUnit(unit, index)}
-    </Fragment>
-  ));
+  return units.map((unit, index) => {
+    const hasTargets = unit.targetAttributes !== undefined;
+    return (
+      <div
+        key={resolveThreadBlockRenderKey(unit.block)}
+        className={hasTargets ? "outline-none" : undefined}
+        tabIndex={hasTargets ? -1 : undefined}
+        {...unit.targetAttributes}
+      >
+        {renderUnit(unit, index)}
+      </div>
+    );
+  });
 }
 
 export function resolveThreadBlockRenderKey(block: { id: string; renderKey?: unknown }): string {
@@ -118,10 +128,10 @@ export function resolveThreadBlockRenderKey(block: { id: string; renderKey?: unk
   return typeof renderKey === "string" && renderKey.length > 0 ? renderKey : block.id;
 }
 
-export function ThreadTurn({
+function ThreadTurnBody({
+  agentBodyUnits,
   turn,
   agentBodyCollapsed,
-  hasPersistedAgentBodyCollapsedState,
   onAgentBodyCollapsedChange,
   projectWorkspacePath,
   threadCwd,
@@ -139,10 +149,8 @@ export function ThreadTurn({
   childMemberships,
   turnDiffHoverPreviewDisabled = false,
   latestTurnFollowContentRef,
-}: ThreadTurnProps) {
-  const shouldAllowAgentBodyCollapse =
-    turn.hasRenderableAgentBodyUnits
-    && (!turn.isLatestTurn || hasPersistedAgentBodyCollapsedState);
+}: ThreadTurnProps & { agentBodyUnits: ThreadAgentRenderUnit[] }) {
+  const shouldAllowAgentBodyCollapse = turn.hasRenderableAgentBodyUnits;
   const effectiveAgentBodyCollapsed = shouldAllowAgentBodyCollapse ? agentBodyCollapsed : false;
   const workedForLabel = useWorkedForLabelText({
     timing: turn.workedForItem
@@ -208,16 +216,16 @@ export function ThreadTurn({
           {renderSpacedBlocks(turn.leadingBlocks, renderBlock)}
         </div>
 
-        {turn.agentBodyUnits.length > 0 ? (
+        {agentBodyUnits.length > 0 ? (
           <>
             {turn.leadingBlocks.length > 0 ? <ThreadGap /> : null}
             <div className="flex flex-col">
               {shouldAllowAgentBodyCollapse ? (
                 <AgentBodyToggleRow
-                  collapsedMessageCount={turn.collapsedMessageCount}
+                  collapsedMessageCount={agentBodyUnits.length}
                   workedForLabel={workedForLabel}
                   collapsed={effectiveAgentBodyCollapsed}
-                  onToggle={() => onAgentBodyCollapsedChange(turn.turnId, !effectiveAgentBodyCollapsed)}
+                  onToggle={() => onAgentBodyCollapsedChange(turn.turnKey, !effectiveAgentBodyCollapsed)}
                 />
               ) : null}
               <AnimatePresence initial={false}>
@@ -232,8 +240,8 @@ export function ThreadTurn({
                     style={{ overflow: "hidden" }}
                   >
                     {shouldAllowAgentBodyCollapse ? <ThreadGap /> : null}
-                    <div className="flex flex-col gap-0">
-                      {renderSpacedAgentUnits(turn.agentBodyUnits, renderAgentUnit)}
+                    <div className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
+                      {renderAgentUnits(agentBodyUnits, renderAgentUnit)}
                     </div>
                   </motion.div>
                 )}
@@ -244,7 +252,7 @@ export function ThreadTurn({
 
         {turn.trailingBlocks.length > 0 ? (
           <>
-            {(turn.leadingBlocks.length > 0 || turn.agentBodyUnits.length > 0) ? <ThreadGap /> : null}
+            {(turn.leadingBlocks.length > 0 || agentBodyUnits.length > 0) ? <ThreadGap /> : null}
             <div className="flex flex-col">
               {renderSpacedBlocks(turn.trailingBlocks, renderBlock)}
             </div>
@@ -253,4 +261,53 @@ export function ThreadTurn({
       </div>
     </div>
   );
+}
+
+function ThreadTurnWithMcpStatuses(props: ThreadTurnProps) {
+  const { data: mcpApps } = useCodexMcpApps();
+  const { data: mcpServerStatuses } = useMcpServerStatuses();
+  const thinkingPlaceholder = props.turn.blocks.find(
+    (block) => block.type === "thinkingPlaceholder",
+  );
+  const thinkingGroup = props.turn.blocks.find(
+    (block) => block.type === "agentActivityGroup" && block.liveHeaderKind === "thinking",
+  );
+  const allowThinkingFallback = thinkingPlaceholder !== undefined || thinkingGroup !== undefined;
+  const thinkingFallbackLabel = thinkingPlaceholder?.type === "thinkingPlaceholder"
+    ? thinkingPlaceholder.message
+    : thinkingGroup?.type === "agentActivityGroup"
+      ? thinkingGroup.runningSummary?.label
+      : undefined;
+  const agentBodyUnits = buildV2AgentRenderUnits(
+    props.turn.agentActivitySourceItems,
+    {
+      mcpApps: mcpApps ?? [],
+      mcpServerStatuses: mcpServerStatuses ?? null,
+      isTurnCancelled: props.turn.turn?.status === "interrupted",
+      liveActivity: {
+        allowThinkingFallback,
+        isTurnInProgress: props.turn.isStreamingTurn,
+        isActivitySliceClosed: props.turn.isAgentActivitySliceClosed ?? false,
+        isExploring: props.turn.isAgentActivityExploring ?? false,
+        thinkingFallbackLabel,
+      },
+    },
+  ).units;
+
+  return (
+    <ThreadMcpAppsProvider apps={mcpApps ?? []}>
+      <ThreadTurnBody {...props} agentBodyUnits={agentBodyUnits} />
+    </ThreadMcpAppsProvider>
+  );
+}
+
+export function ThreadTurn(props: ThreadTurnProps) {
+  const hasMcpActivity = props.turn.agentActivitySourceItems.some(
+    (item) => item.type === "mcpToolCall",
+  );
+  if (hasMcpActivity) {
+    return <ThreadTurnWithMcpStatuses {...props} />;
+  }
+
+  return <ThreadTurnBody {...props} agentBodyUnits={props.turn.agentBodyUnits} />;
 }

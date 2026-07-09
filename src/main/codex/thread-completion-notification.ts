@@ -66,7 +66,9 @@ export function resolveThreadCompletionNotificationContent(input: {
 
   const title = normalizeNotificationText(input.thread.threadName) || UNTITLED_THREAD_LABEL;
   const body =
-    pickLastTurnMessage(input.detail, input.turn.turnId) ||
+    (input.turn.turnId === null
+      ? ""
+      : pickLastTurnMessage(input.detail, input.turn.turnId)) ||
     normalizeNotificationText(input.thread.threadPreview) ||
     buildStatusFallback(input.turn);
 

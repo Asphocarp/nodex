@@ -16,7 +16,10 @@ export interface ToolComponentProps {
   automaticApprovalReviews?: CodexTranscriptEntry[];
   execSummaryTone?: "default" | "muted";
   hideHeader?: boolean;
+  showDiffDetails?: boolean;
   showExecSummaryIcon?: boolean;
+  showToolSummaryIcon?: boolean;
+  onOpenFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];

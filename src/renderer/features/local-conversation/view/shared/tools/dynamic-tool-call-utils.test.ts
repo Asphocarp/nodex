@@ -7,6 +7,7 @@ import {
   getDynamicToolRegistryEntry,
   isDynamicToolStandaloneInConversation,
   isDynamicToolSummaryOnlyInConversationGroup,
+  parseCodexAppCreateThreadResult,
   parseCodexAppHandoffResult,
   parseAutomationUpdateToolResult,
   resolveCodexAppMetaThreadToolLabel,
@@ -32,6 +33,35 @@ function dynamicCall(overrides: Partial<CodexDynamicToolCallView> = {}): CodexDy
 }
 
 describe("dynamic tool registry", () => {
+  test("parses only exact create_thread materialization result variants", () => {
+    const threadResult = parseCodexAppCreateThreadResult(dynamicCall({
+      tool: "create_thread",
+      contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread-created\"}" }],
+    }));
+    const clientThreadResult = parseCodexAppCreateThreadResult(dynamicCall({
+      tool: "create_thread",
+      contentItems: [{
+        type: "inputText",
+        text: "{\"clientThreadId\":\"client-new-thread:11111111-1111-4111-8111-111111111111\"}",
+      }],
+    }));
+    const legacyPendingResult = parseCodexAppCreateThreadResult(dynamicCall({
+      tool: "create_thread",
+      contentItems: [{ type: "inputText", text: "{\"pendingWorktreeId\":\"pending-worktree\"}" }],
+    }));
+    const wrongToolResult = parseCodexAppCreateThreadResult(dynamicCall({
+      tool: "fork_thread",
+      contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread-created\"}" }],
+    }));
+
+    expect(JSON.stringify(threadResult)).toBe("{\"threadId\":\"thread-created\"}");
+    expect(JSON.stringify(clientThreadResult)).toBe(
+      "{\"clientThreadId\":\"client-new-thread:11111111-1111-4111-8111-111111111111\"}",
+    );
+    expect(legacyPendingResult).toBe(null);
+    expect(wrongToolResult).toBe(null);
+  });
+
   test("resolves Electron-style registry flags from one entry map", () => {
     expect(continuesCodexAppLiveActivityBetweenCalls(dynamicCall({ tool: "read_thread" }))).toBe(true);
     expect(continuesCodexAppLiveActivityBetweenCalls(dynamicCall({ tool: "send_message_to_thread" }))).toBe(false);
@@ -42,7 +72,25 @@ describe("dynamic tool registry", () => {
     }))).toBe(true);
   });
 
-  test("registers automation_update as a standalone scheduled task card renderer", () => {
+  test("uses the exact task-oriented labels for registered Codex app tools", () => {
+    const cases: Array<[string, Partial<CodexDynamicToolCallView>, string]> = [
+      ["fork active", { tool: "fork_thread", arguments: {}, completed: false }, "Creating new task"],
+      ["fork complete", { tool: "fork_thread", arguments: {} }, "Created new task"],
+      ["worktree fork", { tool: "fork_thread", arguments: { environment: { type: "worktree" } } }, "Created task in new worktree"],
+      ["list", { tool: "list_threads" }, "Listed tasks"],
+      ["read", { tool: "read_thread" }, "Read task"],
+      ["send", { tool: "send_message_to_thread" }, "Sent message to task"],
+      ["pin", { tool: "set_thread_pinned" }, "Updated task pin"],
+      ["archive", { tool: "set_thread_archived" }, "Updated task archive"],
+      ["title", { tool: "set_thread_title" }, "Renamed task"],
+    ];
+
+    expect(cases.map(([name, overrides]) => `${name}:${resolveCodexAppMetaThreadToolLabel(dynamicCall(overrides))}`).join("|")).toBe(
+      cases.map(([name, , label]) => `${name}:${label}`).join("|"),
+    );
+  });
+
+  test("keeps automation_update rendering separate from dynamic standalone policy", () => {
     const call = dynamicCall({
       tool: "automation_update",
       arguments: {
@@ -63,13 +111,30 @@ describe("dynamic tool registry", () => {
     const state = resolveAutomationUpdateRenderState(call, "thread-current");
 
     expect(entry?.rendererKind ?? "").toBe("automationUpdate");
-    expect(isDynamicToolStandaloneInConversation(call)).toBe(true);
+    expect(isDynamicToolStandaloneInConversation(call)).toBe(false);
     expect(state?.statusLabel ?? "").toBe("Proposed");
     expect(state?.title ?? "").toBe("Review release notes");
     expect(state?.subtitle ?? "").toBe("Daily");
     expect(state?.canAccept ?? false).toBe(true);
     expect(state?.createInput?.cwds?.join(",") ?? "").toBe("/repo/nodex");
     expect(state?.createInput?.executionEnvironment ?? "").toBe("worktree");
+  });
+
+  test("resolves registry metadata namespace-first without tool-name fallback", () => {
+    const foreignHandoff = dynamicCall({
+      namespace: "unsupported_namespace",
+      tool: "handoff_thread",
+    });
+    const completedSetup = dynamicCall({
+      namespace: "unsupported_namespace",
+      tool: "setup_codex_step",
+      arguments: { step: "complete" },
+    });
+
+    expect(getDynamicToolRegistryEntry(foreignHandoff)).toBe(null);
+    expect(isDynamicToolStandaloneInConversation(foreignHandoff)).toBe(false);
+    expect(isDynamicToolSummaryOnlyInConversationGroup(completedSetup)).toBe(false);
+    expect(continuesCodexAppLiveActivityBetweenCalls(completedSetup)).toBe(false);
   });
 
   test("parses automation_update JSON result from later content items", () => {
@@ -153,7 +218,7 @@ describe("dynamic tool registry", () => {
 
     expect(readA).toBe(readB);
     expect(handoffToHost === handoffLocal).toBe(false);
-    expect(handoffStatus.endsWith("\u001foperation-1")).toBe(true);
+    expect(handoffStatus.endsWith(":operation-1")).toBe(true);
   });
 
   test("uses handoff operation status for labels instead of only item completion", () => {
@@ -213,7 +278,7 @@ describe("dynamic tool registry", () => {
 
     expect(parsed?.steps.length ?? 0).toBe(2);
     expect(state.activityStatus).toBe("running");
-    expect(state.label).toBe("Handing off thread");
+    expect(state.label).toBe("Handing off task");
   });
 
   test("exposes non-thread registry entries without making them thread tools", () => {

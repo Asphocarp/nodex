@@ -6,6 +6,7 @@ import { getDatabasePath, getLocalStoreDir } from "./config";
 import { finalizeBlockFirstAuthority } from "./block-first-finalization";
 import {
   CURRENT_SCHEMA_VERSION,
+  SHIPPED_SCHEMA_VERSION,
   type EnsureDatabaseOptions,
   finishShippedSchemaImport,
   prepareShippedSchemaImport,
@@ -173,21 +174,24 @@ export async function migrateShippedSchemaStoreToCurrent(
       installedSchemaVersion: null,
     };
   }
-  if (sourceSchemaVersion === CURRENT_SCHEMA_VERSION) {
+  if (
+    sourceSchemaVersion === SHIPPED_SCHEMA_VERSION ||
+    sourceSchemaVersion === CURRENT_SCHEMA_VERSION
+  ) {
     return {
       migrated: false,
       sourceSchemaVersion,
-      installedSchemaVersion: CURRENT_SCHEMA_VERSION,
+      installedSchemaVersion: sourceSchemaVersion,
     };
   }
   if (sourceSchemaVersion !== 26 && sourceSchemaVersion !== 57) {
     throw new Error(
-      `Unsupported Nodex database schema version ${sourceSchemaVersion}. Expected v26, v57, or v${CURRENT_SCHEMA_VERSION}.`,
+      `Unsupported Nodex database schema version ${sourceSchemaVersion}. Expected v26, v57, v${SHIPPED_SCHEMA_VERSION}, or v${CURRENT_SCHEMA_VERSION}.`,
     );
   }
 
   const migrationId =
-    `schema-v${sourceSchemaVersion}-to-v${CURRENT_SCHEMA_VERSION}-${randomUUID()}`;
+    `schema-v${sourceSchemaVersion}-to-v${SHIPPED_SCHEMA_VERSION}-${randomUUID()}`;
   const backupsRootPath = path.join(localStoreDirectoryPath, "backups");
   const stagingDirectoryPath = path.join(
     backupsRootPath,
@@ -220,6 +224,7 @@ export async function migrateShippedSchemaStoreToCurrent(
     options.onMigrationProgress?.({ type: "InProgress", value: 0.85 });
     validateBackupStore(staging.databasePath, {
       assetsPath: staging.assetsPath,
+      expectedSchemaVersion: SHIPPED_SCHEMA_VERSION,
     });
     fsyncPathRecursively(stagingDirectoryPath);
     fsyncDirectory(backupsRootPath);
@@ -230,6 +235,7 @@ export async function migrateShippedSchemaStoreToCurrent(
         backupId: migrationId,
         stagingDirectoryPath,
         rollbackDirectoryPath,
+        expectedInstalledSchemaVersion: SHIPPED_SCHEMA_VERSION,
       },
       paths,
     );
@@ -241,6 +247,7 @@ export async function migrateShippedSchemaStoreToCurrent(
     journal = advanceStoreRestoreJournal(journal, "install_started", paths);
     validateBackupStore(databasePath, {
       assetsPath: path.join(localStoreDirectoryPath, "assets"),
+      expectedSchemaVersion: SHIPPED_SCHEMA_VERSION,
     });
     journal = advanceStoreRestoreJournal(journal, "committed", paths);
     committed = true;
@@ -255,7 +262,7 @@ export async function migrateShippedSchemaStoreToCurrent(
     return {
       migrated: true,
       sourceSchemaVersion,
-      installedSchemaVersion: CURRENT_SCHEMA_VERSION,
+      installedSchemaVersion: SHIPPED_SCHEMA_VERSION,
     };
   } catch (error) {
     if (journal && !committed) {

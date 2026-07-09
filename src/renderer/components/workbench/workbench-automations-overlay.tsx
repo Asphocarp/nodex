@@ -69,7 +69,7 @@ import type {
   CodexScheduledAutomation,
   CodexAutomationRunMutationResponse,
   CodexModelOption,
-  CodexReasoningEffort,
+  CodexScheduledAutomationReasoningEffort,
   CodexScheduledAutomationCreateInput,
   CodexScheduledAutomationDeleteResponse,
   CodexScheduledAutomationMutationResponse,
@@ -844,39 +844,46 @@ function AutomationEnvironmentDropdown({
 }
 
 function isAutomationCodexReasoningEffort(
-  reasoningEffort: WorkbenchAutomationDraft["reasoningEffort"],
-): reasoningEffort is CodexReasoningEffort {
-  return reasoningEffort === "minimal"
+  reasoningEffort: string,
+): reasoningEffort is CodexScheduledAutomationReasoningEffort {
+  return reasoningEffort === "none"
+    || reasoningEffort === "minimal"
     || reasoningEffort === "low"
     || reasoningEffort === "medium"
     || reasoningEffort === "high"
-    || reasoningEffort === "xhigh";
+    || reasoningEffort === "xhigh"
+    || reasoningEffort === "max";
 }
 
 function resolveAutomationSelectorReasoningEffort(
   reasoningEffort: WorkbenchAutomationDraft["reasoningEffort"],
-): CodexReasoningEffort {
+): CodexScheduledAutomationReasoningEffort {
   if (isAutomationCodexReasoningEffort(reasoningEffort)) return reasoningEffort;
   return "medium";
 }
 
 function resolveAutomationReasoningForModelChange(input: {
-  currentReasoningEffort: CodexReasoningEffort;
+  currentReasoningEffort: CodexScheduledAutomationReasoningEffort;
   models: readonly CodexModelOption[];
   nextModelId: string;
-}): CodexReasoningEffort {
+}): CodexScheduledAutomationReasoningEffort {
   const selectedModel = input.models.find((candidate) =>
     candidate.id === input.nextModelId && !candidate.hidden
   ) ?? null;
-  const supportedOptions = resolveCodexReasoningEffortOptions(input.nextModelId, [...input.models]);
+  const supportedOptions = resolveCodexReasoningEffortOptions(input.nextModelId, [...input.models])
+    .filter((option): option is typeof option & {
+      reasoningEffort: CodexScheduledAutomationReasoningEffort;
+    } => isAutomationCodexReasoningEffort(option.reasoningEffort));
   const supportedEfforts = new Set(supportedOptions.map((option) => option.reasoningEffort));
 
   if (supportedEfforts.has(input.currentReasoningEffort)) {
     return input.currentReasoningEffort;
   }
 
-  const preferredEfforts: Array<CodexReasoningEffort | null | undefined> = [
-    selectedModel?.defaultReasoningEffort,
+  const preferredEfforts: Array<CodexScheduledAutomationReasoningEffort | null | undefined> = [
+    selectedModel && isAutomationCodexReasoningEffort(selectedModel.defaultReasoningEffort)
+      ? selectedModel.defaultReasoningEffort
+      : null,
     supportedEfforts.has("high") ? "high" : null,
     supportedOptions[0]?.reasoningEffort,
   ];
@@ -905,12 +912,15 @@ function AutomationModelReasoningDropdown({
   selectedModel: string;
   selectedReasoningEffort: WorkbenchAutomationDraft["reasoningEffort"];
   disabled: boolean;
-  onSelect: (model: string, reasoningEffort: CodexReasoningEffort) => void;
+  onSelect: (model: string, reasoningEffort: CodexScheduledAutomationReasoningEffort) => void;
 }) {
   const visibleModels = useMemo(() => getVisibleCodexModels(models), [models]);
   const effectiveReasoningEffort = resolveAutomationSelectorReasoningEffort(selectedReasoningEffort);
   const reasoningOptions = useMemo(
-    () => resolveCodexReasoningEffortOptions(selectedModel, [...models]),
+    () => resolveCodexReasoningEffortOptions(selectedModel, [...models])
+      .filter((option): option is typeof option & {
+        reasoningEffort: CodexScheduledAutomationReasoningEffort;
+      } => isAutomationCodexReasoningEffort(option.reasoningEffort)),
     [models, selectedModel],
   );
   const hasModelChoices = visibleModels.length > 0;

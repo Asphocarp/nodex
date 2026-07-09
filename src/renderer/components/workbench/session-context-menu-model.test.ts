@@ -112,6 +112,21 @@ describe("session context menu model", () => {
     }
   });
 
+  test("switches the explicit read-state action label in both directions", () => {
+    const labelFor = (unread: boolean): string | null => {
+      const item = buildSessionContextMenuItems({
+        session: makeSession({ unread }),
+      }).find((candidate) =>
+        candidate.type !== "separator"
+        && candidate.id === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread
+      );
+      return item?.type === "separator" ? null : item?.label ?? null;
+    };
+
+    expect(labelFor(false)).toBe("Mark as unread");
+    expect(labelFor(true)).toBe("Mark as read");
+  });
+
   test("disables fork without an attached cwd and enables new worktree only for git repos", () => {
     const blankItems = buildSessionContextMenuItems({
       session: makeSession(),

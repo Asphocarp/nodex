@@ -15,7 +15,9 @@ import type {
   GitReviewSummaryRequest,
   GitReviewSummaryResult,
   ProtocolMcpResourceReadResponse,
-  ProtocolMcpServerStatus,
+  ProtocolAppInfo,
+  ProtocolExperimentalFeature,
+  ProtocolListMcpServerStatusResponse,
   Project,
   ProjectSession,
   ProjectSessionSummary,
@@ -37,6 +39,9 @@ import type {
 import type { GitBranchState } from "../../shared/ipc-api";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
+import type { CodexHooksListInput, CodexHooksListResponse } from "../../shared/codex-hooks";
+
+const MCP_CATALOG_STALE_TIME_MS = 5 * 60_000;
 
 export function projectsListQueryOptions() {
   return queryOptions({
@@ -114,6 +119,31 @@ export function codexModelsListQueryOptions() {
     queryKey: queryKeys.codexModels.list(),
     queryFn: () => invoke("codex:model:list") as Promise<CodexModelOption[]>,
     staleTime: 60_000,
+  });
+}
+
+export function codexExperimentalFeaturesListQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.codexExperimentalFeatures.list(),
+    queryFn: async () => {
+      try {
+        return await invoke("codex:experimental-features:list") as ProtocolExperimentalFeature[];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function codexHooksListQueryOptions(input: CodexHooksListInput) {
+  const { hostId, cwds } = input;
+  return queryOptions({
+    queryKey: queryKeys.codexHooks.list(hostId, cwds),
+    queryFn: () => invoke("codex:hooks:list", { hostId, cwds }) as Promise<CodexHooksListResponse>,
+    enabled: hostId.trim().length > 0 && cwds.length > 0,
+    refetchOnWindowFocus: true,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -195,10 +225,20 @@ export function localEnvironmentSnapshotQueryOptions(projectId: string, configPa
   });
 }
 
-export function mcpServerStatusesQueryOptions(threadId?: string | null) {
+export function mcpServerStatusesQueryOptions() {
   return queryOptions({
-    queryKey: queryKeys.mcp.statuses(threadId),
-    queryFn: () => invoke("codex:mcp-server-statuses:list", threadId ?? null) as Promise<ProtocolMcpServerStatus[]>,
+    queryKey: queryKeys.mcp.statuses(),
+    queryFn: () => invoke("codex:mcp-server-statuses:list") as Promise<ProtocolListMcpServerStatusResponse>,
+    staleTime: MCP_CATALOG_STALE_TIME_MS,
+  });
+}
+
+export function mcpAppsQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.mcp.apps(),
+    queryFn: () => invoke("codex:mcp-apps:list") as Promise<ProtocolAppInfo[]>,
+    retry: false,
+    staleTime: MCP_CATALOG_STALE_TIME_MS,
   });
 }
 

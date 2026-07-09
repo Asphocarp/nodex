@@ -12,7 +12,7 @@ import type {
   CodexMcpToolCallContentBlock,
   CodexMcpToolCallView,
   CodexTranscriptEntry,
-  ProtocolMcpServerStatus,
+  ProtocolListMcpServerStatusResponse,
 } from "../../../../../lib/types";
 import type { ThreadStageActions } from "../../../thread-stage-types";
 import { useMcpResource, useMcpServerStatuses } from "../../../../../lib/use-mcp-queries";
@@ -29,6 +29,7 @@ import {
 import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
 import { resolveMcpToolDisplayName } from "./mcp-tool-call-labels";
 import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
+import { useThreadMcpApps } from "./mcp-apps-context";
 import {
   buildMcpAppSidePanelInput,
   isMcpAppHtmlTooLarge,
@@ -44,7 +45,10 @@ import {
 } from "./mcp-tool-call-resource-utils";
 
 const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
-const EMPTY_MCP_SERVER_STATUSES: readonly ProtocolMcpServerStatus[] = [];
+const EMPTY_MCP_SERVER_STATUSES: ProtocolListMcpServerStatusResponse = {
+  data: [],
+  nextCursor: null,
+};
 
 interface McpToolCallProps {
   automaticApprovalReviews?: CodexTranscriptEntry[];
@@ -96,7 +100,7 @@ function McpCodePanel({
 }) {
   return (
     <div
-      className="bg-token-text-code-block-background border-token-input-background relative overflow-clip rounded-lg border contain-inline-size dark"
+      className="bg-token-text-code-block-background border-token-border-heavy relative overflow-clip rounded-lg border contain-inline-size dark"
       data-theme="dark"
     >
       <div
@@ -504,18 +508,19 @@ export function McpToolCall({
   const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
   const hasSuccessfulResult = payload?.result?.type === "success";
-  const { data: statusData } = useMcpServerStatuses(item.threadId, {
+  const mcpApps = useThreadMcpApps();
+  const { data: statusData } = useMcpServerStatuses({
     enabled: Boolean(payload && hasSuccessfulResult),
   });
-  const serverStatuses = Array.isArray(statusData) ? statusData : EMPTY_MCP_SERVER_STATUSES;
+  const mcpServerStatuses = statusData ?? EMPTY_MCP_SERVER_STATUSES;
 
   const resourceUri = useMemo(
-    () => payload ? resolveMcpAppResourceUri({ payload, serverStatuses }) : null,
-    [payload, serverStatuses],
+    () => payload ? resolveMcpAppResourceUri({ payload, mcpServerStatuses }) : null,
+    [payload, mcpServerStatuses],
   );
   const resourceScopeUri = useMemo(
-    () => payload ? resolveMcpAppResourceScopeUri({ payload, serverStatuses }) : null,
-    [payload, serverStatuses],
+    () => payload ? resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses }) : null,
+    [payload, mcpServerStatuses],
   );
   const resourceParams = useMemo(() => (
     payload && resourceUri
@@ -570,7 +575,7 @@ export function McpToolCall({
           }
         : undefined}
     >
-      <ToolActivityIcon descriptor={resolveMcpSourceIcon(item)} />
+      <ToolActivityIcon descriptor={resolveMcpSourceIcon(item, mcpApps)} />
       <CodexShimmerText
         active={!payload.completed}
         className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground text-size-chat min-w-0 shrink truncate"

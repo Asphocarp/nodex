@@ -32,9 +32,15 @@ function installWebContentsId(webview: Element, webContentsId: number) {
 
 const visibleBounds = { x: 10, y: 20, width: 320, height: 240 };
 
-function getManagerRoot(tabId = "tab-browser") {
+function getManagerRoot(
+  browserTabId = "tab-browser",
+  browserConversationId?: string,
+) {
+  const conversationSelector = browserConversationId === undefined
+    ? ""
+    : `[data-browser-sidebar-conversation-id='${browserConversationId}']`;
   return document.body.querySelector<HTMLElement>(
-    `[data-browser-sidebar-webview-manager-root][data-browser-sidebar-browser-tab-id='${tabId}']`,
+    `[data-browser-sidebar-webview-manager-root]${conversationSelector}[data-browser-sidebar-browser-tab-id='${browserTabId}']`,
   );
 }
 
@@ -49,11 +55,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const manager = createManager();
     const created: BrowserSidebarWebviewHostCreated[] = [];
 
-    const mountGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "panel",
       initialUrl: "https://example.com",
       bounds: visibleBounds,
@@ -70,6 +76,9 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     webview?.dispatchEvent(new Event("dom-ready"));
 
     expect(root?.querySelectorAll("webview").length).toBe(1);
+    expect(webview?.getAttribute("partition")).toBe(
+      "persist:codex-browser-app-route:session-1%00tab-browser",
+    );
     expect(root?.style.left).toBe("10px");
     expect(root?.style.top).toBe("20px");
     expect(root?.style.width).toBe("320px");
@@ -83,14 +92,60 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect(created[0]?.mountGeneration).toBe(1);
   });
 
+  test("partitions equal browser tab ids by conversation identity", () => {
+    const manager = createManager();
+    const browserTabId = "browser:shared";
+    const firstIdentity = {
+      browserConversationId: "conversation/one",
+      browserTabId,
+    } as const;
+    const secondIdentity = {
+      browserConversationId: "conversation/two",
+      browserTabId,
+    } as const;
+
+    const firstGeneration = manager.claimMountGeneration(firstIdentity);
+    const secondGeneration = manager.claimMountGeneration(secondIdentity);
+    manager.syncWebview({
+      ...firstIdentity,
+      projectId: "alpha",
+      hostKind: "background",
+      initialUrl: "https://one.example",
+      bounds: null,
+      mountGeneration: firstGeneration,
+      onHostCreated: () => undefined,
+    });
+    manager.syncWebview({
+      ...secondIdentity,
+      projectId: null,
+      hostKind: "background",
+      initialUrl: "https://two.example",
+      bounds: null,
+      mountGeneration: secondGeneration,
+      onHostCreated: () => undefined,
+    });
+
+    const firstRoot = getManagerRoot(browserTabId, firstIdentity.browserConversationId);
+    const secondRoot = getManagerRoot(browserTabId, secondIdentity.browserConversationId);
+    expect(firstGeneration).toBe(1);
+    expect(secondGeneration).toBe(1);
+    expect(firstRoot === secondRoot).toBe(false);
+    expect(firstRoot?.querySelector("webview")?.getAttribute("partition")).toBe(
+      "persist:codex-browser-app-route:conversation%2Fone%00browser%3Ashared",
+    );
+    expect(secondRoot?.querySelector("webview")?.getAttribute("partition")).toBe(
+      "persist:codex-browser-app-route:conversation%2Ftwo%00browser%3Ashared",
+    );
+  });
+
   test("keeps retained visible hosts on the retained webview layer", () => {
     const manager = createManager();
 
-    const mountGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-retained" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-retained" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-retained",
+      browserTabId: "tab-retained",
       hostKind: "retained",
       initialUrl: "https://example.com",
       bounds: visibleBounds,
@@ -109,22 +164,22 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const manager = createManager();
     const destroyed: BrowserSidebarWebviewDestroyed[] = [];
 
-    const firstGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const firstGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "panel",
       initialUrl: "https://example.com",
       bounds: visibleBounds,
       mountGeneration: firstGeneration,
       onHostCreated: () => undefined,
     });
-    const secondGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const secondGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "panel",
       initialUrl: "https://example.com",
       bounds: visibleBounds,
@@ -133,7 +188,8 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     });
 
     manager.destroyWebviewAtHostRequest({
-      tabId: "tab-browser",
+      browserConversationId: "session-1",
+      browserTabId: "tab-browser",
       mountGeneration: firstGeneration,
       reason: "unmounted",
       teardownId: "stale",
@@ -147,11 +203,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
   test("backgrounds a detached visible host without reparenting the guest webview", async () => {
     const manager = createManager();
 
-    const mountGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "panel",
       initialUrl: "https://example.com",
       bounds: visibleBounds,
@@ -165,7 +221,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const originalParent = webview?.parentElement;
     expect(webview !== null).toBe(true);
 
-    manager.detachWebview({ sessionId: "session-1", tabId: "tab-browser" }, mountGeneration);
+    manager.detachWebview({ browserConversationId: "session-1", browserTabId: "tab-browser" }, mountGeneration);
     await Promise.resolve();
 
     expect(getManagerRoot() === root).toBe(true);
@@ -178,11 +234,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
   test("reuses the same guest across panel and background sync without resetting src or parent", () => {
     const manager = createManager();
 
-    const firstGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const firstGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "panel",
       initialUrl: "https://example.com/first",
       bounds: visibleBounds,
@@ -196,11 +252,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const originalParent = webview?.parentElement;
     expect(webview !== null).toBe(true);
 
-    const secondGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const secondGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "background",
       initialUrl: "https://example.com/second",
       bounds: null,
@@ -219,11 +275,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const manager = createManager();
     const created: BrowserSidebarWebviewHostCreated[] = [];
 
-    const mountGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "panel",
       initialUrl: "https://example.com",
       bounds: visibleBounds,
@@ -247,11 +303,11 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const created: BrowserSidebarWebviewHostCreated[] = [];
     const destroyed: BrowserSidebarWebviewDestroyed[] = [];
 
-    const mountGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-browser" });
+    const mountGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
-      sessionId: "session-1",
+      browserConversationId: "session-1",
       projectId: "alpha",
-      tabId: "tab-browser",
+      browserTabId: "tab-browser",
       hostKind: "panel",
       initialUrl: "https://example.com",
       bounds: visibleBounds,
@@ -264,7 +320,8 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     webview?.dispatchEvent(new Event("did-attach"));
 
     manager.destroyWebviewAtHostRequest({
-      tabId: "tab-browser",
+      browserConversationId: "session-1",
+      browserTabId: "tab-browser",
       mountGeneration,
       reason: "closed",
       teardownId: "current",

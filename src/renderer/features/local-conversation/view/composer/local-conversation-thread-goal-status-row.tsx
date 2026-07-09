@@ -312,7 +312,11 @@ export function ThreadGoalStatusRow({
     setPendingAction("edit");
     let materialized: Awaited<ReturnType<typeof materializeThreadGoalDraft>> | null = null;
     try {
-      materialized = await materializeThreadGoalDraft({ objective });
+      materialized = await materializeThreadGoalDraft({
+        objective,
+        pastedTextAttachments: [],
+        imageAttachments: [],
+      });
       await actions.onSetThreadGoal({
         threadId: goal.threadId,
         objective: materialized.objective,

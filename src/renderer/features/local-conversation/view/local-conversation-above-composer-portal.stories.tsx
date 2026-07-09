@@ -501,6 +501,7 @@ function AboveComposerStoryFrame({
               <LocalConversationAboveComposerQueuePortalHost conversationId={model.footerModel.threadId} />
               <LocalConversationAboveComposerPortal
                 blocks={resolveStoryAboveComposerBlocks(model)}
+                conversationId={model.footerModel.threadId}
                 isLatestTurn={model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId}
                 isStreamingTurn={true}
                 projectWorkspacePath={model.bodyModel.projectWorkspacePath}

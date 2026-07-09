@@ -20,7 +20,12 @@ import {
   resolveZodErrorMessage,
 } from "../../../../../lib/forms";
 import { cn } from "../../../../../lib/utils";
-import type { CodexPlanImplementationRequest, CodexTranscriptEntry, CodexUserInputRequest } from "../../../../../lib/types";
+import type {
+  CodexPlanImplementationRequest,
+  CodexProtocolRequestId,
+  CodexTranscriptEntry,
+  CodexUserInputRequest,
+} from "../../../../../lib/types";
 import { resolvePromptTextareaSize } from "../prompt-textarea-size";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
@@ -845,7 +850,7 @@ export function UserInputComposerView({
   onRespond,
 }: {
   request: CodexUserInputRequest;
-  onRespond: (requestId: string, answers: Record<string, string[]>) => Promise<void>;
+  onRespond: (requestId: CodexProtocolRequestId, answers: Record<string, string[]>) => Promise<void>;
 }) {
   return (
     <RequestComposerView

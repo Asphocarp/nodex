@@ -1,7 +1,7 @@
 import type { TargetAndTransition, Transition } from "motion/react";
 
 export const CODEX_THREAD_ACCORDION_TRANSITION: Transition = {
-  duration: 0.5,
+  duration: 0.3,
   ease: [0.19, 1, 0.22, 1],
 };
 

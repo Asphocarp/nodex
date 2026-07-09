@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  codexExperimentalFeaturesListQueryOptions,
+  mcpAppsQueryOptions,
   mcpResourceQueryOptions,
   mcpServerStatusesQueryOptions,
 } from "./query-options";
@@ -9,6 +11,24 @@ interface QueryEnabledOptions {
   enabled?: boolean;
 }
 
+export function useCodexExperimentalFeatures(
+  options: QueryEnabledOptions = {},
+) {
+  return useQuery({
+    ...codexExperimentalFeaturesListQueryOptions(),
+    enabled: options.enabled !== false,
+  });
+}
+
+export function useMcpApps(
+  options: QueryEnabledOptions = {},
+) {
+  return useQuery({
+    ...mcpAppsQueryOptions(),
+    enabled: options.enabled !== false,
+  });
+}
+
 const EMPTY_RESOURCE_PARAMS: ProtocolMcpResourceReadParams = {
   threadId: null,
   server: "",
@@ -16,11 +36,10 @@ const EMPTY_RESOURCE_PARAMS: ProtocolMcpResourceReadParams = {
 };
 
 export function useMcpServerStatuses(
-  threadId?: string | null,
   options: QueryEnabledOptions = {},
 ) {
   return useQuery({
-    ...mcpServerStatusesQueryOptions(threadId),
+    ...mcpServerStatusesQueryOptions(),
     enabled: options.enabled !== false,
   });
 }

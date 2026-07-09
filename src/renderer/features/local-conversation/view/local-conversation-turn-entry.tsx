@@ -1,21 +1,21 @@
 import { memo, useMemo } from "react";
-import type { CodexConversationChildMembership, CodexConversationTurn, CodexTurnDiffReviewTarget } from "../../../lib/types";
-import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
-import { buildTurnRenderModel } from "../projection/build-turn-render-model";
+import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../lib/types";
+import { selectTurnRenderModel } from "../projection/build-turn-render-model";
+import type { VisibleConversationTurnEntry } from "../selectors";
 import type {
+  ThreadComposerShellBackgroundAgentRowModel,
   ThreadPlanSidePanelState,
   ThreadStageActions,
 } from "../thread-stage-types";
 import { ThreadTurn } from "./local-conversation-thread-turn";
+import { LocalConversationAboveComposerPortal } from "./local-conversation-above-composer-portal";
 
 interface LocalConversationTurnEntryProps {
   conversationId: string;
   childMemberships?: readonly CodexConversationChildMembership[];
-  turnSearchKey: string;
-  turn: CodexConversationTurn;
-  requests: CodexTurnScopedConversationRequest[];
+  backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
+  entry: VisibleConversationTurnEntry;
   cwd: string | null;
-  isMostRecentTurn: boolean;
   persistedCollapsed?: boolean;
   onSetCollapsed?: (collapsed: boolean) => void;
   canEditTurnUserPrefix: boolean;
@@ -48,11 +48,10 @@ interface LocalConversationTurnEntryProps {
 }
 
 function LocalConversationTurnEntryComponent({
+  conversationId,
   childMemberships,
-  turnSearchKey,
-  turn,
-  requests,
-  isMostRecentTurn,
+  backgroundAgentRows,
+  entry,
   persistedCollapsed,
   onSetCollapsed,
   canEditTurnUserPrefix,
@@ -74,59 +73,76 @@ function LocalConversationTurnEntryComponent({
   onRendered,
   latestTurnFollowContentRef,
 }: LocalConversationTurnEntryProps) {
-  onRendered?.(turn.turnId);
+  const turn = entry.turn;
+  onRendered?.(entry.turnKey);
   const turnModel = useMemo(
     () =>
-      buildTurnRenderModel({
-        turn,
-        requests,
-        isLatestTurn: isMostRecentTurn,
-        isStreamingTurn: turn.status === "inProgress",
+      selectTurnRenderModel({
+        entry,
         canEditTurnUserPrefix,
         canForkTurn,
+        backgroundAgents: backgroundAgentRows,
       }),
     [
       canEditTurnUserPrefix,
       canForkTurn,
-      isMostRecentTurn,
-      requests,
-      turn,
+      backgroundAgentRows,
+      entry,
     ],
   );
 
   return (
-    <div
-      data-content-search-turn-key={turnSearchKey}
-      data-virtualized-turn-content="true"
-    >
-      <ThreadTurn
-        turn={turnModel}
-        agentBodyCollapsed={
-          persistedCollapsed ?? turnModel.defaultAgentBodyCollapsed
-        }
-        hasPersistedAgentBodyCollapsedState={persistedCollapsed !== undefined}
-        onAgentBodyCollapsedChange={(turnId, collapsed) => {
-          if (turnId !== turn.turnId) return;
-          onSetCollapsed?.(collapsed);
-        }}
+    <>
+      <LocalConversationAboveComposerPortal
+        blocks={turnModel.aboveComposerBlocks ?? []}
+        conversationId={conversationId}
+        isLatestTurn={entry.isMostRecentTurn}
+        isStreamingTurn={turn.status === "inProgress"}
         projectWorkspacePath={projectWorkspacePath}
-        childMemberships={childMemberships}
         threadCwd={threadCwd}
-        onEditLastUserTurn={onEditLastTurnMessage}
-        onForkFromTurn={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
         onOpenSideChat={onOpenSideChat}
-      onOpenThread={onOpenThread}
-      onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
-      onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+        onOpenThread={onOpenThread}
+        onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
         onOpenPlanInSidePanel={onOpenPlanInSidePanel}
         onClosePlanSidePanel={onClosePlanSidePanel}
         planSidePanelState={planSidePanelState}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-        latestTurnFollowContentRef={latestTurnFollowContentRef}
       />
-    </div>
+      <div
+        data-content-search-turn-key={entry.turnSearchKey}
+        data-virtualized-turn-content="true"
+      >
+        <ThreadTurn
+          turn={turnModel}
+          agentBodyCollapsed={
+            persistedCollapsed ?? turnModel.defaultAgentBodyCollapsed
+          }
+          onAgentBodyCollapsedChange={(turnKey, collapsed) => {
+            if (turnKey !== entry.turnKey) return;
+            onSetCollapsed?.(collapsed);
+          }}
+          projectWorkspacePath={projectWorkspacePath}
+          childMemberships={childMemberships}
+          threadCwd={threadCwd}
+          onEditLastUserTurn={onEditLastTurnMessage}
+          onForkFromTurn={onForkTurnMessage}
+          onOpenTurnDiffReview={onOpenTurnDiffReview}
+          onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+          onOpenSideChat={onOpenSideChat}
+          onOpenThread={onOpenThread}
+          onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
+          onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+          onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+          onClosePlanSidePanel={onClosePlanSidePanel}
+          planSidePanelState={planSidePanelState}
+          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+          latestTurnFollowContentRef={latestTurnFollowContentRef}
+        />
+      </div>
+    </>
   );
 }
 
@@ -135,11 +151,13 @@ export const LocalConversationTurnEntry = memo(
   (left, right) =>
     left.conversationId === right.conversationId
     && left.childMemberships === right.childMemberships
-    && left.turnSearchKey === right.turnSearchKey
-    && left.turn === right.turn
-    && left.requests === right.requests
+    && left.backgroundAgentRows === right.backgroundAgentRows
+    && left.entry.turn === right.entry.turn
+    && left.entry.requests === right.entry.requests
+    && left.entry.turnKey === right.entry.turnKey
+    && left.entry.turnSearchKey === right.entry.turnSearchKey
+    && left.entry.isMostRecentTurn === right.entry.isMostRecentTurn
     && left.cwd === right.cwd
-    && left.isMostRecentTurn === right.isMostRecentTurn
     && left.persistedCollapsed === right.persistedCollapsed
     && left.onSetCollapsed === right.onSetCollapsed
     && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix

@@ -1,10 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { render, textContent } from "../../../../../test/dom";
 import { DynamicToolCall } from "./dynamic-tool-call";
+
+function activityText(container: HTMLElement): string {
+  const shimmer = container.querySelector(".loading-shimmer-pure-text");
+  return shimmer?.firstChild?.textContent ?? textContent(container);
+}
 
 function buildDynamicEntry(overrides?: Partial<NonNullable<CodexTranscriptEntry["dynamicToolCall"]>>): CodexTranscriptEntry {
   const dynamicToolCall: NonNullable<CodexTranscriptEntry["dynamicToolCall"]> = {
@@ -59,7 +64,7 @@ describe("DynamicToolCall", () => {
   test("renders Codex app meta thread calls as compact rows", () => {
     const { container } = render(<DynamicToolCall item={buildDynamicEntry()} />);
 
-    expect(textContent(container)).toBe("Read thread");
+    expect(textContent(container)).toBe("Read task");
     expect(textContent(container).includes("schemaVersion")).toBe(false);
     expect(textContent(container).includes("Arguments")).toBe(false);
   });
@@ -75,12 +80,12 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "Read thread" }));
+    fireEvent.click(getByRole("button", { name: "Read task" }));
 
     expect(openedThreads.join(",")).toBe("thread-1");
   });
 
-  test("renders completed create_thread success as an open-chat card", () => {
+  test("renders completed create_thread success as an open-task card", async () => {
     const openedThreads: string[] = [];
     const { getByRole, container } = render(
       <DynamicToolCall
@@ -98,20 +103,20 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    expect(textContent(container).includes("Chat created")).toBe(true);
-    expect(textContent(container).includes("Open chat")).toBe(true);
-    expect(getByRole("button").getAttribute("aria-label")).toBe("Open chat");
+    expect(textContent(container).includes("Task created")).toBe(true);
+    expect(textContent(container).includes("Open task")).toBe(true);
+    expect(getByRole("button").getAttribute("aria-label")).toBe("Open task");
 
-    fireEvent.click(getByRole("button"));
+    await act(async () => {
+      fireEvent.click(getByRole("button"));
+      await Promise.resolve();
+    });
 
     expect(openedThreads.join(",")).toBe("thread-created");
   });
 
-  test("keeps create_thread worktree setup card on the pending-worktree hash fallback", () => {
-    const previousHash = window.location.hash;
-    window.location.hash = "";
-
-    try {
+  test("opens create_thread client results through normal thread navigation", async () => {
+      const openedThreads: string[] = [];
       const { getByRole, container } = render(
         <DynamicToolCall
           item={buildDynamicEntry({
@@ -124,20 +129,51 @@ describe("DynamicToolCall", () => {
                 environment: { type: "worktree" },
               },
             },
-            contentItems: [{ type: "inputText", text: "{\"pendingWorktreeId\":\"pending-worktree\"}" }],
+            contentItems: [{
+              type: "inputText",
+              text: "{\"clientThreadId\":\"client-new-thread:11111111-1111-4111-8111-111111111111\"}",
+            }],
           })}
+          onOpenThread={(threadId) => {
+            openedThreads.push(threadId);
+          }}
         />,
       );
 
-      expect(textContent(container).includes("Worktree chat queued")).toBe(true);
+      expect(textContent(container).includes("Worktree task queued")).toBe(true);
       expect(textContent(container).includes("Open setup")).toBe(true);
+      expect(getByRole("button").getAttribute("aria-label")).toBe("Open worktree setup");
 
-      fireEvent.click(getByRole("button"));
+      await act(async () => {
+        fireEvent.click(getByRole("button"));
+        await Promise.resolve();
+      });
 
-      expect(window.location.hash).toBe("#/worktrees/pending/pending-worktree");
-    } finally {
-      window.location.hash = previousHash;
-    }
+      expect(openedThreads.join(",")).toBe(
+        "client-new-thread:11111111-1111-4111-8111-111111111111",
+      );
+  });
+
+  test("does not materialize legacy create_thread pendingWorktreeId output as a card", () => {
+    const { container, queryByRole } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          tool: "create_thread",
+          arguments: {
+            prompt: "Continue in a worktree task",
+            target: {
+              type: "project",
+              projectId: "project-1",
+              environment: { type: "worktree" },
+            },
+          },
+          contentItems: [{ type: "inputText", text: "{\"pendingWorktreeId\":\"pending-worktree\"}" }],
+        })}
+      />,
+    );
+
+    expect(textContent(container)).toBe("Created worktree task");
+    expect(Boolean(queryByRole("button"))).toBe(false);
   });
 
   test("renders handoff_thread as a status activity when operation steps are available", () => {
@@ -165,7 +201,7 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    expect(getByRole("button", { name: /Handing off thread/i }).getAttribute("aria-expanded")).toBe("true");
+    expect(getByRole("button", { name: /Handing off task/i }).getAttribute("aria-expanded")).toBe("true");
     expect(textContent(container).includes("Resolve thread")).toBe(true);
     expect(textContent(container).includes("Move thread")).toBe(true);
     expect(textContent(container).includes("Arguments")).toBe(false);
@@ -197,7 +233,7 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    expect(textContent(settings)).toBe("Reading settings");
+    expect(activityText(settings)).toBe("Reading settings");
     expect(textContent(chrome)).toBe("Read tab");
     expect(textContent(chrome).includes("Get Tab Context")).toBe(false);
   });
@@ -251,7 +287,7 @@ describe("DynamicToolCall", () => {
       />,
     );
 
-    expect(textContent(container)).toBe("Updating scheduled task");
+    expect(activityText(container)).toBe("Updating scheduled task");
   });
 
   test("renders completed automation_update results as openable scheduled task cards", () => {

@@ -8,7 +8,7 @@ import type {
   ProjectSession,
   ProjectSessionTab,
 } from "@/lib/types";
-import type { SidebarPinnedOrganizationMode, WorkbenchView } from "@/lib/use-workbench-state";
+import type { WorkbenchView } from "@/lib/use-workbench-state";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { buildCardDetailStoryCommandResult } from "../kanban/card-stage/card-stage-story-card-detail";
 import {
@@ -34,7 +34,6 @@ type ShellStoryArgs = {
   sidebar: "expanded" | "collapsed";
   sidebarReveal: "idle" | "edge" | "focus";
   sidebarWidth: 240 | 300 | 520;
-  pinnedOrganizationMode: SidebarPinnedOrganizationMode;
   navigationHistory: "disabled" | "back" | "forward" | "both";
   longNames: boolean;
 };
@@ -58,7 +57,6 @@ const meta = {
     sidebar: "expanded",
     sidebarReveal: "idle",
     sidebarWidth: 300,
-    pinnedOrganizationMode: "byProject",
     navigationHistory: "both",
     longNames: false,
   },
@@ -94,10 +92,6 @@ const meta = {
     sidebarWidth: {
       control: "inline-radio",
       options: [240, 300, 520],
-    },
-    pinnedOrganizationMode: {
-      control: "inline-radio",
-      options: ["byProject", "manualOrder"],
     },
     navigationHistory: {
       control: "inline-radio",
@@ -211,6 +205,8 @@ function makeTab(
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     ...overrides,
+    browserTabId: overrides.browserTabId
+      ?? (overrides.kind === "browser" ? `browser:${overrides.id}` : null),
   };
 }
 
@@ -588,7 +584,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   const [sessionsByProject, setSessionsByProject] = useState(initialSessionsByProject);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
-  const [pinnedOrganizationMode, setPinnedOrganizationMode] = useState<SidebarPinnedOrganizationMode>(args.pinnedOrganizationMode);
   const [sidebarCollapsibleSections, setSidebarCollapsibleSections] = useState({
     pinned: false,
     projects: false,
@@ -602,8 +597,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   useEffect(() => {
     setSidebarCollapsed(args.sidebar === "collapsed");
     setSidebarWidth(args.sidebarWidth);
-    setPinnedOrganizationMode(args.pinnedOrganizationMode);
-  }, [args.pinnedOrganizationMode, args.sidebar, args.sidebarWidth]);
+  }, [args.sidebar, args.sidebarWidth]);
 
   useEffect(() => {
     if (args.rightPanel === "collapsed") return undefined;
@@ -652,7 +646,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   return (
     <div className="h-screen">
       <WorkbenchShell
-        key={`${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.pinnedOrganizationMode}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
+        key={`${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
         projects={PROJECTS}
         dbProjectId="nodex"
         activeView={"kanban" as WorkbenchView}
@@ -664,12 +658,10 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         sidebar={{
           collapsed: sidebarCollapsed,
           width: sidebarWidth,
-          pinnedOrganizationMode,
           collapsibleSections: sidebarCollapsibleSections,
         }}
         setSidebarCollapsed={setSidebarCollapsed}
         setSidebarWidth={setSidebarWidth}
-        setSidebarPinnedOrganizationMode={setPinnedOrganizationMode}
         setSidebarCollapsibleSectionCollapsed={(sectionId, collapsed) => {
           setSidebarCollapsibleSections((current) => ({
             ...current,
@@ -1185,33 +1177,16 @@ export const ScheduledRouteShellHeader: Story = {
   },
 };
 
-export const SidebarPinnedByProject: Story = {
+export const SidebarPinnedProjection: Story = {
   args: {
     thread: "attached",
     sidebar: "expanded",
     sidebarWidth: 300,
-    pinnedOrganizationMode: "byProject",
   },
   parameters: {
     docs: {
       description: {
-        story: "Pinned organization default: pinned chats render at the top of their project subtree while the Pinned header keeps the organize menu available.",
-      },
-    },
-  },
-};
-
-export const SidebarPinnedManualOrder: Story = {
-  args: {
-    thread: "attached",
-    sidebar: "expanded",
-    sidebarWidth: 300,
-    pinnedOrganizationMode: "manualOrder",
-  },
-  parameters: {
-    docs: {
-      description: {
-        story: "Pinned organization compatibility mode: pinned chats render as standalone rows in the Pinned section before pinned project folders.",
+        story: "Pinned tasks always render as standalone Pinned rows; pinned project folders separately render their remaining project children.",
       },
     },
   },

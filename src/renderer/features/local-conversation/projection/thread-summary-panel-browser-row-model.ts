@@ -37,12 +37,9 @@ export function buildThreadSummaryPanelBrowserRow(
 
 export function isThreadSummaryBrowserRowAgentWorking(
   activeBrowserUseTabId: string | null | undefined,
-  releasedBrowserUseTabIds: ReadonlySet<string>,
-  tabId: string,
+  browserTabId: string,
 ): boolean {
-  if (!activeBrowserUseTabId) return false;
-  if (activeBrowserUseTabId !== tabId) return false;
-  return !releasedBrowserUseTabIds.has(tabId);
+  return activeBrowserUseTabId === browserTabId;
 }
 
 function isHiddenBrowserSummaryUrl(url: string): boolean {

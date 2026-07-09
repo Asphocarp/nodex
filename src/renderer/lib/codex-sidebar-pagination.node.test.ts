@@ -109,4 +109,25 @@ describe("paginateCodexSidebarItems", () => {
     ]));
     expect(result.showPager).toBe(true);
   });
+
+  test("does not charge a forced visible item against the page quota", () => {
+    const result = paginateCodexSidebarItems({
+      items: items(8),
+      getKey: (item) => item,
+      maxItems: CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
+      expanded: false,
+      extraPageCount: 1,
+      forcedVisibleKey: "item-1",
+    });
+
+    expect(JSON.stringify(result.visibleItems)).toBe(JSON.stringify([
+      "item-1",
+      "item-2",
+      "item-3",
+      "item-4",
+      "item-5",
+      "item-6",
+    ]));
+    expect(result.showPager).toBe(true);
+  });
 });

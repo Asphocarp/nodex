@@ -3,6 +3,7 @@ import {
   GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
   GIT_ACTION_CREATE_PR_PROMPT,
 } from "@/lib/git-action-prompts";
+import type { CodexProtocolRequestId } from "@/lib/types";
 import { createThreadStageActions, type ThreadActionControllerInput } from "./thread-action-controller";
 
 function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadActionControllerInput {
@@ -47,6 +48,7 @@ function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadAct
       setThreadReasoningEffort: (reasoningEffort: string) => {
         draftReasoning.push(reasoningEffort);
       },
+      setPersonality: async () => undefined,
     } as unknown as ThreadActionControllerInput["codexControl"],
     currentSessionProjectId: "project_1",
     projectId: "project_1",
@@ -70,6 +72,27 @@ function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadAct
 }
 
 describe("createThreadStageActions settings routing", () => {
+  test("sets the host personality and current-thread next-turn personality together", async () => {
+    const calls: string[] = [];
+    const input = buildInput({
+      codexControl: {
+        setPersonality: async (personality: string) => {
+          calls.push(`host:${personality}`);
+        },
+        setConversationThreadSettings: async (threadId: string, patch: { personality?: string }) => {
+          calls.push(`thread:${threadId}:${patch.personality ?? ""}`);
+          return null;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onPersonalityChange?.("pragmatic");
+
+    expect(calls.includes("host:pragmatic")).toBe(true);
+    expect(calls.includes("thread:thread_1:pragmatic")).toBe(true);
+  });
+
   test("routes active thread settings through conversation settings update", () => {
     const settingsUpdates: unknown[] = [];
     const draftModes: string[] = [];
@@ -139,11 +162,187 @@ describe("createThreadStageActions settings routing", () => {
     expect(JSON.stringify(draftReasoning)).toBe(JSON.stringify(["medium"]));
   });
 
+  test("opens a pending worktree route without refreshing real project sessions", async () => {
+    const calls: string[] = [];
+    const input = buildInput({
+      activeThreadId: null,
+      codexControl: {
+        startThreadForSession: async () => ({
+          kind: "pending" as const,
+          pendingWorktreeId: "local:pending-composer",
+          clientThreadId: "client-new-thread:pending-composer",
+        }),
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      onOpenPendingWorktree: (clientThreadId) => {
+        calls.push(`open:${clientThreadId}`);
+      },
+      onRefreshProjectSessions: async (projectId) => {
+        calls.push(`refresh:${projectId}`);
+        return [];
+      },
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onStartThreadForSession?.({
+      projectId: "project_1",
+      sessionId: "session_1",
+      prompt: "Start in a worktree",
+      runInTarget: "newWorktree",
+    });
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      "open:client-new-thread:pending-composer",
+    ]));
+  });
+
+  test("refreshes real project sessions after a direct session thread starts", async () => {
+    const calls: string[] = [];
+    const startInputs: unknown[] = [];
+    const input = buildInput({
+      activeThreadId: null,
+      codexControl: {
+        startThreadForSession: async (startInput: unknown) => {
+          startInputs.push(startInput);
+          return {
+            kind: "started" as const,
+            detail: { threadId: "thread-started" },
+          };
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      onOpenPendingWorktree: (clientThreadId) => {
+        calls.push(`open:${clientThreadId}`);
+      },
+      onRefreshProjectSessions: async (projectId) => {
+        calls.push(`refresh:${projectId}`);
+        return [];
+      },
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onStartThreadForSession?.({
+      projectId: "project_1",
+      sessionId: "session_1",
+      prompt: "Start locally",
+      threadGoalMaterializedDraft: {
+        objective: "Keep the local goal active",
+        attachmentDirectory: "/tmp/goal-materialized",
+      },
+      runInTarget: "localProject",
+    });
+
+    expect(JSON.stringify(startInputs)).toBe(JSON.stringify([{
+      projectId: "project_1",
+      sessionId: "session_1",
+      prompt: "Start locally",
+      threadGoalMaterializedDraft: {
+        objective: "Keep the local goal active",
+        attachmentDirectory: "/tmp/goal-materialized",
+      },
+      runInTarget: "localProject",
+      collaborationMode: "default",
+    }]));
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      "refresh:project_1",
+    ]));
+  });
+
+  test("cleans a materialized goal when cross-project session preflight fails", async () => {
+    const cleaned: unknown[] = [];
+    let startCalls = 0;
+    const input = buildInput({
+      activeThreadId: null,
+      codexControl: {
+        startThreadForSession: async () => {
+          startCalls += 1;
+          throw new Error("service must not start");
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      cleanupThreadGoalMaterializedDraft: async (materialized) => {
+        cleaned.push(materialized);
+      },
+      onEnsureBlankSessionForProject: async () => {
+        throw new Error("blank session failed");
+      },
+    });
+    const actions = createThreadStageActions(input);
+    let errorMessage = "";
+
+    try {
+      await actions.onStartThreadForSession?.({
+        projectId: "project_2",
+        sessionId: "session_1",
+        prompt: "Materialized goal",
+        threadGoalDraft: {
+          objective: "Raw goal",
+          pastedTextAttachments: [{ text: "raw source" }],
+          imageAttachments: [],
+        },
+        threadGoalMaterializedDraft: {
+          objective: "Materialized goal",
+          attachmentDirectory: "/tmp/materialized-goal",
+        },
+        runInTarget: "localProject",
+      });
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(errorMessage).toBe("blank session failed");
+    expect(startCalls).toBe(0);
+    expect(JSON.stringify(cleaned)).toBe(JSON.stringify([{
+      objective: "Materialized goal",
+      attachmentDirectory: "/tmp/materialized-goal",
+    }]));
+  });
+
+  test("retains materialized goal ownership after the start service returns", async () => {
+    let cleanupCalls = 0;
+    const input = buildInput({
+      activeThreadId: null,
+      codexControl: {
+        startThreadForSession: async () => ({
+          kind: "started" as const,
+          detail: { threadId: "thread-started" },
+        }),
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      cleanupThreadGoalMaterializedDraft: async () => {
+        cleanupCalls += 1;
+      },
+      onRefreshProjectSessions: async () => {
+        throw new Error("refresh failed after start");
+      },
+    });
+    const actions = createThreadStageActions(input);
+    let errorMessage = "";
+
+    try {
+      await actions.onStartThreadForSession?.({
+        projectId: "project_1",
+        sessionId: "session_1",
+        prompt: "Materialized goal",
+        threadGoalMaterializedDraft: {
+          objective: "Materialized goal",
+          attachmentDirectory: "/tmp/materialized-goal",
+        },
+        runInTarget: "localProject",
+      });
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(errorMessage).toBe("refresh failed after start");
+    expect(cleanupCalls).toBe(0);
+  });
+
   test("routes permission request responses through Codex control with conversation context", async () => {
     const calls: unknown[] = [];
     const input = buildInput({
       codexControl: {
-        respondPermissionRequest: async (requestId: string, response: unknown, conversationId: string | null) => {
+        respondPermissionRequest: async (
+          requestId: CodexProtocolRequestId,
+          response: unknown,
+          conversationId: string | null,
+        ) => {
           calls.push({ requestId, response, conversationId });
           return true;
         },
@@ -168,6 +367,70 @@ describe("createThreadStageActions settings routing", () => {
         conversationId: "thread-1",
       },
     ]));
+  });
+
+  test("routes setup-step responses through the owning conversation", async () => {
+    const calls: unknown[] = [];
+    const input = buildInput({
+      codexControl: {
+        respondSetupCodexStep: async (
+          conversationId: string,
+          requestId: CodexProtocolRequestId,
+          response: unknown,
+        ) => {
+          calls.push({ conversationId, requestId, response });
+          return true;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onRespondSetupCodexStep?.("setup-context-1", {
+      step: "context",
+      action: "continue",
+      selectedSources: ["google-drive"],
+    }, {
+      conversationId: "thread-child",
+    });
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([{
+      conversationId: "thread-child",
+      requestId: "setup-context-1",
+      response: {
+        step: "context",
+        action: "continue",
+        selectedSources: ["google-drive"],
+      },
+    }]));
+  });
+
+  test("routes approval kind through Codex control with conversation context", async () => {
+    const calls: unknown[] = [];
+    const input = buildInput({
+      codexControl: {
+        respondApproval: async (
+          requestId: CodexProtocolRequestId,
+          kind: "command" | "file",
+          decision: string,
+          conversationId: string | null,
+        ) => {
+          calls.push({ requestId, kind, decision, conversationId });
+          return true;
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onRespondApproval("approval-1", "file", "decline", {
+      conversationId: "thread-1",
+    });
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([{
+      requestId: "approval-1",
+      kind: "file",
+      decision: "decline",
+      conversationId: "thread-1",
+    }]));
   });
 
   test("routes summary commit-or-push action through the active thread", async () => {

@@ -51,12 +51,9 @@ describe("buildThreadSummaryPanelBrowserRow", () => {
 });
 
 describe("isThreadSummaryBrowserRowAgentWorking", () => {
-  test("marks only the active unreleased BrowserUse tab as working", () => {
-    const released = new Set(["browser-2"]);
-
-    expect(isThreadSummaryBrowserRowAgentWorking("browser-1", released, "browser-1")).toBe(true);
-    expect(isThreadSummaryBrowserRowAgentWorking("browser-2", released, "browser-2")).toBe(false);
-    expect(isThreadSummaryBrowserRowAgentWorking("browser-1", released, "browser-3")).toBe(false);
-    expect(isThreadSummaryBrowserRowAgentWorking(null, released, "browser-1")).toBe(false);
+  test("marks only the conversation-active BrowserUse identity as working", () => {
+    expect(isThreadSummaryBrowserRowAgentWorking("browser-1", "browser-1")).toBe(true);
+    expect(isThreadSummaryBrowserRowAgentWorking("browser-2", "browser-1")).toBe(false);
+    expect(isThreadSummaryBrowserRowAgentWorking(null, "browser-1")).toBe(false);
   });
 });

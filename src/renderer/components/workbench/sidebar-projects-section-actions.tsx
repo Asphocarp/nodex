@@ -10,21 +10,14 @@ import {
   CodexSidebarManualOrderIcon,
   CodexSidebarSortClockIcon,
   CodexSidebarUpdatedIcon,
-  CodexSessionPinIcon,
 } from "@/components/shared/icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
   NodexDropdownMenu,
-  NodexDropdownRadioGroup,
-  NodexDropdownRadioItem,
   NodexDropdownSelectedIcon,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
-import {
-  normalizeSidebarPinnedOrganizationMode,
-  type SidebarPinnedOrganizationMode,
-} from "@/lib/use-workbench-state";
 import type { SidebarProjectGroupCollapseAction } from "@/lib/sidebar-project-group-collapse-action";
 import { CodexSidebarActionButton } from "./codex-sidebar";
 import { SidebarProjectAddMenu } from "./sidebar-project-add-menu";
@@ -32,28 +25,16 @@ import { SidebarProjectAddMenu } from "./sidebar-project-add-menu";
 const PROJECT_SIDEBAR_OPTIONS_CONTENT_CLASS = "min-w-[172px] max-w-[240px]";
 const PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS = "min-w-[180px]";
 const PROJECT_SIDEBAR_MENU_ICON_CLASS = "icon-xs opacity-75 group-focus:opacity-100 group-hover:opacity-100";
-const SIDEBAR_PINNED_ORGANIZATION_OPTIONS: readonly {
-  value: SidebarPinnedOrganizationMode;
-  label: string;
-}[] = [
-  { value: "byProject", label: "By project" },
-  { value: "manualOrder", label: "Manual order" },
-];
-
 export function SidebarProjectsSectionActions({
   projectGroupCollapseAction,
   onProjectGroupCollapseAction,
   onCreateProject,
   openSetupTick,
-  pinnedOrganizationMode,
-  onPinnedOrganizationModeChange,
 }: {
   projectGroupCollapseAction?: SidebarProjectGroupCollapseAction | null;
   onProjectGroupCollapseAction?: (action: SidebarProjectGroupCollapseAction) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   openSetupTick: number;
-  pinnedOrganizationMode?: SidebarPinnedOrganizationMode;
-  onPinnedOrganizationModeChange?: (mode: SidebarPinnedOrganizationMode) => void;
 }) {
   const collapseActionLabel = projectGroupCollapseAction === "collapse-all"
     ? "Collapse all"
@@ -74,10 +55,7 @@ export function SidebarProjectsSectionActions({
             : <CodexProjectReopenPreviousIcon />}
         </CodexSidebarActionButton>
       ) : null}
-      <SidebarProjectOptionsMenu
-        pinnedOrganizationMode={pinnedOrganizationMode}
-        onPinnedOrganizationModeChange={onPinnedOrganizationModeChange}
-      />
+      <SidebarProjectOptionsMenu />
       <SidebarProjectAddMenu
         onCreateProject={onCreateProject}
         openSetupTick={openSetupTick}
@@ -86,16 +64,8 @@ export function SidebarProjectsSectionActions({
   );
 }
 
-function SidebarProjectOptionsMenu({
-  pinnedOrganizationMode,
-  onPinnedOrganizationModeChange,
-}: {
-  pinnedOrganizationMode?: SidebarPinnedOrganizationMode;
-  onPinnedOrganizationModeChange?: (mode: SidebarPinnedOrganizationMode) => void;
-}) {
+function SidebarProjectOptionsMenu() {
   const [open, setOpen] = useState(false);
-  const normalizedPinnedOrganizationMode = normalizeSidebarPinnedOrganizationMode(pinnedOrganizationMode);
-  const pinnedOrganizationDisabled = onPinnedOrganizationModeChange == null;
 
   return (
     <NodexDropdownMenu
@@ -121,32 +91,6 @@ function SidebarProjectOptionsMenu({
         Archive all chats
       </NodexDropdownItem>
       <NodexDropdownSeparator paddingClassName="pt-1 pb-2" />
-      <NodexDropdownFlyoutSubmenuItem
-        label="Organize pins"
-        contentClassName={PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS}
-        leftSlot={<CodexSessionPinIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
-      >
-        <NodexDropdownRadioGroup
-          value={normalizedPinnedOrganizationMode}
-          onValueChange={(value) => {
-            if (!onPinnedOrganizationModeChange) return;
-            onPinnedOrganizationModeChange(normalizeSidebarPinnedOrganizationMode(value));
-          }}
-        >
-          {SIDEBAR_PINNED_ORGANIZATION_OPTIONS.map((option) => (
-            <NodexDropdownRadioItem
-              key={option.value}
-              value={option.value}
-              disabled={pinnedOrganizationDisabled}
-              leftSlot={option.value === "byProject"
-                ? <CodexProjectFolderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />
-                : <CodexSidebarManualOrderIcon className={PROJECT_SIDEBAR_MENU_ICON_CLASS} />}
-            >
-              {option.label}
-            </NodexDropdownRadioItem>
-          ))}
-        </NodexDropdownRadioGroup>
-      </NodexDropdownFlyoutSubmenuItem>
       <NodexDropdownFlyoutSubmenuItem
         label="Organize sidebar"
         contentClassName={PROJECT_SIDEBAR_OPTIONS_SUBMENU_CLASS}

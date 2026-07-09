@@ -7,7 +7,7 @@ export const CODEX_SHIMMER_CADENCE_MS = {
   interval: 4_000,
 } as const;
 
-export const CODEX_SHIMMER_VARIANT = "classic" as const;
+export const CODEX_SHIMMER_VARIANT = "cadenced" as const;
 
 type CodexShimmerVariant = "classic" | "cadenced";
 
@@ -38,6 +38,7 @@ export function CodexShimmerText({
     if (!element) return;
 
     let clearActiveTimeout: number | undefined;
+    let interval: number | undefined;
     const clearActive = () => {
       if (clearActiveTimeout === undefined) return;
       window.clearTimeout(clearActiveTimeout);
@@ -55,16 +56,13 @@ export function CodexShimmerText({
 
     const initialTimeout = window.setTimeout(() => {
       run();
-      const interval = window.setInterval(run, CODEX_SHIMMER_CADENCE_MS.interval);
-      element.dataset.codexCadencedInterval = String(interval);
+      interval = window.setInterval(run, CODEX_SHIMMER_CADENCE_MS.interval);
     }, CODEX_SHIMMER_CADENCE_MS.initialDelay);
 
     return () => {
       clearActive();
       window.clearTimeout(initialTimeout);
-      const interval = Number(element.dataset.codexCadencedInterval);
-      if (Number.isFinite(interval)) window.clearInterval(interval);
-      delete element.dataset.codexCadencedInterval;
+      if (interval !== undefined) window.clearInterval(interval);
       element.classList.remove("codex-cadenced-shimmer-active");
     };
   }, [useCadenced]);

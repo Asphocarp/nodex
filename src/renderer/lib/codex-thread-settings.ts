@@ -25,11 +25,14 @@ const FALLBACK_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
 ];
 
 const REASONING_EFFORT_LABELS: Record<CodexReasoningEffort, string> = {
+  none: "None",
   minimal: "Minimal",
   low: "Light",
   medium: "Medium",
   high: "High",
   xhigh: "Extra High",
+  max: "Maximum",
+  ultra: "Ultra",
 };
 
 const THREAD_DETAIL_LEVEL_LABELS: Record<CodexThreadDetailLevel, string> = {

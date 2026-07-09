@@ -37,7 +37,7 @@ export function buildThreadSummaryPanelPlanRow({
       if (!item || !isSummaryPanelPlanItem(item)) continue;
 
       const content = item.markdownText?.trim();
-      if (!content) continue;
+      if (!content || item.turnId === null) continue;
 
       const label = resolvePlanTitle(content) ?? "Plan";
       return {

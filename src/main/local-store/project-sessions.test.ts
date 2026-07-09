@@ -18,6 +18,7 @@ import {
   listProjectSessions,
   listProjectlessSessions,
   archiveProjectSession,
+  moveProjectSessionToProject,
   moveProjectSessionTab,
   reorderProjectSessionTabs,
   reorderProjectSessions,
@@ -35,6 +36,12 @@ import {
   listProjectSessionPanelLeaves,
 } from "../../shared/project-session-panel-layout";
 import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-sessions";
+import {
+  getCodexThread,
+  setCodexThreadHasUnreadTurn,
+  updateCodexThreadArchived,
+  upsertCodexThread,
+} from "../codex/codex-link-repository";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -193,6 +200,7 @@ describe("project session service", () => {
         sessionId: session.id,
         projectId,
         threadId: "thread-summary-test",
+        forkedFromId: "thread-summary-root",
         threadName: "Thread summary title",
         threadPreview: "Thread summary preview",
         modelProvider: "openai",
@@ -214,7 +222,9 @@ describe("project session service", () => {
       expect(Object.prototype.hasOwnProperty.call(summary as object, "panels")).toBe(false);
       expect(summary?.displayTitle).toBe("Thread summary title");
       expect(summary?.thread?.threadId).toBe("thread-summary-test");
+      expect(summary?.thread?.forkedFromId).toBe("thread-summary-root");
       expect(summary?.thread?.managedWorktreePath).toBe("/tmp/project/.worktrees/thread-summary-test");
+      expect(detail?.thread?.forkedFromId).toBe("thread-summary-root");
       expect(detail?.tabs.length).toBe(1);
       expect(detail?.panels.right.collapsed).toBe(false);
     });
@@ -222,7 +232,7 @@ describe("project session service", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("supports projectless chat sessions without overview or project-scoped tabs", async () => {
+  test("gives projectless browser tabs conversation-scoped identities while rejecting project-scoped tabs", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({
         projectId: null,
@@ -233,17 +243,149 @@ describe("project session service", () => {
       expect(listProjectSessions(null).length).toBe(1);
       expect(listProjectlessSessions().length).toBe(1);
 
+      const defaultBrowser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: null,
+        panelId: "right",
+        clientTabId: "durable:default-browser",
+        kind: "browser",
+        title: "Browser",
+        config: { projectId: null },
+      });
+      const allocatedBrowser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: null,
+        panelId: "right",
+        clientTabId: "durable:allocated-browser",
+        kind: "browser",
+        title: "Browser two",
+        config: { projectId: null },
+      });
+      const explicitBrowser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: null,
+        panelId: "bottom",
+        kind: "browser",
+        title: "Transferred browser",
+        browserTabId: "source-browser-id",
+        config: { projectId: null, url: "https://example.com" },
+      });
+
+      expect(defaultBrowser.id).toBe("durable:default-browser");
+      expect(defaultBrowser.browserTabId === `${session.id}:legacy`).toBe(false);
+      expect(allocatedBrowser.id).toBe("durable:allocated-browser");
+      expect(allocatedBrowser.browserTabId === defaultBrowser.browserTabId).toBe(false);
+      expect(allocatedBrowser.browserTabId === allocatedBrowser.id).toBe(false);
+      expect(explicitBrowser.browserTabId).toBe("source-browser-id");
+      expect(explicitBrowser.projectId ?? null).toBe(null);
+      expect(explicitBrowser.config.projectId ?? null).toBe(null);
+
+      const secondSession = createProjectSession({
+        projectId: null,
+        noThreadFallbackTitle: "Second external chat",
+      });
+      const sameIdentityInAnotherConversation = createProjectSessionTab({
+        sessionId: secondSession.id,
+        projectId: null,
+        panelId: "right",
+        kind: "browser",
+        title: "Transferred browser",
+        browserTabId: "source-browser-id",
+        config: { projectId: null },
+      });
+      expect(sameIdentityInAnotherConversation.browserTabId).toBe("source-browser-id");
+
+      const duplicatePanelReference = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: null,
+        panelId: "right",
+        kind: "browser",
+        title: "Duplicate identity",
+        browserTabId: "source-browser-id",
+        config: { projectId: null },
+      });
+      expect(duplicatePanelReference.browserTabId).toBe("source-browser-id");
+
       const error = runValidation(() => {
         createProjectSessionTab({
           sessionId: session.id,
-          projectId,
+          projectId: null,
           panelId: "right",
           kind: "db_view",
           title: "DB View",
           config: { projectId, view: "kanban" },
         });
       });
-      expect(error).toBe("Projectless sessions cannot own project-scoped tabs");
+      expect(error).toBe("Projectless sessions can only own browser tabs");
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("re-homes browser-only sessions without changing browser conversation or tab identity", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId: null,
+        noThreadFallbackTitle: "Portable browser",
+      });
+      const browser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: null,
+        panelId: "right",
+        clientTabId: "durable:portable-browser",
+        browserTabId: "named-browser",
+        kind: "browser",
+        title: "Browser",
+        config: { projectId: null, url: "https://example.com" },
+      });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: null,
+        threadId: "thread-portable-browser",
+        threadPreview: "Portable browser",
+        modelProvider: "openai",
+      });
+
+      const scoped = moveProjectSessionToProject(session.id, projectId);
+      const scopedBrowser = scoped?.tabs[0];
+      expect(scoped?.id).toBe(session.id);
+      expect(scoped?.projectId).toBe(projectId);
+      expect(scoped?.thread?.projectId).toBe(projectId);
+      expect(scopedBrowser?.id).toBe(browser.id);
+      expect(scopedBrowser?.browserTabId).toBe(browser.browserTabId);
+      expect(scopedBrowser?.projectId).toBe(projectId);
+      expect(scopedBrowser?.config.projectId).toBe(projectId);
+      expect(scopedBrowser && "url" in scopedBrowser.config ? scopedBrowser.config.url : null).toBe(
+        "https://example.com",
+      );
+      expect(getCodexThread("thread-portable-browser")?.projectId).toBe(projectId);
+
+      const projectless = moveProjectSessionToProject(session.id, null);
+      const projectlessBrowser = projectless?.tabs[0];
+      expect(projectless?.id).toBe(session.id);
+      expect(projectless?.projectId ?? null).toBe(null);
+      expect(projectless?.thread?.projectId ?? null).toBe(null);
+      expect(projectlessBrowser?.id).toBe(browser.id);
+      expect(projectlessBrowser?.browserTabId).toBe(browser.browserTabId);
+      expect(projectlessBrowser?.projectId ?? null).toBe(null);
+      expect(projectlessBrowser?.config.projectId ?? null).toBe(null);
+      expect(getCodexThread("thread-portable-browser")?.projectId ?? null).toBe(null);
+
+      const scopedSession = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "Project-bound panel",
+      });
+      createProjectSessionTab({
+        sessionId: scopedSession.id,
+        projectId,
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId },
+      });
+      const error = runValidation(() => moveProjectSessionToProject(scopedSession.id, null));
+      expect(error).toBe("Only empty or browser-only project sessions can move between projects");
+      expect(getProjectSession(scopedSession.id)?.projectId).toBe(projectId);
     });
 
     if (!ran) expect(true).toBe(true);
@@ -950,6 +1092,7 @@ describe("project session service", () => {
         sessionId: session.id,
         projectId: projectId,
         threadId: "thread-1",
+        forkedFromId: "fork-root-1",
         parentThreadId: "parent-1",
         threadName: "Thread One",
         threadPreview: "Working on the redesign",
@@ -966,6 +1109,7 @@ describe("project session service", () => {
       });
 
       expect(attached.threadId).toBe("thread-1");
+      expect(attached.forkedFromId).toBe("fork-root-1");
       expect(attached.parentThreadId).toBe("parent-1");
       expect(attached.threadName).toBe("Thread One");
       expect(attached.managedWorktreePath).toBe("/tmp/project/.worktrees/thread-1");
@@ -981,6 +1125,7 @@ describe("project session service", () => {
         threadPreview: "Follow-up",
       });
       expect(updated.threadId).toBe("thread-2");
+      expect(updated.forkedFromId).toBe(null);
       expect(updated.parentThreadId ?? null).toBe(null);
       expect(updated.threadPreview).toBe("Follow-up");
       expect(updated.projectlessOutputDirectory ?? null).toBe(null);
@@ -995,6 +1140,86 @@ describe("project session service", () => {
       expect(getProjectSession(session.id)?.thread === null).toBe(true);
       expect(getProjectSession(session.id)?.displayTitle).toBe("Agent run");
       expect(detachProjectSessionThread(session.id)).toBe(false);
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("inherits durable unread state when a session materializes its thread link", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thread-unread-before-session-link";
+      upsertCodexThread({
+        projectId,
+        threadId,
+        threadName: "Unread before materialization",
+        threadPreview: "Unread before materialization",
+        modelProvider: "openai",
+        cwd: "/tmp/project",
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      expect(setCodexThreadHasUnreadTurn(threadId, true)?.hasUnreadTurn).toBe(true);
+
+      const session = createProjectSession({
+        projectId,
+        noThreadFallbackTitle: "Unread session",
+      });
+      expect(getProjectSession(session.id)?.unread).toBe(false);
+
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId,
+        threadId,
+        threadName: "Unread before materialization",
+        threadPreview: "Unread before materialization",
+        modelProvider: "openai",
+        cwd: "/tmp/project",
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+
+      expect(getProjectSession(session.id)?.unread).toBe(true);
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("archive clears durable unread state across a fresh repository connection", async () => {
+    const ran = await withTempDatabase(async () => {
+      const threadId = "thread-archive-clears-unread";
+      upsertCodexThread({
+        projectId,
+        threadId,
+        threadName: "Archive clears unread",
+        threadPreview: "Archive clears unread",
+        modelProvider: "openai",
+        cwd: "/tmp/project",
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      expect(setCodexThreadHasUnreadTurn(threadId, true)?.hasUnreadTurn).toBe(true);
+      expect(updateCodexThreadArchived(threadId, true)?.archived).toBe(true);
+      expect(getCodexThread(threadId)?.hasUnreadTurn).toBe(false);
+      expect(setCodexThreadHasUnreadTurn(threadId, true)?.hasUnreadTurn).toBe(false);
+      const unreadRow = getDb().prepare(
+        "SELECT thread_id FROM codex_unread_threads WHERE thread_id = ?",
+      ).get(threadId);
+      expect(unreadRow === undefined).toBe(true);
+
+      closeDatabase();
+      await initializeDatabase();
+      const fresh = getCodexThread(threadId);
+      expect(fresh?.archived).toBe(true);
+      expect(fresh?.hasUnreadTurn).toBe(false);
     });
 
     if (!ran) expect(true).toBe(true);

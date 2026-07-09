@@ -10,6 +10,7 @@ import type {
   CodexTranscriptEntry,
   CodexTurnSummary,
 } from "./types";
+import { buildCodexTurnOccurrenceKey } from "./codex-turn-identity";
 
 export function mergeCodexTurnSummary(
   existing: CodexTurnSummary,
@@ -25,6 +26,9 @@ export function mergeCodexTurnSummary(
     startedAt: incoming.startedAt ?? existing.startedAt,
     completedAt: incoming.completedAt ?? existing.completedAt,
     durationMs: incoming.durationMs ?? existing.durationMs,
+    commandExecutionStartedAtMsById:
+      existing.commandExecutionStartedAtMsById
+      ?? incoming.commandExecutionStartedAtMsById,
     itemIds: mergeOrderedStringIds(existing.itemIds, incoming.itemIds),
     interruptedCommandExecutionItemIds: mergeOrderedStringIds(
       existing.interruptedCommandExecutionItemIds ?? [],
@@ -41,18 +45,22 @@ export function mergeCodexTurnSummaries(
   if (cachedTurns.length === 0) return incomingTurns;
   if (incomingTurns.length === 0) return cachedTurns;
 
-  const cachedByTurnId = new Map(cachedTurns.map((turn) => [turn.turnId, turn]));
+  const cachedByTurnId = new Map(cachedTurns.map((turn, turnIndex) => [
+    buildCodexTurnOccurrenceKey(turn.turnId, turnIndex),
+    turn,
+  ]));
   const seen = new Set<string>();
 
-  const merged = incomingTurns.map((turn) => {
-    seen.add(turn.turnId);
-    const cached = cachedByTurnId.get(turn.turnId);
+  const merged = incomingTurns.map((turn, turnIndex) => {
+    const turnKey = buildCodexTurnOccurrenceKey(turn.turnId, turnIndex);
+    seen.add(turnKey);
+    const cached = cachedByTurnId.get(turnKey);
     if (!cached) return turn;
     return mergeCodexTurnSummary(cached, turn);
   });
 
-  for (const cached of cachedTurns) {
-    if (seen.has(cached.turnId)) continue;
+  for (const [turnIndex, cached] of cachedTurns.entries()) {
+    if (seen.has(buildCodexTurnOccurrenceKey(cached.turnId, turnIndex))) continue;
     merged.push(cached);
   }
 

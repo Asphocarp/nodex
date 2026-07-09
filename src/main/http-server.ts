@@ -64,6 +64,11 @@ import {
   ProjectPinnedOrderInputSchema,
 } from "../shared/schemas/projects";
 import { codexService } from "./codex/codex-service";
+import {
+  CodexSidebarChatsThreadOrderInputSchema,
+  CodexSidebarProjectThreadOrderInputSchema,
+  CodexSidebarThreadMoveInputSchema,
+} from "../shared/codex-sidebar-thread-move";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
@@ -85,6 +90,12 @@ import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardTarget,
 } from "./local-store/reference-reads";
+import {
+  deleteProjectSessionTabWithBrowserCleanup,
+  deleteProjectSessionWithBrowserCleanup,
+  deleteProjectWithBrowserCleanup,
+  type ProjectSessionBrowserRuntime,
+} from "./project-session-browser-ownership";
 
 /** SSE keep-alive ping interval (ms) */
 const SSE_PING_INTERVAL_MS = 30_000;
@@ -122,10 +133,25 @@ function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number
 }
 
 interface HttpServerDependencies {
+  browserRuntime: ProjectSessionBrowserRuntime;
   transcribeDictation: (input: { contentType: string; base64Payload: string }) => Promise<string>;
 }
 
 const defaultHttpServerDependencies: HttpServerDependencies = {
+  browserRuntime: {
+    closeBrowserConversation: async (browserConversationId) => {
+      const { browserSidebarService } = await import("./browser-sidebar-service");
+      browserSidebarService.closeBrowserConversation(browserConversationId);
+    },
+    closeBrowserProject: async (projectId) => {
+      const { browserSidebarService } = await import("./browser-sidebar-service");
+      browserSidebarService.closeBrowserProject(projectId);
+    },
+    closeBrowserTab: async (identity) => {
+      const { browserSidebarService } = await import("./browser-sidebar-service");
+      browserSidebarService.closeBrowserTab(identity);
+    },
+  },
   transcribeDictation: async (input) => await codexService.transcribeDictation(input),
 };
 
@@ -705,8 +731,10 @@ app.put("/api/projects/:projectId/pinned", async (c) => {
 });
 
 app.delete("/api/projects/:projectId", async (c) => {
-  const success = await projectDeletionRuntime.deleteProject(
+  const success = await deleteProjectWithBrowserCleanup(
     c.req.param("projectId"),
+    httpServerDependencies.browserRuntime,
+    (projectId) => projectDeletionRuntime.deleteProject(projectId),
   );
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
@@ -857,6 +885,33 @@ app.put("/api/codex/threads/:threadId/unarchive", async (c) => {
   }
 });
 
+app.put("/api/codex/sidebar/thread-move", async (c) => {
+  try {
+    const input = CodexSidebarThreadMoveInputSchema.parse(await c.req.json());
+    return c.json(await codexService.moveSidebarThread(input));
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+});
+
+app.put("/api/codex/sidebar/project-thread-order", async (c) => {
+  try {
+    const input = CodexSidebarProjectThreadOrderInputSchema.parse(await c.req.json());
+    return c.json(await codexService.setSidebarProjectThreadOrder(input));
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+});
+
+app.put("/api/codex/sidebar/chats-thread-order", async (c) => {
+  try {
+    const input = CodexSidebarChatsThreadOrderInputSchema.parse(await c.req.json());
+    return c.json(await codexService.setSidebarChatsThreadOrder(input));
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+});
+
 app.put("/api/project-sessions/:sessionId/unread", async (c) => {
   const body = await c.req.json();
   try {
@@ -873,7 +928,9 @@ app.post("/api/project-sessions/:sessionId/fork", async (c) => {
   const body = await c.req.json();
   try {
     const result = await codexService.forkProjectSessionThread(c.req.param("sessionId"), body);
-    dbNotifier.notifyProjectSessionsChanged(result.session.projectId, "create", result.session.id);
+    if ("session" in result) {
+      dbNotifier.notifyProjectSessionsChanged(result.session.projectId, "create", result.session.id);
+    }
     return c.json(result, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -995,11 +1052,14 @@ app.put("/api/project-sessions/:sessionId/panels/:panelId/maximized-group", asyn
   }
 });
 
-app.delete("/api/project-sessions/:sessionId", (c) => {
+app.delete("/api/project-sessions/:sessionId", async (c) => {
   try {
     const sessionId = c.req.param("sessionId");
     const existing = projectSessionService.getProjectSession(sessionId);
-    const success = projectSessionService.deleteProjectSession(sessionId);
+    const success = await deleteProjectSessionWithBrowserCleanup(
+      sessionId,
+      httpServerDependencies.browserRuntime,
+    );
     if (!success) return c.json({ error: "Not found" }, 404);
     if (existing) {
       dbNotifier.notifyProjectSessionsChanged(existing.projectId, "delete", sessionId);
@@ -1086,12 +1146,12 @@ app.delete("/api/project-session-tabs/:tabId", async (c) => {
         ? null
         : undefined
     : undefined;
-  const success = projectSessionService.deleteProjectSessionTab({
+  const success = await deleteProjectSessionTabWithBrowserCleanup({
     tabId: c.req.param("tabId"),
     preserveEmptyLeafIds,
     preferredActiveLeafId,
     preferredActiveTabId,
-  });
+  }, httpServerDependencies.browserRuntime);
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });

@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a Hooks settings page with source/project/plugin deep links from hook feedback, app-server-backed discovery, hook review and trust controls, enable toggles, and cross-window refresh after config changes.
+- Added an optional Auto-review prompt after repeated manual approvals, with a permanent keep-manual choice and one-click switching to `Approve for me`.
 - Added one trusted command boundary for creating, transforming, and safely deleting Synced Blocks, Reusable Templates, and Canvas documents, available through Electron, browser HTTP/SSE, the renderer API, and `nodex block command` with exact-retry receipts.
 - Added stable-ID Card Document mutation APIs and `nodex block` CLI commands for title, NFM import/export, and Block insert/update/delete/move operations, with exact-head receipts, equivalent Electron/browser behavior, and short editor flush/freeze fences for identity-destructive changes.
 - Added stable Block property mutation APIs for field-level scalar conflict detection and set add/remove intent, with equivalent Electron and browser behavior and exact retry receipts.
@@ -48,6 +50,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - New user/content Blocks now receive time-ordered UUID-v7 identities, while Views, properties, memberships, and retry-operation identities use UUID-v4. Existing stored identities remain readable without migration, and occurrence commands now carry the identity of any Card they may create.
 - Cards now have one exclusive Space, Document, or Database parent. Dragging between a Database View and an editor moves the real Card/Block by default, Option/Alt copies it, and the entire change commits atomically without reference substitution, NFM snapshots, flicker, or transient revision errors. Promoting a text-like Block preserves its rich content as the Card title and lifts only its children into the body instead of duplicating the source text.
+- Thread tool activity now uses one mixed activity timeline: adjacent commands, edits, web searches, ordinary MCP calls, dynamic tools, and live Auto-review share stable collapsible groups, while standalone tools and requests keep their own surfaces and live, resumed, and recovered threads use the same canonical projection.
+- Active thread progress now keeps live patch activity visible while todo and aggregate diff share one request-aware fixed surface above the composer, and the latest activity group owns `Thinking` without a duplicate transcript row.
 - Moving a Card to another Project now atomically transfers its complete owned-document closure and Database membership after all open editors flush, preserving collaborative identities while both Projects refresh immediately.
 - Synced Blocks and Reusable Templates now open their independently synchronized content inline on demand, while collapsed/offscreen references create no editor or provider and Canvas scenes remain in Canvas view.
 - Database management now adds, transfers, and removes a Card's single owning membership without relying on filtered View visibility, targets a chosen durable View and logical position anchor, and authors each View's layout, filters, sorts, grouping, displayed properties, and order without silently overwriting a concurrent window.

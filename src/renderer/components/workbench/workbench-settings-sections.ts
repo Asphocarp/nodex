@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import {
+  GitBranch,
   LayoutTemplate,
   Shield,
   Type,
@@ -7,6 +8,7 @@ import {
 import type { SettingsSearchContext } from "@/lib/settings-search";
 import {
   CodexKeyboardShortcutsIcon,
+  CodexHooksIcon,
   CodexSettingsAgentIcon,
   CodexSettingsAppearanceIcon,
   CodexSettingsGeneralIcon,
@@ -22,8 +24,10 @@ export type SettingsSectionId =
   | "agent"
   | "editor"
   | "card"
+  | "git"
   | "worktrees"
   | "local-environments"
+  | "hooks-settings"
   | "backups";
 
 export type SettingsSectionGroupKey =
@@ -104,6 +108,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     searchMessages: SETTINGS_SEARCH_CATALOG.card.messages,
   },
   {
+    id: "git",
+    label: "Git",
+    icon: GitBranch,
+    groupKey: "coding",
+    searchMessages: SETTINGS_SEARCH_CATALOG.git.messages,
+  },
+  {
     id: "worktrees",
     label: "Worktrees",
     icon: CodexSettingsWorktreeIcon,
@@ -117,6 +128,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     groupKey: "coding",
     searchMessages: SETTINGS_SEARCH_CATALOG["local-environments"].messages,
     searchTerms: SETTINGS_SEARCH_CATALOG["local-environments"].searchTerms,
+  },
+  {
+    id: "hooks-settings",
+    label: "Hooks",
+    icon: CodexHooksIcon,
+    groupKey: "coding",
+    searchMessages: SETTINGS_SEARCH_CATALOG["hooks-settings"].messages,
   },
   {
     id: "backups",

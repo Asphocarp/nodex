@@ -110,7 +110,8 @@ interface DbProjectSession {
 interface DbProjectSessionTab {
   id: string;
   session_id: string;
-  project_id: string;
+  project_id: string | null;
+  browser_tab_id: string | null;
   panel_id: string;
   kind: string;
   title: string;
@@ -131,6 +132,7 @@ interface DbProjectSessionThread {
   thread_id: string;
   session_project_id: string | null;
   project_id: string | null;
+  forked_from_id: string | null;
   parent_thread_id: string | null;
   thread_name: string | null;
   thread_preview: string;
@@ -164,6 +166,7 @@ interface DbProjectSessionSummaryRow {
   thread_linked_at: string | null;
   thread_thread_id: string | null;
   thread_project_id: string | null;
+  thread_forked_from_id: string | null;
   thread_parent_thread_id: string | null;
   thread_thread_name: string | null;
   thread_thread_preview: string | null;
@@ -366,6 +369,7 @@ function rowToTab(
     id: row.id,
     sessionId: row.session_id,
     projectId: row.project_id,
+    browserTabId: row.browser_tab_id,
     panelId: row.panel_id === "bottom" ? "bottom" : "right",
     kind: row.kind as ProjectSessionTab["kind"],
     title: row.title,
@@ -379,12 +383,13 @@ function rowToTab(
 }
 
 function stringifyProjectSessionTabConfig(
-  ownerProjectId: string,
+  ownerProjectId: string | null,
   config: ProjectSessionTabConfig,
 ): string {
-  const targetProjectId = "projectId" in config && typeof config.projectId === "string"
-    ? requireProjectId(config.projectId)
-    : ownerProjectId;
+  const configuredProjectId = "projectId" in config ? config.projectId : ownerProjectId;
+  const targetProjectId = configuredProjectId === null
+    ? null
+    : requireProjectId(configuredProjectId);
 
   return JSON.stringify({ ...config, projectId: targetProjectId });
 }
@@ -400,6 +405,7 @@ function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
     sessionId: row.session_id,
     projectId: row.project_id ?? row.session_project_id,
     threadId: row.thread_id,
+    forkedFromId: row.forked_from_id,
     parentThreadId: row.parent_thread_id || undefined,
     threadName: row.thread_name || undefined,
     threadPreview: row.thread_preview,
@@ -425,6 +431,7 @@ function rowToSummaryThread(row: DbProjectSessionSummaryRow): ProjectSessionThre
     session_project_id: row.project_id,
     project_id: row.thread_project_id,
     thread_id: row.thread_thread_id,
+    forked_from_id: row.thread_forked_from_id,
     parent_thread_id: row.thread_parent_thread_id,
     thread_name: row.thread_thread_name,
     thread_preview: row.thread_thread_preview ?? "",
@@ -479,6 +486,7 @@ function buildSession(row: DbProjectSession): ProjectSession {
         ps.project_id AS session_project_id,
         t.thread_id,
         t.project_id,
+        t.forked_from_id,
         t.parent_thread_id,
         t.thread_name,
         t.thread_preview,
@@ -612,6 +620,7 @@ function projectSessionSummarySelectSql(whereSql: string): string {
       pst.linked_at AS thread_linked_at,
       t.thread_id AS thread_thread_id,
       t.project_id AS thread_project_id,
+      t.forked_from_id AS thread_forked_from_id,
       t.parent_thread_id AS thread_parent_thread_id,
       t.thread_name AS thread_thread_name,
       t.thread_preview AS thread_thread_preview,
@@ -687,6 +696,7 @@ export function getProjectSessionThreadLink(threadId: string): ProjectSessionThr
         ps.project_id AS session_project_id,
         t.thread_id,
         t.project_id,
+        t.forked_from_id,
         t.parent_thread_id,
         t.thread_name,
         t.thread_preview,
@@ -843,6 +853,9 @@ export function moveProjectSessionToProject(sessionId: string, projectId: string
 
   const nextProjectId = projectId === null ? null : ensureProjectExists(projectId);
   if (existing.projectId === nextProjectId) return existing;
+  if (existing.tabs.some((tab) => tab.kind !== "browser")) {
+    throw new Error("Only empty or browser-only project sessions can move between projects");
+  }
 
   const database = getDb();
   const now = new Date().toISOString();
@@ -873,6 +886,36 @@ export function moveProjectSessionToProject(sessionId: string, projectId: string
           updated_at = ?
       WHERE id = ?
     `).run(nextProjectId, nextPinnedOrder, now, sessionId);
+
+    const updateBrowserTab = database.prepare(`
+      UPDATE project_session_tabs
+      SET project_id = ?,
+          config_json = ?,
+          updated_at = ?
+      WHERE id = ?
+    `);
+    for (const tab of existing.tabs) {
+      if (tab.kind !== "browser") continue;
+      updateBrowserTab.run(
+        nextProjectId,
+        stringifyProjectSessionTabConfig(nextProjectId, {
+          ...tab.config,
+          projectId: nextProjectId,
+        }),
+        now,
+        tab.id,
+      );
+    }
+
+    database.prepare(`
+      UPDATE codex_threads
+      SET project_id = ?
+      WHERE thread_id IN (
+        SELECT thread_id
+        FROM project_session_threads
+        WHERE session_id = ?
+      )
+    `).run(nextProjectId, sessionId);
   });
   move();
 
@@ -1015,6 +1058,46 @@ export function markProjectSessionUnread(
   return getProjectSession(sessionId);
 }
 
+export function syncProjectSessionUnreadForThread(
+  threadId: string,
+): ProjectSessionThreadOwner[] {
+  const owners = listProjectSessionThreadOwners(threadId);
+  if (owners.length === 0) return owners;
+  const database = getDb();
+  const now = new Date().toISOString();
+  const read = database.prepare(`
+    SELECT
+      ps.unread AS unread,
+      CASE WHEN EXISTS (
+        SELECT 1
+        FROM project_session_threads pst
+        JOIN codex_unread_threads unread ON unread.thread_id = pst.thread_id
+        WHERE pst.session_id = ps.id
+      ) THEN 1 ELSE 0 END AS expected_unread
+    FROM project_sessions ps
+    WHERE ps.id = ?
+  `);
+  const update = database.prepare(`
+    UPDATE project_sessions
+    SET unread = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  const changedOwners: ProjectSessionThreadOwner[] = [];
+  const sync = database.transaction(() => {
+    for (const owner of owners) {
+      const row = read.get(owner.sessionId) as {
+        unread: number;
+        expected_unread: number;
+      } | undefined;
+      if (!row || row.unread === row.expected_unread) continue;
+      update.run(row.expected_unread, now, owner.sessionId);
+      changedOwners.push(owner);
+    }
+  });
+  sync();
+  return changedOwners;
+}
+
 function updatePanelStateForTabs(
   session: ProjectSession,
   panelId: PanelId,
@@ -1096,6 +1179,13 @@ function getTabsForSession(sessionId: string): ProjectSessionTab[] {
     .all(sessionId) as DbProjectSessionTab[]).map((row) => rowToTab(row, database));
 }
 
+export function getProjectSessionTab(tabId: string): ProjectSessionTab | null {
+  const row = getDb()
+    .prepare("SELECT * FROM project_session_tabs WHERE id = ?")
+    .get(tabId) as DbProjectSessionTab | undefined;
+  return row ? rowToTab(row) : null;
+}
+
 function findProjectSessionPanelLeafForOrderedTabs(
   layout: ProjectSessionPanelLayout,
   orderedTabIds: readonly string[],
@@ -1154,15 +1244,21 @@ function findDbViewTab(
 
 export function createProjectSessionTab(input: ProjectSessionTabCreateInput): ProjectSessionTab {
   const parsed = ProjectSessionTabCreateInputSchema.parse(input);
-  const projectId = ensureProjectExists(parsed.projectId);
   const database = getDb();
   const session = getProjectSession(parsed.sessionId);
   if (!session) throw new Error(`Project session not found: ${parsed.sessionId}`);
-  if (session.projectId === null) {
-    throw new Error("Projectless sessions cannot own project-scoped tabs");
+  const projectId = parsed.projectId === null ? null : ensureProjectExists(parsed.projectId);
+  if (projectId === null && parsed.kind !== "browser") {
+    throw new Error("Projectless sessions can only own browser tabs");
   }
   if (session.projectId !== projectId) {
     throw new Error("Tab project must match the owning session project");
+  }
+  if (parsed.kind === "browser" && parsed.config.projectId !== projectId) {
+    throw new Error("Browser tab config project must match the owning session project");
+  }
+  if (parsed.kind !== "browser" && parsed.browserTabId !== undefined) {
+    throw new Error("Only browser tabs can have a browser identity");
   }
 
   const existingSingleton = findSingletonTab(session, parsed.kind);
@@ -1176,6 +1272,9 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
 
   let config = parsed.config;
   if (parsed.kind === "db_view") {
+    if (parsed.config.projectId === null) {
+      throw new Error("Database view tabs require a project");
+    }
     const resolved = resolveActiveDatabaseViewConfig(
       database,
       parsed.config as ProjectSessionDbViewTabConfig,
@@ -1196,6 +1295,9 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
     .prepare('SELECT MAX("order") AS maxOrder FROM project_session_tabs WHERE session_id = ? AND panel_id = ?')
     .get(parsed.sessionId, parsed.panelId) as { maxOrder: number | null } | undefined;
   const id = parsed.clientTabId ?? randomUUID();
+  const browserTabId = parsed.kind === "browser"
+    ? parsed.browserTabId ?? randomUUID()
+    : null;
 
   const existingTabWithId = database
     .prepare("SELECT id FROM project_session_tabs WHERE id = ?")
@@ -1203,16 +1305,16 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
   if (existingTabWithId) {
     throw new Error(`Project session tab id already exists: ${id}`);
   }
-
   database.transaction(() => {
     database.prepare(`
       INSERT INTO project_session_tabs (
-        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json, "order", created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, '{}', ?, ?, ?)
+        id, session_id, project_id, browser_tab_id, panel_id, kind, title, config_json, state_key, state_json, "order", created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '{}', ?, ?, ?)
     `).run(
       id,
       parsed.sessionId,
       projectId,
+      browserTabId,
       parsed.panelId,
       parsed.kind,
       parsed.title,
@@ -1269,6 +1371,8 @@ export function updateProjectSessionTab(tabId: string, input: ProjectSessionTabU
           `Database View ${(config as ResolvedProjectSessionDbViewTabConfig).databaseViewId} is already open in this session`,
         );
       }
+    } else if (row.kind === "browser" && parsed.config.projectId !== row.project_id) {
+      throw new Error("Browser tab config project must match the owning session project");
     }
     fields.push("config_json = ?");
     values.push(stringifyProjectSessionTabConfig(row.project_id, config));
@@ -1651,10 +1755,14 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
   const nowMs = Date.now();
   const linkedAt = new Date().toISOString();
   const existing = getCodexThread(parsed.threadId);
+  const hasForkedFromIdInput = Object.prototype.hasOwnProperty.call(parsed, "forkedFromId");
   const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(parsed, "managedWorktreePath");
   upsertCodexThread({
     projectId,
     threadId: parsed.threadId,
+    forkedFromId: hasForkedFromIdInput
+      ? (parsed.forkedFromId ?? null)
+      : (existing?.forkedFromId ?? null),
     source: parsed.parentThreadId
       ? { parentThreadId: parsed.parentThreadId }
       : existing?.source ?? null,
@@ -1687,6 +1795,8 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
     parsed.threadId,
     linkedAt,
   );
+
+  syncProjectSessionUnreadForThread(parsed.threadId);
 
   const link = getProjectSession(parsed.sessionId)?.thread;
   if (!link) throw new Error("Unable to attach project session thread");

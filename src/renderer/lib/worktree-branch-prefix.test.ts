@@ -57,11 +57,11 @@ describe("worktree auto-branch prefix setting", () => {
       );
 
       const next = writeWorktreeAutoBranchPrefix("team");
-      expect(next).toBe("team/");
+      expect(next).toBe("team");
       expect(mockStorage.getItem(WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY)).toBe(
-        "team/",
+        "team",
       );
-      expect(readWorktreeAutoBranchPrefix()).toBe("team/");
+      expect(readWorktreeAutoBranchPrefix()).toBe("team");
     });
   });
 });

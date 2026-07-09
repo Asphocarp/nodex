@@ -19,7 +19,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "motion/react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { ChevronRightIcon, StopIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
@@ -51,19 +57,30 @@ import {
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../shared/thread-motion";
 import {
+  LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ATTRIBUTE,
   LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID,
 } from "../local-conversation-above-composer-portal";
+import { buildCodexCanonicalRequestIdentityKey } from "../../../../../shared/codex-conversation-state/codex-conversation-state";
 import { usePortalHost } from "../use-portal-host";
 import { DiffStats } from "../shared/tools/diff-file-shared";
 import { ThreadGoalStatusRow } from "./local-conversation-thread-goal-status-row";
 import { buildBackgroundAgentOpenContext } from "../../projection/background-subagent-open-context";
 import { SubagentAvatar } from "../shared/subagent-avatar";
+import {
+  getAutoReviewApprovalNudgeState,
+  hydrateAutoReviewApprovalNudgeState,
+  recordManualApprovalForAutoReviewNudge,
+  resolveAutoReviewApprovalNudge,
+  subscribeAutoReviewApprovalNudgeState,
+} from "../../auto-review-approval-nudge-state";
+import { AutoReviewApprovalNudge } from "./auto-review-approval-nudge";
 
 interface LocalConversationComposerShellProps {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
+  hasFixedPortalContent?: boolean;
 }
 
 function QueuedMessageReorderGripIcon({ className }: { className?: string }) {
@@ -825,9 +842,11 @@ function BackgroundAgentPanel({
 function RequestCardStack({
   model,
   actions,
+  onManualApproval,
 }: {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
+  onManualApproval: (conversationId: string) => Promise<void>;
 }) {
   const entries = [
     model.composerShell.backgroundRequest,
@@ -835,19 +854,40 @@ function RequestCardStack({
   ].filter((entry) => entry !== null);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="relative flex flex-col gap-2">
       {entries.map((entry) => {
         if (!entry) {
           return null;
         }
         return (
-          <div key={`${entry.surface}:${entry.request.requestId}`} className="flex flex-col">
-            <CodexPendingRequestCard entry={entry} actions={actions} />
+          <div
+            key={`${entry.surface}:${buildCodexCanonicalRequestIdentityKey(entry.request.requestId)}`}
+            className="flex flex-col"
+          >
+            <CodexPendingRequestCard
+              entry={entry}
+              actions={actions}
+              onManualApproval={onManualApproval}
+            />
           </div>
         );
       })}
     </div>
   );
+}
+
+export type ComposerReplacementOwner = "normal" | "autoReviewNudge" | "requestStack";
+
+export function resolveComposerReplacementOwner(input: {
+  threadId: string | null;
+  hasAutoReviewNudge: boolean;
+  isResponseInProgress: boolean;
+  hasRequestCards: boolean;
+}): ComposerReplacementOwner {
+  if (!input.threadId) return "normal";
+  if (input.hasAutoReviewNudge && !input.isResponseInProgress) return "autoReviewNudge";
+  if (input.hasRequestCards) return "requestStack";
+  return "normal";
 }
 
 function ThreadGoalResumeConfirmationDialog({
@@ -960,9 +1000,46 @@ export function LocalConversationComposerShell({
   actions,
   errorMessage,
   onErrorMessage,
+  hasFixedPortalContent = false,
 }: LocalConversationComposerShellProps) {
-  const hasFixedPortalContent = model.body.hasAboveComposerBlocks;
-  const queuePortalHost = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID);
+  const permissionState = model.permissionState;
+  const autoReviewNudgeState = useSyncExternalStore(
+    subscribeAutoReviewApprovalNudgeState,
+    getAutoReviewApprovalNudgeState,
+    getAutoReviewApprovalNudgeState,
+  );
+  useEffect(() => {
+    void hydrateAutoReviewApprovalNudgeState();
+  }, []);
+  const autoReviewNudgeEligible = permissionState?.mode === "auto"
+    && permissionState.autoReviewAvailable
+    && permissionState.availableModes.includes("guardian-approvals");
+  const hasAutoReviewNudge = Boolean(
+    model.threadId
+    && autoReviewNudgeEligible
+    && autoReviewNudgeState.activeThreadIds.has(model.threadId),
+  );
+  const replacementOwner = resolveComposerReplacementOwner({
+    threadId: model.threadId,
+    hasAutoReviewNudge,
+    isResponseInProgress: model.isThreadRunning,
+    hasRequestCards: model.composerShell.showRequestCards,
+  });
+  useEffect(() => {
+    if (!model.threadId || permissionState?.mode === "auto") return;
+    resolveAutoReviewApprovalNudge(model.threadId);
+  }, [model.threadId, permissionState?.mode]);
+  const recordManualApproval = async (conversationId: string) => {
+    await recordManualApprovalForAutoReviewNudge({
+      threadId: conversationId,
+      eligible: autoReviewNudgeEligible,
+    });
+  };
+  const queuePortalHost = usePortalHost({
+    attribute: LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ATTRIBUTE,
+    fallbackId: LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID,
+    conversationId: model.threadId,
+  });
   const showQueuePanel = model.composerShell.pendingSteerRows.length > 0 || model.composerShell.queuedFollowUpRows.length > 0;
   const threadGoal = model.conversation?.threadGoal ?? null;
   const showThreadGoalStatusRow = threadGoal !== null && threadGoal.status !== "complete";
@@ -1021,12 +1098,20 @@ export function LocalConversationComposerShell({
     >
       <ThreadGoalResumeConfirmationDialog model={model} actions={actions} />
       {queuePortalHost && auxiliaryLaneStack ? createPortal(auxiliaryLaneStack, queuePortalHost) : null}
-      {model.composerShell.showRequestCards ? (
+      {replacementOwner !== "normal" ? (
+        <ThreadComposerExternalFooterSlot visible={showStatusStrip}>
+          <ThreadComposerStatusStrip model={model} actions={actions} onErrorMessage={onErrorMessage} />
+        </ThreadComposerExternalFooterSlot>
+      ) : null}
+      {replacementOwner === "autoReviewNudge" && model.threadId ? (
+        <AutoReviewApprovalNudge threadId={model.threadId} actions={actions} />
+      ) : replacementOwner === "requestStack" ? (
         <>
-          <RequestCardStack model={model} actions={actions} />
-          <ThreadComposerExternalFooterSlot visible={showStatusStrip}>
-            <ThreadComposerStatusStrip model={model} actions={actions} onErrorMessage={onErrorMessage} />
-          </ThreadComposerExternalFooterSlot>
+          <RequestCardStack
+            model={model}
+            actions={actions}
+            onManualApproval={recordManualApproval}
+          />
         </>
       ) : (
         <ThreadComposer

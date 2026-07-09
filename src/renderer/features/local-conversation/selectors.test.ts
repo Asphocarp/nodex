@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 import type {
   CodexConversationItem,
+  CodexCanonicalServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurn,
 } from "../../lib/types";
 import {
   selectConversationTurnRequestsByTurnId,
+  selectPrimaryBackgroundConversationRequest,
   selectPrimaryConversationRequest,
 } from "./conversation-request-helpers";
 import {
@@ -304,6 +306,46 @@ describe("local-conversation selectors", () => {
     expect(entries[0]?.turnId).toBe("turn_child_unique");
   });
 
+  test("uses exact occurrence keys for distinct nullable local turns", () => {
+    const conversation = buildConversation({
+      turns: [
+        buildTurn({
+          turnId: null,
+          items: [buildItem({ turnId: null, itemId: "goal", markdownText: "Goal" })],
+        }),
+        buildTurn({
+          turnId: null,
+          items: [buildItem({ turnId: null, itemId: "worktree", markdownText: "Worktree" })],
+        }),
+      ],
+    });
+
+    const entries = selectVisibleConversationTurnEntries({ conversation });
+
+    expect(entries.map((entry) => entry.turnKey)).toStrictEqual([
+      "turn-index-0",
+      "turn-index-1",
+    ]);
+    expect(entries.map((entry) => entry.isMostRecentTurn)).toStrictEqual([false, true]);
+  });
+
+  test("hides startup tool prewarm turns", () => {
+    const conversation = buildConversation({
+      turns: [buildTurn({
+        items: [buildItem({
+          semanticKind: "userMessage",
+          rawItem: {
+            id: "prewarm",
+            type: "userMessage",
+            content: [{ type: "text", text: "<startup_tool_prewarm>browser" }],
+          },
+        })],
+      })],
+    });
+
+    expect(selectVisibleConversationTurnEntries({ conversation })).toStrictEqual([]);
+  });
+
   test("keeps visible turn entry references stable across unrelated conversation updates", () => {
     const turn = buildTurn({ turnId: "turn_1" });
     const requests = [{
@@ -490,6 +532,223 @@ describe("local-conversation selectors", () => {
     expect(firstLiveRequests === secondLiveRequests).toBe(false);
   });
 
+  test("invalidates cached selection when only the canonical request plane changes", () => {
+    const turns = [buildTurn({ turnId: "turn_1", status: "inProgress" })];
+    const requests: CodexConversationSnapshot["requests"] = [];
+    const optionRequest: CodexCanonicalServerRequest = {
+      id: "option-1",
+      method: "item/tool/requestOptionPicker",
+      params: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        question: "Choose a slice",
+        options: [{ label: "UI" }],
+      },
+    };
+    const setupRequest: CodexCanonicalServerRequest = {
+      id: "setup-1",
+      method: "item/tool/call",
+      params: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        callId: "setup-call-1",
+        namespace: "codex_app",
+        tool: "setup_codex_step",
+        arguments: { step: "task" },
+      },
+    };
+
+    const first = buildConversation({ turns, requests, canonicalRequests: [optionRequest] });
+    const second = buildConversation({ turns, requests, canonicalRequests: [setupRequest] });
+
+    expect(selectPrimaryConversationRequest(first)?.type).toBe("optionPicker");
+    expect(selectPrimaryConversationRequest(second)?.type).toBe("setupCodexStep");
+    expect(selectConversationLiveRequests(first) === selectConversationLiveRequests(second)).toBe(false);
+  });
+
+  test("does not duplicate a direct user-input request across canonical and legacy projections", () => {
+    const conversation = buildConversation({
+      turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
+      requests: [{
+        type: "userInput",
+        requestId: "input-1",
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "input-item-1",
+        questions: [],
+        createdAt: 1,
+      }],
+      canonicalRequests: [{
+        id: "input-1",
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "input-item-1",
+          questions: [],
+          autoResolutionMs: null,
+        },
+      }],
+    });
+
+    const liveRequests = selectConversationLiveRequests(conversation);
+    expect(liveRequests.length).toBe(1);
+    expect(liveRequests[0]?.requestId).toBe("input-1");
+  });
+
+  test("keeps background approval visible when a child private request is primary", () => {
+    const conversation = buildConversation({
+      turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
+      requests: [{
+        type: "permissionRequest",
+        requestId: "permission-1",
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "permission-item-1",
+        reason: "Allow access",
+        cwd: "/tmp/project",
+        permissions: { network: null, fileSystem: null },
+        completed: false,
+        response: null,
+        createdAt: 1,
+      }],
+      canonicalRequests: [{
+        id: "option-1",
+        method: "item/tool/requestOptionPicker",
+        params: {
+          threadId: "thread_1",
+          turnId: "turn_1",
+          question: "Choose a slice",
+          options: [{ label: "UI" }],
+        },
+      }],
+    });
+
+    expect(selectPrimaryConversationRequest(conversation)?.type).toBe("optionPicker");
+    expect(selectPrimaryBackgroundConversationRequest(conversation)?.type).toBe("permissionRequest");
+    expect(JSON.stringify(selectBlockedTurnIds(conversation))).toBe(JSON.stringify(["turn_1"]));
+  });
+
+  test("uses the unfinished synthetic user-input item before approval when raw input is gone", () => {
+    const conversation = buildConversation({
+      turns: [buildTurn({
+        turnId: "turn_1",
+        status: "inProgress",
+        items: [buildItem({
+          itemId: "synthetic-input",
+          type: "request_user_input",
+          kind: "userInputResponse",
+          semanticKind: "userInputResponse",
+          status: "inProgress",
+          requestId: 41,
+          userInputQuestions: [{
+            id: "scope",
+            header: "Scope",
+            question: "Which scope?",
+            isOther: true,
+            options: [{ label: "UI", description: "Renderer" }],
+          }],
+        })],
+      })],
+      requests: [{
+        type: "approval",
+        requestId: "approval-1",
+        kind: "command",
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "command-1",
+        createdAt: 2,
+      }],
+    });
+
+    const primary = selectPrimaryConversationRequest(conversation);
+    expect(primary?.type).toBe("userInput");
+    expect(primary?.requestId).toBe(41);
+    if (primary?.type === "userInput") {
+      expect(primary.questions[0]?.isOther).toBe(false);
+    }
+  });
+
+  test("falls back to the newest turnless MCP elicitation after scanning materialized turns", () => {
+    const conversation = buildConversation({
+      turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
+      requests: [{
+        type: "mcpServerElicitation",
+        requestId: "turnless-elicitation",
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "",
+        itemId: "turnless-elicitation-item",
+        kind: "generic",
+        mode: "form",
+        serverName: "Context7",
+        message: "Need workspace context",
+        createdAt: 5,
+      }],
+    });
+
+    expect(selectPrimaryConversationRequest(conversation)?.requestId).toBe("turnless-elicitation");
+  });
+
+  test("uses raw request order and skips invalid file approvals before permission fallback", () => {
+    const permission = {
+      type: "permissionRequest" as const,
+      requestId: "permission-1",
+      projectId: "project_1",
+      threadId: "thread_1",
+      turnId: "turn_1",
+      itemId: "permission-item",
+      cwd: "/tmp/project",
+      reason: "Need network",
+      permissions: { network: null, fileSystem: null },
+      response: null,
+      completed: false,
+      createdAt: 50,
+    };
+    const invalidNewestFileApproval = {
+      type: "approval" as const,
+      requestId: "missing-file-approval",
+      kind: "file" as const,
+      projectId: "project_1",
+      threadId: "thread_1",
+      turnId: "turn_1",
+      itemId: "missing-file-item",
+      createdAt: 100,
+    };
+    const newerByArrayOrder = {
+      type: "approval" as const,
+      requestId: "newer-command",
+      kind: "command" as const,
+      projectId: "project_1",
+      threadId: "thread_1",
+      turnId: "turn_1",
+      itemId: "newer-command-item",
+      createdAt: 1,
+    };
+    const olderByArrayOrder = {
+      ...newerByArrayOrder,
+      requestId: "older-command",
+      itemId: "older-command-item",
+      createdAt: 200,
+    };
+    const turn = buildTurn({ turnId: "turn_1", status: "inProgress" });
+
+    const approvalConversation = buildConversation({
+      turns: [turn],
+      requests: [olderByArrayOrder, permission, newerByArrayOrder, invalidNewestFileApproval],
+    });
+    const permissionConversation = buildConversation({
+      turns: [turn],
+      requests: [permission, invalidNewestFileApproval],
+    });
+
+    expect(selectPrimaryBackgroundConversationRequest(approvalConversation)?.requestId).toBe("newer-command");
+    expect(selectPrimaryBackgroundConversationRequest(permissionConversation)?.requestId).toBe("permission-1");
+  });
+
   test("builds searchable user and assistant units from visible turns", () => {
     const conversation = buildConversation({
       turns: [
@@ -518,6 +777,45 @@ describe("local-conversation selectors", () => {
     expect(units.length).toBe(2);
     expect(units[0]?.key).toBe("turn_1:user_1");
     expect(units[1]?.role).toBe("assistant");
+  });
+
+  test("keeps search identity distinct across nullable local turn occurrences", () => {
+    const conversation = buildConversation({
+      turns: [
+        buildTurn({
+          turnId: null,
+          items: [buildItem({
+            turnId: null,
+            itemId: "local_user",
+            type: "user_message",
+            kind: "userMessage",
+            role: "user",
+            markdownText: "First local turn",
+          })],
+        }),
+        buildTurn({
+          turnId: null,
+          items: [buildItem({
+            turnId: null,
+            itemId: "local_user",
+            type: "user_message",
+            kind: "userMessage",
+            role: "user",
+            markdownText: "Second local turn",
+          })],
+        }),
+      ],
+    });
+
+    const units = selectConversationSearchUnits(conversation);
+    expect(units.map((unit) => unit.turnKey)).toEqual([
+      "turn-index-0",
+      "turn-index-1",
+    ]);
+    expect(units.map((unit) => unit.key)).toEqual([
+      "turn-index-0:local_user",
+      "turn-index-1:local_user",
+    ]);
   });
 
   test("keeps a drafting turn visible when only turn.diff has streamed", () => {

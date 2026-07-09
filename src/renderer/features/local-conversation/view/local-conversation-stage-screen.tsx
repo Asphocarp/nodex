@@ -1,9 +1,14 @@
 import type { ThreadStageScreenProps } from "../thread-stage-types";
 
 export function LocalConversationStageScreen(props: ThreadStageScreenProps) {
-  const { header, body, footer, floatingContent } = props;
+  const { header, body, footer, floatingContent, onReadInteraction } = props;
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-(--background)">
+    <div
+      className="relative flex h-full min-h-0 flex-col bg-(--background)"
+      onKeyDownCapture={onReadInteraction}
+      onPointerDownCapture={onReadInteraction}
+      onWheelCapture={onReadInteraction}
+    >
       <div className="sticky top-0 z-10">
         {header}
       </div>

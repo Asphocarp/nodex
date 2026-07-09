@@ -332,12 +332,20 @@ export function isRenderableMcpServerElicitationRequest(
 
 export function buildCodexMcpServerElicitationResponse(
   action: CodexMcpServerElicitationAction,
-  content: CodexMcpElicitationJsonValue = null,
+  content?: CodexMcpElicitationJsonValue,
   meta: CodexMcpElicitationJsonValue = null,
 ): McpServerElicitationRequestResponse {
+  if (action !== "accept") {
+    return {
+      action,
+      content: null,
+      _meta: meta,
+    };
+  }
+
   return {
     action,
-    content,
+    content: content === undefined ? {} : content,
     _meta: meta,
   };
 }

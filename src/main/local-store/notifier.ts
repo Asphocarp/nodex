@@ -9,6 +9,7 @@ export type ProjectSessionChangeType =
   | "create"
   | "update"
   | "delete"
+  | "move"
   | "reorder"
   | "pin"
   | "archive"

@@ -4,6 +4,7 @@ import {
   buildUserInputAnswers,
   type RequestComposerRequest,
 } from "../../shared/request-cards/local-conversation-request-cards";
+import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/codex-conversation-state/codex-conversation-state";
 
 interface CodexImplementPlanRequestCardProps {
   request: CodexPlanImplementationRequest;
@@ -11,10 +12,11 @@ interface CodexImplementPlanRequestCardProps {
 }
 
 function buildPlanComposerRequest(request: CodexPlanImplementationRequest): RequestComposerRequest {
+  const questionId = buildCodexCanonicalRequestIdentityKey(request.requestId);
   return {
     requestId: request.requestId,
     questions: [{
-      id: request.requestId,
+      id: questionId,
       header: "Implement this plan?",
       question: "Implement this plan?",
       isOther: true,
@@ -35,7 +37,10 @@ export function CodexImplementPlanRequestCard({
     <RequestComposerView
       request={composerRequest}
       onSubmit={async (nextRequest, state) => {
-        const answer = buildUserInputAnswers(nextRequest, state)[nextRequest.requestId]?.[0]?.trim() ?? "";
+        const questionId = nextRequest.questions[0]?.id;
+        const answer = questionId
+          ? buildUserInputAnswers(nextRequest, state)[questionId]?.[0]?.trim() ?? ""
+          : "";
         if (!answer) return;
         if (answer === "Yes, implement this plan") {
           await onRespond({ type: "implement" });

@@ -4,6 +4,7 @@ import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
 import type {
+  CodexCanonicalServerRequest,
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexConversationTurn,
@@ -274,18 +275,8 @@ function buildModel(overrides?: {
     overrides?.body ??
     buildThreadBodyModel({
       activeThreadId: conversation?.threadId ?? null,
-      threadId: conversation?.threadId ?? null,
-      turns: conversation?.turns ?? [],
-      requests: conversation?.requests ?? [],
-      resumeState: conversation?.resumeState ?? null,
-      statusType: conversation?.statusType ?? null,
-      archived: conversation?.archived ?? false,
-      capabilityFlags: conversation?.capabilityFlags ?? {
-        canEditLastUserTurn: false,
-        canForkFromTurn: false,
-        canSearch: false,
-        canCollapseTurns: false,
-      },
+      conversation,
+      activeThreadArchived: conversation?.archived ?? false,
       parentTurns: [],
       isNewThreadTab: false,
       newThreadTarget: null,
@@ -295,11 +286,13 @@ function buildModel(overrides?: {
 
   return {
     projectId: conversation?.projectId ?? "project_1",
+    hostId: "default",
     threadId: conversation?.threadId ?? null,
     isSideChat: false,
     cwd: conversation?.cwd ?? null,
     turns: conversation?.turns ?? [],
     requests: conversation?.requests ?? [],
+    canonicalRequests: conversation?.canonicalRequests ?? [],
     resumeState: conversation?.resumeState ?? null,
     statusType: conversation?.statusType ?? null,
     capabilityFlags: conversation?.capabilityFlags ?? {
@@ -469,6 +462,60 @@ describe("LocalConversationThreadBody", () => {
     expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBe(false);
   });
 
+  test.each<[string, CodexCanonicalServerRequest]>([
+    ["option picker", {
+      id: "option-request",
+      method: "item/tool/requestOptionPicker",
+      params: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        question: "Which slice should we ship?",
+        options: [{ label: "UI" }, { label: "Backend" }],
+      },
+    }],
+    ["setup step", {
+      id: "setup-request",
+      method: "item/tool/call",
+      params: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        callId: "setup-call",
+        namespace: "codex_app",
+        tool: "setup_codex_step",
+        arguments: { step: "task" },
+      },
+    }],
+  ])("blocks Thinking when a canonical %s reaches the reconstructed body", async (_label, request) => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const activeConversation = buildConversation({
+      turns: [buildTurn({
+        status: "inProgress",
+        itemIds: ["user_1"],
+        items: [buildUserEntry()],
+      })],
+    });
+    const renderBody = (conversation: CodexConversationSnapshot) => (
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({ conversation })}
+          actions={buildActions()}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>
+    );
+    const view = render(renderBody(activeConversation));
+    await settleAsyncRender();
+    expect(view.queryAllByText("Thinking").length > 0).toBe(true);
+
+    view.rerender(renderBody({
+      ...activeConversation,
+      canonicalRequests: [request],
+    }));
+    await settleAsyncRender();
+
+    expect(view.queryAllByText("Thinking").length).toBe(0);
+  });
+
   test("repositions the selected text side chat overlay after scroll remeasurement", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     let selectedRangeRect = makeRect({ left: 240, top: 200, width: 120, height: 20 });
@@ -553,7 +600,12 @@ describe("LocalConversationThreadBody", () => {
     );
     await settleAsyncRender();
 
-    fireEvent.click(view.getByRole("button", { name: "Open chat" }));
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Created task" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    fireEvent.click(view.getByRole("button", { name: "Open task" }));
 
     expect(openedThreads.join(",")).toBe("thread-created");
   });
@@ -644,7 +696,6 @@ describe("LocalConversationThreadBody", () => {
       body: {
         threadId: "thread_1",
         turnCount: 0,
-        hasAboveComposerBlocks: false,
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,
@@ -796,14 +847,14 @@ describe("LocalConversationThreadBody", () => {
     expect(restoreCalls[0]?.projectId).toBe("project_1");
   });
 
-  test("opens an older-turn fork confirm before invoking the manager action", async () => {
+  test("offers an older-turn local fork before invoking the manager action", async () => {
     const onForkFromTurnCalls: Array<{
       threadId: string;
       turnId: string;
       message: string;
     }> = [];
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
-    const { getAllByLabelText, getByText, queryByText } = render(
+    const { getAllByLabelText, getByRole, queryByText } = render(
       <TooltipProvider>
         <LocalConversationThreadBody
           model={buildModel({
@@ -854,13 +905,87 @@ describe("LocalConversationThreadBody", () => {
 
     fireEvent.click(getAllByLabelText("Fork from this point")[0]!);
     await settleAsyncRender();
-    expect(Boolean(queryByText("Fork thread"))).toBe(true);
+    expect(Boolean(queryByText("Continue from this message?"))).toBe(true);
+    expect(Boolean(queryByText("Continue in new task"))).toBe(true);
+    expect(Boolean(queryByText("Don't ask again when forking from an older turn"))).toBe(false);
 
-    fireEvent.click(getByText("Fork thread"));
+    fireEvent.click(getByRole("button", { name: /Continue in new task/ }));
     await settleAsyncRender();
 
     expect(onForkFromTurnCalls.length).toBe(1);
     expect(onForkFromTurnCalls[0]?.turnId).toBe("turn_older");
+  });
+
+  test("routes the older-turn worktree choice through the injected target-turn handler", async () => {
+    const localForkCalls: string[] = [];
+    const worktreeForkCalls: Array<{
+      threadId: string;
+      targetTurnId: string;
+    }> = [];
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const { getAllByLabelText, getByRole, queryByText } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({
+            conversation: buildConversation({
+              turns: [
+                buildTurn({
+                  turnId: "turn_older",
+                  status: "completed",
+                  items: [
+                    buildUserEntry({
+                      turnId: "turn_older",
+                      itemId: "user_older",
+                      markdownText: "Fork me",
+                    }),
+                    buildAssistantEntry({
+                      turnId: "turn_older",
+                      itemId: "assistant_older",
+                    }),
+                  ],
+                }),
+                buildTurn({
+                  turnId: "turn_latest",
+                  status: "completed",
+                  items: [
+                    buildUserEntry({
+                      turnId: "turn_latest",
+                      itemId: "user_latest",
+                      markdownText: "Latest turn",
+                    }),
+                    buildAssistantEntry({
+                      turnId: "turn_latest",
+                      itemId: "assistant_latest",
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          })}
+          actions={buildActions({
+            onForkFromTurn: async ({ turnId }) => {
+              localForkCalls.push(turnId);
+            },
+          })}
+          onForkFromTurnIntoWorktree={async (input) => {
+            worktreeForkCalls.push(input);
+          }}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(getAllByLabelText("Fork from this point")[0]!);
+    await settleAsyncRender();
+    expect(Boolean(queryByText("Continue in new worktree"))).toBe(true);
+
+    fireEvent.click(getByRole("button", { name: /Continue in new worktree/ }));
+    await settleAsyncRender();
+
+    expect(localForkCalls.length).toBe(0);
+    expect(worktreeForkCalls.length).toBe(1);
+    expect(worktreeForkCalls[0]?.threadId).toBe("thread_1");
+    expect(worktreeForkCalls[0]?.targetTurnId).toBe("turn_older");
   });
 
   test("opens an inline edit prompt in place and only edits on send", async () => {

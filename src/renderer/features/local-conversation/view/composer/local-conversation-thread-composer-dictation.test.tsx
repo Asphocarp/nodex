@@ -115,7 +115,6 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     body: {
       threadId: "thread_1",
       turnCount: 1,
-      hasAboveComposerBlocks: false,
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: "turn_1",

@@ -1,11 +1,9 @@
 import type { CodexConversationItem } from "../../../lib/types";
 import { getCodexFileChangePaths } from "../../../../shared/codex-file-change";
-import { buildTurnRenderModel } from "./build-turn-render-model";
+import { selectTurnRenderModel } from "./build-turn-render-model";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type {
   ThreadBlockModel,
-  ThreadCollapsedToolActivityBlockModel,
-  ThreadExplorationGroupBlockModel,
   ThreadTranscriptBlockModel,
   ThreadUserMessageNavigationItem,
   ThreadUserMessageNavigationOutput,
@@ -73,12 +71,6 @@ function isThreadTranscriptBlock(block: ThreadBlockModel): block is ThreadTransc
   return "entry" in block;
 }
 
-function isExplorationGroupBlock(
-  block: ThreadBlockModel | ThreadCollapsedToolActivityBlockModel["entries"][number],
-): block is ThreadExplorationGroupBlockModel {
-  return block.type === "explorationGroup";
-}
-
 function flattenThreadBlocks(blocks: readonly ThreadBlockModel[]): ThreadBlockModel[] {
   const flattened: ThreadBlockModel[] = [];
 
@@ -90,32 +82,8 @@ function flattenThreadBlocks(blocks: readonly ThreadBlockModel[]): ThreadBlockMo
       continue;
     }
 
-    if (block.type === "webSearchGroup") {
-      flattened.push(...block.entries);
-      continue;
-    }
-
-    if (block.type === "collapsedToolActivity") {
+    if (block.type === "agentActivityGroup") {
       for (const entry of block.entries) {
-        if (isExplorationGroupBlock(entry)) {
-          for (const item of entry.entries) {
-            flattened.push({
-              id: item.entryId ?? item.itemId,
-              turnId: item.turnId,
-              createdAt: item.createdAt,
-              updatedAt: item.updatedAt,
-              searchableText: stringifyValue(item),
-              type: item.semanticKind === "webSearch" ? "webSearch" : "mcpToolCall",
-              entry: item,
-              status: item.status,
-            });
-          }
-          continue;
-        }
-        if (entry.type === "webSearchGroup") {
-          flattened.push(...entry.entries);
-          continue;
-        }
         flattened.push(entry);
       }
     }
@@ -310,11 +278,8 @@ export function buildThreadUserMessageNavigationItems(
   const items: ThreadUserMessageNavigationItem[] = [];
 
   for (const entry of entries) {
-    const turnModel = buildTurnRenderModel({
-      turn: entry.turn,
-      requests: entry.requests,
-      isLatestTurn: entry.isMostRecentTurn,
-      isStreamingTurn: entry.turn.status === "inProgress",
+    const turnModel = selectTurnRenderModel({
+      entry,
       canEditTurnUserPrefix: false,
       canForkTurn: false,
     });

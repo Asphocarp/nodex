@@ -3,7 +3,10 @@ import {
   QueryClientProvider,
   type DefaultOptions,
 } from "@tanstack/react-query";
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { subscribeCodexEvents } from "./api";
+import { queryKeys } from "./query-keys";
+import type { CodexEvent } from "./types";
 
 const ReactQueryDevtools = lazy(async () => {
   const module = await import("@tanstack/react-query-devtools");
@@ -27,6 +30,26 @@ export function createNodexQueryClient(defaultOptions: DefaultOptions = NODEX_QU
   return new QueryClient({ defaultOptions });
 }
 
+export function applyCodexHostCatalogEvent(
+  queryClient: QueryClient,
+  event: CodexEvent,
+): void {
+  if (event.type !== "appsUpdated") return;
+
+  const queryKey = queryKeys.mcp.apps();
+  const queryState = queryClient.getQueryState(queryKey);
+  if (queryState?.data == null && queryState?.fetchStatus !== "fetching") return;
+
+  queryClient.setQueryData(queryKey, event.apps);
+}
+
+function CodexHostCatalogQuerySync({ queryClient }: { queryClient: QueryClient }) {
+  useEffect(() => subscribeCodexEvents((event) => {
+    applyCodexHostCatalogEvent(queryClient, event);
+  }), [queryClient]);
+  return null;
+}
+
 function shouldRenderQueryDevtools(): boolean {
   return process.env.NODE_ENV === "development" && window.__NODEX_STORYBOOK__ !== true;
 }
@@ -37,6 +60,7 @@ export function NodexQueryProvider({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       {children}
+      <CodexHostCatalogQuerySync queryClient={queryClient} />
       {shouldRenderQueryDevtools() ? (
         <Suspense fallback={null}>
           <ReactQueryDevtools initialIsOpen={false} />
@@ -45,4 +69,3 @@ export function NodexQueryProvider({ children }: { children: ReactNode }) {
     </QueryClientProvider>
   );
 }
-

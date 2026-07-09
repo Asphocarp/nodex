@@ -24,6 +24,7 @@ import {
 import {
   BROWSER_SIDEBAR_DEVICE_PRESETS,
   DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
+  requireProjectSessionBrowserTabId,
   type BrowserBrowsingDataKind,
   type BrowserSidebarBrowserUseViewportEvent,
   type BrowserSidebarBrowserUseStateSnapshot,
@@ -106,7 +107,10 @@ const BROWSER_DROPDOWN_CONTENT_STYLE: CSSProperties = {
 };
 const LOCAL_SERVER_THUMBNAIL_DATA_URI =
   "data:image/svg+xml,%3Csvg width='84' height='52' viewBox='0 0 84 52' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='84' height='52' rx='10' fill='%231B1D21'/%3E%3Crect x='10' y='10' width='64' height='7' rx='3.5' fill='%2330363D'/%3E%3Crect x='10' y='23' width='42' height='6' rx='3' fill='%23282D34'/%3E%3Crect x='10' y='34' width='55' height='6' rx='3' fill='%23282D34'/%3E%3Ccircle cx='69' cy='38' r='4' fill='%2316A34A'/%3E%3C/svg%3E";
-const DEFAULT_BROWSER_SNAPSHOT: Omit<BrowserSidebarTabSnapshot, "tabId" | "sessionId" | "projectId" | "updatedAt"> = {
+const DEFAULT_BROWSER_SNAPSHOT: Omit<
+  BrowserSidebarTabSnapshot,
+  "browserConversationId" | "browserTabId" | "projectId" | "updatedAt"
+> = {
   webContentsId: null,
   mountGeneration: 0,
   url: "about:blank",
@@ -117,10 +121,19 @@ const DEFAULT_BROWSER_SNAPSHOT: Omit<BrowserSidebarTabSnapshot, "tabId" | "sessi
   zoomPercent: 100,
   deviceToolbarVisible: false,
   viewport: {
-    width: 0,
-    height: 0,
+    width: 390,
+    height: 844,
     zoomPercent: 100,
     presetId: "responsive",
+  },
+  deviceToolbarState: {
+    responsiveViewportSize: null,
+    toolbarState: {
+      isEnabled: false,
+      presetId: "responsive",
+      width: 390,
+      height: 844,
+    },
   },
   interactionMode: "browse",
   findState: DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
@@ -137,7 +150,7 @@ export function BrowserSidebarPanel({
 }: {
   tab: BrowserTab;
   activeSession: ProjectSession;
-  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onRefreshSessions: (projectId: string | null) => Promise<ProjectSession[]>;
   boundsSyncTrigger?: MotionValue<number>;
   activeForContentSearch?: boolean;
 }) {
@@ -166,15 +179,19 @@ export function BrowserSidebarPanel({
   const command = useCallback(async (input: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> => {
     return invoke("browser-sidebar-command", input) as Promise<BrowserSidebarCommandResult>;
   }, []);
+  const browserIdentity = useMemo(() => ({
+    browserConversationId: activeSession.id,
+    browserTabId: requireProjectSessionBrowserTabId(tab),
+  }), [activeSession.id, tab]);
   const contentSearchBrowserTarget = useMemo(() => {
     if (!activeForContentSearch || pageActionsDisabled) return null;
     return {
-      tabId: tab.id,
+      ...browserIdentity,
       available: snapshot.hasBrowserPage && !isBlank,
       findState: snapshot.findState,
       command,
     };
-  }, [activeForContentSearch, command, isBlank, pageActionsDisabled, snapshot.findState, snapshot.hasBrowserPage, tab.id]);
+  }, [activeForContentSearch, browserIdentity, command, isBlank, pageActionsDisabled, snapshot.findState, snapshot.hasBrowserPage]);
   useRegisterContentSearchBrowserTarget(contentSearchBrowserTarget);
 
   useEffect(() => {
@@ -182,25 +199,31 @@ export function BrowserSidebarPanel({
 
     void command({
       type: "register-tab",
-      tabId: tab.id,
-      sessionId: activeSession.id,
+      ...browserIdentity,
       projectId: tab.projectId,
       initialUrl: readBrowserConfigUrl(tab),
       title: tab.title,
       faviconUrl: readBrowserConfigFavicon(tab),
       deviceToolbarVisible: readBrowserConfigDeviceToolbarVisible(tab),
+    }).then((result) => {
+      if (result.ok && result.snapshot) setSnapshot(result.snapshot);
     });
-    void command({ type: "local-servers-refresh", projectId: tab.projectId });
+    if (tab.projectId !== null) {
+      void command({ type: "local-servers-refresh", projectId: tab.projectId });
+    }
 
     const unsubscribeState = window.api?.on("browser-sidebar-state", (payload) => {
       const state = payload as { tabs?: BrowserSidebarTabSnapshot[] } | undefined;
-      const next = state?.tabs?.find((item) => item.tabId === tab.id);
+      const next = state?.tabs?.find((item) =>
+        item.browserConversationId === browserIdentity.browserConversationId
+        && item.browserTabId === browserIdentity.browserTabId
+      );
       if (!next) return;
       setSnapshot(next);
     });
     const unsubscribeLocalServers = window.api?.on("browser-sidebar-local-servers", (payload) => {
       const next = payload as BrowserSidebarLocalServersSnapshot | undefined;
-      if (next?.projectId !== tab.projectId) return;
+      if (tab.projectId === null || next?.projectId !== tab.projectId) return;
       setLocalServers(next);
     });
     const unsubscribeBrowserUse = window.api?.on("browser-sidebar-browser-use-state", (payload) => {
@@ -219,7 +242,7 @@ export function BrowserSidebarPanel({
       unsubscribeBrowserUseViewport?.();
       unsubscribeBrowserUseCursor?.();
     };
-  }, [activeSession.id, browserRuntimeAvailable, command, tab.id, tab.projectId, tab.title]);
+  }, [browserIdentity, browserRuntimeAvailable, command, tab.projectId, tab.title]);
 
   useLayoutEffect(() => {
     if (!browserRuntimeAvailable || isBlank) return undefined;
@@ -227,13 +250,11 @@ export function BrowserSidebarPanel({
     if (!container) return undefined;
 
     const mountGeneration = browserSidebarRendererWebviewManager.claimMountGeneration({
-      sessionId: activeSession.id,
-      tabId: tab.id,
+      ...browserIdentity,
     });
     const syncCurrentBounds = () => browserSidebarRendererWebviewManager.syncWebview({
-      sessionId: activeSession.id,
+      ...browserIdentity,
       projectId: tab.projectId,
-      tabId: tab.id,
       hostKind: "panel",
       initialUrl: initialWebviewUrlRef.current,
       bounds: readWebviewHostBounds(container),
@@ -271,12 +292,11 @@ export function BrowserSidebarPanel({
       window.removeEventListener("resize", scheduleSyncBounds);
       window.removeEventListener("scroll", scheduleSyncBounds, true);
       browserSidebarRendererWebviewManager.detachWebview({
-        sessionId: activeSession.id,
-        tabId: tab.id,
+        ...browserIdentity,
       }, mountGeneration);
     };
   }, [
-    activeSession.id,
+    browserIdentity,
     boundsSyncTrigger,
     browserRuntimeAvailable,
     isBlank,
@@ -285,7 +305,6 @@ export function BrowserSidebarPanel({
     snapshot.viewport.presetId,
     snapshot.viewport.width,
     snapshot.viewport.zoomPercent,
-    tab.id,
     tab.projectId,
   ]);
 
@@ -337,13 +356,13 @@ export function BrowserSidebarPanel({
     setAddressValue(readBrowserAddressValue(url));
     void command({
       type: "navigate",
-      tabId: tab.id,
+      ...browserIdentity,
       url,
       source: "manual",
       initiator: "address_bar",
       originalUrl: rawUrl,
     });
-  }, [command, tab.id]);
+  }, [browserIdentity, command]);
 
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
@@ -361,26 +380,26 @@ export function BrowserSidebarPanel({
       viewport: { ...current.viewport, zoomPercent },
       updatedAt: Date.now(),
     }));
-    void command({ type: "set-zoom-percent", tabId: tab.id, zoomPercent, showBanner: true });
+    void command({ type: "set-zoom-percent", ...browserIdentity, zoomPercent, showBanner: true });
   };
 
   const stepZoom = (delta: number) => {
-    void command({ type: "step-zoom", tabId: tab.id, delta, showBanner: true });
+    void command({ type: "step-zoom", ...browserIdentity, delta, showBanner: true });
   };
 
   const resetZoom = () => {
-    void command({ type: "reset-zoom", tabId: tab.id, showBanner: true });
+    void command({ type: "reset-zoom", ...browserIdentity, showBanner: true });
   };
 
   const toggleDeviceToolbar = () => {
     const visible = !snapshot.deviceToolbarVisible;
     setSnapshot((current) => ({ ...current, deviceToolbarVisible: visible, updatedAt: Date.now() }));
-    void command({ type: "set-device-toolbar-visible", tabId: tab.id, visible });
+    void command({ type: "set-device-toolbar-visible", ...browserIdentity, visible });
   };
 
   const updateViewport = (viewport: BrowserSidebarViewport) => {
     setSnapshot((current) => ({ ...current, viewport, zoomPercent: viewport.zoomPercent, updatedAt: Date.now() }));
-    void command({ type: "set-viewport", tabId: tab.id, viewport });
+    void command({ type: "set-viewport", ...browserIdentity, viewport });
   };
 
   const clearBrowsingData = async (kind: BrowserBrowsingDataKind) => {
@@ -394,7 +413,7 @@ export function BrowserSidebarPanel({
   };
 
   const captureScreenshot = async () => {
-    const result = await command({ type: "capture-screenshot", tabId: tab.id });
+    const result = await command({ type: "capture-screenshot", ...browserIdentity });
     if (result.ok && result.dataUrl) {
       await navigator.clipboard?.writeText(result.dataUrl).catch(() => undefined);
       setClearDataStatus("Screenshot copied");
@@ -408,9 +427,22 @@ export function BrowserSidebarPanel({
   };
 
   const viewportStyle = resolveViewportStyle(snapshot);
-  const cursor = browserUseCursor ?? browserUseState?.cursor;
-  const showBrowserUseCursor = cursor?.visible === true && (cursor.tabId === null || cursor.tabId === tab.id);
-  const activeBrowserUseTab = browserUseState?.tabs.find((item) => item.tabId === browserUseState.activeTabId) ?? null;
+  const cursor = (
+    browserUseCursor?.browserConversationId === browserIdentity.browserConversationId
+    && browserUseCursor.browserTabId === browserIdentity.browserTabId
+      ? browserUseCursor
+      : browserUseState?.cursors.find((candidate) =>
+          candidate.browserConversationId === browserIdentity.browserConversationId
+          && candidate.browserTabId === browserIdentity.browserTabId
+        )
+  ) ?? null;
+  const showBrowserUseCursor = cursor?.visible === true;
+  const activeBrowserUseTabId = browserUseState
+    ?.activeBrowserTabIdsByConversation[browserIdentity.browserConversationId] ?? null;
+  const activeBrowserUseTab = browserUseState?.tabs.find((item) =>
+    item.browserConversationId === browserIdentity.browserConversationId
+    && item.browserTabId === activeBrowserUseTabId
+  ) ?? null;
 
   if (!browserRuntimeAvailable) {
     return <BrowserUnavailableState />;
@@ -424,7 +456,7 @@ export function BrowserSidebarPanel({
             label="Back"
             disabled={!snapshot.canGoBack}
             onClick={() => {
-              void command({ type: "go-back", tabId: tab.id });
+              void command({ type: "go-back", ...browserIdentity });
             }}
           >
             <CodexBrowserBackIcon className="icon-sm" />
@@ -433,7 +465,7 @@ export function BrowserSidebarPanel({
             label="Forward"
             disabled={!snapshot.canGoForward}
             onClick={() => {
-              void command({ type: "go-forward", tabId: tab.id });
+              void command({ type: "go-forward", ...browserIdentity });
             }}
           >
             <CodexBrowserBackIcon className="icon-sm rotate-180" />
@@ -443,10 +475,10 @@ export function BrowserSidebarPanel({
             disabled={pageActionsDisabled}
             onClick={() => {
               if (snapshot.isLoading) {
-                void command({ type: "stop", tabId: tab.id });
+                void command({ type: "stop", ...browserIdentity });
                 return;
               }
-              void command({ type: "reload", tabId: tab.id });
+              void command({ type: "reload", ...browserIdentity });
             }}
           >
             {snapshot.isLoading ? <StopIcon className="icon-sm" /> : <CodexBrowserReloadIcon className="icon-sm" />}
@@ -503,7 +535,7 @@ export function BrowserSidebarPanel({
                 )}
                 disabled={pageActionsDisabled}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void command({ type: "open-external", tabId: tab.id })}
+                onClick={() => void command({ type: "open-external", ...browserIdentity })}
                 aria-label="Open externally"
               >
                 <CodexBrowserExternalIcon className="icon-xs" />
@@ -524,7 +556,7 @@ export function BrowserSidebarPanel({
               onClick={() => {
                 void command({
                   type: "set-interaction-mode",
-                  tabId: tab.id,
+                  ...browserIdentity,
                   mode: commentMode ? "browse" : "comment",
                 });
               }}
@@ -539,7 +571,7 @@ export function BrowserSidebarPanel({
             snapshot={snapshot}
             disabled={pageActionsDisabled}
             onHardReload={() => {
-              void command({ type: "reload", tabId: tab.id, ignoreCache: true });
+              void command({ type: "reload", ...browserIdentity, ignoreCache: true });
             }}
             onToggleDeviceToolbar={toggleDeviceToolbar}
             onSetZoom={setZoom}
@@ -569,11 +601,27 @@ export function BrowserSidebarPanel({
           <BrowserNewTabState
             projectId={tab.projectId}
             localServers={localServers}
-            onRefresh={() => void command({ type: "local-servers-refresh", projectId: tab.projectId })}
+            onRefresh={() => {
+              if (tab.projectId !== null) {
+                void command({ type: "local-servers-refresh", projectId: tab.projectId });
+              }
+            }}
             onOpen={navigateTo}
-            onHideServer={(server) => void command({ type: "hide-local-server", projectId: tab.projectId, server })}
-            onUnhideServer={(url) => void command({ type: "unhide-local-server", projectId: tab.projectId, url })}
-            onRemoveRoute={(serverUrl, routeUrl) => void command({ type: "remove-local-server-route", projectId: tab.projectId, serverUrl, routeUrl })}
+            onHideServer={(server) => {
+              if (tab.projectId !== null) {
+                void command({ type: "hide-local-server", projectId: tab.projectId, server });
+              }
+            }}
+            onUnhideServer={(url) => {
+              if (tab.projectId !== null) {
+                void command({ type: "unhide-local-server", projectId: tab.projectId, url });
+              }
+            }}
+            onRemoveRoute={(serverUrl, routeUrl) => {
+              if (tab.projectId !== null) {
+                void command({ type: "remove-local-server-route", projectId: tab.projectId, serverUrl, routeUrl });
+              }
+            }}
           />
         ) : (
           <BrowserWebviewStage
@@ -976,7 +1024,7 @@ export function BrowserNewTabState({
   onUnhideServer,
   onRemoveRoute,
 }: {
-  projectId: string;
+  projectId: string | null;
   localServers: BrowserSidebarLocalServersSnapshot | null;
   onRefresh: () => void;
   onOpen: (url: string) => void;
@@ -1006,6 +1054,7 @@ export function BrowserNewTabState({
     setSettings((current) => ({ ...current, sortMode }));
   };
   const expandProject = () => {
+    if (projectId === null) return;
     setSettings((current) => {
       const expandedProjectIds = new Set([...current.expandedProjectIds, projectId]);
       writeBrowserLocalServerExpandedProjects(
@@ -1247,13 +1296,20 @@ function makeInitialSnapshot(tab: BrowserTab, activeSession: ProjectSession): Br
   const url = normalizeBrowserNavigationUrl(readBrowserConfigUrl(tab));
   return {
     ...DEFAULT_BROWSER_SNAPSHOT,
-    tabId: tab.id,
-    sessionId: activeSession.id,
+    browserConversationId: activeSession.id,
+    browserTabId: requireProjectSessionBrowserTabId(tab),
     projectId: tab.projectId,
     url,
     title: readBrowserConfigTitle(tab) || tab.title || "New tab",
     faviconUrl: readBrowserConfigFavicon(tab),
     deviceToolbarVisible: readBrowserConfigDeviceToolbarVisible(tab),
+    deviceToolbarState: {
+      ...DEFAULT_BROWSER_SNAPSHOT.deviceToolbarState,
+      toolbarState: {
+        ...DEFAULT_BROWSER_SNAPSHOT.deviceToolbarState.toolbarState,
+        isEnabled: readBrowserConfigDeviceToolbarVisible(tab),
+      },
+    },
     hasBrowserPage: !isBlankBrowserUrl(url),
     pageActionsDisabled: isBlankBrowserUrl(url),
     updatedAt: Date.now(),

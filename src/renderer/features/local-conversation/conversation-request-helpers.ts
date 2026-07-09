@@ -5,6 +5,7 @@ export {
   selectConversationLiveRequests,
   selectConversationTurnRequestsByTurnId,
   selectPlanImplementationRequest,
+  selectPrimaryBackgroundConversationRequest,
   selectPrimaryConversationRequest,
   selectTurnScopedConversationRequests,
   type CodexTurnScopedConversationRequest,

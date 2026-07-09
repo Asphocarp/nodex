@@ -6,6 +6,7 @@ import { CodexShimmerText } from "../codex-shimmer-text";
 import type { ToolComponentProps } from "./get-tool-component";
 import { ThreadActivityDisclosure } from "./tool-primitives";
 import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
+import { CodexAppActivityIcon, CodexCreatedTaskIcon } from "./codex-tool-icons";
 import {
   type CodexAppHandoffStatus,
   type CodexAppHandoffStep,
@@ -25,49 +26,44 @@ function openCodexAppCreatedThreadResult(
   onOpenThread?: ToolComponentProps["onOpenThread"],
 ) {
   if (!result) return;
-  if (typeof result.threadId === "string") {
-    void onOpenThread?.(result.threadId);
-    return;
-  }
-  window.location.hash = `#/worktrees/pending/${encodeURIComponent(result.pendingWorktreeId)}`;
+  void onOpenThread?.(
+    typeof result.threadId === "string" ? result.threadId : result.clientThreadId,
+  );
 }
 
 function CodexAppCreatedThreadCard({
-  call,
   onOpenThread,
+  result,
 }: {
-  call: CodexDynamicToolCallView;
   onOpenThread?: ToolComponentProps["onOpenThread"];
+  result: NonNullable<ReturnType<typeof parseCodexAppCreateThreadResult>>;
 }) {
-  const result = parseCodexAppCreateThreadResult(call);
-  if (!result) return null;
-
-  const isPendingWorktree = "pendingWorktreeId" in result;
-  const ariaLabel = isPendingWorktree ? "Open worktree setup" : "Open chat";
-  const title = isPendingWorktree ? "Worktree chat queued" : "Chat created";
-  const action = isPendingWorktree ? "Open setup" : "Open chat";
+  const isPendingWorktree = "clientThreadId" in result;
+  const ariaLabel = isPendingWorktree ? "Open worktree setup" : "Open task";
+  const title = isPendingWorktree ? "Worktree task queued" : "Task created";
+  const action = isPendingWorktree ? "Open setup" : "Open task";
 
   return (
-    <div className="my-1">
+    <div className="flex max-w-full flex-col overflow-hidden rounded-lg bg-token-dropdown-background/50 text-token-foreground [--thread-resource-card-row-padding-x:0.75rem] electron:elevation-stroke extension:border extension:border-token-border extension:bg-token-input-background/50 extension:shadow-sm">
       <button
         type="button"
         aria-label={ariaLabel}
         className="w-full cursor-interaction text-left hover:bg-token-list-hover-background/30 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset"
         onClick={() => openCodexAppCreatedThreadResult(result, onOpenThread)}
       >
-        <div className="flex min-w-0 items-center gap-2 px-1.5 py-1">
+        <span className="flex min-w-0 items-center gap-2.5 px-[var(--thread-resource-card-row-padding-x)] py-3 text-left">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
-            <ToolActivityIcon descriptor={semanticToolIcon("plugin")} className="icon-sm" />
+            <CodexCreatedTaskIcon className="icon-sm" aria-hidden />
           </span>
-          <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-size-chat text-token-conversation-summary-leading">
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-size-chat truncate font-medium text-token-foreground">
               {title}
             </span>
-            <span className="shrink-0 text-size-chat text-token-conversation-summary-trailing">
-              {action}
-            </span>
           </span>
-        </div>
+          <span className="text-token-button-tertiary-foreground flex h-token-button-composer shrink-0 items-center gap-1 overflow-hidden rounded-lg border border-token-border bg-transparent px-2 py-0 text-base leading-[18px] whitespace-nowrap">
+            {action}
+          </span>
+        </span>
       </button>
     </div>
   );
@@ -233,8 +229,7 @@ function DynamicToolRegistryLabelRow({
   );
   const rowClassName = cn(
     "text-size-chat min-w-0 items-center",
-    variant === "summary-text" ? "inline" : "flex gap-2",
-    variant === "row" && "my-1",
+    variant === "summary-text" ? "inline" : "inline-flex gap-1.5",
     variant === "row"
       ? "text-token-conversation-summary-leading"
       : "text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground",
@@ -321,10 +316,7 @@ function CodexAppHandoffToolCall({
   if (!resolveDynamicToolRegistryLabel(call)) return null;
   const state = resolveCodexAppHandoffRenderState(call);
   const icon = (
-    <ToolActivityIcon
-      descriptor={semanticToolIcon("plugin")}
-      className="icon-xs shrink-0 text-token-text-secondary"
-    />
+    <CodexAppActivityIcon className="icon-xs shrink-0 text-token-conversation-body" aria-hidden />
   );
 
   if (variant !== "row") {
@@ -341,7 +333,7 @@ function CodexAppHandoffToolCall({
   const steps = state.result?.steps ?? [];
   const canExpand = steps.length > 0;
   const summary = (
-    <span className="inline-flex min-w-0 max-w-full items-center gap-2 truncate text-token-conversation-summary-leading">
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-token-conversation-summary-leading">
       {icon}
       <CodexShimmerText
         active={state.active}
@@ -357,7 +349,6 @@ function CodexAppHandoffToolCall({
       bodyClassName="pt-1 pl-5"
       canExpand={canExpand}
       defaultExpanded={state.activityStatus === "running" && canExpand}
-      shouldAnimateInitialCollapse={state.activityStatus === "running" && canExpand}
       summary={summary}
     >
       <div className="flex flex-col gap-1">
@@ -383,8 +374,10 @@ function CodexAppThreadToolCall({
   }
 
   if (variant === "row" && call.tool === "create_thread" && call.completed && call.success === true) {
-    const card = <CodexAppCreatedThreadCard call={call} onOpenThread={onOpenThread} />;
-    if (card) return card;
+    const result = parseCodexAppCreateThreadResult(call);
+    if (result) {
+      return <CodexAppCreatedThreadCard onOpenThread={onOpenThread} result={result} />;
+    }
   }
 
   const label = resolveDynamicToolRegistryLabel(call);
@@ -392,7 +385,7 @@ function CodexAppThreadToolCall({
   const navigationThreadId = variant === "row" ? getThreadNavigationTarget(call) : null;
   const isNavigableRow = navigationThreadId !== null;
   const iconClassName = cn(
-    "icon-xs shrink-0 text-token-text-secondary",
+    "icon-xs shrink-0 text-token-conversation-body",
     isNavigableRow && "group-hover:!text-token-foreground",
   );
 
@@ -400,10 +393,7 @@ function CodexAppThreadToolCall({
     <DynamicToolRegistryLabelRow
       active={!call.completed}
       icon={variant === "summary-text" ? null : (
-        <ToolActivityIcon
-          descriptor={semanticToolIcon("plugin")}
-          className={iconClassName}
-        />
+        <CodexAppActivityIcon className={iconClassName} aria-hidden />
       )}
       label={label}
       onClick={navigationThreadId && onOpenThread ? () => {
@@ -430,7 +420,7 @@ function SettingsToolCall({
       icon={variant === "summary-text" ? null : (
         <ToolActivityIcon
           descriptor={semanticToolIcon("settings")}
-          className="icon-xs shrink-0 text-token-text-secondary"
+          className="icon-xs shrink-0 text-token-conversation-body"
         />
       )}
       label={label}
@@ -608,10 +598,7 @@ function DynamicToolFallbackLabel({
       )}
     >
       {showIcon ? (
-        <ToolActivityIcon
-          descriptor={semanticToolIcon("plugin")}
-          className="icon-xs shrink-0 text-token-text-secondary"
-        />
+        <CodexAppActivityIcon className="icon-xs shrink-0 text-token-text-secondary" aria-hidden />
       ) : null}
       <CodexShimmerText active={!call.completed} className={cn(showIcon && "min-w-0 truncate")}>
         {label}

@@ -1,9 +1,8 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { ChevronRightIcon } from "@/components/shared/icons";
 import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
-import { cn } from "../../../../lib/utils";
+import { formatCodexModelLabel } from "../../../../lib/codex-thread-settings";
 import {
   normalizeMultiAgentActionPayload,
   type CodexMultiAgentActionName,
@@ -18,6 +17,7 @@ import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
 import { CodexShimmerText } from "./codex-shimmer-text";
 import { SubagentGlyphIcon } from "./subagent-avatar";
+import { ThreadActivityShell, ThreadRichActivityHeader } from "./tools/tool-primitives";
 
 function getHeaderLabel(action: CodexMultiAgentActionName, status: CodexMultiAgentActionStatus): string {
   if (action === "spawnAgent") {
@@ -115,14 +115,6 @@ function getAgentRole(
   return role;
 }
 
-function getAgentModel(
-  receiverThread: CodexMultiAgentReceiverThread | undefined,
-  membership: CodexConversationChildMembership | undefined,
-): string | null {
-  return normalizeNullableText(receiverThread?.thread?.model)
-    ?? normalizeNullableText(membership?.thread?.model);
-}
-
 function getAgentOpenStatus(state: CodexMultiAgentAgentState | undefined): ThreadOpenSubagentPayload["status"] {
   if (!state) return "done";
   if (state.status === "pendingInit") return "waiting";
@@ -208,28 +200,36 @@ function AgentLabel({
 }) {
   const displayName = getAgentDisplayName(threadId, receiverThread, membership);
   const role = getAgentRole(receiverThread, membership);
-  const resolvedSpawnModel = spawnModel ?? getAgentModel(receiverThread, membership);
+  const resolvedSpawnModel = spawnModel
+    ?? normalizeNullableText(receiverThread?.thread?.model)
+    ?? normalizeNullableText(membership?.thread?.model);
+  const modelLabel = resolvedSpawnModel ? formatCodexModelLabel(resolvedSpawnModel, []) : null;
   const label = onOpenThread ? (
-    <button
-      type="button"
-      className="cursor-interaction bg-transparent p-0 align-baseline font-medium"
-      data-testid="multi-agent-action-agent-button"
-      onClick={() => {
-        void onOpenThread(threadId, {
-          subagent: {
-            agentRole: role,
-            conversationId: threadId,
-            diffStats: null,
-            displayName,
-            spawnModel: resolvedSpawnModel,
-            status: getAgentOpenStatus(state),
-            statusSummary: normalizeNullableText(state?.message),
-          },
-        });
-      }}
+    <NodexTooltip
+      disabled={modelLabel === null}
+      tooltipContent={modelLabel === null ? null : `Uses ${modelLabel}`}
     >
-      {displayName}
-    </button>
+      <button
+        type="button"
+        className="cursor-interaction bg-transparent p-0 align-baseline font-medium"
+        data-testid="multi-agent-action-agent-button"
+        onClick={() => {
+          void onOpenThread(threadId, {
+            subagent: {
+              agentRole: role,
+              conversationId: threadId,
+              diffStats: null,
+              displayName,
+              spawnModel: resolvedSpawnModel,
+              status: getAgentOpenStatus(state),
+              statusSummary: state?.message ?? null,
+            },
+          });
+        }}
+      >
+        {displayName}
+      </button>
+    </NodexTooltip>
   ) : (
     <span className="font-medium">{displayName}</span>
   );
@@ -420,12 +420,10 @@ function renderRows(
 export function MultiAgentActionSurface({
   childMemberships = [],
   items,
-  forceInProgress = false,
   onOpenThread,
 }: {
   childMemberships?: readonly CodexConversationChildMembership[];
   items: CodexConversationItem[];
-  forceInProgress?: boolean;
   onOpenThread?: OpenMultiAgentThread;
 }) {
   const normalizedItems = items
@@ -436,75 +434,70 @@ export function MultiAgentActionSurface({
   const primaryItem = normalizedItems[0];
   if (!primaryItem) return null;
 
-  const resolvedStatus = forceInProgress ? "inProgress" : resolveGroupStatus(normalizedItems);
+  const resolvedStatus = resolveGroupStatus(normalizedItems);
   const isInProgress = resolvedStatus === "inProgress";
   const [expanded, setExpanded] = useState(false);
-  const isOpen = isInProgress || expanded;
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
   const rowModels = renderRows(normalizedItems, onOpenThread, childMemberships);
   const targetCount = countTargets(normalizedItems);
   const countLabel = getCountLabel(targetCount);
 
-  return (
-    <div className="min-w-0 py-0">
-      <div className="flex flex-col gap-1">
-        <button
-          type="button"
-          aria-expanded={isOpen}
-          className="group/activity-header inline-flex min-w-0 max-w-full cursor-interaction items-center gap-1.5 self-start p-0 text-left"
-          data-testid="multi-agent-action-header"
-          onClick={() => {
-            if (isInProgress) return;
-            setExpanded((current) => !current);
-          }}
-        >
-          <span className="text-size-chat flex min-w-0 shrink items-center gap-1.5 truncate">
-            <SubagentGlyphIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground" />
-            <span className="text-size-chat truncate text-token-conversation-summary-trailing">
-              <CodexShimmerText
-                active={isInProgress}
-                className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground"
-              >
-                {getHeaderLabel(primaryItem.action, resolvedStatus)}
-              </CodexShimmerText>
-              {countLabel ? (
-                <span className="text-token-conversation-summary-trailing">
-                  {countLabel}
-                </span>
-              ) : null}
-            </span>
-          </span>
-          <ChevronRightIcon
-            className={cn(
-              "icon-2xs shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/activity-header:opacity-100 group-hover/activity-header:text-token-foreground group-focus-visible/activity-header:opacity-100 group-focus-visible/activity-header:text-token-foreground",
-              isOpen && "opacity-100 rotate-90",
-            )}
-          />
-        </button>
-        <motion.div
-          initial={false}
-          animate={{
-            height: isOpen ? elementHeightPx : 0,
-            opacity: isOpen ? 1 : 0,
-          }}
-          transition={CODEX_THREAD_ACCORDION_TRANSITION}
-          className={cn(isOpen ? "overflow-visible" : "overflow-hidden")}
-          style={{
-            pointerEvents: isOpen ? "auto" : "none",
-          }}
-        >
-          <div ref={elementRef} className="flex flex-col gap-0.5" data-testid="multi-agent-action-rows">
-            {rowModels.map((row) => (
-              <div
-                key={row.key}
-                className="text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant text-size-chat min-w-0"
-              >
-                {row.node}
-              </div>
-            ))}
+  const summary = (
+    <span className="text-size-chat truncate text-token-conversation-summary-trailing">
+      <CodexShimmerText
+        active={isInProgress}
+        className="text-token-conversation-summary-leading group-hover/activity-header:text-token-foreground"
+      >
+        {getHeaderLabel(primaryItem.action, resolvedStatus)}
+      </CodexShimmerText>
+      {countLabel}
+    </span>
+  );
+  const body = (
+    <motion.div
+      initial={false}
+      animate={{
+        height: expanded ? elementHeightPx : 0,
+        opacity: expanded ? 1 : 0,
+      }}
+      transition={CODEX_THREAD_ACCORDION_TRANSITION}
+      className={expanded ? "overflow-visible" : "overflow-hidden"}
+      style={{
+        pointerEvents: expanded ? "auto" : "none",
+        visibility: expanded ? "visible" : "hidden",
+      }}
+    >
+      <div
+        ref={expanded ? elementRef : null}
+        className="flex flex-col gap-[var(--conversation-grouped-item-gap,4px)] pt-1"
+        data-testid="multi-agent-action-rows"
+      >
+        {rowModels.map((row) => (
+          <div
+            key={row.key}
+            className="text-token-conversation-body [&_*]:text-token-non-assistant-body-descendant text-size-chat min-w-0"
+          >
+            {row.node}
           </div>
-        </motion.div>
+        ))}
       </div>
-    </div>
+    </motion.div>
+  );
+
+  return (
+    <ThreadActivityShell
+      body={body}
+      header={(
+        <ThreadRichActivityHeader
+          disclosure={{
+            expanded,
+            onToggle: () => setExpanded((current) => !current),
+          }}
+          icon={<SubagentGlyphIcon className="icon-xs shrink-0 text-token-conversation-body" />}
+          summary={summary}
+          testId="multi-agent-action-header"
+        />
+      )}
+    />
   );
 }
