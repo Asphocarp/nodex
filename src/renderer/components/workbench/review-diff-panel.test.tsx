@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createElement, type ComponentProps } from "react";
-import { act, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  type RenderResult,
+  waitFor,
+} from "@testing-library/react";
 import { render, textContent } from "../../test/dom";
 import {
   __resetNodexToastStoreForTests,
@@ -638,6 +643,14 @@ async function clickReviewMenuItem(menuItem: HTMLElement): Promise<void> {
 async function dispatchReviewEvent(callback: () => void): Promise<void> {
   await act(async () => {
     callback();
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+}
+
+async function unmountReviewView(view: RenderResult): Promise<void> {
+  await act(async () => {
+    view.unmount();
     await Promise.resolve();
   });
   await settleAsyncRender();
@@ -1576,6 +1589,7 @@ describe("review diff panel", () => {
     expect(
       invokeCalls.some((call) => call[0] === "codex:review:start"),
     ).toBeFalse();
+    await unmountReviewView(view);
   });
 
   test("renders Codex staged empty state and switches to branch diff from its action", async () => {
@@ -2196,6 +2210,7 @@ describe("review diff panel", () => {
       menuItems.some((node) => node.textContent?.includes("Unified")),
     ).toBeFalse();
     expect(view.getByLabelText("Switch to split diff").tagName).toBe("BUTTON");
+    await unmountReviewView(view);
   });
 
   test("copies the git apply command from the review options menu", async () => {
@@ -2264,6 +2279,7 @@ describe("review diff panel", () => {
       copiedCommand.includes("diff --git a/src/git.ts b/src/git.ts"),
     ).toBeTrue();
     expect(copiedCommand.endsWith("EOF\n)")).toBeTrue();
+    await unmountReviewView(view);
   });
 
   test("jump-to-file filters and selects a diff row", async () => {
@@ -2335,6 +2351,7 @@ describe("review diff panel", () => {
     ).not.toBeNull();
     await settleAsyncRender();
     await settleAsyncRender();
+    await unmountReviewView(view);
   });
 
   test("keeps file filtering separate from review search matching", async () => {

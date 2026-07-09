@@ -134,6 +134,39 @@
   color: color-mix(in srgb, var(--color-token-text-primary) 40%, transparent);
 }
 
+.sidebar-scroll-fade-mask {
+  --sidebar-scroll-footer-edge: calc(100% - var(--sidebar-footer-height));
+  --sidebar-scroll-footer-fade-distance: calc(var(--spacing) * 10);
+  --sidebar-scroll-footer-fade-start: calc(
+    var(--sidebar-scroll-footer-edge) - var(--sidebar-scroll-footer-fade-distance)
+  );
+  --sidebar-scroll-header-mask-distance: var(
+    --sidebar-scroll-header-fade-distance,
+    var(--sidebar-scroll-header-spacing, calc(var(--spacing) * 2))
+  );
+  --sidebar-scroll-header-mask-start: var(--sidebar-scroll-header-fade-start, 0px);
+  --sidebar-scroll-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent var(--sidebar-scroll-header-mask-start),
+    black calc(
+      var(--sidebar-scroll-header-mask-start) + var(--sidebar-scroll-header-mask-distance)
+    ),
+    black var(--sidebar-scroll-footer-fade-start),
+    rgb(0 0 0 / 88%) calc(var(--sidebar-scroll-footer-edge) - var(--spacing) * 6),
+    rgb(0 0 0 / 52%) calc(var(--sidebar-scroll-footer-edge) - var(--spacing) * 3),
+    rgb(0 0 0 / 18%) calc(var(--sidebar-scroll-footer-edge) - var(--spacing)),
+    transparent var(--sidebar-scroll-footer-edge),
+    transparent 100%
+  );
+  -webkit-mask-image: var(--sidebar-scroll-mask-image);
+  mask-image: var(--sidebar-scroll-mask-image);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
 .diff-stat-digit-column {
   display: inline-block;
   width: 1ch;

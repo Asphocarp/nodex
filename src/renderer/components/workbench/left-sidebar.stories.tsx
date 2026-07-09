@@ -3,13 +3,15 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
 import type { SidebarPinnedOrganizationMode, SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { CodexAutomationsIcon, ComposerPluginsIcon, SearchIcon } from "@/components/shared/icons";
+import { CodexAutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
 import {
-  SidebarNewChatButton,
+  getSidebarScrollChromeStyle,
+  SIDEBAR_SCROLL_AREA_CLASS,
+  SidebarExpandedHeader,
   SidebarProjectNewChatButton,
 } from "./sidebar-new-chat-controls";
 import {
@@ -17,7 +19,6 @@ import {
   CodexProjectSessionList,
   CodexSidebarThreadRow,
   CodexSidebarSection,
-  CodexSidebarTopAction,
   CodexSidebarTopActionButton,
   CodexThreadRow,
   resolveCodexCardSearchShortcutLabel,
@@ -323,22 +324,29 @@ function StatusGroupOrderHarness() {
 }
 
 function SidebarNewChatControlsHarness() {
+  const [scrolledContentUnderHeader, setScrolledContentUnderHeader] = useState(false);
+
   return (
     <NodexTooltipProvider>
       <div className="min-h-screen bg-(--background) p-8">
-        <div className="flex h-[260px] w-[280px] flex-col bg-(--background-secondary) py-1 [--sidebar-scroll-header-spacing:calc(var(--spacing)*0.5)]">
-          <div className="relative z-10 shrink-0 pb-[var(--sidebar-scroll-header-spacing)]">
-            <SidebarNewChatButton shortcutLabel="⌘N" onClick={() => {}} />
-            <CodexSidebarTopAction
-              label="Search"
-              icon={<SearchIcon className="icon-xs" />}
-              shortcutLabel={resolveCodexCardSearchShortcutLabel()}
-              onClick={() => {}}
-            />
-          </div>
+        <div
+          className="flex h-[260px] w-[280px] flex-col bg-(--background-secondary) py-1 [--height-token-nav-row:30px] [--padding-row-cell-x:8px] [--padding-row-x:8px] [--radius-token-row:10px]"
+          style={getSidebarScrollChromeStyle(scrolledContentUnderHeader)}
+        >
+          <SidebarExpandedHeader
+            productName="Nodex"
+            searchShortcutLabel={resolveCodexCardSearchShortcutLabel()}
+            newChatShortcutLabel="⌘N"
+            scrolledContentUnderHeader={scrolledContentUnderHeader}
+            onSearch={() => {}}
+            onNewChat={() => {}}
+          />
           <div
             data-app-action-sidebar-scroll=""
-            className="vertical-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto -mt-[var(--sidebar-scroll-header-spacing,8px)] pt-[var(--sidebar-scroll-header-spacing,8px)] [contain:layout_paint]"
+            className={SIDEBAR_SCROLL_AREA_CLASS}
+            onScroll={(event) => {
+              setScrolledContentUnderHeader(event.currentTarget.scrollTop > 0);
+            }}
           >
             <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
               <div className="shrink-0 px-row-x">
@@ -368,6 +376,16 @@ function SidebarNewChatControlsHarness() {
                   onClick={() => {}}
                 />
               </div>
+            </div>
+            <div className="flex shrink-0 flex-col gap-px px-row-x">
+              {Array.from({ length: 8 }, (_, index) => (
+                <div
+                  key={index}
+                  className="flex h-token-nav-row items-center truncate rounded-lg px-row-x text-base text-token-foreground"
+                >
+                  Sidebar parity thread {index + 1}
+                </div>
+              ))}
             </div>
           </div>
         </div>

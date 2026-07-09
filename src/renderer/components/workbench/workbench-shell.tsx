@@ -338,13 +338,14 @@ import {
   CodexSidePanelTerminalIcon,
   ComposerPluginsIcon,
   ComposerPlanModeIcon,
-  SearchIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
 import {
+  getSidebarScrollChromeStyle,
+  SIDEBAR_SCROLL_AREA_CLASS,
   SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS,
   SidebarCompactNewChatButton,
-  SidebarNewChatButton,
+  SidebarExpandedHeader,
 } from "./sidebar-new-chat-controls";
 import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
@@ -352,7 +353,6 @@ import {
   CodexProjectSessionList,
   CodexSidebarSection,
   CodexSidebarThreadRow,
-  CodexSidebarTopAction,
   CodexSidebarTopActionButton,
   resolveCodexCardSearchShortcutLabel,
   resolveCodexNewChatShortcutLabel,
@@ -10093,6 +10093,7 @@ function ProjectSessionSidebar({
   sidebarArchiveSuppressedKeys: ReadonlySet<string>;
 }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [scrolledContentUnderHeader, setScrolledContentUnderHeader] = useState(false);
   const sidebarResizeDisabled = resizeDisabled;
   const sidebarResizeSurface: SidebarResizeSurface = floating ? "floating" : "inline";
   const setSidebarResizeActive = (active: boolean) => {
@@ -10200,28 +10201,30 @@ function ProjectSessionSidebar({
         className="max-w-full min-h-0 flex-1 overflow-hidden"
         style={{ minWidth: width, width, opacity: floating ? undefined : contentOpacity }}
       >
-        <div className="flex h-full min-h-0 flex-col overflow-hidden [--sidebar-scroll-header-spacing:calc(var(--spacing)*0.5)]">
+        <div
+          className="flex h-full min-h-0 flex-col overflow-hidden [--height-token-nav-row:30px] [--padding-row-cell-x:8px] [--padding-row-x:8px] [--radius-token-row:10px]"
+          style={getSidebarScrollChromeStyle(scrolledContentUnderHeader)}
+        >
           <nav
             className="sidebar-foreground-muted flex min-h-0 flex-1 flex-col"
             role="navigation"
             aria-label="Automation folders"
           >
-            <div className="relative z-10 shrink-0 pb-[var(--sidebar-scroll-header-spacing)]">
-              <SidebarNewChatButton
-                shortcutLabel={resolveCodexNewChatShortcutLabel()}
-                onClick={() => void onStartNewChatInProject(activeProjectId)}
-              />
-              <CodexSidebarTopAction
-                label="Search"
-                icon={<SearchIcon className="icon-xs" />}
-                shortcutLabel={resolveCodexCardSearchShortcutLabel()}
-                onClick={onOpenCommandPalette}
-              />
-            </div>
+            <SidebarExpandedHeader
+              productName="Nodex"
+              searchShortcutLabel={resolveCodexCardSearchShortcutLabel()}
+              newChatShortcutLabel={resolveCodexNewChatShortcutLabel()}
+              scrolledContentUnderHeader={scrolledContentUnderHeader}
+              onSearch={onOpenCommandPalette}
+              onNewChat={() => void onStartNewChatInProject(activeProjectId)}
+            />
 
             <div
               data-app-action-sidebar-scroll=""
-              className="vertical-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto -mt-[var(--sidebar-scroll-header-spacing,8px)] pt-[var(--sidebar-scroll-header-spacing,8px)] [contain:layout_paint]"
+              className={SIDEBAR_SCROLL_AREA_CLASS}
+              onScroll={(event) => {
+                setScrolledContentUnderHeader(event.currentTarget.scrollTop > 0);
+              }}
             >
               <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
                 <div className="shrink-0 px-row-x">

@@ -3023,7 +3023,7 @@ describe("workbench session shell", () => {
 
     const newChatButton = screen.getByRole("button", { name: "New chat" });
     const iconPath = newChatButton.querySelector("path")?.getAttribute("d") ?? "";
-    expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
+    expect(iconPath.startsWith(CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBeTrue();
     expect(textContent(newChatButton).includes("⌘N") || textContent(newChatButton).includes("Ctrl+N")).toBeTrue();
   });
 
@@ -3039,10 +3039,12 @@ describe("workbench session shell", () => {
     }
 
     const fixedHeaderText = textContent(fixedHeader);
+    expect(fixedHeaderText.includes("Nodex")).toBeTrue();
     expect(fixedHeaderText.includes("New chat")).toBeTrue();
-    expect(fixedHeaderText.includes("Search")).toBeTrue();
+    expect(within(fixedHeader).getByRole("button", { name: "Search" }) !== null).toBeTrue();
     expect(fixedHeaderText.includes("Scheduled")).toBeFalse();
     expect(fixedHeaderText.includes("Plugins")).toBeFalse();
+    expect(fixedHeader.getAttribute("data-scrolled-content-under-header")).toBe("false");
 
     const scrollArea = nav.querySelector("[data-app-action-sidebar-scroll]");
     if (!(scrollArea instanceof HTMLElement)) {
@@ -3060,6 +3062,13 @@ describe("workbench session shell", () => {
 
     const routeActionsText = textContent(routeActions);
     expect(routeActionsText.indexOf("Scheduled") < routeActionsText.indexOf("Plugins")).toBeTrue();
+
+    await act(async () => {
+      scrollArea.scrollTop = 12;
+      fireEvent.scroll(scrollArea);
+      await Promise.resolve();
+    });
+    expect(fixedHeader.getAttribute("data-scrolled-content-under-header")).toBe("true");
   });
 
   test("renders the Codex sidebar navigation landmark", async () => {
@@ -3097,7 +3106,6 @@ describe("workbench session shell", () => {
     }
 
     const searchButton = within(sidebar).getByRole("button", { name: "Search" });
-    expect(textContent(searchButton).includes("⌘P") || textContent(searchButton).includes("Ctrl+P")).toBeTrue();
 
     await act(async () => {
       fireEvent.click(searchButton);
@@ -3467,7 +3475,7 @@ describe("workbench session shell", () => {
     expect(leftSlot.getAttribute("style")?.includes("width: 312px")).toBeTrue();
     expect(leftSlot.getAttribute("style")?.includes("min-width: 312px")).toBeFalse();
     expect(within(leftSlot).queryByRole("button", { name: "New chat" })).toBe(null);
-    expect(topNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
+    expect(topNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBeTrue();
   });
 
   test("clicking the Projects section header collapses and expands project rows", async () => {

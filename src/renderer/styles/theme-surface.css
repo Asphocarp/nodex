@@ -201,6 +201,20 @@ mark.codex-thread-find-active {
   background-color: var(--color-token-side-bar-background);
 }
 
+.sidebar-foreground-muted {
+  --color-token-foreground: var(--vscode-foreground);
+}
+
+@supports (color: color-mix(in lab, red, red)) {
+  .sidebar-foreground-muted {
+    --color-token-foreground: color-mix(
+      in oklab,
+      var(--vscode-foreground) 85%,
+      transparent
+    );
+  }
+}
+
 [data-codex-window-type="electron"].electron-dark
   :is(
     [data-local-conversation-thread-body="true"],

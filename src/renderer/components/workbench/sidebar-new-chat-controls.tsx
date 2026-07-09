@@ -1,11 +1,71 @@
-import type { KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
-import { CodexNewChatIcon, CodexTitlebarNewChatIcon } from "@/components/shared/icons";
+import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
+import { CodexNewChatIcon, CodexSettingsSearchIcon, CodexTitlebarNewChatIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-export const SIDEBAR_NEW_CHAT_ROW_CLASS = "focus-visible:outline-token-border relative h-token-nav-row px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
+export const SIDEBAR_NEW_CHAT_ROW_CLASS = "focus-visible:outline-token-border relative h-[var(--height-token-nav-row)] px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
 export const SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
 export const SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0 text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
+export const SIDEBAR_SCROLL_AREA_CLASS = "sidebar-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto -mt-[var(--sidebar-scroll-header-spacing,8px)] pt-[var(--sidebar-scroll-content-top-padding,var(--sidebar-scroll-header-spacing,8px))] [contain:layout_paint]";
+
+const SIDEBAR_HEADER_SEARCH_BUTTON_CLASS = "border-token-border no-drag cursor-interaction ml-auto flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-transparent p-1 text-token-foreground select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background";
+
+export function getSidebarScrollChromeStyle(scrolledContentUnderHeader: boolean): CSSProperties {
+  return {
+    "--sidebar-footer-height": "0px",
+    "--sidebar-scroll-content-top-padding": "1px",
+    "--sidebar-scroll-header-fade-distance": scrolledContentUnderHeader
+      ? "calc(var(--spacing) * 4)"
+      : "1px",
+    "--sidebar-scroll-header-fade-start": scrolledContentUnderHeader ? "var(--spacing)" : "0px",
+    "--sidebar-scroll-header-spacing": scrolledContentUnderHeader ? "var(--spacing)" : "1px",
+  } as CSSProperties;
+}
+
+export function SidebarExpandedHeader({
+  productName,
+  searchShortcutLabel,
+  newChatShortcutLabel,
+  scrolledContentUnderHeader,
+  onSearch,
+  onNewChat,
+}: {
+  productName: string;
+  searchShortcutLabel: ReactNode;
+  newChatShortcutLabel: ReactNode;
+  scrolledContentUnderHeader: boolean;
+  onSearch: () => void;
+  onNewChat: () => void;
+}) {
+  return (
+    <div
+      data-app-action-sidebar-scroll-header=""
+      data-scrolled-content-under-header={scrolledContentUnderHeader}
+      className={cn(
+        "relative z-10 flex shrink-0 flex-col gap-2 px-row-x pb-[var(--sidebar-scroll-header-spacing)]",
+        scrolledContentUnderHeader
+          && "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[0.5px] after:bg-token-foreground/10 after:content-['']",
+      )}
+    >
+      <div className="ml-2 flex items-center">
+        <div className="-ml-2 flex h-8 min-w-0 items-center rounded-xl border border-transparent px-2 text-[17px] leading-6 font-medium">
+          <span className="truncate font-semibold text-token-foreground">{productName}</span>
+        </div>
+        <NodexTooltip tooltipContent="Search" shortcut={searchShortcutLabel} side="right">
+          <button
+            type="button"
+            className={SIDEBAR_HEADER_SEARCH_BUTTON_CLASS}
+            aria-label="Search"
+            onClick={onSearch}
+          >
+            <CodexSettingsSearchIcon className="icon-xs" />
+          </button>
+        </NodexTooltip>
+      </div>
+      <SidebarNewChatButton shortcutLabel={newChatShortcutLabel} onClick={onNewChat} />
+    </div>
+  );
+}
 
 function stopProjectActionPropagation(
   event: MouseEvent<HTMLButtonElement> | PointerEvent<HTMLButtonElement> | KeyboardEvent<HTMLButtonElement>,
@@ -21,7 +81,7 @@ export function SidebarNewChatButton({
   onClick: () => void;
 }) {
   return (
-    <div className="shrink-0 px-row-x" data-testid="sidebar-new-chat-row-wrapper">
+    <div className="shrink-0" data-testid="sidebar-new-chat-row-wrapper">
       <div className="flex flex-col gap-1">
         <div className="flex flex-col gap-px">
           <button
@@ -30,7 +90,7 @@ export function SidebarNewChatButton({
             onClick={onClick}
           >
             <div className="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground">
-              <CodexNewChatIcon />
+              <CodexTitlebarNewChatIcon className="icon-xs" />
               <span className="truncate">New chat</span>
             </div>
             <span
