@@ -149,6 +149,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     setSidebarPinnedOrganizationMode,
     setSidebarTopLevelSectionVisible,
     setSidebarTopLevelSectionItemLimit,
+    setSidebarCollapsibleSectionCollapsed,
     moveSidebarTopLevelSectionBy,
     setFocusedStage: setFocusedStageState,
     setSidebarStageExpanded,
@@ -183,6 +184,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     tick: number;
     source: WorkbenchSidebarToggleCommandSource;
   }>({ tick: 0, source: "keyboard_shortcut" });
+  const sidebarToggleHandlerRef = useRef<((source: WorkbenchSidebarToggleCommandSource) => void) | null>(null);
   const [workbenchNavigationCommandRequest, setWorkbenchNavigationCommandRequest] =
     useState<WorkbenchNavigationCommandRequest | null>(null);
   const [workbenchPanelTabCycleRequest, setWorkbenchPanelTabCycleRequest] =
@@ -789,6 +791,12 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [focusStageWithNearestIntent, recordNavigation, resolveNavigationStageDirection, setActiveFilesTabState]);
 
   const requestSidebarToggle = useCallback((source: WorkbenchSidebarToggleCommandSource) => {
+    const sidebarToggleHandler = sidebarToggleHandlerRef.current;
+    if (sidebarToggleHandler) {
+      sidebarToggleHandler(source);
+      return;
+    }
+
     setSidebarToggleRequest((current) => ({
       tick: current.tick + 1,
       source,
@@ -1199,6 +1207,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       setSidebarPinnedOrganizationMode={setSidebarPinnedOrganizationMode}
       setSidebarTopLevelSectionVisible={setSidebarTopLevelSectionVisible}
       setSidebarTopLevelSectionItemLimit={setSidebarTopLevelSectionItemLimit}
+      setSidebarCollapsibleSectionCollapsed={setSidebarCollapsibleSectionCollapsed}
       moveSidebarTopLevelSectionBy={moveSidebarTopLevelSectionBy}
       setSidebarStageExpanded={setSidebarStageExpanded}
       isSidebarStageExpanded={isSidebarStageExpanded}
@@ -1235,6 +1244,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       keyboardShortcutsSettingsOpenTick={keyboardShortcutsSettingsOpenTick}
       sidebarToggleRequestTick={sidebarToggleRequest.tick}
       sidebarToggleRequestSource={sidebarToggleRequest.source}
+      onRegisterSidebarToggleHandler={(handler) => {
+        sidebarToggleHandlerRef.current = handler;
+        return () => {
+          if (sidebarToggleHandlerRef.current !== handler) return;
+          sidebarToggleHandlerRef.current = null;
+        };
+      }}
       onCreateProject={handleCreateProject}
       onDeleteProject={handleDeleteProject}
       onUpdateProject={handleUpdateProject}

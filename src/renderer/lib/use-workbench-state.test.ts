@@ -825,6 +825,11 @@ describe("use-workbench-state helpers", () => {
       focusedStage: string;
       sidebar: {
         pinnedOrganizationMode: string;
+        collapsibleSections: {
+          pinned: boolean;
+          projects: boolean;
+          chats: boolean;
+        };
       };
     };
     const capturedRef: { current: CapturedWorkbenchState | null } = { current: null };
@@ -854,6 +859,7 @@ describe("use-workbench-state helpers", () => {
         pinnedOrganizationMode: "manualOrder",
         topLevelSectionOrder: [],
         topLevelSections: {},
+        collapsibleSections: { projects: true, chats: true },
       },
       dock: {
         width: 560,
@@ -889,6 +895,9 @@ describe("use-workbench-state helpers", () => {
     expect(nextState.activeSearchQuery).toBe("release");
     expect(nextState.focusedStage).toBe("threads");
     expect(nextState.sidebar.pinnedOrganizationMode).toBe("manualOrder");
+    expect(nextState.sidebar.collapsibleSections.projects).toBeTrue();
+    expect(nextState.sidebar.collapsibleSections.chats).toBeTrue();
+    expect(nextState.sidebar.collapsibleSections.pinned).toBeFalse();
   });
 
   test("persists sidebar pinned organization mode in sidebar prefs", async () => {
@@ -915,6 +924,38 @@ describe("use-workbench-state helpers", () => {
     const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
     const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as { pinnedOrganizationMode?: string };
     expect(sidebarPrefs.pinnedOrganizationMode).toBe("manualOrder");
+  });
+
+  test("persists sidebar organizer section collapse state in sidebar prefs", async () => {
+    resetStorage();
+    const capturedRef: { current: ReturnType<typeof useWorkbenchState> | null } = { current: null };
+
+    function Harness() {
+      capturedRef.current = useWorkbenchState(PROJECTS);
+      return null;
+    }
+
+    render(createElement(Harness));
+    await settleAsyncRender();
+
+    if (!capturedRef.current) throw new Error("missing workbench state");
+    expect(capturedRef.current.sidebar.collapsibleSections.projects).toBeFalse();
+    expect(capturedRef.current.sidebar.collapsibleSections.chats).toBeFalse();
+
+    await act(async () => {
+      capturedRef.current?.setSidebarCollapsibleSectionCollapsed("projects", true);
+      capturedRef.current?.setSidebarCollapsibleSectionCollapsed("chats", true);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
+    const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as {
+      collapsibleSections?: { projects?: boolean; chats?: boolean; pinned?: boolean };
+    };
+    expect(sidebarPrefs.collapsibleSections?.projects).toBeTrue();
+    expect(sidebarPrefs.collapsibleSections?.chats).toBeTrue();
+    expect(sidebarPrefs.collapsibleSections?.pinned).toBeFalse();
   });
 
   resetStorage();

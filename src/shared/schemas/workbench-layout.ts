@@ -59,6 +59,7 @@ export const WorkbenchLayoutSidebarSnapshotSchema = z.object({
   pinnedOrganizationMode: z.enum(["byProject", "manualOrder"]).catch("byProject"),
   topLevelSectionOrder: z.array(z.string()).catch([]),
   topLevelSections: UnknownRecordSchema.catch({}),
+  collapsibleSections: UnknownRecordSchema.catch({}),
 }) satisfies z.ZodType<WorkbenchLayoutSidebarSnapshot>;
 
 export const WorkbenchLayoutDockSnapshotSchema = z.object({

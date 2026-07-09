@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  makeDefaultSidebarCollapsibleSectionsState,
   makeDefaultSidebarTopLevelSectionsPrefs,
   moveSidebarTopLevelSection,
+  normalizeSidebarCollapsibleSectionsState,
   normalizeSidebarTopLevelSectionOrder,
   normalizeSidebarTopLevelSectionsPrefs,
   resolveVisibleSidebarTopLevelSections,
@@ -26,6 +28,22 @@ describe("sidebar-section-prefs", () => {
     expect(prefs.cards.itemLimit).toBe(10);
     expect(prefs.threads.visible).toBeTrue();
     expect(prefs.files.itemLimit).toBe(10);
+  });
+
+  test("normalizes collapsible section state and ignores unknown ids", () => {
+    const defaults = makeDefaultSidebarCollapsibleSectionsState();
+    const state = normalizeSidebarCollapsibleSectionsState({
+      pinned: true,
+      projects: "collapsed",
+      chats: true,
+      custom: true,
+    });
+
+    expect(defaults.pinned).toBeFalse();
+    expect(state.pinned).toBeTrue();
+    expect(state.projects).toBeFalse();
+    expect(state.chats).toBeTrue();
+    expect(JSON.stringify(Object.keys(state))).toBe(JSON.stringify(["pinned", "projects", "chats"]));
   });
 
   test("resolves visible sections from order and visibility prefs", () => {

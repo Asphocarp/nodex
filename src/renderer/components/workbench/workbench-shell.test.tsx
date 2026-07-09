@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Fragment, createElement, createRef, useEffect, useState, type ComponentProps } from "react";
+import { Fragment, createElement, createRef, useEffect, useRef, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type {
@@ -33,7 +33,11 @@ import {
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
 import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
-import type { SidebarPinnedOrganizationMode } from "@/lib/use-workbench-state";
+import type {
+  SidebarCollapsibleSectionId,
+  SidebarCollapsibleSectionsState,
+  SidebarPinnedOrganizationMode,
+} from "@/lib/use-workbench-state";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
@@ -59,6 +63,7 @@ import type {
   WorkbenchPanelTabCloseCommandRequest,
   WorkbenchPanelTabCycleCommandRequest,
   WorkbenchPanelTabCycleDirection,
+  WorkbenchSidebarToggleCommandSource,
 } from "../../../shared/window-navigation";
 import {
   findNearestProjectSessionPanelLeafToRight,
@@ -101,6 +106,12 @@ const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
 const CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
 
 type TerminalEventListenerMap = Record<string, (payload: unknown) => void>;
+
+const DEFAULT_SIDEBAR_COLLAPSIBLE_SECTIONS: SidebarCollapsibleSectionsState = {
+  pinned: false,
+  projects: false,
+  chats: false,
+};
 
 const DEFAULT_TEST_CODEX_MODELS: CodexModelOption[] = [
   {
@@ -1353,7 +1364,12 @@ function renderWorkbench({
   sidebarSyncProjectlessChanged?: boolean;
   searchByProject?: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  sidebar?: { collapsed: boolean; width: number; pinnedOrganizationMode?: SidebarPinnedOrganizationMode };
+  sidebar?: {
+    collapsed: boolean;
+    width: number;
+    pinnedOrganizationMode?: SidebarPinnedOrganizationMode;
+    collapsibleSections?: SidebarCollapsibleSectionsState;
+  };
   initialActiveProjectSessionId?: string | null;
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
@@ -2252,11 +2268,22 @@ function renderWorkbench({
     direction: WorkbenchPanelTabCycleDirection,
   ) => void = () => undefined;
   let requestPanelTabClose: () => void = () => undefined;
+  let requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => void = () => undefined;
   let openCommandPalette: (mode?: "root" | "chats" | "cards" | "files", initialQuery?: string) => void = () => undefined;
+  type TestSidebarState = NonNullable<ComponentProps<typeof WorkbenchShell>["sidebar"]>;
 
   function WorkbenchShellTestHarness() {
     const [dbProjectId, setDbProjectId] = useState(projects[0]?.id ?? "alpha");
-    const [sidebarState, setSidebarState] = useState(sidebar ?? { collapsed: false, width: 300 });
+    const [sidebarState, setSidebarState] = useState<TestSidebarState>(() => ({
+      collapsed: false,
+      width: 300,
+      ...sidebar,
+      collapsibleSections: {
+        ...DEFAULT_SIDEBAR_COLLAPSIBLE_SECTIONS,
+        ...sidebar?.collapsibleSections,
+      },
+    }));
+    const sidebarToggleHandlerRef = useRef<((source: WorkbenchSidebarToggleCommandSource) => void) | null>(null);
     const [currentNavigationCommandRequest, setCurrentNavigationCommandRequest] =
       useState<WorkbenchNavigationCommandRequest | null>(navigationCommandRequest);
     const [currentPanelTabCycleRequest, setCurrentPanelTabCycleRequest] =
@@ -2287,6 +2314,9 @@ function renderWorkbench({
         tick: (current?.tick ?? 0) + 1,
         source: "menu",
       }));
+    };
+    requestSidebarToggle = (source) => {
+      sidebarToggleHandlerRef.current?.(source);
     };
     openCommandPalette = (mode = "root", initialQuery = "") => {
       setCommandPaletteRequest((current) => ({
@@ -2341,6 +2371,23 @@ function renderWorkbench({
           pinnedOrganizationModeChanges.push(mode);
           setSidebarState((current) => ({ ...current, pinnedOrganizationMode: mode }));
         }}
+        setSidebarCollapsibleSectionCollapsed={(sectionId: SidebarCollapsibleSectionId, collapsed: boolean) => {
+          setSidebarState((current) => ({
+            ...current,
+            collapsibleSections: {
+              ...DEFAULT_SIDEBAR_COLLAPSIBLE_SECTIONS,
+              ...current.collapsibleSections,
+              [sectionId]: collapsed,
+            },
+          }));
+        }}
+        onRegisterSidebarToggleHandler={(handler) => {
+          sidebarToggleHandlerRef.current = handler;
+          return () => {
+            if (sidebarToggleHandlerRef.current !== handler) return;
+            sidebarToggleHandlerRef.current = null;
+          };
+        }}
         navigationCommandRequest={currentNavigationCommandRequest}
         panelTabCycleRequest={currentPanelTabCycleRequest}
         panelTabCloseRequest={currentPanelTabCloseRequest}
@@ -2376,6 +2423,9 @@ function renderWorkbench({
     },
     requestPanelTabClose: () => {
       requestPanelTabClose();
+    },
+    requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => {
+      requestSidebarToggle(source);
     },
     getScheduledAutomations: () => scheduledAutomations,
     getRunNowAutomationIds: () => runNowAutomationIds,
@@ -2977,20 +3027,39 @@ describe("workbench session shell", () => {
     expect(textContent(newChatButton).includes("⌘N") || textContent(newChatButton).includes("Ctrl+N")).toBeTrue();
   });
 
-  test("renders Codex sidebar top rows in captured order", async () => {
+  test("renders Codex sidebar route rows inside the scroll area in captured order", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]');
-    if (!(sidebar instanceof HTMLElement)) {
-      throw new Error("Expected project session sidebar");
+    const nav = screen.getByRole("navigation", { name: "Automation folders" });
+    const fixedHeader = nav.children.item(0);
+    if (!(fixedHeader instanceof HTMLElement)) {
+      throw new Error("Expected fixed sidebar header");
     }
 
-    const sidebarText = textContent(sidebar);
-    expect(sidebarText.indexOf("New chat") < sidebarText.indexOf("Search")).toBeTrue();
-    expect(sidebarText.indexOf("Search") < sidebarText.indexOf("Plugins")).toBeTrue();
-    expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Scheduled")).toBeTrue();
+    const fixedHeaderText = textContent(fixedHeader);
+    expect(fixedHeaderText.includes("New chat")).toBeTrue();
+    expect(fixedHeaderText.includes("Search")).toBeTrue();
+    expect(fixedHeaderText.includes("Scheduled")).toBeFalse();
+    expect(fixedHeaderText.includes("Plugins")).toBeFalse();
+
+    const scrollArea = nav.querySelector("[data-app-action-sidebar-scroll]");
+    if (!(scrollArea instanceof HTMLElement)) {
+      throw new Error("Expected sidebar scroll area");
+    }
+
+    const routeActions = scrollArea.querySelector("[data-app-action-sidebar-scroll-top-actions]");
+    if (!(routeActions instanceof HTMLElement)) {
+      throw new Error("Expected scroll-owned route actions");
+    }
+
+    expect(scrollArea.firstElementChild === routeActions).toBeTrue();
+    expect(within(routeActions).getByRole("button", { name: "Scheduled" }) !== null).toBeTrue();
+    expect(within(routeActions).getByRole("button", { name: "Plugins" }) !== null).toBeTrue();
+
+    const routeActionsText = textContent(routeActions);
+    expect(routeActionsText.indexOf("Scheduled") < routeActionsText.indexOf("Plugins")).toBeTrue();
   });
 
   test("renders the Codex sidebar navigation landmark", async () => {
@@ -3439,6 +3508,62 @@ describe("workbench session shell", () => {
     expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
     expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBeTrue();
     expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+  });
+
+  test("sidebar organizer section collapse state survives sidebar hide and show", async () => {
+    const restoreMatchMedia = installReducedMotionMatchMediaForTest();
+    try {
+      const projectlessSession = makeSession({
+        id: "session:projectless:loose-chat",
+        projectId: null,
+        title: "Loose chat",
+      });
+      const screen = renderWorkbench({
+        projectlessSessions: [projectlessSession],
+        sidebar: { collapsed: false, width: 300 },
+      });
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const projectsSection = getSidebarSection(screen.container, "Projects");
+      const chatsSection = getSidebarSection(screen.container, "Chats");
+      const projectsToggle = projectsSection.querySelector("[data-app-action-sidebar-section-toggle]");
+      const chatsToggle = chatsSection.querySelector("[data-app-action-sidebar-section-toggle]");
+      if (!(projectsToggle instanceof HTMLElement) || !(chatsToggle instanceof HTMLElement)) {
+        throw new Error("Expected sidebar section toggles");
+      }
+
+      await act(async () => {
+        fireEvent.click(projectsToggle);
+        fireEvent.click(chatsToggle);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      expect(projectsSection.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+      expect(chatsSection.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        if (screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null) {
+          throw new Error("Expected project session sidebar to unmount after hide");
+        }
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      expect(getSidebarSection(screen.container, "Projects").getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+      expect(getSidebarSection(screen.container, "Chats").getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   test("Projects header actions mirror Codex controls and reopen previous project folders", async () => {
@@ -4254,6 +4379,11 @@ describe("workbench session shell", () => {
     expect(within(headerContextSurface).queryByRole("button", { name: "Create via chat" }) !== null).toBeTrue();
     expect(routeShell.contains(headerContextSurface)).toBeFalse();
     expect(routeShell.querySelector("main > header") === null).toBeTrue();
+    expect(
+      within(screen.getByRole("navigation", { name: "Automation folders" }))
+        .getByRole("button", { name: "Scheduled" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
     expect(textContent(screen.container).includes("Ask ChatGPT to schedule tasks, set reminders, or monitor for updates.")).toBeTrue();
     expect(textContent(screen.container).includes("Create your first scheduled task")).toBeTrue();
     const firstRunSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
@@ -10756,11 +10886,50 @@ describe("workbench session shell", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBeTrue();
     await moveSidebarPointer(12);
 
     expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
     expect(screen.container.querySelector('[data-sidebar-hover-trigger="true"]')).toBe(null);
     expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
+  });
+
+  test("clicking Show sidebar mounts the real sidebar in the first settled render", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: true, width: 300 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]')).toBe(null);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: "Hide sidebar" }) !== null).toBeTrue();
+  });
+
+  test("registered menu and command palette sidebar toggles use the same sidebar motion action", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.requestSidebarToggle("menu");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+
+    await executeCommandPaletteCommand(screen, "toggle sidebar", "Toggle sidebar");
+
+    expect(screen.getByRole("button", { name: "Hide sidebar" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBeTrue();
   });
 
   test("left sidebar resize clamps at Codex minimum before the collapse threshold", async () => {

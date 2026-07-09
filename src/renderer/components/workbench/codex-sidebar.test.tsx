@@ -143,6 +143,65 @@ describe("codex sidebar thread row", () => {
     expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBeTrue();
   });
 
+  test("does not reveal hover actions from row focus alone", async () => {
+    let container!: HTMLElement;
+
+    await act(async () => {
+      ({ container } = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem()}
+            active
+            onSelect={() => {}}
+            onArchive={() => {}}
+            onTogglePinned={() => {}}
+          />
+        </NodexTooltipProvider>,
+      ));
+    });
+
+    const actionRail = container.querySelector("[data-app-action-sidebar-thread-action-rail]") as HTMLElement | null;
+    expect(actionRail).not.toBeNull();
+
+    const className = (actionRail as HTMLElement).className;
+    expect(className.includes("group-hover:opacity-100")).toBeTrue();
+    expect(className.includes(":has(:focus-visible)")).toBeTrue();
+    expect(className.includes("group-focus-within")).toBeFalse();
+  });
+
+  test("keeps the pinned state visible while archive stays in the action rail", async () => {
+    let container!: HTMLElement;
+
+    await act(async () => {
+      ({ container } = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem({ pinned: true })}
+            active={false}
+            onSelect={() => {}}
+            onArchive={() => {}}
+            onTogglePinned={() => {}}
+          />
+        </NodexTooltipProvider>,
+      ));
+    });
+
+    const row = container.querySelector("[data-app-action-sidebar-thread-row]") as HTMLElement | null;
+    expect(row).not.toBeNull();
+
+    const main = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-main]") as HTMLElement | null;
+    const actionRail = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-action-rail]") as HTMLElement | null;
+    expect(main).not.toBeNull();
+    expect(actionRail).not.toBeNull();
+
+    const restingPin = (main as HTMLElement).querySelector("[data-app-action-sidebar-thread-resting-pin]") as HTMLButtonElement | null;
+    expect(restingPin).not.toBeNull();
+    expect(restingPin?.getAttribute("aria-label")).toBe("Unpin chat");
+    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBeTrue();
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBeTrue();
+    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBeTrue();
+  });
+
   test("omits elapsed metadata when the timestamp is unavailable", async () => {
     let container!: HTMLElement;
 

@@ -34,6 +34,7 @@ export interface WorkbenchLayoutSidebarSnapshot {
   pinnedOrganizationMode: WorkbenchLayoutSidebarPinnedOrganizationMode;
   topLevelSectionOrder: string[];
   topLevelSections: Record<string, unknown>;
+  collapsibleSections: Record<string, unknown>;
 }
 
 export interface WorkbenchLayoutDockSnapshot {
@@ -99,6 +100,7 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
       pinnedOrganizationMode: "byProject",
       topLevelSectionOrder: [],
       topLevelSections: {},
+      collapsibleSections: {},
     },
     dock: {
       width: 560,

@@ -63,10 +63,11 @@ export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 poin
 export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 export const CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
 export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
-export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [&:has(:focus-visible)]:pointer-events-auto [&:has(:focus-visible)]:opacity-100";
-export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4";
+export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-hover:opacity-100 [&:has(:focus-visible)]:opacity-100";
+export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4 pointer-events-auto";
 const CODEX_SIDEBAR_THREAD_HOVER_CARD_DELAY_MS = 700;
 const CODEX_SIDEBAR_THREAD_ELAPSED_REFRESH_MS = 30_000;
+const CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS = "pointer-events-auto flex h-5 w-5 items-center justify-center leading-none text-token-foreground/70 hover:text-token-foreground [&>svg]:!h-4 [&>svg]:!w-4";
 const CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL = "Chat";
 
 const NOOP_SIDEBAR_GROUP_DND_CONTROLLER: SidebarGroupDndController = {
@@ -114,38 +115,65 @@ export function CodexSidebarTopAction({
   label,
   icon,
   shortcutLabel,
+  active = false,
   onClick,
 }: {
   label: string;
   icon: ReactNode;
   shortcutLabel?: ReactNode;
+  active?: boolean;
   onClick: () => void;
 }) {
   return (
     <div className="shrink-0 px-row-x">
       <div className="flex flex-col gap-px">
-        <button
-          type="button"
-          className={SIDEBAR_NEW_CHAT_ROW_CLASS}
+        <CodexSidebarTopActionButton
+          label={label}
+          icon={icon}
+          shortcutLabel={shortcutLabel}
+          active={active}
           onClick={onClick}
-        >
-          <div className="flex min-w-0 flex-1 items-center gap-2 text-base text-token-foreground">
-            {icon}
-            <span className="truncate">{label}</span>
-          </div>
-          {shortcutLabel ? (
-            <span
-              aria-hidden="true"
-              className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-            >
-              <kbd className="inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none">
-                {shortcutLabel}
-              </kbd>
-            </span>
-          ) : null}
-        </button>
+        />
       </div>
     </div>
+  );
+}
+
+export function CodexSidebarTopActionButton({
+  label,
+  icon,
+  shortcutLabel,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  shortcutLabel?: ReactNode;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(SIDEBAR_NEW_CHAT_ROW_CLASS, active && "bg-token-list-hover-background")}
+      aria-current={active ? "page" : undefined}
+      onClick={onClick}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2 text-base text-token-foreground">
+        {icon}
+        <span className="truncate">{label}</span>
+      </div>
+      {shortcutLabel ? (
+        <span
+          aria-hidden="true"
+          className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+        >
+          <kbd className="inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none">
+            {shortcutLabel}
+          </kbd>
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -872,7 +900,9 @@ export function CodexSidebarThreadRow({
   const title = item.title;
   const archiveDisabled = item.disabled || archivePending;
   const hasElapsedMeta = Number.isFinite(item.updatedAt) && item.updatedAt > 0;
-  const showActionRail = showPinSlot || showArchiveAction;
+  const showRestingPinnedButton = showPinSlot && item.pinned;
+  const showRailPinSlot = showPinSlot && !showRestingPinnedButton;
+  const showActionRail = showRailPinSlot || showArchiveAction;
   const [internalHoverCardOpen, setInternalHoverCardOpen] = useState(false);
   const [lazyBranchName, setLazyBranchName] = useState<string | null>(null);
   const [elapsedNowMs, setElapsedNowMs] = useState(() => Date.now());
@@ -925,6 +955,11 @@ export function CodexSidebarThreadRow({
   };
   const elapsedLabel = hasElapsedMeta ? formatElapsedSince(item.updatedAt, elapsedNowMs) : null;
   const elapsedTitle = hasElapsedMeta ? `Updated ${new Date(item.updatedAt).toLocaleString()}` : undefined;
+  const handleTogglePinnedClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void onTogglePinned?.(item);
+  };
 
   const row = (
     <div
@@ -994,24 +1029,43 @@ export function CodexSidebarThreadRow({
                   {title}
                 </span>
               </div>
-              {elapsedLabel ? (
+              {elapsedLabel || showRestingPinnedButton ? (
                 <div
                   className={cn(
-                    "ml-[3px] flex min-w-[26px] items-center justify-end gap-1 group-has-[:focus-visible]:min-w-12 group-hover:min-w-12",
-                    contextMenuOpen && "min-w-12",
+                    "ml-[3px] flex min-w-[26px] items-center justify-end gap-1 group-focus-visible:min-w-12 group-focus-visible:justify-start group-has-[:focus-visible]:min-w-12 group-has-[:focus-visible]:justify-start group-hover:min-w-12 group-hover:justify-start",
+                    contextMenuOpen && "min-w-12 justify-start",
                   )}
                   data-app-action-sidebar-thread-elapsed-slot=""
                 >
-                  <span
-                    className={cn(
-                      "truncate text-right text-sm leading-4 tabular-nums text-token-description-foreground group-has-[:focus-visible]:hidden group-hover:hidden empty:hidden",
-                      contextMenuOpen && "hidden",
-                    )}
-                    title={elapsedTitle}
-                    data-app-action-sidebar-thread-elapsed=""
-                  >
-                    {elapsedLabel}
-                  </span>
+                  {elapsedLabel ? (
+                    <span
+                      className={cn(
+                        "truncate text-right text-sm leading-4 tabular-nums text-token-description-foreground group-has-[:focus-visible]:hidden group-hover:hidden empty:hidden",
+                        contextMenuOpen && "hidden",
+                      )}
+                      title={elapsedTitle}
+                      data-app-action-sidebar-thread-elapsed=""
+                    >
+                      {elapsedLabel}
+                    </span>
+                  ) : null}
+                  {showRestingPinnedButton ? (
+                    <button
+                      type="button"
+                      aria-label={pinButtonLabel}
+                      className={CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS}
+                      data-state={contextMenuOpen ? "open" : "closed"}
+                      data-app-action-sidebar-thread-resting-pin=""
+                      data-app-action-sidebar-thread-pin-session=""
+                      data-app-action-sidebar-thread-pin-slot=""
+                      onPointerDown={stopCodexSidebarRowActionPropagation}
+                      onMouseDown={stopCodexSidebarRowActionPropagation}
+                      onKeyDown={stopCodexSidebarRowActionPropagation}
+                      onClick={handleTogglePinnedClick}
+                    >
+                      <CodexSessionPinFilledIcon />
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1020,12 +1074,12 @@ export function CodexSidebarThreadRow({
             <div
               className={cn(
                 CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS,
-                contextMenuOpen && "pointer-events-auto opacity-100",
+                contextMenuOpen && "opacity-100",
               )}
               data-state={contextMenuOpen ? "open" : "closed"}
               data-app-action-sidebar-thread-action-rail=""
             >
-              {showPinSlot ? (
+              {showRailPinSlot ? (
                 <div
                   className="flex h-5 w-5 shrink-0 items-center justify-center"
                   data-app-action-sidebar-thread-pin-slot=""
@@ -1037,7 +1091,7 @@ export function CodexSidebarThreadRow({
                       type="button"
                       aria-label={pinButtonLabel}
                       className={cn(
-                        "flex h-5 w-5 items-center justify-center leading-none text-token-foreground/50 hover:text-token-foreground [&>svg]:!h-4 [&>svg]:!w-4",
+                        CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS,
                         !item.pinned && "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
                       )}
                       data-state={contextMenuOpen ? "open" : "closed"}
@@ -1045,11 +1099,7 @@ export function CodexSidebarThreadRow({
                       onPointerDown={stopCodexSidebarRowActionPropagation}
                       onMouseDown={stopCodexSidebarRowActionPropagation}
                       onKeyDown={stopCodexSidebarRowActionPropagation}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        void onTogglePinned?.(item);
-                      }}
+                      onClick={handleTogglePinnedClick}
                     >
                       {item.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
                     </button>

@@ -13,9 +13,12 @@ import {
   STAGE_PANEL_MIN_WIDTH,
 } from "./stage-panel-resize";
 import {
+  normalizeSidebarCollapsibleSectionsState,
   moveSidebarTopLevelSection,
   normalizeSidebarTopLevelSectionOrder,
   normalizeSidebarTopLevelSectionsPrefs,
+  type SidebarCollapsibleSectionId,
+  type SidebarCollapsibleSectionsState,
   type SidebarSectionItemLimit,
   type SidebarTopLevelSectionId,
   type SidebarTopLevelSectionsPrefs,
@@ -54,6 +57,8 @@ export type StageNavDirection = "left" | "right";
 export type SidebarGroupId = StageId | "recents";
 export type SidebarPinnedOrganizationMode = "byProject" | "manualOrder";
 export type {
+  SidebarCollapsibleSectionId,
+  SidebarCollapsibleSectionsState,
   SidebarSectionItemLimit,
   SidebarTopLevelSectionId,
   SidebarTopLevelSectionsPrefs,
@@ -114,6 +119,7 @@ interface SidebarPrefs {
   pinnedOrganizationMode: SidebarPinnedOrganizationMode;
   topLevelSectionOrder: SidebarTopLevelSectionId[];
   topLevelSections: SidebarTopLevelSectionsPrefs;
+  collapsibleSections: SidebarCollapsibleSectionsState;
 }
 
 interface WorkbenchPrefs {
@@ -562,6 +568,9 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
       ),
       topLevelSections: normalizeSidebarTopLevelSectionsPrefs(
         layoutSnapshot?.sidebar?.topLevelSections ?? persistedSidebar?.topLevelSections,
+      ),
+      collapsibleSections: normalizeSidebarCollapsibleSectionsState(
+        layoutSnapshot?.sidebar?.collapsibleSections ?? persistedSidebar?.collapsibleSections,
       ),
     },
     dock: {
@@ -1274,6 +1283,25 @@ export function useWorkbenchState(
     });
   }, []);
 
+  const setSidebarCollapsibleSectionCollapsed = useCallback((
+    sectionId: SidebarCollapsibleSectionId,
+    collapsed: boolean,
+  ) => {
+    setState((prev) => {
+      if (prev.sidebar.collapsibleSections[sectionId] === collapsed) return prev;
+      return {
+        ...prev,
+        sidebar: {
+          ...prev.sidebar,
+          collapsibleSections: {
+            ...prev.sidebar.collapsibleSections,
+            [sectionId]: collapsed,
+          },
+        },
+      };
+    });
+  }, []);
+
   const moveSidebarTopLevelSectionBy = useCallback((sectionId: SidebarTopLevelSectionId, direction: -1 | 1) => {
     setState((prev) => {
       const nextOrder = moveSidebarTopLevelSection(
@@ -1736,6 +1764,7 @@ export function useWorkbenchState(
     setSidebarPinnedOrganizationMode,
     setSidebarTopLevelSectionVisible,
     setSidebarTopLevelSectionItemLimit,
+    setSidebarCollapsibleSectionCollapsed,
     moveSidebarTopLevelSectionBy,
     setDockWidth,
     setDockTree,

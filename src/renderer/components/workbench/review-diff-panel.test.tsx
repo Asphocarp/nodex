@@ -1795,21 +1795,26 @@ describe("review diff panel", () => {
       };
     };
 
-    const view = render(
-      <NodexToastProvider>
-        <NodexTooltipProvider>
-          <ReviewDiffPanel
-            conversation={buildConversation()}
-            projectWorkspacePath="/tmp/codex"
-            initialSource="unstaged"
-          />
-        </NodexTooltipProvider>
-      </NodexToastProvider>,
-    );
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(
+        <NodexToastProvider>
+          <NodexTooltipProvider>
+            <ReviewDiffPanel
+              conversation={buildConversation()}
+              projectWorkspacePath="/tmp/codex"
+              initialSource="unstaged"
+            />
+          </NodexTooltipProvider>
+        </NodexToastProvider>,
+      );
+      await Promise.resolve();
+    });
 
     await settleAsyncRender();
     await waitForGitReviewDiffCall();
     await openReviewOptionsMenu(view);
+    await waitForMenuItem(view.baseElement as HTMLElement, "Copy git apply command");
 
     expect(
       Boolean(
@@ -1836,6 +1841,14 @@ describe("review diff panel", () => {
     expect(
       Boolean(view.baseElement.textContent?.includes("Don't load full files")),
     ).toBeTrue();
+    await dispatchReviewEvent(() => {
+      fireEvent.keyDown(view.baseElement.ownerDocument, { key: "Escape" });
+    });
+    await waitFor(() => {
+      if (view.baseElement.ownerDocument.querySelector('[role="menuitem"]')) {
+        throw new Error("Expected review options menu to close.");
+      }
+    });
   });
 
   test("prefers the explicit project workspace path for git-backed review sources", async () => {
@@ -2078,12 +2091,27 @@ describe("review diff panel", () => {
         throw new Error("Expected Create PR to become enabled.");
       }
     });
-    await act(async () => {
+    await dispatchReviewEvent(() => {
       fireEvent.click(view.getByLabelText("Commit or push"));
-      fireEvent.click(view.getByLabelText("Create PR"));
-      await Promise.resolve();
     });
-    await settleAsyncRender();
+    await waitFor(() => {
+      if (!invokeCalls.some((call) =>
+        call[0] === "codex:turn:start" && String(call[2]).includes("Commit or push")
+      )) {
+        throw new Error("Expected commit prompt turn to start.");
+      }
+    });
+
+    await dispatchReviewEvent(() => {
+      fireEvent.click(view.getByLabelText("Create PR"));
+    });
+    await waitFor(() => {
+      if (!invokeCalls.some((call) =>
+        call[0] === "codex:turn:start" && String(call[2]).includes("pull request")
+      )) {
+        throw new Error("Expected pull request prompt turn to start.");
+      }
+    });
 
     const turnStartCalls = invokeCalls.filter(
       (call) => call[0] === "codex:turn:start",

@@ -578,6 +578,11 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
   const [pinnedOrganizationMode, setPinnedOrganizationMode] = useState<SidebarPinnedOrganizationMode>(args.pinnedOrganizationMode);
+  const [sidebarCollapsibleSections, setSidebarCollapsibleSections] = useState({
+    pinned: false,
+    projects: false,
+    chats: false,
+  });
 
   writeStoryNavigationHistory(args.navigationHistory, initialSessionsByProject);
 
@@ -645,10 +650,21 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         searchByProject={{ nodex: "" }}
         dbViewPrefsByProject={{}}
         spaces={SPACES}
-        sidebar={{ collapsed: sidebarCollapsed, width: sidebarWidth, pinnedOrganizationMode }}
+        sidebar={{
+          collapsed: sidebarCollapsed,
+          width: sidebarWidth,
+          pinnedOrganizationMode,
+          collapsibleSections: sidebarCollapsibleSections,
+        }}
         setSidebarCollapsed={setSidebarCollapsed}
         setSidebarWidth={setSidebarWidth}
         setSidebarPinnedOrganizationMode={setPinnedOrganizationMode}
+        setSidebarCollapsibleSectionCollapsed={(sectionId, collapsed) => {
+          setSidebarCollapsibleSections((current) => ({
+            ...current,
+            [sectionId]: collapsed,
+          }));
+        }}
         cardStageCloseRef={{ current: null }}
         setDbProject={() => undefined}
         setSearchQuery={() => undefined}

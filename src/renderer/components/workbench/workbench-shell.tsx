@@ -136,8 +136,11 @@ import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
 import { cn } from "@/lib/utils";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
+  makeDefaultSidebarCollapsibleSectionsState,
   makeDefaultSidebarTopLevelSectionsPrefs,
   normalizeSidebarTopLevelSectionOrder,
+  type SidebarCollapsibleSectionId,
+  type SidebarCollapsibleSectionsState,
   type SidebarSectionItemLimit,
   type SidebarTopLevelSectionId,
   type SidebarTopLevelSectionsPrefs,
@@ -309,13 +312,12 @@ import {
   getCodexSidebarFloatingOuterClassName,
   getCodexSidebarFloatingTransition,
   normalizeCodexSidebarPointer,
-  shouldAnimateCodexSidebarToggle,
   shouldCollapseCodexSidebarResizeWidth,
   shouldClearCodexSidebarHoverSuppression,
   shouldResetCodexSidebarPointerOnWindowMouseOut,
-  shouldSuppressCodexSidebarHoverOpen,
   type CodexSidebarPointerSnapshot,
 } from "@/lib/codex-sidebar-auto-reveal";
+import { useCodexSidebarMotionState } from "@/lib/codex-sidebar-motion";
 import {
   CodexAutomationsIcon,
   CodexCloseIcon,
@@ -350,6 +352,7 @@ import {
   CodexSidebarSection,
   CodexSidebarThreadRow,
   CodexSidebarTopAction,
+  CodexSidebarTopActionButton,
   resolveCodexCardSearchShortcutLabel,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
@@ -804,6 +807,7 @@ interface WorkbenchShellProps {
     pinnedOrganizationMode?: SidebarPinnedOrganizationMode;
     topLevelSectionOrder?: SidebarTopLevelSectionId[];
     topLevelSections?: SidebarTopLevelSectionsPrefs;
+    collapsibleSections?: SidebarCollapsibleSectionsState;
   };
   cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
@@ -860,6 +864,7 @@ interface WorkbenchShellProps {
   setSidebarPinnedOrganizationMode?: (mode: SidebarPinnedOrganizationMode) => void;
   setSidebarTopLevelSectionVisible?: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
   setSidebarTopLevelSectionItemLimit?: (sectionId: SidebarTopLevelSectionId, itemLimit: SidebarSectionItemLimit) => void;
+  setSidebarCollapsibleSectionCollapsed?: (sectionId: SidebarCollapsibleSectionId, collapsed: boolean) => void;
   moveSidebarTopLevelSectionBy?: (sectionId: SidebarTopLevelSectionId, direction: -1 | 1) => void;
   setSidebarStageExpanded?: unknown;
   isSidebarStageExpanded?: unknown;
@@ -898,6 +903,9 @@ interface WorkbenchShellProps {
   keyboardShortcutsSettingsOpenTick?: unknown;
   sidebarToggleRequestTick?: number;
   sidebarToggleRequestSource?: WorkbenchSidebarToggleCommandSource;
+  onRegisterSidebarToggleHandler?: (
+    handler: (source: WorkbenchSidebarToggleCommandSource) => void,
+  ) => () => void;
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
@@ -2234,10 +2242,12 @@ export function WorkbenchShell({
   setSidebarWidth,
   setSidebarPinnedOrganizationMode,
   setSidebarTopLevelSectionVisible,
+  setSidebarCollapsibleSectionCollapsed,
   settingsToggleTick,
   keyboardShortcutsSettingsOpenTick,
   sidebarToggleRequestTick = 0,
   sidebarToggleRequestSource = "keyboard_shortcut",
+  onRegisterSidebarToggleHandler,
   navigationCommandRequest = null,
   panelTabCycleRequest = null,
   panelTabCloseRequest = null,
@@ -2302,6 +2312,9 @@ export function WorkbenchShell({
   const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
+  const [localSidebarCollapsibleSections, setLocalSidebarCollapsibleSections] = useState(
+    makeDefaultSidebarCollapsibleSectionsState,
+  );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteOpenRequest, setCommandPaletteOpenRequest] = useState({
     tick: 0,
@@ -2313,10 +2326,7 @@ export function WorkbenchShell({
   const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
   const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
   const [sidebarClickInFlight, setSidebarClickInFlight] = useState(false);
-  const [sidebarAnimateLayout, setSidebarAnimateLayout] = useState(true);
   const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] = useState(false);
-  const [pinnedProjectsSectionCollapsed, setPinnedProjectsSectionCollapsed] = useState(false);
-  const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
   const [shellNavigationHistory, setShellNavigationHistory] = useState(readWorkbenchShellNavigationHistoryState);
   const [sessionContentElement, setSessionContentElement] = useState<HTMLDivElement | null>(null);
@@ -2336,6 +2346,7 @@ export function WorkbenchShell({
     sidebarHoverSuppressed: false,
     sidebarTriggerHovered: false,
   });
+  const pendingSidebarPersistedOpenRef = useRef<boolean | null>(null);
   const lastHandledSidebarToggleRequestTickRef = useRef(sidebarToggleRequestTick);
   const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
   const lastHandledPanelTabCycleRequestTickRef = useRef(panelTabCycleRequest?.tick ?? 0);
@@ -2358,6 +2369,10 @@ export function WorkbenchShell({
   const sidebarPinnedOrganizationMode = normalizeSidebarPinnedOrganizationMode(
     sidebar?.pinnedOrganizationMode ?? DEFAULT_SIDEBAR_PINNED_ORGANIZATION_MODE,
   );
+  const sidebarCollapsibleSections = sidebar?.collapsibleSections ?? localSidebarCollapsibleSections;
+  const pinnedProjectsSectionCollapsed = sidebarCollapsibleSections.pinned;
+  const projectsSectionCollapsed = sidebarCollapsibleSections.projects;
+  const chatsSectionCollapsed = sidebarCollapsibleSections.chats;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
   const lastHandledKeyboardShortcutsSettingsOpenTickRef = useRef(keyboardShortcutsSettingsOpenTick);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
@@ -2388,13 +2403,17 @@ export function WorkbenchShell({
   const codexConnection = useLocalConversationConnection();
   const codexAccountActions = useCodexAccountActions();
   const reducedMotion = useReducedMotion();
-  const realSidebarMotion = useCodexAnimatedPanelState({
-    open: !sidebarCollapsed,
-    targetSize: sidebarWidth,
+  const realSidebarMotion = useCodexSidebarMotionState({
+    initialOpen: !sidebarCollapsed,
+    targetWidth: sidebarWidth,
     reducedMotion,
-    animateLayout: sidebarAnimateLayout,
   });
+  const sidebarOpen = realSidebarMotion.logicalOpen;
+  const sidebarLogicalCollapsed = !sidebarOpen;
   const sidebarAnimating = realSidebarMotion.animating;
+  const getRealSidebarOpen = realSidebarMotion.getOpen;
+  const setRealSidebarOpen = realSidebarMotion.setOpen;
+  const setRealSidebarTargetWidth = realSidebarMotion.setTargetWidth;
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
@@ -2628,7 +2647,7 @@ export function WorkbenchShell({
   ]);
   const shellMainContentWidth = Math.max(
     0,
-    appShellWidth - (sidebarCollapsed ? 0 : sidebarWidth),
+    appShellWidth - (sidebarOpen ? sidebarWidth : 0),
   );
   const rightPanelSizingWidth = Math.max(sessionContentWidth, shellMainContentWidth);
   const regularRightPanelWidth = clampRegularRightPanelWidth(
@@ -2677,7 +2696,7 @@ export function WorkbenchShell({
   const mainContentTargetWidth = activeSession
     ? resolveCodexMainContentTargetWidth({
         shellWidth: appShellWidth,
-        leftSidebarOpen: !sidebarCollapsed,
+        leftSidebarOpen: sidebarOpen,
         leftSidebarWidth: sidebarWidth,
         rightPanelOpen: sidePanelOpen,
         rightPanelWidth: regularRightPanelWidth,
@@ -2742,17 +2761,17 @@ export function WorkbenchShell({
     ? MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX
     : NON_MAC_SAFE_HEADER_LEFT_PX;
   const collapsedHeaderLeftFallbackWidth = safeHeaderLeftWidth + LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX;
-  const effectiveHeaderLeftWidth = sidebarCollapsed
+  const effectiveHeaderLeftWidth = sidebarLogicalCollapsed
     ? Math.max(headerLeftWidth, collapsedHeaderLeftFallbackWidth)
     : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24);
   const realSidebarMounted = realSidebarMotion.mounted;
-  const headerLeftShellSlotWidth = sidebarCollapsed && rightPanelFullWidth
+  const headerLeftShellSlotWidth = sidebarLogicalCollapsed && rightPanelFullWidth
     ? 0
     : realSidebarMounted
-      ? realSidebarMotion.animatedSize
+      ? realSidebarMotion.animatedWidth
       : effectiveHeaderLeftWidth;
   const headerLeftShellSlotMinWidth = realSidebarMounted
-    ? sidebarCollapsed
+    ? sidebarLogicalCollapsed
       ? effectiveHeaderLeftWidth
       : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24)
     : effectiveHeaderLeftWidth;
@@ -5971,13 +5990,35 @@ export function WorkbenchShell({
     });
   }, []);
 
+  const setSidebarSectionCollapsed = useCallback((
+    sectionId: SidebarCollapsibleSectionId,
+    collapsed: boolean,
+  ) => {
+    if (setSidebarCollapsibleSectionCollapsed) {
+      setSidebarCollapsibleSectionCollapsed(sectionId, collapsed);
+      return;
+    }
+
+    setLocalSidebarCollapsibleSections((current) => {
+      if (current[sectionId] === collapsed) return current;
+      return {
+        ...current,
+        [sectionId]: collapsed,
+      };
+    });
+  }, [setSidebarCollapsibleSectionCollapsed]);
+
   const toggleProjectsSectionCollapsed = useCallback(() => {
-    setProjectsSectionCollapsed((current) => !current);
-  }, []);
+    setSidebarSectionCollapsed("projects", !projectsSectionCollapsed);
+  }, [projectsSectionCollapsed, setSidebarSectionCollapsed]);
 
   const togglePinnedProjectsSectionCollapsed = useCallback(() => {
-    setPinnedProjectsSectionCollapsed((current) => !current);
-  }, []);
+    setSidebarSectionCollapsed("pinned", !pinnedProjectsSectionCollapsed);
+  }, [pinnedProjectsSectionCollapsed, setSidebarSectionCollapsed]);
+
+  const toggleChatsSectionCollapsed = useCallback(() => {
+    setSidebarSectionCollapsed("chats", !chatsSectionCollapsed);
+  }, [chatsSectionCollapsed, setSidebarSectionCollapsed]);
 
   const toggleProjectExpanded = useCallback((projectId: string) => {
     setExpandedProjectIds((current) => {
@@ -7526,20 +7567,16 @@ export function WorkbenchShell({
     options: { animate?: boolean; suppressHoverOpen?: boolean } = {},
   ) => {
     const nextOpen = !collapsed;
-    const suppressHoverOpen = shouldSuppressCodexSidebarHoverOpen({
-      nextOpen,
+    const motionResolution = setRealSidebarOpen(nextOpen, {
+      animate: options.animate,
       suppressHoverOpen: options.suppressHoverOpen,
     });
-    const shouldAnimate = shouldAnimateCodexSidebarToggle({
-      animate: options.animate,
-      reducedMotion,
-    });
     setSidebarTriggerHovered(false);
-    setSidebarHoverSuppressed(suppressHoverOpen);
+    setSidebarHoverSuppressed(motionResolution.suppressHoverOpen);
     setFloatingSidebarVisible(false);
-    setSidebarAnimateLayout(shouldAnimate);
+    pendingSidebarPersistedOpenRef.current = nextOpen;
     applySidebarCollapsed(collapsed);
-  }, [applySidebarCollapsed, reducedMotion]);
+  }, [applySidebarCollapsed, setRealSidebarOpen]);
 
   const applySidebarWidth = useCallback((
     width: number,
@@ -7553,7 +7590,7 @@ export function WorkbenchShell({
     }
 
     const nextWidth = clampCodexSidebarWidth(width);
-    realSidebarMotion.targetSize.set(nextWidth);
+    setRealSidebarTargetWidth(nextWidth);
     if (surface === "floating") {
       setFloatingSidebarVisible(true);
     }
@@ -7568,13 +7605,13 @@ export function WorkbenchShell({
     } else {
       setLocalSidebarWidth(nextWidth);
     }
-  }, [realSidebarMotion.targetSize, setSidebarCollapsedWithCodexState, setSidebarWidth]);
+  }, [setRealSidebarTargetWidth, setSidebarCollapsedWithCodexState, setSidebarWidth]);
 
   const toggleSidebarCollapsed = useCallback(() => {
-    setSidebarCollapsedWithCodexState(!sidebarCollapsed);
+    setSidebarCollapsedWithCodexState(getRealSidebarOpen());
   }, [
+    getRealSidebarOpen,
     setSidebarCollapsedWithCodexState,
-    sidebarCollapsed,
   ]);
 
   const showRealSidebarFromFloatingPanel = useCallback(() => {
@@ -7585,21 +7622,48 @@ export function WorkbenchShell({
   }, [setSidebarCollapsedWithCodexState]);
 
   useEffect(() => {
+    const persistedOpen = !sidebarCollapsed;
+    const pendingPersistedOpen = pendingSidebarPersistedOpenRef.current;
+    if (pendingPersistedOpen !== null) {
+      if (persistedOpen === pendingPersistedOpen) {
+        pendingSidebarPersistedOpenRef.current = null;
+        return;
+      }
+
+      if (getRealSidebarOpen() === pendingPersistedOpen) return;
+    }
+
+    if (getRealSidebarOpen() === persistedOpen) return;
+    setRealSidebarOpen(persistedOpen);
+  }, [getRealSidebarOpen, setRealSidebarOpen, sidebarCollapsed]);
+
+  const handleRegisteredSidebarToggle = useEffectEvent(() => {
+    setSidebarCollapsedWithCodexState(getRealSidebarOpen());
+  });
+
+  useEffect(() => {
+    if (!onRegisterSidebarToggleHandler) return undefined;
+    return onRegisterSidebarToggleHandler(() => {
+      handleRegisteredSidebarToggle();
+    });
+  }, [handleRegisteredSidebarToggle, onRegisterSidebarToggleHandler]);
+
+  useEffect(() => {
     if (lastHandledSidebarToggleRequestTickRef.current === sidebarToggleRequestTick) return;
     lastHandledSidebarToggleRequestTickRef.current = sidebarToggleRequestTick;
-    setSidebarCollapsedWithCodexState(!sidebarCollapsed);
+    setSidebarCollapsedWithCodexState(getRealSidebarOpen());
   }, [
+    getRealSidebarOpen,
     setSidebarCollapsedWithCodexState,
-    sidebarCollapsed,
     sidebarToggleRequestSource,
     sidebarToggleRequestTick,
   ]);
 
   useEffect(() => {
-    if (sidebarCollapsed) return;
+    if (sidebarLogicalCollapsed) return;
     setFloatingSidebarVisible(false);
     setSidebarHoverSuppressed(false);
-  }, [sidebarCollapsed]);
+  }, [sidebarLogicalCollapsed]);
 
   useEffect(() => {
     if (appShellWidth <= 0) return;
@@ -7615,7 +7679,7 @@ export function WorkbenchShell({
     if (!activeSession) return;
 
     const shouldClearRightPanel =
-      (crossedMediumWidth && atMediumWidth && !sidebarCollapsed && sidePanelOpen)
+      (crossedMediumWidth && atMediumWidth && sidebarOpen && sidePanelOpen)
       || (crossedNarrowWidth && atNarrowWidth && sidePanelOpen);
     if (shouldClearRightPanel) {
       const currentSnapshot = currentShellNavigationSnapshotRef.current;
@@ -7647,8 +7711,9 @@ export function WorkbenchShell({
       });
     }
 
-    if (crossedNarrowWidth && atNarrowWidth && !sidebarCollapsed) {
+    if (crossedNarrowWidth && atNarrowWidth && sidebarOpen) {
       setSidebarCollapsedWithCodexState(true, {
+        animate: false,
         suppressHoverOpen: true,
       });
     }
@@ -7658,7 +7723,7 @@ export function WorkbenchShell({
     recordShellNavigation,
     setSidebarCollapsedWithCodexState,
     sidePanelOpen,
-    sidebarCollapsed,
+    sidebarOpen,
     updateActivePanel,
   ]);
 
@@ -7766,7 +7831,7 @@ export function WorkbenchShell({
     // reacts when width/collapse/focus change without the mouse moving).
     sidebarVisibilityInputsRef.current = {
       sidebarWidth,
-      sidebarCollapsed,
+      sidebarCollapsed: sidebarLogicalCollapsed,
       sidebarAnimating,
       floatingSidebarFocusActive,
       sidebarHoverSuppressed,
@@ -7777,7 +7842,7 @@ export function WorkbenchShell({
     floatingSidebarFocusActive,
     recomputeFloatingSidebarVisibility,
     sidebarAnimating,
-    sidebarCollapsed,
+    sidebarLogicalCollapsed,
     sidebarHoverSuppressed,
     sidebarTriggerHovered,
     sidebarWidth,
@@ -7966,7 +8031,7 @@ export function WorkbenchShell({
     void hideActiveBottomPanel();
   }, [activeSession, bottomPanelOpen, hideActiveBottomPanel, showActiveBottomPanel]);
 
-  const sidebarCollapseControlLabel = sidebarCollapsed ? "Show sidebar" : "Hide sidebar";
+  const sidebarCollapseControlLabel = sidebarLogicalCollapsed ? "Show sidebar" : "Hide sidebar";
   const sidebarCollapseControlButton = (
     <NodexTooltip
       delayOpen
@@ -7991,7 +8056,7 @@ export function WorkbenchShell({
         className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
         style={{ viewTransitionName: "sidebar-trigger" }}
       >
-        {sidebarCollapsed ? <CodexSidebarHiddenIcon className="icon-xs" /> : <CodexSidebarVisibleIcon className="icon-xs" />}
+        {sidebarLogicalCollapsed ? <CodexSidebarHiddenIcon className="icon-xs" /> : <CodexSidebarVisibleIcon className="icon-xs" />}
       </button>
     </NodexTooltip>
   );
@@ -8031,7 +8096,7 @@ export function WorkbenchShell({
       >
         {windowNavigationChrome}
       </HeaderAction>
-      {sidebarCollapsed ? (
+      {sidebarLogicalCollapsed ? (
         <HeaderAction
           actionId="workbench-sidebar-new-chat"
           slotPosition="left"
@@ -8202,7 +8267,7 @@ export function WorkbenchShell({
     );
   };
 
-  const rightPanelHeaderStartInsetWidth = activeSession && rightPanelFullWidth && sidebarCollapsed
+  const rightPanelHeaderStartInsetWidth = activeSession && rightPanelFullWidth && sidebarLogicalCollapsed
     ? effectiveHeaderLeftWidth
     : 0;
   const panelTabScrollEndPaddingPx = activeSession ? 28 : 0;
@@ -8239,7 +8304,7 @@ export function WorkbenchShell({
     </div>
   ) : null;
 
-  const showFloatingSidebar = sidebarCollapsed
+  const showFloatingSidebar = sidebarLogicalCollapsed
     && !realSidebarMounted
     && (floatingSidebarVisible || floatingSidebarResizing);
   const showInlineSidebar = realSidebarMounted;
@@ -8950,15 +9015,17 @@ export function WorkbenchShell({
               expandedProjectIds={expandedProjectIds}
               pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
               projectsSectionCollapsed={projectsSectionCollapsed}
+              chatsSectionCollapsed={chatsSectionCollapsed}
               loadingSessions={loadingSessions}
               width={sidebarWidth}
-              animatedWidth={realSidebarMotion.animatedSize}
+              animatedWidth={realSidebarMotion.animatedWidth}
               contentOpacity={realSidebarMotion.opacity}
               resizeDisabled={sidebarAnimating}
               getWindowZoom={getWindowZoom}
               onResizeWidth={applySidebarWidth}
               onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
               onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
+              onToggleChatsSectionCollapsed={toggleChatsSectionCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
               onSelectProject={(projectId) => {
                 setAutomationsPath(null);
@@ -8981,6 +9048,7 @@ export function WorkbenchShell({
               onOpenCommandPalette={openSidebarCommandPalette}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
               onOpenAutomations={openAutomations}
+              automationsActive={Boolean(automationsPath)}
               projectPickerOpenTick={projectPickerOpenTick}
               onCreateProject={async (input) => {
                 const project = await onCreateProject(input);
@@ -9033,6 +9101,7 @@ export function WorkbenchShell({
                   expandedProjectIds={expandedProjectIds}
                   pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
+                  chatsSectionCollapsed={chatsSectionCollapsed}
                   loadingSessions={loadingSessions}
                   width={sidebarWidth}
                   getWindowZoom={getWindowZoom}
@@ -9040,6 +9109,7 @@ export function WorkbenchShell({
                   onResizeActiveChange={setFloatingSidebarResizing}
                   onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
+                  onToggleChatsSectionCollapsed={toggleChatsSectionCollapsed}
                   onToggleProjectExpanded={toggleProjectExpanded}
                   onSelectProject={(projectId) => {
                     setAutomationsPath(null);
@@ -9062,6 +9132,7 @@ export function WorkbenchShell({
                   onOpenCommandPalette={openSidebarCommandPalette}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
                   onOpenAutomations={openAutomations}
+                  automationsActive={Boolean(automationsPath)}
                   projectPickerOpenTick={projectPickerOpenTick}
                   onCreateProject={async (input) => {
                     const project = await onCreateProject(input);
@@ -9348,10 +9419,12 @@ function SidebarThreadOrganizerSections({
   expandedProjectIds,
   pinnedThreadsSectionCollapsed,
   projectsSectionCollapsed,
+  chatsSectionCollapsed,
   loadingSessions,
   model,
   onTogglePinnedThreadsSectionCollapsed,
   onToggleProjectsSectionCollapsed,
+  onToggleChatsSectionCollapsed,
   onToggleProjectExpanded,
   onSelectProject,
   onSelectSidebarThread,
@@ -9381,10 +9454,12 @@ function SidebarThreadOrganizerSections({
   expandedProjectIds: Set<string>;
   pinnedThreadsSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
+  chatsSectionCollapsed: boolean;
   loadingSessions: boolean;
   model: CodexSidebarThreadSyncModel;
   onTogglePinnedThreadsSectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
+  onToggleChatsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
@@ -9404,7 +9479,6 @@ function SidebarThreadOrganizerSections({
   onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
   sidebarArchiveSuppressedKeys: ReadonlySet<string>;
 }) {
-  const [chatsCollapsed, setChatsCollapsed] = useState(false);
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
@@ -9890,8 +9964,8 @@ function SidebarThreadOrganizerSections({
       </CodexSidebarSection>
       <CodexSidebarSection
         heading="Chats"
-        collapsed={chatsCollapsed}
-        onToggle={() => setChatsCollapsed((current) => !current)}
+        collapsed={chatsSectionCollapsed}
+        onToggle={onToggleChatsSectionCollapsed}
       >
         {renderThreadList(projectlessThreadKeys, "No projectless chats", { ariaLabel: "Chats" })}
       </CodexSidebarSection>
@@ -9915,6 +9989,7 @@ function ProjectSessionSidebar({
   expandedProjectIds,
   pinnedProjectsSectionCollapsed,
   projectsSectionCollapsed,
+  chatsSectionCollapsed,
   loadingSessions,
   width,
   animatedWidth,
@@ -9925,6 +10000,7 @@ function ProjectSessionSidebar({
   onResizeActiveChange,
   onTogglePinnedProjectsSectionCollapsed,
   onToggleProjectsSectionCollapsed,
+  onToggleChatsSectionCollapsed,
   onToggleProjectExpanded,
   onSelectProject,
   onSelectSidebarThread,
@@ -9938,6 +10014,7 @@ function ProjectSessionSidebar({
   onOpenCommandPalette,
   onShowUnavailableProduct,
   onOpenAutomations,
+  automationsActive,
   projectPickerOpenTick = 0,
   onCreateProject,
   onUpdateProject,
@@ -9967,6 +10044,7 @@ function ProjectSessionSidebar({
   expandedProjectIds: Set<string>;
   pinnedProjectsSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
+  chatsSectionCollapsed: boolean;
   loadingSessions: boolean;
   width: number;
   animatedWidth?: MotionValue<number>;
@@ -9977,6 +10055,7 @@ function ProjectSessionSidebar({
   onResizeActiveChange?: (active: boolean) => void;
   onTogglePinnedProjectsSectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
+  onToggleChatsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
@@ -9990,6 +10069,7 @@ function ProjectSessionSidebar({
   onOpenCommandPalette: () => void;
   onShowUnavailableProduct: (label: string) => void;
   onOpenAutomations: () => void;
+  automationsActive: boolean;
   projectPickerOpenTick?: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
@@ -10113,13 +10193,13 @@ function ProjectSessionSidebar({
         className="max-w-full min-h-0 flex-1 overflow-hidden"
         style={{ minWidth: width, width, opacity: floating ? undefined : contentOpacity }}
       >
-        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden [--sidebar-scroll-header-spacing:calc(var(--spacing)*0.5)]">
           <nav
             className="sidebar-foreground-muted flex min-h-0 flex-1 flex-col"
             role="navigation"
             aria-label="Automation folders"
           >
-            <div className="shrink-0">
+            <div className="relative z-10 shrink-0 pb-[var(--sidebar-scroll-header-spacing)]">
               <SidebarNewChatButton
                 shortcutLabel={resolveCodexNewChatShortcutLabel()}
                 onClick={() => void onStartNewChatInProject(activeProjectId)}
@@ -10130,22 +10210,31 @@ function ProjectSessionSidebar({
                 shortcutLabel={resolveCodexCardSearchShortcutLabel()}
                 onClick={onOpenCommandPalette}
               />
-              <CodexSidebarTopAction
-                label="Plugins"
-                icon={<ComposerPluginsIcon className="icon-xs" />}
-                onClick={() => onShowUnavailableProduct("Plugins")}
-              />
-              <CodexSidebarTopAction
-                label="Scheduled"
-                icon={<CodexAutomationsIcon />}
-                onClick={() => onOpenAutomations()}
-              />
             </div>
 
             <div
               data-app-action-sidebar-scroll=""
-              className="vertical-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
+              className="vertical-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto -mt-[var(--sidebar-scroll-header-spacing,8px)] pt-[var(--sidebar-scroll-header-spacing,8px)] [contain:layout_paint]"
             >
+              <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
+                <div className="shrink-0 px-row-x">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-px">
+                      <CodexSidebarTopActionButton
+                        label="Scheduled"
+                        icon={<CodexAutomationsIcon />}
+                        active={automationsActive}
+                        onClick={() => onOpenAutomations()}
+                      />
+                      <CodexSidebarTopActionButton
+                        label="Plugins"
+                        icon={<ComposerPluginsIcon className="icon-xs" />}
+                        onClick={() => onShowUnavailableProduct("Plugins")}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
               <SidebarProjectDndProvider onProjectDrop={handleProjectDrop}>
                 <SidebarThreadOrganizerSections
                   activeProjectId={activeProjectId}
@@ -10158,10 +10247,12 @@ function ProjectSessionSidebar({
                   expandedProjectIds={expandedProjectIds}
                   pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
+                  chatsSectionCollapsed={chatsSectionCollapsed}
                   loadingSessions={loadingSessions}
                   model={sidebarThreadModel}
                   onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
                   onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}
+                  onToggleChatsSectionCollapsed={onToggleChatsSectionCollapsed}
                   onToggleProjectExpanded={onToggleProjectExpanded}
                   onSelectProject={onSelectProject}
                   onSelectSidebarThread={onSelectSidebarThread}

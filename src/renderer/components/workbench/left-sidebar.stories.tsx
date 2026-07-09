@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
 import type { SidebarPinnedOrganizationMode, SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { SearchIcon } from "@/components/shared/icons";
+import { CodexAutomationsIcon, ComposerPluginsIcon, SearchIcon } from "@/components/shared/icons";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
@@ -18,6 +18,7 @@ import {
   CodexSidebarThreadRow,
   CodexSidebarSection,
   CodexSidebarTopAction,
+  CodexSidebarTopActionButton,
   CodexThreadRow,
   resolveCodexCardSearchShortcutLabel,
 } from "./codex-sidebar";
@@ -323,22 +324,48 @@ function SidebarNewChatControlsHarness() {
   return (
     <NodexTooltipProvider>
       <div className="min-h-screen bg-(--background) p-8">
-        <div className="w-[280px] bg-(--background-secondary) py-1">
-          <SidebarNewChatButton shortcutLabel="⌘N" onClick={() => {}} />
-          <CodexSidebarTopAction
-            label="Search"
-            icon={<SearchIcon className="icon-xs" />}
-            shortcutLabel={resolveCodexCardSearchShortcutLabel()}
-            onClick={() => {}}
-          />
-          <div className="mt-3 px-(--sidebar-shell-padding-x)">
-            <div className="group/folder-row flex min-h-7.5 items-center gap-1.5 rounded-xl pl-(--sidebar-row-padding-x) pr-(--sidebar-header-padding-x) py-1 text-(--sidebar-foreground) hover:bg-(--sidebar-accent)">
-              <span className="min-w-0 flex-1 truncate text-sm">Codex bundle</span>
-              <SidebarProjectNewChatButton
-                label="Start new chat in Codex bundle"
-                className="opacity-100"
-                onClick={() => {}}
-              />
+        <div className="flex h-[260px] w-[280px] flex-col bg-(--background-secondary) py-1 [--sidebar-scroll-header-spacing:calc(var(--spacing)*0.5)]">
+          <div className="relative z-10 shrink-0 pb-[var(--sidebar-scroll-header-spacing)]">
+            <SidebarNewChatButton shortcutLabel="⌘N" onClick={() => {}} />
+            <CodexSidebarTopAction
+              label="Search"
+              icon={<SearchIcon className="icon-xs" />}
+              shortcutLabel={resolveCodexCardSearchShortcutLabel()}
+              onClick={() => {}}
+            />
+          </div>
+          <div
+            data-app-action-sidebar-scroll=""
+            className="vertical-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto -mt-[var(--sidebar-scroll-header-spacing,8px)] pt-[var(--sidebar-scroll-header-spacing,8px)] [contain:layout_paint]"
+          >
+            <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
+              <div className="shrink-0 px-row-x">
+                <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-px">
+                    <CodexSidebarTopActionButton
+                      label="Scheduled"
+                      icon={<CodexAutomationsIcon />}
+                      active
+                      onClick={() => {}}
+                    />
+                    <CodexSidebarTopActionButton
+                      label="Plugins"
+                      icon={<ComposerPluginsIcon className="icon-xs" />}
+                      onClick={() => {}}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="px-(--sidebar-shell-padding-x)">
+              <div className="group/folder-row flex min-h-7.5 items-center gap-1.5 rounded-xl pl-(--sidebar-row-padding-x) pr-(--sidebar-header-padding-x) py-1 text-(--sidebar-foreground) hover:bg-(--sidebar-accent)">
+                <span className="min-w-0 flex-1 truncate text-sm">Codex bundle</span>
+                <SidebarProjectNewChatButton
+                  label="Start new chat in Codex bundle"
+                  className="opacity-100"
+                  onClick={() => {}}
+                />
+              </div>
             </div>
           </div>
         </div>
