@@ -3823,6 +3823,40 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]')).toBe(null);
   });
 
+  test("projectless Chats starts at fifty rows and expands through the pager", async () => {
+    const projectlessChats = Array.from({ length: 52 }, (_, index) => makeAttachedSession({
+      id: `session:projectless:paged-${index + 1}`,
+      projectId: null,
+      threadId: `thread-projectless-paged-${index + 1}`,
+      title: `Projectless chat ${index + 1}`,
+      order: index + 1,
+      pinned: false,
+      pinnedOrder: null,
+      rightCollapsed: true,
+      rightLayout: makePanelLayout([], null),
+      tabs: [],
+    }));
+    const screen = renderWorkbench({ projectlessSessions: projectlessChats });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const chatsSection = getSidebarSection(screen.container, "Chats");
+    expect(chatsSection.querySelectorAll("[data-app-action-sidebar-thread-row]").length).toBe(50);
+    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 50"]') !== null).toBeTrue();
+    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]')).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(within(chatsSection).getByRole("button", { name: "Show more" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(chatsSection.querySelectorAll("[data-app-action-sidebar-thread-row]").length).toBe(52);
+    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]') !== null).toBeTrue();
+    expect(within(chatsSection).queryByRole("button", { name: "Show more" })).toBe(null);
+    expect(within(chatsSection).queryByRole("button", { name: "Show less" }) !== null).toBeTrue();
+  });
+
   test("Cmd+N opens the project-scoped new-chat composer from the workbench shell", async () => {
     renderWorkbench();
     await settleAsyncRender();

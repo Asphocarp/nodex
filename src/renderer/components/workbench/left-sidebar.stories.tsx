@@ -32,7 +32,9 @@ import {
   type SidebarGroupDndController,
 } from "./sidebar-project-group-dnd";
 import {
+  CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
   CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
+  CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS,
   CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS,
   CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
   paginateCodexSidebarItems,
@@ -909,6 +911,63 @@ function CodexSidebarProjectlessChatsHarness() {
   );
 }
 
+function CodexSidebarProjectlessChatsPagedHarness() {
+  const [expanded, setExpanded] = useState(false);
+  const [extraPageCount, setExtraPageCount] = useState(1);
+  const items = useMemo(() => Array.from({ length: 52 }, (_, index) => makeSidebarThreadItem({
+    key: `local:projectless-paged-${index + 1}`,
+    threadId: `thread-projectless-paged-${index + 1}`,
+    title: `Projectless chat ${index + 1}`,
+    sessionId: `session-projectless-paged-${index + 1}`,
+    projectId: null,
+    projectless: true,
+    cwd: "/Users/asc/Desktop/scratch",
+    updatedAt: 1_780_930_000_000 - index,
+  })), []);
+  const pagination = paginateCodexSidebarItems({
+    items,
+    getKey: (item) => item.key,
+    maxItems: CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS,
+    expanded,
+    extraPageCount,
+    forcedVisibleKey: null,
+  });
+  const showMore = () => {
+    if (!expanded) {
+      setExtraPageCount(1);
+      setExpanded(true);
+      return;
+    }
+    setExtraPageCount((current) => current + 1);
+  };
+  const showLess = () => {
+    setExtraPageCount(1);
+    setExpanded(false);
+  };
+
+  return (
+    <SidebarProjectsChrome>
+      <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
+        <ThreadRowsList label="Chats" items={pagination.visibleItems} activeKey="local:projectless-paged-1" />
+        {pagination.showPager ? (
+          <div className={CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS} role="listitem">
+            {pagination.hasOverflow ? (
+              <button type="button" className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS} onClick={showMore}>
+                Show more
+              </button>
+            ) : null}
+            {expanded ? (
+              <button type="button" className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS} onClick={showLess}>
+                Show less
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </CodexSidebarSection>
+    </SidebarProjectsChrome>
+  );
+}
+
 function CodexSidebarArchivedHiddenHarness() {
   const project = SIDEBAR_PARITY_PROJECTS[0]!;
   const visibleItems = [
@@ -1256,6 +1315,10 @@ export const CodexSidebarProjectsWithAutoAssignedThread: Story = {
 
 export const CodexSidebarProjectlessChats: Story = {
   render: () => <CodexSidebarProjectlessChatsHarness />,
+};
+
+export const CodexSidebarProjectlessChatsPaged: Story = {
+  render: () => <CodexSidebarProjectlessChatsPagedHarness />,
 };
 
 export const CodexSidebarArchivedHidden: Story = {

@@ -159,6 +159,7 @@ import {
   CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
   CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
   CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS,
+  CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS,
   CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS,
   CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
   paginateCodexSidebarItems,
@@ -9482,6 +9483,7 @@ function SidebarThreadOrganizerSections({
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
+  const [projectlessThreadListExpanded, setProjectlessThreadListExpanded] = useState(false);
   const [previouslyExpandedProjectGroupIds, setPreviouslyExpandedProjectGroupIds] = useState<string[]>([]);
   const pinnedProjectDropTarget = usePinnedProjectDroppable();
   const sessionsById = useMemo(() => {
@@ -9967,7 +9969,12 @@ function SidebarThreadOrganizerSections({
         collapsed={chatsSectionCollapsed}
         onToggle={onToggleChatsSectionCollapsed}
       >
-        {renderThreadList(projectlessThreadKeys, "No projectless chats", { ariaLabel: "Chats" })}
+        {renderThreadList(projectlessThreadKeys, "No projectless chats", {
+          ariaLabel: "Chats",
+          maxItems: CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS,
+          expanded: projectlessThreadListExpanded,
+          onExpandedChange: setProjectlessThreadListExpanded,
+        })}
       </CodexSidebarSection>
     </>
   );

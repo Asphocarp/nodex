@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CODEX_SIDEBAR_PAGE_INCREMENT,
   CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS,
+  CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS,
   CODEX_SIDEBAR_PROJECT_THREAD_MAX_ITEMS,
   paginateCodexSidebarItems,
 } from "./codex-sidebar-pagination";
@@ -51,6 +52,20 @@ describe("paginateCodexSidebarItems", () => {
     });
 
     expect(result.visibleItems.length).toBe(5);
+    expect(result.showPager).toBeTrue();
+  });
+
+  test("starts projectless chats at fifty with pager controls", () => {
+    const result = paginateCodexSidebarItems({
+      items: items(55),
+      getKey: (item) => item,
+      maxItems: CODEX_SIDEBAR_PROJECTLESS_THREAD_MAX_ITEMS,
+      expanded: false,
+      extraPageCount: 1,
+    });
+
+    expect(result.visibleItems.length).toBe(50);
+    expect(result.hiddenItems.length).toBe(5);
     expect(result.showPager).toBeTrue();
   });
 
