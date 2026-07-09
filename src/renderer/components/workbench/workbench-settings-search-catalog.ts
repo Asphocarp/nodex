@@ -215,7 +215,7 @@ const SETTINGS_SEARCH_PANELS = {
           entry(
             "Approval policy",
             "Raw `approval_policy` value for this config target.",
-            ["granular", "untrusted", "on-failure", "on-request", "never"],
+            ["granular", "untrusted", "on-request", "never"],
           ),
           entry(
             "Sandbox settings",

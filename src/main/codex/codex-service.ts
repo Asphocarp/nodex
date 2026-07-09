@@ -10695,19 +10695,19 @@ export class CodexService extends EventEmitter {
     if (parsed.turnId && !sourceDetail) {
       throw new Error(`Thread '${sourceThreadId}' is not loaded for turn-scoped fork`);
     }
-    const sourceTurnIndex = parsed.turnId && sourceDetail
-      ? sourceDetail.turns.findIndex((turn) => turn.turnId === parsed.turnId)
-      : -1;
-    if (parsed.turnId && sourceDetail && sourceTurnIndex < 0) {
+    const sourceTurn = parsed.turnId && sourceDetail
+      ? sourceDetail.turns.find((turn) => turn.turnId === parsed.turnId)
+      : null;
+    if (parsed.turnId && !sourceTurn) {
       throw new Error(`Turn '${parsed.turnId}' was not found in thread '${sourceThreadId}'`);
     }
-    const sourceTurn = sourceTurnIndex >= 0 ? sourceDetail?.turns[sourceTurnIndex] : null;
     if (sourceTurn && sourceTurn.status === "inProgress") {
       throw new Error("Only completed turns can be forked");
     }
 
     const forkParams: ThreadForkParams = {
       threadId: sourceThreadId,
+      ...(parsed.turnId ? { lastTurnId: parsed.turnId } : {}),
       cwd: runLocation.cwd,
     };
     const forkResult = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", forkParams);
@@ -10715,22 +10715,12 @@ export class CodexService extends EventEmitter {
     if (typeof forkedThreadId !== "string" || forkedThreadId.length === 0) {
       throw new Error("Thread fork did not return a valid thread id");
     }
-    const turnsToDrop = sourceDetail && sourceTurnIndex >= 0
-      ? sourceDetail.turns.length - sourceTurnIndex - 1
-      : 0;
-    const finalThreadPayload = turnsToDrop > 0
-      ? (await this.client.request<"thread/rollback", ThreadRollbackResponse>("thread/rollback", {
-          threadId: forkedThreadId,
-          numTurns: turnsToDrop,
-        })).thread
-      : forkResult.thread;
-
     const nextSession = projectSessionService.createProjectSession({
       projectId: sourceProjectId,
       noThreadFallbackTitle: sourceSession.displayTitle,
     });
     const summary = this.upsertSessionLinkFromThread(
-      finalThreadPayload,
+      forkResult.thread,
       {
         projectId: sourceProjectId,
         sessionId: nextSession.id,
@@ -10744,7 +10734,7 @@ export class CodexService extends EventEmitter {
       throw new Error("Thread fork completed but could not be attached to a project session");
     }
 
-    const detail = this.buildThreadDetailFromRead(finalThreadPayload)
+    const detail = this.buildThreadDetailFromRead(forkResult.thread)
       ?? this.serializeThreadDetail(forkedThreadId);
     if (!detail) {
       throw new Error(`Thread fork completed but canonical conversation '${forkedThreadId}' is unavailable`);
@@ -11507,13 +11497,12 @@ export class CodexService extends EventEmitter {
       throw new Error(`Thread '${threadId}' was not found`);
     }
 
-    const sourceTurnIndex = currentDetail.turns.findIndex((turn) => turn.turnId === turnId);
-    if (sourceTurnIndex < 0) {
+    const sourceTurn = currentDetail.turns.find((turn) => turn.turnId === turnId);
+    if (!sourceTurn) {
       throw new Error(`Turn '${turnId}' was not found in thread '${threadId}'`);
     }
 
-    const sourceTurn = currentDetail.turns[sourceTurnIndex];
-    if (!sourceTurn || sourceTurn.status === "inProgress") {
+    if (sourceTurn.status === "inProgress") {
       throw new Error("Only completed turns can be forked");
     }
 
@@ -11522,12 +11511,9 @@ export class CodexService extends EventEmitter {
       throw new Error(`Thread '${threadId}' is not linked to a project card`);
     }
 
-    // Keep older-turn branching manager-owned. The visible Codex Electron bundle
-    // proves that renderer sends targetTurnId to the manager, but it does not
-    // prove a non-null path-based fork call in practice. For parity, fork the
-    // latest thread in main and trim the new branch back to the selected turn.
     const forkParams: ThreadForkParams = {
       threadId,
+      lastTurnId: turnId,
       cwd: currentDetail.cwd,
     };
     const forkResult = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", forkParams);
@@ -11536,16 +11522,8 @@ export class CodexService extends EventEmitter {
       throw new Error("Thread fork did not return a valid thread id");
     }
 
-    const turnsToDrop = currentDetail.turns.length - sourceTurnIndex - 1;
-    const finalThreadPayload = turnsToDrop > 0
-      ? (await this.client.request<"thread/rollback", ThreadRollbackResponse>("thread/rollback", {
-          threadId: forkedThreadId,
-          numTurns: turnsToDrop,
-        })).thread
-      : forkResult.thread;
-
     const { detail, summary } = this.materializeThreadDetailFromThreadPayload(
-      finalThreadPayload,
+      forkResult.thread,
       threadRef,
       currentDetail.cwd,
     );

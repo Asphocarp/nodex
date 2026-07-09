@@ -2214,7 +2214,6 @@ function AgentSettingsPage({
             }}
             options={[
               { value: "untrusted", label: "untrusted" },
-              { value: "on-failure", label: "on-failure" },
               { value: "on-request", label: "on-request" },
               { value: "never", label: "never" },
             ]}

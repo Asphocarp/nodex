@@ -8835,32 +8835,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
                     { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
                   ],
                 },
-                {
-                  id: "turn_2",
-                  status: "completed",
-                  items: [
-                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
-                  ],
-                },
-              ],
-            },
-          };
-        }
-        if (method === "thread/rollback") {
-          return {
-            thread: {
-              id: "thr_owner_forked",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 12,
-              turns: [
-                {
-                  id: "turn_1",
-                  status: "completed",
-                  items: [
-                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
-                  ],
-                },
               ],
             },
           };
@@ -8925,10 +8899,9 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         ) as CodexThreadActionResult;
         const snapshot = service.serializeConversationSnapshot("thr_owner_forked");
 
-        expect(requests.map((request) => request.method).join(",")).toBe("thread/fork,thread/rollback");
+        expect(requests.map((request) => request.method).join(",")).toBe("thread/fork");
         expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_owner_fork_source");
-        expect((requests[1]?.params as { threadId?: string; numTurns?: number } | undefined)?.threadId).toBe("thr_owner_forked");
-        expect((requests[1]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
+        expect((requests[0]?.params as { lastTurnId?: string } | undefined)?.lastTurnId).toBe("turn_1");
         expect(result.threadId).toBe("thr_owner_forked");
         expect(Boolean(result.composerIntent)).toBeTrue();
         expect(result.composerIntent?.prompt).toBe("Continue from the fork");
@@ -8943,7 +8916,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("forks from an older turn by rolling back the new thread to the selected branch point", async () => {
+  test("forks from an older turn at the selected branch point", async () => {
     const ran = await withTempDatabase(async () => {
 
       const service = createService();
@@ -8970,42 +8943,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
               modelProvider: "openai",
               createdAt: 1,
               updatedAt: 11,
-              turns: [
-                {
-                  id: "turn_1",
-                  status: "completed",
-                  items: [
-                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
-                    { id: "assistant_1", type: "agentMessage", text: "Answer 1" },
-                  ],
-                },
-                {
-                  id: "turn_2",
-                  status: "completed",
-                  items: [
-                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
-                    { id: "assistant_2", type: "agentMessage", text: "Answer 2" },
-                  ],
-                },
-                {
-                  id: "turn_3",
-                  status: "completed",
-                  items: [
-                    { id: "user_3", type: "userMessage", content: [{ type: "text", text: "Prompt 3" }] },
-                    { id: "assistant_3", type: "agentMessage", text: "Answer 3" },
-                  ],
-                },
-              ],
-            },
-          };
-        }
-        if (method === "thread/rollback") {
-          return {
-            thread: {
-              id: "thr_forked",
-              modelProvider: "openai",
-              createdAt: 1,
-              updatedAt: 12,
               turns: [
                 {
                   id: "turn_1",
@@ -9091,8 +9028,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(requests[0]?.method).toBe("thread/fork");
         expect("persistExtendedHistory" in (forkParams ?? {})).toBeFalse();
         expect("path" in (forkParams ?? {})).toBeFalse();
-        expect((requests[1]?.params as { threadId?: string; numTurns?: number } | undefined)?.threadId).toBe("thr_forked");
-        expect((requests[1]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
+        expect(forkParams?.lastTurnId).toBe("turn_2");
+        expect(requests.length).toBe(1);
         expect(result.threadId).toBe("thr_forked");
         expect(Boolean(result.composerIntent)).toBeTrue();
         expect(result.composerIntent?.prompt).toBe("Continue from turn 2");
@@ -9197,6 +9134,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("thread/fork");
+        expect(forkParams?.lastTurnId).toBe("turn_2");
         expect("persistExtendedHistory" in (forkParams ?? {})).toBeFalse();
         expect("path" in (forkParams ?? {})).toBeFalse();
         expect(result.threadId).toBe("thr_latest_forked");
@@ -12134,40 +12072,6 @@ describe("codex-service startThreadForSession", () => {
                     { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
                   ],
                 },
-                {
-                  id: "turn_3",
-                  status: "completed",
-                  items: [
-                    { id: "user_3", type: "userMessage", content: [{ type: "text", text: "Prompt 3" }] },
-                  ],
-                },
-              ],
-            },
-          };
-        }
-        if (method === "thread/rollback") {
-          return {
-            thread: {
-              id: "thr_session_forked",
-              modelProvider: "openai",
-              cwd: "/tmp/codex",
-              createdAt: 1,
-              updatedAt: 5,
-              turns: [
-                {
-                  id: "turn_1",
-                  status: "completed",
-                  items: [
-                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
-                  ],
-                },
-                {
-                  id: "turn_2",
-                  status: "completed",
-                  items: [
-                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
-                  ],
-                },
               ],
             },
           };
@@ -12235,17 +12139,15 @@ describe("codex-service startThreadForSession", () => {
           message: "Continue from turn 2",
           collaborationMode: "plan",
         });
-        const forkParams = requests[0]?.params as { threadId?: string; cwd?: string } | undefined;
-        const rollbackParams = requests[1]?.params as { threadId?: string; numTurns?: number } | undefined;
+        const forkParams = requests[0]?.params as { threadId?: string; lastTurnId?: string; cwd?: string } | undefined;
         const linked = getProjectSession(result.session.id)?.thread;
         const snapshot = service.serializeConversationSnapshot("thr_session_forked");
 
         expect(requests[0]?.method).toBe("thread/fork");
         expect(forkParams?.threadId).toBe("thr_session_source");
+        expect(forkParams?.lastTurnId).toBe("turn_2");
         expect(forkParams?.cwd).toBe("/tmp/codex");
-        expect(requests[1]?.method).toBe("thread/rollback");
-        expect(rollbackParams?.threadId).toBe("thr_session_forked");
-        expect(rollbackParams?.numTurns).toBe(1);
+        expect(requests.length).toBe(1);
         expect(result.threadId).toBe("thr_session_forked");
         expect(result.composerIntent?.prompt).toBe("Continue from turn 2");
         expect(linked?.threadId).toBe("thr_session_forked");

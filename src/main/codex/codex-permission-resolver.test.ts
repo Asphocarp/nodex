@@ -59,6 +59,7 @@ function buildRequirements(
     hooks: null,
     enforceResidency: null,
     network: null,
+    models: null,
     ...overrides,
   };
 }

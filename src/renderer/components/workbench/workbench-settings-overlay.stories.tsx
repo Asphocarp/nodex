@@ -3,6 +3,7 @@ import { useState } from "react";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import type {
   BackupRecord,
+  CodexPermissionState,
   DiagnosticsSettings,
   Project,
   TelemetrySettings,
@@ -156,6 +157,27 @@ function ensureStorybookElectronBridge({
       autoCaptureEnabled: false,
     },
   };
+  const permissionState: CodexPermissionState = {
+    mode: "auto",
+    effectivePreset: "auto",
+    availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandboxMode: "workspace-write",
+    sandbox: {
+      type: "workspaceWrite",
+      writableRoots: [PROJECTS[0].primaryWorkspaceRoot ?? ""],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    },
+    autoReviewAvailable: true,
+    configTarget: {
+      source: "user",
+      filePath: "/Users/asc/.codex/config.toml",
+    },
+    customDescription: null,
+  };
   let commandKeybindingOverrides: CommandKeybindingOverrides = { ...initialCommandKeybindingOverrides };
 
   window.api = {
@@ -183,6 +205,10 @@ function ensureStorybookElectronBridge({
           return createCommandKeymapState(commandKeybindingOverrides);
         case "global-dictation-capture-fn-hotkey":
           return null;
+        case "codex:permission:state:get":
+        case "codex:permission:mode:set":
+        case "codex:permission:config-value:set":
+          return permissionState;
         case "settings:app-updates:get":
           return { automaticChecksEnabled: true };
         case "app:update:status":
@@ -527,6 +553,10 @@ export const GeneralFastTier: Story = {
       initialServiceTier="fast"
     />
   ),
+};
+
+export const Agent: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("agent")} />,
 };
 
 export const LocalEnvironments: Story = {
