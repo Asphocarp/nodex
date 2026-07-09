@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 - Added opt-in Statsig product telemetry with anonymous identity, filtered web analytics, and General settings toggles.
 - Added source-backed local projects with ordered source folders, UUID-only project identity, and server-side project creation.
 - Added a sidebar add-project menu with `Start from scratch` and `Use an existing folder` flows.
-- Added draggable project folders in the Workbench sidebar, including pinned project groups, a Pinned section, and drag-to-pin behavior.
+- Added draggable project folders in the Workbench sidebar, including pointer and keyboard reordering, stationary source ghosts, compact drag previews, precise insertion indicators, pinned project groups, a Pinned section, and drag-to-pin behavior.
 - Added a real project Files tab with a workspace tree, Codex-style filtering and file tab ids, local file previews, external-open actions, and migration from older placeholder tabs.
 - Added a slash-command menu above the Thread composer, including inline grouped filtering, keyboard selection, nested command panels, app-server-backed Compact/Goal/Memory/Feedback actions, MCP status, model/reasoning/service-tier controls, contextual hidden commands, and Storybook coverage.
 - Added Browser tabs with Electron webview navigation chrome, local-server new-tab discovery, full-bleed retained page hosting across tab switches and panel hide/show, device toolbar presets, zoom and browsing-data controls, screenshot/comment affordances, browser-use overlay state, and multi-tab context actions.

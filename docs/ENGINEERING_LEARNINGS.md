@@ -62,6 +62,10 @@ BlockNote's side-menu drag handle is both a Radix dropdown trigger and a native 
 
 Nodex's external editor-drag session should start only from explicit block drag handles. A generic `dragstart` inside the editor container can come from text selection, embedded DOM, links, files, or browser-native selection drags, and treating all of those as block drags corrupts BlockNote's own drag/drop state. When a user selects multiple blocks before grabbing the side-menu handle, snapshot the selected block IDs and ProseMirror range on handle `pointerdown`; pass that snapshot through the side-menu drag-start event and let the patched BlockNote core create the `MultipleNodeSelection` from it. Restoring `editor.setSelection(start, end)` is only a fallback, because Radix/pointer/focus transitions can clear the live selection and BlockNote `setSelection` can be too coarse for some block boundaries.
 
+### Insertion-boundary DnD must not also use sortable live reflow
+
+When a list communicates the final drop as an explicit before/after insertion boundary, allowing the sortable strategy to move the source and siblings at the same time creates two competing previews. Keep the source mounted as a low-opacity inert ghost, suppress sortable transforms while the drag is active, and move a separate body-level `DragOverlay` instead. Derive both the visible indicator and the persisted order from the same target-row midpoint calculation; index-only `arrayMove(active, over)` cannot distinguish the two halves of a row and can emit redundant no-op writes. Pointer collision should use the pointer point, with a geometry fallback for keyboard sorting, so the indicator remains attached to the user's actual insertion intent.
+
 BlockNote theme variables belong on `.bn-root`, not `.bn-container`, for 0.48.0 and newer. Keep code that discovers editor structure on `.bn-container` when it needs BlockNote's container element, but place theme-variable and code-block override CSS under `.bn-root` so editor-local portals and syntax-highlighted blocks inherit the right light/dark values.
 
 ### Final assistant ownership in a turn must be semantic, not positional

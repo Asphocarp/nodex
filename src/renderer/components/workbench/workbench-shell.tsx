@@ -9911,31 +9911,41 @@ function SidebarThreadOrganizerSections({
   const renderPinnedSection = () => {
     if (!hasVisiblePinnedSectionItems && !pinnedProjectDropTarget.projectDragActive) return null;
 
+    if (!hasVisiblePinnedSectionItems) {
+      return (
+        <div
+          ref={pinnedProjectDropTarget.setNodeRef}
+          className={cn(
+            "-my-4 px-row-x",
+            pinnedProjectDropTarget.isOver
+              && "rounded-[10px] bg-token-bg-secondary/40 ring-1 ring-inset ring-token-border",
+          )}
+        >
+          <div className="h-4">
+            {pinnedProjectDropTarget.isOver ? <SidebarDropIndicator compensateLayout={false} /> : null}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div ref={pinnedProjectDropTarget.setNodeRef} className="relative">
-        {hasVisiblePinnedSectionItems ? (
-          <CodexSidebarSection
-            heading="Pinned"
-            collapsed={pinnedThreadsSectionCollapsed}
-            onToggle={onTogglePinnedThreadsSectionCollapsed}
-          >
-            {pinnedStandaloneThreadKeys.length > 0
-              ? renderThreadList(pinnedStandaloneThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
-              : null}
-            {pinnedProjectGroups.length > 0
-              ? renderProjectGroupRows(pinnedProjectGroups, {
-                reorderScope: "pinned",
-                expanded: pinnedProjectsExpanded,
-                onExpandedChange: setPinnedProjectsExpanded,
-              })
-              : null}
-          </CodexSidebarSection>
-        ) : (
-          <div className="px-row-x">
-            <SidebarDropIndicator />
-            <div className="h-2" />
-          </div>
-        )}
+        <CodexSidebarSection
+          heading="Pinned"
+          collapsed={pinnedThreadsSectionCollapsed}
+          onToggle={onTogglePinnedThreadsSectionCollapsed}
+        >
+          {pinnedStandaloneThreadKeys.length > 0
+            ? renderThreadList(pinnedStandaloneThreadKeys, "No pinned chats", { ariaLabel: "Pinned chats" })
+            : null}
+          {pinnedProjectGroups.length > 0
+            ? renderProjectGroupRows(pinnedProjectGroups, {
+              reorderScope: "pinned",
+              expanded: pinnedProjectsExpanded,
+              onExpandedChange: setPinnedProjectsExpanded,
+            })
+            : null}
+        </CodexSidebarSection>
       </div>
     );
   };

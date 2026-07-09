@@ -516,6 +516,16 @@ function CodexSortableProjectSections({
     groupIds: unpinnedProjectIds,
     reorderGroups: reorderUnpinned,
   });
+  const projectById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project] as const)),
+    [projects],
+  );
+  const orderedPinnedProjects = pinnedReorder.groupIds
+    .map((projectId) => projectById.get(projectId))
+    .filter((project): project is Project => Boolean(project));
+  const orderedUnpinnedProjects = unpinnedReorder.groupIds
+    .map((projectId) => projectById.get(projectId))
+    .filter((project): project is Project => Boolean(project));
 
   const renderProjectRow = (project: Project, controller: SidebarGroupDndController) => (
     <CodexProjectRow
@@ -550,7 +560,7 @@ function CodexSortableProjectSections({
             <div className="isolate flex flex-col [contain:layout]">
               <SidebarProjectSortableContext groupIds={pinnedReorder.groupIds}>
                 <div className="flex flex-col" role="list" aria-label="Pinned">
-                  {pinnedProjects.map((project, index) => (
+                  {orderedPinnedProjects.map((project, index) => (
                     <Fragment key={project.id}>
                       {forceDropIndicator && index === 1 ? <SidebarDropIndicator /> : null}
                       {renderProjectRow(project, pinnedReorder.controller)}
@@ -563,7 +573,7 @@ function CodexSortableProjectSections({
         </div>
       ) : forceEmptyPinnedDropTarget ? (
         <div className="absolute inset-x-0 top-0 px-row-x">
-          <SidebarDropIndicator />
+          <SidebarDropIndicator compensateLayout={false} />
           <div className="h-4" />
         </div>
       ) : null}
@@ -572,7 +582,7 @@ function CodexSortableProjectSections({
         <div className="isolate flex flex-col [contain:layout]">
           <SidebarProjectSortableContext groupIds={unpinnedReorder.groupIds}>
             <div className="flex flex-col" role="list" aria-label="Projects">
-              {unpinnedProjects.map((project, index) => (
+              {orderedUnpinnedProjects.map((project, index) => (
                 <Fragment key={project.id}>
                   {forceDropIndicator && pinnedProjects.length === 0 && index === 1 ? <SidebarDropIndicator /> : null}
                   {renderProjectRow(project, unpinnedReorder.controller)}
@@ -1313,6 +1323,13 @@ export const CodexProjectsSortable: Story = {
 
 export const CodexProjectsDraggingOverProject: Story = {
   render: () => <CodexSortableProjectsHarness dropIndicator />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Non-layout-shifting project insertion indicator with the link-blue rail and sidebar-filled leading dot.",
+      },
+    },
+  },
 };
 
 export const CodexPinnedProjects: Story = {

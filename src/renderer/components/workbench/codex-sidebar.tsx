@@ -50,6 +50,7 @@ import {
   getSidebarGroupDndId,
   type SidebarGroupDndController,
   type SidebarGroupDndPayload,
+  useSidebarProjectDndState,
 } from "./sidebar-project-group-dnd";
 
 type SidebarRowActionEvent =
@@ -542,11 +543,21 @@ export function CodexProjectRow({
 }) {
   const sortableEnabled = allowProjectReorder && Boolean(groupDndController);
   const sortableId = getSidebarGroupDndId(project.id);
+  const { activeProjectId, projectDragActive } = useSidebarProjectDndState();
+  const dragOverlay = useMemo(() => (
+    <div className="flex h-token-nav-row max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
+      <span className="flex size-5 shrink-0 items-center justify-center">
+        <CodexProjectFolderIcon className="icon-xs shrink-0" />
+      </span>
+      <span className="min-w-0 truncate">{project.name}</span>
+    </div>
+  ), [project.name]);
   const sortableData = useMemo<SidebarGroupDndPayload>(() => ({
     kind: "sidebar-group",
     controller: groupDndController ?? NOOP_SIDEBAR_GROUP_DND_CONTROLLER,
+    dragOverlay,
     projectId: project.id,
-  }), [groupDndController, project.id]);
+  }), [dragOverlay, groupDndController, project.id]);
   const {
     attributes,
     listeners,
@@ -560,7 +571,8 @@ export function CodexProjectRow({
     disabled: !sortableEnabled,
     data: sortableData,
   });
-  const sortableStyle = sortableEnabled
+  const activeProjectDrag = isDragging || activeProjectId === project.id;
+  const sortableStyle = sortableEnabled && !projectDragActive && transform
     ? getCodexSidebarSortableStyle(transform, transition)
     : undefined;
   const projectChildren = children ? (
@@ -576,8 +588,12 @@ export function CodexProjectRow({
   return (
     <div
       ref={setNodeRef}
-      className={cn("group/cwd flex flex-col", isDragging && "opacity-60")}
+      className={cn(
+        "group/cwd relative flex flex-col",
+        activeProjectDrag && "opacity-20",
+      )}
       style={sortableStyle}
+      inert={activeProjectDrag ? true : undefined}
       role="listitem"
       aria-label={project.name}
     >
@@ -591,6 +607,7 @@ export function CodexProjectRow({
         className={cn(
           CODEX_SIDEBAR_PROJECT_ROW_CLASS,
           active && "bg-token-list-hover-background",
+          projectDragActive && "pointer-events-none",
         )}
         role="button"
         tabIndex={0}

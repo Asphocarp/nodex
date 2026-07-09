@@ -1,6 +1,9 @@
 import {
   closestCenter,
   DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  pointerWithin,
   PointerSensor,
   useDroppable,
   useSensor,
@@ -11,17 +14,18 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import {
-  arrayMove,
+  sortableKeyboardCoordinates,
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { createPortal } from "react-dom";
 import {
   createContext,
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -32,14 +36,15 @@ export const PINNED_PROJECT_DROPPABLE_ID = `sidebar-thread-container:${PINNED_PR
 
 export interface SidebarGroupDndController {
   handleDragStart?: (event: DragStartEvent) => void;
-  handleDragOver?: (event: DragOverEvent) => void;
+  handleDragOver?: (event: DragOverEvent, pointerY: number | null) => void;
   handleDragCancel?: (event: DragCancelEvent | DragEndEvent) => void;
-  handleDragEnd: (event: DragEndEvent) => void;
+  handleDragEnd: (event: DragEndEvent, pointerY: number | null) => void;
 }
 
 export interface SidebarGroupDndPayload {
   kind: "sidebar-group";
   controller: SidebarGroupDndController;
+  dragOverlay: ReactNode;
   projectId: string;
 }
 
@@ -53,12 +58,29 @@ type SidebarDndPayload =
   | SidebarThreadContainerDndPayload;
 
 interface SidebarProjectDndContextValue {
+  activeProjectId: string | null;
   projectDragActive: boolean;
 }
 
 const SidebarProjectDndContext = createContext<SidebarProjectDndContextValue>({
+  activeProjectId: null,
   projectDragActive: false,
 });
+
+interface SidebarProjectDragOverlayState {
+  node: ReactNode;
+  projectId: string;
+  zoom: number;
+}
+
+interface SidebarDropRect {
+  bottom: number;
+  top: number;
+}
+
+export interface SidebarGroupDropTarget {
+  beforeGroupId: string | null;
+}
 
 export function getSidebarGroupDndId(projectId: string): string {
   return `${SIDEBAR_GROUP_DND_PREFIX}${projectId}`;
@@ -82,20 +104,114 @@ const sidebarProjectCollisionDetection: CollisionDetection = (args) => {
   const activePayload = readSidebarDndPayload(args.active.data.current);
   if (activePayload?.kind !== "sidebar-group") return closestCenter(args);
 
-  return closestCenter({
-    ...args,
-    droppableContainers: args.droppableContainers.filter((container) => {
-      const payload = readSidebarDndPayload(container.data.current);
-      return (
+  const eligibleContainers = args.droppableContainers.filter((container) => {
+    const payload = readSidebarDndPayload(container.data.current);
+    return (
+      (
         payload?.kind === "sidebar-group"
-        || (
-          payload?.kind === "sidebar-thread-container"
-          && payload.containerId === PINNED_PROJECT_CONTAINER_ID
-        )
-      );
-    }),
+        && payload.controller === activePayload.controller
+      )
+      || (
+        payload?.kind === "sidebar-thread-container"
+        && payload.containerId === PINNED_PROJECT_CONTAINER_ID
+      )
+    );
+  });
+  const eligibleArgs = {
+    ...args,
+    droppableContainers: eligibleContainers,
+  };
+  const pointerCollisions = pointerWithin({
+    ...eligibleArgs,
+    droppableContainers: eligibleContainers.filter((container) =>
+      readSidebarDndPayload(container.data.current)?.kind === "sidebar-group"
+    ),
+  });
+  if (pointerCollisions.length > 0) return pointerCollisions;
+  if (!args.pointerCoordinates) return closestCenter(eligibleArgs);
+
+  const { x, y } = args.pointerCoordinates;
+  return closestCenter({
+    ...eligibleArgs,
+    collisionRect: {
+      ...args.collisionRect,
+      bottom: y,
+      height: 0,
+      left: x,
+      right: x,
+      top: y,
+      width: 0,
+    },
   });
 };
+
+function readWindowZoom(event: Event): number {
+  if (typeof window === "undefined") return 1;
+  const target = event.target;
+  if (!(target instanceof Element)) return 1;
+
+  const rawZoom = window.getComputedStyle(target).getPropertyValue("--codex-window-zoom");
+  const zoom = Number.parseFloat(rawZoom);
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
+function sameStringOrder(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item === right[index]);
+}
+
+export function moveSidebarGroupBefore(
+  groupIds: readonly string[],
+  activeGroupId: string,
+  beforeGroupId: string | null,
+): string[] {
+  if (!groupIds.includes(activeGroupId)) return [...groupIds];
+
+  const remainingGroupIds = groupIds.filter((groupId) => groupId !== activeGroupId);
+  const insertionIndex = beforeGroupId === null
+    ? remainingGroupIds.length
+    : remainingGroupIds.indexOf(beforeGroupId);
+  if (insertionIndex < 0) return [...groupIds];
+
+  return [
+    ...remainingGroupIds.slice(0, insertionIndex),
+    activeGroupId,
+    ...remainingGroupIds.slice(insertionIndex),
+  ];
+}
+
+export function resolveSidebarGroupDropTarget({
+  groupIds,
+  activeGroupId,
+  overGroupId,
+  activeRect,
+  overRect,
+  pointerY,
+}: {
+  groupIds: readonly string[];
+  activeGroupId: string | null;
+  overGroupId: string | null;
+  activeRect: SidebarDropRect | null;
+  overRect: SidebarDropRect | null;
+  pointerY: number | null;
+}): SidebarGroupDropTarget | null {
+  if (!activeGroupId || !overGroupId) return null;
+  if (activeGroupId === overGroupId) return null;
+  if (!activeRect || !overRect) return null;
+
+  const remainingGroupIds = groupIds.filter((groupId) => groupId !== activeGroupId);
+  const overIndex = remainingGroupIds.indexOf(overGroupId);
+  if (overIndex < 0) return null;
+
+  const activeMidpoint = (activeRect.top + activeRect.bottom) / 2;
+  const overMidpoint = (overRect.top + overRect.bottom) / 2;
+  const placement = (pointerY ?? activeMidpoint) < overMidpoint ? "before" : "after";
+  const beforeGroupId = remainingGroupIds[overIndex + (placement === "after" ? 1 : 0)] ?? null;
+  const nextGroupIds = moveSidebarGroupBefore(groupIds, activeGroupId, beforeGroupId);
+  if (sameStringOrder(groupIds, nextGroupIds)) return null;
+
+  return { beforeGroupId };
+}
 
 export function SidebarProjectDndProvider({
   children,
@@ -104,22 +220,36 @@ export function SidebarProjectDndProvider({
   children: ReactNode;
   onProjectDrop?: (drop: { projectId: string; targetContainerId: string }) => void;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, {
-    activationConstraint: { distance: 6 },
-  }));
-  const [projectDragActive, setProjectDragActive] = useState(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+  const [activeProject, setActiveProject] = useState<SidebarProjectDragOverlayState | null>(null);
+  const pointerYRef = useRef<number | null>(null);
+  const collisionDetection = useCallback<CollisionDetection>((args) => {
+    pointerYRef.current = args.pointerCoordinates?.y ?? null;
+    return sidebarProjectCollisionDetection(args);
+  }, []);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const payload = readSidebarDndPayload(event.active.data.current);
     if (payload?.kind !== "sidebar-group") return;
-    setProjectDragActive(true);
+    setActiveProject({
+      node: payload.dragOverlay,
+      projectId: payload.projectId,
+      zoom: readWindowZoom(event.activatorEvent),
+    });
     payload.controller.handleDragStart?.(event);
   }, []);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const payload = readSidebarDndPayload(event.active.data.current);
     if (payload?.kind !== "sidebar-group") return;
-    payload.controller.handleDragOver?.(event);
+    payload.controller.handleDragOver?.(event, pointerYRef.current);
   }, []);
 
   const handleDragCancel = useCallback((event: DragCancelEvent) => {
@@ -127,17 +257,21 @@ export function SidebarProjectDndProvider({
     if (payload?.kind === "sidebar-group") {
       payload.controller.handleDragCancel?.(event);
     }
-    setProjectDragActive(false);
+    pointerYRef.current = null;
+    setActiveProject(null);
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const payload = readSidebarDndPayload(event.active.data.current);
     if (payload?.kind !== "sidebar-group") {
-      setProjectDragActive(false);
+      pointerYRef.current = null;
+      setActiveProject(null);
       return;
     }
 
-    setProjectDragActive(false);
+    const pointerY = pointerYRef.current;
+    pointerYRef.current = null;
+    setActiveProject(null);
     const overPayload = readSidebarDndPayload(event.over?.data.current);
     if (
       overPayload?.kind === "sidebar-thread-container"
@@ -151,26 +285,56 @@ export function SidebarProjectDndProvider({
       return;
     }
 
-    payload.controller.handleDragEnd(event);
+    payload.controller.handleDragEnd(event, pointerY);
   }, [onProjectDrop]);
 
   const contextValue = useMemo(
-    () => ({ projectDragActive }),
-    [projectDragActive],
+    () => ({
+      activeProjectId: activeProject?.projectId ?? null,
+      projectDragActive: activeProject !== null,
+    }),
+    [activeProject],
+  );
+  const overlay = typeof document === "undefined" ? null : createPortal(
+    <DragOverlay
+      adjustScale={false}
+      className="pointer-events-none"
+      dropAnimation={null}
+      zIndex={2_147_483_647}
+    >
+      {activeProject ? (
+        <div
+          aria-hidden
+          className="[--height-token-nav-row:30px] [--radius-token-row:10px]"
+          inert
+          style={{
+            height: `calc(100% / ${activeProject.zoom})`,
+            transform: `scale(${activeProject.zoom})`,
+            transformOrigin: "top left",
+            width: `calc(100% / ${activeProject.zoom})`,
+          }}
+        >
+          <div className="w-fit max-w-80 overflow-hidden rounded-[var(--radius-token-row)] border border-token-border bg-token-bg-primary opacity-70 shadow-lg">
+            {activeProject.node}
+          </div>
+        </div>
+      ) : null}
+    </DragOverlay>,
+    document.body,
   );
 
   return (
     <SidebarProjectDndContext.Provider value={contextValue}>
       <DndContext
         sensors={sensors}
-        collisionDetection={sidebarProjectCollisionDetection}
-        modifiers={[restrictToVerticalAxis]}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragCancel={handleDragCancel}
         onDragEnd={handleDragEnd}
       >
         {children}
+        {overlay}
       </DndContext>
     </SidebarProjectDndContext.Provider>
   );
@@ -199,75 +363,68 @@ export function useSidebarGroupReorderController({
   dropIndicatorIndex: number | null;
   groupIds: string[];
 } {
-  const [dragState, setDragState] = useState<{ activeId: string | null; overId: string | null }>({
-    activeId: null,
-    overId: null,
-  });
+  const [dropTarget, setDropTarget] = useState<SidebarGroupDropTarget | null>(null);
   const [pendingGroupIds, setPendingGroupIds] = useState<string[] | null>(null);
   const displayedGroupIds = pendingGroupIds !== null && sameStringSet(pendingGroupIds, groupIds)
     ? pendingGroupIds
     : groupIds;
 
-  const clearDragState = useCallback(() => {
-    setDragState({ activeId: null, overId: null });
-  }, []);
+  const resolveDropTarget = useCallback((
+    event: DragOverEvent | DragEndEvent,
+    pointerY: number | null,
+  ) => resolveSidebarGroupDropTarget({
+    groupIds: displayedGroupIds,
+    activeGroupId: parseSidebarGroupDndId(String(event.active.id)),
+    overGroupId: event.over ? parseSidebarGroupDndId(String(event.over.id)) : null,
+    activeRect: event.active.rect.current.translated,
+    overRect: event.over?.rect ?? null,
+    pointerY,
+  }), [displayedGroupIds]);
 
   const controller = useMemo<SidebarGroupDndController>(() => ({
-    handleDragStart(event) {
-      setDragState({
-        activeId: parseSidebarGroupDndId(String(event.active.id)),
-        overId: null,
-      });
-    },
-    handleDragOver(event) {
-      setDragState((current) => ({
-        activeId: current.activeId,
-        overId: event.over ? parseSidebarGroupDndId(String(event.over.id)) : null,
-      }));
+    handleDragOver(event, pointerY) {
+      setDropTarget(resolveDropTarget(event, pointerY));
     },
     handleDragCancel() {
-      clearDragState();
+      setDropTarget(null);
     },
-    handleDragEnd(event) {
+    handleDragEnd(event, pointerY) {
       const activeId = parseSidebarGroupDndId(String(event.active.id));
-      const overId = event.over ? parseSidebarGroupDndId(String(event.over.id)) : null;
-      if (!activeId || !overId || activeId === overId) {
-        clearDragState();
+      const target = resolveDropTarget(event, pointerY);
+      setDropTarget(null);
+      if (!activeId || !target) {
         return;
       }
 
-      const activeIndex = displayedGroupIds.indexOf(activeId);
-      const overIndex = displayedGroupIds.indexOf(overId);
-      if (activeIndex === -1 || overIndex === -1) {
-        clearDragState();
-        return;
-      }
-
-      const nextGroupIds = arrayMove(displayedGroupIds, activeIndex, overIndex);
+      const nextGroupIds = moveSidebarGroupBefore(
+        displayedGroupIds,
+        activeId,
+        target.beforeGroupId,
+      );
       setPendingGroupIds(nextGroupIds);
       void Promise.resolve(reorderGroups(nextGroupIds))
         .catch(() => undefined)
         .finally(() => {
           setPendingGroupIds(null);
         });
-      clearDragState();
     },
-  }), [clearDragState, displayedGroupIds, reorderGroups]);
+  }), [displayedGroupIds, reorderGroups, resolveDropTarget]);
 
-  let dropIndicatorIndex: number | null = null;
-  if (dragState.activeId && dragState.overId && dragState.activeId !== dragState.overId) {
-    const activeIndex = displayedGroupIds.indexOf(dragState.activeId);
-    const overIndex = displayedGroupIds.indexOf(dragState.overId);
-    if (activeIndex !== -1 && overIndex !== -1) {
-      dropIndicatorIndex = activeIndex < overIndex ? overIndex + 1 : overIndex;
-    }
-  }
+  const dropIndicatorIndex = dropTarget === null
+    ? null
+    : dropTarget.beforeGroupId === null
+      ? displayedGroupIds.length
+      : displayedGroupIds.indexOf(dropTarget.beforeGroupId);
 
   return {
     controller,
     dropIndicatorIndex,
     groupIds: displayedGroupIds,
   };
+}
+
+export function useSidebarProjectDndState(): SidebarProjectDndContextValue {
+  return useContext(SidebarProjectDndContext);
 }
 
 export function SidebarProjectSortableContext({
@@ -305,14 +462,21 @@ export function usePinnedProjectDroppable() {
   };
 }
 
-export function SidebarDropIndicator() {
-  return (
+export function SidebarDropIndicator({
+  compensateLayout = true,
+}: {
+  compensateLayout?: boolean;
+}) {
+  const indicator = (
     <div
       aria-hidden
-      className="relative h-0 before:absolute before:inset-x-2 before:top-0 before:h-0 before:border-t before:border-token-border/80 before:content-['']"
+      className="relative h-0 before:absolute before:top-[-1px] before:right-2 before:left-2 before:h-0.5 before:rounded-full before:bg-token-text-link-foreground before:content-[''] after:absolute after:top-[-4px] after:left-1 after:size-2 after:rounded-full after:border-2 after:border-token-text-link-foreground after:bg-token-side-bar-background after:content-['']"
       role="presentation"
     />
   );
+  if (!compensateLayout) return indicator;
+
+  return <div className="-mb-px">{indicator}</div>;
 }
 
 export function replaceVisibleOrder(
