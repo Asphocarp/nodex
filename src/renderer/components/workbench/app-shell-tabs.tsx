@@ -622,6 +622,14 @@ function makeAppShellTabCloseModeStyle(widthPx: number): CSSProperties {
   };
 }
 
+function blurActiveElementWithin(element: HTMLElement): void {
+  const activeElement = element.ownerDocument.activeElement;
+  if (!(activeElement instanceof HTMLElement)) return;
+  if (!element.contains(activeElement)) return;
+
+  activeElement.blur();
+}
+
 function AppShellTab({
   tab,
   controllerId,
@@ -775,7 +783,10 @@ function AppShellTab({
         leafId: dndLeafId,
         tabId: tab.id,
       }),
-      onDragStart: onCloseModeExit,
+      onDragStart: () => {
+        onCloseModeExit();
+        blurActiveElementWithin(element);
+      },
     });
   }, [dndLeafId, dndPanelId, dndSessionId, onCloseModeExit, tab.id, tab.isLabel, tab.reorderable]);
 
@@ -797,7 +808,7 @@ function AppShellTab({
     >
       <div
         data-tab-id={dataTabId}
-        className="group/tab relative flex h-7 max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
+        className="group group/tab relative flex h-7 max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
         role="button"
         tabIndex={tab.disabled ? -1 : 0}
         aria-disabled={tab.disabled ? "true" : "false"}
@@ -869,7 +880,7 @@ function AppShellTab({
             type="button"
             data-app-shell-tab-no-drag="true"
             aria-label={`Close ${accessibleLabel} tab`}
-            className="no-drag invisible absolute inset-y-0 end-1 z-30 flex cursor-interaction items-center pe-1 text-token-text-tertiary group-focus-within/tab:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-1 before:w-[26px] before:bg-linear-to-r before:from-transparent before:to-30% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
+            className="no-drag invisible absolute inset-y-0 end-1 z-30 flex cursor-interaction items-center pe-1 text-token-text-tertiary group-has-[:focus-visible]:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-1 before:w-[26px] before:bg-linear-to-r before:from-transparent before:to-30% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
             onMouseDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
