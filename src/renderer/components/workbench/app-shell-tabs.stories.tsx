@@ -119,11 +119,39 @@ export const InsertionPreview: Story = {
   render: () => <AppShellTabsStory showInsertionPreview />,
 };
 
-export const RapidCloseMixedWidths: Story = {
-  render: () => <RapidCloseMixedWidthsStory />,
+export const ResponsiveEqualWidths: Story = {
+  render: () => <ResponsiveEqualWidthsStory />,
 };
 
-function RapidCloseMixedWidthsStory() {
+function ResponsiveEqualWidthsStory() {
+  const [activeTabId, setActiveTabId] = useState("equal:short");
+  const tabs = [
+    { id: "equal:short", title: "Review" },
+    { id: "equal:medium", title: "Implementation plan" },
+    { id: "equal:long", title: "Browser research with a much longer page title" },
+  ].map((tab) => makeRapidCloseStoryTab(tab));
+
+  return (
+    <NodexTooltipProvider>
+      <div className="h-screen bg-token-main-surface-primary text-token-foreground">
+        <div className="h-full w-[30rem] border-r border-token-border">
+          <AppShellTabs
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelect={setActiveTabId}
+            onCloseTab={() => undefined}
+          />
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+export const RapidCloseEqualWidths: Story = {
+  render: () => <RapidCloseEqualWidthsStory />,
+};
+
+function RapidCloseEqualWidthsStory() {
   const [activeTabId, setActiveTabId] = useState("rapid:planning");
   const [sessionTabs, setSessionTabs] = useState<StorySessionTab[]>([
     { id: "rapid:planning", title: "Weekly planning and project inbox" },

@@ -1,5 +1,6 @@
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { dropTargetForElements, draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -8,6 +9,7 @@ import {
   useState,
   type ComponentType,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
   type SyntheticEvent,
@@ -24,14 +26,12 @@ import {
   type PanelTabDropIntent,
 } from "./panel-tab-dnd";
 import {
-  APP_SHELL_TAB_CLOSE_MODE_EXIT_DELAY_MS,
-  buildAppShellTabCloseModeSnapshot,
-  isPointInsideAppShellTabCloseModeHotZone,
-  makeAppShellTabCloseModeTabIdsSignature,
-  type AppShellTabCloseModeMeasuredTab,
-  type AppShellTabCloseModeRect,
-  type AppShellTabCloseModeSnapshot,
-} from "./app-shell-tab-close-mode";
+  APP_SHELL_TAB_GAP_PX,
+  APP_SHELL_TAB_MAX_WIDTH_PX,
+  APP_SHELL_TAB_MIN_WIDTH_PX,
+  buildAppShellTabFlexSizing,
+  buildAppShellTabListWidth,
+} from "./app-shell-tab-sizing";
 
 export type AppShellTabSplitSide = "left" | "right" | "up" | "down";
 
@@ -45,7 +45,20 @@ const APP_SHELL_TAB_ROW_WHEEL_LINE_HEIGHT_PX = 16;
 const APP_SHELL_TAB_ROW_WHEEL_DELTA_LINE = 1;
 const APP_SHELL_TAB_ROW_WHEEL_DELTA_PAGE = 2;
 const APP_SHELL_PREVIEW_PIN_SUPPRESSED_SELECTOR = "[data-app-shell-preview-pin-suppressed='true']";
-const APP_SHELL_TAB_CLOSE_MODE_OUTER_TRAILING_PADDING_PX = 4;
+const APP_SHELL_TAB_COLLAPSED_MOTION = {
+  "--app-shell-tab-separator-gutter": "0px",
+  maxWidth: 0,
+  minWidth: 0,
+} as const;
+const APP_SHELL_TAB_EXPANDED_MOTION = {
+  "--app-shell-tab-separator-gutter": "4px",
+  maxWidth: APP_SHELL_TAB_MAX_WIDTH_PX,
+  minWidth: APP_SHELL_TAB_MIN_WIDTH_PX,
+} as const;
+const APP_SHELL_TAB_WIDTH_TRANSITION = {
+  duration: 0.15,
+  ease: [0.23, 1, 0.32, 1],
+} as const;
 
 export interface AppShellTabItem {
   id: string;
@@ -178,14 +191,13 @@ export function AppShellTabs({
 }: AppShellTabsProps) {
   const tabRowRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const tabCloseModeExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const tabCloseModeTabsRef = useRef<readonly AppShellTabItem[] | null>(null);
-  const [tabCloseMode, setTabCloseMode] = useState<AppShellTabCloseModeSnapshot | null>(null);
+  const [lockedTabWidthPx, setLockedTabWidthPx] = useState<number | null>(null);
+  const [retainedTabCount, setRetainedTabCount] = useState(tabs.length);
+  const { elementRef: afterTabsInlineRef, elementWidthPx: afterTabsInlineWidthPx } = useMeasuredElementWidth();
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null;
   const activePanelId = activeTab ? makeTabPanelId(controllerId, activeTab.id) : undefined;
   const activeIndex = activeTab ? tabs.findIndex((tab) => tab.id === activeTab.id) : -1;
   const draggingIndex = panelTabDnd?.activeDragId ? tabs.findIndex((tab) => tab.id === panelTabDnd.activeDragId) : -1;
-  const tabIdsSignature = makeAppShellTabCloseModeTabIdsSignature(tabs);
   const tabRowPreview = panelTabDnd?.previewIntent?.kind === "tab-row"
     && panelTabDnd.previewIntent.panelId === panelTabDnd.panelId
     && panelTabDnd.previewIntent.leafId === panelTabDnd.leafId
@@ -198,53 +210,34 @@ export function AppShellTabs({
   const activeTabIsRetained = activeTab?.retentionMode === "layout";
   const activeTabDomId = activeTab?.id ?? null;
   const previousActiveTabIdRef = useRef(activeTabDomId);
+  if (tabs.length > retainedTabCount) {
+    setRetainedTabCount(tabs.length);
+  }
+  const layoutTabCount = Math.max(tabs.length, retainedTabCount);
+  const tabListWidth = buildAppShellTabListWidth({
+    tabCount: layoutTabCount,
+    trailingWidthPx: afterTabsInlineWidthPx,
+    lockedWidthPx: lockedTabWidthPx,
+  });
   const panelTabs = activeTab
     ? activeTabIsRetained
       ? retainedTabs
       : [activeTab, ...retainedTabs]
     : [];
 
-  const clearTabCloseModeExitTimer = useCallback(() => {
-    if (tabCloseModeExitTimerRef.current === null) return;
-    clearTimeout(tabCloseModeExitTimerRef.current);
-    tabCloseModeExitTimerRef.current = null;
-  }, []);
-
   const exitTabCloseMode = useCallback(() => {
-    clearTabCloseModeExitTimer();
-    tabCloseModeTabsRef.current = null;
-    setTabCloseMode(null);
-  }, [clearTabCloseModeExitTimer]);
-
-  const scheduleTabCloseModeExit = useCallback(() => {
-    if (tabCloseModeExitTimerRef.current !== null) return;
-    tabCloseModeExitTimerRef.current = setTimeout(() => {
-      tabCloseModeExitTimerRef.current = null;
-      tabCloseModeTabsRef.current = null;
-      setTabCloseMode(null);
-    }, APP_SHELL_TAB_CLOSE_MODE_EXIT_DELAY_MS);
+    setLockedTabWidthPx(null);
   }, []);
 
-  const enterTabCloseModeForDirectClose = useCallback((sourceTabId: string) => {
-    const element = tabRowRef.current;
-    if (!element) {
-      tabCloseModeTabsRef.current = null;
-      setTabCloseMode(null);
-      return;
-    }
+  const handleTabListMouseDownCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!(event.target instanceof Element)) return;
+    if (event.button !== 1 && !event.target.closest("[data-app-shell-tab-close-button]")) return;
 
-    const snapshot = buildAppShellTabCloseModeSnapshot({
-      tabs,
-      sourceTabId,
-      measuredTabs: readAppShellTabCloseModeMeasuredTabs(element),
-      rowScrollLeft: element.scrollLeft,
-      rowRect: readAppShellTabCloseModeRect(element),
-      tabIdsSignature,
-    });
-    clearTabCloseModeExitTimer();
-    tabCloseModeTabsRef.current = snapshot ? tabs : null;
-    setTabCloseMode(snapshot);
-  }, [clearTabCloseModeExitTimer, tabIdsSignature, tabs]);
+    const tabElement = event.target.closest<HTMLElement>("[data-app-shell-tab-controller]");
+    if (!tabElement) return;
+    if (tabElement.offsetWidth <= 0) return;
+    setLockedTabWidthPx(tabElement.offsetWidth);
+  }, []);
 
   useEffect(() => {
     if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
@@ -280,86 +273,10 @@ export function AppShellTabs({
     };
   }, [exitTabCloseMode]);
 
-  useLayoutEffect(() => {
-    if (!tabCloseMode) return;
-    const element = tabRowRef.current;
-    if (!element) return;
-    if (element.scrollLeft === tabCloseMode.scrollLeft) return;
-    element.scrollLeft = tabCloseMode.scrollLeft;
-  });
-
-  useLayoutEffect(() => {
-    if (!tabCloseMode) return;
-    if (tabs === tabCloseModeTabsRef.current) return;
-    if (tabs.some((tab) => tab.id === tabCloseMode.sourceTabId)) {
-      exitTabCloseMode();
-      return;
-    }
-    if (tabCloseMode.runTabIds.some((tabId) => tabs.some((tab) => tab.id === tabId && tab.closable === true))) return;
-    exitTabCloseMode();
-  }, [exitTabCloseMode, tabCloseMode, tabs]);
-
   useEffect(() => {
     if (!panelTabDnd?.activeDragId) return;
     exitTabCloseMode();
   }, [exitTabCloseMode, panelTabDnd?.activeDragId]);
-
-  useEffect(() => {
-    if (!tabCloseMode) return undefined;
-    const element = tabRowRef.current;
-    if (!element) return undefined;
-    const ownerDocument = element.ownerDocument;
-    const ownerWindow = ownerDocument.defaultView;
-    if (!ownerWindow) return undefined;
-
-    const handlePointerMove = (event: PointerEvent) => {
-      if (isPointInsideAppShellTabCloseModeHotZone({
-        clientX: event.clientX,
-        clientY: event.clientY,
-        hotZone: tabCloseMode.hotZone,
-      })) {
-        clearTabCloseModeExitTimer();
-        return;
-      }
-      scheduleTabCloseModeExit();
-    };
-    const handlePointerDown = (event: PointerEvent) => {
-      if (isPointInsideAppShellTabCloseModeHotZone({
-        clientX: event.clientX,
-        clientY: event.clientY,
-        hotZone: tabCloseMode.hotZone,
-      })) return;
-      exitTabCloseMode();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      exitTabCloseMode();
-    };
-    const handleBlur = () => {
-      exitTabCloseMode();
-    };
-
-    ownerWindow.addEventListener("pointermove", handlePointerMove, { passive: true });
-    ownerWindow.addEventListener("pointerdown", handlePointerDown, { capture: true, passive: true });
-    ownerWindow.addEventListener("blur", handleBlur);
-    ownerDocument.addEventListener("keydown", handleKeyDown);
-    return () => {
-      ownerWindow.removeEventListener("pointermove", handlePointerMove);
-      ownerWindow.removeEventListener("pointerdown", handlePointerDown, true);
-      ownerWindow.removeEventListener("blur", handleBlur);
-      ownerDocument.removeEventListener("keydown", handleKeyDown);
-      clearTabCloseModeExitTimer();
-    };
-  }, [
-    clearTabCloseModeExitTimer,
-    exitTabCloseMode,
-    scheduleTabCloseModeExit,
-    tabCloseMode,
-  ]);
-
-  useEffect(() => () => {
-    clearTabCloseModeExitTimer();
-  }, [clearTabCloseModeExitTimer]);
 
   useLayoutEffect(() => {
     const previousActiveTabId = previousActiveTabIdRef.current;
@@ -396,7 +313,6 @@ export function AppShellTabs({
     onCloseTab?.(tabId);
   };
   const closeTabFromDirectInteraction = (tabId: string) => {
-    enterTabCloseModeForDirectClose(tabId);
     if (onDirectCloseTab) {
       onDirectCloseTab(tabId);
       return;
@@ -446,35 +362,41 @@ export function AppShellTabs({
   };
 
   const tabList = (
-    <div role="tablist" className="relative z-0 flex" style={{ gap: 3 }}>
-      {tabs.map((tab, index) => {
-        const isActive = tab.id === activeTab?.id;
-        return (
-          <AppShellTab
-            key={tab.id}
-            tab={tab}
-            controllerId={controllerId}
-            panelTabDnd={panelTabDnd}
-            isActive={isActive}
-            isDragging={panelTabDnd?.activeDragId === tab.id}
-            closeModeWidthPx={tabCloseMode?.widthByTabId[tab.id]}
-            isCloseModeRunTab={tabCloseMode?.runTabIds.includes(tab.id) === true}
-            panelId={activePanelId}
-            separatorIndex={index}
-            activeTabIndex={activeIndex}
-            draggingIndex={draggingIndex}
-            tabCount={tabs.length}
-            tabs={tabs}
-            onSelect={onSelect}
-            onClose={tab.closable ? closeTab : undefined}
-            onDirectClose={tab.closable ? closeTabFromDirectInteraction : undefined}
-            onCloseModeExit={exitTabCloseMode}
-            onPin={tab.preview ? pinTab : undefined}
-            onMove={onMoveTab}
-            onSplit={onSplitTab}
-          />
-        );
-      })}
+    <div
+      role="tablist"
+      className="relative z-0 flex shrink-0"
+      onMouseDownCapture={handleTabListMouseDownCapture}
+      style={{ gap: APP_SHELL_TAB_GAP_PX, width: tabListWidth }}
+    >
+      <AnimatePresence initial={false} onExitComplete={() => setRetainedTabCount(tabs.length)}>
+        {tabs.map((tab, index) => {
+          const isActive = tab.id === activeTab?.id;
+          return (
+            <AppShellTab
+              key={tab.id}
+              tab={tab}
+              controllerId={controllerId}
+              panelTabDnd={panelTabDnd}
+              isActive={isActive}
+              isDragging={panelTabDnd?.activeDragId === tab.id}
+              lockedWidthPx={lockedTabWidthPx}
+              panelId={activePanelId}
+              separatorIndex={index}
+              activeTabIndex={activeIndex}
+              draggingIndex={draggingIndex}
+              tabCount={tabs.length}
+              tabs={tabs}
+              onSelect={onSelect}
+              onClose={tab.closable ? closeTab : undefined}
+              onDirectClose={tab.closable ? closeTabFromDirectInteraction : undefined}
+              onCloseModeExit={exitTabCloseMode}
+              onPin={tab.preview ? pinTab : undefined}
+              onMove={onMoveTab}
+              onSplit={onSplitTab}
+            />
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 
@@ -494,12 +416,12 @@ export function AppShellTabs({
           <div
             ref={tabRowRef}
             data-panel-tab-row={panelTabDnd ? `${panelTabDnd.panelId}:${panelTabDnd.leafId}` : undefined}
-            data-app-shell-tab-close-mode={tabCloseMode ? "true" : undefined}
+            data-app-shell-tab-close-mode={lockedTabWidthPx !== null ? "true" : undefined}
             className="hide-scrollbar relative isolate flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden [contain:layout_paint]"
             style={{
               scrollPaddingInlineEnd: tabScrollEndPaddingPx,
-              overflowAnchor: tabCloseMode ? "none" : undefined,
             }}
+            onPointerLeave={exitTabCloseMode}
           >
             <div
               aria-hidden="true"
@@ -508,7 +430,7 @@ export function AppShellTabs({
             <span aria-hidden="true" />
             {tabList}
             {afterTabsInline ? (
-              <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabsInline}</div>
+              <div ref={afterTabsInlineRef} className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabsInline}</div>
             ) : null}
             {tabRowPreview ? (
               <div
@@ -550,21 +472,41 @@ export function AppShellTabs({
   );
 }
 
-function readAppShellTabCloseModeMeasuredTabs(tabRowElement: HTMLElement): AppShellTabCloseModeMeasuredTab[] {
-  const tabElements = Array.from(tabRowElement.querySelectorAll<HTMLElement>("[data-app-shell-tab-controller][data-panel-tab-id]"));
-  return tabElements.map((element) => ({
-    id: element.dataset.panelTabId ?? "",
-    width: element.getBoundingClientRect().width,
-  })).filter((tab) => tab.id.length > 0);
-}
+function useMeasuredElementWidth(): {
+  elementRef: (element: HTMLDivElement | null) => void;
+  elementWidthPx: number;
+} {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [elementWidthPx, setElementWidthPx] = useState(0);
 
-function readAppShellTabCloseModeRect(element: HTMLElement): AppShellTabCloseModeRect {
-  const rect = element.getBoundingClientRect();
+  const elementRef = useCallback((nextElement: HTMLDivElement | null) => {
+    setElement(nextElement);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!element) {
+      setElementWidthPx(0);
+      return undefined;
+    }
+
+    const measure = () => {
+      const nextWidthPx = Math.ceil(element.getBoundingClientRect().width);
+      setElementWidthPx((currentWidthPx) => currentWidthPx === nextWidthPx ? currentWidthPx : nextWidthPx);
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(element);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [element]);
+
   return {
-    left: rect.left,
-    right: rect.right,
-    top: rect.top,
-    bottom: rect.bottom,
+    elementRef,
+    elementWidthPx,
   };
 }
 
@@ -613,15 +555,6 @@ function getDominantAppShellTabRowWheelDelta({
   return Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX : deltaY;
 }
 
-function makeAppShellTabCloseModeStyle(widthPx: number): CSSProperties {
-  const width = `${widthPx}px`;
-  return {
-    width,
-    flexBasis: width,
-    maxWidth: width,
-  };
-}
-
 function blurActiveElementWithin(element: HTMLElement): void {
   const activeElement = element.ownerDocument.activeElement;
   if (!(activeElement instanceof HTMLElement)) return;
@@ -636,8 +569,7 @@ function AppShellTab({
   panelTabDnd,
   isActive,
   isDragging,
-  closeModeWidthPx,
-  isCloseModeRunTab,
+  lockedWidthPx,
   panelId,
   separatorIndex,
   activeTabIndex,
@@ -657,8 +589,7 @@ function AppShellTab({
   panelTabDnd?: AppShellTabsProps["panelTabDnd"];
   isActive: boolean;
   isDragging: boolean;
-  closeModeWidthPx?: number;
-  isCloseModeRunTab: boolean;
+  lockedWidthPx: number | null;
   panelId?: string;
   separatorIndex: number;
   activeTabIndex: number;
@@ -759,10 +690,7 @@ function AppShellTab({
   const tabIndex = tabs.findIndex((candidate) => candidate.id === tab.id);
   const hasOtherClosableTabs = tabs.some((candidate) => candidate.id !== tab.id && candidate.closable === true);
   const hasClosableTabsToRight = tabIndex !== -1 && tabs.slice(tabIndex + 1).some((candidate) => candidate.closable === true);
-  const closeModeOuterStyle = closeModeWidthPx === undefined ? undefined : makeAppShellTabCloseModeStyle(closeModeWidthPx);
-  const closeModeInnerStyle = closeModeWidthPx === undefined
-    ? undefined
-    : makeAppShellTabCloseModeStyle(Math.max(0, closeModeWidthPx - APP_SHELL_TAB_CLOSE_MODE_OUTER_TRAILING_PADDING_PX));
+  const flexSizing = buildAppShellTabFlexSizing(lockedWidthPx);
 
   useEffect(() => {
     if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
@@ -791,30 +719,32 @@ function AppShellTab({
   }, [dndLeafId, dndPanelId, dndSessionId, onCloseModeExit, tab.id, tab.isLabel, tab.reorderable]);
 
   const chrome = (
-    <div
+    <motion.div
       ref={tabRef}
       data-app-shell-tab-controller={controllerId}
       data-tab-id={dataTabId}
       data-panel-tab-id={tab.id}
       data-app-shell-tab-preview={tab.preview ? "true" : undefined}
-      data-app-shell-tab-close-mode-run={isCloseModeRunTab ? "true" : undefined}
-      data-app-shell-tab-close-mode-width={closeModeWidthPx}
+      data-app-shell-tab-locked-width={lockedWidthPx ?? undefined}
       className={cn(
-        "no-drag my-auto flex shrink-0 items-center gap-0.5 contain-content relative max-w-40 pe-1",
+        "no-drag relative my-auto flex shrink-0 items-center gap-0.5 overflow-hidden pe-(--app-shell-tab-separator-gutter) contain-content",
         isDraggable && "cursor-grab",
         isDragging && "z-10 cursor-grabbing opacity-45",
       )}
-      style={closeModeOuterStyle}
+      initial={APP_SHELL_TAB_COLLAPSED_MOTION}
+      animate={APP_SHELL_TAB_EXPANDED_MOTION}
+      exit={APP_SHELL_TAB_COLLAPSED_MOTION}
+      transition={APP_SHELL_TAB_WIDTH_TRANSITION}
+      style={{ flexBasis: flexSizing.flexBasis, flexGrow: flexSizing.flexGrow }}
     >
       <div
         data-tab-id={dataTabId}
-        className="group group/tab relative flex h-7 max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
+        className="group group/tab relative flex h-7 w-full max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
         role="button"
         tabIndex={tab.disabled ? -1 : 0}
         aria-disabled={tab.disabled ? "true" : "false"}
         style={{
           "--app-shell-tab-background": "color-mix(in srgb, var(--color-token-foreground) 5%, var(--color-token-main-surface-primary))",
-          ...closeModeInnerStyle,
         } as CSSProperties}
         onMouseDown={(event) => {
           if (event.button !== 1 || !onClose) return;
@@ -878,6 +808,7 @@ function AppShellTab({
         {onClose ? (
           <button
             type="button"
+            data-app-shell-tab-close-button="true"
             data-app-shell-tab-no-drag="true"
             aria-label={`Close ${accessibleLabel} tab`}
             className="no-drag invisible absolute inset-y-0 end-1 z-30 flex cursor-interaction items-center pe-1 text-token-text-tertiary group-has-[:focus-visible]:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-1 before:w-[26px] before:bg-linear-to-r before:from-transparent before:to-30% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
@@ -916,7 +847,7 @@ function AppShellTab({
           showSeparator ? "opacity-100" : "opacity-0",
         )}
       />
-    </div>
+    </motion.div>
   );
 
   if (!onClose) {

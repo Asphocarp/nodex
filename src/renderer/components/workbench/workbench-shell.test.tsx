@@ -7936,6 +7936,9 @@ describe("workbench session shell", () => {
     });
     await settleAsyncRender();
 
+    await waitFor(() => {
+      expect(screen.queryAllByRole("tab", { name: "Side chat" }).length).toBe(1);
+    });
     expect(screen.getByRole("tab", { name: "Side chat" }) !== null).toBeTrue();
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
     expect(String(startSideChatCalls.length)).toBe("1");
@@ -8482,6 +8485,9 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(String(startSideChatCalls.length)).toBe("1");
+    await waitFor(() => {
+      expect(screen.queryAllByRole("tab", { name: "Side chat" }).length).toBe(1);
+    });
     expect(screen.getByRole("tab", { name: "Side chat" }) !== null).toBeTrue();
 
     invokeCalls = [];
