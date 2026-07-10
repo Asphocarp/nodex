@@ -1,5 +1,7 @@
 import type { ApplyDocumentUpdate, DocumentId } from "./contracts";
 
+export const MAX_DOCUMENT_AWARENESS_UPDATE_BYTES = 64 * 1024;
+
 /**
  * Errors are values on the wire. Transport implementations must not require
  * callers to parse exception messages to decide whether a request can retry or
@@ -17,6 +19,7 @@ export type DocumentSyncErrorCode =
   | "unsupported_document_schema"
   | "future_base_head"
   | "invalid_document_update"
+  | "invalid_awareness_update"
   | "document_update_missing_dependencies"
   | "update_id_collision"
   | "document_state_corrupt"
@@ -73,6 +76,14 @@ export interface DocumentSyncApplyAck {
 export interface DocumentSyncSubscribeRequest {
   readonly documentId: DocumentId;
   readonly clientSessionId: string;
+}
+
+export interface DocumentSyncSubscriptionAck {
+  readonly subscribed: true;
+}
+
+export interface DocumentSyncUnsubscribeAck {
+  readonly unsubscribed: true;
 }
 
 export interface DocumentAwarenessPublishRequest {

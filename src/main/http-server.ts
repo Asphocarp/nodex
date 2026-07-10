@@ -74,6 +74,8 @@ import {
 } from "../shared/schemas/projects";
 import { codexService } from "./codex/codex-service";
 import { renameProjectSessionChat } from "./project-session-rename-service";
+import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
+import { documentSyncHub } from "./document-sync-runtime";
 
 /** SSE keep-alive ping interval (ms) */
 const SSE_PING_INTERVAL_MS = 30_000;
@@ -213,6 +215,12 @@ app.onError((error, c) => {
     error,
   });
   return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+});
+
+registerDocumentSyncHttpRoutes(app, {
+  hub: documentSyncHub,
+  getDocumentProjectId: (documentId) =>
+    cardMutationWriter.getBlockDocumentProjectId(documentId),
 });
 
 app.post(

@@ -179,6 +179,12 @@ import {
 } from "./dev-runtime-metrics";
 import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
 import { CrossWindowDragCoordinator } from "./cross-window-drag-coordinator";
+import {
+  type DocumentSyncClientTarget,
+  DocumentSyncHub,
+  documentSyncUnauthorized,
+} from "./document-sync-hub";
+import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -438,6 +444,7 @@ function refreshBrowserSidebarCommandAccelerators(): void {
 }
 
 interface RegisterIpcHandlersOptions {
+  documentSyncHub?: DocumentSyncHub;
   onCreateWindow?: (seed?: WindowSessionSeed) => void;
   onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
   onSaveWindowSessionLayout?: (
@@ -463,6 +470,7 @@ export function registerIpcHandlers(
   options: RegisterIpcHandlersOptions = {},
 ): void {
   ensureBrowserSidebarEventBridge();
+  const documentSyncHub = options.documentSyncHub ?? defaultDocumentSyncHub;
 
   const gitBranchWatches = new Map<
     number,
@@ -494,6 +502,19 @@ export function registerIpcHandlers(
     options.rendererClientRouter?.ensureClient(
       event.sender as RendererClientWebContents,
     ).clientId ?? null;
+
+  const resolveDocumentSyncTarget = (
+    event: IpcMainInvokeEvent,
+  ): DocumentSyncClientTarget | null => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window || event.sender.getType() !== "window") {
+      return null;
+    }
+    if (event.senderFrame !== event.sender.mainFrame) {
+      return null;
+    }
+    return event.sender;
+  };
 
   const createGitCommitMessageGenerator =
     (hostId: string | undefined) =>
@@ -647,6 +668,42 @@ export function registerIpcHandlers(
   registerHandle("codex:dynamic-tool-call:respond", (_, requestId: string) =>
     codexService.respondToDynamicToolCall(requestId),
   );
+
+  registerHandle("document-sync:subscribe", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return documentSyncUnauthorized();
+    }
+    return documentSyncHub.subscribe(target, request);
+  });
+  registerHandle("document-sync:unsubscribe", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return documentSyncUnauthorized();
+    }
+    return documentSyncHub.unsubscribe(target, request);
+  });
+  registerHandle("document-sync:sync", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return documentSyncUnauthorized();
+    }
+    return documentSyncHub.sync(target, request);
+  });
+  registerHandle("document-sync:apply", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return documentSyncUnauthorized();
+    }
+    return documentSyncHub.applyUpdate(target, request);
+  });
+  registerHandle("document-sync:awareness:publish", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return documentSyncUnauthorized();
+    }
+    return documentSyncHub.publishAwareness(target, request);
+  });
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
   registerHandle("persisted-atom:update", (_, update) => {

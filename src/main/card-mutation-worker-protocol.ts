@@ -4,6 +4,13 @@ import type {
   UndoRedoResult,
 } from "../shared/ipc-api";
 import type {
+  DocumentSyncApplyAck,
+  DocumentSyncApplyRequest,
+  DocumentSyncCommandResult,
+  DocumentSyncRequest,
+  DocumentSyncResponse,
+} from "../shared/block-documents";
+import type {
   BlockDropImportInput,
   BlockDropImportResult,
   Card,
@@ -187,8 +194,28 @@ export type CardMutationWorkerRequest =
     };
   })
   | (CardMutationWorkerRequestBase & {
+    type: "syncBlockDocument";
+    payload: DocumentSyncRequest;
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "getBlockDocumentProjectId";
+    payload: { readonly documentId: string };
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "applyBlockDocumentUpdate";
+    payload: DocumentSyncApplyRequest;
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "writerBarrier";
+  })
+  | (CardMutationWorkerRequestBase & {
     type: "shutdown";
   });
+
+export type BlockDocumentWorkerResult =
+  | DocumentSyncCommandResult<DocumentSyncResponse>
+  | DocumentSyncCommandResult<DocumentSyncApplyAck>
+  | DocumentSyncCommandResult<string>;
 
 export type CardMutationWorkerResult =
   | Card
@@ -206,6 +233,7 @@ export type CardMutationWorkerResult =
   | CardHistoryVersionPreviewResult
   | UndoRedoResult
   | HistoryMutationResult
+  | BlockDocumentWorkerResult
   | undefined;
 
 export type CardMutationWorkerResponse =

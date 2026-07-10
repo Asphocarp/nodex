@@ -999,15 +999,19 @@ export interface MainRuntimeStartupContext {
 export interface MainRuntimeController {
   handleOpenUrl(url: string): boolean;
   handleSecondInstance(argv: string[]): boolean;
-  shutdown(): void;
+  shutdown(): Promise<void>;
 }
 
 let runtimeLifecycleHandlersRegistered = false;
 let runtimeShutdownStarted = false;
+let runtimeShutdownCompleted = false;
+let runtimeShutdownPromise: Promise<void> | null = null;
+let runtimeQuitContinuationStarted = false;
 let cardReadModelBackfillTimer: ReturnType<typeof setTimeout> | null = null;
 
 const CARD_READ_MODEL_BACKFILL_BATCH_SIZE = 4;
 const CARD_READ_MODEL_BACKFILL_DELAY_MS = 500;
+const RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS = 15_000;
 
 function scheduleCardReadModelBackfill(delayMs = CARD_READ_MODEL_BACKFILL_DELAY_MS): void {
   if (runtimeShutdownStarted) return;
@@ -1049,7 +1053,7 @@ function collectStartupDeepLinks(context: MainRuntimeStartupContext): string[][]
   });
 }
 
-function shutdownMainRuntime(): void {
+function beginMainRuntimeShutdown(): void {
   if (runtimeShutdownStarted) return;
   runtimeShutdownStarted = true;
   appQuitRequested = true;
@@ -1059,13 +1063,81 @@ function shutdownMainRuntime(): void {
     clearTimeout(cardReadModelBackfillTimer);
     cardReadModelBackfillTimer = null;
   }
+  stopAutoBackupScheduler();
+  if (stopReminderScheduler) {
+    stopReminderScheduler();
+    stopReminderScheduler = null;
+  }
   scheduledAutomationScheduler?.dispose();
   scheduledAutomationScheduler = null;
   terminalManager.killAll();
-  cardMutationWriter.shutdown();
-  void codexService.shutdown();
-  void shutdownMainSentry();
-  void shutdownBackendLogger();
+}
+
+async function settleRuntimeShutdownStep(
+  name: string,
+  operation: () => Promise<unknown>,
+  timeoutMs?: number,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const pending = operation();
+    if (timeoutMs === undefined) {
+      await pending;
+      return;
+    }
+    await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${name} did not stop within ${timeoutMs}ms`));
+        }, timeoutMs);
+        timeout.unref?.();
+      }),
+    ]);
+  } catch (error) {
+    logger.warn(`${name} failed during shutdown`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    captureMainException(error, {
+      tags: { phase: "runtime-shutdown", component: name },
+    });
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function shutdownMainRuntime(): Promise<void> {
+  beginMainRuntimeShutdown();
+  if (runtimeShutdownPromise) {
+    return runtimeShutdownPromise;
+  }
+
+  runtimeShutdownPromise = Promise.all([
+    settleRuntimeShutdownStep(
+      "Card mutation writer",
+      () => cardMutationWriter.shutdown(),
+    ),
+    settleRuntimeShutdownStep(
+      "Codex service",
+      () => codexService.shutdown(),
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    ),
+  ]).then(async () => {
+    await settleRuntimeShutdownStep(
+      "Main diagnostics",
+      () => shutdownMainSentry(),
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
+    await settleRuntimeShutdownStep(
+      "Backend logger",
+      () => shutdownBackendLogger(),
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
+    runtimeShutdownCompleted = true;
+  });
+  return runtimeShutdownPromise;
 }
 
 function registerRuntimeLifecycleHandlers(): void {
@@ -1073,7 +1145,17 @@ function registerRuntimeLifecycleHandlers(): void {
   runtimeLifecycleHandlersRegistered = true;
 
   app.on("before-quit", () => {
-    shutdownMainRuntime();
+    beginMainRuntimeShutdown();
+  });
+
+  app.on("will-quit", (event) => {
+    if (runtimeShutdownCompleted) return;
+    event.preventDefault();
+    if (runtimeQuitContinuationStarted) return;
+    runtimeQuitContinuationStarted = true;
+    void shutdownMainRuntime().finally(() => {
+      app.quit();
+    });
   });
 
   app.on("window-all-closed", () => {

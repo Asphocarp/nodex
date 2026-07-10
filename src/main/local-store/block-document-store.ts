@@ -17,6 +17,11 @@ import {
   type BlockId,
   type DocumentHead,
   type DocumentId,
+  type DocumentSyncApplyAck,
+  type DocumentSyncCommandError,
+  type DocumentSyncErrorCode,
+  type DocumentSyncRequest,
+  type DocumentSyncResponse,
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
 
@@ -87,6 +92,48 @@ export class BlockDocumentStoreError extends Error {
   }
 }
 
+const toDocumentSyncErrorCode = (error: unknown): DocumentSyncErrorCode => {
+  if (!(error instanceof BlockDocumentStoreError)) {
+    return "unknown";
+  }
+
+  switch (error.code) {
+    case "store_not_initialized":
+    case "store_epoch_mismatch":
+    case "document_not_found":
+    case "document_not_ready":
+    case "document_generation_mismatch":
+    case "unsupported_document_schema":
+    case "future_base_head":
+    case "invalid_document_update":
+    case "document_update_missing_dependencies":
+    case "update_id_collision":
+    case "document_state_corrupt":
+      return error.code;
+    case "document_already_initialized":
+      return "invalid_document_update";
+  }
+};
+
+export const toDocumentSyncCommandError = (
+  error: unknown,
+): DocumentSyncCommandError => {
+  const code = toDocumentSyncErrorCode(error);
+  return {
+    code,
+    message: error instanceof Error ? error.message : String(error),
+    retryable: code === "store_not_initialized"
+      || code === "document_not_ready"
+      || code === "future_base_head"
+      || code === "document_update_missing_dependencies",
+    resetRequired: code === "store_epoch_mismatch"
+      || code === "document_not_found"
+      || code === "document_generation_mismatch"
+      || code === "unsupported_document_schema"
+      || code === "document_state_corrupt",
+  };
+};
+
 export interface LoadedBlockDocument {
   readonly storeEpoch: string;
   readonly authority: DocumentAuthority;
@@ -103,15 +150,7 @@ export interface InitializeCardDocumentGenesis {
   readonly update: Uint8Array;
 }
 
-export interface DocumentUpdateAck {
-  readonly documentId: DocumentId;
-  readonly generation: number;
-  readonly updateId: string;
-  readonly committedSeq: number;
-  readonly headSeq: number;
-  readonly stateVector: Uint8Array;
-  readonly duplicate: boolean;
-}
+export type DocumentUpdateAck = DocumentSyncApplyAck;
 
 export interface DocumentSyncStep {
   readonly storeEpoch: string;
@@ -781,12 +820,14 @@ const assertMatchingIdempotentUpdate = (
 
 const makeAck = (
   row: DocumentRow,
+  storeEpoch: string,
   updateId: string,
   committedSeq: number,
   stateVector: Uint8Array,
   duplicate: boolean,
 ): DocumentUpdateAck => ({
   documentId: row.document_id,
+  storeEpoch,
   generation: row.generation,
   updateId,
   committedSeq,
@@ -816,6 +857,14 @@ export const loadBlockDocument = (
   return load();
 };
 
+export const getBlockDocumentProjectId = (
+  database: Database.Database,
+  documentId: DocumentId,
+): string => {
+  requireNonEmpty(documentId, "documentId");
+  return readDocumentRow(database, documentId).project_id;
+};
+
 export const getBlockDocumentSyncStep = (
   database: Database.Database,
   documentId: DocumentId,
@@ -841,6 +890,33 @@ export const getBlockDocumentSyncStep = (
   } finally {
     loaded.document.destroy();
   }
+};
+
+export const syncBlockDocument = (
+  database: Database.Database,
+  input: DocumentSyncRequest,
+): DocumentSyncResponse => {
+  requireNonEmpty(input.documentId, "documentId");
+  requireNonEmpty(input.clientSessionId, "clientSessionId");
+  if (input.stateVector.byteLength > MAX_CARD_DOCUMENT_STATE_BYTES) {
+    throw new BlockDocumentStoreError(
+      "invalid_document_update",
+      `Client state vector exceeds ${MAX_CARD_DOCUMENT_STATE_BYTES} bytes`,
+    );
+  }
+  const step = getBlockDocumentSyncStep(
+    database,
+    input.documentId,
+    input.stateVector,
+  );
+  return {
+    documentId: step.head.documentId,
+    storeEpoch: step.storeEpoch,
+    generation: step.head.generation,
+    headSeq: step.head.headSeq,
+    stateVector: step.head.stateVector,
+    update: step.update,
+  };
 };
 
 export const initializeCardDocumentGenesis = (
@@ -889,7 +965,7 @@ export const initializeCardDocumentGenesis = (
   const stateHash = snapshotHash;
 
   const initialize = database.transaction((): DocumentUpdateAck => {
-    assertStoreEpoch(database, input.storeEpoch);
+    const storeEpoch = assertStoreEpoch(database, input.storeEpoch);
     const row = readDocumentRow(database, input.documentId);
     assertGeneration(row, input.generation);
     assertSupportedCardSchema(row);
@@ -908,6 +984,7 @@ export const initializeCardDocumentGenesis = (
       const currentRow = readDocumentRow(database, input.documentId);
       return makeAck(
         currentRow,
+        storeEpoch,
         input.updateId,
         stored.seq,
         currentRow.state_vector,
@@ -981,6 +1058,7 @@ export const initializeCardDocumentGenesis = (
         state_hash: stateHash,
         readiness: "ready",
       },
+      storeEpoch,
       input.updateId,
       1,
       genesisStateVector,
@@ -1003,7 +1081,7 @@ export const applyBlockDocumentUpdate = (
   const touchedBlockIdsJson = JSON.stringify(touchedBlockIds);
 
   const apply = database.transaction((): DocumentUpdateAck => {
-    assertStoreEpoch(database, input.storeEpoch);
+    const storeEpoch = assertStoreEpoch(database, input.storeEpoch);
     const row = readDocumentRow(database, input.documentId);
     assertReady(row);
     assertGeneration(row, input.generation);
@@ -1028,6 +1106,7 @@ export const applyBlockDocumentUpdate = (
       );
       return makeAck(
         row,
+        storeEpoch,
         input.updateId,
         stored.seq,
         row.state_vector,
@@ -1120,6 +1199,7 @@ export const applyBlockDocumentUpdate = (
           state_vector: Buffer.from(nextStateVector),
           state_hash: nextStateHash,
         },
+        storeEpoch,
         input.updateId,
         nextHeadSeq,
         nextStateVector,

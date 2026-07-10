@@ -14,12 +14,17 @@ import type {
   CrossWindowDragPreview,
   CrossWindowDragSourceResult,
 } from "../../shared/cross-window-drag";
+import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
 export function createElectronRendererTransport(bridge: ElectronRendererBridge) {
   return {
     kind: "electron" as const,
+    createDocumentSyncAdapter(projectId: string) {
+      void projectId;
+      return createElectronDocumentSyncAdapter(bridge);
+    },
     invoke(channel: string, ...args: unknown[]) {
       return bridge.invoke(channel, ...args);
     },

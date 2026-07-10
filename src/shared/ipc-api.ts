@@ -1,4 +1,17 @@
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
+import type {
+  DocumentAwarenessPublishAck,
+  DocumentAwarenessPublishRequest,
+  DocumentSyncApplyAck,
+  DocumentSyncApplyRequest,
+  DocumentSyncCommandResult,
+  DocumentSyncRealtimeEvent,
+  DocumentSyncRequest,
+  DocumentSyncResponse,
+  DocumentSyncSubscribeRequest,
+  DocumentSyncSubscriptionAck,
+  DocumentSyncUnsubscribeAck,
+} from "./block-documents/document-sync";
 
 import type {
   BackupRecord,
@@ -495,6 +508,26 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "document-sync:subscribe": {
+    args: [request: DocumentSyncSubscribeRequest];
+    result: DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;
+  };
+  "document-sync:unsubscribe": {
+    args: [request: DocumentSyncSubscribeRequest];
+    result: DocumentSyncCommandResult<DocumentSyncUnsubscribeAck>;
+  };
+  "document-sync:sync": {
+    args: [request: DocumentSyncRequest];
+    result: DocumentSyncCommandResult<DocumentSyncResponse>;
+  };
+  "document-sync:apply": {
+    args: [request: DocumentSyncApplyRequest];
+    result: DocumentSyncCommandResult<DocumentSyncApplyAck>;
+  };
+  "document-sync:awareness:publish": {
+    args: [request: DocumentAwarenessPublishRequest];
+    result: DocumentSyncCommandResult<DocumentAwarenessPublishAck>;
+  };
   "diagnostics:renderer-log": {
     args: [input: RendererDiagnosticsLogInput];
     result: void;
@@ -1520,6 +1553,7 @@ export interface IpcApi {
 }
 
 export interface IpcEvents {
+  "document-sync:event": DocumentSyncRealtimeEvent;
   "cross-window-drag:active-changed": CrossWindowDragPreview | null;
   "cross-window-drag:source-result": CrossWindowDragSourceResult;
   "persisted-atom:updated": PersistedAtomUpdate;

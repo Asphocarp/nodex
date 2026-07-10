@@ -9,6 +9,9 @@ import type {
 
 export interface RendererTransport {
   kind: "browser" | "electron";
+  createDocumentSyncAdapter?: (
+    projectId: string,
+  ) => import("./nodex-y-provider").DocumentSyncAdapter;
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
   subscribeProjectSessionChanges: (

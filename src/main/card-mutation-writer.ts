@@ -9,6 +9,13 @@ import type {
   UndoRedoResult,
 } from "../shared/ipc-api";
 import type {
+  DocumentSyncApplyAck,
+  DocumentSyncApplyRequest,
+  DocumentSyncCommandResult,
+  DocumentSyncRequest,
+  DocumentSyncResponse,
+} from "../shared/block-documents";
+import type {
   BlockDropImportInput,
   BlockDropImportResult,
   Card,
@@ -39,6 +46,7 @@ import type {
 } from "./card-mutation-worker-protocol";
 
 const LONG_MUTATION_WARN_MS = 1_000;
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
 
 const logger = getLogger({ subsystem: "ipc", component: "card-mutation-writer" });
 
@@ -63,9 +71,16 @@ export interface CardMutationWorkerLike {
   terminate(): unknown;
 }
 
+export type CardMutationWriterShutdownDeadline = (
+  callback: () => void,
+  timeoutMs: number,
+) => () => void;
+
 export interface CardMutationWriterOptions {
   createWorker?: () => CardMutationWorkerLike;
   publishBoardEvent?: (event: BoardChangeEvent, metrics: CardMutationMetrics) => void;
+  scheduleShutdownDeadline?: CardMutationWriterShutdownDeadline;
+  shutdownTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -77,7 +92,10 @@ interface PendingRequest {
 
 export class CardMutationWriter {
   private worker: Worker | null = null;
-  private terminating = false;
+  private lifecycle: "accepting" | "draining" | "stopped" = "accepting";
+  private gracefulExitExpected = false;
+  private shutdownPromise: Promise<void> | null = null;
+  private cancelShutdownDeadline: (() => void) | null = null;
   private nextRequestId = 1;
   private pending = new Map<number, PendingRequest>();
 
@@ -275,22 +293,116 @@ export class CardMutationWriter {
     });
   }
 
-  shutdown(): void {
-    for (const [id, pending] of this.pending) {
-      clearTimeout(pending.warnTimer);
-      pending.reject(new Error("Card mutation writer shut down"));
-      this.pending.delete(id);
-    }
-
-    if (!this.worker) return;
-    const worker = this.worker;
-    this.worker = null;
-    this.terminating = true;
-    void worker.terminate();
+  async syncBlockDocument(
+    request: DocumentSyncRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> {
+    const envelope = await this.executeTyped<DocumentSyncCommandResult<DocumentSyncResponse>>({
+      type: "syncBlockDocument",
+      payload: request,
+    });
+    return envelope.result;
   }
 
-  private async executeTyped<T>(input: CardMutationWorkerRequestInput): Promise<CardMutationEnvelope<T>> {
-    const envelope = await this.execute(input);
+  async getBlockDocumentProjectId(
+    documentId: string,
+  ): Promise<DocumentSyncCommandResult<string>> {
+    const envelope = await this.executeTyped<DocumentSyncCommandResult<string>>({
+      type: "getBlockDocumentProjectId",
+      payload: { documentId },
+    });
+    return envelope.result;
+  }
+
+  async applyBlockDocumentUpdate(
+    request: DocumentSyncApplyRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>> {
+    const envelope = await this.executeTyped<DocumentSyncCommandResult<DocumentSyncApplyAck>>({
+      type: "applyBlockDocumentUpdate",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
+  async barrier(): Promise<void> {
+    if (this.lifecycle === "stopped") {
+      return;
+    }
+    if (this.lifecycle === "draining") {
+      await this.shutdownPromise;
+      return;
+    }
+    if (!this.worker) {
+      return;
+    }
+
+    await this.executeTyped<void>({ type: "writerBarrier" });
+  }
+
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+    if (this.lifecycle === "stopped") {
+      return Promise.resolve();
+    }
+
+    this.lifecycle = "draining";
+    if (!this.worker) {
+      this.lifecycle = "stopped";
+      this.shutdownPromise = Promise.resolve();
+      return this.shutdownPromise;
+    }
+
+    this.shutdownPromise = this.executeTyped<void>(
+      { type: "shutdown" },
+      { allowDuringDrain: true },
+    ).then(() => undefined).finally(() => {
+      this.cancelShutdownDeadline?.();
+      this.cancelShutdownDeadline = null;
+      this.lifecycle = "stopped";
+    });
+    this.cancelShutdownDeadline = this.scheduleShutdownDeadline(() => {
+      const timeoutMs = this.shutdownTimeoutMs();
+      const error = new Error(
+        `Card mutation writer did not drain within ${timeoutMs}ms`,
+      );
+      logger.error("Card mutation writer graceful shutdown timed out", {
+        pendingCount: this.pending.size,
+        timeoutMs,
+      });
+      const worker = this.worker;
+      this.handleWorkerFailure(error);
+      if (worker) {
+        void worker.terminate();
+      }
+    });
+    return this.shutdownPromise;
+  }
+
+  private scheduleShutdownDeadline(callback: () => void): () => void {
+    const timeoutMs = this.shutdownTimeoutMs();
+    if (this.options.scheduleShutdownDeadline) {
+      return this.options.scheduleShutdownDeadline(callback, timeoutMs);
+    }
+
+    const timer = setTimeout(callback, timeoutMs);
+    timer.unref?.();
+    return () => clearTimeout(timer);
+  }
+
+  private shutdownTimeoutMs(): number {
+    const configured = this.options.shutdownTimeoutMs;
+    if (configured !== undefined && Number.isFinite(configured) && configured > 0) {
+      return configured;
+    }
+    return GRACEFUL_SHUTDOWN_TIMEOUT_MS;
+  }
+
+  private async executeTyped<T>(
+    input: CardMutationWorkerRequestInput,
+    options?: { readonly allowDuringDrain?: boolean },
+  ): Promise<CardMutationEnvelope<T>> {
+    const envelope = await this.execute(input, options);
     return {
       ...envelope,
       result: envelope.result as T,
@@ -299,7 +411,14 @@ export class CardMutationWriter {
 
   private async execute(
     input: CardMutationWorkerRequestInput,
+    options?: { readonly allowDuringDrain?: boolean },
   ): Promise<CardMutationEnvelope<CardMutationWorkerResult>> {
+    if (
+      this.lifecycle !== "accepting"
+      && !options?.allowDuringDrain
+    ) {
+      throw new Error("Card mutation writer is shutting down");
+    }
     const worker = this.ensureWorker();
     const id = this.nextRequestId;
     this.nextRequestId += 1;
@@ -322,7 +441,13 @@ export class CardMutationWriter {
         });
       }, LONG_MUTATION_WARN_MS);
       this.pending.set(id, { request, resolve, reject, warnTimer });
-      worker.postMessage(request);
+      try {
+        worker.postMessage(request);
+      } catch (error) {
+        clearTimeout(warnTimer);
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     }).finally(() => {
       eventLoopDelay.disable();
     });
@@ -350,8 +475,9 @@ export class CardMutationWriter {
       this.handleWorkerFailure(error instanceof Error ? error : new Error(String(error)));
     });
     this.worker.on("exit", (code) => {
-      if (this.terminating) {
-        this.terminating = false;
+      this.worker = null;
+      if (this.gracefulExitExpected) {
+        this.gracefulExitExpected = false;
         return;
       }
       const message = code === 0
@@ -373,6 +499,9 @@ export class CardMutationWriter {
     if (!pending) return;
     this.pending.delete(message.id);
     clearTimeout(pending.warnTimer);
+    if (pending.request.type === "shutdown") {
+      this.gracefulExitExpected = true;
+    }
     pending.resolve(message);
   }
 
@@ -394,6 +523,7 @@ export class CardMutationWriter {
 
   private handleWorkerFailure(error: Error): void {
     logger.warn("Card mutation worker failed", { error: error.message });
+    this.gracefulExitExpected = false;
     if (this.worker) {
       this.worker.removeAllListeners();
       this.worker = null;

@@ -7,7 +7,14 @@ import { dbNotifier, type BoardChangeEvent as LocalBoardChangeEvent } from "./lo
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as historyStore from "./local-store/history";
+import {
+  applyBlockDocumentUpdate,
+  getBlockDocumentProjectId,
+  syncBlockDocument,
+  toDocumentSyncCommandError,
+} from "./local-store/block-document-store";
 import type { BoardChangeEvent } from "../shared/ipc-api";
+import type { DocumentSyncCommandResult } from "../shared/block-documents";
 import type { Card, CardSummary } from "../shared/types";
 import type {
   CardMutationMetrics,
@@ -36,6 +43,14 @@ function postLog(
 function toErrorMessage(value: unknown): string {
   if (value instanceof Error) return value.message;
   return String(value);
+}
+
+function runDocumentCommand<T>(operation: () => T): DocumentSyncCommandResult<T> {
+  try {
+    return { ok: true, value: operation() };
+  } catch (error) {
+    return { ok: false, error: toDocumentSyncCommandError(error) };
+  }
 }
 
 function approximatePayloadBytes(value: unknown): number {
@@ -240,6 +255,20 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
       );
     case "backfillCardReadModel":
       return cardsStore.backfillCardReadModelBatch(request.payload.limit);
+    case "syncBlockDocument":
+      return runDocumentCommand(() =>
+        syncBlockDocument(getDb(), request.payload),
+      );
+    case "getBlockDocumentProjectId":
+      return runDocumentCommand(() =>
+        getBlockDocumentProjectId(getDb(), request.payload.documentId),
+      );
+    case "applyBlockDocumentUpdate":
+      return runDocumentCommand(() =>
+        applyBlockDocumentUpdate(getDb(), request.payload),
+      );
+    case "writerBarrier":
+      return undefined;
     case "shutdown":
       closeDatabase();
       return undefined;
@@ -306,6 +335,10 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
         eventCount: capturedEvents.length,
       },
     });
+  } finally {
+    if (request.type === "shutdown") {
+      parentPort?.close();
+    }
   }
 }
 

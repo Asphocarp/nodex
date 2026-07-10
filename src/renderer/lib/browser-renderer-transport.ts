@@ -18,6 +18,7 @@ import type {
   ProjectSessionsChangeEvent,
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
+import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -2297,6 +2298,9 @@ function subscribeWindowFocusChanges(
 
 export const browserRendererTransport = {
   kind: "browser" as const,
+  createDocumentSyncAdapter(projectId: string) {
+    return createHttpDocumentSyncAdapter({ projectId });
+  },
   invoke,
   subscribeBoardChanges,
   subscribeProjectSessionChanges,

@@ -11,9 +11,12 @@ import {
 import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
+  getBlockDocumentProjectId,
   getBlockDocumentSyncStep,
   initializeCardDocumentGenesis,
   loadBlockDocument,
+  syncBlockDocument,
+  toDocumentSyncCommandError,
 } from "./block-document-store";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
@@ -56,7 +59,7 @@ const expectThrowsCode = (
 
 const seedPendingCardDocument = (
   database: Database.Database,
-): { documentId: string; storeEpoch: string } => {
+): { documentId: string; projectId: string; storeEpoch: string } => {
   const project = database
     .prepare("SELECT id FROM projects ORDER BY created LIMIT 1")
     .get() as { id: string };
@@ -89,7 +92,11 @@ const seedPendingCardDocument = (
   const metadata = database
     .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
     .get() as { store_epoch: string };
-  return { documentId, storeEpoch: metadata.store_epoch };
+  return {
+    documentId,
+    projectId: project.id,
+    storeEpoch: metadata.store_epoch,
+  };
 };
 
 const captureOneUpdate = (
@@ -114,6 +121,38 @@ const captureOneUpdate = (
 };
 
 describe("BlockDocumentStore", () => {
+  test("classifies durable store failures without message parsing", () => {
+    const dependency = toDocumentSyncCommandError(
+      new BlockDocumentStoreError(
+        "document_update_missing_dependencies",
+        "missing prerequisite",
+      ),
+    );
+    expect(dependency.code).toBe("document_update_missing_dependencies");
+    expect(dependency.retryable).toBeTrue();
+    expect(dependency.resetRequired).toBeFalse();
+
+    const restoredStore = toDocumentSyncCommandError(
+      new BlockDocumentStoreError("store_epoch_mismatch", "restored store"),
+    );
+    expect(restoredStore.code).toBe("store_epoch_mismatch");
+    expect(restoredStore.retryable).toBeFalse();
+    expect(restoredStore.resetRequired).toBeTrue();
+
+    const malformed = toDocumentSyncCommandError(
+      new BlockDocumentStoreError("invalid_document_update", "bad update"),
+    );
+    expect(malformed.retryable).toBeFalse();
+    expect(malformed.resetRequired).toBeFalse();
+
+    const infrastructure = toDocumentSyncCommandError(
+      new Error("worker database unavailable"),
+    );
+    expect(infrastructure.code).toBe("unknown");
+    expect(infrastructure.retryable).toBeFalse();
+    expect(infrastructure.resetRequired).toBeFalse();
+  });
+
   sqliteTest("durably converges concurrent updates and dependency retries across restart", async () => {
     closeDatabase();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-document-store-"));
@@ -125,7 +164,12 @@ describe("BlockDocumentStore", () => {
 
         let database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
-        const { documentId, storeEpoch } = seedPendingCardDocument(database);
+        const { documentId, projectId, storeEpoch } = seedPendingCardDocument(database);
+        expect(getBlockDocumentProjectId(database, documentId)).toBe(projectId);
+        expectThrowsCode(
+          () => getBlockDocumentProjectId(database, "document:missing"),
+          "document_not_found",
+        );
         const genesis = createCardDocument({
           documentId,
           initialTitle: "Base",
@@ -142,6 +186,7 @@ describe("BlockDocumentStore", () => {
         expect(genesisAck.headSeq).toBe(1);
         expect(genesisAck.updateId).toBe("genesis-1");
         expect(genesisAck.committedSeq).toBe(1);
+        expect(genesisAck.storeEpoch).toBe(storeEpoch);
         expect(genesisAck.duplicate).toBeFalse();
 
         const duplicateGenesis = initializeCardDocumentGenesis(database, {
@@ -154,7 +199,22 @@ describe("BlockDocumentStore", () => {
         });
         expect(duplicateGenesis.headSeq).toBe(1);
         expect(duplicateGenesis.committedSeq).toBe(1);
+        expect(duplicateGenesis.storeEpoch).toBe(storeEpoch);
         expect(duplicateGenesis.duplicate).toBeTrue();
+
+        const emptyReplica = new Y.Doc({ guid: documentId });
+        const initialSync = syncBlockDocument(database, {
+          documentId,
+          clientSessionId: "window-empty",
+          stateVector: Y.encodeStateVector(emptyReplica),
+        });
+        expect(initialSync.documentId).toBe(documentId);
+        expect(initialSync.storeEpoch).toBe(storeEpoch);
+        expect(initialSync.generation).toBe(1);
+        expect(initialSync.headSeq).toBe(1);
+        Y.applyUpdate(emptyReplica, initialSync.update);
+        expect(openCardDocument(emptyReplica).title.toString()).toBe("Base");
+        emptyReplica.destroy();
 
         const clientA = new Y.Doc({ guid: documentId });
         const clientB = new Y.Doc({ guid: documentId });
@@ -188,6 +248,7 @@ describe("BlockDocumentStore", () => {
         });
         expect(ackA.headSeq).toBe(2);
         expect(ackA.committedSeq).toBe(2);
+        expect(ackA.storeEpoch).toBe(storeEpoch);
         expect(ackB.headSeq).toBe(3);
         expect(ackB.committedSeq).toBe(3);
 
