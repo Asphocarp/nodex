@@ -13,6 +13,20 @@
 - Read [official doc of codex-app-server](https://developers.openai.com/codex/app-server.md) when dealing with codex-app-server.
 - After UI modification, no need to verify the UI changes yourself using playwright or anything. Just tell user to do it, which is more efficient.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Nodex uses a single-context layout with one root `CONTEXT.md` and system-wide ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+
 
 ## Project Overview
 Nodex is a local-first, block-based agent orchestrator.
