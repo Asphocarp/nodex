@@ -10,6 +10,8 @@ import { createProject, deleteProject } from "./projects";
 import { CURRENT_SCHEMA_VERSION } from "./schema";
 
 const FOUNDATION_TABLES_IN_DELETE_ORDER = [
+  "legacy_card_shadow_jobs",
+  "legacy_card_shadow_heads",
   "database_view_positions",
   "database_views",
   "database_memberships",

@@ -24,12 +24,15 @@ import {
   createProject,
   deleteProject,
 } from "../src/main/local-store/projects";
+import { CURRENT_SCHEMA_VERSION } from "../src/main/local-store/schema";
 import {
   createCardDocument,
   openCardDocument,
 } from "../src/shared/block-documents";
 
 const FOUNDATION_TABLES_IN_DELETE_ORDER = [
+  "legacy_card_shadow_jobs",
+  "legacy_card_shadow_heads",
   "database_view_positions",
   "database_views",
   "database_memberships",
@@ -86,6 +89,17 @@ interface DocumentProbeResult {
   readonly restartVerified: boolean;
   readonly duplicateCommittedSeq: number;
   readonly duplicateObservedHeadSeq: number;
+}
+
+interface ShadowOutboxProbeResult {
+  readonly migratedToVersion: number;
+  readonly backfillDeterministic: boolean;
+  readonly everyAuthoritativeMutationQueued: boolean;
+  readonly projectionMutationIgnored: boolean;
+  readonly claimCasVerified: boolean;
+  readonly oneActiveClaimPerCard: boolean;
+  readonly primaryLegacyWritesRejected: boolean;
+  readonly migrationRollbackVerified: boolean;
 }
 
 const invariant = (condition: boolean, message: string): void => {
@@ -166,6 +180,21 @@ const clearBlockFoundation = (database: Database.Database): void => {
   } finally {
     database.pragma("foreign_keys = ON");
   }
+};
+
+const dropV60ShadowOutbox = (database: Database.Database): void => {
+  database.exec(`
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_outbox_after_insert;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_outbox_after_update;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_outbox_after_delete;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_insert;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_update;
+    DROP TRIGGER IF EXISTS cards_legacy_shadow_reject_primary_delete;
+    DROP TRIGGER IF EXISTS legacy_card_shadow_jobs_reject_id_collision;
+    DROP TABLE IF EXISTS legacy_card_shadow_jobs;
+    DROP TABLE IF EXISTS legacy_card_shadow_heads;
+    PRAGMA user_version = 59;
+  `);
 };
 
 const runFoundationProbe = (): Promise<FoundationProbeResult> =>
@@ -551,6 +580,177 @@ const runFoundationProbe = (): Promise<FoundationProbeResult> =>
       "Block type mutation invalidated an active capability",
     );
     return result;
+  });
+
+const runShadowOutboxProbe = (): Promise<ShadowOutboxProbeResult> =>
+  withTemporaryStore("nodex-shadow-outbox-runtime-", async () => {
+    await initializeDatabase();
+    const project = createProject({ name: "Shadow outbox runtime source" });
+    const card = await createCard(project.id, "draft", { title: "Legacy source" });
+    closeDatabase();
+
+    let database = new Database(getDatabasePath());
+    dropV60ShadowOutbox(database);
+    database.close();
+
+    await initializeDatabase();
+    closeDatabase();
+    database = new Database(getDatabasePath());
+    database.pragma("foreign_keys = ON");
+
+    const migratedToVersion = database.pragma("user_version", {
+      simple: true,
+    }) as number;
+    const backfill = database.prepare(`
+      SELECT id, source_event_seq, source_revision, operation,
+             expected_document_generation, expected_document_head_seq,
+             expected_document_readiness, expected_document_authority
+      FROM legacy_card_shadow_jobs
+      WHERE card_id = ? AND source_event_seq = 1
+    `).get(card.id) as {
+      id: string;
+      source_event_seq: number;
+      source_revision: number;
+      operation: string;
+      expected_document_generation: number;
+      expected_document_head_seq: number;
+      expected_document_readiness: string;
+      expected_document_authority: string;
+    } | undefined;
+    const backfillDeterministic =
+      backfill?.id === `legacy-shadow:${card.id}:00000000000000000001` &&
+      backfill.source_event_seq === 1 &&
+      backfill.source_revision === 1 &&
+      backfill.operation === "insert" &&
+      backfill.expected_document_generation === 1 &&
+      backfill.expected_document_head_seq === 0 &&
+      backfill.expected_document_readiness === "pending_genesis" &&
+      backfill.expected_document_authority === "legacy_shadow";
+    invariant(backfillDeterministic, "v59 to v60 outbox backfill is not deterministic");
+
+    database.prepare(`
+      UPDATE cards
+      SET title = 'Legacy source 2', revision = revision + 1
+      WHERE id = ?
+    `).run(card.id);
+    database.prepare(`
+      UPDATE cards SET "order" = "order" + 1 WHERE id = ?
+    `).run(card.id);
+    const countBeforeProjection = (
+      database.prepare(`
+        SELECT COUNT(*) AS count
+        FROM legacy_card_shadow_jobs
+        WHERE card_id = ?
+      `).get(card.id) as { count: number }
+    ).count;
+    database.prepare(`
+      UPDATE cards SET description_preview = 'projection-only' WHERE id = ?
+    `).run(card.id);
+    const countAfterProjection = (
+      database.prepare(`
+        SELECT COUNT(*) AS count
+        FROM legacy_card_shadow_jobs
+        WHERE card_id = ?
+      `).get(card.id) as { count: number }
+    ).count;
+    const everyAuthoritativeMutationQueued = countBeforeProjection === 3;
+    const projectionMutationIgnored = countAfterProjection === countBeforeProjection;
+    invariant(everyAuthoritativeMutationQueued, "authoritative Card mutation was not queued");
+    invariant(projectionMutationIgnored, "rebuildable Card projection created a shadow job");
+
+    const claim = database.prepare(`
+      UPDATE legacy_card_shadow_jobs
+      SET status = 'processing', claim_token = 'runtime-claim',
+          claimed_at = '2026-07-11T00:00:00.000Z',
+          claim_expires_at = '2026-07-11T00:01:00.000Z',
+          attempt_count = attempt_count + 1,
+          updated_at = '2026-07-11T00:00:00.000Z'
+      WHERE card_id = ? AND source_event_seq = 1 AND status = 'pending'
+    `).run(card.id);
+    const duplicateClaim = database.prepare(`
+      UPDATE legacy_card_shadow_jobs
+      SET status = 'processing', claim_token = 'runtime-claim-duplicate',
+          claimed_at = '2026-07-11T00:00:00.000Z',
+          claim_expires_at = '2026-07-11T00:01:00.000Z',
+          attempt_count = attempt_count + 1,
+          updated_at = '2026-07-11T00:00:00.000Z'
+      WHERE card_id = ? AND source_event_seq = 1 AND status = 'pending'
+    `).run(card.id);
+    const claimCasVerified = claim.changes === 1 && duplicateClaim.changes === 0;
+    const oneActiveClaimPerCard = operationFails(() => {
+      database.prepare(`
+        UPDATE legacy_card_shadow_jobs
+        SET status = 'processing', claim_token = 'runtime-parallel-claim',
+            claimed_at = '2026-07-11T00:00:00.000Z',
+            claim_expires_at = '2026-07-11T00:01:00.000Z',
+            attempt_count = attempt_count + 1,
+            updated_at = '2026-07-11T00:00:00.000Z'
+        WHERE card_id = ? AND source_event_seq = 2
+      `).run(card.id);
+    });
+    invariant(claimCasVerified, "shadow outbox claim was not compare-and-swap safe");
+    invariant(oneActiveClaimPerCard, "two shadow jobs were claimed for one Card");
+
+    database.prepare(`
+      UPDATE documents
+      SET readiness = 'ready', authority = 'ydoc_primary'
+      WHERE id = ?
+    `).run(`document:${card.id}`);
+    const primaryLegacyWritesRejected =
+      operationFails(() => {
+        database.prepare(`
+          UPDATE cards SET title = 'illegal', revision = revision + 1 WHERE id = ?
+        `).run(card.id);
+      }) &&
+      operationFails(() => {
+        database.prepare("DELETE FROM cards WHERE id = ?").run(card.id);
+      });
+    invariant(primaryLegacyWritesRejected, "Y.Doc-primary Card accepted a legacy write");
+
+    database.prepare(`
+      UPDATE documents
+      SET readiness = 'pending_genesis', authority = 'legacy_shadow'
+      WHERE id = ?
+    `).run(`document:${card.id}`);
+    dropV60ShadowOutbox(database);
+    database.prepare("UPDATE cards SET revision = 0 WHERE id = ?").run(card.id);
+    database.close();
+
+    let migrationFailed = false;
+    try {
+      await initializeDatabase();
+    } catch {
+      migrationFailed = true;
+    } finally {
+      closeDatabase();
+    }
+    const rolledBack = new Database(getDatabasePath(), { readonly: true });
+    const rolledBackVersion = rolledBack.pragma("user_version", {
+      simple: true,
+    }) as number;
+    const rolledBackTables = (
+      rolledBack.prepare(`
+        SELECT COUNT(*) AS count
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name IN ('legacy_card_shadow_heads', 'legacy_card_shadow_jobs')
+      `).get() as { count: number }
+    ).count;
+    rolledBack.close();
+    const migrationRollbackVerified =
+      migrationFailed && rolledBackVersion === 59 && rolledBackTables === 0;
+    invariant(migrationRollbackVerified, "failed v60 migration left partial outbox state");
+
+    return {
+      migratedToVersion,
+      backfillDeterministic,
+      everyAuthoritativeMutationQueued,
+      projectionMutationIgnored,
+      claimCasVerified,
+      oneActiveClaimPerCard,
+      primaryLegacyWritesRejected,
+      migrationRollbackVerified,
+    };
   });
 
 const seedPendingCardDocument = (
@@ -1095,8 +1295,11 @@ const runDocumentStoreProbe = (): Promise<DocumentProbeResult> =>
 
 const run = async (): Promise<void> => {
   const foundation = await runFoundationProbe();
+  const shadowOutbox = await runShadowOutboxProbe();
   const documents = await runDocumentStoreProbe();
-  process.stdout.write(`${JSON.stringify({ foundation, documents })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ foundation, shadowOutbox, documents })}\n`,
+  );
 };
 
 void run().then(

@@ -21,8 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 59;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59] as const;
+export const CURRENT_SCHEMA_VERSION = 60;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -34,6 +34,8 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "legacy_card_shadow_jobs",
+  "legacy_card_shadow_heads",
   "database_view_positions",
   "database_views",
   "database_memberships",
@@ -736,6 +738,287 @@ function createBlockFoundationSchema(db: Database.Database): void {
   `);
 }
 
+const LEGACY_CARD_AUTHORITATIVE_UPDATE_COLUMNS_SQL = [
+  "project_id",
+  "status",
+  "archived",
+  "title",
+  "description",
+  "priority",
+  "estimate",
+  "tags",
+  "due_date",
+  "assignee",
+  "agent_blocked",
+  "agent_status",
+  "run_in_target",
+  "run_in_local_path",
+  "run_in_base_branch",
+  "run_in_worktree_path",
+  "run_in_environment_path",
+  "revision",
+  "scheduled_start",
+  "scheduled_end",
+  "is_all_day",
+  "recurrence_json",
+  "reminders_json",
+  "schedule_timezone",
+  '"order"',
+].join(", ");
+
+interface LegacyCardShadowTriggerInput {
+  readonly name: string;
+  readonly eventSql: string;
+  readonly rowAlias: "NEW" | "OLD";
+  readonly operation: "insert" | "update" | "delete";
+  readonly previousProjectIdSql: string;
+}
+
+function makeLegacyCardShadowEnqueueTriggerSql(
+  input: LegacyCardShadowTriggerInput,
+): string {
+  const row = input.rowAlias;
+  const now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+  return `
+    CREATE TRIGGER IF NOT EXISTS ${input.name}
+      AFTER ${input.eventSql} ON cards
+      BEGIN
+        INSERT INTO legacy_card_shadow_heads (
+          card_id, project_id, last_event_seq, last_source_revision,
+          last_operation, updated_at
+        ) VALUES (
+          ${row}.id,
+          ${row}.project_id,
+          1,
+          ${row}.revision,
+          '${input.operation}',
+          ${now}
+        )
+        ON CONFLICT(card_id) DO UPDATE SET
+          project_id = excluded.project_id,
+          last_event_seq = legacy_card_shadow_heads.last_event_seq + 1,
+          last_source_revision = excluded.last_source_revision,
+          last_operation = excluded.last_operation,
+          updated_at = excluded.updated_at;
+
+        INSERT INTO legacy_card_shadow_jobs (
+          id, card_id, source_event_seq, project_id, previous_project_id,
+          document_id, expected_document_generation, expected_document_head_seq,
+          expected_document_readiness, expected_document_authority,
+          source_revision, operation, status, attempt_count,
+          enqueued_at, updated_at
+        )
+        SELECT
+          'legacy-shadow:' || head.card_id || ':' || printf('%020d', head.last_event_seq),
+          head.card_id,
+          head.last_event_seq,
+          ${row}.project_id,
+          ${input.previousProjectIdSql},
+          'document:' || head.card_id,
+          COALESCE((
+            SELECT document.generation
+            FROM documents document
+            WHERE document.id = 'document:' || head.card_id
+          ), 1),
+          COALESCE((
+            SELECT document.head_seq
+            FROM documents document
+            WHERE document.id = 'document:' || head.card_id
+          ), 0),
+          COALESCE((
+            SELECT document.readiness
+            FROM documents document
+            WHERE document.id = 'document:' || head.card_id
+          ), 'pending_genesis'),
+          COALESCE((
+            SELECT document.authority
+            FROM documents document
+            WHERE document.id = 'document:' || head.card_id
+          ), 'legacy_shadow'),
+          ${row}.revision,
+          '${input.operation}',
+          'pending',
+          0,
+          ${now},
+          ${now}
+        FROM legacy_card_shadow_heads head
+        WHERE head.card_id = ${row}.id
+        ON CONFLICT(id) DO NOTHING;
+      END;
+  `;
+}
+
+function createLegacyCardShadowOutboxSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS legacy_card_shadow_heads (
+      card_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      last_event_seq INTEGER NOT NULL CHECK (last_event_seq >= 1),
+      last_source_revision INTEGER NOT NULL CHECK (last_source_revision >= 1),
+      last_operation TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (last_operation IN ('insert', 'update', 'delete'))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_legacy_card_shadow_heads_project
+      ON legacy_card_shadow_heads(project_id, card_id);
+
+    CREATE TABLE IF NOT EXISTS legacy_card_shadow_jobs (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL,
+      source_event_seq INTEGER NOT NULL CHECK (source_event_seq >= 1),
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      previous_project_id TEXT,
+      document_id TEXT NOT NULL,
+      expected_document_generation INTEGER NOT NULL
+        CHECK (expected_document_generation >= 1),
+      expected_document_head_seq INTEGER NOT NULL
+        CHECK (expected_document_head_seq >= 0),
+      expected_document_readiness TEXT NOT NULL,
+      expected_document_authority TEXT NOT NULL,
+      source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
+      operation TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      claim_token TEXT,
+      claimed_at TEXT,
+      claim_expires_at TEXT,
+      applied_document_head_seq INTEGER CHECK (applied_document_head_seq >= 0),
+      last_error TEXT,
+      enqueued_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT,
+      UNIQUE (card_id, source_event_seq),
+      CHECK (operation IN ('insert', 'update', 'delete')),
+      CHECK (expected_document_readiness IN ('pending_genesis', 'ready', 'failed')),
+      CHECK (expected_document_authority = 'legacy_shadow'),
+      CHECK (document_id = 'document:' || card_id),
+      CHECK (id = 'legacy-shadow:' || card_id || ':' || printf('%020d', source_event_seq)),
+      CHECK (operation = 'update' OR previous_project_id IS NULL),
+      CHECK (
+        (status = 'pending'
+          AND claim_token IS NULL
+          AND claimed_at IS NULL
+          AND claim_expires_at IS NULL
+          AND completed_at IS NULL)
+        OR (status = 'processing'
+          AND claim_token IS NOT NULL
+          AND claimed_at IS NOT NULL
+          AND claim_expires_at IS NOT NULL
+          AND completed_at IS NULL)
+        OR (status IN ('applied', 'superseded', 'failed')
+          AND claim_token IS NULL
+          AND claimed_at IS NULL
+          AND claim_expires_at IS NULL
+          AND completed_at IS NOT NULL)
+      ),
+      CHECK (
+        (status = 'failed' AND last_error IS NOT NULL)
+        OR (status <> 'failed' AND last_error IS NULL)
+      ),
+      CHECK (status = 'applied' OR applied_document_head_seq IS NULL)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_legacy_card_shadow_jobs_pending
+      ON legacy_card_shadow_jobs(status, project_id, enqueued_at, card_id, source_event_seq);
+    CREATE INDEX IF NOT EXISTS idx_legacy_card_shadow_jobs_card_ledger
+      ON legacy_card_shadow_jobs(card_id, source_event_seq);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_legacy_card_shadow_jobs_processing_card
+      ON legacy_card_shadow_jobs(card_id)
+      WHERE status = 'processing';
+
+    CREATE TRIGGER IF NOT EXISTS legacy_card_shadow_jobs_reject_id_collision
+      BEFORE INSERT ON legacy_card_shadow_jobs
+      WHEN EXISTS (
+        SELECT 1
+        FROM legacy_card_shadow_jobs existing
+        WHERE existing.id = NEW.id
+          AND (
+            existing.card_id <> NEW.card_id
+            OR existing.source_event_seq <> NEW.source_event_seq
+            OR existing.project_id <> NEW.project_id
+            OR COALESCE(existing.previous_project_id, '') <>
+              COALESCE(NEW.previous_project_id, '')
+            OR existing.document_id <> NEW.document_id
+            OR existing.expected_document_generation <>
+              NEW.expected_document_generation
+            OR existing.expected_document_head_seq <>
+              NEW.expected_document_head_seq
+            OR existing.expected_document_readiness <>
+              NEW.expected_document_readiness
+            OR existing.expected_document_authority <>
+              NEW.expected_document_authority
+            OR existing.source_revision <> NEW.source_revision
+            OR existing.operation <> NEW.operation
+          )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'legacy Card shadow job id collision');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_legacy_shadow_reject_primary_insert
+      BEFORE INSERT ON cards
+      WHEN EXISTS (
+        SELECT 1
+        FROM documents document
+        WHERE document.id = 'document:' || NEW.id
+          AND document.authority <> 'legacy_shadow'
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Y.Doc-primary Cards reject legacy writes');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_legacy_shadow_reject_primary_update
+      BEFORE UPDATE OF ${LEGACY_CARD_AUTHORITATIVE_UPDATE_COLUMNS_SQL} ON cards
+      WHEN EXISTS (
+        SELECT 1
+        FROM documents document
+        WHERE document.id = 'document:' || OLD.id
+          AND document.authority <> 'legacy_shadow'
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Y.Doc-primary Cards reject legacy writes');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_legacy_shadow_reject_primary_delete
+      BEFORE DELETE ON cards
+      WHEN EXISTS (
+        SELECT 1
+        FROM documents document
+        WHERE document.id = 'document:' || OLD.id
+          AND document.authority <> 'legacy_shadow'
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Y.Doc-primary Cards reject legacy writes');
+      END;
+
+    ${makeLegacyCardShadowEnqueueTriggerSql({
+      name: "cards_legacy_shadow_outbox_after_insert",
+      eventSql: "INSERT",
+      rowAlias: "NEW",
+      operation: "insert",
+      previousProjectIdSql: "NULL",
+    })}
+
+    ${makeLegacyCardShadowEnqueueTriggerSql({
+      name: "cards_legacy_shadow_outbox_after_update",
+      eventSql: `UPDATE OF ${LEGACY_CARD_AUTHORITATIVE_UPDATE_COLUMNS_SQL}`,
+      rowAlias: "NEW",
+      operation: "update",
+      previousProjectIdSql:
+        "CASE WHEN NEW.project_id <> OLD.project_id THEN OLD.project_id ELSE NULL END",
+    })}
+
+    ${makeLegacyCardShadowEnqueueTriggerSql({
+      name: "cards_legacy_shadow_outbox_after_delete",
+      eventSql: "DELETE",
+      rowAlias: "OLD",
+      operation: "delete",
+      previousProjectIdSql: "NULL",
+    })}
+  `);
+}
+
 export interface EnsureDatabaseOptions {
   onMigrationProgress?: (progress: DatabaseMigrationProgress) => void;
 }
@@ -1241,6 +1524,7 @@ function createLatestSchema(db: Database.Database): void {
     );
   `);
   createBlockFoundationSchema(db);
+  createLegacyCardShadowOutboxSchema(db);
 }
 
 function ensureBlockStoreMetadata(db: Database.Database, now: string): void {
@@ -1296,6 +1580,12 @@ export function deleteBlockFoundationForProject(
   db: Database.Database,
   projectId: string,
 ): void {
+  // Delete Cards while their Project still exists so the legacy outbox can
+  // record each delete without violating its Project foreign key. The rows are
+  // then removed below with the rest of the Project-scoped migration ledger.
+  db.prepare("DELETE FROM cards WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM legacy_card_shadow_jobs WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM legacy_card_shadow_heads WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM block_documents WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM blocks WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM documents WHERE project_id = ?").run(projectId);
@@ -3259,6 +3549,83 @@ function migrateSchema58To59(db: Database.Database): void {
   migrate();
 }
 
+function seedLegacyCardShadowOutbox(db: Database.Database): void {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO legacy_card_shadow_heads (
+      card_id, project_id, last_event_seq, last_source_revision,
+      last_operation, updated_at
+    )
+    SELECT card.id, card.project_id, 1, card.revision, 'insert', ?
+    FROM cards card
+    WHERE true
+    ON CONFLICT(card_id) DO NOTHING
+  `).run(now);
+
+  db.prepare(`
+    INSERT INTO legacy_card_shadow_jobs (
+      id, card_id, source_event_seq, project_id, previous_project_id,
+      document_id, expected_document_generation, expected_document_head_seq,
+      expected_document_readiness, expected_document_authority,
+      source_revision, operation, status, attempt_count,
+      enqueued_at, updated_at
+    )
+    SELECT
+      'legacy-shadow:' || card.id || ':' || printf('%020d', head.last_event_seq),
+      card.id,
+      head.last_event_seq,
+      card.project_id,
+      NULL,
+      document.id,
+      document.generation,
+      document.head_seq,
+      document.readiness,
+      document.authority,
+      card.revision,
+      'insert',
+      'pending',
+      0,
+      ?,
+      ?
+    FROM cards card
+    INNER JOIN legacy_card_shadow_heads head ON head.card_id = card.id
+    INNER JOIN block_documents ownership ON ownership.block_id = card.id
+    INNER JOIN documents document ON document.id = ownership.document_id
+    WHERE true
+    ON CONFLICT(id) DO NOTHING
+  `).run(now, now);
+
+  const parityFailure = db.prepare(`
+    SELECT card.id
+    FROM cards card
+    LEFT JOIN legacy_card_shadow_heads head ON head.card_id = card.id
+    LEFT JOIN legacy_card_shadow_jobs job
+      ON job.card_id = card.id
+      AND job.source_event_seq = head.last_event_seq
+    WHERE head.card_id IS NULL
+      OR head.project_id <> card.project_id
+      OR head.last_source_revision <> card.revision
+      OR job.id IS NULL
+      OR job.source_revision <> card.revision
+      OR job.project_id <> card.project_id
+    LIMIT 1
+  `).get() as { id: string } | undefined;
+  if (parityFailure) {
+    throw new Error(
+      `Legacy Card shadow outbox parity failed for Card ${parityFailure.id}`,
+    );
+  }
+}
+
+function migrateSchema59To60(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    createLegacyCardShadowOutboxSchema(db);
+    seedLegacyCardShadowOutbox(db);
+    setUserVersion(db, 60);
+  });
+  migrate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -3496,6 +3863,14 @@ function runMigrations(
       createSchemaMigrationSafetyBackup(db, 58, 59);
       migrateSchema58To59(db);
       fromVersion = 59;
+      continue;
+    }
+    if (target === 60) {
+      if (fromVersion !== 59) {
+        throw new Error(`Unsupported Nodex database migration target 60 from ${fromVersion}`);
+      }
+      migrateSchema59To60(db);
+      fromVersion = 60;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
