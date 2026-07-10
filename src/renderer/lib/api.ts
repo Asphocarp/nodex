@@ -157,6 +157,22 @@ export function subscribeCodexAutomationRunsUpdates(
   return resolveRendererTransport().subscribeCodexAutomationRunsUpdates(callback);
 }
 
+export function subscribeCrossWindowDragActiveChanges(
+  callback: (
+    preview: import("../../shared/cross-window-drag").CrossWindowDragPreview | null,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCrossWindowDragActiveChanges(callback);
+}
+
+export function subscribeCrossWindowDragSourceResults(
+  callback: (
+    result: import("../../shared/cross-window-drag").CrossWindowDragSourceResult,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCrossWindowDragSourceResults(callback);
+}
+
 export function getWindowFocusState(): Promise<boolean> {
   return resolveRendererTransport().getWindowFocusState();
 }

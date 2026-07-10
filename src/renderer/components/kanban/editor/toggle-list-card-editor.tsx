@@ -5,7 +5,13 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { resolveAssetSourceToHttpUrl, uploadImageAsset } from "@/lib/assets";
 import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
-import type { CardInput, Estimate, MoveCardInput } from "@/lib/types";
+import type {
+  CardEditorDropInput,
+  CardEditorDropResult,
+  CardInput,
+  Estimate,
+  MoveCardInput,
+} from "@/lib/types";
 import type { Priority } from "@/lib/types";
 import {
   blockToCardPatch,
@@ -67,10 +73,16 @@ import {
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import {
+  type EditorForExternalBlockDrop,
   restoreEditorDocument,
+  runInEditorTransaction,
   snapshotEditorDocument,
 } from "./external-block-drag-session";
+import { resolveBlockId } from "./drag-source-resolver";
 import type { ExternalCardDragPayload } from "./external-card-drag-session";
+import type { CardDropApplyResult } from "./card-drop-target-registry";
+import { buildCardEditorDropRequest } from "../board-drop-routing";
+import type { DragTransferOperation } from "../../../../shared/cross-window-drag";
 import {
   getSideMenuSelectionGuardFloatingOptions,
   useSideMenuSelectionGuard,
@@ -102,6 +114,9 @@ interface ToggleListCardEditorProps {
   hiddenProperties: ToggleListPropertyKey[];
   updateCard: (columnId: string, cardId: string, updates: Partial<CardInput>) => Promise<unknown>;
   moveCard?: (input: MoveCardInput) => Promise<boolean>;
+  applyCardEditorDrop: (
+    input: CardEditorDropInput,
+  ) => Promise<CardEditorDropResult | null>;
   openCardStage?: (
     projectId: string,
     cardId: string,
@@ -169,6 +184,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function resolveToggleListDropTargetCardIds(
+  editor: EditorForExternalBlockDrop,
+  container: HTMLElement | null,
+  pointer: { x: number; y: number } | null,
+): string[] {
+  if (!container || !pointer) return [];
+
+  const hit = container.ownerDocument
+    .elementsFromPoint(pointer.x, pointer.y)
+    .find((element) => container.contains(element));
+  if (!hit) return [];
+
+  const blockId = resolveBlockId(hit);
+  if (!blockId) return [];
+
+  let block = editor.getBlock(blockId);
+  while (block) {
+    if (block.type === "cardToggle") {
+      const cardId = block.props?.cardId;
+      return typeof cardId === "string" && cardId.length > 0 ? [cardId] : [];
+    }
+    block = editor.getParentBlock(block.id);
+  }
+  return [];
+}
+
 function isToggleBlock(value: unknown): value is { id: string; children?: unknown[] } {
   if (!isRecord(value)) return false;
   if (typeof value.id !== "string") return false;
@@ -231,6 +272,7 @@ export function ToggleListCardEditor({
   hiddenProperties,
   updateCard,
   moveCard,
+  applyCardEditorDrop,
   openCardStage,
   showEmptyEstimate = false,
   showEmptyPriority = false,
@@ -319,6 +361,8 @@ export function ToggleListCardEditor({
   const dirtyCardIdsRef = useRef<Set<string>>(new Set());
   const inFlightCardIdsRef = useRef<Set<string>>(new Set());
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushOutboundSyncRef = useRef<() => Promise<void>>(async () => {});
+  const reconcileInboundRef = useRef<() => void>(() => {});
   const isApplyingRef = useRef(false);
   const allowStructuralChangesRef = useRef(false);
   const hasFocusWithinRef = useRef(false);
@@ -326,18 +370,49 @@ export function ToggleListCardEditor({
   const trackedToggleBlockIdsRef = useRef<Set<string>>(new Set());
   const suppressExternalDropSyncDepthRef = useRef(0);
 
+  const applyEditorUpdates = useCallback((updater: () => void) => {
+    isApplyingRef.current = true;
+    allowStructuralChangesRef.current = true;
+    try {
+      updater();
+    } finally {
+      allowStructuralChangesRef.current = false;
+      isApplyingRef.current = false;
+    }
+  }, []);
+
   const externalDropAdapter = useMemo(
     () =>
-      createToggleListDropAdapter(projectId, cards, () => {
-        suppressExternalDropSyncDepthRef.current += 1;
-        return () => {
-          suppressExternalDropSyncDepthRef.current = Math.max(
-            0,
-            suppressExternalDropSyncDepthRef.current - 1,
-          );
-        };
-      }),
-    [cards, projectId],
+      createToggleListDropAdapter(
+        projectId,
+        cards,
+        () => {
+          const hadPendingSync = syncTimerRef.current !== null;
+          if (syncTimerRef.current) {
+            clearTimeout(syncTimerRef.current);
+            syncTimerRef.current = null;
+          }
+          suppressExternalDropSyncDepthRef.current += 1;
+          return (result) => {
+            suppressExternalDropSyncDepthRef.current = Math.max(
+              0,
+              suppressExternalDropSyncDepthRef.current - 1,
+            );
+            Promise.resolve().then(() => reconcileInboundRef.current());
+            if (result === "move" || !hadPendingSync) return;
+            syncTimerRef.current = setTimeout(() => {
+              syncTimerRef.current = null;
+              void flushOutboundSyncRef.current();
+            }, EDITOR_SYNC_DEBOUNCE_MS);
+          };
+        },
+        (dropEditor, blockIds) => {
+          applyEditorUpdates(() => {
+            runInEditorTransaction(dropEditor, () => dropEditor.removeBlocks(blockIds));
+          });
+        },
+      ),
+    [applyEditorUpdates, cards, projectId],
   );
 
   useEditorDragBehaviors({
@@ -354,17 +429,6 @@ export function ToggleListCardEditor({
   useEffect(() => {
     cardByIdRef.current = cardById;
   }, [cardById]);
-
-  const applyEditorUpdates = useCallback((updater: () => void) => {
-    isApplyingRef.current = true;
-    allowStructuralChangesRef.current = true;
-    try {
-      updater();
-    } finally {
-      allowStructuralChangesRef.current = false;
-      isApplyingRef.current = false;
-    }
-  }, []);
 
   const removeToggleStateEntries = useCallback((blockIds: readonly string[]) => {
     for (const blockId of blockIds) {
@@ -400,6 +464,18 @@ export function ToggleListCardEditor({
       const detailById = new Map(detailCards.map((card) => [card.id, card]));
       if (detailById.size !== payload.cards.length) return null;
 
+      const hadPendingSync = syncTimerRef.current !== null;
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
+      const resumePendingSync = () => {
+        if (!hadPendingSync || syncTimerRef.current) return;
+        syncTimerRef.current = setTimeout(() => {
+          syncTimerRef.current = null;
+          void flushOutboundSyncRef.current();
+        }, EDITOR_SYNC_DEBOUNCE_MS);
+      };
       const baselinePatches = collectCardDescriptionPatches(editor.document, container);
       const snapshot = snapshotEditorDocument(editor);
       const droppedBlocks = payload.cards.flatMap((entry) => {
@@ -412,7 +488,10 @@ export function ToggleListCardEditor({
           entry.columnName,
         )];
       });
-      if (droppedBlocks.length !== payload.cards.length) return null;
+      if (droppedBlocks.length !== payload.cards.length) {
+        resumePendingSync();
+        return null;
+      }
 
       suppressExternalDropSyncDepthRef.current += 1;
       try {
@@ -432,6 +511,7 @@ export function ToggleListCardEditor({
             0,
             suppressExternalDropSyncDepthRef.current - 1,
           );
+          resumePendingSync();
           return null;
         }
 
@@ -460,6 +540,7 @@ export function ToggleListCardEditor({
             0,
             suppressExternalDropSyncDepthRef.current - 1,
           );
+          resumePendingSync();
           return null;
         }
 
@@ -475,6 +556,8 @@ export function ToggleListCardEditor({
               0,
               suppressExternalDropSyncDepthRef.current - 1,
             );
+            resumePendingSync();
+            Promise.resolve().then(() => reconcileInboundRef.current());
           },
         };
       } catch {
@@ -485,10 +568,34 @@ export function ToggleListCardEditor({
           0,
           suppressExternalDropSyncDepthRef.current - 1,
         );
+        resumePendingSync();
         return null;
       }
     },
     [applyEditorUpdates, cards, editor, projectId],
+  );
+
+  const commitCardImportDrop = useCallback(
+    async (
+      payload: ExternalCardDragPayload,
+      result: CardDropApplyResult,
+      operation: DragTransferOperation,
+      groupId: string,
+    ): Promise<boolean> => {
+      const request = buildCardEditorDropRequest({
+        operation,
+        sourceProjectId: payload.projectId,
+        sourceCards: payload.cards.map((entry) => ({
+          cardId: entry.card.id,
+          status: entry.columnId,
+        })),
+        targetUpdates: result.targetUpdates,
+        groupId,
+      });
+      if (!request || request.targetProjectId !== projectId) return false;
+      return Boolean(await applyCardEditorDrop(request.input));
+    },
+    [applyCardEditorDrop, projectId],
   );
 
   const handleCardImportHover = useCallback(
@@ -496,6 +603,7 @@ export function ToggleListCardEditor({
       hover: boolean,
       pointer: { x: number; y: number } | null,
       payload: ExternalCardDragPayload | null,
+      operation: DragTransferOperation = "move",
     ) => {
       void payload;
       const container = containerRef.current;
@@ -512,15 +620,20 @@ export function ToggleListCardEditor({
         pointer,
         { inlineOnly: true },
       );
-      renderCardDropIndicator(container, indicator);
+      renderCardDropIndicator(container, indicator, operation);
     },
     [editor],
   );
 
   useCardImportDropTarget({
     containerRef,
-    getTargetCardIds: () => cardIds,
+    getTargetCardIds: (pointer) => resolveToggleListDropTargetCardIds(
+      editor as unknown as EditorForExternalBlockDrop,
+      containerRef.current,
+      pointer,
+    ),
     applyDrop: applyCardImportDrop,
+    commitDrop: commitCardImportDrop,
     setHover: handleCardImportHover,
   });
 
@@ -551,6 +664,7 @@ export function ToggleListCardEditor({
       }),
     );
   }, [editor, updateCard]);
+  flushOutboundSyncRef.current = flushOutboundSync;
 
   useEffect(() => {
     const unsubscribe = editor.onBeforeChange(({ getChanges }) => {
@@ -686,6 +800,10 @@ export function ToggleListCardEditor({
     showEmptyEstimate,
     showEmptyPriority,
   ]);
+
+  useEffect(() => {
+    reconcileInboundRef.current = reconcileInbound;
+  }, [reconcileInbound]);
 
   useEffect(() => {
     reconcileInbound();

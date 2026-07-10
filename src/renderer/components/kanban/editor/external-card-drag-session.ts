@@ -1,39 +1,37 @@
-import type { CardSummary } from "../../../lib/types";
+import type {
+  CrossWindowCardDragItem,
+  CrossWindowCardDragPayload,
+} from "../../../../shared/cross-window-drag";
 
-export type ExternalCardDragCard = CardSummary;
+export type ExternalCardDragCard = CrossWindowCardDragItem["card"];
 
 export interface CardDragPointer {
   x: number;
   y: number;
 }
 
-export interface ExternalCardDragItem {
-  card: ExternalCardDragCard;
-  columnId: string;
-  columnName: string;
-}
-
-export interface ExternalCardDragPayload {
-  projectId: string;
-  cards: ExternalCardDragItem[];
-}
+export type ExternalCardDragItem = CrossWindowCardDragItem;
+export type ExternalCardDragPayload = CrossWindowCardDragPayload;
 
 export interface ExternalCardDragSession {
   id: string;
   payload: ExternalCardDragPayload;
   pointer: CardDragPointer | null;
+  groupId: string;
 }
 
 let activeSession: ExternalCardDragSession | null = null;
 
 export function startExternalCardDragSession(
   payload: ExternalCardDragPayload,
+  options?: { id?: string; groupId?: string },
 ): string {
-  const id = crypto.randomUUID();
+  const id = options?.id ?? crypto.randomUUID();
   activeSession = {
     id,
     payload,
     pointer: null,
+    groupId: options?.groupId ?? crypto.randomUUID(),
   };
   return id;
 }

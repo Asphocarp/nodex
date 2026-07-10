@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  buildExternalCardDropMoveRequest,
+  buildCardEditorDropRequest,
   resolveExternalCardDropTarget,
 } from "./board-drop-routing";
 import { registerCardDropTarget } from "./editor/card-drop-target-registry";
@@ -22,6 +22,7 @@ function createTargetElement(): HTMLElement {
 function createSession(pointer: { x: number; y: number } | null): ExternalCardDragSession {
   return {
     id: "session-1",
+    groupId: "group-1",
     pointer,
     payload: {
       projectId: "default",
@@ -56,7 +57,7 @@ describe("board card-drop routing", () => {
       id: "target-1",
       element,
       canDrop: () => true,
-      applyDrop: () => null,
+      performDrop: async () => false,
     });
 
     const target = resolveExternalCardDropTarget(createSession({ x: 10, y: 10 }));
@@ -71,7 +72,7 @@ describe("board card-drop routing", () => {
       id: "target-2",
       element,
       canDrop: () => true,
-      applyDrop: () => null,
+      performDrop: async () => false,
     });
 
     const target = resolveExternalCardDropTarget(createSession({ x: 10, y: 10 }));
@@ -80,8 +81,9 @@ describe("board card-drop routing", () => {
     expect(target?.id).toBe("target-2");
   });
 
-  test("buildExternalCardDropMoveRequest keeps same-project drop payload local", () => {
-    const request = buildExternalCardDropMoveRequest({
+  test("buildCardEditorDropRequest keeps same-project drop payload local", () => {
+    const request = buildCardEditorDropRequest({
+      operation: "move",
       sourceProjectId: "default",
       sourceCards: [
         {
@@ -102,12 +104,12 @@ describe("board card-drop routing", () => {
 
     expect(request?.targetProjectId).toBe("default");
     expect(request?.input.sourceProjectId).toBe(undefined);
-    expect(request?.input.sourceCardId).toBe("source-1");
-    expect(request?.input.sourceCards?.map((source) => source.cardId).join(",")).toBe("source-1");
+    expect(request?.input.sourceCards.map((source) => source.cardId).join(",")).toBe("source-1");
   });
 
-  test("buildExternalCardDropMoveRequest sets sourceProjectId for cross-project drop", () => {
-    const request = buildExternalCardDropMoveRequest({
+  test("buildCardEditorDropRequest sets sourceProjectId for cross-project drop", () => {
+    const request = buildCardEditorDropRequest({
+      operation: "copy",
       sourceProjectId: "alpha",
       sourceCards: [
         {
@@ -133,11 +135,13 @@ describe("board card-drop routing", () => {
     expect(request?.targetProjectId).toBe("beta");
     expect(request?.input.sourceProjectId).toBe("alpha");
     expect(request?.input.groupId).toBe("group-2");
-    expect(request?.input.sourceCards?.map((source) => source.cardId).join(",")).toBe("source-1,source-2");
+    expect(request?.input.sourceCards.map((source) => source.cardId).join(",")).toBe("source-1,source-2");
+    expect(request?.input.operation).toBe("copy");
   });
 
-  test("buildExternalCardDropMoveRequest rejects mixed target projects", () => {
-    const request = buildExternalCardDropMoveRequest({
+  test("buildCardEditorDropRequest rejects mixed target projects", () => {
+    const request = buildCardEditorDropRequest({
+      operation: "move",
       sourceProjectId: "default",
       sourceCards: [
         {

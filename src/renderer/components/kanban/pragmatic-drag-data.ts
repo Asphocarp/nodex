@@ -10,6 +10,8 @@ export interface KanbanCardDragData extends Record<string | symbol, unknown> {
   sourceColumnId: CardStatus;
   sourceCard: ExternalCardDragCard;
   dragItems: ExternalCardDragItem[];
+  crossWindowSessionId: string;
+  groupId: string;
 }
 
 export interface KanbanCardDropTargetData extends Record<string | symbol, unknown> {
@@ -36,7 +38,10 @@ export function buildKanbanCardDragData(args: {
   const dragItems = resolveDragGroup(args.board, args.selection, {
     card: args.activeCard,
     columnId: args.columnId,
-  });
+  }).map((entry) => ({
+    ...entry,
+    columnId: entry.columnId as CardStatus,
+  }));
 
   return {
     type: "kanban-card",
@@ -46,6 +51,8 @@ export function buildKanbanCardDragData(args: {
     sourceColumnId: args.columnId,
     sourceCard: args.activeCard,
     dragItems,
+    crossWindowSessionId: crypto.randomUUID(),
+    groupId: crypto.randomUUID(),
   };
 }
 
@@ -81,6 +88,8 @@ export function isKanbanCardDragData(value: unknown): value is KanbanCardDragDat
     && typeof candidate.sourceCardId === "string"
     && typeof candidate.sourceColumnId === "string"
     && typeof candidate.instanceId === "symbol"
+    && typeof candidate.crossWindowSessionId === "string"
+    && typeof candidate.groupId === "string"
     && Array.isArray(candidate.dragItems);
 }
 

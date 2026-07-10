@@ -41,6 +41,7 @@ import {
 } from "./nfm-external-content-sync";
 import type { Card, CodexPromptInput } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
+import { useHistory } from "@/lib/use-history";
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import { NfmTableHandlesController } from "./nfm-table-handles";
 import { NfmHeadingNavigationRail } from "./nfm-heading-navigation-rail";
@@ -121,6 +122,9 @@ import {
   snapshotEditorDocument,
 } from "./external-block-drag-session";
 import type { ExternalCardDragPayload } from "./external-card-drag-session";
+import type { CardDropApplyResult } from "./card-drop-target-registry";
+import { buildCardEditorDropRequest } from "../board-drop-routing";
+import type { DragTransferOperation } from "../../../../shared/cross-window-drag";
 import { resolveDraggedBlockIds } from "./drag-source-resolver";
 import {
   inferInlineViewDropImport,
@@ -589,7 +593,15 @@ export function NfmEditor({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suppressExternalDropRef = useRef(false);
   const suppressExternalContentSyncRef = useRef(false);
-  const { moveCardDropToEditor } = useKanban({ projectId });
+  const {
+    sessionId: historySessionId,
+    refreshState: refreshHistoryState,
+  } = useHistory(projectId);
+  const { applyCardEditorDrop } = useKanban({
+    projectId,
+    sessionId: historySessionId,
+    onMutation: refreshHistoryState,
+  });
 
   // Use refs to avoid stale closures
   const onChangeRef = useRef(onChange);
@@ -2296,13 +2308,33 @@ export function NfmEditor({
         columnId: sourceColumnId,
       },
       () => {
+        const hadPendingChange = serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
+        cancelScheduledSerializedEmit();
         suppressExternalDropRef.current = true;
-        return () => {
+        return (result, sourceUpdates) => {
+          if (result === "move") {
+            const sourceUpdate = sourceUpdates.find(
+              (update) => update.projectId === projectId && update.cardId === sourceCardId,
+            );
+            const nextDescription = sourceUpdate?.updates.description;
+            if (typeof nextDescription === "string") {
+              lastEmittedRef.current = nextDescription;
+            }
+          }
           suppressExternalDropRef.current = false;
+          if (result !== "move" && hadPendingChange) {
+            scheduleSerializedEmit();
+          }
         };
       },
     );
-  }, [projectId, sourceCardId, sourceColumnId]);
+  }, [
+    cancelScheduledSerializedEmit,
+    projectId,
+    scheduleSerializedEmit,
+    sourceCardId,
+    sourceColumnId,
+  ]);
 
   useEditorDragBehaviors({
     editor,
@@ -2329,6 +2361,8 @@ export function NfmEditor({
       if (detailById.size !== payload.cards.length) return null;
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
+      const hadPendingChange = serializedChangeEmitterRef.current?.hasPendingChange() ?? false;
+      const lastEmittedBeforeDrop = lastEmittedRef.current;
       cancelScheduledSerializedEmit();
       const baselineDescription = serializeEditorToNfm();
       const snapshot = snapshotEditorDocument(dropEditor);
@@ -2376,6 +2410,8 @@ export function NfmEditor({
           ],
           rollback: () => {
             restoreEditorDocument(dropEditor, snapshot);
+            lastEmittedRef.current = lastEmittedBeforeDrop;
+            if (hadPendingChange) scheduleSerializedEmit();
           },
           cleanup: () => {
             suppressExternalDropRef.current = false;
@@ -2383,11 +2419,43 @@ export function NfmEditor({
         };
       } catch {
         restoreEditorDocument(dropEditor, snapshot);
+        lastEmittedRef.current = lastEmittedBeforeDrop;
         suppressExternalDropRef.current = false;
+        if (hadPendingChange) scheduleSerializedEmit();
         return null;
       }
     },
-    [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
+    [
+      cancelScheduledSerializedEmit,
+      editor,
+      projectId,
+      scheduleSerializedEmit,
+      serializeEditorToNfm,
+      sourceCardContext,
+    ],
+  );
+
+  const commitCardImportDrop = useCallback(
+    async (
+      payload: ExternalCardDragPayload,
+      result: CardDropApplyResult,
+      operation: DragTransferOperation,
+      groupId: string,
+    ): Promise<boolean> => {
+      const request = buildCardEditorDropRequest({
+        operation,
+        sourceProjectId: payload.projectId,
+        sourceCards: payload.cards.map((entry) => ({
+          cardId: entry.card.id,
+          status: entry.columnId,
+        })),
+        targetUpdates: result.targetUpdates,
+        groupId,
+      });
+      if (!request || request.targetProjectId !== projectId) return false;
+      return Boolean(await applyCardEditorDrop(request.input));
+    },
+    [applyCardEditorDrop, projectId],
   );
 
   const handleCardImportHover = useCallback(
@@ -2395,6 +2463,7 @@ export function NfmEditor({
       hover: boolean,
       pointer: { x: number; y: number } | null,
       payload: ExternalCardDragPayload | null,
+      operation: DragTransferOperation = "move",
     ) => {
       void payload;
       const container = containerRef.current;
@@ -2410,7 +2479,7 @@ export function NfmEditor({
         container,
         pointer,
       );
-      renderCardDropIndicator(container, indicator);
+      renderCardDropIndicator(container, indicator, operation);
     },
     [editor],
   );
@@ -2420,6 +2489,7 @@ export function NfmEditor({
     enabled: sourceCardContext !== undefined,
     getTargetCardIds: () => (sourceCardContext ? [sourceCardContext.cardId] : []),
     applyDrop: applyCardImportDrop,
+    commitDrop: commitCardImportDrop,
     setHover: handleCardImportHover,
   });
 
@@ -2482,10 +2552,13 @@ export function NfmEditor({
               return;
             }
 
-            const result = await moveCardDropToEditor({
+            const result = await applyCardEditorDrop({
+              operation: "move",
               sourceProjectId: dropSource.sourceProjectId,
-              sourceCardId: dropSource.sourceCardId,
-              sourceStatus: dropSource.sourceStatus as Card["status"] | undefined,
+              sourceCards: [{
+                cardId: dropSource.sourceCardId,
+                status: dropSource.sourceStatus as Card["status"] | undefined,
+              }],
               targetUpdates: [
                 {
                   projectId,
@@ -2599,7 +2672,7 @@ export function NfmEditor({
     },
     [
       editor,
-      moveCardDropToEditor,
+      applyCardEditorDrop,
       projectId,
       cancelScheduledSerializedEmit,
       serializeEditorToNfm,

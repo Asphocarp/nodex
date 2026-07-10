@@ -14,8 +14,8 @@ import type {
   Card,
   CardCreateInput,
   CardCreatePlacement,
-  CardDropMoveToEditorInput,
-  CardDropMoveToEditorResult,
+  CardEditorDropInput,
+  CardEditorDropResult,
   CardInput,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
@@ -176,13 +176,13 @@ export class CardMutationWriter {
     });
   }
 
-  async moveCardDropToEditor(
+  async applyCardEditorDrop(
     projectId: string,
-    input: CardDropMoveToEditorInput,
+    input: CardEditorDropInput,
     sessionId?: string,
-  ): Promise<CardMutationEnvelope<CardDropMoveToEditorResult>> {
-    return await this.executeTyped<CardDropMoveToEditorResult>({
-      type: "moveCardDropToEditor",
+  ): Promise<CardMutationEnvelope<CardEditorDropResult>> {
+    return await this.executeTyped<CardEditorDropResult>({
+      type: "applyCardEditorDrop",
       payload: { projectId, input, sessionId },
     });
   }

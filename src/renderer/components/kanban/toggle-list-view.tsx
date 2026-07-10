@@ -10,6 +10,7 @@ import {
 import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
 import { useCardDetails } from "@/lib/card-detail-store";
 import { useKanban } from "@/lib/use-kanban";
+import { useHistory } from "@/lib/use-history";
 import { TOGGLE_LIST_PROPERTY_KEYS, type ToggleListCard, type ToggleListPropertyKey, type ToggleListStatusId } from "@/lib/toggle-list/types";
 import { ToggleListCardEditor } from "./editor/toggle-list-card-editor";
 import { toggleListSchema } from "./editor/toggle-list-schema";
@@ -37,7 +38,22 @@ export function ToggleListView({
   scrollStateKey,
 }: ToggleListViewProps) {
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const { board, loading, error, updateCard, moveCard } = useKanban({ projectId });
+  const {
+    sessionId,
+    refreshState: refreshHistoryState,
+  } = useHistory(projectId);
+  const {
+    board,
+    loading,
+    error,
+    updateCard,
+    moveCard,
+    applyCardEditorDrop,
+  } = useKanban({
+    projectId,
+    sessionId,
+    onMutation: refreshHistoryState,
+  });
   const viewPrefs = dbViewPrefs ?? getDefaultDbViewPrefs("toggle-list");
   const displayProperties = useMemo(
     () =>
@@ -153,6 +169,7 @@ export function ToggleListView({
             showEmptyPriority={viewPrefs.display.showEmptyPriority}
             updateCard={updateCard}
             moveCard={moveCard}
+            applyCardEditorDrop={applyCardEditorDrop}
             openCardStage={openCardStage}
             className="nodex-toggle-list-editor min-h-80"
           />

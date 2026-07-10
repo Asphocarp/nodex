@@ -7,7 +7,6 @@ import type {
 } from "@/lib/types";
 import type {
   DragSessionBlock,
-  EditorForExternalBlockDrop,
   ExternalDropAdapter,
 } from "./external-block-drag-session";
 import { stripProjectedSubtrees } from "./projection-card-toggle";
@@ -19,10 +18,10 @@ interface CardStageSourceContext {
 }
 
 function serializeEditorDocument(
-  editor: EditorForExternalBlockDrop,
+  document: DragSessionBlock[],
   container: HTMLElement,
 ): string {
-  const strippedDocument = stripProjectedSubtrees(editor.document);
+  const strippedDocument = stripProjectedSubtrees(document);
   const nfmBlocks = blockNoteToNfm(strippedDocument);
   applyToggleStatesFromDom(strippedDocument, nfmBlocks, container);
   return serializeNfm(nfmBlocks);
@@ -57,15 +56,12 @@ function toDescriptionUpdate(description: string): Partial<CardInput> {
 
 export function createCardStageDropAdapter(
   context: CardStageSourceContext,
-  beginOptimisticMutation: (() => () => void) | undefined,
+  beginOptimisticMutation: ExternalDropAdapter["beginPreparedMutation"],
 ): ExternalDropAdapter {
   return {
-    captureBaseline(editor, container) {
-      return serializeEditorDocument(editor, container);
-    },
-    buildSourceUpdates(editor, container, baseline) {
-      if (typeof baseline !== "string") return [];
-      const nextDescription = serializeEditorDocument(editor, container);
+    buildSourceUpdates(sourceDocument, projectedDocument, container) {
+      const baseline = serializeEditorDocument(sourceDocument, container);
+      const nextDescription = serializeEditorDocument(projectedDocument, container);
       if (nextDescription === baseline) return [];
 
       return [
@@ -77,31 +73,28 @@ export function createCardStageDropAdapter(
         },
       ];
     },
-    beginOptimisticMutation,
+    beginPreparedMutation: beginOptimisticMutation,
   };
 }
 
 export function createToggleListDropAdapter(
   projectId: string,
   cards: ToggleListCard[],
-  beginOptimisticMutation: (() => () => void) | undefined,
+  beginOptimisticMutation: ExternalDropAdapter["beginPreparedMutation"],
+  removeLiveBlocks?: ExternalDropAdapter["removeLiveBlocks"],
 ): ExternalDropAdapter {
-  const cardIds = new Set(cards.map((card) => card.id));
+  const cardDescriptions = new Map(cards.map((card) => [card.id, card.description]));
 
   return {
-    captureBaseline(editor, container) {
-      return collectToggleCardPatches(editor.document, container);
-    },
-    buildSourceUpdates(editor, container, baseline) {
-      if (!(baseline instanceof Map)) return [];
-      const nextPatches = collectToggleCardPatches(editor.document, container);
+    buildSourceUpdates(sourceDocument, projectedDocument, container) {
+      void sourceDocument;
+      const nextPatches = collectToggleCardPatches(projectedDocument, container);
       const updates: BlockDropImportSourceUpdate[] = [];
 
       for (const [cardId, nextPatch] of nextPatches) {
-        if (!cardIds.has(cardId)) continue;
-
-        const previousPatch = baseline.get(cardId);
-        if (previousPatch?.description === nextPatch.description) continue;
+        const persistedDescription = cardDescriptions.get(cardId);
+        if (persistedDescription === undefined) continue;
+        if (persistedDescription === nextPatch.description) continue;
 
         updates.push({
           projectId,
@@ -112,6 +105,7 @@ export function createToggleListDropAdapter(
 
       return updates;
     },
-    beginOptimisticMutation,
+    beginPreparedMutation: beginOptimisticMutation,
+    removeLiveBlocks,
   };
 }

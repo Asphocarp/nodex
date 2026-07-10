@@ -105,7 +105,7 @@ export const HttpBlockDropImportBodySchema = UnknownRecordSchema.transform((body
     : body.sourceUpdates,
 }));
 
-export const HttpCardMoveDropBodySchema = UnknownRecordSchema.transform((body) => ({
+export const HttpCardEditorDropBodySchema = UnknownRecordSchema.transform((body) => ({
   ...body,
   targetUpdates: Array.isArray(body.targetUpdates)
     ? body.targetUpdates.map((item) => HttpSourceUpdateSchema.parse(item))

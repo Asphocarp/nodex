@@ -137,8 +137,8 @@ import type {
   CardCreateInput,
   CardDescriptionUpdateStartInput,
   CardUpdateResult,
-  CardDropMoveToEditorInput,
-  CardDropMoveToEditorResult,
+  CardEditorDropInput,
+  CardEditorDropResult,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
   CanvasData,
@@ -228,6 +228,14 @@ import type {
   WorkspacePathsExistInput,
   WorkspacePathsExistResult,
 } from "./types";
+import type {
+  CrossWindowDragClaimInput,
+  CrossWindowDragClaimResult,
+  CrossWindowDragCompleteInput,
+  CrossWindowDragPreview,
+  CrossWindowDragSourceResult,
+  CrossWindowDragStartInput,
+} from "./cross-window-drag";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -714,13 +722,37 @@ export interface IpcApi {
     args: [projectId: string, input: BlockDropImportInput, sessionId?: string];
     result: BlockDropImportResult;
   };
-  "card:move-drop-to-editor": {
+  "card:apply-editor-drop": {
     args: [
       projectId: string,
-      input: CardDropMoveToEditorInput,
+      input: CardEditorDropInput,
       sessionId?: string,
     ];
-    result: CardDropMoveToEditorResult;
+    result: CardEditorDropResult;
+  };
+  "cross-window-drag:start": {
+    args: [input: CrossWindowDragStartInput];
+    result: boolean;
+  };
+  "cross-window-drag:active:get": {
+    args: [];
+    result: CrossWindowDragPreview | null;
+  };
+  "cross-window-drag:claim": {
+    args: [input: CrossWindowDragClaimInput];
+    result: CrossWindowDragClaimResult;
+  };
+  "cross-window-drag:source-ended": {
+    args: [sessionId: string];
+    result: boolean;
+  };
+  "cross-window-drag:complete": {
+    args: [input: CrossWindowDragCompleteInput];
+    result: boolean;
+  };
+  "cross-window-drag:discard": {
+    args: [sessionId: string];
+    result: boolean;
   };
   "calendar:occurrences": {
     args: [
@@ -1488,6 +1520,8 @@ export interface IpcApi {
 }
 
 export interface IpcEvents {
+  "cross-window-drag:active-changed": CrossWindowDragPreview | null;
+  "cross-window-drag:source-result": CrossWindowDragSourceResult;
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;
   "projects-changed": ProjectsChangeEvent;

@@ -1,4 +1,5 @@
 import type { BlockDropImportSourceUpdate } from "../../../lib/types";
+import type { DragTransferOperation } from "../../../../shared/cross-window-drag";
 import type { CardDragPointer, ExternalCardDragPayload } from "./external-card-drag-session";
 
 export interface CardDropApplyResult {
@@ -10,16 +11,22 @@ export interface CardDropApplyResult {
 export interface CardDropTargetRegistration {
   id: string;
   element: HTMLElement;
-  canDrop: (payload: ExternalCardDragPayload) => boolean;
+  canDrop: (
+    payload: ExternalCardDragPayload,
+    pointer: CardDragPointer | null,
+  ) => boolean;
   setHover?: (
     hover: boolean,
     pointer: CardDragPointer | null,
     payload: ExternalCardDragPayload | null,
+    operation?: DragTransferOperation,
   ) => void;
-  applyDrop: (
+  performDrop: (
     payload: ExternalCardDragPayload,
     pointer: CardDragPointer,
-  ) => CardDropApplyResult | null | Promise<CardDropApplyResult | null>;
+    operation: DragTransferOperation,
+    groupId: string,
+  ) => Promise<boolean>;
 }
 
 const registry = new Map<string, CardDropTargetRegistration>();
@@ -73,12 +80,12 @@ export function resolveCardDropTargetAtPointer(
   if (!pointer) return null;
 
   const fromElements = resolveFromElementsAtPoint(pointer);
-  if (fromElements && fromElements.canDrop(payload)) {
+  if (fromElements && fromElements.canDrop(payload, pointer)) {
     return fromElements;
   }
 
   for (const target of registry.values()) {
-    if (!target.canDrop(payload)) continue;
+    if (!target.canDrop(payload, pointer)) continue;
     if (!includesPoint(target.element.getBoundingClientRect(), pointer)) continue;
     return target;
   }
@@ -89,6 +96,7 @@ export function resolveCardDropTargetAtPointer(
 export function updateCardDropTargetHover(
   pointer: CardDragPointer | null,
   payload: ExternalCardDragPayload | null,
+  operation: DragTransferOperation = "move",
 ): CardDropTargetRegistration | null {
   if (!pointer || !payload) {
     clearCardDropTargetHover();
@@ -105,7 +113,7 @@ export function updateCardDropTargetHover(
 
   if (nextTarget) {
     hoveredTargetId = nextTarget.id;
-    nextTarget.setHover?.(true, pointer, payload);
+    nextTarget.setHover?.(true, pointer, payload, operation);
     return nextTarget;
   }
 

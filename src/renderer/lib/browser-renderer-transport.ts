@@ -991,10 +991,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return res.json();
     }
-    case "card:move-drop-to-editor": {
+    case "card:apply-editor-drop": {
       const [projectId, input, sessionId] = args as [string, object, string?];
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card-move-drop-to-editor`),
+        toApiUrl(`/api/projects/${projectId}/card-editor-drop`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2253,6 +2253,20 @@ function subscribePersistedAtomUpdates(
   return () => {};
 }
 
+function subscribeCrossWindowDragActiveChanges(
+  callback: (preview: import("../../shared/cross-window-drag").CrossWindowDragPreview | null) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
+function subscribeCrossWindowDragSourceResults(
+  callback: (result: import("../../shared/cross-window-drag").CrossWindowDragSourceResult) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 async function getWindowFocusState(): Promise<boolean> {
   return typeof document !== "undefined"
     ? document.visibilityState !== "hidden"
@@ -2297,6 +2311,8 @@ export const browserRendererTransport = {
   subscribeCodexScheduledAutomationChanges,
   subscribeCodexAutomationRunsUpdates,
   subscribePersistedAtomUpdates,
+  subscribeCrossWindowDragActiveChanges,
+  subscribeCrossWindowDragSourceResults,
   getWindowFocusState,
   subscribeWindowFocusChanges,
 };

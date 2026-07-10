@@ -41,7 +41,7 @@ import type {
   CardCreatePlacement,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
-  CardDropMoveToEditorInput,
+  CardEditorDropInput,
   CardCreateInput,
   CardInput,
   CardSearchInput,
@@ -64,7 +64,7 @@ import { getLogger } from "./logging/logger";
 import {
   HttpBlockDropImportBodySchema,
   HttpCardBodySchema,
-  HttpCardMoveDropBodySchema,
+  HttpCardEditorDropBodySchema,
   parseOptionalCardStatus,
 } from "../shared/schemas/http";
 import {
@@ -473,10 +473,10 @@ export function normalizeBlockDropImportBody(
   return HttpBlockDropImportBodySchema.parse(body);
 }
 
-export function normalizeCardMoveDropBody(
+export function normalizeCardEditorDropBody(
   body: Record<string, unknown>,
 ): Record<string, unknown> {
-  return HttpCardMoveDropBodySchema.parse(body);
+  return HttpCardEditorDropBodySchema.parse(body);
 }
 
 // === Project routes ===
@@ -1550,17 +1550,17 @@ app.post("/api/projects/:projectId/card-import-block-drop", cardWriteBodyLimit, 
   }
 });
 
-app.post("/api/projects/:projectId/card-move-drop-to-editor", cardWriteBodyLimit, async (c) => {
+app.post("/api/projects/:projectId/card-editor-drop", cardWriteBodyLimit, async (c) => {
   const projectId = c.req.param("projectId");
   const body = (await c.req.json()) as Record<string, unknown>;
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
 
-  const input = normalizeCardMoveDropBody({ ...body });
+  const input = normalizeCardEditorDropBody({ ...body });
   delete input.sessionId;
   try {
-    const { result } = await cardMutationWriter.moveCardDropToEditor(
+    const { result } = await cardMutationWriter.applyCardEditorDrop(
       projectId,
-      input as unknown as CardDropMoveToEditorInput,
+      input as unknown as CardEditorDropInput,
       sessionId,
     );
     return c.json(result, 201);

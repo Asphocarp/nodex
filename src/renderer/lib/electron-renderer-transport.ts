@@ -10,6 +10,10 @@ import {
   type CommandKeymapState,
 } from "../../shared/command-keybindings";
 import type { BoardChangeEvent, PersistedAtomUpdate, ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
+import type {
+  CrossWindowDragPreview,
+  CrossWindowDragSourceResult,
+} from "../../shared/cross-window-drag";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -129,6 +133,22 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
         const payload = args[0] as PersistedAtomUpdate | undefined;
         if (!payload || typeof payload.key !== "string") return;
         callback(payload);
+      });
+    },
+    subscribeCrossWindowDragActiveChanges(
+      callback: (preview: CrossWindowDragPreview | null) => void,
+    ) {
+      return bridge.on("cross-window-drag:active-changed", (...args: unknown[]) => {
+        callback((args[0] as CrossWindowDragPreview | null | undefined) ?? null);
+      });
+    },
+    subscribeCrossWindowDragSourceResults(
+      callback: (result: CrossWindowDragSourceResult) => void,
+    ) {
+      return bridge.on("cross-window-drag:source-result", (...args: unknown[]) => {
+        const result = args[0] as CrossWindowDragSourceResult | undefined;
+        if (!result || typeof result.sessionId !== "string") return;
+        callback(result);
       });
     },
     getWindowFocusState() {

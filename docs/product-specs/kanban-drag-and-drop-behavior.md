@@ -2,7 +2,7 @@
 
 ## Status
 - Active
-- Last updated: 2026-03-19
+- Last updated: 2026-07-10
 
 ## Scope
 This spec is the detailed source of truth for drag-and-drop behavior across the Kanban board and its directly connected editor surfaces.
@@ -110,18 +110,27 @@ This post-removal contract must stay identical across:
 ## Editor Interop
 
 ### NFM block -> Kanban
-- Native block drag from visible NFM editors into Kanban creates card(s) using move semantics.
-- Source blocks are removed after a successful grouped import.
+- Native block drag from Card Stage and Toggle List NFM editors into Kanban creates ordered card(s). The default operation is move; holding Alt/Option at drop time copies instead.
+- Move prepares an immutable projected source document at drag start, persists destination cards plus source-card description updates atomically, and only then removes the live source blocks. Copy sends no source updates and leaves the editor unchanged.
+- Multi-block order follows the selected top-level document order. Nested selected blocks are represented only once through their selected ancestor.
 - Pointer position determines the Kanban insert slot when block-drop import is allowed.
 - The board shows truthful drag feedback for this import path.
 - Empty target columns use whole-column drop feedback instead of a floating insertion line, because there is no sibling list for a truthful gap preview.
 - Auto-collapsed empty columns stay collapsed and express the target with the existing column-surface highlight.
 
 ### Kanban card -> NFM editor
-- Dragging a Kanban card into a visible NFM editor creates a standalone `cardToggle` snapshot block.
-- The source card is removed as part of the same grouped move operation.
+- Dragging one or more ordered Kanban cards into a Card Stage or Toggle List editor creates standalone `cardToggle` snapshot blocks from authoritative full card details.
+- Move is the default and removes the source cards in the same grouped transaction that updates target descriptions. Holding Alt/Option at drop time copies detached snapshots and preserves the source cards.
+- The target editor owns optimistic insertion and rollback; persistence failure restores its pre-drop document and leaves all source cards unchanged.
 - The editor renders a live insertion line even though the drag originates from the Kanban runtime.
 - Self-drop into the source card/editor context must be blocked.
+
+### Cross-window transport
+- Electron supports both editor-to-board and board-to-editor drops across application windows, including different source and destination projects. Browser runtime keeps the same-window behavior.
+- Native `DataTransfer` contains only a versioned opaque session token under Nodex-specific block/card MIME types. Descriptions and full payloads never travel in native drag data.
+- A main-process coordinator validates the trusted main-frame sender, keeps the immutable payload for at most 120 seconds, exposes only a bounded hover preview, rejects same-window/wrong-kind/double claims, and releases the payload only when another window presents the matching token at drop.
+- Source `dragend` has a one-second claim grace because Chromium can report source completion before destination drop. Claimed operations have a 15-second completion timeout. Closing either participating window cancels and cleans the session.
+- Kanban-to-Kanban cross-window moves are outside this contract.
 
 ### `cardToggle` -> Kanban
 - Dragging a `cardToggle` block back into Kanban materializes one or more cards.
@@ -137,6 +146,7 @@ This post-removal contract must stay identical across:
 - Sorted cross-column drags should highlight the destination column on the actual column header/body surfaces, not only on the outer wrapper edges.
 - Empty-column drops should highlight the column surface instead of rendering a detached insertion line at index `0`.
 - Editor-targeted card drags show an editor insertion line, not just board-column feedback.
+- Copy feedback follows the live Alt/Option state: board indicators say `Copy` or `Copy · <inferred property>`, and editor insertion lines include an integrated token-colored plus marker.
 - Bare column hits still derive a real insertion slot from pointer position when manual ranking is active.
 
 ## Persistence and History Invariants
@@ -144,9 +154,9 @@ This post-removal contract must stay identical across:
 - `moveCard` and `moveCards` must interpret `newOrder` the same way.
 - Renderer optimistic transforms and backend persistence must produce the same column order for identical inputs.
 - Drop-derived property patches must be applied atomically with the move, not through a follow-up card update.
-- Grouped drags must record one grouped undo/redo action.
+- Group IDs are globally unique and grouped history lookup is global rather than project-local, so undo/redo of a cross-project move restores every affected project atomically and publishes change notifications for each project.
 - Move semantics must stay atomic when a drag updates one surface and deletes from another.
 
 ## Non-Goals
-- Copy-style board drag that leaves the source card in place
+- Copy-style Kanban-to-Kanban board drag
 - Allowing derived-view block import when insert semantics are ambiguous

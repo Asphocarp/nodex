@@ -817,7 +817,7 @@ export function executeUndoWithGrouping(
       }
     })();
 
-    notifyEntries(entry.projectId, "undo", entries);
+    notifyEntries("undo", entries);
     return { success: true, entry };
   } catch (err) {
     return {
@@ -865,7 +865,7 @@ export function executeRedoWithGrouping(
       }
     })();
 
-    notifyEntries(entry.projectId, "redo", entries);
+    notifyEntries("redo", entries);
     return { success: true, entry };
   } catch (err) {
     return {
@@ -902,31 +902,30 @@ function getGroupEntries(
   const rows = database.prepare(
     `
       SELECT * FROM history
-      WHERE project_id = ? AND group_id = ? AND undo_of IS NULL AND is_undone = ?
+      WHERE group_id = ? AND undo_of IS NULL AND is_undone = ?
       ${order}
     `
-  ).all(entry.projectId, entry.groupId, isUndone) as DbHistoryRow[];
+  ).all(entry.groupId, isUndone) as DbHistoryRow[];
 
   return rows.map((row) => rowToHistoryEntry(database, row));
 }
 
 function notifyEntries(
-  projectId: string,
   changeType: "undo" | "redo",
   entries: HistoryEntry[],
 ): void {
   const seen = new Set<string>();
-  const queueNotify = (columnId: string, cardId: string) => {
-    const key = `${columnId}:${cardId}`;
+  const queueNotify = (projectId: string, columnId: string, cardId: string) => {
+    const key = `${projectId}:${columnId}:${cardId}`;
     if (seen.has(key)) return;
     seen.add(key);
     dbNotifier.notifyChange(projectId, changeType, columnId, cardId);
   };
 
   for (const entry of entries) {
-    queueNotify(entry.columnId, entry.cardId);
-    if (entry.fromStatus) queueNotify(entry.fromStatus, entry.cardId);
-    if (entry.toStatus) queueNotify(entry.toStatus, entry.cardId);
+    queueNotify(entry.projectId, entry.columnId, entry.cardId);
+    if (entry.fromStatus) queueNotify(entry.projectId, entry.fromStatus, entry.cardId);
+    if (entry.toStatus) queueNotify(entry.projectId, entry.toStatus, entry.cardId);
   }
 }
 
@@ -2553,10 +2552,9 @@ function describeGroupedOperation(entry: HistoryEntry): string | null {
   const rows = database.prepare(
     `
       SELECT operation FROM history
-      WHERE project_id = ? AND group_id = ? AND undo_of IS NULL AND is_undone = ?
+      WHERE group_id = ? AND undo_of IS NULL AND is_undone = ?
     `,
   ).all(
-    entry.projectId,
     entry.groupId,
     entry.isUndone ? 1 : 0,
   ) as Array<{ operation: HistoryOperation }>;

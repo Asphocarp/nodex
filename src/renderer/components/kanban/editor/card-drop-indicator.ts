@@ -1,4 +1,5 @@
 import type { CardDropIndicatorPosition } from "./card-drop-insert";
+import type { DragTransferOperation } from "../../../../shared/cross-window-drag";
 
 const INDICATOR_SELECTOR = "[data-card-drop-indicator]";
 
@@ -24,6 +25,7 @@ export function clearCardDropIndicator(container: HTMLElement): void {
 export function renderCardDropIndicator(
   container: HTMLElement,
   position: CardDropIndicatorPosition | null,
+  operation: DragTransferOperation = "move",
 ): void {
   if (!position) {
     clearCardDropIndicator(container);
@@ -31,6 +33,7 @@ export function renderCardDropIndicator(
   }
 
   const indicator = ensureIndicator(container);
+  indicator.toggleAttribute("data-copy", operation === "copy");
   indicator.style.top = `${position.top}px`;
   indicator.style.left = `${position.left}px`;
   indicator.style.width = `${position.width}px`;

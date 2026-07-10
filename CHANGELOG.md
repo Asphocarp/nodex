@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added same-window and cross-window drag-and-drop between Kanban and Card Stage/Toggle List editors, with ordered multi-item moves, Alt/Option copy, cross-project transactions, rollback-safe editor insertion, and atomic cross-project undo/redo.
 - Added a packaged macOS startup prompt that offers to move Nodex into Applications before launching from another location.
 - Added opt-in Sentry crash diagnostics with a General settings toggle, local-content scrubber, and release source-map upload for readable production stacks.
 - Added a separate opt-in Sentry Session Replay toggle for masked renderer replays on diagnostic sessions.

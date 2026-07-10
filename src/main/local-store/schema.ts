@@ -21,8 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 57;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57] as const;
+export const CURRENT_SCHEMA_VERSION = 58;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -500,6 +500,7 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_history_session ON history(session_id);
     CREATE INDEX IF NOT EXISTS idx_history_group ON history(project_id, group_id);
+    CREATE INDEX IF NOT EXISTS idx_history_group_global ON history(group_id);
 
     CREATE TABLE IF NOT EXISTS card_history_snapshots (
       history_id INTEGER PRIMARY KEY REFERENCES history(id) ON DELETE CASCADE,
@@ -2303,6 +2304,11 @@ function migrateSchema56To57(db: Database.Database): void {
   setUserVersion(db, 57);
 }
 
+function migrateSchema57To58(db: Database.Database): void {
+  db.exec("CREATE INDEX IF NOT EXISTS idx_history_group_global ON history(group_id)");
+  setUserVersion(db, 58);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -2523,6 +2529,14 @@ function runMigrations(
       }
       migrateSchema56To57(db);
       fromVersion = 57;
+      continue;
+    }
+    if (target === 58) {
+      if (fromVersion !== 57) {
+        throw new Error(`Unsupported Nodex database migration target 58 from ${fromVersion}`);
+      }
+      migrateSchema57To58(db);
+      fromVersion = 58;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

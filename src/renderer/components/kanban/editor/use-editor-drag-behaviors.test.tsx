@@ -9,8 +9,9 @@ import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 type DragBehaviorEditor = Parameters<typeof useEditorDragBehaviors>[0]["editor"];
 
 function makeEditor(onBlockDragEnd: () => void): DragBehaviorEditor {
+  const block = { id: "block-1", type: "paragraph", content: [{ type: "text", text: "Block" }] };
   return {
-    document: [],
+    document: [block],
     prosemirrorView: {
       dragging: { id: "active-drag" },
       state: { selection: {} },
@@ -18,9 +19,9 @@ function makeEditor(onBlockDragEnd: () => void): DragBehaviorEditor {
         querySelectorAll: () => [],
       },
     },
-    getBlock: () => undefined,
+    getBlock: (id: string) => id === block.id ? block : undefined,
     getParentBlock: () => undefined,
-    getSelection: () => undefined,
+    getSelection: () => ({ blocks: [block] }),
     removeBlocks: () => undefined,
     replaceBlocks: () => undefined,
     transact: <T,>(fn: () => T) => fn(),
@@ -33,7 +34,6 @@ function makeEditor(onBlockDragEnd: () => void): DragBehaviorEditor {
 
 function makeAdapter(): ExternalDropAdapter {
   return {
-    captureBaseline: () => ({}),
     buildSourceUpdates: () => [],
   };
 }

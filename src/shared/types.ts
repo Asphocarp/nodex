@@ -341,11 +341,10 @@ export interface BlockDropImportResult {
   groupId: string;
 }
 
-export interface CardDropMoveToEditorInput {
+export interface CardEditorDropInput {
+  operation: import("./cross-window-drag").DragTransferOperation;
   sourceProjectId?: string;
-  sourceCardId: string;
-  sourceStatus?: CardStatus;
-  sourceCards?: Array<{
+  sourceCards: Array<{
     cardId: string;
     status?: CardStatus;
   }>;
@@ -353,9 +352,9 @@ export interface CardDropMoveToEditorInput {
   groupId?: string;
 }
 
-export interface CardDropMoveToEditorResult {
-  sourceCardId: string;
-  sourceStatus: CardStatus;
+export interface CardEditorDropResult {
+  operation: import("./cross-window-drag").DragTransferOperation;
+  sourceProjectId: string;
   sourceCardIds: string[];
   updatedCardIds: string[];
   groupId: string;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   normalizeBlockDropImportBody,
-  normalizeCardMoveDropBody,
+  normalizeCardEditorDropBody,
 } from "./http-server";
 
 describe("http drop payload normalization", () => {
@@ -47,8 +47,9 @@ describe("http drop payload normalization", () => {
   });
 
   test("normalizes nested dueDate values in card-move-drop payload", () => {
-    const normalized = normalizeCardMoveDropBody({
-      sourceCardId: "card-1",
+    const normalized = normalizeCardEditorDropBody({
+      operation: "move",
+      sourceCards: [{ cardId: "card-1" }],
       targetUpdates: [
         {
           projectId: "default",
@@ -95,8 +96,9 @@ describe("http drop payload normalization", () => {
   test("rejects invalid calendar scheduledStart values", () => {
     let errorMessage = "";
     try {
-      normalizeCardMoveDropBody({
-        sourceCardId: "card-1",
+      normalizeCardEditorDropBody({
+        operation: "move",
+        sourceCards: [{ cardId: "card-1" }],
         targetUpdates: [
           {
             projectId: "default",

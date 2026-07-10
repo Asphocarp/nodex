@@ -6,7 +6,7 @@ import {
   buildImportBlockDropTransform,
   buildMoveCardTransform,
   buildMoveCardsTransform,
-  buildMoveDropToEditorTransform,
+  buildCardEditorDropTransform,
   buildPatchCardTransform,
   conflictKeyForCard,
   conflictKeysForCreate,
@@ -21,8 +21,8 @@ import type {
   BlockDropImportInput,
   BlockDropImportResult,
   CalendarOccurrence,
-  CardDropMoveToEditorInput,
-  CardDropMoveToEditorResult,
+  CardEditorDropInput,
+  CardEditorDropResult,
   Card,
   CardCreateInput,
   CardCreatePlacement,
@@ -373,23 +373,23 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, sessionId, store],
   );
 
-  const moveCardDropToEditor = useCallback(
+  const applyCardEditorDrop = useCallback(
     async (
-      input: CardDropMoveToEditorInput,
-    ): Promise<CardDropMoveToEditorResult | null> => {
-      const outcome = await store.runOptimisticMutation<CardDropMoveToEditorResult>({
-        kind: "card:move-drop-to-editor",
+      input: CardEditorDropInput,
+    ): Promise<CardEditorDropResult | null> => {
+      const outcome = await store.runOptimisticMutation<CardEditorDropResult>({
+        kind: "card:apply-editor-drop",
         conflictKeys: [
           ...input.targetUpdates.map((update) => conflictKeyForCard(update.cardId)),
-          ...(input.sourceCards?.map((entry) => conflictKeyForCard(entry.cardId)) ?? [conflictKeyForCard(input.sourceCardId)]),
+          ...input.sourceCards.map((entry) => conflictKeyForCard(entry.cardId)),
         ],
-        apply: buildMoveDropToEditorTransform(input),
+        apply: buildCardEditorDropTransform(input, projectId),
         runRemote: async () => (await invoke(
-          "card:move-drop-to-editor",
+          "card:apply-editor-drop",
           projectId,
           input,
           sessionId,
-        )) as CardDropMoveToEditorResult,
+        )) as CardEditorDropResult,
       });
 
       if (!outcome.ok) return null;
@@ -538,7 +538,7 @@ export function useKanban(options: UseKanbanOptions) {
     moveCards,
     moveCardToProject,
     importBlockDrop,
-    moveCardDropToEditor,
+    applyCardEditorDrop,
     listCalendarOccurrences,
     completeOccurrence,
     skipOccurrence,

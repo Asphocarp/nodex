@@ -1,4 +1,18 @@
-import type { BlockDropImportSourceUpdate } from "@/lib/types";
+import {
+  discardCrossWindowDrag,
+  endCrossWindowDragSource,
+  isElectronCrossWindowDragAvailable,
+  startCrossWindowDrag,
+  subscribeCrossWindowDragResult,
+} from "@/lib/cross-window-drag";
+import type {
+  BlockDropImportSourceUpdate,
+  CardCreateInput,
+} from "@/lib/types";
+import {
+  CROSS_WINDOW_DRAG_TOKEN_VERSION,
+  type DragTransferOperation,
+} from "../../../../shared/cross-window-drag";
 
 export interface DragSessionBlock {
   id: string;
@@ -24,35 +38,111 @@ export interface EditorForExternalBlockDrop {
 }
 
 export interface ExternalDropAdapter {
-  captureBaseline: (
-    editor: EditorForExternalBlockDrop,
-    container: HTMLElement,
-  ) => unknown;
   buildSourceUpdates: (
-    editor: EditorForExternalBlockDrop,
+    sourceDocument: DragSessionBlock[],
+    projectedDocument: DragSessionBlock[],
     container: HTMLElement,
-    baseline: unknown,
   ) => BlockDropImportSourceUpdate[];
-  beginOptimisticMutation?: () => () => void;
+  beginPreparedMutation?: () => (
+    result: DragTransferOperation | "cancel",
+    sourceUpdates: BlockDropImportSourceUpdate[],
+  ) => void;
+  removeLiveBlocks?: (
+    editor: EditorForExternalBlockDrop,
+    blockIds: string[],
+  ) => void;
 }
 
 export interface ExternalEditorDragSession {
   id: string;
   editor: EditorForExternalBlockDrop;
   container: HTMLElement;
-  adapter: ExternalDropAdapter;
+  draggedBlockIds: string[];
+  cards: CardCreateInput[];
+  sourceUpdates: BlockDropImportSourceUpdate[];
+  groupId: string;
+  state: "dragging" | "claimed";
+  releasePreparedMutation: ((
+    result: DragTransferOperation | "cancel",
+    sourceUpdates: BlockDropImportSourceUpdate[],
+  ) => void) | null;
+  removeLiveBlocks: ExternalDropAdapter["removeLiveBlocks"];
 }
 
 let activeSession: ExternalEditorDragSession | null = null;
+let sourceResultSubscriptionInitialized = false;
+
+function cloneDocument(document: DragSessionBlock[]): DragSessionBlock[] {
+  if (typeof structuredClone === "function") {
+    return structuredClone(document) as DragSessionBlock[];
+  }
+  return JSON.parse(JSON.stringify(document)) as DragSessionBlock[];
+}
+
+export function projectDocumentWithoutBlocks(
+  document: DragSessionBlock[],
+  blockIds: readonly string[],
+): DragSessionBlock[] {
+  const removedIds = new Set(blockIds);
+  const project = (blocks: DragSessionBlock[]): DragSessionBlock[] => blocks.flatMap((block) => {
+    if (removedIds.has(block.id)) return [];
+    const children = Array.isArray(block.children) ? project(block.children) : block.children;
+    return [{ ...block, ...(children ? { children } : {}) }];
+  });
+  return project(cloneDocument(document));
+}
+
+function ensureSourceResultSubscription(): void {
+  if (sourceResultSubscriptionInitialized) return;
+  sourceResultSubscriptionInitialized = true;
+  subscribeCrossWindowDragResult((result) => {
+    completeExternalEditorDragSession(result.sessionId, result.result);
+  });
+}
 
 export function startExternalEditorDragSession(
   editor: EditorForExternalBlockDrop,
   container: HTMLElement,
   adapter: ExternalDropAdapter,
-): string {
+  draggedBlockIds: string[],
+  cards: CardCreateInput[],
+): ExternalEditorDragSession | null {
+  if (draggedBlockIds.length === 0 || cards.length === 0) return null;
+  endExternalEditorDragSession();
+
   const id = crypto.randomUUID();
-  activeSession = { id, editor, container, adapter };
-  return id;
+  const sourceDocument = cloneDocument(editor.document);
+  const projectedDocument = projectDocumentWithoutBlocks(sourceDocument, draggedBlockIds);
+  const sourceUpdates = adapter.buildSourceUpdates(
+    sourceDocument,
+    projectedDocument,
+    container,
+  );
+  const releasePreparedMutation = adapter.beginPreparedMutation?.() ?? null;
+  activeSession = {
+    id,
+    editor,
+    container,
+    draggedBlockIds: [...draggedBlockIds],
+    cards,
+    sourceUpdates,
+    groupId: crypto.randomUUID(),
+    state: "dragging",
+    releasePreparedMutation,
+    removeLiveBlocks: adapter.removeLiveBlocks,
+  };
+  ensureSourceResultSubscription();
+  void startCrossWindowDrag({
+    version: CROSS_WINDOW_DRAG_TOKEN_VERSION,
+    sessionId: id,
+    kind: "blocks",
+    payload: {
+      cards,
+      sourceUpdates,
+      groupId: activeSession.groupId,
+    },
+  });
+  return activeSession;
 }
 
 export function getActiveExternalEditorDragSession(): ExternalEditorDragSession | null {
@@ -62,7 +152,59 @@ export function getActiveExternalEditorDragSession(): ExternalEditorDragSession 
 export function endExternalEditorDragSession(sessionId?: string): void {
   if (!activeSession) return;
   if (sessionId && activeSession.id !== sessionId) return;
+  const session = activeSession;
   activeSession = null;
+  session.releasePreparedMutation?.("cancel", session.sourceUpdates);
+}
+
+export function claimExternalEditorDragSession(sessionId: string): ExternalEditorDragSession | null {
+  if (!activeSession || activeSession.id !== sessionId) return null;
+  if (activeSession.state !== "dragging") return null;
+  activeSession.state = "claimed";
+  return activeSession;
+}
+
+export function completeExternalEditorDragSession(
+  sessionId: string,
+  result: DragTransferOperation | "cancel",
+): void {
+  if (!activeSession || activeSession.id !== sessionId) return;
+  const session = activeSession;
+  activeSession = null;
+
+  try {
+    if (result === "move") {
+      if (session.removeLiveBlocks) {
+        session.removeLiveBlocks(session.editor, session.draggedBlockIds);
+      } else {
+        runInEditorTransaction(session.editor, () => {
+          session.editor.removeBlocks(session.draggedBlockIds);
+        });
+      }
+    }
+  } finally {
+    session.releasePreparedMutation?.(result, session.sourceUpdates);
+  }
+}
+
+export function notifyExternalEditorDragEnded(sessionId: string): void {
+  if (!activeSession || activeSession.id !== sessionId) return;
+  if (activeSession.state === "claimed") return;
+  if (!isElectronCrossWindowDragAvailable()) {
+    completeExternalEditorDragSession(sessionId, "cancel");
+    return;
+  }
+  void endCrossWindowDragSource(sessionId).then((retained) => {
+    if (!retained) completeExternalEditorDragSession(sessionId, "cancel");
+  });
+}
+
+export function discardExternalEditorDragSession(
+  sessionId: string,
+  result: DragTransferOperation | "cancel",
+): void {
+  completeExternalEditorDragSession(sessionId, result);
+  void discardCrossWindowDrag(sessionId);
 }
 
 export function runInEditorTransaction<T>(
@@ -76,11 +218,7 @@ export function runInEditorTransaction<T>(
 export function snapshotEditorDocument(
   editor: EditorForExternalBlockDrop,
 ): DragSessionBlock[] {
-  if (typeof structuredClone === "function") {
-    return structuredClone(editor.document) as DragSessionBlock[];
-  }
-
-  return JSON.parse(JSON.stringify(editor.document)) as DragSessionBlock[];
+  return cloneDocument(editor.document);
 }
 
 export function restoreEditorDocument(

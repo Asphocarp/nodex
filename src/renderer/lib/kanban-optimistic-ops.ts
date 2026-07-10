@@ -4,7 +4,7 @@ import type {
   CardSummary,
   CardCreateInput,
   CardCreatePlacement,
-  CardDropMoveToEditorInput,
+  CardEditorDropInput,
   CardInput,
   MoveCardInput,
   MoveCardsInput,
@@ -314,8 +314,9 @@ export function buildImportBlockDropTransform(
   };
 }
 
-export function buildMoveDropToEditorTransform(
-  input: CardDropMoveToEditorInput,
+export function buildCardEditorDropTransform(
+  input: CardEditorDropInput,
+  targetProjectId?: string,
 ): BoardTransform {
   return (board) => {
     let nextBoard = board;
@@ -323,9 +324,13 @@ export function buildMoveDropToEditorTransform(
       nextBoard = applySourceUpdateTransform(nextBoard, update);
     }
 
-    const sourceCardIds = input.sourceCards?.map((entry) => entry.cardId) ?? [input.sourceCardId];
-    for (const cardId of sourceCardIds) {
-      nextBoard = buildDeleteCardTransform(undefined, cardId)(nextBoard);
+    const sourceIsOnTargetBoard = !input.sourceProjectId
+      || !targetProjectId
+      || input.sourceProjectId === targetProjectId;
+    if (input.operation === "move" && sourceIsOnTargetBoard) {
+      for (const source of input.sourceCards) {
+        nextBoard = buildDeleteCardTransform(undefined, source.cardId)(nextBoard);
+      }
     }
     return nextBoard;
   };

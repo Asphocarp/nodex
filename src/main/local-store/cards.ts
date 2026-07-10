@@ -8,8 +8,8 @@ import {
   type BoardSummary,
   type BoardSummaryColumn,
   type CalendarOccurrence,
-  type CardDropMoveToEditorInput,
-  type CardDropMoveToEditorResult,
+  type CardEditorDropInput,
+  type CardEditorDropResult,
   type Card,
   type CardCreatePlacement,
   type CardCreateInput,
@@ -1866,24 +1866,24 @@ interface AppliedTargetDescriptionUpdate {
   cardId: string;
 }
 
-export async function moveCardDropToEditor(
+export async function applyCardEditorDrop(
   projectId: string,
-  input: CardDropMoveToEditorInput,
+  input: CardEditorDropInput,
   sessionId?: string,
-): Promise<CardDropMoveToEditorResult> {
+): Promise<CardEditorDropResult> {
   projectId = requireProjectId(projectId);
+  if (input.operation !== "move" && input.operation !== "copy") {
+    throw new Error("Editor drop operation must be move or copy");
+  }
   const sourceProjectId = typeof input.sourceProjectId === "string"
     && input.sourceProjectId.length > 0
     ? requireProjectId(input.sourceProjectId)
     : projectId;
 
-  if (typeof input.sourceCardId !== "string" || input.sourceCardId.length === 0) {
-    throw new Error("sourceCardId is required");
+  if (!Array.isArray(input.sourceCards) || input.sourceCards.length === 0) {
+    throw new Error("At least one source card is required");
   }
-
-  const sourceCards = Array.isArray(input.sourceCards) && input.sourceCards.length > 0
-    ? input.sourceCards
-    : [{ cardId: input.sourceCardId, status: input.sourceStatus }];
+  const sourceCards = input.sourceCards;
   const uniqueSourceCardIds = Array.from(new Set(sourceCards.map((source) => source.cardId)));
   if (uniqueSourceCardIds.length !== sourceCards.length) {
     throw new Error("source cards must be unique");
@@ -1914,7 +1914,7 @@ export async function moveCardDropToEditor(
   const groupId = input.groupId || randomUUID();
   const nowIso = new Date().toISOString();
   const appliedTargetUpdates: AppliedTargetDescriptionUpdate[] = [];
-  let sourceStatus: CardStatus = DEFAULT_CARD_STATUS;
+  let sourceRowsForNotification: DbCard[] = [];
 
   database.transaction(() => {
     const sourceRows = [...sourceCards.map((source) => {
@@ -1944,9 +1944,10 @@ export async function moveCardDropToEditor(
 
       return sourceRow;
     })].sort(compareCardsByBoardPosition);
+    sourceRowsForNotification = sourceRows;
 
     historyService.clearRedoStack(projectId, sessionId);
-    if (sourceProjectId !== projectId) {
+    if (input.operation === "move" && sourceProjectId !== projectId) {
       historyService.clearRedoStack(sourceProjectId, sessionId);
     }
 
@@ -2020,56 +2021,59 @@ export async function moveCardDropToEditor(
       });
     }
 
-    sourceStatus = sourceRows[0]?.status ?? DEFAULT_CARD_STATUS;
-
-    const deleteCardStmt = database.prepare("DELETE FROM cards WHERE id = ? AND project_id = ?");
-    const collapseOrderStmt = database.prepare(
-      `UPDATE cards SET "order" = "order" - 1
-       WHERE project_id = ? AND archived = 0 AND status = ? AND "order" > ?`,
-    );
-    const sourceRowsByColumn = new Map<CardStatus, DbCard[]>();
-    sourceRows.forEach((row: DbCard) => {
-      const rows = sourceRowsByColumn.get(row.status) ?? [];
-      rows.push(row);
-      sourceRowsByColumn.set(row.status, rows);
-    });
-
-    for (const rows of sourceRowsByColumn.values()) {
-      [...rows]
-        .sort((left: DbCard, right: DbCard) => right.order - left.order)
-        .forEach((row: DbCard) => {
-          deleteCardStmt.run(row.id, sourceProjectId);
-          collapseOrderStmt.run(sourceProjectId, row.status, row.order);
-        });
-    }
-
-    [...sourceRows].reverse().forEach((row: DbCard) => {
-      historyService.recordDelete(
-        rowToCard(row),
-        sourceProjectId,
-        row.status,
-        row.description_revision_id,
-        sessionId,
-        groupId,
+    if (input.operation === "move") {
+      const deleteCardStmt = database.prepare("DELETE FROM cards WHERE id = ? AND project_id = ?");
+      const collapseOrderStmt = database.prepare(
+        `UPDATE cards SET "order" = "order" - 1
+         WHERE project_id = ? AND archived = 0 AND status = ? AND "order" > ?`,
       );
-    });
+      const sourceRowsByColumn = new Map<CardStatus, DbCard[]>();
+      sourceRows.forEach((row: DbCard) => {
+        const rows = sourceRowsByColumn.get(row.status) ?? [];
+        rows.push(row);
+        sourceRowsByColumn.set(row.status, rows);
+      });
+
+      for (const rows of sourceRowsByColumn.values()) {
+        [...rows]
+          .sort((left: DbCard, right: DbCard) => right.order - left.order)
+          .forEach((row: DbCard) => {
+            deleteCardStmt.run(row.id, sourceProjectId);
+            collapseOrderStmt.run(sourceProjectId, row.status, row.order);
+          });
+      }
+
+      [...sourceRows].reverse().forEach((row: DbCard) => {
+        historyService.recordDelete(
+          rowToCard(row),
+          sourceProjectId,
+          row.status,
+          row.description_revision_id,
+          sessionId,
+          groupId,
+        );
+      });
+    }
   })();
 
   for (const targetUpdate of appliedTargetUpdates) {
     dbNotifier.notifyChange(projectId, "update", targetUpdate.columnId, targetUpdate.cardId);
   }
-  sourceCards.forEach((source) => {
-    dbNotifier.notifyChange(
-      sourceProjectId,
-      "delete",
-      source.status ?? sourceStatus,
-      source.cardId,
-    );
-  });
+  if (input.operation === "move") {
+    sourceCards.forEach((source) => {
+      const sourceRow = sourceRowsForNotification.find((row) => row.id === source.cardId);
+      dbNotifier.notifyChange(
+        sourceProjectId,
+        "delete",
+        source.status ?? sourceRow?.status ?? DEFAULT_CARD_STATUS,
+        source.cardId,
+      );
+    });
+  }
 
   return {
-    sourceCardId: input.sourceCardId,
-    sourceStatus: sourceStatus,
+    operation: input.operation,
+    sourceProjectId,
     sourceCardIds: sourceCards.map((source) => source.cardId),
     updatedCardIds: [...new Set(appliedTargetUpdates.map((update) => update.cardId))],
     groupId,

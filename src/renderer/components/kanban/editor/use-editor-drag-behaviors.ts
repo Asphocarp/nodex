@@ -3,9 +3,15 @@ import type { RefObject } from "react";
 import type { ExternalDropAdapter } from "./external-block-drag-session";
 import {
   type EditorForExternalBlockDrop,
-  endExternalEditorDragSession,
+  notifyExternalEditorDragEnded,
   startExternalEditorDragSession,
 } from "./external-block-drag-session";
+import { mapDraggedBlocksToCardInputs, resolveTopLevelDraggedBlocks } from "./block-drop-card-mapper";
+import { resolveDraggedBlockIds } from "./drag-source-resolver";
+import {
+  encodeCrossWindowDragToken,
+  NODEX_NFM_BLOCKS_DRAG_MIME,
+} from "../../../../shared/cross-window-drag";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 import { setupToggleDrop } from "./toggle-drop";
 
@@ -52,7 +58,6 @@ export function useEditorDragBehaviors({
 
       const hadLocalDragState = el.hasAttribute("data-dragging") || Boolean(dragSessionId);
       el.removeAttribute("data-dragging");
-      endExternalEditorDragSession(dragSessionId);
       dragSessionId = undefined;
       const currentEditor = latestOptionsRef.current.editor;
       if (hadLocalDragState && currentEditor) {
@@ -60,20 +65,34 @@ export function useEditorDragBehaviors({
       }
     };
 
-    const onDragStart = () => {
+    const onDragStart = (event: DragEvent) => {
       el.setAttribute("data-dragging", "");
       const currentEditor = latestOptionsRef.current.editor;
       const currentExternalDropAdapter = latestOptionsRef.current.externalDropAdapter;
       if (!currentEditor || !currentExternalDropAdapter) return;
       if (!supportsExternalDropEditor(currentEditor)) return;
-      dragSessionId = startExternalEditorDragSession(
-        currentEditor as unknown as EditorForExternalBlockDrop,
+      const dropEditor = currentEditor as unknown as EditorForExternalBlockDrop;
+      const draggedBlockIds = resolveDraggedBlockIds(dropEditor, el);
+      const draggedBlocks = resolveTopLevelDraggedBlocks(dropEditor, draggedBlockIds);
+      const cards = mapDraggedBlocksToCardInputs(draggedBlocks);
+      const session = startExternalEditorDragSession(
+        dropEditor,
         el,
         currentExternalDropAdapter,
+        draggedBlocks.map((block) => block.id),
+        cards,
       );
+      if (!session) return;
+      dragSessionId = session.id;
+      event.dataTransfer?.setData(
+        NODEX_NFM_BLOCKS_DRAG_MIME,
+        encodeCrossWindowDragToken(session.id),
+      );
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove";
     };
 
     const onDragEnd = () => {
+      if (dragSessionId) notifyExternalEditorDragEnded(dragSessionId);
       cleanupNativeDrag();
     };
 

@@ -68,7 +68,7 @@ function descriptionBytesForRequest(request: CardMutationWorkerRequest): number 
     return descriptions.reduce((sum, description) => sum + Buffer.byteLength(description, "utf8"), 0);
   }
 
-  if (request.type === "moveCardDropToEditor") {
+  if (request.type === "applyCardEditorDrop") {
     const descriptions = request.payload.input.targetUpdates
       .map((update) => update.updates.description)
       .filter((description): description is string => typeof description === "string");
@@ -191,8 +191,8 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.input,
         request.payload.sessionId,
       );
-    case "moveCardDropToEditor":
-      return await cardsStore.moveCardDropToEditor(
+    case "applyCardEditorDrop":
+      return await cardsStore.applyCardEditorDrop(
         request.payload.projectId,
         request.payload.input,
         request.payload.sessionId,

@@ -9,8 +9,8 @@ import type {
   Card,
   CardCreateInput,
   CardCreatePlacement,
-  CardDropMoveToEditorInput,
-  CardDropMoveToEditorResult,
+  CardEditorDropInput,
+  CardEditorDropResult,
   CardInput,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
@@ -110,10 +110,10 @@ export type CardMutationWorkerRequest =
     };
   })
   | (CardMutationWorkerRequestBase & {
-    type: "moveCardDropToEditor";
+    type: "applyCardEditorDrop";
     payload: {
       projectId: string;
-      input: CardDropMoveToEditorInput;
+      input: CardEditorDropInput;
       sessionId?: string;
     };
   })
@@ -200,7 +200,7 @@ export type CardMutationWorkerResult =
   | "target_project_not_found"
   | MoveCardToProjectResult
   | BlockDropImportResult
-  | CardDropMoveToEditorResult
+  | CardEditorDropResult
   | CardOccurrenceMutationResult
   | CardReadModelBackfillResult
   | CardHistoryVersionPreviewResult

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { closeDatabase, initializeDatabase } from "./database";
-import { createCard, getCard, moveCardDropToEditor } from "./cards";
+import { applyCardEditorDrop, createCard, getCard } from "./cards";
 import { getBoard } from "./board-read-model";
 import { createProject } from "./projects";
 import {
@@ -44,7 +44,89 @@ async function withTempDatabase(run: (projectId: string) => Promise<void>): Prom
   }
 }
 
-describe("moveCardDropToEditor", () => {
+describe("applyCardEditorDrop", () => {
+  test("copy updates the target while preserving every source card", async () => {
+    const ran = await withTempDatabase(async (projectId) => {
+      const sourceOne = await createCard(projectId, "in_progress", {
+        title: "Source one",
+        description: "One",
+      });
+      const sourceTwo = await createCard(projectId, "in_review", {
+        title: "Source two",
+        description: "Two",
+      });
+      const target = await createCard(projectId, "draft", {
+        title: "Target",
+        description: "Before",
+      });
+
+      const result = await applyCardEditorDrop(projectId, {
+        operation: "copy",
+        sourceCards: [
+          { cardId: sourceOne.id, status: "in_progress" },
+          { cardId: sourceTwo.id, status: "in_review" },
+        ],
+        targetUpdates: [{
+          projectId,
+          status: "draft",
+          cardId: target.id,
+          updates: { description: "After copy" },
+        }],
+        groupId: "group-copy-many",
+      }, "session-copy");
+
+      expect(result.operation).toBe("copy");
+      expect((await getCard(projectId, sourceOne.id))?.title).toBe("Source one");
+      expect((await getCard(projectId, sourceTwo.id))?.title).toBe("Source two");
+      expect((await getCard(projectId, target.id))?.description).toBe("After copy");
+
+      expect(undoLatest(projectId, "session-copy").success).toBeTrue();
+      expect((await getCard(projectId, target.id))?.description).toBe("Before");
+      expect(redoLatest(projectId, "session-copy").success).toBeTrue();
+      expect((await getCard(projectId, target.id))?.description).toBe("After copy");
+    });
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("cross-project move undo and redo restore both projects atomically", async () => {
+    const ran = await withTempDatabase(async (targetProjectId) => {
+      const sourceProject = createProject({ name: "Source" });
+      const source = await createCard(sourceProject.id, "in_review", {
+        title: "Cross source",
+        description: "Source body",
+      });
+      const target = await createCard(targetProjectId, "draft", {
+        title: "Target",
+        description: "Before",
+      });
+
+      await applyCardEditorDrop(targetProjectId, {
+        operation: "move",
+        sourceProjectId: sourceProject.id,
+        sourceCards: [{ cardId: source.id, status: "in_review" }],
+        targetUpdates: [{
+          projectId: targetProjectId,
+          status: "draft",
+          cardId: target.id,
+          updates: { description: "After" },
+        }],
+        groupId: "group-cross-project-history",
+      }, "session-cross-history");
+
+      expect((await getCard(sourceProject.id, source.id)) === null).toBeTrue();
+      expect((await getCard(targetProjectId, target.id))?.description).toBe("After");
+
+      expect(undoLatest(targetProjectId, "session-cross-history").success).toBeTrue();
+      expect((await getCard(sourceProject.id, source.id))?.title).toBe("Cross source");
+      expect((await getCard(targetProjectId, target.id))?.description).toBe("Before");
+
+      expect(redoLatest(targetProjectId, "session-cross-history").success).toBeTrue();
+      expect((await getCard(sourceProject.id, source.id)) === null).toBeTrue();
+      expect((await getCard(targetProjectId, target.id))?.description).toBe("After");
+    });
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("updates target description and deletes source card in one grouped undo step", async () => {
     const ran = await withTempDatabase(async (projectId) => {
       const source = await createCard(projectId, "in_progress", {
@@ -56,11 +138,11 @@ describe("moveCardDropToEditor", () => {
         description: "Before drop",
       });
 
-      const moveResult = await moveCardDropToEditor(
+      const moveResult = await applyCardEditorDrop(
         projectId,
         {
-          sourceCardId: source.id,
-          sourceStatus: "in_progress",
+          operation: "move",
+          sourceCards: [{ cardId: source.id, status: "in_progress" }],
           groupId: "group-drop-1",
           targetUpdates: [
             {
@@ -75,7 +157,6 @@ describe("moveCardDropToEditor", () => {
       );
 
       expect(moveResult.groupId).toBe("group-drop-1");
-      expect(moveResult.sourceCardId).toBe(source.id);
       expect(moveResult.sourceCardIds.join(",")).toBe(source.id);
 
       const sourceAfterMove = await getCard(projectId, source.id);
@@ -118,9 +199,9 @@ describe("moveCardDropToEditor", () => {
 
       let errorMessage = "";
       try {
-        await moveCardDropToEditor(projectId, {
-          sourceCardId: source.id,
-          sourceStatus: "in_progress",
+        await applyCardEditorDrop(projectId, {
+          operation: "move",
+          sourceCards: [{ cardId: source.id, status: "in_progress" }],
           targetUpdates: [
             {
               projectId,
@@ -157,12 +238,12 @@ describe("moveCardDropToEditor", () => {
         description: "Before cross-project drop",
       });
 
-      const moveResult = await moveCardDropToEditor(
+      const moveResult = await applyCardEditorDrop(
         projectId,
         {
           sourceProjectId: otherProject.id,
-          sourceCardId: source.id,
-          sourceStatus: "in_progress",
+          operation: "move",
+          sourceCards: [{ cardId: source.id, status: "in_progress" }],
           groupId: "group-drop-cross-project",
           targetUpdates: [
             {
@@ -203,11 +284,10 @@ describe("moveCardDropToEditor", () => {
         description: "Before",
       });
 
-      const moveResult = await moveCardDropToEditor(
+      const moveResult = await applyCardEditorDrop(
         projectId,
         {
-          sourceCardId: sourceOne.id,
-          sourceStatus: "in_progress",
+          operation: "move",
           sourceCards: [
             {
               cardId: sourceOne.id,
@@ -270,11 +350,10 @@ describe("moveCardDropToEditor", () => {
         description: "Tail",
       });
 
-      const moveResult = await moveCardDropToEditor(
+      const moveResult = await applyCardEditorDrop(
         projectId,
         {
-          sourceCardId: sourceOne.id,
-          sourceStatus: "in_progress",
+          operation: "move",
           sourceCards: [
             {
               cardId: sourceOne.id,

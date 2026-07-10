@@ -1,8 +1,9 @@
 import type {
   BlockDropImportSourceUpdate,
   CardStatus,
-  CardDropMoveToEditorInput,
+  CardEditorDropInput,
 } from "@/lib/types";
+import type { DragTransferOperation } from "../../../shared/cross-window-drag";
 import { resolveCardDropTargetAtPointer } from "./editor/card-drop-target-registry";
 import type { ExternalCardDragSession } from "./editor/external-card-drag-session";
 
@@ -13,12 +14,13 @@ export function resolveExternalCardDropTarget(
   return resolveCardDropTargetAtPointer(session.pointer, session.payload);
 }
 
-export interface ExternalCardDropMoveRequest {
+export interface CardEditorDropRequest {
   targetProjectId: string;
-  input: CardDropMoveToEditorInput;
+  input: CardEditorDropInput;
 }
 
-interface BuildExternalCardDropMoveRequestInput {
+interface BuildCardEditorDropRequestInput {
+  operation: DragTransferOperation;
   sourceProjectId: string;
   sourceCards: Array<{
     cardId: string;
@@ -28,12 +30,13 @@ interface BuildExternalCardDropMoveRequestInput {
   targetUpdates: BlockDropImportSourceUpdate[];
 }
 
-export function buildExternalCardDropMoveRequest({
+export function buildCardEditorDropRequest({
+  operation,
   sourceProjectId,
   sourceCards,
   groupId,
   targetUpdates,
-}: BuildExternalCardDropMoveRequestInput): ExternalCardDropMoveRequest | null {
+}: BuildCardEditorDropRequestInput): CardEditorDropRequest | null {
   if (sourceCards.length === 0) return null;
   if (targetUpdates.length === 0) return null;
 
@@ -43,14 +46,10 @@ export function buildExternalCardDropMoveRequest({
     return null;
   }
 
-  const [primarySource] = sourceCards;
-  if (!primarySource) return null;
-
   return {
     targetProjectId,
     input: {
-      sourceCardId: primarySource.cardId,
-      sourceStatus: primarySource.status,
+      operation,
       sourceCards: sourceCards.map((source) => ({
         cardId: source.cardId,
         status: source.status,
