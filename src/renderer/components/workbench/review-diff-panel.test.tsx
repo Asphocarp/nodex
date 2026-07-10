@@ -1518,15 +1518,18 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     expect(textContent(view.container).includes("Find in review")).toBeFalse();
 
-    view.rerender(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-          searchOpenTick={1}
-        />
-      </NodexTooltipProvider>,
-    );
+    await act(async () => {
+      view.rerender(
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversation={buildConversation()}
+            projectWorkspacePath="/tmp/codex"
+            searchOpenTick={1}
+          />
+        </NodexTooltipProvider>,
+      );
+      await Promise.resolve();
+    });
 
     await settleAsyncRender();
     await settleAsyncRender();
@@ -2053,7 +2056,7 @@ describe("review diff panel", () => {
       </NodexTooltipProvider>,
     );
 
-    view.unmount();
+    await unmountReviewView(view);
     await waitPastGitReviewBatchDelay();
 
     expect(
