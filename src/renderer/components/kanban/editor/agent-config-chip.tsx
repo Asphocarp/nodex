@@ -25,6 +25,7 @@ import type {
   CodexReasoningEffortOption,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { agentConfigInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
 export interface AgentConfigProps {
   mode: string;
@@ -474,17 +475,7 @@ function AgentConfigInlineContent({
 
 export function createAgentConfigInlineContentSpec() {
   return createReactInlineContentSpec(
-    {
-      type: "agentConfig" as const,
-      propSchema: {
-        mode: { default: "" },
-        model: { default: "" },
-        reasoning: { default: "" },
-        unknownAttributes: { default: "" },
-        rawAttributes: { default: "" },
-      },
-      content: "none" as const,
-    },
+    agentConfigInlineContentConfig,
     {
       render: ({ inlineContent, updateInlineContent }) => (
         <AgentConfigInlineContent

@@ -679,7 +679,7 @@ export function NfmEditor({
   const toggleBlockIdsRef = useRef<string[]>([]);
 
   // Parse initial content for the editor, pre-populating localStorage for toggle states
-  const initialContent = useMemo(() => {
+  const initialContent = useMemo<typeof nfmSchema.PartialBlock[] | undefined>(() => {
     // Clean up previous toggle localStorage entries
     for (const id of toggleBlockIdsRef.current) {
       localStorage.removeItem(`toggle-${id}`);
@@ -697,7 +697,9 @@ export function NfmEditor({
       toggleBlockIdsRef.current.push(id);
     }
 
-    return bnBlocks.length > 0 ? bnBlocks : undefined;
+    return bnBlocks.length > 0
+      ? bnBlocks as unknown as typeof nfmSchema.PartialBlock[]
+      : undefined;
   }, [projectId]);
 
   const editor = useCreateBlockNote(
@@ -946,7 +948,7 @@ export function NfmEditor({
 
     // Compute replacement blocks synchronously (localStorage must be populated
     // before replaceBlocks so BlockNote reads correct toggle initial states).
-    let nextBlocks: typeof editor.document | undefined;
+    let nextBlocks: typeof nfmSchema.PartialBlock[] | undefined;
 
     if (!nextContent.trim()) {
       nextBlocks = [];
@@ -962,7 +964,7 @@ export function NfmEditor({
       }
 
       if (bnBlocks.length > 0) {
-        nextBlocks = bnBlocks;
+        nextBlocks = bnBlocks as unknown as typeof nfmSchema.PartialBlock[];
       }
     }
 

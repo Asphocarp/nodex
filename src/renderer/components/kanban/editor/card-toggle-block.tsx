@@ -1,9 +1,7 @@
 import {
   addDefaultPropsExternalHTML,
-  createBlockConfig,
   createBlockSpec,
   createToggleWrapper,
-  defaultProps,
 } from "@blocknote/core";
 import {
   classifyMetaToken,
@@ -11,30 +9,10 @@ import {
   parseMetaTokens,
 } from "@/lib/toggle-list/meta-chips";
 import { createStatusIconElement, getStatusIdByLabel } from "@/lib/status-chip";
-
-export const createCardToggleBlockConfig = createBlockConfig(
-  () =>
-    ({
-      type: "cardToggle" as const,
-      propSchema: {
-        ...defaultProps,
-        cardId: { default: "" },
-        meta: { default: "" },
-        snapshot: { default: "" },
-        sourceProjectId: { default: "" },
-        sourceStatus: { default: "" },
-        sourceStatusName: { default: "" },
-        projectionOwnerId: { default: "" },
-        projectionKind: { default: "" },
-        projectionSourceProjectId: { default: "" },
-        projectionCardId: { default: "" },
-      },
-      content: "inline" as const,
-    }) as const,
-);
+import { cardToggleBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
 export const createCardToggleBlockSpec = createBlockSpec(
-  createCardToggleBlockConfig,
+  cardToggleBlockConfig,
   {
     meta: {
       isolating: false,

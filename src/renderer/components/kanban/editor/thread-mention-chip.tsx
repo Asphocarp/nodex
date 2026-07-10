@@ -24,6 +24,7 @@ import {
   type ThreadMentionDisplayInput,
 } from "@/lib/nfm/thread-mention-display";
 import { cn } from "@/lib/utils";
+import { threadMentionInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { CodexThreadIcon } from "@/components/shared/icons";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 
@@ -315,13 +316,7 @@ export function ThreadMentionInlineContentView({
 
 export function createThreadMentionInlineContentSpec() {
   return createReactInlineContentSpec(
-    {
-      type: "threadMention" as const,
-      propSchema: {
-        uuid: { default: "" },
-      },
-      content: "none" as const,
-    },
+    threadMentionInlineContentConfig,
     {
       render: ({ inlineContent }) => (
         <ThreadMentionInlineContentView inlineContent={inlineContent as { props: Partial<ThreadMentionProps> }} />

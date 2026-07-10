@@ -18,6 +18,8 @@ export interface CardDocumentEnvelope {
 export interface CreateCardDocumentOptions {
   readonly documentId: DocumentId;
   readonly initialTitle?: string;
+  /** Genesis codecs may let BlockNote create the canonical body root directly. */
+  readonly initializeBody?: boolean;
   readonly gc?: boolean;
 }
 
@@ -110,6 +112,7 @@ export const assertValidCardDocumentRoots = (
 export const createCardDocument = ({
   documentId,
   initialTitle = "",
+  initializeBody = true,
   gc = true,
 }: CreateCardDocumentOptions): CardDocumentEnvelope => {
   if (documentId.trim().length === 0) {
@@ -121,7 +124,9 @@ export const createCardDocument = ({
     if (initialTitle.length > 0) {
       envelope.title.insert(0, initialTitle);
     }
-    envelope.body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
+    if (initializeBody) {
+      envelope.body.insert(0, [new Y.XmlElement(BLOCK_GROUP_NODE_NAME)]);
+    }
   });
   return envelope;
 };

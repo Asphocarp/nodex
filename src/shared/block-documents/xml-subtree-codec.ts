@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 
 export type PortableXmlValue =
+  | undefined
   | null
   | boolean
   | number
@@ -49,7 +50,12 @@ const clonePortableValue = (
   value: unknown,
   ancestors = new Set<object>(),
 ): PortableXmlValue => {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
+  if (
+    value === undefined ||
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
     return value;
   }
 

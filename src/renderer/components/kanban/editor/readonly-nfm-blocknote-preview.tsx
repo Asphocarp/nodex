@@ -4,7 +4,6 @@ import {
   createCodeBlockSpec,
   defaultBlockSpecs,
   defaultInlineContentSpecs,
-  defaultProps,
   defaultStyleSpecs,
 } from "@blocknote/core";
 import type { PartialBlock } from "@blocknote/core";
@@ -29,6 +28,14 @@ import {
 } from "@/lib/nfm-link-actions";
 import { useTheme } from "@/lib/use-theme";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
+import {
+  agentConfigInlineContentConfig,
+  attachmentInlineContentConfig,
+  cardRefBlockConfig,
+  threadMentionInlineContentConfig,
+  threadSectionBlockConfig,
+  toggleListInlineViewBlockConfig,
+} from "../../../../shared/block-documents/blocknote-schema-config";
 
 interface ReadonlyNfmBlockNotePreviewProps {
   content: string;
@@ -84,14 +91,7 @@ function InertEmbedPlaceholder({
 }
 
 const createReadonlyCardRefBlockSpec = createReactBlockSpec(
-  {
-    type: "cardRef" as const,
-    propSchema: {
-      sourceProjectId: { default: "default" },
-      cardId: { default: "" },
-    },
-    content: "none" as const,
-  },
+  cardRefBlockConfig,
   {
     render: ({ block }) => {
       const sourceProjectId = String(block.props.sourceProjectId || "default");
@@ -108,15 +108,7 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
 );
 
 const createReadonlyThreadSectionBlockSpec = createReactBlockSpec(
-  {
-    type: "threadSection" as const,
-    propSchema: {
-      ...defaultProps,
-      label: { default: "" },
-      threadId: { default: "" },
-    },
-    content: "none" as const,
-  },
+  threadSectionBlockConfig,
   {
     render: ({ block }) => {
       const label = String(block.props.label || "").trim();
@@ -133,19 +125,7 @@ const createReadonlyThreadSectionBlockSpec = createReactBlockSpec(
 );
 
 const createReadonlyToggleListInlineViewBlockSpec = createReactBlockSpec(
-  {
-    type: "toggleListInlineView" as const,
-    propSchema: {
-      ...defaultProps,
-      sourceProjectId: { default: "default" },
-      rulesV2B64: { default: "" },
-      propertyOrderCsv: { default: "priority,estimate,status" },
-      hiddenPropertiesCsv: { default: "" },
-      showEmptyEstimate: { default: "false" },
-      showEmptyPriority: { default: "false" },
-    },
-    content: "none" as const,
-  },
+  toggleListInlineViewBlockConfig,
   {
     render: ({ block }) => (
       <InertEmbedPlaceholder
@@ -168,19 +148,7 @@ function formatPreviewAttachmentLabel(props: PreviewAttachmentProps): string {
 
 const createReadonlyAttachmentInlineContentSpec = () =>
   createReactInlineContentSpec(
-    {
-      type: "attachment" as const,
-      propSchema: {
-        kind: { default: "text" },
-        mode: { default: "materialized" },
-        source: { default: "" },
-        name: { default: "" },
-        mimeType: { default: undefined, type: "string" },
-        bytes: { default: undefined, type: "number" },
-        origin: { default: undefined, type: "string" },
-      },
-      content: "none" as const,
-    },
+    attachmentInlineContentConfig,
     {
       render: ({ inlineContent }) => {
         const props = inlineContent.props as PreviewAttachmentProps;
@@ -200,17 +168,7 @@ const createReadonlyAttachmentInlineContentSpec = () =>
 
 const createReadonlyAgentConfigInlineContentSpec = () =>
   createReactInlineContentSpec(
-    {
-      type: "agentConfig" as const,
-      propSchema: {
-        mode: { default: "" },
-        model: { default: "" },
-        reasoning: { default: "" },
-        unknownAttributes: { default: "" },
-        rawAttributes: { default: "" },
-      },
-      content: "none" as const,
-    },
+    agentConfigInlineContentConfig,
     {
       render: ({ inlineContent }) => {
         const chip = resolveAgentConfigChip(inlineContent.props as Partial<AgentConfigProps>);
@@ -239,13 +197,7 @@ const createReadonlyAgentConfigInlineContentSpec = () =>
 
 const createReadonlyThreadMentionInlineContentSpec = () =>
   createReactInlineContentSpec(
-    {
-      type: "threadMention" as const,
-      propSchema: {
-        uuid: { default: "" },
-      },
-      content: "none" as const,
-    },
+    threadMentionInlineContentConfig,
     {
       render: ({ inlineContent }) => {
         const props = inlineContent.props as PreviewThreadMentionProps;

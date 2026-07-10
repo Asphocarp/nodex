@@ -7,6 +7,7 @@ import {
   assertValidBlockDocument,
   assertValidCardDocumentRoots,
   captureXmlSubtreeAt,
+  cloneXmlSubtree,
   createCardDocument,
   deleteXmlSubtreeAt,
   encodeXmlSubtree,
@@ -234,6 +235,22 @@ describe("Block document structural validation", () => {
 });
 
 describe("portable Y.Xml subtree codec", () => {
+  test("preserves optional undefined attributes used by BlockNote schemas", () => {
+    const sourceDocument = new Y.Doc();
+    const source = new Y.XmlElement("attachment");
+    sourceDocument.getXmlFragment("body").insert(0, [source]);
+    source.setAttribute("origin", undefined as unknown as string);
+
+    const cloned = cloneXmlSubtree(source);
+    const targetDocument = new Y.Doc();
+    targetDocument.getXmlFragment("body").insert(0, [cloned]);
+
+    expect(cloned instanceof Y.XmlElement).toBeTrue();
+    if (!(cloned instanceof Y.XmlElement)) return;
+    expect(Object.prototype.hasOwnProperty.call(cloned.getAttributes(), "origin")).toBeTrue();
+    expect(cloned.getAttribute("origin") === undefined).toBeTrue();
+  });
+
   test("clones nested IDs and formatting, then replays source and target updates idempotently", () => {
     const source = createCardDocument({ documentId: "document-source" });
     const sourceGroup = getOnlyElement(source.body);

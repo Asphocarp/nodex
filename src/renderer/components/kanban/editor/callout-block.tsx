@@ -1,15 +1,8 @@
-import { defaultProps } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
+import { calloutBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
 export const createCalloutBlock = createReactBlockSpec(
-  {
-    type: "callout" as const,
-    propSchema: {
-      ...defaultProps,
-      icon: { default: "💡" },
-    },
-    content: "inline",
-  },
+  calloutBlockConfig,
   {
     render: (props) => {
       return (

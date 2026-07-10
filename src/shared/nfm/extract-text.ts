@@ -38,6 +38,19 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
       }
     }
 
+    if (block.type === "cardRef") {
+      parts.push(block.cardId);
+    }
+
+    if (block.type === "cardToggle") {
+      parts.push(block.cardId, block.meta);
+    }
+
+    if (block.type === "threadSection") {
+      if (block.label) parts.push(block.label);
+      if (block.threadId) parts.push(block.threadId);
+    }
+
     if (block.children.length === 0) continue;
     collectText(block.children, parts);
   }
@@ -62,6 +75,19 @@ function collectInlineText(items: NfmInlineContent[], parts: string[]): void {
 
     if (item.type === "dateMention") {
       parts.push(formatDateMentionPlainText(item));
+      continue;
+    }
+
+    if (item.type === "attachment") {
+      parts.push(item.name);
+      continue;
+    }
+
+    if (item.type === "agentConfig") {
+      const fields = [item.mode, item.model, item.reasoning].filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      );
+      parts.push(...fields);
     }
   }
 }

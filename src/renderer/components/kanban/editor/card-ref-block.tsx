@@ -28,6 +28,7 @@ import { useAllBoards } from "@/lib/use-all-boards";
 import { useProjects } from "@/lib/use-projects";
 import { normalizeProjectIcon } from "@/lib/project-icon";
 import { cn } from "@/lib/utils";
+import { cardRefBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
 function CardPicker({ onSelect }: { onSelect: (projectId: string, cardId: string) => void }) {
   const { boards, loading } = useAllBoards();
@@ -144,14 +145,7 @@ function isCardRefSelectedOrCursorWithin(
 }
 
 export const createCardRefBlockSpec = createReactBlockSpec(
-  {
-    type: "cardRef" as const,
-    propSchema: {
-      sourceProjectId: { default: "default" },
-      cardId: { default: "" },
-    },
-    content: "none" as const,
-  },
+  cardRefBlockConfig,
   {
     render: ({ block, editor }) => {
       const sourceProjectId = block.props.sourceProjectId || "default";

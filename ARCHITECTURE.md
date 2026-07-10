@@ -11,7 +11,7 @@ Nodex is a local-first, block-based agent orchestrator for coordinating coding-a
 - `workbench-layout.ts`: canonical serializable workbench layout snapshot types.
 - `ipc-api.ts`: typed IPC channel surface between preload/renderer/main.
 - `cross-window-drag.ts`: versioned opaque drag tokens, Nodex MIME types, move/copy operation types, bounded previews, and immutable block/card transfer payload contracts.
-- `block-documents/*`: transport-neutral Block/Document Interfaces, the canonical Card Y.Doc envelope (`title` + `body`), structural Block-ID validation, and portable Y.Xml subtree capture/clone/insert/delete codecs. These Modules do not depend on React or DOM state.
+- `block-documents/*`: transport-neutral Block/Document Interfaces; one DOM-neutral custom BlockNote config set; the canonical Card Y.Doc envelope (`title` + `body`); headless NFM genesis/materialization into a stable-ID Block tree, plain text, references, and asset projections; structural Block-ID validation; portable Y.Xml subtree capture/clone/insert/delete; and the provider wire contract. Renderer specs supply React/DOM implementations for the shared configs, while authority-side codecs remain non-rendering.
 - `codex-thread-title.ts`: shared thread-title sanitization and bounded cache helpers used by both main and renderer.
 - `schemas/*`: runtime boundary schemas for persisted renderer state, workbench layout snapshots, Codex settings, HTTP bodies, Codex session replay JSONL lines, and transcript special-item/raw JSON payload families.
 - `card-limits.ts`: centralized payload and field size constraints.
@@ -78,6 +78,7 @@ Nodex is a local-first, block-based agent orchestrator for coordinating coding-a
 - `lib/use-workbench-state.ts`: window-local workbench shell state with explicit project-context slices. Session panels and durable terminal tabs are not owned here; project-session SQLite state is the primary model.
 - `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
+- `lib/nodex-y-provider.ts`: transport-neutral Yjs provider core for one writable Block Document surface. It owns state-vector synchronization, merged local-update batching, one durable command in flight, idempotent retry, realtime gap repair, remote-origin echo suppression, store-epoch/generation reset boundaries, flush status, and ephemeral Awareness. IPC and HTTP/SSE Adapters are still required before Card Stage can use it.
 - `lib/window-sessions.ts`: renderer helpers for bootstrapping the assigned window session and saving workbench layout snapshots through IPC.
 - `lib/dock-layout.ts`: dock split-tree helpers for the current persisted shell layout model.
 - `lib/use-workbench-shortcuts.ts`: app-wide stage-first keyboard shortcut mapping.

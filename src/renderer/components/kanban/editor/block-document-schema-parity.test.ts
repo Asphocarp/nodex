@@ -1,0 +1,67 @@
+import { describe, expect, test } from "bun:test";
+import {
+  blockDocumentCustomBlockConfigs,
+  blockDocumentCustomInlineContentConfigs,
+} from "../../../../shared/block-documents/blocknote-schema-config";
+import { headlessBlockDocumentSchema } from "../../../../shared/block-documents/headless-blocknote-schema";
+import { toggleListSchema } from "./toggle-list-schema";
+
+const sortedKeys = (value: object): string => Object.keys(value).sort().join(",");
+
+interface SchemaConfig {
+  readonly type: string;
+  readonly content: string;
+  readonly propSchema: Readonly<Record<string, {
+    readonly default: unknown;
+    readonly type?: string;
+    readonly values?: readonly unknown[];
+  }>>;
+}
+
+const configSignature = (input: unknown): string => {
+  if (typeof input !== "object" || input === null) {
+    throw new TypeError("Expected a custom schema config");
+  }
+  const config = input as SchemaConfig;
+  return JSON.stringify({
+    type: config.type,
+    content: config.content,
+    props: Object.entries(config.propSchema).map(([key, prop]) => ({
+    key,
+    default: prop.default === undefined ? { kind: "undefined" } : prop.default,
+    type: prop.type ?? null,
+    values: prop.values ?? null,
+    })),
+  });
+};
+
+describe("Block Document schema parity", () => {
+  test("shares every custom config with the renderer schema", () => {
+    expect(sortedKeys(headlessBlockDocumentSchema.blockSchema)).toBe(
+      sortedKeys(toggleListSchema.blockSchema),
+    );
+    expect(sortedKeys(headlessBlockDocumentSchema.inlineContentSchema)).toBe(
+      sortedKeys(toggleListSchema.inlineContentSchema),
+    );
+
+    for (const type of Object.keys(blockDocumentCustomBlockConfigs) as Array<
+      keyof typeof blockDocumentCustomBlockConfigs
+    >) {
+      const config = blockDocumentCustomBlockConfigs[type];
+      expect(headlessBlockDocumentSchema.blockSchema[type]).toBe(config);
+      expect(toggleListSchema.blockSchema[type]).toBe(config);
+    }
+
+    for (const type of Object.keys(blockDocumentCustomInlineContentConfigs) as Array<
+      keyof typeof blockDocumentCustomInlineContentConfigs
+    >) {
+      const config = blockDocumentCustomInlineContentConfigs[type];
+      expect(configSignature(headlessBlockDocumentSchema.inlineContentSpecs[type].config)).toBe(
+        configSignature(config),
+      );
+      expect(configSignature(toggleListSchema.inlineContentSpecs[type].config)).toBe(
+        configSignature(config),
+      );
+    }
+  });
+});

@@ -20,6 +20,7 @@ import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
 import { invoke } from "@/lib/api";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import { cn } from "@/lib/utils";
+import { attachmentInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { formatAttachmentBytes } from "./attachment-chip-format";
 import { getAttachmentTooltipLines } from "./attachment-chip-tooltip";
 
@@ -392,19 +393,7 @@ function AttachmentInlineContent({
 
 export function createAttachmentInlineContentSpec() {
   return createReactInlineContentSpec(
-    {
-      type: "attachment" as const,
-      propSchema: {
-        kind: { default: "text" },
-        mode: { default: "materialized" },
-        source: { default: "" },
-        name: { default: "" },
-        mimeType: { default: undefined, type: "string" },
-        bytes: { default: undefined, type: "number" },
-        origin: { default: undefined, type: "string" },
-      },
-      content: "none" as const,
-    },
+    attachmentInlineContentConfig,
     {
       render: ({ inlineContent }) => (
         <AttachmentInlineContent inlineContent={inlineContent as { props: AttachmentProps }} />

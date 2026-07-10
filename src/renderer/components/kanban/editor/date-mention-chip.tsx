@@ -48,6 +48,7 @@ import {
 } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
 import { cn } from "@/lib/utils";
+import { dateMentionInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { DateMentionInlineVisual } from "../date-mention-inline-visual";
 
 export interface DateMentionProps {
@@ -706,11 +707,7 @@ export function DateMentionInlineContentView({
 
 export function createReadonlyDateMentionInlineContentSpec() {
   return createReactInlineContentSpec(
-    {
-      type: "dateMention" as const,
-      propSchema: dateMentionPropSchema,
-      content: "none" as const,
-    },
+    dateMentionInlineContentConfig,
     {
       render: ({ inlineContent }) => {
         const payload = dateMentionPropsToPayload((inlineContent as { props: Partial<DateMentionProps> }).props);
@@ -731,11 +728,7 @@ export function createReadonlyDateMentionInlineContentSpec() {
 
 export function createDateMentionInlineContentSpec() {
   return createReactInlineContentSpec(
-    {
-      type: "dateMention" as const,
-      propSchema: dateMentionPropSchema,
-      content: "none" as const,
-    },
+    dateMentionInlineContentConfig,
     {
       render: ({ inlineContent, updateInlineContent }) => (
         <DateMentionInlineContentView
@@ -758,15 +751,6 @@ export function createDateMentionInlineContentSpec() {
     },
   );
 }
-
-const dateMentionPropSchema = {
-  start: { default: "" },
-  end: { default: "" },
-  tz: { default: "" },
-  format: { default: "" },
-  timeFormat: { default: "" },
-  reminder: { default: "" },
-};
 
 function addMonth(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, 1);

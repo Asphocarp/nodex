@@ -1,19 +1,11 @@
-import { defaultProps } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
 import { useEffect } from "react";
 import { useThreadSectionRuntime } from "./thread-section-runtime";
 import { ThreadSectionRow } from "./thread-section-row";
+import { threadSectionBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
 export const createThreadSectionBlockSpec = createReactBlockSpec(
-  {
-    type: "threadSection" as const,
-    propSchema: {
-      ...defaultProps,
-      label: { default: "" },
-      threadId: { default: "" },
-    },
-    content: "none" as const,
-  },
+  threadSectionBlockConfig,
   {
     render: ({ block, editor }) => {
       const runtime = useThreadSectionRuntime();

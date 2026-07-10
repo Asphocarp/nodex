@@ -105,6 +105,16 @@ function prepareChatGptDesktopBody(input: ChatGptDesktopRequestInput): {
   };
 }
 
+function toFetchBody(
+  body: ChatGptDesktopRequestBody | null | undefined,
+): BodyInit | null | undefined {
+  if (!(body instanceof Uint8Array)) return body;
+
+  const bytes = new Uint8Array(body.byteLength);
+  bytes.set(body);
+  return bytes.buffer;
+}
+
 async function readChatGptAuthToken(
   deps: ChatGptDesktopRequestDependencies,
   input: ChatGptDesktopRequestInput,
@@ -131,7 +141,7 @@ async function performRequest(
       ...input,
       headers: prepared.headers,
     }, deps.getAppVersion),
-    body: prepared.body ?? undefined,
+    body: toFetchBody(prepared.body),
   });
 }
 

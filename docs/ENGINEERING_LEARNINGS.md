@@ -1038,3 +1038,6 @@ Applying an encoded update to a fresh `Y.Doc` can leave named entries in `docume
 
 ### A Yjs state vector is not a content checksum
 A state vector records per-client clocks for causal diffing. It does not independently authenticate update bytes or the delete set; a delete-only state can have the same vector as the pre-delete state. Persist and verify hashes for update blobs, snapshots, and the reconstructed full-state update. Use the state vector for synchronization and the hash for integrity—neither replaces the other.
+
+### Headless BlockNote conversion must preserve the canonical empty Y.Xml root
+BlockNote commands on a headless editor are not a substitute for a mounted ProseMirror/Yjs binding: changing the editor document does not necessarily write the collaboration fragment. Use the supported Yjs conversion utilities for genesis and materialization, with one shared DOM-neutral schema config used by both headless and renderer implementations. In the vendored BlockNote version, `yXmlFragmentToBlocks` also removes an otherwise valid empty `blockGroup` from the supplied fragment. Authority-side materialization must therefore recognize the canonical empty body without invoking that decoder, and every materialization read must prove it leaves the encoded Y.Doc unchanged.

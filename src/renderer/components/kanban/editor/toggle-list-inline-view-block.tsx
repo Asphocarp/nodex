@@ -4,9 +4,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  defaultProps,
-} from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
 import {
   Layers3,
@@ -46,6 +43,7 @@ import { useKanban } from "@/lib/use-kanban";
 import { useCardDetails } from "@/lib/card-detail-store";
 import { normalizeProjectIcon } from "@/lib/project-icon";
 import { useProjects } from "@/lib/use-projects";
+import { toggleListInlineViewBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { cn } from "@/lib/utils";
 
 const RULES_PANEL_LABEL = "Rules";
@@ -167,19 +165,7 @@ function isInlineViewSelectedOrCursorWithin(
 }
 
 export const createToggleListInlineViewBlockSpec = createReactBlockSpec(
-  {
-    type: "toggleListInlineView" as const,
-    propSchema: {
-      ...defaultProps,
-      sourceProjectId: { default: "default" },
-      rulesV2B64: { default: "" },
-      propertyOrderCsv: { default: "priority,estimate,status" },
-      hiddenPropertiesCsv: { default: "" },
-      showEmptyEstimate: { default: "false" },
-      showEmptyPriority: { default: "false" },
-    },
-    content: "none" as const,
-  },
+  toggleListInlineViewBlockConfig,
   {
     render: ({ block, editor }) => {
       const rawProps = toInlineProps(block.props);

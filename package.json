@@ -105,6 +105,7 @@
     "rrule": "2.8.1",
     "smol-toml": "1.6.1",
     "uuid": "14.0.0",
+    "y-protocols": "1.0.7",
     "yjs": "13.6.31"
   },
   "devDependencies": {
