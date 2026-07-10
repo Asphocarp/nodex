@@ -15,6 +15,7 @@
         "rrule": "2.8.1",
         "smol-toml": "1.6.1",
         "uuid": "14.0.0",
+        "yjs": "13.6.31",
       },
       "devDependencies": {
         "@atlaskit/pragmatic-drag-and-drop": "2.0.0",

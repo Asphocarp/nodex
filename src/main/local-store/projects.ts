@@ -22,6 +22,10 @@ import {
 import { getDb } from "./database";
 import { dbNotifier } from "./notifier";
 import { insertInitialDatabaseViewSession } from "./project-session-defaults";
+import {
+  deleteBlockFoundationForProject,
+  ensureBlockFoundationForProject,
+} from "./schema";
 
 interface DbProjectRow {
   id: string;
@@ -236,6 +240,7 @@ export function createProject(input: ProjectCreateInput): Project {
     `).run(projectId, now);
     insertProjectSources(database, projectId, sources, now);
     insertInitialDatabaseViewSession(database, projectId, now, { shiftExisting: false });
+    ensureBlockFoundationForProject(database, projectId, now);
   });
   txn();
 
@@ -358,7 +363,12 @@ export function deleteProject(projectId: string): boolean {
   const canonicalProjectId = resolveProjectId(projectId);
   if (!canonicalProjectId) return false;
 
-  const result = getDb().prepare("DELETE FROM projects WHERE id = ?").run(canonicalProjectId);
+  const database = getDb();
+  const deleteProjectTransaction = database.transaction(() => {
+    deleteBlockFoundationForProject(database, canonicalProjectId);
+    return database.prepare("DELETE FROM projects WHERE id = ?").run(canonicalProjectId);
+  });
+  const result = deleteProjectTransaction();
   if (result.changes > 0) {
     dbNotifier.notifyProjectsChanged("delete", canonicalProjectId);
   }

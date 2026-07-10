@@ -762,6 +762,8 @@ nodex/
 
 ### Database Schema
 
+Schema v59 adds a non-authoritative Block-first migration foundation alongside the current Card model: `blocks` preserves Card identity, `documents` / `block_documents` reserve one owned Document per Card, checksummed binary update/snapshot tables support the future collaborative authority, and Database capability/membership/view records model rows without copying Cards. Transitional triggers keep Card shells, membership/view placement, pending-Document source revision, cross-Project scope, and delete tombstones aligned for Card writes created after migration. Documents remain `pending_genesis + legacy_shadow`; Card Stage continues to use the Card/NFM behavior documented below until exact-once genesis, Yjs shadow translation, and collaborative cutover are complete. A v58 store receives a verified SQLite-and-assets safety backup, and the foundation seed plus schema-version bump commit atomically.
+
 ```sql
 -- Current schema (simplified excerpt)
 

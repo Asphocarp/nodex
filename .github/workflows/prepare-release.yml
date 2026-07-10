@@ -52,6 +52,9 @@ jobs:
     - name: Test
       run: bun test
 
+    - name: Test Block-first native persistence
+      run: bun run test:block-first:runtime
+
     - name: Resolve version bump
       if: ${{ !github.event.act }}
       id: bump

@@ -21,8 +21,8 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 58;
-const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58] as const;
+export const CURRENT_SCHEMA_VERSION = 59;
+const MIGRATION_TARGETS = [31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -34,6 +34,19 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "database_view_positions",
+  "database_views",
+  "database_memberships",
+  "database_capabilities",
+  "document_block_index",
+  "document_materializations",
+  "document_snapshots",
+  "document_updates",
+  "block_documents",
+  "top_level_block_placements",
+  "blocks",
+  "documents",
+  "block_store_metadata",
   "card_search_units_fts",
   "card_search_units",
   "thread_search_units_fts",
@@ -65,6 +78,663 @@ const RESETTABLE_TABLES = [
   // Kept here so a versionless local file can still be reset safely.
   "recurrence_occurrence_log",
 ];
+
+const PRIMARY_DATABASE_SCHEMA_KEY = "nodex.database";
+const CARD_DOCUMENT_SCHEMA_KEY = "nodex.card";
+
+function primaryDatabaseBlockId(projectId: string): string {
+  return `database:${projectId}:primary`;
+}
+
+function primaryDatabaseViewId(projectId: string): string {
+  return `database-view:${projectId}:primary-kanban`;
+}
+
+function cardDocumentId(cardId: string): string {
+  return `document:${cardId}`;
+}
+
+function legacyRankKey(order: number): string {
+  const normalizedOrder = Number.isSafeInteger(order) && order >= 0 ? order : 0;
+  return normalizedOrder.toString().padStart(20, "0");
+}
+
+function createBlockFoundationSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS block_store_metadata (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      store_epoch TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS blocks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      location_kind TEXT NOT NULL,
+      containing_document_id TEXT,
+      location_revision INTEGER NOT NULL DEFAULT 1 CHECK (location_revision >= 1),
+      metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK (metadata_revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, project_id),
+      FOREIGN KEY (containing_document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+      CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+      CHECK (
+        (location_kind = 'space' AND containing_document_id IS NULL)
+        OR (location_kind = 'document' AND containing_document_id IS NOT NULL)
+      )
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_blocks_project_lifecycle_type
+      ON blocks(project_id, lifecycle, type);
+    CREATE INDEX IF NOT EXISTS idx_blocks_containing_document
+      ON blocks(containing_document_id, lifecycle);
+
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL DEFAULT 1 CHECK (generation >= 1),
+      head_seq INTEGER NOT NULL DEFAULT 0 CHECK (head_seq >= 0),
+      schema_key TEXT NOT NULL,
+      schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+      state_vector BLOB NOT NULL DEFAULT X'',
+      state_hash TEXT NOT NULL DEFAULT '',
+      readiness TEXT NOT NULL DEFAULT 'pending_genesis',
+      authority TEXT NOT NULL DEFAULT 'legacy_shadow',
+      genesis_source_revision INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, project_id),
+      CHECK (readiness IN ('pending_genesis', 'ready', 'failed')),
+      CHECK (authority IN ('legacy_shadow', 'ydoc_primary')),
+      CHECK (authority <> 'ydoc_primary' OR readiness = 'ready')
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_documents_project_readiness
+      ON documents(project_id, readiness, authority);
+
+    CREATE TABLE IF NOT EXISTS top_level_block_placements (
+      block_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      rank_key TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (block_id, project_id)
+        REFERENCES blocks(id, project_id) ON DELETE CASCADE
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_top_level_block_placements_order
+      ON top_level_block_placements(project_id, rank_key, block_id);
+
+    CREATE TRIGGER IF NOT EXISTS top_level_block_placements_require_space
+      BEFORE INSERT ON top_level_block_placements
+      WHEN (SELECT location_kind FROM blocks WHERE id = NEW.block_id) <> 'space'
+      BEGIN
+        SELECT RAISE(ABORT, 'top-level placement requires a space block');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS top_level_block_placements_updates_require_space
+      BEFORE UPDATE OF block_id, project_id ON top_level_block_placements
+      WHEN (SELECT location_kind FROM blocks WHERE id = NEW.block_id) <> 'space'
+      BEGIN
+        SELECT RAISE(ABORT, 'top-level placement requires a space block');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS blocks_document_location_has_no_top_level_placement
+      BEFORE UPDATE OF location_kind, containing_document_id ON blocks
+      WHEN NEW.location_kind = 'document'
+        AND EXISTS (
+          SELECT 1 FROM top_level_block_placements placement
+          WHERE placement.block_id = NEW.id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'document block location cannot retain a top-level placement');
+      END;
+
+    CREATE TABLE IF NOT EXISTS block_documents (
+      block_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL UNIQUE,
+      project_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (block_id, project_id)
+        REFERENCES blocks(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE RESTRICT
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS document_updates (
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      seq INTEGER NOT NULL CHECK (seq >= 1),
+      update_id TEXT NOT NULL,
+      client_session_id TEXT NOT NULL,
+      base_head_seq INTEGER NOT NULL CHECK (base_head_seq >= 0),
+      touched_block_ids_json TEXT NOT NULL DEFAULT '[]',
+      update_blob BLOB NOT NULL,
+      update_hash TEXT NOT NULL,
+      committed_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, generation, seq),
+      UNIQUE (document_id, update_id)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_document_updates_tail
+      ON document_updates(document_id, generation, seq);
+
+    CREATE TABLE IF NOT EXISTS document_snapshots (
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      snapshot_seq INTEGER NOT NULL CHECK (snapshot_seq >= 0),
+      state_vector BLOB NOT NULL,
+      snapshot_update BLOB NOT NULL,
+      snapshot_hash TEXT NOT NULL,
+      schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, generation, snapshot_seq)
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS document_materializations (
+      document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
+      nfm TEXT NOT NULL,
+      plain_text TEXT NOT NULL,
+      preview TEXT NOT NULL,
+      block_tree_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS document_block_index (
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      block_id TEXT NOT NULL UNIQUE REFERENCES blocks(id) ON DELETE CASCADE,
+      parent_block_id TEXT REFERENCES blocks(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      block_type TEXT NOT NULL,
+      text TEXT NOT NULL,
+      projected_seq INTEGER NOT NULL CHECK (projected_seq >= 0),
+      PRIMARY KEY (document_id, block_id)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_document_block_index_parent_order
+      ON document_block_index(document_id, parent_block_id, ordinal, block_id);
+
+    CREATE TRIGGER IF NOT EXISTS document_block_index_requires_matching_location
+      BEFORE INSERT ON document_block_index
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM blocks block
+        WHERE block.id = NEW.block_id
+          AND block.location_kind = 'document'
+          AND block.containing_document_id = NEW.document_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'indexed block must belong to the indexed document');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_block_index_updates_require_matching_location
+      BEFORE UPDATE OF document_id, block_id ON document_block_index
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM blocks block
+        WHERE block.id = NEW.block_id
+          AND block.location_kind = 'document'
+          AND block.containing_document_id = NEW.document_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'indexed block must belong to the indexed document');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_block_index_parent_requires_matching_location
+      BEFORE INSERT ON document_block_index
+      WHEN NEW.parent_block_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM blocks parent
+          WHERE parent.id = NEW.parent_block_id
+            AND parent.location_kind = 'document'
+            AND parent.containing_document_id = NEW.document_id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'indexed parent must belong to the indexed document');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_block_index_parent_updates_require_matching_location
+      BEFORE UPDATE OF document_id, parent_block_id ON document_block_index
+      WHEN NEW.parent_block_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM blocks parent
+          WHERE parent.id = NEW.parent_block_id
+            AND parent.location_kind = 'document'
+            AND parent.containing_document_id = NEW.document_id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'indexed parent must belong to the indexed document');
+      END;
+
+    CREATE TABLE IF NOT EXISTS database_capabilities (
+      block_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+      schema_key TEXT NOT NULL DEFAULT '${PRIMARY_DATABASE_SCHEMA_KEY}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (block_id, project_id),
+      FOREIGN KEY (block_id, project_id)
+        REFERENCES blocks(id, project_id) ON DELETE CASCADE
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_database_capabilities_primary_project
+      ON database_capabilities(project_id)
+      WHERE is_primary = 1;
+
+    CREATE TRIGGER IF NOT EXISTS database_capabilities_require_database_block
+      BEFORE INSERT ON database_capabilities
+      WHEN (SELECT type FROM blocks WHERE id = NEW.block_id) <> 'database'
+      BEGIN
+        SELECT RAISE(ABORT, 'database capability requires a database block');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS database_capabilities_updates_require_database_block
+      BEFORE UPDATE OF block_id, project_id ON database_capabilities
+      WHEN (SELECT type FROM blocks WHERE id = NEW.block_id) <> 'database'
+      BEGIN
+        SELECT RAISE(ABORT, 'database capability requires a database block');
+      END;
+
+    CREATE TABLE IF NOT EXISTS database_memberships (
+      id TEXT PRIMARY KEY,
+      database_block_id TEXT NOT NULL,
+      card_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      removed_at TEXT,
+      FOREIGN KEY (database_block_id, project_id)
+        REFERENCES database_capabilities(block_id, project_id) ON DELETE CASCADE,
+      FOREIGN KEY (card_block_id, project_id)
+        REFERENCES blocks(id, project_id) ON DELETE CASCADE
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_database_memberships_active_card
+      ON database_memberships(card_block_id)
+      WHERE removed_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_database_memberships_database_active
+      ON database_memberships(database_block_id, removed_at, card_block_id);
+
+    CREATE TRIGGER IF NOT EXISTS database_memberships_require_card_block
+      BEFORE INSERT ON database_memberships
+      WHEN NEW.removed_at IS NULL
+        AND (SELECT type FROM blocks WHERE id = NEW.card_block_id) <> 'card'
+      BEGIN
+        SELECT RAISE(ABORT, 'active database membership requires a card block');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS database_memberships_updates_require_card_block
+      BEFORE UPDATE OF card_block_id, removed_at ON database_memberships
+      WHEN NEW.removed_at IS NULL
+        AND (SELECT type FROM blocks WHERE id = NEW.card_block_id) <> 'card'
+      BEGIN
+        SELECT RAISE(ABORT, 'active database membership requires a card block');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS blocks_type_updates_preserve_capabilities
+      BEFORE UPDATE OF type ON blocks
+      WHEN (
+        NEW.type <> 'database'
+        AND EXISTS (
+          SELECT 1 FROM database_capabilities capability
+          WHERE capability.block_id = OLD.id
+        )
+      ) OR (
+        NEW.type <> 'card'
+        AND EXISTS (
+          SELECT 1 FROM database_memberships membership
+          WHERE membership.card_block_id = OLD.id
+            AND membership.removed_at IS NULL
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'block type cannot invalidate active capabilities');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS blocks_type_updates_preserve_document_ownership
+      BEFORE UPDATE OF type ON blocks
+      WHEN NEW.type <> OLD.type
+        AND EXISTS (
+          SELECT 1 FROM block_documents ownership
+          WHERE ownership.block_id = OLD.id
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'document owner type changes require a typed ownership operation');
+      END;
+
+    CREATE TABLE IF NOT EXISTS database_views (
+      id TEXT PRIMARY KEY,
+      database_block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, project_id),
+      FOREIGN KEY (database_block_id, project_id)
+        REFERENCES database_capabilities(block_id, project_id) ON DELETE CASCADE,
+      CHECK (kind IN ('kanban', 'list', 'calendar', 'canvas'))
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_database_views_primary
+      ON database_views(database_block_id)
+      WHERE is_primary = 1;
+
+    CREATE TABLE IF NOT EXISTS database_view_positions (
+      view_id TEXT NOT NULL,
+      block_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      group_key TEXT,
+      rank_key TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (view_id, block_id),
+      FOREIGN KEY (view_id, project_id)
+        REFERENCES database_views(id, project_id) ON DELETE CASCADE,
+      FOREIGN KEY (block_id, project_id)
+        REFERENCES blocks(id, project_id) ON DELETE CASCADE
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_database_view_positions_order
+      ON database_view_positions(view_id, group_key, rank_key, block_id);
+
+    CREATE TRIGGER IF NOT EXISTS database_view_positions_require_active_membership
+      BEFORE INSERT ON database_view_positions
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM database_views view
+        INNER JOIN database_memberships membership
+          ON membership.database_block_id = view.database_block_id
+          AND membership.card_block_id = NEW.block_id
+          AND membership.removed_at IS NULL
+        WHERE view.id = NEW.view_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'database view position requires an active membership');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS database_view_positions_updates_require_active_membership
+      BEFORE UPDATE OF view_id, block_id ON database_view_positions
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM database_views view
+        INNER JOIN database_memberships membership
+          ON membership.database_block_id = view.database_block_id
+          AND membership.card_block_id = NEW.block_id
+          AND membership.removed_at IS NULL
+        WHERE view.id = NEW.view_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'database view position requires an active membership');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_reject_identity_collision
+      BEFORE INSERT ON cards
+      WHEN EXISTS (
+        SELECT 1
+        FROM blocks block
+        WHERE block.id = NEW.id
+          AND NOT (
+            block.type = 'card'
+            AND block.lifecycle = 'deleted'
+            AND block.project_id = NEW.project_id
+          )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'card id collides with an existing Block identity');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_after_insert
+      AFTER INSERT ON cards
+      BEGIN
+        INSERT INTO blocks (
+          id, project_id, type, lifecycle, location_kind, containing_document_id,
+          location_revision, metadata_revision, created_at, updated_at
+        ) VALUES (
+          NEW.id,
+          NEW.project_id,
+          'card',
+          CASE WHEN NEW.archived = 1 THEN 'archived' ELSE 'active' END,
+          'space',
+          NULL,
+          1,
+          MAX(1, NEW.revision),
+          NEW.created,
+          NEW.created
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          type = 'card',
+          lifecycle = excluded.lifecycle,
+          location_kind = 'space',
+          containing_document_id = NULL,
+          location_revision = blocks.location_revision + 1,
+          metadata_revision = MAX(blocks.metadata_revision + 1, excluded.metadata_revision),
+          updated_at = excluded.updated_at;
+
+        INSERT INTO top_level_block_placements (
+          block_id, project_id, rank_key, created_at, updated_at
+        ) VALUES (
+          NEW.id,
+          NEW.project_id,
+          '100000000000:' || NEW.status || ':' ||
+            printf('%020d', CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END),
+          NEW.created,
+          NEW.created
+        )
+        ON CONFLICT(block_id) DO UPDATE SET
+          project_id = excluded.project_id,
+          rank_key = excluded.rank_key,
+          updated_at = excluded.updated_at;
+
+        INSERT INTO documents (
+          id, project_id, generation, head_seq, schema_key, schema_version,
+          state_vector, state_hash, readiness, authority,
+          genesis_source_revision, created_at, updated_at
+        ) VALUES (
+          'document:' || NEW.id,
+          NEW.project_id,
+          1,
+          0,
+          '${CARD_DOCUMENT_SCHEMA_KEY}',
+          1,
+          X'',
+          '',
+          'pending_genesis',
+          'legacy_shadow',
+          MAX(1, NEW.revision),
+          NEW.created,
+          NEW.created
+        )
+        ON CONFLICT(id) DO NOTHING;
+
+        INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+        VALUES (NEW.id, 'document:' || NEW.id, NEW.project_id, NEW.created)
+        ON CONFLICT(block_id) DO NOTHING;
+
+        INSERT INTO database_memberships (
+          id, database_block_id, card_block_id, project_id, created_at, removed_at
+        ) VALUES (
+          'membership:' || NEW.id,
+          'database:' || NEW.project_id || ':primary',
+          NEW.id,
+          NEW.project_id,
+          NEW.created,
+          NULL
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          database_block_id = excluded.database_block_id,
+          project_id = excluded.project_id,
+          removed_at = NULL;
+
+        INSERT INTO database_view_positions (
+          view_id, block_id, project_id, group_key, rank_key, created_at, updated_at
+        ) VALUES (
+          'database-view:' || NEW.project_id || ':primary-kanban',
+          NEW.id,
+          NEW.project_id,
+          NEW.status,
+          printf('%020d', CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END),
+          NEW.created,
+          NEW.created
+        )
+        ON CONFLICT(view_id, block_id) DO UPDATE SET
+          project_id = excluded.project_id,
+          group_key = excluded.group_key,
+          rank_key = excluded.rank_key,
+          updated_at = excluded.updated_at;
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_after_local_update
+      AFTER UPDATE OF status, archived, "order", revision ON cards
+      WHEN NEW.project_id = OLD.project_id
+      BEGIN
+        UPDATE blocks
+        SET lifecycle = CASE WHEN NEW.archived = 1 THEN 'archived' ELSE 'active' END,
+            metadata_revision = MAX(metadata_revision, MAX(1, NEW.revision)),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = NEW.id AND type = 'card';
+
+        UPDATE top_level_block_placements
+        SET rank_key = '100000000000:' || NEW.status || ':' ||
+              printf('%020d', CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE block_id = NEW.id;
+
+        UPDATE database_view_positions
+        SET group_key = NEW.status,
+            rank_key = printf(
+              '%020d',
+              CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END
+            ),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE block_id = NEW.id
+          AND view_id = 'database-view:' || NEW.project_id || ':primary-kanban';
+
+        UPDATE documents
+        SET genesis_source_revision = MAX(1, NEW.revision),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = 'document:' || NEW.id
+          AND readiness = 'pending_genesis';
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_cross_project_requires_pending
+      BEFORE UPDATE OF project_id ON cards
+      WHEN NEW.project_id <> OLD.project_id
+        AND (
+          EXISTS (
+            SELECT 1 FROM documents document
+            WHERE document.id = 'document:' || OLD.id
+              AND document.readiness <> 'pending_genesis'
+          )
+          OR EXISTS (
+            SELECT 1 FROM blocks child
+            WHERE child.containing_document_id = 'document:' || OLD.id
+          )
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'ready Card Documents require a typed cross-Project move');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_after_cross_project_update
+      AFTER UPDATE OF project_id ON cards
+      WHEN NEW.project_id <> OLD.project_id
+      BEGIN
+        DELETE FROM database_view_positions WHERE block_id = NEW.id;
+        DELETE FROM database_memberships WHERE card_block_id = NEW.id;
+        DELETE FROM top_level_block_placements WHERE block_id = NEW.id;
+        DELETE FROM block_documents WHERE block_id = NEW.id;
+
+        UPDATE blocks
+        SET project_id = NEW.project_id,
+            lifecycle = CASE WHEN NEW.archived = 1 THEN 'archived' ELSE 'active' END,
+            location_kind = 'space',
+            containing_document_id = NULL,
+            location_revision = location_revision + 1,
+            metadata_revision = MAX(metadata_revision + 1, MAX(1, NEW.revision)),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = NEW.id;
+
+        UPDATE documents
+        SET project_id = NEW.project_id,
+            genesis_source_revision = MAX(1, NEW.revision),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = 'document:' || NEW.id;
+
+        INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+        VALUES (
+          NEW.id,
+          'document:' || NEW.id,
+          NEW.project_id,
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        );
+
+        INSERT INTO top_level_block_placements (
+          block_id, project_id, rank_key, created_at, updated_at
+        ) VALUES (
+          NEW.id,
+          NEW.project_id,
+          '100000000000:' || NEW.status || ':' ||
+            printf('%020d', CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        );
+
+        INSERT INTO database_memberships (
+          id, database_block_id, card_block_id, project_id, created_at, removed_at
+        ) VALUES (
+          'membership:' || NEW.id,
+          'database:' || NEW.project_id || ':primary',
+          NEW.id,
+          NEW.project_id,
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          NULL
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          database_block_id = excluded.database_block_id,
+          project_id = excluded.project_id,
+          removed_at = NULL;
+
+        INSERT INTO database_view_positions (
+          view_id, block_id, project_id, group_key, rank_key, created_at, updated_at
+        ) VALUES (
+          'database-view:' || NEW.project_id || ':primary-kanban',
+          NEW.id,
+          NEW.project_id,
+          NEW.status,
+          printf('%020d', CASE WHEN NEW."order" >= 0 THEN NEW."order" ELSE 0 END),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        );
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_block_foundation_after_delete
+      AFTER DELETE ON cards
+      BEGIN
+        DELETE FROM database_view_positions WHERE block_id = OLD.id;
+        UPDATE database_memberships
+        SET removed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE card_block_id = OLD.id AND removed_at IS NULL;
+        DELETE FROM top_level_block_placements WHERE block_id = OLD.id;
+        UPDATE blocks
+        SET lifecycle = 'deleted',
+            location_revision = location_revision + 1,
+            metadata_revision = metadata_revision + 1,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = OLD.id;
+      END;
+  `);
+}
 
 export interface EnsureDatabaseOptions {
   onMigrationProgress?: (progress: DatabaseMigrationProgress) => void;
@@ -570,6 +1240,206 @@ function createLatestSchema(db: Database.Database): void {
       updated TEXT NOT NULL
     );
   `);
+  createBlockFoundationSchema(db);
+}
+
+function ensureBlockStoreMetadata(db: Database.Database, now: string): void {
+  db.prepare(`
+    INSERT INTO block_store_metadata (id, store_epoch, created_at, updated_at)
+    VALUES (1, ?, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `).run(randomUUID(), now, now);
+}
+
+export function ensureBlockFoundationForProject(
+  db: Database.Database,
+  projectId: string,
+  now: string,
+): void {
+  ensureBlockStoreMetadata(db, now);
+
+  const databaseBlockId = primaryDatabaseBlockId(projectId);
+  const viewId = primaryDatabaseViewId(projectId);
+
+  db.prepare(`
+    INSERT INTO blocks (
+      id, project_id, type, lifecycle, location_kind, containing_document_id,
+      location_revision, metadata_revision, created_at, updated_at
+    ) VALUES (?, ?, 'database', 'active', 'space', NULL, 1, 1, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `).run(databaseBlockId, projectId, now, now);
+
+  db.prepare(`
+    INSERT INTO top_level_block_placements (
+      block_id, project_id, rank_key, created_at, updated_at
+    ) VALUES (?, ?, '000000000000', ?, ?)
+    ON CONFLICT(block_id) DO NOTHING
+  `).run(databaseBlockId, projectId, now, now);
+
+  db.prepare(`
+    INSERT INTO database_capabilities (
+      block_id, project_id, is_primary, schema_key, created_at, updated_at
+    ) VALUES (?, ?, 1, ?, ?, ?)
+    ON CONFLICT(block_id) DO NOTHING
+  `).run(databaseBlockId, projectId, PRIMARY_DATABASE_SCHEMA_KEY, now, now);
+
+  db.prepare(`
+    INSERT INTO database_views (
+      id, database_block_id, project_id, name, kind, config_json,
+      is_primary, created_at, updated_at
+    ) VALUES (?, ?, ?, 'Kanban', 'kanban', '{}', 1, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `).run(viewId, databaseBlockId, projectId, now, now);
+}
+
+export function deleteBlockFoundationForProject(
+  db: Database.Database,
+  projectId: string,
+): void {
+  db.prepare("DELETE FROM block_documents WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM blocks WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM documents WHERE project_id = ?").run(projectId);
+}
+
+interface LegacyCardFoundationRow {
+  id: string;
+  project_id: string;
+  archived: number;
+  status: string;
+  revision: number;
+  order: number;
+  created: string;
+}
+
+function seedLegacyCardBlockFoundation(db: Database.Database): void {
+  const projectRows = db.prepare("SELECT id, created FROM projects").all() as Array<{
+    id: string;
+    created: string;
+  }>;
+  for (const project of projectRows) {
+    ensureBlockFoundationForProject(db, project.id, project.created);
+  }
+
+  const cards = db.prepare(`
+    SELECT id, project_id, archived, status, revision, "order", created
+    FROM cards
+  `).all() as LegacyCardFoundationRow[];
+
+  const insertBlock = db.prepare(`
+    INSERT INTO blocks (
+      id, project_id, type, lifecycle, location_kind, containing_document_id,
+      location_revision, metadata_revision, created_at, updated_at
+    ) VALUES (?, ?, 'card', ?, 'space', NULL, 1, ?, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `);
+  const insertPlacement = db.prepare(`
+    INSERT INTO top_level_block_placements (
+      block_id, project_id, rank_key, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(block_id) DO NOTHING
+  `);
+  const insertDocument = db.prepare(`
+    INSERT INTO documents (
+      id, project_id, generation, head_seq, schema_key, schema_version,
+      state_vector, readiness, authority, genesis_source_revision, created_at, updated_at
+    ) VALUES (?, ?, 1, 0, ?, 1, X'', 'pending_genesis', 'legacy_shadow', ?, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `);
+  const insertOwnership = db.prepare(`
+    INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(block_id) DO NOTHING
+  `);
+  const insertMembership = db.prepare(`
+    INSERT INTO database_memberships (
+      id, database_block_id, card_block_id, project_id, created_at, removed_at
+    ) VALUES (?, ?, ?, ?, ?, NULL)
+    ON CONFLICT(id) DO NOTHING
+  `);
+  const insertViewPosition = db.prepare(`
+    INSERT INTO database_view_positions (
+      view_id, block_id, project_id, group_key, rank_key, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(view_id, block_id) DO NOTHING
+  `);
+
+  for (const card of cards) {
+    const documentId = cardDocumentId(card.id);
+    const databaseBlockId = primaryDatabaseBlockId(card.project_id);
+    const viewId = primaryDatabaseViewId(card.project_id);
+    const lifecycle = card.archived === 1 ? "archived" : "active";
+    const rankKey = legacyRankKey(card.order);
+
+    insertBlock.run(
+      card.id,
+      card.project_id,
+      lifecycle,
+      Math.max(1, card.revision),
+      card.created,
+      card.created,
+    );
+    insertPlacement.run(
+      card.id,
+      card.project_id,
+      `100000000000:${card.status}:${rankKey}`,
+      card.created,
+      card.created,
+    );
+    insertDocument.run(
+      documentId,
+      card.project_id,
+      CARD_DOCUMENT_SCHEMA_KEY,
+      Math.max(1, card.revision),
+      card.created,
+      card.created,
+    );
+    insertOwnership.run(card.id, documentId, card.project_id, card.created);
+    insertMembership.run(
+      `membership:${card.id}`,
+      databaseBlockId,
+      card.id,
+      card.project_id,
+      card.created,
+    );
+    insertViewPosition.run(
+      viewId,
+      card.id,
+      card.project_id,
+      card.status,
+      rankKey,
+      card.created,
+      card.created,
+    );
+  }
+
+  const parityFailure = db.prepare(`
+    SELECT card.id
+    FROM cards card
+    LEFT JOIN blocks block
+      ON block.id = card.id
+      AND block.project_id = card.project_id
+      AND block.type = 'card'
+    LEFT JOIN block_documents ownership ON ownership.block_id = card.id
+    LEFT JOIN documents document
+      ON document.id = ownership.document_id
+      AND document.project_id = card.project_id
+    LEFT JOIN database_memberships membership
+      ON membership.card_block_id = card.id
+      AND membership.removed_at IS NULL
+    LEFT JOIN database_view_positions position
+      ON position.block_id = card.id
+      AND position.view_id = 'database-view:' || card.project_id || ':primary-kanban'
+    WHERE block.id IS NULL
+      OR ownership.document_id <> 'document:' || card.id
+      OR document.readiness <> 'pending_genesis'
+      OR document.authority <> 'legacy_shadow'
+      OR membership.database_block_id <> 'database:' || card.project_id || ':primary'
+      OR position.block_id IS NULL
+    LIMIT 1
+  `).get() as { id: string } | undefined;
+  if (parityFailure) {
+    throw new Error(`Block foundation parity failed for Card ${parityFailure.id}`);
+  }
 }
 
 function makeLegacyOverviewSessionId(projectId: string): string {
@@ -2309,6 +3179,86 @@ function migrateSchema57To58(db: Database.Database): void {
   setUserVersion(db, 58);
 }
 
+function createSchemaMigrationSafetyBackup(
+  db: Database.Database,
+  fromVersion: number,
+  toVersion: number,
+): void {
+  const quickCheck = db.pragma("quick_check") as Array<{ quick_check: string }>;
+  if (quickCheck.length !== 1 || quickCheck[0]?.quick_check !== "ok") {
+    throw new Error(`Cannot migrate schema v${fromVersion}: SQLite quick_check failed`);
+  }
+  const foreignKeyProblems = db.pragma("foreign_key_check") as unknown[];
+  if (foreignKeyProblems.length > 0) {
+    throw new Error(
+      `Cannot migrate schema v${fromVersion}: ${foreignKeyProblems.length} foreign-key violation(s)`,
+    );
+  }
+
+  const createdAt = new Date().toISOString();
+  const backupId = `schema-v${fromVersion}-to-v${toVersion}-${createdAt.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
+  const backupsRoot = path.join(path.dirname(getDatabasePath()), "migration-backups");
+  const finalDirectory = path.join(backupsRoot, backupId);
+  const temporaryDirectory = `${finalDirectory}.tmp`;
+  const databasePath = path.join(temporaryDirectory, "nodex.db");
+  const sourceAssetsPath = path.join(path.dirname(getDatabasePath()), "assets");
+  const backupAssetsPath = path.join(temporaryDirectory, "assets");
+
+  fs.mkdirSync(temporaryDirectory, { recursive: true });
+  try {
+    db.prepare("VACUUM INTO ?").run(databasePath);
+    const verificationDatabase = new Database(databasePath, { readonly: true });
+    try {
+      const backupVersion = getUserVersion(verificationDatabase);
+      if (backupVersion !== fromVersion) {
+        throw new Error(
+          `Safety backup reports schema v${backupVersion}; expected v${fromVersion}`,
+        );
+      }
+      const backupQuickCheck = verificationDatabase.pragma("quick_check") as Array<{
+        quick_check: string;
+      }>;
+      if (backupQuickCheck.length !== 1 || backupQuickCheck[0]?.quick_check !== "ok") {
+        throw new Error("Safety backup quick_check failed");
+      }
+    } finally {
+      verificationDatabase.close();
+    }
+    if (fs.existsSync(sourceAssetsPath)) {
+      fs.cpSync(sourceAssetsPath, backupAssetsPath, { recursive: true });
+    }
+    const manifest = {
+      version: 1,
+      id: backupId,
+      createdAt,
+      sourceSchemaVersion: fromVersion,
+      targetSchemaVersion: toVersion,
+      databaseFile: "nodex.db",
+      includesAssets: fs.existsSync(backupAssetsPath),
+    };
+    fs.writeFileSync(
+      path.join(temporaryDirectory, "manifest.json"),
+      JSON.stringify(manifest, null, 2),
+      "utf8",
+    );
+    fs.renameSync(temporaryDirectory, finalDirectory);
+  } catch (error) {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    throw new Error(
+      `Could not create schema v${fromVersion} safety backup: ${(error as Error).message}`,
+    );
+  }
+}
+
+function migrateSchema58To59(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    createBlockFoundationSchema(db);
+    seedLegacyCardBlockFoundation(db);
+    setUserVersion(db, 59);
+  });
+  migrate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -2539,6 +3489,15 @@ function runMigrations(
       fromVersion = 58;
       continue;
     }
+    if (target === 59) {
+      if (fromVersion !== 58) {
+        throw new Error(`Unsupported Nodex database migration target 59 from ${fromVersion}`);
+      }
+      createSchemaMigrationSafetyBackup(db, 58, 59);
+      migrateSchema58To59(db);
+      fromVersion = 59;
+      continue;
+    }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
   }
   options.onMigrationProgress?.({ type: "Done" });
@@ -2573,6 +3532,7 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
     'INSERT INTO project_order (project_id, "order", updated) VALUES (?, ?, ?)',
   ).run(projectId, 0, now);
   insertInitialDatabaseViewSession(db, projectId, now, { shiftExisting: false });
+  ensureBlockFoundationForProject(db, projectId, now);
 }
 
 export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
@@ -2604,6 +3564,13 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
     seedDefaultProjectIfMissing(db);
+    const projects = db.prepare("SELECT id, created FROM projects").all() as Array<{
+      id: string;
+      created: string;
+    }>;
+    for (const project of projects) {
+      ensureBlockFoundationForProject(db, project.id, project.created);
+    }
   } finally {
     db.close();
   }

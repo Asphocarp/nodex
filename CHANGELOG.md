@@ -94,6 +94,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
+- Fixed Card delete undo and create redo failing while restoring the persisted Card row.
 - Fixed Scheduled edit navigation so valid pending detail edits save before switching tabs, opening another scheduled task, running toolbar actions, or opening a previous run chat.
 - Fixed recent Workbench session switching so sidebar rows use lightweight summaries, warmed session details and DB View boards are reused across projects, DB View scroll restores before paint, Card Stage tab switches keep mounted scroll/editor state, and hidden full-width right-panel thread pages no longer resume idle threads.
 - Fixed Review so Git-backed diffs load metadata before file bodies, binary and oversized files render as metadata placeholders instead of decoded text, and non-renderable file bodies are skipped during diff rendering, full-file loading, and search.

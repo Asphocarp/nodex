@@ -167,9 +167,14 @@ function normalizeCardIdInput(value: string | undefined): string | null {
 }
 
 function assertCardIdAvailable(database: Database.Database, id: string): void {
-  const existing = database.prepare("SELECT 1 FROM cards WHERE id = ?").get(id);
+  const existing = database.prepare(`
+    SELECT 1 FROM cards WHERE id = ?
+    UNION ALL
+    SELECT 1 FROM blocks WHERE id = ?
+    LIMIT 1
+  `).get(id, id);
   if (existing) {
-    throw new Error(`Card id already exists: ${id}`);
+    throw new Error(`Card or Block id already exists: ${id}`);
   }
 }
 

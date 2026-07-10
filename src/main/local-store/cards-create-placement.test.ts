@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { isUuidV7 } from "../../shared/card-id";
 import { closeDatabase, initializeDatabase } from "./database";
-import { createCard } from "./cards";
+import { createCard, deleteCard } from "./cards";
 import { getBoard } from "./board-read-model";
 import { createProject } from "./projects";
 import {
@@ -133,6 +133,31 @@ describe("createCard placement", () => {
       }
 
       expect(message).toBe("Invalid card id: expected canonical lowercase UUID-v7");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("does not reuse a tombstoned Block identity through ordinary create", async () => {
+    const ran = await withTempDatabase(async (projectId) => {
+      const requestedId = "018f0f85-6d56-7625-bdea-000000000456";
+      await createCard(projectId, "draft", {
+        id: requestedId,
+        title: "Original identity",
+      });
+      expect(await deleteCard(projectId, "draft", requestedId)).toBeTrue();
+
+      let message = "";
+      try {
+        await createCard(projectId, "draft", {
+          id: requestedId,
+          title: "Replacement identity",
+        });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+
+      expect(message).toBe(`Card or Block id already exists: ${requestedId}`);
     });
 
     if (!ran) expect(true).toBeTrue();
