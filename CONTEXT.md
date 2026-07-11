@@ -96,7 +96,7 @@ Schema v62 is the first persisted property/projection foundation: `block_propert
 
 Schema v65 separates durable secondary evidence from rebuildable projections. `document_versions` retains user/history checkpoints independently of operational update compaction, and `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. None of these tables writes into `cards`, Y.Doc state, or property authority through a trigger.
 
-For a Y.Doc-primary Card, the materialization committed with each Document head supplies title, NFM, preview, references, and assets to compatibility readers. Board-summary fanout reads that committed projection; it never writes the result back through the legacy Card title/body mutation path.
+For a Y.Doc-primary Card, the materialization committed with each Document head supplies title, NFM, preview, references, and assets to compatibility readers. Card/Board/reference summaries combine that exact-head content with current Block identity and Database/intrinsic properties in one SQLite read snapshot. Fanout never writes the result back through the legacy Card title/body or metadata mutation paths.
 
 ### NFM
 

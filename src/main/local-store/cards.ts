@@ -55,7 +55,12 @@ import {
 import {
   readAuthoritativeCardById,
   readAuthoritativeCardColumn,
+  readAuthoritativeCardSummariesByIds,
+  readAuthoritativeCardSummaryByDocumentId,
+  readAuthoritativeCardSummaryById,
+  readAuthoritativeCardSummaryColumn,
   readAuthoritativeCardsByIds,
+  readAuthoritativeProjectCardSummaries,
   readAuthoritativeProjectCards,
 } from "./card-read-store";
 import { searchAuthoritativeCards } from "./card-search-store";
@@ -95,16 +100,6 @@ interface DbCard {
   order: number;
 }
 
-type DbCardSummary = Omit<DbCard, "description" | "description_revision_id">;
-
-interface DbCardSummaryProjection extends DbCardSummary {
-  readonly document_authority: "legacy_shadow" | "ydoc_primary" | null;
-  readonly document_readiness: "pending_genesis" | "ready" | "failed" | null;
-  readonly materialized_title: string | null;
-  readonly materialized_nfm: string | null;
-  readonly materialized_preview: string | null;
-}
-
 interface CardReadModelRow {
   id: string;
   project_id: string;
@@ -119,58 +114,6 @@ interface CardReadModelRow {
   agent_status: string | null;
   revision: number;
 }
-
-const CARD_SUMMARY_SELECT_COLUMNS = `
-  card.id,
-  card.project_id,
-  card.status,
-  card.archived,
-  card.title,
-  card.description_preview,
-  card.description_length,
-  card.has_description,
-  card.description_read_model_revision,
-  card.priority,
-  card.estimate,
-  card.tags,
-  card.due_date,
-  card.scheduled_start,
-  card.scheduled_end,
-  card.is_all_day,
-  card.recurrence_json,
-  card.reminders_json,
-  card.schedule_timezone,
-  card.assignee,
-  card.agent_blocked,
-  card.agent_status,
-  card.run_in_target,
-  card.run_in_local_path,
-  card.run_in_base_branch,
-  card.run_in_worktree_path,
-  card.run_in_environment_path,
-  card.revision,
-  card.created,
-  card."order",
-  owned_document.authority AS document_authority,
-  owned_document.readiness AS document_readiness,
-  materialized_content.title AS materialized_title,
-  materialized_content.nfm AS materialized_nfm,
-  materialized_content.preview AS materialized_preview
-`;
-
-const CARD_SUMMARY_FROM = `
-  FROM cards AS card
-  LEFT JOIN block_documents AS ownership
-    ON ownership.block_id = card.id
-    AND ownership.project_id = card.project_id
-  LEFT JOIN documents AS owned_document
-    ON owned_document.id = ownership.document_id
-    AND owned_document.project_id = ownership.project_id
-  LEFT JOIN document_materializations AS materialized_content
-    ON materialized_content.document_id = owned_document.id
-    AND materialized_content.generation = owned_document.generation
-    AND materialized_content.projected_seq = owned_document.head_seq
-`;
 
 interface DbRecurrenceException {
   id: number;
@@ -255,71 +198,6 @@ function rowToCard(row: DbCard): Card {
   };
 }
 
-const resolveCardSummaryContent = (
-  row: DbCardSummary | DbCardSummaryProjection,
-): Pick<CardSummary, "title" | "descriptionPreview" | "descriptionLength" | "hasDescription"> => {
-  if (!("document_authority" in row) || row.document_authority !== "ydoc_primary") {
-    return {
-      title: row.title,
-      descriptionPreview: row.description_preview,
-      descriptionLength: row.description_length,
-      hasDescription: row.has_description === 1,
-    };
-  }
-
-  if (
-    row.document_readiness !== "ready"
-    || typeof row.materialized_title !== "string"
-    || typeof row.materialized_nfm !== "string"
-    || typeof row.materialized_preview !== "string"
-  ) {
-    throw new Error(
-      `Primary Card ${row.id} is missing its current Document materialization`,
-    );
-  }
-
-  return {
-    title: row.materialized_title,
-    descriptionPreview: row.materialized_preview,
-    descriptionLength: row.materialized_nfm.length,
-    hasDescription: row.materialized_nfm.trim().length > 0,
-  };
-};
-
-function rowToCardSummary(
-  row: DbCardSummary | DbCardSummaryProjection,
-): CardSummary {
-  const runInTarget = parseRunInTarget(row.run_in_target);
-  const content = resolveCardSummaryContent(row);
-  return {
-    id: row.id,
-    status: row.status,
-    archived: row.archived === 1,
-    ...content,
-    priority: row.priority ? row.priority as Card["priority"] : undefined,
-    estimate: row.estimate ? row.estimate as Card["estimate"] : undefined,
-    tags: parseTags(row.tags),
-    dueDate: row.due_date ? new Date(row.due_date) : undefined,
-    scheduledStart: row.scheduled_start ? new Date(row.scheduled_start) : undefined,
-    scheduledEnd: row.scheduled_end ? new Date(row.scheduled_end) : undefined,
-    isAllDay: row.is_all_day === 1,
-    recurrence: parseRecurrence(row.recurrence_json),
-    reminders: parseReminders(row.reminders_json),
-    scheduleTimezone: row.schedule_timezone || undefined,
-    assignee: row.assignee || undefined,
-    agentBlocked: row.agent_blocked === 1,
-    agentStatus: row.agent_status || undefined,
-    runInTarget,
-    runInLocalPath: row.run_in_local_path || undefined,
-    runInBaseBranch: row.run_in_base_branch || undefined,
-    runInWorktreePath: row.run_in_worktree_path || undefined,
-    runInEnvironmentPath: row.run_in_environment_path || undefined,
-    revision: row.revision,
-    created: new Date(row.created),
-    order: row.order,
-  };
-}
-
 function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
@@ -342,14 +220,7 @@ export function readCardSummaryById(
   cardId: string,
   database: Database.Database = getDb(),
 ): CardSummary | null {
-  const row = database
-    .prepare(`
-      SELECT ${CARD_SUMMARY_SELECT_COLUMNS}
-      ${CARD_SUMMARY_FROM}
-      WHERE card.id = ?
-    `)
-    .get(cardId) as DbCardSummaryProjection | undefined;
-  return row ? rowToCardSummary(row) : null;
+  return readAuthoritativeCardSummaryById(database, cardId);
 }
 
 /**
@@ -363,23 +234,7 @@ export function readCardSummariesByIds(
   cardIds: readonly string[],
   database: Database.Database = getDb(),
 ): CardSummary[] {
-  const uniqueCardIds = Array.from(new Set(cardIds));
-  if (uniqueCardIds.length === 0) return [];
-
-  const placeholders = uniqueCardIds.map(() => "?").join(", ");
-  const rows = database.prepare(`
-    SELECT ${CARD_SUMMARY_SELECT_COLUMNS}
-    ${CARD_SUMMARY_FROM}
-    WHERE card.id IN (${placeholders})
-  `).all(...uniqueCardIds) as DbCardSummaryProjection[];
-  const summariesById = new Map(
-    rows.map((row) => [row.id, rowToCardSummary(row)] as const),
-  );
-
-  return cardIds.flatMap((cardId) => {
-    const summary = summariesById.get(cardId);
-    return summary ? [summary] : [];
-  });
+  return readAuthoritativeCardSummariesByIds(database, cardIds);
 }
 
 export interface CardDocumentBoardProjection {
@@ -402,22 +257,7 @@ export function readCardDocumentBoardProjection(
   database: Database.Database,
   documentId: string,
 ): CardDocumentBoardProjection | null {
-  const row = database.prepare(`
-    SELECT ${CARD_SUMMARY_SELECT_COLUMNS}
-    ${CARD_SUMMARY_FROM}
-    WHERE owned_document.id = ?
-      AND owned_document.readiness = 'ready'
-      AND owned_document.authority = 'ydoc_primary'
-    LIMIT 1
-  `).get(documentId) as DbCardSummaryProjection | undefined;
-  if (!row) return null;
-
-  return {
-    projectId: row.project_id,
-    cardId: row.id,
-    status: row.status,
-    summary: rowToCardSummary(row),
-  };
+  return readAuthoritativeCardSummaryByDocumentId(database, documentId);
 }
 
 export function syncCardReadModel(
@@ -859,18 +699,14 @@ export async function readSummaryColumn(projectId: string, columnId: CardStatus)
   const columnMeta = COLUMNS.find((c) => c.id === columnId);
   if (!columnMeta) throw new Error(`Unknown column: ${columnId}`);
 
-  const stmt = getDb().prepare(
-    `SELECT ${CARD_SUMMARY_SELECT_COLUMNS}
-     ${CARD_SUMMARY_FROM}
-     WHERE card.project_id = ? AND card.archived = 0 AND card.status = ?
-     ORDER BY card."order" ASC`,
-  );
-  const rows = stmt.all(canonicalProjectId, columnId) as DbCardSummaryProjection[];
-
   return {
     id: columnId,
     name: columnMeta.name,
-    cards: rows.map(rowToCardSummary),
+    cards: readAuthoritativeCardSummaryColumn(
+      getDb(),
+      canonicalProjectId,
+      columnId,
+    ),
   };
 }
 
@@ -887,7 +723,15 @@ export async function getBoard(projectId: string): Promise<Board> {
 
 export async function getBoardSummary(projectId: string): Promise<BoardSummary> {
   const canonicalProjectId = requireProjectId(projectId);
-  const columns = await Promise.all(COLUMNS.map((c) => readSummaryColumn(canonicalProjectId, c.id)));
+  const cards = readAuthoritativeProjectCardSummaries(
+    getDb(),
+    canonicalProjectId,
+  );
+  const columns = COLUMNS.map((column) => ({
+    id: column.id,
+    name: column.name,
+    cards: cards.filter((card) => card.status === column.id),
+  }));
   return { columns };
 }
 
@@ -1125,12 +969,16 @@ export async function updateCard(
       ? syncCardReadModel(database, cardId)
       : readCardSummaryById(cardId, database);
 
+    if (!updatedSummary) {
+      throw new Error(`Updated Card ${cardId} has no authoritative summary`);
+    }
+
     return {
       status: "updated",
       projectId: canonicalProjectId,
       cardId,
-      revision: updatedSummary?.revision ?? existing.revision + (didMutate ? 1 : 0),
-      summary: updatedSummary ?? rowToCardSummary(existing),
+      revision: updatedSummary.revision ?? existing.revision + (didMutate ? 1 : 0),
+      summary: updatedSummary,
       changedFields,
       didMutate,
     } as const;

@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type {
   Card,
+  CardSummary,
   Estimate,
   Priority,
   RecurrenceConfig,
@@ -742,6 +743,18 @@ const requireCompatibilityCard = (assembled: AssembledCard): Card => {
   );
 };
 
+const requireCompatibilitySummary = (assembled: AssembledCard): CardSummary => {
+  const card = requireCompatibilityCard(assembled);
+  const { description: ignoredDescription, ...summary } = card;
+  void ignoredDescription;
+  return {
+    ...summary,
+    descriptionPreview: assembled.content.preview,
+    descriptionLength: assembled.content.length,
+    hasDescription: assembled.content.hasDescription,
+  };
+};
+
 const canRefreshProjection = (assembled: AssembledCard): boolean => {
   const { row, content } = assembled;
   if (
@@ -893,6 +906,23 @@ const readRowsByIds = (
     .all(projectId, ...cardIds) as CardAuthorityRow[];
 };
 
+const readRowsByGlobalIds = (
+  database: Database.Database,
+  cardIds: readonly string[],
+): CardAuthorityRow[] => {
+  if (cardIds.length === 0) return [];
+  const placeholders = cardIds.map(() => "?").join(", ");
+  return database
+    .prepare(
+      `
+    ${CARD_AUTHORITY_SELECT}
+      AND card.lifecycle <> 'deleted'
+      AND card.id IN (${placeholders})
+  `,
+    )
+    .all(...cardIds) as CardAuthorityRow[];
+};
+
 export function readAuthoritativeCardById(
   database: Database.Database,
   projectId: string,
@@ -968,6 +998,117 @@ export function readAuthoritativeCardColumn(
       (left, right) =>
         left.order - right.order || left.id.localeCompare(right.id),
     );
+}
+
+export interface AuthoritativeCardDocumentSummary {
+  readonly projectId: string;
+  readonly cardId: string;
+  readonly status: CardStatus;
+  readonly summary: CardSummary;
+}
+
+export function readAuthoritativeCardSummaryById(
+  database: Database.Database,
+  cardId: string,
+): CardSummary | null {
+  return database.transaction(() => {
+    const row = readRowsByGlobalIds(database, [cardId])[0];
+    if (!row) return null;
+    const assembled = assembleRows(database, [row])[0];
+    return assembled ? requireCompatibilitySummary(assembled) : null;
+  })();
+}
+
+export function readAuthoritativeCardSummariesByIds(
+  database: Database.Database,
+  cardIds: readonly string[],
+): CardSummary[] {
+  return database.transaction(() => {
+    const uniqueCardIds = Array.from(new Set(cardIds));
+    const summariesById = new Map(
+      assembleRows(database, readRowsByGlobalIds(database, uniqueCardIds)).map(
+        (assembled) => {
+          const summary = requireCompatibilitySummary(assembled);
+          return [summary.id, summary] as const;
+        },
+      ),
+    );
+    return cardIds.flatMap((cardId) => {
+      const summary = summariesById.get(cardId);
+      return summary ? [summary] : [];
+    });
+  })();
+}
+
+export function readAuthoritativeProjectCardSummaries(
+  database: Database.Database,
+  projectId: string,
+): CardSummary[] {
+  return database.transaction(() => {
+    const rows = database
+      .prepare(
+        `
+      ${CARD_AUTHORITY_SELECT}
+        AND card.project_id = ?
+        AND card.lifecycle = 'active'
+    `,
+      )
+      .all(projectId) as CardAuthorityRow[];
+    return assembleRows(
+      database,
+      rows.filter((row) => row.membership_id !== null),
+    )
+      .map(requireCompatibilitySummary)
+      .sort((left, right) => {
+        if (left.status !== right.status) {
+          return left.status.localeCompare(right.status);
+        }
+        if (left.order !== right.order) return left.order - right.order;
+        return left.id.localeCompare(right.id);
+      });
+  })();
+}
+
+export function readAuthoritativeCardSummaryColumn(
+  database: Database.Database,
+  projectId: string,
+  status: CardStatus,
+): CardSummary[] {
+  return readAuthoritativeProjectCardSummaries(database, projectId)
+    .filter((card) => card.status === status)
+    .sort(
+      (left, right) =>
+        left.order - right.order || left.id.localeCompare(right.id),
+    );
+}
+
+export function readAuthoritativeCardSummaryByDocumentId(
+  database: Database.Database,
+  documentId: string,
+): AuthoritativeCardDocumentSummary | null {
+  return database.transaction(() => {
+    const row = database
+      .prepare(
+        `
+      ${CARD_AUTHORITY_SELECT}
+        AND document.id = ?
+        AND document.readiness = 'ready'
+        AND document.authority = 'ydoc_primary'
+      LIMIT 1
+    `,
+      )
+      .get(documentId) as CardAuthorityRow | undefined;
+    if (!row) return null;
+    const assembled = assembleRows(database, [row])[0];
+    if (!assembled) return null;
+    const summary = requireCompatibilitySummary(assembled);
+    return {
+      projectId: row.project_id,
+      cardId: summary.id,
+      status: summary.status,
+      summary,
+    };
+  })();
 }
 
 /**

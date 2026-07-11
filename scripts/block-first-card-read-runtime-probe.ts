@@ -18,8 +18,12 @@ import {
 import {
   createCard,
   getBoard,
+  getBoardSummary,
   getCard,
   getCardsDetails,
+  readCardDocumentBoardProjection,
+  readCardSummariesByIds,
+  readCardSummaryById,
   readColumn,
   searchCards,
 } from "../src/main/local-store/cards";
@@ -133,6 +137,27 @@ const expectFreshCard = (
   );
   assert(
     card.agentStatus === "relational-agent",
+    `${source} used stale intrinsic metadata`,
+  );
+};
+
+const expectFreshSummary = (
+  summary: ReturnType<typeof readCardSummaryById>,
+  source: string,
+): void => {
+  assert(summary, `${source} did not return the Card summary`);
+  assert(summary.title === "Primary title", `${source} used stale title`);
+  assert(
+    summary.descriptionPreview === "Primary body",
+    `${source} used stale preview`,
+  );
+  assert(summary.priority === "p0-critical", `${source} used stale priority`);
+  assert(
+    summary.tags.join(",") === "relational,fresh",
+    `${source} used stale tags`,
+  );
+  assert(
+    summary.agentStatus === "relational-agent",
     `${source} used stale intrinsic metadata`,
   );
 };
@@ -269,6 +294,23 @@ const main = async (): Promise<void> => {
         .flatMap((column) => column.cards)
         .find((card) => card.id === created.id) ?? null;
     expectFreshCard(boardCard, "getBoard");
+    expectFreshSummary(
+      readCardSummaryById(created.id, database),
+      "readCardSummaryById",
+    );
+    expectFreshSummary(
+      readCardSummariesByIds([created.id], database)[0] ?? null,
+      "readCardSummariesByIds",
+    );
+    const boardSummaryCard = (await getBoardSummary(project.id)).columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.id === created.id);
+    expectFreshSummary(boardSummaryCard ?? null, "getBoardSummary");
+    expectFreshSummary(
+      readCardDocumentBoardProjection(database, descriptor.documentId)
+        ?.summary ?? null,
+      "readCardDocumentBoardProjection",
+    );
 
     database.transaction(() => {
       rebuildCardReadModelProjection(database, project.id, [created.id]);
@@ -321,6 +363,17 @@ const main = async (): Promise<void> => {
       staleCode === "card_materialization_stale",
       "Primary stale materialization did not fail closed",
     );
+    let staleSummaryCode: string | null = null;
+    try {
+      readCardSummaryById(created.id, database);
+    } catch (error) {
+      staleSummaryCode =
+        error instanceof CardReadStoreError ? error.code : "unexpected";
+    }
+    assert(
+      staleSummaryCode === "card_materialization_stale",
+      "Primary stale summary did not fail closed",
+    );
     database
       .prepare(
         `
@@ -338,6 +391,7 @@ const main = async (): Promise<void> => {
     closeDatabase();
     await initializeDatabase();
     expectFreshCard(await getCard(project.id, created.id), "restart");
+    expectFreshSummary(readCardSummaryById(created.id), "summary restart");
 
     const restartedDatabase = getDb();
     restartedDatabase
@@ -414,6 +468,9 @@ const main = async (): Promise<void> => {
           getCardsDetails: true,
           readColumn: true,
           getBoard: true,
+          getBoardSummary: true,
+          summaryById: true,
+          summaryByDocument: true,
           searchCards: true,
           restart: true,
         },
