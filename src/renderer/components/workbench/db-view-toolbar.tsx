@@ -45,6 +45,7 @@ interface DbViewToolbarProps {
   dbViewPrefs: DbViewPrefs | null;
   availableTags: string[];
   viewContextLabel?: ReactNode;
+  managementControl?: ReactNode;
   calendarControls?: ReactNode;
   showSearchControls?: boolean;
   onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
@@ -80,6 +81,7 @@ export function DbViewToolbar({
   dbViewPrefs,
   availableTags,
   viewContextLabel,
+  managementControl,
   calendarControls,
   showSearchControls = true,
   onUpdateDbViewPrefs,
@@ -260,6 +262,7 @@ export function DbViewToolbar({
           ) : null}
 
           <div className="ml-auto flex h-full items-center justify-end gap-0.5">
+            {managementControl}
             {rulesButtons}
 
             {showSearchControls ? (

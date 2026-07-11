@@ -242,13 +242,21 @@ const requireCoordinate = (
  * callers retain the returned mutationId and submit the exact request through
  * the existing BlockPropertyMutation transport.
  */
-export const compileCardMetadataPropertyMutation = (input: {
+export interface CompileCardMetadataPropertyMutationInput {
   readonly mutationId: string;
   readonly clientSessionId?: string;
   readonly actor: Readonly<Record<string, BlockPropertyJsonValue>>;
   readonly snapshot: CardMetadataPropertySnapshot;
   readonly patch: Partial<CardInput>;
-}): BlockPropertyMutationRequest => {
+}
+
+/**
+ * Compile a compatibility Card metadata patch, returning null when the patch
+ * is already represented by the captured authority coordinate.
+ */
+export const compileCardMetadataPropertyMutationOrNull = (
+  input: CompileCardMetadataPropertyMutationInput,
+): BlockPropertyMutationRequest | null => {
   const patch = input.patch as Readonly<Record<string, unknown>>;
   for (const field of Object.keys(patch)) {
     if (DOCUMENT_FIELDS.has(field)) {
@@ -338,11 +346,7 @@ export const compileCardMetadataPropertyMutation = (input: {
       value,
     });
   }
-  if (fields.length === 0) {
-    throw new CardMetadataPropertyCompilerError(
-      "Card metadata patch has no semantic changes",
-    );
-  }
+  if (fields.length === 0) return null;
   return parseBlockPropertyMutationRequest({
     version: BLOCK_PROPERTY_MUTATION_CONTRACT_VERSION,
     mutationId: input.mutationId,
@@ -354,4 +358,14 @@ export const compileCardMetadataPropertyMutation = (input: {
     actor: input.actor,
     fields,
   });
+};
+
+export const compileCardMetadataPropertyMutation = (
+  input: CompileCardMetadataPropertyMutationInput,
+): BlockPropertyMutationRequest => {
+  const request = compileCardMetadataPropertyMutationOrNull(input);
+  if (request) return request;
+  throw new CardMetadataPropertyCompilerError(
+    "Card metadata patch has no semantic changes",
+  );
 };

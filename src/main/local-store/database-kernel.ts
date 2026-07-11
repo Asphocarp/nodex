@@ -33,12 +33,14 @@ import {
   queryGeneralDatabaseView,
   readCardContentSummary,
   readGeneralDatabaseDescriptor,
+  readGeneralDatabaseCatalog,
   readPrimaryGeneralDatabaseDescriptor,
 } from "./database-query";
 import {
   DATABASE_QUERY_CONTRACT_VERSION,
   type DatabaseReadCommandResult,
   type DatabaseReadSnapshot,
+  type DatabaseCatalogSnapshotCommandResult,
   type DatabaseViewSnapshotCommandResult,
   type GeneralDatabaseDescriptor,
   type GeneralDatabaseViewQuery,
@@ -3368,6 +3370,18 @@ export const readPrimaryDatabaseDescriptorSnapshot = (
 ): DatabaseReadCommandResult<GeneralDatabaseDescriptor> =>
   readDatabaseSnapshot(database, projectId, () =>
     readPrimaryGeneralDatabaseDescriptor(projectId, database),
+  );
+
+export const readDatabaseCatalogSnapshot = (
+  database: Database.Database,
+  projectId: string,
+  options: DatabaseReadSnapshotOptions = {},
+): DatabaseCatalogSnapshotCommandResult =>
+  readDatabaseSnapshot(
+    database,
+    projectId,
+    () => readGeneralDatabaseCatalog(projectId, database),
+    options,
   );
 
 export const readPrimaryDatabaseViewSnapshot = (

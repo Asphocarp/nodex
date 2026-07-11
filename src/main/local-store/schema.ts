@@ -28,10 +28,10 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 68;
+export const CURRENT_SCHEMA_VERSION = 69;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68,
+    51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -597,14 +597,14 @@ function createAtomicBlockRelocationSchema(db: Database.Database): void {
         id, source_document_id, project_id, source_generation,
         source_base_head_seq
       ),
-      FOREIGN KEY (source_document_id, project_id)
-        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
-      FOREIGN KEY (target_document_id, target_project_id)
-        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
-      FOREIGN KEY (target_parent_block_id, target_project_id)
-        REFERENCES blocks(id, project_id) ON DELETE RESTRICT,
-      FOREIGN KEY (target_before_block_id, target_project_id)
-        REFERENCES blocks(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (source_document_id)
+        REFERENCES documents(id) ON DELETE RESTRICT,
+      FOREIGN KEY (target_document_id)
+        REFERENCES documents(id) ON DELETE RESTRICT,
+      FOREIGN KEY (target_parent_block_id)
+        REFERENCES blocks(id) ON DELETE RESTRICT,
+      FOREIGN KEY (target_before_block_id)
+        REFERENCES blocks(id) ON DELETE RESTRICT,
       FOREIGN KEY (source_document_id, source_generation, source_committed_seq)
         REFERENCES document_update_receipts(document_id, generation, seq)
         ON DELETE RESTRICT,
@@ -745,8 +745,8 @@ function createAtomicBlockRelocationSchema(db: Database.Database): void {
       expires_at TEXT NOT NULL,
       resolved_at TEXT,
       UNIQUE (document_id, generation, update_id),
-      FOREIGN KEY (document_id, project_id)
-        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (document_id)
+        REFERENCES documents(id) ON DELETE RESTRICT,
       CHECK (length(id) BETWEEN 1 AND 512),
       CHECK (length(store_epoch) BETWEEN 1 AND 512),
       CHECK (length(update_id) BETWEEN 1 AND 512),
@@ -1396,8 +1396,8 @@ function createBlockFoundationSchema(db: Database.Database): void {
       removed_at TEXT,
       FOREIGN KEY (database_block_id, project_id)
         REFERENCES database_capabilities(block_id, project_id) ON DELETE CASCADE,
-      FOREIGN KEY (card_block_id, project_id)
-        REFERENCES blocks(id, project_id) ON DELETE CASCADE
+      FOREIGN KEY (card_block_id)
+        REFERENCES blocks(id) ON DELETE CASCADE
     ) WITHOUT ROWID;
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_database_memberships_active_card
@@ -1411,15 +1411,25 @@ function createBlockFoundationSchema(db: Database.Database): void {
     CREATE TRIGGER IF NOT EXISTS database_memberships_require_card_block
       BEFORE INSERT ON database_memberships
       WHEN NEW.removed_at IS NULL
-        AND (SELECT type FROM blocks WHERE id = NEW.card_block_id) <> 'card'
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks card
+          WHERE card.id = NEW.card_block_id
+            AND card.project_id = NEW.project_id
+            AND card.type = 'card'
+        )
       BEGIN
         SELECT RAISE(ABORT, 'active database membership requires a card block');
       END;
 
     CREATE TRIGGER IF NOT EXISTS database_memberships_updates_require_card_block
-      BEFORE UPDATE OF card_block_id, removed_at ON database_memberships
+      BEFORE UPDATE OF card_block_id, project_id, removed_at ON database_memberships
       WHEN NEW.removed_at IS NULL
-        AND (SELECT type FROM blocks WHERE id = NEW.card_block_id) <> 'card'
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks card
+          WHERE card.id = NEW.card_block_id
+            AND card.project_id = NEW.project_id
+            AND card.type = 'card'
+        )
       BEGIN
         SELECT RAISE(ABORT, 'active database membership requires a card block');
       END;
@@ -1906,8 +1916,8 @@ function createBlockSecondaryAuthorityFoundationSchema(
       checkpoint_hash TEXT NOT NULL,
       byte_length INTEGER NOT NULL CHECK (byte_length > 0),
       created_at TEXT NOT NULL,
-      FOREIGN KEY (document_id, project_id)
-        REFERENCES documents(id, project_id) ON DELETE CASCADE,
+      FOREIGN KEY (document_id)
+        REFERENCES documents(id) ON DELETE CASCADE,
       CHECK (length(version_id) BETWEEN 1 AND 512),
       CHECK (length(schema_key) BETWEEN 1 AND 128),
       CHECK (length(cause) BETWEEN 1 AND 128),
@@ -3614,8 +3624,8 @@ function createCanvasSceneMaterializationSchema(
       title_hint TEXT,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (document_id, source_element_id),
-      FOREIGN KEY (target_block_id, project_id)
-        REFERENCES blocks(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (target_block_id)
+        REFERENCES blocks(id) ON DELETE RESTRICT,
       FOREIGN KEY (owner_block_id, document_id, project_id)
         REFERENCES block_documents(block_id, document_id, project_id)
         ON DELETE CASCADE,
@@ -7379,6 +7389,113 @@ function migrateSchema67To68(db: Database.Database): void {
   migrate.immediate();
 }
 
+/**
+ * v68 coupled immutable evidence to the current Project coordinate of the
+ * referenced Block/Document. That made a stable-ID Card transfer impossible:
+ * moving the authority would either rewrite historical provenance or violate
+ * the composite foreign key. v69 keeps the historical Project columns intact
+ * and makes only the identity edge global. Active Database membership remains
+ * same-Project through its strict insert/update trigger.
+ */
+function rebuildV69ProjectTransferScopeTables(db: Database.Database): void {
+  db.exec(`
+    ALTER TABLE database_memberships
+      RENAME TO database_memberships_v68;
+    ALTER TABLE block_relocations
+      RENAME TO block_relocations_v68;
+    ALTER TABLE document_recovery_artifacts
+      RENAME TO document_recovery_artifacts_v68;
+    ALTER TABLE document_versions
+      RENAME TO document_versions_v68;
+    ALTER TABLE canvas_card_references
+      RENAME TO canvas_card_references_v68;
+  `);
+
+  // These idempotent builders create only the five now-missing tables. Their
+  // old indexes/triggers still belong to the renamed v68 tables until swap.
+  createBlockFoundationSchema(db);
+  createAtomicBlockRelocationSchema(db);
+  createBlockSecondaryAuthorityFoundationSchema(db);
+  createCanvasSceneMaterializationSchema(db);
+
+  db.exec(`
+    INSERT INTO database_memberships
+      SELECT * FROM database_memberships_v68;
+    INSERT INTO block_relocations
+      SELECT * FROM block_relocations_v68;
+    INSERT INTO document_recovery_artifacts
+      SELECT * FROM document_recovery_artifacts_v68;
+    INSERT INTO document_versions
+      SELECT * FROM document_versions_v68;
+    INSERT INTO canvas_card_references
+      SELECT * FROM canvas_card_references_v68;
+
+    DROP TABLE database_memberships_v68;
+    DROP TABLE block_relocations_v68;
+    DROP TABLE document_recovery_artifacts_v68;
+    DROP TABLE document_versions_v68;
+    DROP TABLE canvas_card_references_v68;
+  `);
+
+  // Dropping the old tables also drops their attached indexes/triggers.
+  createBlockFoundationSchema(db);
+  createAtomicBlockRelocationSchema(db);
+  createBlockSecondaryAuthorityFoundationSchema(db);
+  createCanvasSceneMaterializationSchema(db);
+}
+
+function assertV69ProjectTransferScopeSchema(db: Database.Database): void {
+  const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+  if (foreignKeyViolations.length > 0) {
+    throw new Error(
+      "Database schema v69 migration left foreign-key violations",
+    );
+  }
+  const integrity = db.pragma("integrity_check") as Array<{
+    readonly integrity_check: string;
+  }>;
+  if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
+    throw new Error("Database schema v69 migration failed integrity_check");
+  }
+  const staleReference = db
+    .prepare(
+      `
+      SELECT name
+      FROM sqlite_schema
+      WHERE lower(sql) LIKE '%database_memberships_v68%'
+         OR lower(sql) LIKE '%block_relocations_v68%'
+         OR lower(sql) LIKE '%document_recovery_artifacts_v68%'
+         OR lower(sql) LIKE '%document_versions_v68%'
+         OR lower(sql) LIKE '%canvas_card_references_v68%'
+      LIMIT 1
+    `,
+    )
+    .get() as { readonly name: string } | undefined;
+  if (!staleReference) return;
+  throw new Error(
+    `Database schema v69 retained a temporary-table reference in ${staleReference.name}`,
+  );
+}
+
+function migrateSchema68To69(db: Database.Database): void {
+  // SQLite documents that foreign_keys cannot be toggled inside a transaction.
+  // legacy_alter_table keeps child references pointed at the stable table name
+  // while each parent is rebuilt under that name.
+  db.pragma("foreign_keys = OFF");
+  db.pragma("legacy_alter_table = ON");
+  try {
+    const migrate = db.transaction(() => {
+      rebuildV69ProjectTransferScopeTables(db);
+      assertV69ProjectTransferScopeSchema(db);
+      setUserVersion(db, 69);
+    });
+    migrate.immediate();
+  } finally {
+    db.pragma("legacy_alter_table = OFF");
+    db.pragma("foreign_keys = ON");
+  }
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -7760,6 +7877,16 @@ function runMigrations(
       }
       migrateSchema67To68(db);
       fromVersion = 68;
+      continue;
+    }
+    if (target === 69) {
+      if (fromVersion !== 68) {
+        throw new Error(
+          `Unsupported Nodex database migration target 69 from ${fromVersion}`,
+        );
+      }
+      migrateSchema68To69(db);
+      fromVersion = 69;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

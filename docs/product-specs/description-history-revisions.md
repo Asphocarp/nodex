@@ -1,9 +1,9 @@
 # Description History Revisions
 
-Status: Active
-Last Updated: 2026-03-13
+Status: Legacy internal compatibility model
+Last Updated: 2026-07-12
 
-This document is the detailed source of truth for Nodex's revision-based storage for card description history.
+This document describes the revision-based compatibility storage still used by legacy Card writers during Block-first cleanup. It is not the current content or public history authority: Card title/body live in the owned Y.Doc, canonical history reads immutable Document/Block evidence, and no IPC, HTTP, renderer, or CLI path exposes this snapshot undo/revert model.
 
 It is intentionally narrower than the main product spec. It explains how description history is stored, hydrated, pruned, and reclaimed on disk.
 
@@ -41,7 +41,7 @@ Not included:
 - Keep current card reads fast by preserving `cards.description`.
 - Remove full-description duplication from `history`.
 - Deduplicate repeated top-level NFM blocks across revisions.
-- Keep undo/redo and restore semantics unchanged at the API/UI boundary.
+- Retain enough internal reconstruction behavior for remaining legacy writers without exposing it as an API/UI mutation authority.
 - Keep storage bounded over time through pruning, GC, and incremental vacuum.
 - Share one canonical NFM parser/serializer between main and renderer.
 

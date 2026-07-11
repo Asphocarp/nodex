@@ -10,7 +10,11 @@ import {
   type BlockTreeNode,
 } from "../../shared/block-documents/block-document-codec";
 import { applyAdditionalDocumentCommand } from "./additional-document-command-kernel";
-import { initializeBlockDocumentGenesis } from "./block-document-store";
+import {
+  applyBlockDocumentUpdate,
+  initializeBlockDocumentGenesis,
+  loadPrimaryBlockDocument,
+} from "./block-document-store";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
 
@@ -197,6 +201,28 @@ describe("additional Document authoritative command kernel", () => {
             paragraph("sync:root", "root", [paragraph("sync:child", "child")]),
           ],
         });
+        const flushed = loadPrimaryBlockDocument(
+          database,
+          "document:sync-host",
+        );
+        const vector = Y.encodeStateVector(flushed.document);
+        const text = [...flushed.document.getXmlFragment("body").createTreeWalker(
+          (node) => node instanceof Y.XmlText,
+        )][0] as Y.XmlText | undefined;
+        if (!text) throw new Error("Expected host text before promotion");
+        text.insert(text.length, " after lease flush");
+        const flushAck = applyBlockDocumentUpdate(database, {
+          documentId: "document:sync-host",
+          storeEpoch,
+          generation: 1,
+          updateId: "command:promote:flush",
+          clientSessionId: "test:mounted-surface",
+          baseHeadSeq: 1,
+          touchedBlockIds: ["sync:root"],
+          update: Y.encodeStateAsUpdate(flushed.document, vector),
+        });
+        flushed.document.destroy();
+        expect(flushAck.headSeq).toBe(2);
         const promoted = applyAdditionalDocumentCommand(
           database,
           command(
@@ -208,7 +234,6 @@ describe("additional Document authoritative command kernel", () => {
               host: {
                 documentId: "document:sync-host",
                 generation: 1,
-                headSeq: 1,
               },
               rootBlockId: "sync:root",
               referenceBlockId: "sync:reference",
@@ -219,7 +244,7 @@ describe("additional Document authoritative command kernel", () => {
               {
                 documentId: "document:sync-host",
                 generation: 1,
-                headSeq: 1,
+                headSeq: flushAck.headSeq,
               },
             ]),
           ),
@@ -238,9 +263,25 @@ describe("additional Document authoritative command kernel", () => {
         const source = promoted.value.effect.documentHeads.find(
           (head) => head.documentId === "document:sync-source",
         );
-        expect(host?.headSeq).toBe(2);
+        expect(host?.headSeq).toBe(3);
         expect(source?.headSeq).toBe(1);
         if (!host || !source) return;
+        const promotedSource = loadPrimaryBlockDocument(
+          database,
+          "document:sync-source",
+        );
+        try {
+          const promotedText = [
+            ...promotedSource.document.getXmlFragment("body").createTreeWalker(
+              (node) => node instanceof Y.XmlText,
+            ),
+          ][0] as Y.XmlText | undefined;
+          expect(promotedText?.toString()).toBe(
+            "root after lease flush",
+          );
+        } finally {
+          promotedSource.document.destroy();
+        }
 
         const demoted = applyAdditionalDocumentCommand(
           database,
@@ -250,8 +291,14 @@ describe("additional Document authoritative command kernel", () => {
             "command:demote",
             {
               kind: "demote_synced_source",
-              host,
-              source,
+              host: {
+                documentId: host.documentId,
+                generation: host.generation,
+              },
+              source: {
+                documentId: source.documentId,
+                generation: source.generation,
+              },
               referenceBlockId: "sync:reference",
               sourceBlockId: "sync:source",
             },
@@ -274,8 +321,14 @@ describe("additional Document authoritative command kernel", () => {
             "command:demote",
             {
               kind: "demote_synced_source",
-              host,
-              source,
+              host: {
+                documentId: host.documentId,
+                generation: host.generation,
+              },
+              source: {
+                documentId: source.documentId,
+                generation: source.generation,
+              },
               referenceBlockId: "sync:reference",
               sourceBlockId: "sync:source",
             },
@@ -298,8 +351,14 @@ describe("additional Document authoritative command kernel", () => {
             "command:demote",
             {
               kind: "demote_synced_source",
-              host,
-              source,
+              host: {
+                documentId: host.documentId,
+                generation: host.generation,
+              },
+              source: {
+                documentId: source.documentId,
+                generation: source.generation,
+              },
               referenceBlockId: "sync:different-reference",
               sourceBlockId: "sync:source",
             },
@@ -350,12 +409,10 @@ describe("additional Document authoritative command kernel", () => {
               source: {
                 documentId: "document:template",
                 generation: 1,
-                headSeq: 1,
               },
               target: {
                 documentId: "document:target",
                 generation: 1,
-                headSeq: 1,
               },
             },
             lease("lease:instantiate", [
@@ -383,6 +440,84 @@ describe("additional Document authoritative command kernel", () => {
           expect(
             instantiated.value.effect.createdBlockIds.includes("card:target"),
           ).toBe(false);
+
+          const freshHeadReplay = applyAdditionalDocumentCommand(
+            database,
+            command(
+              projectId,
+              storeEpoch,
+              "command:instantiate",
+              {
+                kind: "instantiate_template",
+                sourceBlockId: "template:source",
+                source: {
+                  documentId: "document:template",
+                  generation: 1,
+                },
+                target: {
+                  documentId: "document:target",
+                  generation: 1,
+                },
+              },
+              lease("lease:instantiate-retry", [
+                {
+                  documentId: "document:template",
+                  generation: 1,
+                  headSeq: 1,
+                },
+                {
+                  documentId: "document:target",
+                  generation: 1,
+                  headSeq: 2,
+                },
+              ]),
+            ),
+          );
+          expect(freshHeadReplay.ok).toBe(true);
+          if (freshHeadReplay.ok) {
+            expect(freshHeadReplay.value.duplicate).toBe(true);
+            expect(freshHeadReplay.value.semanticHash).toBe(
+              instantiated.value.semanticHash,
+            );
+          }
+
+          const anchorCollision = applyAdditionalDocumentCommand(
+            database,
+            command(
+              projectId,
+              storeEpoch,
+              "command:instantiate",
+              {
+                kind: "instantiate_template",
+                sourceBlockId: "template:source",
+                source: {
+                  documentId: "document:template",
+                  generation: 1,
+                },
+                target: {
+                  documentId: "document:target",
+                  generation: 1,
+                },
+                beforeBlockId: "target:anchor",
+              },
+              lease("lease:instantiate-anchor-collision", [
+                {
+                  documentId: "document:template",
+                  generation: 1,
+                  headSeq: 1,
+                },
+                {
+                  documentId: "document:target",
+                  generation: 1,
+                  headSeq: 2,
+                },
+              ]),
+            ),
+          );
+          expect(anchorCollision.ok).toBe(false);
+          if (!anchorCollision.ok) {
+            expect(anchorCollision.error.code).toBe("operation_id_collision");
+          }
         }
 
         const large = applyAdditionalDocumentCommand(
@@ -405,7 +540,6 @@ describe("additional Document authoritative command kernel", () => {
                 host: {
                   documentId: "document:target",
                   generation: 1,
-                  headSeq: 2,
                 },
               },
             },
@@ -491,12 +625,10 @@ describe("additional Document authoritative command kernel", () => {
               source: {
                 documentId: "document:missing-source",
                 generation: 1,
-                headSeq: 1,
               },
               target: {
                 documentId: "document:missing-target",
                 generation: 1,
-                headSeq: 1,
               },
             },
             { kind: "receipt_replay" },

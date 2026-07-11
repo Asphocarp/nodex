@@ -4,7 +4,7 @@ import { Worker } from "node:worker_threads";
 import { getLocalStoreDir } from "./local-store/config";
 import { dbNotifier, type ChangeType } from "./local-store/notifier";
 import { getLogger } from "./logging/logger";
-import type { BoardChangeEvent, UndoRedoResult } from "../shared/ipc-api";
+import type { BoardChangeEvent } from "../shared/ipc-api";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -42,6 +42,7 @@ import {
   type DatabaseChangeEvent,
 } from "../shared/database-events";
 import type {
+  DatabaseCatalogSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -95,9 +96,7 @@ import type {
   CardMutationWorkerResponse,
   CardMutationWorkerResult,
   CardOccurrenceMutationResult,
-  CardHistoryVersionPreviewResult,
   CardReadModelBackfillResult,
-  HistoryMutationResult,
 } from "./card-mutation-worker-protocol";
 
 const LONG_MUTATION_WARN_MS = 1_000;
@@ -333,60 +332,6 @@ export class CardMutationWriter {
     });
   }
 
-  async undoLatest(
-    projectId: string,
-    sessionId?: string,
-  ): Promise<CardMutationEnvelope<UndoRedoResult>> {
-    return await this.executeTyped<UndoRedoResult>({
-      type: "undoLatest",
-      payload: { projectId, sessionId },
-    });
-  }
-
-  async redoLatest(
-    projectId: string,
-    sessionId?: string,
-  ): Promise<CardMutationEnvelope<UndoRedoResult>> {
-    return await this.executeTyped<UndoRedoResult>({
-      type: "redoLatest",
-      payload: { projectId, sessionId },
-    });
-  }
-
-  async revertEntry(
-    projectId: string,
-    historyId: number,
-    sessionId?: string,
-  ): Promise<CardMutationEnvelope<HistoryMutationResult>> {
-    return await this.executeTyped<HistoryMutationResult>({
-      type: "revertEntry",
-      payload: { projectId, historyId, sessionId },
-    });
-  }
-
-  async restoreToEntry(
-    projectId: string,
-    cardId: string,
-    historyId: number,
-    sessionId?: string,
-  ): Promise<CardMutationEnvelope<HistoryMutationResult>> {
-    return await this.executeTyped<HistoryMutationResult>({
-      type: "restoreToEntry",
-      payload: { projectId, cardId, historyId, sessionId },
-    });
-  }
-
-  async getCardHistoryVersionPreview(
-    projectId: string,
-    cardId: string,
-    historyId: number,
-  ): Promise<CardMutationEnvelope<CardHistoryVersionPreviewResult>> {
-    return await this.executeTyped<CardHistoryVersionPreviewResult>({
-      type: "getCardHistoryVersionPreview",
-      payload: { projectId, cardId, historyId },
-    });
-  }
-
   async backfillCardReadModel(
     limit?: number,
   ): Promise<CardMutationEnvelope<CardReadModelBackfillResult>> {
@@ -511,6 +456,15 @@ export class CardMutationWriter {
     >({
       type: "readDatabaseDescriptor",
       payload: { projectId, databaseBlockId },
+    });
+  }
+
+  async readDatabaseCatalog(
+    projectId: string,
+  ): Promise<CardMutationEnvelope<DatabaseCatalogSnapshotCommandResult>> {
+    return await this.executeTyped<DatabaseCatalogSnapshotCommandResult>({
+      type: "readDatabaseCatalog",
+      payload: { projectId },
     });
   }
 

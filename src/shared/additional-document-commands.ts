@@ -27,7 +27,16 @@ export interface AdditionalDocumentHeadRevision {
   readonly headSeq: number;
 }
 
-export interface AdditionalDocumentOwnerRevision extends AdditionalDocumentHeadRevision {
+/**
+ * Stable logical Document identity. A SQLite head is deliberately absent: it
+ * is renewable execution proof supplied by `coordination`, not user intent.
+ */
+export interface AdditionalDocumentRevision {
+  readonly documentId: string;
+  readonly generation: number;
+}
+
+export interface AdditionalDocumentOwnerRevision extends AdditionalDocumentRevision {
   readonly ownerBlockId: string;
   readonly metadataRevision: number;
   readonly locationRevision: number;
@@ -69,7 +78,7 @@ export interface CreateSyncedSourceOperation {
 
 export interface PromoteSyncedSourceOperation {
   readonly kind: "promote_synced_source";
-  readonly host: AdditionalDocumentHeadRevision;
+  readonly host: AdditionalDocumentRevision;
   readonly rootBlockId: string;
   readonly referenceBlockId: string;
   readonly sourceBlockId: string;
@@ -78,8 +87,8 @@ export interface PromoteSyncedSourceOperation {
 
 export interface DemoteSyncedSourceOperation {
   readonly kind: "demote_synced_source";
-  readonly host: AdditionalDocumentHeadRevision;
-  readonly source: AdditionalDocumentHeadRevision;
+  readonly host: AdditionalDocumentRevision;
+  readonly source: AdditionalDocumentRevision;
   readonly referenceBlockId: string;
   readonly sourceBlockId: string;
 }
@@ -97,8 +106,8 @@ export interface CreateTemplateOperation {
 export interface InstantiateTemplateOperation {
   readonly kind: "instantiate_template";
   readonly sourceBlockId: string;
-  readonly source: AdditionalDocumentHeadRevision;
-  readonly target: AdditionalDocumentHeadRevision;
+  readonly source: AdditionalDocumentRevision;
+  readonly target: AdditionalDocumentRevision;
   readonly parentBlockId?: string;
   readonly beforeBlockId?: string;
   /**
@@ -122,7 +131,7 @@ export type LargeDocumentLocation =
   | AdditionalDocumentSpacePlacement
   | {
       readonly kind: "document";
-      readonly host: AdditionalDocumentHeadRevision;
+      readonly host: AdditionalDocumentRevision;
       readonly parentBlockId?: string;
       readonly beforeBlockId?: string;
     };
@@ -295,6 +304,7 @@ export type AdditionalDocumentCommandErrorCode =
   | "identity_conflict"
   | "block_revision_conflict"
   | "document_head_conflict"
+  | "document_generation_mismatch"
   | "source_not_found"
   | "source_referenced"
   | "source_shared"
@@ -319,6 +329,21 @@ export class AdditionalDocumentCommandContractError extends TypeError {
   constructor(message: string) {
     super(message);
     this.name = "AdditionalDocumentCommandContractError";
+  }
+}
+
+export type AdditionalDocumentExecutionProofErrorCode =
+  | "invalid_execution_proof"
+  | "document_generation_mismatch"
+  | "document_head_regressed";
+
+export class AdditionalDocumentExecutionProofError extends AdditionalDocumentCommandContractError {
+  constructor(
+    readonly code: AdditionalDocumentExecutionProofErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AdditionalDocumentExecutionProofError";
   }
 }
 
@@ -486,6 +511,18 @@ const parseHead = (
   };
 };
 
+const parseRevision = (
+  value: unknown,
+  label: string,
+): AdditionalDocumentRevision => {
+  const revision = readRecord(value, label);
+  assertExactKeys(revision, label, ["documentId", "generation"]);
+  return {
+    documentId: readString(revision, "documentId", label),
+    generation: readInteger(revision, "generation", label, 1),
+  };
+};
+
 const parseOwner = (
   value: unknown,
   label: string,
@@ -497,7 +534,6 @@ const parseOwner = (
     "locationRevision",
     "documentId",
     "generation",
-    "headSeq",
   ]);
   return {
     ownerBlockId: readString(owner, "ownerBlockId", label),
@@ -505,7 +541,6 @@ const parseOwner = (
     locationRevision: readInteger(owner, "locationRevision", label, 1),
     documentId: readString(owner, "documentId", label),
     generation: readInteger(owner, "generation", label, 1),
-    headSeq: readInteger(owner, "headSeq", label, 1),
   };
 };
 
@@ -669,7 +704,7 @@ const parseDocumentLocation = (
   }
   return {
     kind: "document",
-    host: parseHead(location.host, `${label}.host`),
+    host: parseRevision(location.host, `${label}.host`),
     ...(parentBlockId === undefined ? {} : { parentBlockId }),
     ...(beforeBlockId === undefined ? {} : { beforeBlockId }),
   };
@@ -741,7 +776,7 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
     }
     return {
       kind,
-      host: parseHead(operation.host, `${label}.host`),
+      host: parseRevision(operation.host, `${label}.host`),
       rootBlockId,
       referenceBlockId,
       sourceBlockId,
@@ -756,8 +791,8 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       "referenceBlockId",
       "sourceBlockId",
     ]);
-    const host = parseHead(operation.host, `${label}.host`);
-    const source = parseHead(operation.source, `${label}.source`);
+    const host = parseRevision(operation.host, `${label}.host`);
+    const source = parseRevision(operation.source, `${label}.source`);
     if (host.documentId === source.documentId) {
       throw new AdditionalDocumentCommandContractError(
         `${label} host and source Documents must differ`,
@@ -829,8 +864,8 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       ["kind", "sourceBlockId", "source", "target"],
       ["parentBlockId", "beforeBlockId"],
     );
-    const source = parseHead(operation.source, `${label}.source`);
-    const target = parseHead(operation.target, `${label}.target`);
+    const source = parseRevision(operation.source, `${label}.source`);
+    const target = parseRevision(operation.target, `${label}.target`);
     if (source.documentId === target.documentId) {
       throw new AdditionalDocumentCommandContractError(
         `${label} source and target Documents must differ`,
@@ -1048,7 +1083,7 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
 
 const requiredLeaseDocuments = (
   operation: AdditionalDocumentOperation,
-): readonly AdditionalDocumentHeadRevision[] => {
+): readonly AdditionalDocumentRevision[] => {
   switch (operation.kind) {
     case "create_synced_source":
     case "create_template":
@@ -1071,8 +1106,8 @@ const requiredLeaseDocuments = (
 };
 
 const compareHeads = (
-  left: AdditionalDocumentHeadRevision,
-  right: AdditionalDocumentHeadRevision,
+  left: AdditionalDocumentRevision,
+  right: AdditionalDocumentRevision,
 ): number => left.documentId.localeCompare(right.documentId);
 
 const parseCoordination = (
@@ -1114,13 +1149,12 @@ const parseCoordination = (
     const actual = documents[index];
     return (
       actual?.documentId === head.documentId &&
-      actual.generation === head.generation &&
-      actual.headSeq === head.headSeq
+      actual.generation === head.generation
     );
   });
   if (!matches) {
     throw new AdditionalDocumentCommandContractError(
-      `${label} crossed a logical Document head`,
+      `${label} crossed a logical Document identity or generation`,
     );
   }
   return {
@@ -1211,6 +1245,77 @@ export const encodeAdditionalDocumentCommandSemanticHashInput = (
   value: unknown,
 ): Uint8Array =>
   new TextEncoder().encode(canonicalizeAdditionalDocumentCommandIntent(value));
+
+/**
+ * Compile a leased logical command against the durable heads acknowledged by
+ * every mounted surface. Document IDs and generations remain part of logical
+ * intent; only monotonically advancing headSeq proofs may be renewed.
+ */
+export const compileAdditionalDocumentCommandExecution = (
+  value: unknown,
+  input: {
+    readonly leaseId: string;
+    readonly documents: readonly AdditionalDocumentHeadRevision[];
+  },
+): AdditionalDocumentCommandRequest & {
+  readonly coordination: Extract<
+    AdditionalDocumentWriteCoordination,
+    { readonly kind: "hub_lease" }
+  >;
+} => {
+  const request = parseAdditionalDocumentCommandRequest(value);
+  if (request.coordination.kind !== "hub_lease") {
+    throw new AdditionalDocumentExecutionProofError(
+      "invalid_execution_proof",
+      "Only a Hub-leased command can compile renewable execution heads",
+    );
+  }
+  const initialByDocument = new Map(
+    request.coordination.documents.map((head) => [head.documentId, head]),
+  );
+  for (const head of input.documents) {
+    const initial = initialByDocument.get(head.documentId);
+    if (!initial) {
+      throw new AdditionalDocumentExecutionProofError(
+        "invalid_execution_proof",
+        `Execution proof introduced unexpected Document ${head.documentId}`,
+      );
+    }
+    if (head.generation !== initial.generation) {
+      throw new AdditionalDocumentExecutionProofError(
+        "document_generation_mismatch",
+        `Document ${head.documentId} generation changed during write coordination`,
+      );
+    }
+    if (head.headSeq < initial.headSeq) {
+      throw new AdditionalDocumentExecutionProofError(
+        "document_head_regressed",
+        `Document ${head.documentId} execution head regressed`,
+      );
+    }
+  }
+  if (input.documents.length !== initialByDocument.size) {
+    throw new AdditionalDocumentExecutionProofError(
+      "invalid_execution_proof",
+      "Execution proof must cover the exact logical Document set",
+    );
+  }
+  const compiled = parseAdditionalDocumentCommandRequest({
+    ...request,
+    coordination: {
+      kind: "hub_lease",
+      leaseId: input.leaseId,
+      documents: input.documents,
+    },
+  });
+  if (compiled.coordination.kind === "hub_lease") {
+    return { ...compiled, coordination: compiled.coordination };
+  }
+  throw new AdditionalDocumentExecutionProofError(
+    "invalid_execution_proof",
+    "Compiled execution proof did not produce a Hub lease",
+  );
+};
 
 export const isAdditionalDocumentSemanticHash = (
   value: unknown,
@@ -1419,6 +1524,7 @@ const ERROR_CODES = new Set<AdditionalDocumentCommandErrorCode>([
   "identity_conflict",
   "block_revision_conflict",
   "document_head_conflict",
+  "document_generation_mismatch",
   "source_not_found",
   "source_referenced",
   "source_shared",

@@ -1,14 +1,14 @@
 import Database from "better-sqlite3";
 import type { Card } from "../../shared/types";
 import type {
-  HistoryCardVersionPreview,
-  HistoryEntry as PublicHistoryEntry,
-  HistoryPanelDescriptionDelta,
-  HistoryPanelEntry as PublicHistoryPanelEntry,
-  HistoryPanelFieldChange,
-  HistoryPanelSnapshot,
-  HistoryPanelSnapshotField,
-} from "../../shared/ipc-api";
+  LegacyHistoryCardVersionPreview,
+  LegacyHistoryEntry,
+  LegacyHistoryPanelDescriptionDelta,
+  LegacyHistoryPanelEntry,
+  LegacyHistoryPanelFieldChange,
+  LegacyHistoryPanelSnapshot,
+  LegacyHistoryPanelSnapshotField,
+} from "./legacy-history-types";
 import { getDb } from "./database";
 import { dbNotifier } from "./notifier";
 import { getHistoryRetention } from "./config";
@@ -52,8 +52,8 @@ interface HistoryEntry extends HistoryReconstructionEntry {
   snapshotDescriptionRevisionId: number | null;
 }
 
-export type StoredHistoryEntry = PublicHistoryEntry;
-export type StoredHistoryPanelEntry = PublicHistoryPanelEntry;
+export type StoredHistoryEntry = LegacyHistoryEntry;
+export type StoredHistoryPanelEntry = LegacyHistoryPanelEntry;
 
 const FIELD_ORDER = [
   "title",
@@ -373,7 +373,7 @@ function parseHistoryValues(raw: string | null): Record<string, unknown> | null 
 function buildFieldChanges(
   previousValues: Record<string, unknown> | null,
   newValues: Record<string, unknown> | null,
-): HistoryPanelFieldChange[] {
+): LegacyHistoryPanelFieldChange[] {
   const previousKeys = Object.keys(previousValues ?? {});
   const newKeys = Object.keys(newValues ?? {});
   const merged = new Set([...previousKeys, ...newKeys]);
@@ -391,14 +391,14 @@ function buildSnapshot(
   database: Database.Database,
   snapshotValues: Record<string, unknown> | null,
   snapshotDescriptionRevisionId: number | null,
-): HistoryPanelSnapshot | null {
+): LegacyHistoryPanelSnapshot | null {
   if (!snapshotValues && snapshotDescriptionRevisionId === null) return null;
 
   const orderedFields = snapshotValues
     ? Object.keys(snapshotValues).sort(compareFieldKeys)
     : [];
 
-  const fields: HistoryPanelSnapshotField[] = orderedFields.map((field) => ({
+  const fields: LegacyHistoryPanelSnapshotField[] = orderedFields.map((field) => ({
     field,
     value: snapshotValues?.[field],
   }));
@@ -444,11 +444,11 @@ function compareFieldKeys(left: string, right: string): number {
 
 function describePanelEntry(
   operation: HistoryOperation,
-  fieldChanges: HistoryPanelFieldChange[],
-  descriptionChange: HistoryPanelDescriptionDelta | null,
+  fieldChanges: LegacyHistoryPanelFieldChange[],
+  descriptionChange: LegacyHistoryPanelDescriptionDelta | null,
   fromStatus: string | null,
   toStatus: string | null,
-  snapshot: HistoryPanelSnapshot | null,
+  snapshot: LegacyHistoryPanelSnapshot | null,
 ): string | null {
   if (operation === "update") {
     if (descriptionChange && fieldChanges.length === 0) {
@@ -491,7 +491,7 @@ function describePanelEntry(
   return null;
 }
 
-function describeBlockChangeSummary(change: HistoryPanelDescriptionDelta): string {
+function describeBlockChangeSummary(change: LegacyHistoryPanelDescriptionDelta): string {
   const counts = countDescriptionChangeKinds(change.blocks);
   const parts: string[] = [];
   if (counts.replaced > 0) parts.push(`${counts.replaced} replaced`);
@@ -502,7 +502,7 @@ function describeBlockChangeSummary(change: HistoryPanelDescriptionDelta): strin
 }
 
 function countDescriptionChangeKinds(
-  blocks: HistoryPanelDescriptionDelta["blocks"],
+  blocks: LegacyHistoryPanelDescriptionDelta["blocks"],
 ): Record<"added" | "removed" | "replaced", number> {
   return blocks.reduce(
     (counts, block) => {
@@ -1615,7 +1615,7 @@ export function getCardHistoryVersionPreview(
   projectId: string,
   cardId: string,
   historyId: number,
-): { preview: HistoryCardVersionPreview | null; error?: string } {
+): { preview: LegacyHistoryCardVersionPreview | null; error?: string } {
   const entry = getHistoryEntry(historyId);
   if (!entry) return { preview: null, error: "History entry not found" };
   if (entry.projectId !== projectId || entry.cardId !== cardId) {

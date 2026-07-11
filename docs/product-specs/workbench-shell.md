@@ -60,7 +60,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Hidden retained sessions must not register active-only shell side effects such as global header actions, summary panels, composer overlay targets, panel measurement refs, or visible Browser webview ids.
 
 ## Keyboard Model
-- Existing global command palette, settings, undo/redo, and editor shortcuts remain in force.
+- Existing global command palette, settings, and editor shortcuts remain in force. Undo/redo is local to the focused editable surface; the shell owns no Project-wide history stack.
 - The previous stage-order shortcuts (`View -> Card -> Thread -> Diff`) are retired as primary shell semantics.
 - Project/session/tab keyboard shortcuts should be introduced against the new hierarchy: project folder, session row, thread page, and right/bottom panel tab groups.
 - `Ctrl+\`` focuses an existing session terminal tab or creates one in the bottom panel. `Alt+Cmd/Ctrl+S` starts Side chat in the right panel. The global terminal drawer is not part of the project-session shell model.

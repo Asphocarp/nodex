@@ -5,6 +5,7 @@ import type {
   DatabaseMutationRequest,
 } from "../shared/database-kernel";
 import type {
+  DatabaseCatalogSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -32,6 +33,9 @@ export interface DatabaseKernelHttpDependencies {
     projectId: string,
     databaseBlockId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
+  readonly readCatalog: (
+    projectId: string,
+  ) => Promise<DatabaseCatalogSnapshotCommandResult>;
   readonly readPrimaryDescriptor: (
     projectId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
@@ -113,6 +117,28 @@ export const registerDatabaseKernelHttpRoutes = (
         result,
         result.ok ? 200 : databaseMutationHttpStatus(result.error),
       );
+    },
+  );
+
+  app.get(
+    "/api/projects/:projectId/databases",
+    async (context) => {
+      context.header("Cache-Control", "no-store");
+      const bound = bindDatabaseReadIdentity(
+        context.req.param("projectId"),
+        "catalog",
+      );
+      if (!bound.ok) {
+        const result: DatabaseCatalogSnapshotCommandResult = bound;
+        return context.json(result, databaseReadHttpStatus(result));
+      }
+      let result: DatabaseCatalogSnapshotCommandResult;
+      try {
+        result = await dependencies.readCatalog(bound.value.projectId);
+      } catch (error) {
+        result = readFailure(error);
+      }
+      return context.json(result, databaseReadHttpStatus(result));
     },
   );
 

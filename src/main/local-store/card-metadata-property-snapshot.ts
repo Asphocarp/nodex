@@ -18,7 +18,9 @@ export type CardMetadataPropertySnapshotErrorCode =
   | "store_not_initialized"
   | "card_not_found"
   | "card_not_active"
+  | "membership_ambiguous"
   | "property_missing"
+  | "property_ambiguous"
   | "property_type_mismatch"
   | "property_value_corrupt";
 
@@ -154,7 +156,7 @@ const readSnapshot = (
     };
   });
 
-  const membership = database
+  const memberships = database
     .prepare(
       `
       SELECT id, database_block_id
@@ -162,7 +164,14 @@ const readSnapshot = (
       WHERE card_block_id = ? AND project_id = ? AND removed_at IS NULL
     `,
     )
-    .get(cardBlockId, projectId) as MembershipRow | undefined;
+    .all(cardBlockId, projectId) as MembershipRow[];
+  if (memberships.length > 1) {
+    throw new CardMetadataPropertySnapshotError(
+      "membership_ambiguous",
+      `Card has multiple active Database memberships: ${cardBlockId}`,
+    );
+  }
+  const membership = memberships[0];
   if (membership) {
     const databaseEntries = Object.entries(
       CARD_METADATA_DATABASE_FIELDS,
@@ -199,7 +208,16 @@ const readSnapshot = (
         projectId,
         ...databaseEntries.map(([, definition]) => definition.key),
       ) as DatabasePropertyRow[];
-    const rowsByKey = new Map(rows.map((row) => [row.key, row]));
+    const rowsByKey = new Map<string, DatabasePropertyRow>();
+    for (const row of rows) {
+      if (rowsByKey.has(row.key)) {
+        throw new CardMetadataPropertySnapshotError(
+          "property_ambiguous",
+          `Database has multiple active properties for key ${row.key}`,
+        );
+      }
+      rowsByKey.set(row.key, row);
+    }
     for (const [field, definition] of databaseEntries) {
       const row = rowsByKey.get(definition.key);
       if (!row) continue;

@@ -10,6 +10,7 @@ import {
 } from "../../shared/database-kernel";
 import type {
   CardContentSummary,
+  GeneralDatabaseCatalog,
   GeneralDatabaseCapability,
   GeneralDatabaseDescriptor,
   GeneralDatabasePropertyDefinition,
@@ -22,6 +23,7 @@ import { getDb } from "./database";
 
 export type {
   CardContentSummary,
+  GeneralDatabaseCatalog,
   GeneralDatabaseCapability,
   GeneralDatabaseDescriptor,
   GeneralDatabasePropertyDefinition,
@@ -311,6 +313,47 @@ export const readPrimaryGeneralDatabaseDescriptor = (
   const databaseBlockId = readPrimaryDatabaseBlockId(database, projectId);
   if (!databaseBlockId) return null;
   return readGeneralDatabaseDescriptor(projectId, databaseBlockId, database);
+};
+
+export const readGeneralDatabaseCatalog = (
+  projectId: string,
+  database: Database.Database = getDb(),
+): GeneralDatabaseCatalog => {
+  const rows = database
+    .prepare(
+      `
+      SELECT capability.block_id
+      FROM database_capabilities capability
+      INNER JOIN blocks block
+        ON block.id = capability.block_id
+       AND block.project_id = capability.project_id
+       AND block.type = 'database'
+       AND block.lifecycle = 'active'
+      LEFT JOIN top_level_block_placements placement
+        ON placement.block_id = capability.block_id
+       AND placement.project_id = capability.project_id
+      WHERE capability.project_id = ?
+      ORDER BY
+        CASE WHEN placement.rank_key IS NULL THEN 1 ELSE 0 END,
+        placement.rank_key,
+        capability.block_id
+    `,
+    )
+    .all(projectId) as readonly { readonly block_id: string }[];
+
+  return {
+    databases: rows.map((row) => {
+      const descriptor = readGeneralDatabaseDescriptor(
+        projectId,
+        row.block_id,
+        database,
+      );
+      if (descriptor) return descriptor;
+      throw new GeneralDatabaseQueryError(
+        `Active Database ${row.block_id} disappeared while reading its catalog`,
+      );
+    }),
+  };
 };
 
 const readCardSummaryRows = (

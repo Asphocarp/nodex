@@ -17,7 +17,8 @@ import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
-import * as historyStore from "./local-store/history";
+import { getDb } from "./local-store/database";
+import { readCardMetadataPropertySnapshot } from "./local-store/card-metadata-property-snapshot";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardReference,
@@ -193,6 +194,7 @@ import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runti
 import { parseDocumentRelocationRequest } from "../shared/block-documents/relocation-transport";
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
 import {
+  DATABASE_CATALOG_IPC_CHANNEL,
   PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
   PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
   registerDatabaseKernelIpcHandlers,
@@ -204,6 +206,7 @@ import {
   registerCardLifecyclePreflightIpcHandler,
 } from "./card-lifecycle-ipc";
 import { registerCardHistoryIpcHandler } from "./card-history-ipc";
+import { registerCardMetadataPropertySnapshotIpcHandler } from "./card-metadata-property-snapshot-ipc";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -875,9 +878,22 @@ export function registerIpcHandlers(
       (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
   });
 
+  registerCardMetadataPropertySnapshotIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, cardBlockId) =>
+        listener(event, projectId, cardBlockId),
+      );
+    },
+    isTrustedEvent: (rawEvent) =>
+      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
+    readSnapshot: (projectId, cardBlockId) =>
+      readCardMetadataPropertySnapshot(getDb(), projectId, cardBlockId),
+  });
+
   registerDatabaseKernelIpcHandlers({
     registerHandle: (channel, listener) => {
       if (
+        channel === DATABASE_CATALOG_IPC_CHANNEL ||
         channel === PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL ||
         channel === PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
       ) {
@@ -914,6 +930,8 @@ export function registerIpcHandlers(
           databaseBlockId,
         )
       ).result,
+    readCatalog: async (projectId) =>
+      (await cardMutationWriter.readDatabaseCatalog(projectId)).result,
     readPrimaryDescriptor: async (projectId) =>
       (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId))
         .result,
@@ -1715,86 +1733,6 @@ export function registerIpcHandlers(
       const envelope = await cardMutationWriter.updateCardOccurrence(
         projectId,
         input,
-        sessionId,
-      );
-      return envelope.result;
-    },
-  );
-
-  // History
-  registerHandle(
-    "history:recent",
-    (_, projectId: string, sessionId?: string) => {
-      const entries = historyStore.getRecentHistory(projectId);
-      const state = historyStore.getUndoRedoState(projectId, sessionId);
-      return { ...state, entries };
-    },
-  );
-
-  registerHandle("history:card", (_, projectId: string, cardId: string) => {
-    const entries = historyStore.getCardHistoryPanelEntries(projectId, cardId);
-    return { entries };
-  });
-
-  registerHandle(
-    "history:card-version-preview",
-    async (_, projectId: string, cardId: string, historyId: number) => {
-      const { result } = await cardMutationWriter.getCardHistoryVersionPreview(
-        projectId,
-        cardId,
-        historyId,
-      );
-      return result;
-    },
-  );
-
-  registerHandle(
-    "history:undo",
-    async (_, projectId: string, sessionId?: string) => {
-      const envelope = await cardMutationWriter.undoLatest(
-        projectId,
-        sessionId,
-      );
-      return envelope.result;
-    },
-  );
-
-  registerHandle(
-    "history:redo",
-    async (_, projectId: string, sessionId?: string) => {
-      const envelope = await cardMutationWriter.redoLatest(
-        projectId,
-        sessionId,
-      );
-      return envelope.result;
-    },
-  );
-
-  registerHandle(
-    "history:revert",
-    async (_, projectId: string, historyId: number, sessionId?: string) => {
-      const envelope = await cardMutationWriter.revertEntry(
-        projectId,
-        historyId,
-        sessionId,
-      );
-      return envelope.result;
-    },
-  );
-
-  registerHandle(
-    "history:restore",
-    async (
-      _,
-      projectId: string,
-      cardId: string,
-      historyId: number,
-      sessionId?: string,
-    ) => {
-      const envelope = await cardMutationWriter.restoreToEntry(
-        projectId,
-        cardId,
-        historyId,
         sessionId,
       );
       return envelope.result;

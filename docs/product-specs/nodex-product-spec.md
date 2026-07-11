@@ -734,13 +734,6 @@ nodex/
 | POST | `/api/projects/[projectId]/card-import-block-drop` | Atomic block-drop import: source updates + target card creates in one grouped transaction |
 | GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |
 | GET | `/api/projects/[projectId]/cards/[cardBlockId]/history` | Cursor-paginated canonical Card timeline merged from Document checkpoints and Block mutation/relocation evidence |
-| GET | `/api/projects/[projectId]/history` | List recent history (query: `?limit=N&offset=N&sessionId=Z`) |
-| GET | `/api/projects/[projectId]/history/card` | Deprecated legacy Card-history compatibility read |
-| GET | `/api/projects/[projectId]/history/card-version-preview` | Deprecated legacy snapshot compatibility read |
-| POST | `/api/projects/[projectId]/history/revert` | Deprecated legacy revert command; renderer does not expose it |
-| POST | `/api/projects/[projectId]/history/restore` | Deprecated legacy snapshot restore; primary Documents use forward Document-version restore |
-| POST | `/api/projects/[projectId]/undo` | Deprecated legacy Project undo; renderer does not expose a Project-wide undo stack |
-| POST | `/api/projects/[projectId]/redo` | Deprecated legacy Project redo; renderer does not expose a Project-wide redo stack |
 | POST | `/api/projects/[projectId]/query` | Execute read-only SQL query |
 | GET | `/api/projects/[projectId]/schema` | Get database schema |
 
@@ -1079,9 +1072,7 @@ nodex block title <card-id> <text> # Collaborative title replacement
 nodex block export <card-id>      # Export title + materialized NFM
 nodex rm <card-id>               # Delete card (auto-resolves column)
 nodex mv <card-id> <from> <to> [order] [opts] # Move card (atomic claim)
-nodex history [--card <id>]      # View edit history
-nodex undo                       # Deprecated legacy Project undo compatibility command
-nodex redo                       # Deprecated legacy Project redo compatibility command
+nodex history <card-id>          # View the Card-scoped durable cursor timeline
 nodex query "<sql>" [params...]  # Run read-only SQL query
 nodex schema                     # Show database schema
 nodex backups [subcommand]       # List/create/restore backups
@@ -1091,7 +1082,7 @@ nodex backups [subcommand]       # List/create/restore backups
 Agent command options:
 - `-p, --project <id>` - Project to operate on (default: "default")
 - `--url <url>` - Server URL override
-- `--session-id <id>` - Deprecated legacy history-session compatibility option
+- `--session-id <id>` - Stable client session identity for mutation audit
 - `--jsonl` - Output JSON Lines (default)
 - `--json` - Output JSON array/object
 - `--csv` - Output CSV
@@ -1299,9 +1290,7 @@ nodex backups restore <backup-id> --yes
 | Import/export collaborative body | `nodex block replace/export ...` | Document mutation API / authoritative Card read projection |
 | Delete card | `nodex rm <id>` | DELETE `/api/projects/[projectId]/card?cardId=Y` |
 | Move card | `nodex mv <id> <from> <to> [opts]` | PUT `/api/projects/[projectId]/move` (atomic: 409 if card not in `fromStatus`) + optional PUT `/api/projects/[projectId]/card` (property updates) |
-| Card history | renderer canonical timeline; CLI cutover pending | GET `/api/projects/[projectId]/cards/[cardBlockId]/history` |
-| Legacy Project history | `nodex history` | Deprecated GET `/api/projects/[projectId]/history` compatibility path |
-| Legacy Undo/Redo | `nodex undo` / `nodex redo` | Deprecated POST `/api/projects/[projectId]/undo` / `redo`; not exposed by renderer |
+| Card history | `nodex history <id>` | GET `/api/projects/[projectId]/cards/[cardBlockId]/history` with a source-specific cursor |
 | SQL query | `nodex query "<sql>"` | POST `/api/projects/[projectId]/query` |
 | Schema | `nodex schema` | GET `/api/projects/[projectId]/schema` |
 | List backups | `nodex backups` | GET `/api/backups` |
@@ -1483,6 +1472,6 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 | **Transport** | Abstraction layer (`api.ts`) that routes calls to IPC or HTTP |
 | **Main Process** | Electron process hosting SQLite, IPC handlers, and Hono HTTP server |
 | **Preload** | Electron script that bridges main ↔ renderer via contextBridge |
-| **Session ID** | UUID identifying a browser tab's undo/redo stack |
-| **History Panel** | App-shell modal showing a card's edit timeline and reconstructed version snapshots |
+| **Session ID** | UUID identifying one client session for audit, presence, and exact mutation attempts |
+| **History Panel** | App-shell modal showing a Card's canonical timeline and retained Document checkpoint previews |
 | **Delta** | Partial record of changed fields (vs full snapshot) |

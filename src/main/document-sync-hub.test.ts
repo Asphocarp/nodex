@@ -180,7 +180,7 @@ const additionalDocumentRequest = (
   },
   operation: {
     kind: "promote_synced_source",
-    host: { documentId: "doc-source", generation: 1, headSeq: 1 },
+    host: { documentId: "doc-source", generation: 1 },
     rootBlockId: "block-root",
     referenceBlockId: "synced-reference",
     sourceBlockId: "synced-source",
@@ -1145,7 +1145,7 @@ describe("DocumentSyncHub", () => {
     ).toBe(true);
   });
 
-  test("signs, flushes, and releases an additional Document command lease before durable fanout", async () => {
+  test("recompiles an additional Document command against post-flush heads before durable fanout", async () => {
     const received: AdditionalDocumentCommandRequest[] = [];
     const backend: DocumentSyncDurableBackend = {
       ...createBackend(),
@@ -1206,6 +1206,7 @@ describe("DocumentSyncHub", () => {
     expect(coordination?.kind).toBe("hub_lease");
     if (coordination?.kind === "hub_lease") {
       expect(coordination.leaseId).toBe(prepare.leaseId);
+      expect(coordination.documents[0]?.headSeq).toBe(1);
     }
     const kinds = surface.sent.map(
       (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
@@ -1214,8 +1215,8 @@ describe("DocumentSyncHub", () => {
     expect(kinds.includes("relocation-lease-release")).toBeTrue();
 
     clearSent(surface);
-    const staleRequest = additionalDocumentRequest("additional:stale");
-    const stalePending = hub.applyAdditionalDocumentCommand(staleRequest);
+    const flushedRequest = additionalDocumentRequest("additional:flushed");
+    const flushedPending = hub.applyAdditionalDocumentCommand(flushedRequest);
     await waitUntil(() =>
       surface.sent.some(
         (delivery) =>
@@ -1223,7 +1224,7 @@ describe("DocumentSyncHub", () => {
           "relocation-lease-prepare",
       ),
     );
-    const stalePrepare = surface.sent
+    const flushedPrepare = surface.sent
       .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
       .find(
         (
@@ -1233,20 +1234,83 @@ describe("DocumentSyncHub", () => {
           { kind: "relocation-lease-prepare" }
         > => event.kind === "relocation-lease-prepare",
       );
-    if (!stalePrepare) throw new Error("Missing stale lease prepare");
+    if (!flushedPrepare) throw new Error("Missing flushed lease prepare");
     hub.respondToRelocationLease(surface, {
       response: "ack",
-      leaseId: stalePrepare.leaseId,
-      documentId: stalePrepare.documentId,
-      clientSessionId: stalePrepare.clientSessionId,
-      storeEpoch: stalePrepare.storeEpoch,
-      generation: stalePrepare.generation,
-      headSeq: stalePrepare.expectedHeadSeq + 1,
+      leaseId: flushedPrepare.leaseId,
+      documentId: flushedPrepare.documentId,
+      clientSessionId: flushedPrepare.clientSessionId,
+      storeEpoch: flushedPrepare.storeEpoch,
+      generation: flushedPrepare.generation,
+      headSeq: flushedPrepare.expectedHeadSeq + 1,
     });
-    const stale = await stalePending;
-    expect(stale.ok).toBeFalse();
-    if (!stale.ok) expect(stale.error.code).toBe("document_head_conflict");
-    expect(received.length).toBe(1);
+    const flushed = await flushedPending;
+    expect(flushed.ok).toBeTrue();
+    expect(received.length).toBe(2);
+    const flushedCoordination = received[1]?.coordination;
+    expect(flushedCoordination?.kind).toBe("hub_lease");
+    if (flushedCoordination?.kind === "hub_lease") {
+      expect(flushedCoordination.documents[0]?.headSeq).toBe(2);
+    }
+
+    clearSent(surface);
+    const regeneratedPending = hub.applyAdditionalDocumentCommand(
+      additionalDocumentRequest("additional:regenerated"),
+    );
+    await waitUntil(() =>
+      surface.sent.some(
+        (delivery) =>
+          (delivery.value as DocumentSyncRealtimeEvent).kind ===
+          "relocation-lease-prepare",
+      ),
+    );
+    const regeneratedPrepare = surface.sent
+      .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
+      .find(
+        (
+          event,
+        ): event is Extract<
+          DocumentSyncRealtimeEvent,
+          { kind: "relocation-lease-prepare" }
+        > => event.kind === "relocation-lease-prepare",
+      );
+    if (!regeneratedPrepare) {
+      throw new Error("Missing regenerated lease prepare");
+    }
+    const generationMismatch = hub.respondToRelocationLease(surface, {
+      response: "ack",
+      leaseId: regeneratedPrepare.leaseId,
+      documentId: regeneratedPrepare.documentId,
+      clientSessionId: regeneratedPrepare.clientSessionId,
+      storeEpoch: regeneratedPrepare.storeEpoch,
+      generation: regeneratedPrepare.generation + 1,
+      headSeq: regeneratedPrepare.expectedHeadSeq,
+    });
+    expect(generationMismatch.ok).toBeFalse();
+    if (!generationMismatch.ok) {
+      expect(generationMismatch.error.code).toBe(
+        "document_generation_mismatch",
+      );
+    }
+    expect(
+      hub.respondToRelocationLease(surface, {
+        response: "nack",
+        leaseId: regeneratedPrepare.leaseId,
+        documentId: regeneratedPrepare.documentId,
+        clientSessionId: regeneratedPrepare.clientSessionId,
+        storeEpoch: regeneratedPrepare.storeEpoch,
+        generation: regeneratedPrepare.generation,
+        headSeq: regeneratedPrepare.expectedHeadSeq,
+        reason: "surface_prepare_failed",
+        message: "Document generation changed",
+      }).ok,
+    ).toBeTrue();
+    const regenerated = await regeneratedPending;
+    expect(regenerated.ok).toBeFalse();
+    if (!regenerated.ok) {
+      expect(regenerated.error.code).toBe("coordination_failed");
+    }
+    expect(received.length).toBe(2);
   });
 
   test("store replacement resets every surface and invalidates old Hub authorization", async () => {

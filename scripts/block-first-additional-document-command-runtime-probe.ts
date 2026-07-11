@@ -11,7 +11,11 @@ import {
   type BlockTreeNode,
 } from "../src/shared/block-documents/block-document-codec";
 import { applyAdditionalDocumentCommand } from "../src/main/local-store/additional-document-command-kernel";
-import { initializeBlockDocumentGenesis } from "../src/main/local-store/block-document-store";
+import {
+  applyBlockDocumentUpdate,
+  initializeBlockDocumentGenesis,
+  loadPrimaryBlockDocument,
+} from "../src/main/local-store/block-document-store";
 import {
   closeDatabase,
   getDb,
@@ -220,6 +224,30 @@ const main = async (): Promise<void> => {
         ]),
       ],
     );
+    const pendingHost = loadPrimaryBlockDocument(
+      getDb(),
+      "document:probe-sync-host",
+    );
+    const pendingVector = Y.encodeStateVector(pendingHost.document);
+    const pendingText = [
+      ...pendingHost.document.getXmlFragment("body").createTreeWalker(
+        (node) => node instanceof Y.XmlText,
+      ),
+    ][0] as Y.XmlText | undefined;
+    invariant(pendingText, "Promotion host has no editable text");
+    pendingText.insert(pendingText.length, " after lease flush");
+    const flushAck = applyBlockDocumentUpdate(getDb(), {
+      documentId: "document:probe-sync-host",
+      storeEpoch,
+      generation: 1,
+      updateId: "probe:promote:flushed-update",
+      clientSessionId: "probe:mounted-surface",
+      baseHeadSeq: 1,
+      touchedBlockIds: ["probe:sync-root"],
+      update: Y.encodeStateAsUpdate(pendingHost.document, pendingVector),
+    });
+    pendingHost.document.destroy();
+    invariant(flushAck.headSeq === 2, "Promotion flush did not advance the head");
     const promoted = applyAdditionalDocumentCommand(
       getDb(),
       command(
@@ -231,7 +259,6 @@ const main = async (): Promise<void> => {
           host: {
             documentId: "document:probe-sync-host",
             generation: 1,
-            headSeq: 1,
           },
           rootBlockId: "probe:sync-root",
           referenceBlockId: "probe:sync-reference",
@@ -242,7 +269,7 @@ const main = async (): Promise<void> => {
           {
             documentId: "document:probe-sync-host",
             generation: 1,
-            headSeq: 1,
+            headSeq: flushAck.headSeq,
           },
         ]),
       ),
@@ -255,6 +282,22 @@ const main = async (): Promise<void> => {
       (head) => head.documentId === "document:probe-sync-source",
     );
     invariant(hostHead && sourceHead, "Synced promotion lost Document heads");
+    const promotedSource = loadPrimaryBlockDocument(
+      getDb(),
+      "document:probe-sync-source",
+    );
+    const promotedText = [
+      ...promotedSource.document.getXmlFragment("body").createTreeWalker(
+        (node) => node instanceof Y.XmlText,
+      ),
+    ][0] as Y.XmlText | undefined;
+    const postLeaseFlush =
+      promotedText?.toString() === "Root after lease flush";
+    invariant(
+      postLeaseFlush,
+      "Promotion omitted content committed while acquiring its lease",
+    );
+    promotedSource.document.destroy();
     invariant(
       promoted.value.effect.preservedBlockIds.join(",") ===
         "probe:sync-child,probe:sync-root",
@@ -266,8 +309,14 @@ const main = async (): Promise<void> => {
       "probe:demote",
       {
         kind: "demote_synced_source",
-        host: hostHead,
-        source: sourceHead,
+        host: {
+          documentId: hostHead.documentId,
+          generation: hostHead.generation,
+        },
+        source: {
+          documentId: sourceHead.documentId,
+          generation: sourceHead.generation,
+        },
         referenceBlockId: "probe:sync-reference",
         sourceBlockId: "probe:sync-source",
       },
@@ -335,12 +384,10 @@ const main = async (): Promise<void> => {
           source: {
             documentId: "document:probe-template",
             generation: 1,
-            headSeq: 1,
           },
           target: {
             documentId: "document:probe-target",
             generation: 1,
-            headSeq: 1,
           },
         },
         lease("probe:lease-instantiate", [
@@ -367,6 +414,83 @@ const main = async (): Promise<void> => {
         !instantiated.value.effect.createdBlockIds.includes("probe:target"),
       "Template instance identities were not freshly derived",
     );
+    const instantiateFreshHeadRetry = applyAdditionalDocumentCommand(
+      getDb(),
+      command(
+        project.id,
+        storeEpoch,
+        "probe:instantiate",
+        {
+          kind: "instantiate_template",
+          sourceBlockId: "probe:template-source",
+          source: {
+            documentId: "document:probe-template",
+            generation: 1,
+          },
+          target: {
+            documentId: "document:probe-target",
+            generation: 1,
+          },
+        },
+        lease("probe:lease-instantiate-retry", [
+          {
+            documentId: "document:probe-template",
+            generation: 1,
+            headSeq: 1,
+          },
+          {
+            documentId: "document:probe-target",
+            generation: 1,
+            headSeq: 2,
+          },
+        ]),
+      ),
+    );
+    invariant(
+      instantiateFreshHeadRetry.ok &&
+        instantiateFreshHeadRetry.value.duplicate &&
+        instantiateFreshHeadRetry.value.semanticHash ===
+          instantiated.value.semanticHash,
+      "Fresh execution heads changed Template retry identity",
+    );
+    const instantiateAnchorCollision = applyAdditionalDocumentCommand(
+      getDb(),
+      command(
+        project.id,
+        storeEpoch,
+        "probe:instantiate",
+        {
+          kind: "instantiate_template",
+          sourceBlockId: "probe:template-source",
+          source: {
+            documentId: "document:probe-template",
+            generation: 1,
+          },
+          target: {
+            documentId: "document:probe-target",
+            generation: 1,
+          },
+          beforeBlockId: "probe:target-anchor",
+        },
+        lease("probe:lease-instantiate-collision", [
+          {
+            documentId: "document:probe-template",
+            generation: 1,
+            headSeq: 1,
+          },
+          {
+            documentId: "document:probe-target",
+            generation: 1,
+            headSeq: 2,
+          },
+        ]),
+      ),
+    );
+    invariant(
+      !instantiateAnchorCollision.ok &&
+        instantiateAnchorCollision.error.code === "operation_id_collision",
+      "Template retry accepted a different logical anchor",
+    );
 
     const largeDocument = applyAdditionalDocumentCommand(
       getDb(),
@@ -388,7 +512,6 @@ const main = async (): Promise<void> => {
             host: {
               documentId: "document:probe-target",
               generation: 1,
-              headSeq: 2,
             },
           },
         },
@@ -468,12 +591,10 @@ const main = async (): Promise<void> => {
           source: {
             documentId: "document:missing-source",
             generation: 1,
-            headSeq: 1,
           },
           target: {
             documentId: "document:missing-target",
             generation: 1,
-            headSeq: 1,
           },
         },
         { kind: "receipt_replay" },
@@ -573,6 +694,7 @@ const main = async (): Promise<void> => {
         exactRetry: syncedRetry.ok && syncedRetry.value.duplicate,
         collision: !syncedCollision.ok,
         promote: promoted.ok,
+        postLeaseFlush,
         demote: demoted.ok,
         stableIds:
           demoted.ok &&
@@ -582,6 +704,8 @@ const main = async (): Promise<void> => {
         replayCollision: !demoteCollision.ok,
         createTemplate: template.ok,
         instantiate: instantiated.ok,
+        freshHeadRetry: instantiateFreshHeadRetry.value.duplicate,
+        anchorCollision: !instantiateAnchorCollision.ok,
         largeDocument: largeDocument.ok,
         largeCode: largeCode.ok,
         staleAnchor: !staleAnchor.ok,

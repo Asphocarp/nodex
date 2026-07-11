@@ -7,7 +7,8 @@ import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as cardsStore from "./local-store/cards";
-import * as historyStore from "./local-store/history";
+import { getDb } from "./local-store/database";
+import { readCardMetadataPropertySnapshot } from "./local-store/card-metadata-property-snapshot";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
 import * as sqlInspection from "./local-store/sql-inspection";
@@ -83,6 +84,7 @@ import {
   registerCardLifecyclePreflightHttpRoute,
 } from "./card-lifecycle-http";
 import { registerCardHistoryHttpRoute } from "./card-history-http";
+import { registerCardMetadataPropertySnapshotHttpRoute } from "./card-metadata-property-snapshot-http";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedCardReference,
@@ -254,6 +256,11 @@ registerBlockPropertyMutationHttpRoute(app, {
     (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
 });
 
+registerCardMetadataPropertySnapshotHttpRoute(app, {
+  readSnapshot: (projectId, cardBlockId) =>
+    readCardMetadataPropertySnapshot(getDb(), projectId, cardBlockId),
+});
+
 registerDatabaseKernelHttpRoutes(app, {
   applyMutation: async (request) =>
     (await cardMutationWriter.applyDatabaseMutation(request)).result,
@@ -264,6 +271,8 @@ registerDatabaseKernelHttpRoutes(app, {
         databaseBlockId,
       )
     ).result,
+  readCatalog: async (projectId) =>
+    (await cardMutationWriter.readDatabaseCatalog(projectId)).result,
   readPrimaryDescriptor: async (projectId) =>
     (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
   readPrimaryViewSnapshot: async (projectId) =>
@@ -1771,86 +1780,6 @@ app.get("/api/projects/:projectId/events", (c) => {
       Connection: "keep-alive",
     },
   });
-});
-
-// === History routes ===
-
-app.get("/api/projects/:projectId/history", (c) => {
-  const projectId = c.req.param("projectId");
-  const sessionId = c.req.query("sessionId") || undefined;
-  const limitRaw = c.req.query("limit");
-  const offsetRaw = c.req.query("offset");
-
-  const parsedLimit = Number.parseInt(limitRaw ?? "20", 10);
-  const parsedOffset = Number.parseInt(offsetRaw ?? "0", 10);
-
-  const limit = Number.isInteger(parsedLimit) && parsedLimit >= 0 ? parsedLimit : 20;
-  const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
-
-  const entries = historyStore.getRecentHistory(projectId, limit, offset);
-  const state = historyStore.getUndoRedoState(projectId, sessionId);
-  return c.json({ ...state, entries });
-});
-
-app.get("/api/projects/:projectId/history/card", (c) => {
-  const projectId = c.req.param("projectId");
-  const cardId = c.req.query("cardId");
-  if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const entries = historyStore.getCardHistoryPanelEntries(projectId, cardId);
-  return c.json({ entries });
-});
-
-app.get("/api/projects/:projectId/history/card-version-preview", async (c) => {
-  const projectId = c.req.param("projectId");
-  const cardId = c.req.query("cardId");
-  const historyIdRaw = c.req.query("historyId");
-  const historyId = Number.parseInt(historyIdRaw ?? "", 10);
-  if (!cardId || !Number.isInteger(historyId)) {
-    return c.json({ error: "Missing cardId or invalid historyId" }, 400);
-  }
-  const { result } = await cardMutationWriter.getCardHistoryVersionPreview(projectId, cardId, historyId);
-  return c.json(result);
-});
-
-// === Revert/Restore routes ===
-
-app.post("/api/projects/:projectId/history/revert", async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = await c.req.json();
-  const historyId = body.historyId;
-  if (typeof historyId !== "number") return c.json({ error: "Missing or invalid historyId" }, 400);
-  const sessionId = body.sessionId;
-  const { result } = await cardMutationWriter.revertEntry(projectId, historyId, sessionId);
-  return c.json(result);
-});
-
-app.post("/api/projects/:projectId/history/restore", async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = await c.req.json();
-  const { cardId, historyId, sessionId } = body;
-  if (!cardId || typeof historyId !== "number") {
-    return c.json({ error: "Missing cardId or invalid historyId" }, 400);
-  }
-  const { result } = await cardMutationWriter.restoreToEntry(projectId, cardId, historyId, sessionId);
-  return c.json(result);
-});
-
-// === Undo/Redo routes ===
-
-app.post("/api/projects/:projectId/undo", async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = await c.req.json();
-  const sessionId = body.sessionId;
-  const { result } = await cardMutationWriter.undoLatest(projectId, sessionId);
-  return c.json(result);
-});
-
-app.post("/api/projects/:projectId/redo", async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = await c.req.json();
-  const sessionId = body.sessionId;
-  const { result } = await cardMutationWriter.redoLatest(projectId, sessionId);
-  return c.json(result);
 });
 
 // === Schema/Query routes ===

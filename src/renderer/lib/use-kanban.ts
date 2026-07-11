@@ -43,6 +43,10 @@ import { getCardDetail, setCardDetail } from "./card-detail-store";
 import { commitPrimaryDatabaseCardDrag } from "./primary-database-card-drag-runtime";
 import { commitPrimaryDatabaseCardDragMany } from "./primary-database-card-drag-many-runtime";
 import { commitCardLifecycleIntent } from "./card-lifecycle-runtime";
+import {
+  commitCardMetadataPropertyPatch,
+  isCardMetadataPropertyPatch,
+} from "./card-metadata-property-runtime";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -196,6 +200,8 @@ export function useKanban(options: UseKanbanOptions) {
       const expectedRevision = store.getSnapshot().cardIndex.get(cardId)?.revision;
       const descriptionOnlyUpdate = hasOwnField(updates, "description")
         && Object.keys(updates).length === 1;
+      const metadataOnlyUpdate = isCardMetadataPropertyPatch(updates);
+      const metadataMutationId = metadataOnlyUpdate ? createUuidV7() : null;
       const outcome = await store.runOptimisticMutation<CardUpdateResult>({
         kind: "card:update",
         conflictKeys,
@@ -209,6 +215,15 @@ export function useKanban(options: UseKanbanOptions) {
               description: updates.description ?? "",
               sessionId,
               expectedRevision,
+            });
+          }
+          if (metadataMutationId) {
+            return await commitCardMetadataPropertyPatch({
+              projectId,
+              cardBlockId: cardId,
+              mutationId: metadataMutationId,
+              clientSessionId: sessionId,
+              patch: updates,
             });
           }
           return (await invoke(

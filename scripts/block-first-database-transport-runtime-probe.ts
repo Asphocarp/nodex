@@ -205,6 +205,8 @@ const run = async (): Promise<void> => {
           : null,
       applyMutation: async (input) =>
         (await writer!.applyDatabaseMutation(input)).result,
+      readCatalog: async (projectId) =>
+        (await writer!.readDatabaseCatalog(projectId)).result,
       readDescriptor: async (projectId, databaseBlockId) =>
         (await writer!.readDatabaseDescriptor(projectId, databaseBlockId))
           .result,
@@ -219,6 +221,8 @@ const run = async (): Promise<void> => {
     registerDatabaseKernelHttpRoutes(http, {
       applyMutation: async (input) =>
         (await writer!.applyDatabaseMutation(input)).result,
+      readCatalog: async (projectId) =>
+        (await writer!.readDatabaseCatalog(projectId)).result,
       readDescriptor: async (projectId, databaseBlockId) =>
         (await writer!.readDatabaseDescriptor(projectId, databaseBlockId))
           .result,

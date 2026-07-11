@@ -4,6 +4,7 @@ import type { BlockPropertyJsonValue } from "./block-property-mutations";
 import {
   CardMetadataPropertyCompilerError,
   compileCardMetadataPropertyMutation,
+  compileCardMetadataPropertyMutationOrNull,
   type CardMetadataPropertyCoordinate,
   type CardMetadataPropertySnapshot,
 } from "./card-metadata-property-compiler";
@@ -151,6 +152,14 @@ describe("Card metadata property compatibility compiler", () => {
     expect(
       readCompilerError(() => compile(current, { priority: "p2-medium" })),
     ).toBe("Card metadata patch has no semantic changes");
+    expect(
+      compileCardMetadataPropertyMutationOrNull({
+        mutationId: "mutation-no-op",
+        actor: { kind: "test" },
+        snapshot: current,
+        patch: { priority: "p2-medium" },
+      }),
+    ).toBe(null);
   });
 
   test("accepts only boolean-or-null isAllDay compatibility values", () => {

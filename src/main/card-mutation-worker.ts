@@ -9,7 +9,6 @@ import {
 } from "./local-store/notifier";
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
-import * as historyStore from "./local-store/history";
 import {
   BlockDocumentCutoverError,
   cutoverCardDocumentToPrimary,
@@ -43,6 +42,7 @@ import { applyBlockPropertyMutation } from "./local-store/block-property-mutatio
 import {
   applyDatabaseMutation,
   queryDatabaseViewSnapshot,
+  readDatabaseCatalogSnapshot,
   readDatabaseViewSnapshot,
   readDatabaseDescriptorSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
@@ -194,12 +194,7 @@ const isLegacyAuthorityMutation = (
     case "completeCardOccurrence":
     case "skipCardOccurrence":
     case "updateCardOccurrence":
-    case "undoLatest":
-    case "redoLatest":
-    case "revertEntry":
-    case "restoreToEntry":
       return true;
-    case "getCardHistoryVersionPreview":
     case "backfillCardReadModel":
     case "initializeBlockDocumentShadows":
     case "migrateLegacyForeignReferences":
@@ -210,6 +205,7 @@ const isLegacyAuthorityMutation = (
     case "readCardLifecyclePreflight":
     case "compactEligibleBlockDocuments":
     case "readDatabaseDescriptor":
+    case "readDatabaseCatalog":
     case "readPrimaryDatabaseDescriptor":
     case "readPrimaryDatabaseViewSnapshot":
     case "readDatabaseViewSnapshot":
@@ -1249,35 +1245,6 @@ async function runRequest(
         request.payload.input,
         request.payload.sessionId,
       );
-    case "getCardHistoryVersionPreview":
-      return historyStore.getCardHistoryVersionPreview(
-        request.payload.projectId,
-        request.payload.cardId,
-        request.payload.historyId,
-      );
-    case "undoLatest":
-      return historyStore.undoLatest(
-        request.payload.projectId,
-        request.payload.sessionId,
-      );
-    case "redoLatest":
-      return historyStore.redoLatest(
-        request.payload.projectId,
-        request.payload.sessionId,
-      );
-    case "revertEntry":
-      return historyStore.revertEntry(
-        request.payload.projectId,
-        request.payload.historyId,
-        request.payload.sessionId,
-      );
-    case "restoreToEntry":
-      return historyStore.restoreToEntry(
-        request.payload.projectId,
-        request.payload.cardId,
-        request.payload.historyId,
-        request.payload.sessionId,
-      );
     case "backfillCardReadModel":
       return cardsStore.backfillCardReadModelBatch(request.payload.limit);
     case "initializeBlockDocumentShadows":
@@ -1440,6 +1407,11 @@ async function runRequest(
       );
     case "compactEligibleBlockDocuments":
       return compactEligibleBlockDocuments(getDb(), request.payload);
+    case "readDatabaseCatalog":
+      return readDatabaseCatalogSnapshot(
+        getDb(),
+        request.payload.projectId,
+      );
     case "readDatabaseDescriptor":
       return readDatabaseDescriptorSnapshot(
         getDb(),

@@ -36,7 +36,7 @@ const DEFAULT_LS_DESCRIPTION_CHARS = 240;
 
 const COMMANDS = new Set([
   "serve", "ls", "get", "add", "update", "rm", "mv", "block", "database",
-  "history", "undo", "redo", "query", "schema", "backups", "help", "projects", "config",
+  "history", "query", "schema", "backups", "help", "projects", "config",
 ]);
 
 const SUBCOMMAND_ALIASES = new Map([
@@ -787,6 +787,10 @@ const OPTION_ALIASES = {
   "--card-id": "cardId",
   "--limit": "limit",
   "--offset": "offset",
+  "--before-source": "beforeSource",
+  "--before-occurred-at": "beforeOccurredAt",
+  "--before-version-id": "beforeVersionId",
+  "--before-change-seq": "beforeChangeSeq",
   "--description-chars": "descriptionChars",
   "--mutation-id": "mutationId",
   "--expected-head": "expectedHead",
@@ -837,6 +841,10 @@ const FLAG_DISPLAY = {
   cardId: "--card-id",
   limit: "--limit",
   offset: "--offset",
+  beforeSource: "--before-source",
+  beforeOccurredAt: "--before-occurred-at",
+  beforeVersionId: "--before-version-id",
+  beforeChangeSeq: "--before-change-seq",
   descriptionChars: "--description-chars",
   mutationId: "--mutation-id",
   expectedHead: "--expected-head",
@@ -888,9 +896,11 @@ const COMMAND_ALLOWED_FLAGS = {
     "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
     "sessionId", "mutationId",
   ]),
-  history: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "card", "limit", "offset"]),
-  undo: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
-  redo: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
+  history: new Set([
+    "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
+    "card", "limit", "beforeSource", "beforeOccurredAt", "beforeVersionId",
+    "beforeChangeSeq",
+  ]),
   query: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
   schema: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
   backups: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "url", "label", "yes", "noSafetyBackup"]),
@@ -966,6 +976,14 @@ function parseNonNegativeInt(raw, label) {
   const value = Number.parseInt(raw, 10);
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${label} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function parsePositiveIntAtMost(raw, label, maximum) {
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value < 1 || value > maximum) {
+    throw new Error(`${label} must be an integer between 1 and ${maximum}`);
   }
   return value;
 }
@@ -1716,29 +1734,94 @@ async function cmdMv(positional, flags, config) {
 
 // ─── Command: history ───
 
-async function cmdHistory(_positional, flags, config) {
-  const prefix = apiPrefix(config);
-  let data;
+function cardHistoryCursorQuery(flags) {
+  const cursorFields = [
+    flags.beforeSource,
+    flags.beforeOccurredAt,
+    flags.beforeVersionId,
+    flags.beforeChangeSeq,
+  ];
+  if (cursorFields.every((field) => field === undefined)) return "";
 
-  if (flags.card) {
-    data = await apiGet(`${prefix}/history/card?cardId=${encodeURIComponent(flags.card)}`);
-  } else {
-    const limit = flags.limit !== undefined ? String(parseNonNegativeInt(flags.limit, "--limit")) : "20";
-    const offset = flags.offset !== undefined ? String(parseNonNegativeInt(flags.offset, "--offset")) : "0";
-    let url = `${prefix}/history?limit=${limit}&offset=${offset}`;
-    if (config.sessionId) url += `&sessionId=${encodeURIComponent(config.sessionId)}`;
-    data = await apiGet(url);
+  const params = new URLSearchParams();
+  if (!flags.beforeSource || !flags.beforeOccurredAt) {
+    throw new Error(
+      "History pagination requires --before-source and --before-occurred-at",
+    );
   }
+  params.set("beforeSource", flags.beforeSource);
+  params.set("beforeOccurredAt", flags.beforeOccurredAt);
 
-  const headers = ["id", "operation", "cardId", "status", "timestamp", "fromStatus", "toStatus"];
+  if (flags.beforeSource === "document_version") {
+    if (!flags.beforeVersionId || flags.beforeChangeSeq !== undefined) {
+      throw new Error(
+        "A document_version cursor requires --before-version-id and no --before-change-seq",
+      );
+    }
+    params.set("beforeVersionId", flags.beforeVersionId);
+    return `&${params.toString()}`;
+  }
+  if (flags.beforeSource === "change_log") {
+    if (flags.beforeChangeSeq === undefined || flags.beforeVersionId !== undefined) {
+      throw new Error(
+        "A change_log cursor requires --before-change-seq and no --before-version-id",
+      );
+    }
+    params.set(
+      "beforeChangeSeq",
+      String(parseNonNegativeInt(flags.beforeChangeSeq, "--before-change-seq")),
+    );
+    return `&${params.toString()}`;
+  }
+  throw new Error(
+    "--before-source must be document_version or change_log",
+  );
+}
+
+async function cmdHistory(positional, flags, config) {
+  const prefix = apiPrefix(config);
+  const positionalCardId = positional[0];
+  if (positional.length > 1) {
+    throw new Error("Usage: nodex history <card-id> [options]");
+  }
+  if (flags.card && positionalCardId && flags.card !== positionalCardId) {
+    throw new Error("Card ID was provided twice with different values");
+  }
+  const cardId = flags.card ?? positionalCardId;
+  if (!cardId) throw new Error("Usage: nodex history <card-id> [options]");
+
+  const pageSize = flags.limit === undefined
+    ? 50
+    : parsePositiveIntAtMost(flags.limit, "--limit", 100);
+  const result = await apiGet(
+    `${prefix}/cards/${encodeURIComponent(cardId)}/history?pageSize=${pageSize}${cardHistoryCursorQuery(flags)}`,
+  );
+  if (result?.ok !== true || !Array.isArray(result?.value?.entries)) {
+    throw new Error("Server returned an invalid Card history page");
+  }
+  const data = result.value;
+
+  const headers = [
+    "id",
+    "kind",
+    "category",
+    "title",
+    "detail",
+    "actor",
+    "occurredAt",
+    "evidence",
+    "recovery",
+  ];
   const rows = data.entries.map(e => ({
     id: e.id,
-    operation: e.operation,
-    cardId: e.cardId,
-    status: e.status,
-    timestamp: e.timestamp,
-    fromStatus: e.fromStatus || "",
-    toStatus: e.toStatus || "",
+    kind: e.kind,
+    category: e.display.category,
+    title: e.display.title,
+    detail: e.display.detail || "",
+    actor: e.display.actorLabel || "",
+    occurredAt: e.occurredAt,
+    evidence: e.evidence.status,
+    recovery: e.recovery.kind,
   }));
 
   if (flags.json) {
@@ -1746,42 +1829,6 @@ async function cmdHistory(_positional, flags, config) {
     return;
   }
   rowsOut(headers, rows, flags);
-}
-
-// ─── Command: undo ───
-
-async function cmdUndo(_positional, flags, config) {
-  const prefix = apiPrefix(config);
-  const body = {};
-  if (config.sessionId) body.sessionId = config.sessionId;
-
-  const result = await apiPost(`${prefix}/undo`, body);
-
-  if (flags.json) {
-    jsonOut(result, flags);
-  } else {
-    rowsOut(["status", "operation", "cardId"], [
-      { status: "undone", operation: result.entry.operation, cardId: result.entry.cardId },
-    ], flags);
-  }
-}
-
-// ─── Command: redo ───
-
-async function cmdRedo(_positional, flags, config) {
-  const prefix = apiPrefix(config);
-  const body = {};
-  if (config.sessionId) body.sessionId = config.sessionId;
-
-  const result = await apiPost(`${prefix}/redo`, body);
-
-  if (flags.json) {
-    jsonOut(result, flags);
-  } else {
-    rowsOut(["status", "operation", "cardId"], [
-      { status: "redone", operation: result.entry.operation, cardId: result.entry.cardId },
-    ], flags);
-  }
 }
 
 // ─── Command: query ───
@@ -2090,9 +2137,7 @@ Agent Commands:
   nodex database <action> <id>   Query/mutate a Database by stable IDs
   nodex rm <card-id>             Delete card
   nodex mv <card-id> <from> <to> Move card (supports update opts)
-  nodex history                  View edit history
-  nodex undo                     Undo last action
-  nodex redo                     Redo last undone
+  nodex history <card-id>        View a Card's durable history
   nodex query "<sql>" [params]   Run SQL query
   nodex schema                   Show DB schema
   nodex backups                  List backups / create / restore
@@ -2101,7 +2146,7 @@ Agent Commands:
 Global Options:
   -p, --project <id>  Project to operate on (default: "default")
   --url <url>          Server URL (default: http://localhost:51283)
-  --session-id <id> Session ID for undo/redo
+  --session-id <id> Client session identity for exact mutation audit
   --json            Output JSON array/object
   --jsonl           Output JSON Lines (default)
   --csv             Output CSV
@@ -2285,24 +2330,19 @@ function printCommandHelp(cmd) {
     --csv                       CSV output
     --table                     Print aligned text table`,
 
-    history: `Usage: nodex history [options]
+    history: `Usage: nodex history <card-id> [options]
 
   Options:
-    --card <id>     Show history for specific card
-    --limit <n>     Limit results (default: 20)
-    --offset <n>    Pagination offset
+    --card <id>                Alternate Card ID form
+    --limit <n>                Page size from 1 to 100 (default: 50)
+    --before-source <source>   Cursor source: document_version or change_log
+    --before-occurred-at <ts>  Cursor timestamp from nextCursor
+    --before-version-id <id>   Cursor version ID for document_version
+    --before-change-seq <seq>  Cursor sequence for change_log
     --jsonl         JSON Lines output (default)
     --json          JSON object output
     --csv           CSV output
     --table         Print aligned text table`,
-
-    undo: `Usage: nodex undo
-
-  Undo the last operation.`,
-
-    redo: `Usage: nodex redo
-
-  Redo the last undone operation.`,
 
     query: `Usage: nodex query "<sql>" [param1] [param2] ...
 
@@ -2627,8 +2667,6 @@ async function main() {
     block: cmdBlock,
     database: cmdDatabase,
     history: cmdHistory,
-    undo: cmdUndo,
-    redo: cmdRedo,
     query: cmdQuery,
     schema: cmdSchema,
     backups: cmdBackups,

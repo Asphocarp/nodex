@@ -1065,6 +1065,39 @@ const withoutAuditIdentity = <
   return logicalRequest;
 };
 
+const withoutTemplateExecutionHeads = (
+  input: InstantiateReusableTemplate,
+): Omit<
+  InstantiateReusableTemplate,
+  | "actor"
+  | "clientSessionId"
+  | "expectedSourceHeadSeq"
+  | "expectedTargetHeadSeq"
+> => {
+  const {
+    actor,
+    clientSessionId,
+    expectedSourceHeadSeq,
+    expectedTargetHeadSeq,
+    ...logicalRequest
+  } = input;
+  void actor;
+  void clientSessionId;
+  void expectedSourceHeadSeq;
+  void expectedTargetHeadSeq;
+  return logicalRequest;
+};
+
+const withoutExplicitDocumentExecutionHead = (
+  input: CreateExplicitDocumentBearingBlock,
+): Readonly<Record<string, unknown>> => {
+  const logicalRequest = withoutAuditIdentity(input);
+  if (input.location.kind === "space") return logicalRequest;
+  const { expectedHostHeadSeq, ...logicalLocation } = input.location;
+  void expectedHostHeadSeq;
+  return { ...logicalRequest, location: logicalLocation };
+};
+
 export const createReusableTemplateSource = (
   database: Database.Database,
   input: CreateReusableTemplateSource,
@@ -1226,7 +1259,7 @@ export const instantiateReusableTemplate = (
     {
       ...input,
       mutationKind: input.kind,
-      logicalRequest: withoutAuditIdentity(input),
+      logicalRequest: withoutTemplateExecutionHeads(input),
       requestedBlockIds: [sourceBlockId],
       fieldIntents: [
         { path: "document.block", operation: "instantiate_template" },
@@ -1380,7 +1413,7 @@ export const createExplicitDocumentBearingBlock = (
     {
       ...input,
       mutationKind: input.kind,
-      logicalRequest: withoutAuditIdentity(input),
+      logicalRequest: withoutExplicitDocumentExecutionHead(input),
       requestedBlockIds: [blockId],
       fieldIntents: [
         { path: "block.documentOwnership", operation: input.blockKind },

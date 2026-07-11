@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   bindDatabaseMutationToProject,
+  parseDatabaseCatalogSnapshotCommandResult,
   parseDatabaseMutationCommandResult,
   parseDatabaseReadCommandResult,
   parsePrimaryDatabaseViewSnapshotCommandResult,
@@ -143,5 +144,38 @@ describe("Database transport codecs", () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  test("keeps a Project Database catalog inside one authority snapshot", () => {
+    const parsed = parseDatabaseCatalogSnapshotCommandResult({
+      ok: true,
+      value: {
+        version: 1,
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        changeLogSeq: 9,
+        value: {
+          databases: [
+            {
+              database: {
+                blockId: "database-1",
+                projectId: "project-1",
+                name: "Tasks",
+                isPrimary: true,
+                schemaKey: "nodex.database",
+                schemaRevision: 1,
+                metadataRevision: 1,
+                createdAt: "2026-07-12T00:00:00.000Z",
+                updatedAt: "2026-07-12T00:00:00.000Z",
+              },
+              properties: [],
+              views: [],
+            },
+          ],
+        },
+      },
+    });
+    expect(parsed.ok ? parsed.value.changeLogSeq : -1).toBe(9);
+    expect(parsed.ok ? parsed.value.value?.databases.length : -1).toBe(1);
   });
 });

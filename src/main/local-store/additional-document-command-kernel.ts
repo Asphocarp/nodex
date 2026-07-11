@@ -15,6 +15,7 @@ import {
   type AdditionalDocumentCommandResult,
   type AdditionalDocumentHeadRevision,
   type AdditionalDocumentMutationEffect,
+  type AdditionalDocumentRevision,
 } from "../../shared/additional-document-commands";
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
@@ -433,25 +434,43 @@ const deriveMutationEffect = (
   );
 };
 
-const toSyncedWriteFence = (
+const executionHead = (
   request: AdditionalDocumentCommandRequest,
-): SyncedBlockGroupWriteFence => {
+  revision: AdditionalDocumentRevision,
+): AdditionalDocumentHeadRevision => {
   if (request.coordination.kind === "hub_lease") {
-    return {
-      leaseId: request.coordination.leaseId,
-      documents: request.coordination.documents,
-    };
+    const head = request.coordination.documents.find(
+      (candidate) => candidate.documentId === revision.documentId,
+    );
+    if (head && head.generation === revision.generation) return head;
+    throw new AdditionalDocumentCommandContractError(
+      `Missing execution proof for Document ${revision.documentId}`,
+    );
   }
+  if (request.coordination.kind !== "receipt_replay") {
+    throw new AdditionalDocumentCommandContractError(
+      `Document ${revision.documentId} requires a Hub write lease`,
+    );
+  }
+  // A receipt replay reaches the nested kernel only to validate and return its
+  // immutable receipt. Its transaction closure (and therefore this placeholder
+  // head) is never evaluated.
   return {
-    leaseId: `receipt-replay:${request.operationId}`,
-    documents:
-      request.operation.kind === "promote_synced_source"
-        ? [request.operation.host]
-        : request.operation.kind === "demote_synced_source"
-          ? [request.operation.host, request.operation.source]
-          : [],
+    ...revision,
+    headSeq: 1,
   };
 };
+
+const toSyncedWriteFence = (
+  request: AdditionalDocumentCommandRequest,
+  revisions: readonly AdditionalDocumentRevision[],
+): SyncedBlockGroupWriteFence => ({
+  leaseId:
+    request.coordination.kind === "hub_lease"
+      ? request.coordination.leaseId
+      : `receipt-replay:${request.operationId}`,
+  documents: revisions.map((revision) => executionHead(request, revision)),
+});
 
 const executeDomainMutation = (
   database: Database.Database,
@@ -481,30 +500,36 @@ const executeDomainMutation = (
     });
   }
   if (operation.kind === "promote_synced_source") {
+    const host = executionHead(request, operation.host);
     return promoteBlockToSyncedSource(database, {
       ...common,
-      hostDocumentId: operation.host.documentId,
-      expectedGeneration: operation.host.generation,
-      expectedHeadSeq: operation.host.headSeq,
+      hostDocumentId: host.documentId,
+      expectedGeneration: host.generation,
+      expectedHeadSeq: host.headSeq,
       rootBlockId: operation.rootBlockId,
       referenceBlockId: operation.referenceBlockId,
       sourceBlockId: operation.sourceBlockId,
       sourceDocumentId: operation.sourceDocumentId,
-      writeFence: toSyncedWriteFence(request),
+      writeFence: toSyncedWriteFence(request, [operation.host]),
     });
   }
   if (operation.kind === "demote_synced_source") {
+    const host = executionHead(request, operation.host);
+    const source = executionHead(request, operation.source);
     return demoteSyncedBlockSource(database, {
       ...common,
-      hostDocumentId: operation.host.documentId,
-      expectedGeneration: operation.host.generation,
-      expectedHeadSeq: operation.host.headSeq,
-      sourceDocumentId: operation.source.documentId,
-      expectedSourceGeneration: operation.source.generation,
-      expectedSourceHeadSeq: operation.source.headSeq,
+      hostDocumentId: host.documentId,
+      expectedGeneration: host.generation,
+      expectedHeadSeq: host.headSeq,
+      sourceDocumentId: source.documentId,
+      expectedSourceGeneration: source.generation,
+      expectedSourceHeadSeq: source.headSeq,
       referenceBlockId: operation.referenceBlockId,
       sourceBlockId: operation.sourceBlockId,
-      writeFence: toSyncedWriteFence(request),
+      writeFence: toSyncedWriteFence(request, [
+        operation.host,
+        operation.source,
+      ]),
     });
   }
   if (operation.kind === "create_template") {
@@ -526,17 +551,19 @@ const executeDomainMutation = (
     });
   }
   if (operation.kind === "instantiate_template") {
+    const source = executionHead(request, operation.source);
+    const target = executionHead(request, operation.target);
     return instantiateReusableTemplate(database, {
       ...common,
       version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
       kind: "instantiate_reusable_template",
       sourceBlockId: operation.sourceBlockId,
-      sourceDocumentId: operation.source.documentId,
-      expectedSourceGeneration: operation.source.generation,
-      expectedSourceHeadSeq: operation.source.headSeq,
-      targetDocumentId: operation.target.documentId,
-      expectedTargetGeneration: operation.target.generation,
-      expectedTargetHeadSeq: operation.target.headSeq,
+      sourceDocumentId: source.documentId,
+      expectedSourceGeneration: source.generation,
+      expectedSourceHeadSeq: source.headSeq,
+      targetDocumentId: target.documentId,
+      expectedTargetGeneration: target.generation,
+      expectedTargetHeadSeq: target.headSeq,
       ...(operation.parentBlockId
         ? { parentBlockId: operation.parentBlockId }
         : {}),
@@ -553,30 +580,33 @@ const executeDomainMutation = (
             language: operation.content.language,
             code: operation.content.code,
           };
-    const location =
-      operation.location.kind === "space"
-        ? {
-            kind: "space" as const,
-            ...(operation.location.before
-              ? {
-                  beforeBlockId: operation.location.before.blockId,
-                  expectedBeforeLocationRevision:
-                    operation.location.before.expectedLocationRevision,
-                }
-              : {}),
-          }
-        : {
-            kind: "document" as const,
-            hostDocumentId: operation.location.host.documentId,
-            expectedHostGeneration: operation.location.host.generation,
-            expectedHostHeadSeq: operation.location.host.headSeq,
-            ...(operation.location.parentBlockId
-              ? { parentBlockId: operation.location.parentBlockId }
-              : {}),
-            ...(operation.location.beforeBlockId
-              ? { beforeBlockId: operation.location.beforeBlockId }
-              : {}),
-          };
+    const location = (() => {
+      if (operation.location.kind === "space") {
+        return {
+          kind: "space" as const,
+          ...(operation.location.before
+            ? {
+                beforeBlockId: operation.location.before.blockId,
+                expectedBeforeLocationRevision:
+                  operation.location.before.expectedLocationRevision,
+              }
+            : {}),
+        };
+      }
+      const host = executionHead(request, operation.location.host);
+      return {
+        kind: "document" as const,
+        hostDocumentId: host.documentId,
+        expectedHostGeneration: host.generation,
+        expectedHostHeadSeq: host.headSeq,
+        ...(operation.location.parentBlockId
+          ? { parentBlockId: operation.location.parentBlockId }
+          : {}),
+        ...(operation.location.beforeBlockId
+          ? { beforeBlockId: operation.location.beforeBlockId }
+          : {}),
+      };
+    })();
     return createExplicitDocumentBearingBlock(database, {
       ...common,
       version: ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,

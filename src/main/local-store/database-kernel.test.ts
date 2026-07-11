@@ -12,6 +12,7 @@ import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   applyDatabaseMutation,
+  readDatabaseCatalogSnapshot,
   readDatabaseViewSnapshot,
   readPrimaryDatabaseDescriptorSnapshot,
   readPrimaryDatabaseViewSnapshot,
@@ -243,6 +244,41 @@ describe("general Database kernel", () => {
       expect(primary.value.value.database.isPrimary).toBe(true);
       expect(primary.value.value.database.blockId === "database-secondary").toBe(false);
       expect(primary.value.storeEpoch).toBe(fixture.storeEpoch);
+    });
+  });
+
+  sqliteTest("captures every active Database descriptor under one Project cursor", async () => {
+    await withFixture((fixture) => {
+      const created = applyDatabaseMutation(
+        fixture.database,
+        request(
+          fixture,
+          "create-catalog-secondary",
+          createDatabaseOperation("database-catalog-secondary", "view-catalog-secondary"),
+        ),
+      );
+      expect(resultCode(created)).toBe("ok");
+
+      const snapshot = readDatabaseCatalogSnapshot(
+        fixture.database,
+        fixture.projectId,
+      );
+      expect(snapshot.ok).toBeTrue();
+      if (!snapshot.ok || !snapshot.value.value) return;
+      expect(snapshot.value.storeEpoch).toBe(fixture.storeEpoch);
+      expect(snapshot.value.value.databases.length).toBe(2);
+      expect(
+        snapshot.value.value.databases.some(
+          (descriptor) =>
+            descriptor.database.blockId === "database-catalog-secondary" &&
+            descriptor.views.some((view) => view.id === "view-catalog-secondary"),
+        ),
+      ).toBeTrue();
+      expect(
+        snapshot.value.value.databases.filter(
+          (descriptor) => descriptor.database.isPrimary,
+        ).length,
+      ).toBe(1);
     });
   });
 

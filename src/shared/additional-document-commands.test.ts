@@ -3,11 +3,13 @@ import {
   ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES,
   ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   AdditionalDocumentCommandContractError,
+  AdditionalDocumentExecutionProofError,
   MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH,
   MAX_ADDITIONAL_DOCUMENT_BLOCKS,
   MAX_ADDITIONAL_DOCUMENT_CODE_LENGTH,
   additionalDocumentCommandRequiredCoordination,
   canonicalizeAdditionalDocumentCommandIntent,
+  compileAdditionalDocumentCommandExecution,
   encodeAdditionalDocumentCommandSemanticHashInput,
   isAdditionalDocumentSemanticHash,
   parseAdditionalDocumentCommandReceipt,
@@ -19,14 +21,16 @@ import type { BlockTreeNode } from "./block-documents/block-document-codec";
 const host = {
   documentId: "document:host",
   generation: 2,
-  headSeq: 7,
 } as const;
+
+const hostHead = { ...host, headSeq: 7 } as const;
 
 const source = {
   documentId: "document:source",
   generation: 1,
-  headSeq: 4,
 } as const;
+
+const sourceHead = { ...source, headSeq: 4 } as const;
 
 const owner = {
   ownerBlockId: "owner:1",
@@ -34,7 +38,6 @@ const owner = {
   locationRevision: 2,
   documentId: "document:owner",
   generation: 1,
-  headSeq: 9,
 } as const;
 
 const paragraph = (id: string): BlockTreeNode => ({
@@ -50,7 +53,7 @@ const fifo = { kind: "fifo_only" } as const;
 const ownerHead = {
   documentId: owner.documentId,
   generation: owner.generation,
-  headSeq: owner.headSeq,
+  headSeq: 9,
 } as const;
 
 const lease = (
@@ -110,7 +113,7 @@ describe("additional document command contract", () => {
           sourceBlockId: "synced:owner",
           sourceDocumentId: "document:synced",
         },
-        lease([host]),
+        lease([hostHead]),
       ),
       request(
         {
@@ -120,7 +123,7 @@ describe("additional document command contract", () => {
           referenceBlockId: "synced:reference",
           sourceBlockId: "synced:owner",
         },
-        lease([source, host]),
+        lease([sourceHead, hostHead]),
       ),
       request({
         kind: "create_template",
@@ -139,7 +142,7 @@ describe("additional document command contract", () => {
           parentBlockId: "host:parent",
           beforeBlockId: "host:before",
         },
-        lease([host, source]),
+        lease([hostHead, sourceHead]),
       ),
       request({
         kind: "create_large_document",
@@ -161,7 +164,7 @@ describe("additional document command contract", () => {
           content: { kind: "large_code", language: "typescript", code: "" },
           location: { kind: "document", host },
         },
-        lease([host]),
+        lease([hostHead]),
       ),
       request(
         {
@@ -223,7 +226,7 @@ describe("additional document command contract", () => {
     );
   });
 
-  test("requires the exact logical heads in a renewable Hub lease", () => {
+  test("requires exact logical Documents while allowing renewable Hub heads", () => {
     const operation = {
       kind: "demote_synced_source",
       host,
@@ -232,7 +235,7 @@ describe("additional document command contract", () => {
       sourceBlockId: "synced:source",
     } as const;
     const parsed = parseAdditionalDocumentCommandRequest(
-      request(operation, lease([source, host], "lease:first")),
+      request(operation, lease([sourceHead, hostHead], "lease:first")),
     );
     expect(parsed.coordination.kind).toBe("hub_lease");
     if (parsed.coordination.kind !== "hub_lease") return;
@@ -243,15 +246,17 @@ describe("additional document command contract", () => {
 
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest(
-        request(operation, lease([{ ...source, headSeq: 3 }, host])),
+        request(operation, lease([{ ...sourceHead, generation: 2 }, hostHead])),
       ),
     );
     expectContractError(() =>
-      parseAdditionalDocumentCommandRequest(request(operation, lease([host]))),
+      parseAdditionalDocumentCommandRequest(
+        request(operation, lease([hostHead])),
+      ),
     );
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest(
-        request(operation, lease([host, source, source])),
+        request(operation, lease([hostHead, sourceHead, sourceHead])),
       ),
     );
     expectContractError(() =>
@@ -268,13 +273,13 @@ describe("additional document command contract", () => {
             initialBlocks: [],
             placement: { kind: "space" },
           },
-          lease([host]),
+          lease([hostHead]),
         ),
       ),
     );
   });
 
-  test("binds logical revisions and content while excluding audit and lease renewal", () => {
+  test("binds logical revisions and anchors while excluding audit and execution heads", () => {
     const operation = {
       kind: "instantiate_template",
       sourceBlockId: "template:source",
@@ -282,12 +287,15 @@ describe("additional document command contract", () => {
       target: host,
       beforeBlockId: "host:before",
     } as const;
-    const first = request(operation, lease([host, source], "lease:first"));
+    const first = request(
+      operation,
+      lease([hostHead, sourceHead], "lease:first"),
+    );
     const retry = {
       ...first,
       actor: { kind: "http_loopback" },
       clientSessionId: "session:after-restart",
-      coordination: lease([source, host], "lease:renewed"),
+      coordination: lease([sourceHead, hostHead], "lease:renewed"),
     };
     const firstCanonical = canonicalizeAdditionalDocumentCommandIntent(first);
     expect(canonicalizeAdditionalDocumentCommandIntent(retry)).toBe(
@@ -309,12 +317,38 @@ describe("additional document command contract", () => {
       ),
     ).toBe(firstCanonical);
 
-    const changedHead = request(
-      { ...operation, target: { ...host, headSeq: host.headSeq + 1 } },
-      lease([{ ...host, headSeq: host.headSeq + 1 }, source]),
+    const changedHead = compileAdditionalDocumentCommandExecution(first, {
+      leaseId: "lease:after-flush",
+      documents: [
+        { ...hostHead, headSeq: hostHead.headSeq + 1 },
+        { ...sourceHead, headSeq: sourceHead.headSeq + 2 },
+      ],
+    });
+    expect(canonicalizeAdditionalDocumentCommandIntent(changedHead)).toBe(
+      firstCanonical,
+    );
+    expect(changedHead.coordination.documents[0]?.headSeq).toBe(8);
+    const generationChange = captureError(() =>
+      compileAdditionalDocumentCommandExecution(first, {
+        leaseId: "lease:generation-changed",
+        documents: [
+          { ...hostHead, generation: hostHead.generation + 1 },
+          sourceHead,
+        ],
+      }),
     );
     expect(
-      canonicalizeAdditionalDocumentCommandIntent(changedHead) ===
+      generationChange instanceof AdditionalDocumentExecutionProofError,
+    ).toBeTrue();
+    if (generationChange instanceof AdditionalDocumentExecutionProofError) {
+      expect(generationChange.code).toBe("document_generation_mismatch");
+    }
+    const changedAnchor = request(
+      { ...operation, beforeBlockId: "host:other-before" },
+      lease([hostHead, sourceHead], "lease:other-anchor"),
+    );
+    expect(
+      canonicalizeAdditionalDocumentCommandIntent(changedAnchor) ===
         firstCanonical,
     ).toBe(false);
     expect(
@@ -520,7 +554,7 @@ describe("additional document command result contract", () => {
       createdBlockIds: ["copy:1", "copy:2"],
       preservedBlockIds: ["template:source"],
       deletedBlockIds: [],
-      documentHeads: [host, source],
+      documentHeads: [hostHead, sourceHead],
     },
     changeLogSeq: 41,
     committedAt: "2026-07-12T00:00:00.000Z",

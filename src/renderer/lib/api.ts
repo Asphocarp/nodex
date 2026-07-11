@@ -23,11 +23,16 @@ import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "../../shared/block-property-mutations";
+import {
+  parseCardMetadataPropertySnapshotCommandResult,
+  type CardMetadataPropertySnapshotCommandResult,
+} from "../../shared/card-metadata-property-snapshot-transport";
 import type {
   DatabaseMutationCommandResult,
   DatabaseMutationRequest,
 } from "../../shared/database-kernel";
 import type {
+  DatabaseCatalogSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -190,6 +195,19 @@ export function mutateBlockProperties(
   return invoke("block-properties:mutate", projectId, request);
 }
 
+export async function readCardMetadataPropertySnapshot(
+  projectId: string,
+  cardBlockId: string,
+): Promise<CardMetadataPropertySnapshotCommandResult> {
+  return parseCardMetadataPropertySnapshotCommandResult(
+    await invoke(
+      "cards:metadata-properties:snapshot",
+      projectId,
+      cardBlockId,
+    ),
+  );
+}
+
 export function readCardLifecyclePreflight(
   projectId: string,
   cardId: string,
@@ -218,6 +236,12 @@ export function mutateDatabase(
   request: DatabaseMutationRequest,
 ): Promise<DatabaseMutationCommandResult> {
   return invoke("databases:mutate", projectId, request);
+}
+
+export function readDatabaseCatalog(
+  projectId: string,
+): Promise<DatabaseCatalogSnapshotCommandResult> {
+  return invoke("databases:catalog:get", projectId);
 }
 
 export function readDatabaseDescriptor(

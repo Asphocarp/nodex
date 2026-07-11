@@ -41,6 +41,7 @@ import type {
   DatabaseMutationRequest,
 } from "./database-kernel";
 import type {
+  DatabaseCatalogSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -55,6 +56,7 @@ import type {
 import type { CardLifecyclePreflightResult } from "./card-lifecycle-runtime";
 import type { ListCardHistoryRequest } from "./card-history";
 import type { CardHistoryCommandResult } from "./card-history-transport";
+import type { CardMetadataPropertySnapshotCommandResult } from "./card-metadata-property-snapshot-transport";
 import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
@@ -338,40 +340,6 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 
-export interface HistoryEntry {
-  id: number;
-  projectId: string;
-  operation: "create" | "update" | "delete" | "move";
-  cardId: string;
-  status: Card["status"];
-  archived: boolean;
-  timestamp: string;
-  previousValues: Record<string, unknown> | null;
-  newValues: Record<string, unknown> | null;
-  fromStatus: Card["status"] | null;
-  toStatus: Card["status"] | null;
-  fromArchived: boolean | null;
-  toArchived: boolean | null;
-  fromOrder: number | null;
-  toOrder: number | null;
-  cardSnapshot: Card | null;
-  sessionId: string | null;
-  groupId: string | null;
-  isUndone: boolean;
-  undoOf: number | null;
-}
-
-export interface HistoryPanelFieldChange {
-  field: string;
-  before: unknown;
-  after: unknown;
-}
-
-export interface HistoryPanelSnapshotField {
-  field: string;
-  value: unknown;
-}
-
 export type ClipboardWriteImageResult =
   { ok: true } | { ok: false; message: string };
 
@@ -381,92 +349,6 @@ export interface ComposerPickedFile {
   bytes?: number;
   mimeType?: string;
   imageDataUrl?: string;
-}
-
-export interface HistoryPanelDescriptionDeltaBlock {
-  changeType: "added" | "removed" | "replaced";
-  blockType: string;
-  beforeOrdinal: number | null;
-  afterOrdinal: number | null;
-  beforePreview: string | null;
-  afterPreview: string | null;
-  beforeNfm: string | null;
-  afterNfm: string | null;
-}
-
-export interface HistoryPanelDescriptionSnapshotBlock {
-  ordinal: number;
-  blockType: string;
-  preview: string;
-  nfm: string;
-}
-
-export interface HistoryPanelDescriptionDelta {
-  beforeBlockCount: number;
-  afterBlockCount: number;
-  beforeFullText: string | null;
-  afterFullText: string | null;
-  blocks: HistoryPanelDescriptionDeltaBlock[];
-}
-
-export interface HistoryPanelDescriptionSnapshot {
-  blockCount: number;
-  blocks: HistoryPanelDescriptionSnapshotBlock[];
-}
-
-export interface HistoryPanelSnapshot {
-  fields: HistoryPanelSnapshotField[];
-  description: HistoryPanelDescriptionSnapshot | null;
-}
-
-export interface HistoryPanelMove {
-  fromStatus: Card["status"] | null;
-  toStatus: Card["status"] | null;
-  fromArchived: boolean | null;
-  toArchived: boolean | null;
-  fromOrder: number | null;
-  toOrder: number | null;
-}
-
-export interface HistoryPanelEntry {
-  id: number;
-  projectId: string;
-  operation: "create" | "update" | "delete" | "move";
-  cardId: string;
-  status: Card["status"];
-  archived: boolean;
-  timestamp: string;
-  sessionId: string | null;
-  groupId: string | null;
-  isUndone: boolean;
-  undoOf: number | null;
-  summary: string | null;
-  fieldChanges: HistoryPanelFieldChange[];
-  move: HistoryPanelMove | null;
-  descriptionChange: HistoryPanelDescriptionDelta | null;
-  snapshot: HistoryPanelSnapshot | null;
-  reconstructable: boolean;
-  reconstructionUnavailableReason: string | null;
-}
-
-export interface HistoryCardVersionPreview {
-  historyId: number;
-  projectId: string;
-  cardId: string;
-  card: Card;
-}
-
-export interface UndoRedoState {
-  canUndo: boolean;
-  canRedo: boolean;
-  undoDescription: string | null;
-  redoDescription: string | null;
-}
-
-export interface UndoRedoResult extends UndoRedoState {
-  success: boolean;
-  entry?: { operation: string; cardId: string };
-  error?: string;
 }
 
 export interface SchemaResult {
@@ -555,6 +437,10 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
+  "cards:metadata-properties:snapshot": {
+    args: [projectId: string, cardBlockId: string];
+    result: CardMetadataPropertySnapshotCommandResult;
+  };
   "cards:history:list": {
     args: [request: ListCardHistoryRequest];
     result: CardHistoryCommandResult;
@@ -606,6 +492,10 @@ export interface IpcApi {
   "databases:mutate": {
     args: [projectId: string, request: DatabaseMutationRequest];
     result: DatabaseMutationCommandResult;
+  };
+  "databases:catalog:get": {
+    args: [projectId: string];
+    result: DatabaseCatalogSnapshotCommandResult;
   };
   "databases:descriptor:get": {
     args: [projectId: string, databaseBlockId: string];
@@ -932,39 +822,6 @@ export interface IpcApi {
     args: [
       projectId: string,
       input: CardOccurrenceUpdateInput,
-      sessionId?: string,
-    ];
-    result: { success: boolean; error?: string };
-  };
-  "history:recent": {
-    args: [projectId: string, sessionId?: string];
-    result: UndoRedoState & { entries: HistoryEntry[] };
-  };
-  "history:card": {
-    args: [projectId: string, cardId: string];
-    result: { entries: HistoryPanelEntry[] };
-  };
-  "history:card-version-preview": {
-    args: [projectId: string, cardId: string, historyId: number];
-    result: { preview: HistoryCardVersionPreview | null; error?: string };
-  };
-  "history:undo": {
-    args: [projectId: string, sessionId?: string];
-    result: UndoRedoResult;
-  };
-  "history:redo": {
-    args: [projectId: string, sessionId?: string];
-    result: UndoRedoResult;
-  };
-  "history:revert": {
-    args: [projectId: string, historyId: number, sessionId?: string];
-    result: { success: boolean; error?: string };
-  };
-  "history:restore": {
-    args: [
-      projectId: string,
-      cardId: string,
-      historyId: number,
       sessionId?: string,
     ];
     result: { success: boolean; error?: string };

@@ -59,7 +59,7 @@ All notable changes to this project will be documented in this file.
 - Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.
 - Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and unsupported placeholder rows are now development-only mock entries instead of production command results.
 - Production card and NFM editor action menus now hide reference-only mock rows; development and Storybook still show them as disabled `Mock` entries for future surface work.
-- Card Stage history now merges collaborative Document checkpoints with durable property, lifecycle, Database, and relocation evidence. Checkpoint restore appends a forward collaborative update, while typing undo stays local to the focused editor and no longer exposes a Project-wide undo stack.
+- Card Stage and `nodex history <card-id>` now read the same collaborative Document checkpoint and durable Block evidence timeline. Checkpoint restore appends a forward collaborative update; typing undo stays local to the focused editor, and the old Project-wide history/undo/redo APIs and CLI commands are removed.
 - Codex thread previews now prefer the first user message from available transcript history, so thread mention fallback labels and thread pickers reflect the original request instead of the latest assistant response.
 - Project names are now display-only: renaming a project no longer changes its stable server-generated UUID.
 - Project row actions now own rename, icon, source-folder, Finder, and delete management directly from the sidebar.

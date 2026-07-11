@@ -38,6 +38,8 @@ import {
   type RelocationResult,
 } from "../shared/block-documents";
 import {
+  AdditionalDocumentExecutionProofError,
+  compileAdditionalDocumentCommandExecution,
   encodeAdditionalDocumentCommandSemanticHashInput,
   parseAdditionalDocumentCommandRequest,
   parseAdditionalDocumentCommandResult,
@@ -789,14 +791,6 @@ export class DocumentSyncHub {
     }
 
     const leaseId = this.createAdditionalDocumentLeaseId();
-    const coordinatedRequest: AdditionalDocumentCommandRequest = {
-      ...request,
-      coordination: {
-        kind: "hub_lease",
-        leaseId,
-        documents: request.coordination.documents.map((head) => ({ ...head })),
-      },
-    };
     this.setAdditionalDocumentLeaseBoundary(
       leaseId,
       request.storeEpoch,
@@ -833,21 +827,25 @@ export class DocumentSyncHub {
       );
     }
 
-    const headsMatch = request.coordination.documents.every((expected) => {
-      const resolved = prepared.value.resolvedHeads.find(
-        (head) => head.documentId === expected.documentId,
-      );
-      return (
-        resolved?.generation === expected.generation &&
-        resolved.headSeq === expected.headSeq
-      );
-    });
-    if (!headsMatch) {
+    let coordinatedRequest: ReturnType<
+      typeof compileAdditionalDocumentCommandExecution
+    >;
+    try {
+      coordinatedRequest = compileAdditionalDocumentCommandExecution(request, {
+        leaseId,
+        documents: prepared.value.resolvedHeads,
+      });
+    } catch (error) {
       this.cancelRelocationLease(leaseId);
       return additionalDocumentFailure(
         request,
-        "document_head_conflict",
-        "A Document advanced while editors flushed for the write lease",
+        error instanceof AdditionalDocumentExecutionProofError &&
+          error.code === "document_generation_mismatch"
+          ? "document_generation_mismatch"
+          : "document_head_conflict",
+        error instanceof Error
+          ? error.message
+          : "The flushed Document execution proof is invalid",
         false,
       );
     }
@@ -871,7 +869,7 @@ export class DocumentSyncHub {
     this.setAdditionalDocumentResultBoundary(
       leaseId,
       request.storeEpoch,
-      request.coordination.documents,
+      coordinatedRequest.coordination.documents,
       result.value.effect.documentHeads,
     );
     try {
@@ -884,7 +882,7 @@ export class DocumentSyncHub {
       this.publishAdditionalDocumentReleaseFallback(
         leaseId,
         request.storeEpoch,
-        request.coordination.documents,
+        coordinatedRequest.coordination.documents,
         result.value.effect.documentHeads,
       );
       this.fanoutAdditionalDocumentResync(result.value);

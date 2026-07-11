@@ -60,4 +60,36 @@ describe("http server startup options", () => {
 
     expect(allowed.status).toBe(404);
   });
+
+  test("does not expose legacy Project history mutation or snapshot routes", async () => {
+    const options = getHttpServerOptions(51283);
+    const requests = [
+      new Request("http://127.0.0.1:51283/api/projects/default/history"),
+      new Request(
+        "http://127.0.0.1:51283/api/projects/default/history/card?cardId=card-1",
+      ),
+      new Request(
+        "http://127.0.0.1:51283/api/projects/default/history/card-version-preview?cardId=card-1&historyId=1",
+      ),
+      new Request(
+        "http://127.0.0.1:51283/api/projects/default/history/revert",
+        { method: "POST" },
+      ),
+      new Request(
+        "http://127.0.0.1:51283/api/projects/default/history/restore",
+        { method: "POST" },
+      ),
+      new Request("http://127.0.0.1:51283/api/projects/default/undo", {
+        method: "POST",
+      }),
+      new Request("http://127.0.0.1:51283/api/projects/default/redo", {
+        method: "POST",
+      }),
+    ];
+
+    const responses = await Promise.all(
+      requests.map((request) => options.fetch(request)),
+    );
+    expect(responses.every((response) => response.status === 404)).toBeTrue();
+  });
 });

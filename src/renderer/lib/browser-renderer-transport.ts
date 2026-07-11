@@ -37,7 +37,9 @@ import {
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
 import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
+import { parseCardMetadataPropertySnapshotCommandResult } from "../../shared/card-metadata-property-snapshot-transport";
 import {
+  parseDatabaseCatalogSnapshotCommandResult,
   parseDatabaseMutationCommandResult,
   parseDatabaseReadCommandResult,
   parseDatabaseViewSnapshotCommandResult,
@@ -778,6 +780,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return parseBlockPropertyMutationCommandResult(await response.json());
     }
+    case "cards:metadata-properties:snapshot": {
+      const [projectId, cardBlockId] = args as [string, string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/cards/${encodeURIComponent(cardBlockId)}/metadata-property-snapshot`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseCardMetadataPropertySnapshotCommandResult(
+        await response.json(),
+      );
+    }
     case "cards:lifecycle:preflight": {
       const [projectId, cardId] = args as [string, string];
       const response = await fetch(
@@ -826,6 +840,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         },
       );
       return parseDatabaseMutationCommandResult(await response.json());
+    }
+    case "databases:catalog:get": {
+      const [projectId] = args as [string];
+      const response = await fetch(
+        toApiUrl(`/api/projects/${encodeURIComponent(projectId)}/databases`),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseDatabaseCatalogSnapshotCommandResult(await response.json());
     }
     case "databases:descriptor:get": {
       const [projectId, databaseBlockId] = args as [string, string];

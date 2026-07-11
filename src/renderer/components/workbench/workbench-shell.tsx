@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   Bot,
   CalendarDays,
+  Database,
   Globe2,
   PenLine,
   SquareKanban,
@@ -42,6 +43,7 @@ import {
   CalendarToolbarMonthLabel,
 } from "@/components/kanban/calendar/calendar-toolbar";
 import { DbViewToolbar } from "./db-view-toolbar";
+import { DatabaseManagementDialogController } from "./database-management-dialog-controller";
 import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
 import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
@@ -87,7 +89,7 @@ import {
   NodexDropdownMenu,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
-import { NodexButton } from "@/components/ui/button";
+import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -11619,6 +11621,7 @@ function DbViewSessionTab({
   const [calendarState, setCalendarState] = useState<CalendarViewState>(() => loadCalendarViewState());
   const [calendarCreateRequestId, setCalendarCreateRequestId] = useState(0);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
+  const [databaseManagerOpen, setDatabaseManagerOpen] = useState(false);
   const calendarVisibleDays = useMemo(() => resolveCalendarVisibleDays(calendarState), [calendarState]);
   const calendarDayCount = resolveCalendarVisibleDayCount(calendarState.range);
   const scrollStateKey = renderedView === "calendar"
@@ -11767,10 +11770,26 @@ function DbViewSessionTab({
         availableTags={availableTags}
         viewContextLabel={calendarToolbarContextLabel}
         calendarControls={calendarToolbarControls}
+        managementControl={(
+          <NodexIconButton
+            icon={Database}
+            size="sm"
+            active={databaseManagerOpen}
+            ariaLabel="Manage Databases"
+            title="Manage Databases"
+            onClick={() => setDatabaseManagerOpen(true)}
+          />
+        )}
         onUpdateDbViewPrefs={updateDbViewPrefs}
         onSearchQueryChange={(value) => setSearchQuery(config.projectId, value)}
         onOpenTaskSearch={openTaskSearch}
         onCloseTaskSearch={closeTaskSearch}
+      />
+      <DatabaseManagementDialogController
+        projectId={config.projectId}
+        initialDatabaseBlockId={databaseView?.databaseBlockId ?? null}
+        open={databaseManagerOpen}
+        onOpenChange={setDatabaseManagerOpen}
       />
       <div className="min-h-0 flex-1 overflow-hidden">
         <MainViewHost

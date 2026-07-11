@@ -10,10 +10,12 @@ import {
   type DatabaseJsonValue,
 } from "./database-kernel";
 import type {
+  DatabaseCatalogSnapshotCommandResult,
   DatabaseReadCommandError,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
+  GeneralDatabaseCatalog,
   GeneralDatabaseViewQuery,
   PrimaryDatabaseViewSnapshotCommandResult,
 } from "./database-query";
@@ -413,6 +415,11 @@ export const parseDatabaseViewSnapshotCommandResult = (
     },
   };
 };
+
+export const parseDatabaseCatalogSnapshotCommandResult = (
+  value: unknown,
+): DatabaseCatalogSnapshotCommandResult =>
+  parseDatabaseReadCommandResult<GeneralDatabaseCatalog>(value);
 
 export const parsePrimaryDatabaseViewSnapshotCommandResult = (
   value: unknown,

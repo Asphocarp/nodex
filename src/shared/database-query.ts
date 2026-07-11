@@ -54,6 +54,15 @@ export interface GeneralDatabaseDescriptor {
   readonly views: readonly GeneralDatabaseViewDefinition[];
 }
 
+/**
+ * Complete active Database authority for one Project, captured under one
+ * store epoch/change cursor. Consumers must not stitch independent descriptor
+ * reads together when compiling schema, View, or membership mutations.
+ */
+export interface GeneralDatabaseCatalog {
+  readonly databases: readonly GeneralDatabaseDescriptor[];
+}
+
 export interface CardContentSummary {
   readonly blockId: string;
   readonly projectId: string;
@@ -138,6 +147,9 @@ export interface DatabaseReadCommandError {
 export type DatabaseReadCommandResult<T> =
   | { readonly ok: true; readonly value: DatabaseReadSnapshot<T> }
   | { readonly ok: false; readonly error: DatabaseReadCommandError };
+
+export type DatabaseCatalogSnapshotCommandResult =
+  DatabaseReadCommandResult<GeneralDatabaseCatalog>;
 
 /**
  * Descriptor and primary View query captured under one authority read. Keeping

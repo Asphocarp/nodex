@@ -1,8 +1,4 @@
-import type {
-  BoardChangeEvent,
-  HistoryCardVersionPreview,
-  UndoRedoResult,
-} from "../shared/ipc-api";
+import type { BoardChangeEvent } from "../shared/ipc-api";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -36,6 +32,7 @@ import type {
   DatabaseMutationRequest,
 } from "../shared/database-kernel";
 import type {
+  DatabaseCatalogSnapshotCommandResult,
   DatabaseReadCommandResult,
   DatabaseViewSnapshotCommandResult,
   GeneralDatabaseDescriptor,
@@ -104,11 +101,6 @@ export interface CardMutationMetrics {
 }
 
 export type CardOccurrenceMutationResult = { success: boolean; error?: string };
-export type HistoryMutationResult = { success: boolean; error?: string };
-export type CardHistoryVersionPreviewResult = {
-  preview: HistoryCardVersionPreview | null;
-  error?: string;
-};
 export interface CardReadModelBackfillResult {
   updated: number;
   remaining: number;
@@ -224,45 +216,6 @@ export type CardMutationWorkerRequest =
       };
     })
   | (CardMutationWorkerRequestBase & {
-      type: "getCardHistoryVersionPreview";
-      payload: {
-        projectId: string;
-        cardId: string;
-        historyId: number;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "undoLatest";
-      payload: {
-        projectId: string;
-        sessionId?: string;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "redoLatest";
-      payload: {
-        projectId: string;
-        sessionId?: string;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "revertEntry";
-      payload: {
-        projectId: string;
-        historyId: number;
-        sessionId?: string;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "restoreToEntry";
-      payload: {
-        projectId: string;
-        cardId: string;
-        historyId: number;
-        sessionId?: string;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
       type: "backfillCardReadModel";
       payload: {
         limit?: number;
@@ -297,6 +250,10 @@ export type CardMutationWorkerRequest =
   | (CardMutationWorkerRequestBase & {
       type: "compactEligibleBlockDocuments";
       payload: CompactEligibleBlockDocumentsInput;
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "readDatabaseCatalog";
+      payload: { readonly projectId: string };
     })
   | (CardMutationWorkerRequestBase & {
       type: "readDatabaseDescriptor";
@@ -426,9 +383,6 @@ export type CardMutationWorkerResult =
   | CardOccurrenceMutationResult
   | CardReadModelBackfillResult
   | BlockDocumentShadowInitializationResult
-  | CardHistoryVersionPreviewResult
-  | UndoRedoResult
-  | HistoryMutationResult
   | BlockDocumentWorkerResult
   | OwnedBlockDocumentDescriptor
   | CutoverEligibleCardDocumentsResult
@@ -439,6 +393,7 @@ export type CardMutationWorkerResult =
   | CardLifecycleMutationCommandResult
   | CardLifecyclePreflightResult
   | CompactEligibleBlockDocumentsResult
+  | DatabaseCatalogSnapshotCommandResult
   | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
   | DatabaseReadCommandResult<GeneralDatabaseViewQuery>
   | PrimaryDatabaseViewSnapshotCommandResult
