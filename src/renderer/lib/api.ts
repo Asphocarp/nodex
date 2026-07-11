@@ -1,9 +1,16 @@
-import { resolveInvokeTransport, resolveRendererTransport } from "./renderer-transport";
+import {
+  resolveInvokeTransport,
+  resolveRendererTransport,
+} from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
 import type { Card, CardUpdateResult } from "./types";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
-import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
+import type {
+  OwnedBlockDocumentDescriptor,
+  RelocationCommandResult,
+} from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
+import type { DocumentRelocationRequest } from "../../shared/block-documents/relocation-transport";
 import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
@@ -33,9 +40,9 @@ export async function invoke(
   const transport = resolveInvokeTransport(channel);
 
   if (
-    channel.startsWith("codex:")
-    && transport.kind !== "electron"
-    && !BROWSER_CODEX_INVOKE_CHANNELS.has(channel)
+    channel.startsWith("codex:") &&
+    transport.kind !== "electron" &&
+    !BROWSER_CODEX_INVOKE_CHANNELS.has(channel)
   ) {
     throw new Error("Codex threads require Electron in this release");
   }
@@ -43,7 +50,9 @@ export async function invoke(
   return transport.invoke(channel, ...args);
 }
 
-export function createDocumentSyncAdapter(projectId: string): DocumentSyncAdapter {
+export function createDocumentSyncAdapter(
+  projectId: string,
+): DocumentSyncAdapter {
   const transport = resolveRendererTransport();
   const createAdapter = transport.createDocumentSyncAdapter;
   if (createAdapter) {
@@ -72,6 +81,12 @@ export function prepareOwnedBlockDocument(
   );
 }
 
+export function relocateBlocks(
+  request: DocumentRelocationRequest,
+): Promise<RelocationCommandResult> {
+  return resolveRendererTransport().relocateBlocks(request);
+}
+
 export function resolveCardReference(
   input: ResolveCardReferenceInput,
 ): Promise<CardReferenceReadModel | null> {
@@ -93,8 +108,12 @@ function yieldToInput(): Promise<void> {
 }
 
 function getDescriptionChunkEnd(description: string, start: number): number {
-  const initialEnd = Math.min(description.length, start + CARD_DESCRIPTION_UPDATE_CHUNK_SIZE);
-  if (initialEnd >= description.length || initialEnd <= start) return initialEnd;
+  const initialEnd = Math.min(
+    description.length,
+    start + CARD_DESCRIPTION_UPDATE_CHUNK_SIZE,
+  );
+  if (initialEnd >= description.length || initialEnd <= start)
+    return initialEnd;
 
   const previousCodeUnit = description.charCodeAt(initialEnd - 1);
   if (previousCodeUnit < 0xd800 || previousCodeUnit > 0xdbff) return initialEnd;
@@ -110,7 +129,10 @@ export async function updateCardDescription(input: {
   expectedRevision?: number;
 }): Promise<CardUpdateResult> {
   const { description, ...startInput } = input;
-  const { stagingId } = await invoke("card:description:update:start", startInput);
+  const { stagingId } = await invoke(
+    "card:description:update:start",
+    startInput,
+  );
   try {
     for (let index = 0; index < description.length;) {
       const chunkEnd = getDescriptionChunkEnd(description, index);
@@ -139,9 +161,14 @@ export function subscribeBoardChanges(
 
 export function subscribeProjectSessionChanges(
   projectId: string | null,
-  callback: (event: import("../../shared/ipc-api").ProjectSessionsChangeEvent) => void,
+  callback: (
+    event: import("../../shared/ipc-api").ProjectSessionsChangeEvent,
+  ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeProjectSessionChanges(projectId, callback);
+  return resolveRendererTransport().subscribeProjectSessionChanges(
+    projectId,
+    callback,
+  );
 }
 
 export function subscribeProjectChanges(
@@ -157,9 +184,13 @@ export function subscribeCodexHostMessages(
 }
 
 export function subscribeCodexRendererClientRequests(
-  callback: (message: import("./types").CodexRendererClientRequestMessage) => void,
+  callback: (
+    message: import("./types").CodexRendererClientRequestMessage,
+  ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCodexRendererClientRequests(callback);
+  return resolveRendererTransport().subscribeCodexRendererClientRequests(
+    callback,
+  );
 }
 
 export function subscribeDesktopNotificationActions(
@@ -170,7 +201,9 @@ export function subscribeDesktopNotificationActions(
     },
   ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeDesktopNotificationActions(callback);
+  return resolveRendererTransport().subscribeDesktopNotificationActions(
+    callback,
+  );
 }
 
 export function subscribeGitBranchChanges(
@@ -186,35 +219,50 @@ export function subscribeAppUpdateStatus(
 }
 
 export function subscribeCommandKeymapChanges(
-  callback: (state: import("../../shared/command-keybindings").CommandKeymapState) => void,
+  callback: (
+    state: import("../../shared/command-keybindings").CommandKeymapState,
+  ) => void,
 ): () => void {
   return resolveRendererTransport().subscribeCommandKeymapChanges(callback);
 }
 
 export function subscribeCommandPaletteThreadIndexUpdates(
-  callback: (event: import("./types").CommandPaletteThreadIndexUpdatedEvent) => void,
+  callback: (
+    event: import("./types").CommandPaletteThreadIndexUpdatedEvent,
+  ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCommandPaletteThreadIndexUpdates(callback);
+  return resolveRendererTransport().subscribeCommandPaletteThreadIndexUpdates(
+    callback,
+  );
 }
 
 export function subscribeCodexScheduledAutomationChanges(
-  callback: (event: import("./types").CodexScheduledAutomationChangedEvent) => void,
+  callback: (
+    event: import("./types").CodexScheduledAutomationChangedEvent,
+  ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCodexScheduledAutomationChanges(callback);
+  return resolveRendererTransport().subscribeCodexScheduledAutomationChanges(
+    callback,
+  );
 }
 
 export function subscribeCodexAutomationRunsUpdates(
   callback: (event: import("./types").CodexAutomationRunsUpdatedEvent) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCodexAutomationRunsUpdates(callback);
+  return resolveRendererTransport().subscribeCodexAutomationRunsUpdates(
+    callback,
+  );
 }
 
 export function subscribeCrossWindowDragActiveChanges(
   callback: (
-    preview: import("../../shared/cross-window-drag").CrossWindowDragPreview | null,
+    preview:
+      import("../../shared/cross-window-drag").CrossWindowDragPreview | null,
   ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCrossWindowDragActiveChanges(callback);
+  return resolveRendererTransport().subscribeCrossWindowDragActiveChanges(
+    callback,
+  );
 }
 
 export function subscribeCrossWindowDragSourceResults(
@@ -222,7 +270,9 @@ export function subscribeCrossWindowDragSourceResults(
     result: import("../../shared/cross-window-drag").CrossWindowDragSourceResult,
   ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCrossWindowDragSourceResults(callback);
+  return resolveRendererTransport().subscribeCrossWindowDragSourceResults(
+    callback,
+  );
 }
 
 export function getWindowFocusState(): Promise<boolean> {

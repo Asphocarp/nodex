@@ -16,7 +16,9 @@ export interface NfmEditorLegacySnapshotSource {
 export interface NfmEditorCollaborativeDocumentSource {
   kind: "collaborative-document";
   documentId: string;
+  storeEpoch: string;
   generation: number;
+  clientSessionId: string;
   fragment: Y.XmlFragment;
   user: {
     name: string;
@@ -30,8 +32,7 @@ export interface NfmEditorCollaborativeDocumentSource {
 }
 
 export type NfmEditorSource =
-  | NfmEditorLegacySnapshotSource
-  | NfmEditorCollaborativeDocumentSource;
+  NfmEditorLegacySnapshotSource | NfmEditorCollaborativeDocumentSource;
 
 export type NfmEditorModeOptions<InitialContent> =
   | {
@@ -129,7 +130,7 @@ export function resolveNfmEditorBlockActionCapabilities(
   }
 
   return {
-    canMoveBlocks: source.kind === "legacy-snapshot",
+    canMoveBlocks: true,
     canSendBlocksToThread: true,
   };
 }

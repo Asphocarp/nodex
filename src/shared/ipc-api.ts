@@ -14,7 +14,11 @@ import type {
   DocumentSyncSubscriptionAck,
   DocumentSyncUnsubscribeAck,
 } from "./block-documents/document-sync";
-import type { OwnedBlockDocumentDescriptor } from "./block-documents/contracts";
+import type {
+  OwnedBlockDocumentDescriptor,
+  RelocationCommandResult,
+} from "./block-documents/contracts";
+import type { DocumentRelocationRequest } from "./block-documents/relocation-transport";
 import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
@@ -559,6 +563,10 @@ export interface IpcApi {
     args: [request: DocumentRelocationLeaseResponseRequest];
     result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
   };
+  "document-sync:relocate": {
+    args: [request: DocumentRelocationRequest];
+    result: RelocationCommandResult;
+  };
   "diagnostics:renderer-log": {
     args: [input: RendererDiagnosticsLogInput];
     result: void;
@@ -787,11 +795,7 @@ export interface IpcApi {
     result: BlockDropImportResult;
   };
   "card:apply-editor-drop": {
-    args: [
-      projectId: string,
-      input: CardEditorDropInput,
-      sessionId?: string,
-    ];
+    args: [projectId: string, input: CardEditorDropInput, sessionId?: string];
     result: CardEditorDropResult;
   };
   "cross-window-drag:start": {

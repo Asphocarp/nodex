@@ -346,6 +346,7 @@ const normalizeRealtimeEvent = (
   if (value.kind === "relocation-lease-prepare") {
     if (
       typeof value.leaseId !== "string" ||
+      typeof value.clientSessionId !== "string" ||
       typeof value.storeEpoch !== "string" ||
       typeof value.generation !== "number" ||
       typeof value.expectedHeadSeq !== "number" ||
@@ -356,6 +357,7 @@ const normalizeRealtimeEvent = (
     return {
       kind: value.kind,
       leaseId: value.leaseId,
+      clientSessionId: value.clientSessionId,
       documentId: value.documentId,
       storeEpoch: value.storeEpoch,
       generation: value.generation,
@@ -369,6 +371,7 @@ const normalizeRealtimeEvent = (
   ) {
     if (
       typeof value.leaseId !== "string" ||
+      typeof value.clientSessionId !== "string" ||
       typeof value.storeEpoch !== "string" ||
       typeof value.generation !== "number" ||
       typeof value.headSeq !== "number" ||
@@ -381,6 +384,7 @@ const normalizeRealtimeEvent = (
       ? {
           kind: value.kind,
           leaseId: value.leaseId,
+          clientSessionId: value.clientSessionId,
           documentId: value.documentId,
           storeEpoch: value.storeEpoch,
           generation: value.generation,
@@ -389,6 +393,7 @@ const normalizeRealtimeEvent = (
       : {
           kind: value.kind,
           leaseId: value.leaseId,
+          clientSessionId: value.clientSessionId,
           documentId: value.documentId,
           storeEpoch: value.storeEpoch,
           generation: value.generation,
@@ -551,6 +556,14 @@ export function createElectronDocumentSyncAdapter(
           (...args: unknown[]) => {
             const event = normalizeRealtimeEvent(args[0]);
             if (!event || event.documentId !== request.documentId) {
+              return;
+            }
+            if (
+              (event.kind === "relocation-lease-prepare" ||
+                event.kind === "relocation-lease-release" ||
+                event.kind === "relocation-lease-cancel") &&
+              event.clientSessionId !== request.clientSessionId
+            ) {
               return;
             }
             listeners.forEach((activeListener) => activeListener(event));

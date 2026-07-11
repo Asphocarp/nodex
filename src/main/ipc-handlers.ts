@@ -189,6 +189,7 @@ import {
   documentSyncUnauthorized,
 } from "./document-sync-hub";
 import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
+import { parseDocumentRelocationRequest } from "../shared/block-documents/relocation-transport";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -466,8 +467,12 @@ interface RegisterIpcHandlersOptions {
   onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
-  onHeartbeatAutomationsEnabledChanged?: (input: CodexHeartbeatAutomationsEnabledChangedInput) => void;
-  onHeartbeatAutomationThreadStateChanged?: (input: CodexHeartbeatAutomationThreadStateChangedInput) => void;
+  onHeartbeatAutomationsEnabledChanged?: (
+    input: CodexHeartbeatAutomationsEnabledChangedInput,
+  ) => void;
+  onHeartbeatAutomationThreadStateChanged?: (
+    input: CodexHeartbeatAutomationThreadStateChangedInput,
+  ) => void;
 }
 
 export function registerIpcHandlers(
@@ -582,7 +587,11 @@ export function registerIpcHandlers(
   codexService.on("event", (event) => {
     broadcastRendererClientMessage("codex:event", [event]);
     if (event.type === "scheduledAutomationChanged") {
-      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [event.event]);
+      safeBroadcastToWindows(
+        BrowserWindow.getAllWindows(),
+        "codex:scheduled-automations:changed",
+        [event.event],
+      );
     }
     if (event.type === "automationRunsUpdated") {
       broadcastIpcEvent("codex:automation-runs:updated", event.event);
@@ -689,10 +698,12 @@ export function registerIpcHandlers(
   registerHandle(
     "block-document:owned:get",
     async (_, projectId, ownerBlockId) =>
-      (await cardMutationWriter.getOwnedBlockDocumentDescriptor(
-        projectId,
-        ownerBlockId,
-      )).result,
+      (
+        await cardMutationWriter.getOwnedBlockDocumentDescriptor(
+          projectId,
+          ownerBlockId,
+        )
+      ).result,
   );
   registerHandle(
     "block-document:owned:prepare",
@@ -729,6 +740,51 @@ export function registerIpcHandlers(
       return documentSyncUnauthorized();
     }
     return documentSyncHub.publishAwareness(target, request);
+  });
+  registerHandle("document-sync:relocation-lease:respond", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) {
+      return documentSyncUnauthorized();
+    }
+    return documentSyncHub.respondToRelocationLease(target, request);
+  });
+  registerHandle("document-sync:relocate", async (event, rawRequest) => {
+    const target = resolveDocumentSyncTarget(event);
+    let request;
+    try {
+      request = parseDocumentRelocationRequest(rawRequest);
+    } catch (error) {
+      return {
+        ok: false as const,
+        error: {
+          code: "invalid_relocation_request" as const,
+          message:
+            error instanceof Error
+              ? error.message
+              : "Block relocation request is invalid",
+          retryable: false,
+          reloadRequired: false,
+        },
+      };
+    }
+    if (!target) {
+      return {
+        ok: false as const,
+        error: {
+          code: "invalid_relocation_request" as const,
+          message:
+            "Block relocation is restricted to the subscribed application window",
+          retryable: false,
+          reloadRequired: false,
+          relocationId: request.intent.relocationId,
+        },
+      };
+    }
+    return await documentSyncHub.relocate(
+      target,
+      request.intent,
+      request.clientSessionId,
+    );
   });
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
@@ -1338,23 +1394,38 @@ export function registerIpcHandlers(
   );
 
   registerHandle("cross-window-drag:start", (event, input) =>
-    crossWindowDragCoordinator.start(requireCrossWindowDragSender(event), input),
+    crossWindowDragCoordinator.start(
+      requireCrossWindowDragSender(event),
+      input,
+    ),
   );
   registerHandle("cross-window-drag:active:get", (event) => {
     requireCrossWindowDragSender(event);
     return crossWindowDragCoordinator.getActive();
   });
   registerHandle("cross-window-drag:claim", (event, input) =>
-    crossWindowDragCoordinator.claim(requireCrossWindowDragSender(event), input),
+    crossWindowDragCoordinator.claim(
+      requireCrossWindowDragSender(event),
+      input,
+    ),
   );
   registerHandle("cross-window-drag:source-ended", (event, sessionId) =>
-    crossWindowDragCoordinator.sourceEnded(requireCrossWindowDragSender(event), sessionId),
+    crossWindowDragCoordinator.sourceEnded(
+      requireCrossWindowDragSender(event),
+      sessionId,
+    ),
   );
   registerHandle("cross-window-drag:complete", (event, input) =>
-    crossWindowDragCoordinator.complete(requireCrossWindowDragSender(event), input),
+    crossWindowDragCoordinator.complete(
+      requireCrossWindowDragSender(event),
+      input,
+    ),
   );
   registerHandle("cross-window-drag:discard", (event, sessionId) =>
-    crossWindowDragCoordinator.discard(requireCrossWindowDragSender(event), sessionId),
+    crossWindowDragCoordinator.discard(
+      requireCrossWindowDragSender(event),
+      sessionId,
+    ),
   );
 
   registerHandle(
@@ -2238,15 +2309,19 @@ export function registerIpcHandlers(
 
   registerCodexScheduledAutomationIpcHandlers({
     registerHandle,
-    runScheduledAutomationNow: (input) => codexService.runScheduledAutomationNow(input),
-    captureAutomationArchiveMessages: (threadId) => codexService.captureAutomationArchiveMessages(threadId),
+    runScheduledAutomationNow: (input) =>
+      codexService.runScheduledAutomationNow(input),
+    captureAutomationArchiveMessages: (threadId) =>
+      codexService.captureAutomationArchiveMessages(threadId),
     unarchiveThread: (threadId) => codexService.unarchiveThread(threadId),
     broadcastScheduledAutomationChanged,
     broadcastAutomationRunsUpdated: (event) => {
       broadcastIpcEvent("codex:automation-runs:updated", event);
     },
-    onHeartbeatAutomationsEnabledChanged: options.onHeartbeatAutomationsEnabledChanged,
-    onHeartbeatAutomationThreadStateChanged: options.onHeartbeatAutomationThreadStateChanged,
+    onHeartbeatAutomationsEnabledChanged:
+      options.onHeartbeatAutomationsEnabledChanged,
+    onHeartbeatAutomationThreadStateChanged:
+      options.onHeartbeatAutomationThreadStateChanged,
   });
 
   registerHandle("codex:model:list", () => codexService.listModels());

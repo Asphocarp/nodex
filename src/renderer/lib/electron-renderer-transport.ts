@@ -9,18 +9,29 @@ import {
   COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
   type CommandKeymapState,
 } from "../../shared/command-keybindings";
-import type { BoardChangeEvent, PersistedAtomUpdate, ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
+import type {
+  BoardChangeEvent,
+  PersistedAtomUpdate,
+  ProjectSessionsChangeEvent,
+  ProjectsChangeEvent,
+} from "../../shared/ipc-api";
 import type {
   CrossWindowDragPreview,
   CrossWindowDragSourceResult,
 } from "../../shared/cross-window-drag";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
-import type { OwnedBlockDocumentDescriptor } from "../../shared/block-documents/contracts";
+import type {
+  OwnedBlockDocumentDescriptor,
+  RelocationCommandResult,
+} from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
+import type { DocumentRelocationRequest } from "../../shared/block-documents/relocation-transport";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
-export function createElectronRendererTransport(bridge: ElectronRendererBridge) {
+export function createElectronRendererTransport(
+  bridge: ElectronRendererBridge,
+) {
   return {
     kind: "electron" as const,
     getOwnedBlockDocumentDescriptor(projectId: string, ownerBlockId: string) {
@@ -41,10 +52,19 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
       void projectId;
       return createElectronDocumentSyncAdapter(bridge);
     },
+    relocateBlocks(request: DocumentRelocationRequest) {
+      return bridge.invoke(
+        "document-sync:relocate",
+        request,
+      ) as Promise<RelocationCommandResult>;
+    },
     invoke(channel: string, ...args: unknown[]) {
       return bridge.invoke(channel, ...args);
     },
-    subscribeBoardChanges(projectId: string, callback: (event: BoardChangeEvent) => void) {
+    subscribeBoardChanges(
+      projectId: string,
+      callback: (event: BoardChangeEvent) => void,
+    ) {
       return bridge.on("board-changed", (...args: unknown[]) => {
         const payload = args[0] as BoardChangeEvent | undefined;
         if (!payload || payload.projectId !== projectId) return;
@@ -75,25 +95,44 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
         callback(payload);
       });
     },
-    subscribeCodexRendererClientRequests(callback: (message: CodexRendererClientRequestMessage) => void) {
-      return bridge.on("codex:renderer-client:request", (...args: unknown[]) => {
-        const payload = args[0] as CodexRendererClientRequestMessage | undefined;
-        if (!payload || typeof payload.requestId !== "string" || typeof payload.method !== "string") return;
-        callback(payload);
-      });
+    subscribeCodexRendererClientRequests(
+      callback: (message: CodexRendererClientRequestMessage) => void,
+    ) {
+      return bridge.on(
+        "codex:renderer-client:request",
+        (...args: unknown[]) => {
+          const payload = args[0] as
+            CodexRendererClientRequestMessage | undefined;
+          if (
+            !payload ||
+            typeof payload.requestId !== "string" ||
+            typeof payload.method !== "string"
+          )
+            return;
+          callback(payload);
+        },
+      );
     },
     subscribeDesktopNotificationActions(
-      callback: (message: DesktopNotificationActionPayload & {
-        conversationId: string | null;
-        requestId: string | null;
-      }) => void,
+      callback: (
+        message: DesktopNotificationActionPayload & {
+          conversationId: string | null;
+          requestId: string | null;
+        },
+      ) => void,
     ) {
       return bridge.on("desktop-notification:action", (...args: unknown[]) => {
-        const payload = args[0] as (DesktopNotificationActionPayload & {
-          conversationId?: string | null;
-          requestId?: string | null;
-        }) | undefined;
-        if (!payload || typeof payload.notificationId !== "string" || typeof payload.actionType !== "string") {
+        const payload = args[0] as
+          | (DesktopNotificationActionPayload & {
+              conversationId?: string | null;
+              requestId?: string | null;
+            })
+          | undefined;
+        if (
+          !payload ||
+          typeof payload.notificationId !== "string" ||
+          typeof payload.actionType !== "string"
+        ) {
           return;
         }
         callback({
@@ -117,39 +156,69 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
         callback(payload);
       });
     },
-    subscribeCommandKeymapChanges(callback: (state: CommandKeymapState) => void) {
-      return bridge.on(COMMAND_KEYBINDINGS_CHANGED_CHANNEL, (...args: unknown[]) => {
-        const payload = args[0] as CommandKeymapState | undefined;
-        if (!payload || payload.version !== 1 || !Array.isArray(payload.entries)) return;
-        callback(payload);
-      });
+    subscribeCommandKeymapChanges(
+      callback: (state: CommandKeymapState) => void,
+    ) {
+      return bridge.on(
+        COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
+        (...args: unknown[]) => {
+          const payload = args[0] as CommandKeymapState | undefined;
+          if (
+            !payload ||
+            payload.version !== 1 ||
+            !Array.isArray(payload.entries)
+          )
+            return;
+          callback(payload);
+        },
+      );
     },
-    subscribeCommandPaletteThreadIndexUpdates(callback: (event: CommandPaletteThreadIndexUpdatedEvent) => void) {
-      return bridge.on("codex:threads:palette:index-updated", (...args: unknown[]) => {
-        const payload = args[0] as CommandPaletteThreadIndexUpdatedEvent | undefined;
-        if (!payload || typeof payload.generation !== "number") return;
-        callback(payload);
-      });
+    subscribeCommandPaletteThreadIndexUpdates(
+      callback: (event: CommandPaletteThreadIndexUpdatedEvent) => void,
+    ) {
+      return bridge.on(
+        "codex:threads:palette:index-updated",
+        (...args: unknown[]) => {
+          const payload = args[0] as
+            CommandPaletteThreadIndexUpdatedEvent | undefined;
+          if (!payload || typeof payload.generation !== "number") return;
+          callback(payload);
+        },
+      );
     },
     subscribeCodexScheduledAutomationChanges(
-      callback: (event: import("./types").CodexScheduledAutomationChangedEvent) => void,
+      callback: (
+        event: import("./types").CodexScheduledAutomationChangedEvent,
+      ) => void,
     ) {
-      return bridge.on("codex:scheduled-automations:changed", (...args: unknown[]) => {
-        const payload = args[0] as import("./types").CodexScheduledAutomationChangedEvent | undefined;
-        if (!payload || typeof payload.automationId !== "string") return;
-        callback(payload);
-      });
+      return bridge.on(
+        "codex:scheduled-automations:changed",
+        (...args: unknown[]) => {
+          const payload = args[0] as
+            import("./types").CodexScheduledAutomationChangedEvent | undefined;
+          if (!payload || typeof payload.automationId !== "string") return;
+          callback(payload);
+        },
+      );
     },
     subscribeCodexAutomationRunsUpdates(
-      callback: (event: import("./types").CodexAutomationRunsUpdatedEvent) => void,
+      callback: (
+        event: import("./types").CodexAutomationRunsUpdatedEvent,
+      ) => void,
     ) {
-      return bridge.on("codex:automation-runs:updated", (...args: unknown[]) => {
-        const payload = args[0] as import("./types").CodexAutomationRunsUpdatedEvent | undefined;
-        if (!payload || typeof payload.reason !== "string") return;
-        callback(payload);
-      });
+      return bridge.on(
+        "codex:automation-runs:updated",
+        (...args: unknown[]) => {
+          const payload = args[0] as
+            import("./types").CodexAutomationRunsUpdatedEvent | undefined;
+          if (!payload || typeof payload.reason !== "string") return;
+          callback(payload);
+        },
+      );
     },
-    subscribePersistedAtomUpdates(callback: (update: PersistedAtomUpdate) => void) {
+    subscribePersistedAtomUpdates(
+      callback: (update: PersistedAtomUpdate) => void,
+    ) {
       return bridge.on("persisted-atom:updated", (...args: unknown[]) => {
         const payload = args[0] as PersistedAtomUpdate | undefined;
         if (!payload || typeof payload.key !== "string") return;
@@ -159,27 +228,38 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
     subscribeCrossWindowDragActiveChanges(
       callback: (preview: CrossWindowDragPreview | null) => void,
     ) {
-      return bridge.on("cross-window-drag:active-changed", (...args: unknown[]) => {
-        callback((args[0] as CrossWindowDragPreview | null | undefined) ?? null);
-      });
+      return bridge.on(
+        "cross-window-drag:active-changed",
+        (...args: unknown[]) => {
+          callback(
+            (args[0] as CrossWindowDragPreview | null | undefined) ?? null,
+          );
+        },
+      );
     },
     subscribeCrossWindowDragSourceResults(
       callback: (result: CrossWindowDragSourceResult) => void,
     ) {
-      return bridge.on("cross-window-drag:source-result", (...args: unknown[]) => {
-        const result = args[0] as CrossWindowDragSourceResult | undefined;
-        if (!result || typeof result.sessionId !== "string") return;
-        callback(result);
-      });
+      return bridge.on(
+        "cross-window-drag:source-result",
+        (...args: unknown[]) => {
+          const result = args[0] as CrossWindowDragSourceResult | undefined;
+          if (!result || typeof result.sessionId !== "string") return;
+          callback(result);
+        },
+      );
     },
     getWindowFocusState() {
       return bridge.invoke("electron-window:focus:get") as Promise<boolean>;
     },
     subscribeWindowFocusChanges(callback: (isFocused: boolean) => void) {
-      return bridge.on("electron-window:focus-changed", (...args: unknown[]) => {
-        const payload = args[0] as { isFocused?: boolean } | undefined;
-        callback(payload?.isFocused === true);
-      });
+      return bridge.on(
+        "electron-window:focus-changed",
+        (...args: unknown[]) => {
+          const payload = args[0] as { isFocused?: boolean } | undefined;
+          callback(payload?.isFocused === true);
+        },
+      );
     },
   };
 }

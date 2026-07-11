@@ -12,6 +12,8 @@ import {
 import * as Y from "yjs";
 import { MAX_CARD_TITLE_LENGTH } from "../../../shared/card-limits";
 import { cn } from "@/lib/utils";
+import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
+import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import { applyYTextInputReconciliation } from "@/lib/y-text-input";
 
 type NativeTitleTextareaProps = Omit<
@@ -38,6 +40,7 @@ export interface CollaborativeCardTitleProps
   readonly onCompositionEnd?: (
     event: CompositionEvent<HTMLTextAreaElement>,
   ) => void;
+  readonly surfaceWriteFence?: BlockDocumentSurfaceWriteFence;
 }
 
 interface CompositionCommit {
@@ -122,13 +125,16 @@ export function CollaborativeCardTitle({
   onValueChange,
   onCompositionStart,
   onCompositionEnd,
+  surfaceWriteFence,
   onKeyDown,
   className,
+  disabled = false,
   rows = 1,
   placeholder = "Untitled",
   "aria-label": ariaLabel = "Card title",
   ...props
 }: CollaborativeCardTitleProps) {
+  const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const [value, setValue] = useState(() => title.toString());
   const [localOrigin] = useState(() => ({
     source: "collaborative-card-title",
@@ -286,6 +292,33 @@ export function CollaborativeCardTitle({
     setValue(reconciliation.value);
   };
 
+  const prepareForRelocationRef = useRef<() => Promise<void>>(
+    () => Promise.resolve(),
+  );
+  prepareForRelocationRef.current = async () => {
+    const input = textareaRef.current;
+    if (!input) return;
+    if (input.ownerDocument.activeElement === input) input.blur();
+    await Promise.resolve();
+    if (composingRef.current) {
+      const browserValue = input.value;
+      composingRef.current = false;
+      applyDraft(compositionBaseRef.current, browserValue);
+      compositionCommitRef.current = {
+        browserValue,
+        authoritativeValue: title.toString(),
+      };
+    }
+    await Promise.resolve();
+  };
+
+  useEffect(() => {
+    if (!surfaceWriteFence) return;
+    return surfaceWriteFence.registerRelocationPreparer(() =>
+      prepareForRelocationRef.current(),
+    );
+  }, [surfaceWriteFence]);
+
   const handleInput = (event: FormEvent<HTMLTextAreaElement>): void => {
     const nextValue = event.currentTarget.value;
     if (nextValue.length > MAX_CARD_TITLE_LENGTH) return;
@@ -372,6 +405,8 @@ export function CollaborativeCardTitle({
       {...props}
       ref={setTextareaRef}
       aria-label={ariaLabel}
+      data-relocation-write-frozen={writeFrozen ? "true" : "false"}
+      disabled={disabled || writeFrozen}
       value={value}
       rows={rows}
       maxLength={MAX_CARD_TITLE_LENGTH}

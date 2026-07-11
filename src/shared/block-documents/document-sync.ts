@@ -146,6 +146,92 @@ export interface DocumentRelocationLeaseResponseAck {
   readonly status: DocumentRelocationLeaseParticipantStatus;
 }
 
+const RELOCATION_LEASE_NACK_REASONS = new Set<DocumentRelocationLeaseNackReason>([
+  "surface_prepare_failed",
+  "durable_flush_failed",
+  "deadline_elapsed",
+  "boundary_mismatch",
+  "foreign_lease_event",
+  "local_update_after_freeze",
+  "provider_disconnected",
+  "provider_destroyed",
+]);
+
+const isRelocationLeaseIdentity = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  value.length <= 512 &&
+  value === value.trim();
+
+export const parseDocumentRelocationLeaseResponseRequest = (
+  value: unknown,
+): DocumentRelocationLeaseResponseRequest => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("Relocation lease response must be an object");
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  const commonKeys = [
+    "response",
+    "leaseId",
+    "documentId",
+    "clientSessionId",
+    "storeEpoch",
+    "generation",
+    "headSeq",
+  ] as const;
+  const allowedKeys = new Set([
+    ...commonKeys,
+    ...(record.response === "nack" ? ["reason", "message"] : []),
+  ]);
+  if (
+    Object.keys(record).some((key) => !allowedKeys.has(key)) ||
+    commonKeys.some(
+      (key) => !Object.prototype.hasOwnProperty.call(record, key),
+    ) ||
+    !isRelocationLeaseIdentity(record.leaseId) ||
+    !isRelocationLeaseIdentity(record.documentId) ||
+    !isRelocationLeaseIdentity(record.clientSessionId) ||
+    !isRelocationLeaseIdentity(record.storeEpoch) ||
+    typeof record.generation !== "number" ||
+    !Number.isSafeInteger(record.generation) ||
+    record.generation < 1 ||
+    typeof record.headSeq !== "number" ||
+    !Number.isSafeInteger(record.headSeq) ||
+    record.headSeq < 0
+  ) {
+    throw new TypeError("Relocation lease response boundary is invalid");
+  }
+  const boundary = {
+    leaseId: record.leaseId,
+    documentId: record.documentId,
+    clientSessionId: record.clientSessionId,
+    storeEpoch: record.storeEpoch,
+    generation: record.generation,
+    headSeq: record.headSeq,
+  };
+  if (record.response === "ack") {
+    return { response: "ack", ...boundary };
+  }
+  if (
+    record.response !== "nack" ||
+    typeof record.reason !== "string" ||
+    !RELOCATION_LEASE_NACK_REASONS.has(
+      record.reason as DocumentRelocationLeaseNackReason,
+    ) ||
+    typeof record.message !== "string" ||
+    record.message.trim().length < 1 ||
+    record.message.length > 2_048
+  ) {
+    throw new TypeError("Relocation lease NACK is invalid");
+  }
+  return {
+    response: "nack",
+    ...boundary,
+    reason: record.reason as DocumentRelocationLeaseNackReason,
+    message: record.message,
+  };
+};
+
 export type DocumentSyncRealtimeEvent =
   | {
       readonly kind: "connection";
@@ -183,6 +269,7 @@ export type DocumentSyncRealtimeEvent =
       readonly kind: "relocation-lease-prepare";
       readonly leaseId: string;
       readonly documentId: DocumentId;
+      readonly clientSessionId: string;
       readonly storeEpoch: string;
       readonly generation: number;
       readonly expectedHeadSeq: number;
@@ -192,6 +279,7 @@ export type DocumentSyncRealtimeEvent =
       readonly kind: "relocation-lease-release";
       readonly leaseId: string;
       readonly documentId: DocumentId;
+      readonly clientSessionId: string;
       readonly storeEpoch: string;
       readonly generation: number;
       readonly headSeq: number;
@@ -200,6 +288,7 @@ export type DocumentSyncRealtimeEvent =
       readonly kind: "relocation-lease-cancel";
       readonly leaseId: string;
       readonly documentId: DocumentId;
+      readonly clientSessionId: string;
       readonly storeEpoch: string;
       readonly generation: number;
       readonly headSeq: number;

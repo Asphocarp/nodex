@@ -3,6 +3,46 @@ import { describe, expect, test } from "bun:test";
 import * as Y from "yjs";
 import { render } from "@/test/dom";
 import { CollaborativeCardTitle } from "./collaborative-card-title";
+import type {
+  BlockDocumentSurfaceRelocationPreparation,
+  BlockDocumentSurfaceRelocationPreparer,
+  BlockDocumentSurfaceWriteFence,
+} from "@/lib/block-document-surface-runtime";
+
+class TestSurfaceWriteFence implements BlockDocumentSurfaceWriteFence {
+  private frozen = false;
+  private readonly listeners = new Set<() => void>();
+  private readonly preparers = new Set<BlockDocumentSurfaceRelocationPreparer>();
+
+  getWriteFrozen = (): boolean => this.frozen;
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+  registerRelocationPreparer = (
+    preparer: BlockDocumentSurfaceRelocationPreparer,
+  ): (() => void) => {
+    this.preparers.add(preparer);
+    return () => this.preparers.delete(preparer);
+  };
+  setFrozen = (frozen: boolean): void => {
+    this.frozen = frozen;
+    for (const listener of this.listeners) listener();
+  };
+  prepare = async (): Promise<void> => {
+    const event: BlockDocumentSurfaceRelocationPreparation = {
+      kind: "relocation-lease-prepare",
+      leaseId: "lease-title",
+      documentId: "document:title-test",
+      clientSessionId: "title-window",
+      storeEpoch: "store-1",
+      generation: 1,
+      expectedHeadSeq: 1,
+      deadlineAt: Date.now() + 10_000,
+    };
+    await Promise.all([...this.preparers].map((prepare) => prepare(event)));
+  };
+}
 
 const createTitle = (
   initialValue: string,
@@ -177,5 +217,59 @@ describe("CollaborativeCardTitle", () => {
     expect(input.selectionStart).toBe(13);
     expect(input.selectionEnd).toBe(18);
     document.destroy();
+  });
+
+  test("commits its own IME draft and freezes without blurring another surface", async () => {
+    const first = createTitle("First");
+    const second = createTitle("Second");
+    const firstFence = new TestSurfaceWriteFence();
+    const secondFence = new TestSurfaceWriteFence();
+    const view = render(
+      <>
+        <CollaborativeCardTitle
+          title={first.title}
+          aria-label="First title"
+          surfaceWriteFence={firstFence}
+        />
+        <CollaborativeCardTitle
+          title={second.title}
+          aria-label="Second title"
+          surfaceWriteFence={secondFence}
+        />
+      </>,
+    );
+    const firstInput = view.getByRole("textbox", {
+      name: "First title",
+    }) as HTMLTextAreaElement;
+    const secondInput = view.getByRole("textbox", {
+      name: "Second title",
+    }) as HTMLTextAreaElement;
+    firstInput.focus();
+    await act(async () => {
+      fireEvent.compositionStart(firstInput);
+      fireEvent.input(firstInput, {
+        target: { value: "First draft" },
+        isComposing: true,
+      });
+      firstFence.setFrozen(true);
+      await firstFence.prepare();
+    });
+
+    expect(first.title.toString()).toBe("First draft");
+    expect(firstInput.disabled).toBeTrue();
+    expect(firstInput.ownerDocument.activeElement === firstInput).toBeFalse();
+
+    secondInput.focus();
+    await act(async () => {
+      await firstFence.prepare();
+    });
+    expect(secondInput.ownerDocument.activeElement === secondInput).toBeTrue();
+    await act(async () => {
+      firstFence.setFrozen(false);
+      await Promise.resolve();
+    });
+    expect(firstInput.disabled).toBeFalse();
+    first.document.destroy();
+    second.document.destroy();
   });
 });

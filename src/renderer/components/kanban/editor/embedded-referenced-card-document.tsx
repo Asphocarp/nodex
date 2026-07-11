@@ -44,7 +44,10 @@ export function EmbeddedReferencedCardDocument({
         }
         if (model.status === "error") {
           return (
-            <div role="alert" className="py-2 text-sm text-token-error-foreground">
+            <div
+              role="alert"
+              className="py-2 text-sm text-token-error-foreground"
+            >
               {model.error.message}
             </div>
           );
@@ -85,6 +88,7 @@ export function EmbeddedReferencedCardDocument({
                 <div className="flex min-w-0 items-start gap-2 pr-1">
                   <CollaborativeCardTitle
                     title={surface.title}
+                    surfaceWriteFence={surface.runtime}
                     className="min-w-0 flex-1 py-0 text-base/snug font-semibold"
                     aria-label={`Edit ${card.title.trim() || "Untitled"} title`}
                   />
@@ -100,12 +104,15 @@ export function EmbeddedReferencedCardDocument({
                   source={{
                     kind: "collaborative-document",
                     documentId: surface.documentId,
+                    storeEpoch: surface.descriptor.storeEpoch,
                     generation: surface.descriptor.generation,
+                    clientSessionId: surface.clientSessionId,
                     fragment: surface.body,
                     user: { name: "You", color: "#3b82f6" },
                     provider: { awareness: surface.awareness },
                   }}
                   sourceCardContext={{ cardId: card.id, columnId: card.status }}
+                  surfaceWriteFence={surface.runtime}
                   onOpenCard={hostRuntime?.openCard}
                   isActivePanelTab={isActive}
                   placeholder="Add a description…"

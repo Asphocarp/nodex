@@ -17,7 +17,9 @@ function createCollaborativeSource(
   return {
     kind: "collaborative-document",
     documentId: fragment.doc?.guid ?? "document-1",
+    storeEpoch: "store-1",
     generation: 1,
+    clientSessionId: "surface-1",
     fragment,
     user: { name: "Local editor", color: "#2563eb" },
     onDocumentChange,
@@ -30,11 +32,12 @@ describe("NfmEditor source boundary", () => {
     const fragment = document.getXmlFragment("body");
     const source = createCollaborativeSource(fragment);
     const options = createNfmEditorModeOptions(source, [{ type: "paragraph" }]);
-    const collaboration = "collaboration" in options
-      ? options.collaboration
-      : undefined;
+    const collaboration =
+      "collaboration" in options ? options.collaboration : undefined;
 
-    expect(Object.prototype.hasOwnProperty.call(options, "initialContent")).toBeFalse();
+    expect(
+      Object.prototype.hasOwnProperty.call(options, "initialContent"),
+    ).toBeFalse();
     expect(collaboration !== undefined).toBeTrue();
     expect(collaboration?.fragment ?? null).toBe(fragment);
     expect(collaboration?.user.name ?? "").toBe("Local editor");
@@ -64,7 +67,7 @@ describe("NfmEditor source boundary", () => {
     document.destroy();
   });
 
-  test("keeps Send to Chat while hiding snapshot-based Move To for collaborative documents", () => {
+  test("enables stable-ID Move To for collaborative Card documents", () => {
     const document = new Y.Doc();
     const collaborative = resolveNfmEditorBlockActionCapabilities(
       createCollaborativeSource(document.getXmlFragment("body")),
@@ -74,14 +77,17 @@ describe("NfmEditor source boundary", () => {
       createCollaborativeSource(document.getXmlFragment("body")),
       false,
     );
-    const legacy = resolveNfmEditorBlockActionCapabilities({
-      kind: "legacy-snapshot",
-      content: "Legacy body",
-      onChange: () => undefined,
-      onBlur: () => undefined,
-    }, true);
+    const legacy = resolveNfmEditorBlockActionCapabilities(
+      {
+        kind: "legacy-snapshot",
+        content: "Legacy body",
+        onChange: () => undefined,
+        onBlur: () => undefined,
+      },
+      true,
+    );
 
-    expect(collaborative.canMoveBlocks).toBeFalse();
+    expect(collaborative.canMoveBlocks).toBeTrue();
     expect(collaborative.canSendBlocksToThread).toBeTrue();
     expect(withoutCardContext.canMoveBlocks).toBeFalse();
     expect(withoutCardContext.canSendBlocksToThread).toBeFalse();
@@ -94,9 +100,17 @@ describe("NfmEditor source boundary", () => {
   test("uses source identity keys so document switches recreate instead of rehydrating", () => {
     const firstDocument = new Y.Doc({ guid: "document-1" });
     const secondDocument = new Y.Doc({ guid: "document-2" });
-    const firstSource = createCollaborativeSource(firstDocument.getXmlFragment("body"));
-    const sameSourceKey = getNfmEditorInstanceKey({ projectId: "project-1", source: firstSource });
-    const repeatedSourceKey = getNfmEditorInstanceKey({ projectId: "project-1", source: firstSource });
+    const firstSource = createCollaborativeSource(
+      firstDocument.getXmlFragment("body"),
+    );
+    const sameSourceKey = getNfmEditorInstanceKey({
+      projectId: "project-1",
+      source: firstSource,
+    });
+    const repeatedSourceKey = getNfmEditorInstanceKey({
+      projectId: "project-1",
+      source: firstSource,
+    });
     const switchedSourceKey = getNfmEditorInstanceKey({
       projectId: "project-1",
       source: createCollaborativeSource(secondDocument.getXmlFragment("body")),
@@ -119,10 +133,13 @@ describe("NfmEditor source boundary", () => {
       hintCount += 1;
     });
     const localOptions = createNfmEditorModeOptions(source, undefined);
-    const remoteOptions = createNfmEditorModeOptions({
-      ...source,
-      user: { name: "Remote editor", color: "#dc2626" },
-    }, undefined);
+    const remoteOptions = createNfmEditorModeOptions(
+      {
+        ...source,
+        user: { name: "Remote editor", color: "#dc2626" },
+      },
+      undefined,
+    );
     const localEditor = BlockNoteEditor.create(localOptions);
     const remoteEditor = BlockNoteEditor.create(remoteOptions);
     const localElement = globalThis.document.createElement("div");
@@ -132,7 +149,9 @@ describe("NfmEditor source boundary", () => {
     remoteEditor.mount(remoteElement);
 
     const replaceBlocks = localEditor.replaceBlocks.bind(localEditor);
-    localEditor.replaceBlocks = ((...args: Parameters<typeof localEditor.replaceBlocks>) => {
+    localEditor.replaceBlocks = ((
+      ...args: Parameters<typeof localEditor.replaceBlocks>
+    ) => {
       replaceBlocksCount += 1;
       return replaceBlocks(...args);
     }) as typeof localEditor.replaceBlocks;
@@ -143,7 +162,8 @@ describe("NfmEditor source boundary", () => {
     });
 
     const remoteBlock = remoteEditor.document[0];
-    if (!remoteBlock) throw new Error("Expected the collaborative genesis block");
+    if (!remoteBlock)
+      throw new Error("Expected the collaborative genesis block");
     remoteEditor.updateBlock(remoteBlock, { content: "Remote update" });
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));

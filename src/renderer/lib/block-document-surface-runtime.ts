@@ -6,6 +6,7 @@ import {
   assertValidBlockDocument,
   assertValidCardDocumentRoots,
   type CardDocumentEnvelope,
+  type DocumentSyncRealtimeEvent,
   type OwnedBlockDocumentDescriptor,
 } from "../../shared/block-documents";
 import {
@@ -27,6 +28,8 @@ export type BlockDocumentSurfacePhase =
   | "connecting"
   | "ready"
   | "saving"
+  | "relocating"
+  | "frozen"
   | "offline"
   | "error"
   | "reset-required"
@@ -37,9 +40,28 @@ export interface BlockDocumentSurfaceStatus {
   readonly phase: BlockDocumentSurfacePhase;
   readonly ready: boolean;
   readonly reloadRequired: boolean;
+  readonly writeFrozen: boolean;
   readonly descriptor: OwnedBlockDocumentDescriptor;
   readonly provider: NodexYProviderStatus;
   readonly error?: Error;
+}
+
+export type BlockDocumentSurfaceRelocationPreparation = Extract<
+  DocumentSyncRealtimeEvent,
+  { readonly kind: "relocation-lease-prepare" }
+>;
+
+export type BlockDocumentSurfaceRelocationPreparer = (
+  event: BlockDocumentSurfaceRelocationPreparation,
+) => void | Promise<void>;
+
+/** Surface-scoped write fence. Event metadata preserves future move seams. */
+export interface BlockDocumentSurfaceWriteFence {
+  readonly getWriteFrozen: () => boolean;
+  readonly subscribe: (listener: () => void) => () => void;
+  readonly registerRelocationPreparer: (
+    preparer: BlockDocumentSurfaceRelocationPreparer,
+  ) => () => void;
 }
 
 export interface BlockDocumentSurfaceCloseResult {
@@ -264,6 +286,8 @@ export class BlockDocumentSurfaceRuntime {
   private readonly scheduleCloseTimeout: BlockDocumentSurfaceCloseTimeoutScheduler;
   private readonly reloadHandler?: BlockDocumentSurfaceRuntimeOptions["reload"];
   private readonly listeners = new Set<() => void>();
+  private readonly relocationPreparers =
+    new Set<BlockDocumentSurfaceRelocationPreparer>();
   private readonly readyWaiters = new Set<ReadyWaiter>();
   private readonly unsubscribeProviderStatus: () => void;
 
@@ -309,6 +333,7 @@ export class BlockDocumentSurfaceRuntime {
       expectedStoreEpoch: this.descriptor.storeEpoch,
       expectedGeneration: this.descriptor.generation,
       autoConnect: false,
+      prepareSurfaceForRelocation: this.prepareSurfaceForRelocation,
       localCheckpointStore: checkpointDelegate ? this.checkpointStore : null,
     });
     if (this.provider.document !== this.document) {
@@ -334,11 +359,23 @@ export class BlockDocumentSurfaceRuntime {
 
   getStatus = (): BlockDocumentSurfaceStatus => this.status;
 
+  getWriteFrozen = (): boolean => this.status.writeFrozen;
+
   getReadyDocument = (): CardDocumentEnvelope | null => this.readyDocument;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  };
+
+  registerRelocationPreparer = (
+    preparer: BlockDocumentSurfaceRelocationPreparer,
+  ): (() => void) => {
+    if (this.closed || this.closing) {
+      throw new Error("Block Document surface is closed");
+    }
+    this.relocationPreparers.add(preparer);
+    return () => this.relocationPreparers.delete(preparer);
   };
 
   connect = (): Promise<void> => {
@@ -517,6 +554,7 @@ export class BlockDocumentSurfaceRuntime {
       this.closed = true;
       this.closing = false;
       this.refreshStatus();
+      this.relocationPreparers.clear();
       this.listeners.clear();
     }
 
@@ -603,6 +641,8 @@ export class BlockDocumentSurfaceRuntime {
     provider: NodexYProviderStatus,
   ): BlockDocumentSurfaceStatus {
     let phase: BlockDocumentSurfacePhase;
+    const writeFrozen =
+      provider.phase === "relocating" || provider.phase === "frozen";
     if (this.closed) {
       phase = "closed";
     } else if (this.closing) {
@@ -611,6 +651,10 @@ export class BlockDocumentSurfaceRuntime {
       phase = "reset-required";
     } else if (this.terminal) {
       phase = "error";
+    } else if (provider.phase === "frozen") {
+      phase = "frozen";
+    } else if (provider.phase === "relocating") {
+      phase = "relocating";
     } else if (provider.phase === "synced" && this.readyDocument) {
       phase = "ready";
     } else if (provider.phase === "saving") {
@@ -626,6 +670,7 @@ export class BlockDocumentSurfaceRuntime {
       phase,
       ready: this.readyDocument !== null && !this.terminal,
       reloadRequired: this.terminal !== null,
+      writeFrozen,
       descriptor: this.descriptor,
       provider,
       error: this.terminal?.error,
@@ -636,4 +681,13 @@ export class BlockDocumentSurfaceRuntime {
     this.status = this.buildStatus(this.provider.getStatus());
     for (const listener of this.listeners) listener();
   }
+
+  private readonly prepareSurfaceForRelocation = async (
+    event: BlockDocumentSurfaceRelocationPreparation,
+  ): Promise<void> => {
+    const preparers = [...this.relocationPreparers];
+    await Promise.all(
+      preparers.map((prepare) => Promise.resolve().then(() => prepare(event))),
+    );
+  };
 }

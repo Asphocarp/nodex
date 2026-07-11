@@ -2,8 +2,15 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
 import { createCardDocument } from "../../../shared/block-documents";
 import { CollaborativeCardTitle } from "./collaborative-card-title";
+import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
 
-function CollaborativeCardTitleStory() {
+const FROZEN_STORY_FENCE: BlockDocumentSurfaceWriteFence = {
+  getWriteFrozen: () => true,
+  subscribe: () => () => undefined,
+  registerRelocationPreparer: () => () => undefined,
+};
+
+function CollaborativeCardTitleStory({ frozen = false }: { frozen?: boolean }) {
   const [cardDocument] = useState(() =>
     createCardDocument({
       documentId: "storybook:collaborative-card-title",
@@ -19,10 +26,14 @@ function CollaborativeCardTitleStory() {
   return (
     <div className="min-h-screen bg-token-main-surface-primary px-10 py-16">
       <div className="mx-auto w-full max-w-(--card-stage-body-max-width)">
-        <CollaborativeCardTitle title={cardDocument.title} />
+        <CollaborativeCardTitle
+          title={cardDocument.title}
+          surfaceWriteFence={frozen ? FROZEN_STORY_FENCE : undefined}
+        />
         <p className="mt-2 text-sm text-token-description-foreground">
-          This story uses the same Y.Text input and local-only undo path as a
-          collaborative Card surface.
+          {frozen
+            ? "Editing is briefly paused while this Card moves between documents."
+            : "This story uses the same Y.Text input and local-only undo path as a collaborative Card surface."}
         </p>
       </div>
     </div>
@@ -41,3 +52,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const RelocationFrozen: Story = {
+  render: () => <CollaborativeCardTitleStory frozen />,
+};

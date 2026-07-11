@@ -5,4 +5,5 @@ export * from "./contracts";
 export * from "./document-sync";
 export * from "./foreign-reference-migration";
 export * from "./relocation";
+export * from "./relocation-transport";
 export * from "./xml-subtree-codec";

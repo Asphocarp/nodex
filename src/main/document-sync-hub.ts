@@ -7,8 +7,11 @@ import {
 } from "y-protocols/awareness.js";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
+  parseDocumentRelocationLeaseResponseRequest,
   type DocumentAwarenessPublishAck,
   type DocumentAwarenessPublishRequest,
+  type DocumentRelocationLeaseResponseAck,
+  type DocumentRelocationLeaseResponseRequest,
   type DocumentSyncApplyAck,
   type DocumentSyncApplyRequest,
   type DocumentSyncCommandError,
@@ -20,7 +23,21 @@ import {
   type DocumentSyncSubscriptionAck,
   type DocumentSyncUnsubscribeAck,
 } from "../shared/block-documents/document-sync";
+import {
+  parseRelocationIntent,
+  type RelocateBlocks,
+  type RelocationCommandError,
+  type RelocationCommandResult,
+  type RelocationIntent,
+  type RelocationResult,
+} from "../shared/block-documents";
 import { safeSendToWebContents } from "./ipc-safe-send";
+import {
+  DocumentRelocationLeaseCoordinator,
+  type DocumentRelocationLeaseCoordinatorOptions,
+  type DocumentRelocationLeaseEvent,
+  type DocumentRelocationLeaseFailure,
+} from "./document-relocation-lease-coordinator";
 
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 
@@ -43,12 +60,27 @@ export interface DocumentSyncDurableBackend {
   applyUpdate(
     request: DocumentSyncApplyRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
+  lookupCommittedRelocation(
+    intent: RelocationIntent,
+  ): Promise<RelocationCommandResult<RelocationResult | null>>;
+  prepareRelocationCommand(
+    intent: RelocationIntent,
+  ): Promise<RelocationCommandResult<RelocateBlocks>>;
+  relocateBlocks(command: RelocateBlocks): Promise<RelocationCommandResult>;
+}
+
+export interface DocumentSyncHubOptions {
+  readonly relocationLease?: Omit<
+    DocumentRelocationLeaseCoordinatorOptions,
+    "publishEvent"
+  >;
 }
 
 interface DocumentSubscription {
   readonly key: string;
   readonly documentId: string;
   readonly clientSessionId: string;
+  readonly participantSessionKey: string;
   readonly target: DocumentSyncClientTarget;
   readonly awarenessDocument: Y.Doc;
   readonly awareness: Awareness;
@@ -56,10 +88,25 @@ interface DocumentSubscription {
   generation?: number;
 }
 
+interface HubRelocationDocumentBoundary {
+  readonly documentId: string;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly headSeq: number;
+}
+
+interface HubRelocationLeaseBoundary {
+  readonly leaseId: string;
+  readonly documents: Map<string, HubRelocationDocumentBoundary>;
+}
+
 const commandError = (
   code: DocumentSyncCommandError["code"],
   message: string,
-  options: { readonly retryable?: boolean; readonly resetRequired?: boolean } = {},
+  options: {
+    readonly retryable?: boolean;
+    readonly resetRequired?: boolean;
+  } = {},
 ): DocumentSyncCommandError => ({
   code,
   message,
@@ -108,11 +155,19 @@ const hasIdentity = (
   typeof request.clientSessionId === "string" &&
   request.clientSessionId.trim().length > 0;
 
+const isNonNegativeInteger = (value: number): boolean =>
+  Number.isInteger(value) && value >= 0;
+
 const subscriptionKey = (
   targetId: number,
   request: DocumentSyncSubscribeRequest,
 ): string =>
   JSON.stringify([targetId, request.clientSessionId, request.documentId]);
+
+const participantSessionKey = (
+  targetId: number,
+  clientSessionId: string,
+): string => JSON.stringify([targetId, clientSessionId]);
 
 const createSubscriptionAwareness = (): {
   readonly document: Y.Doc;
@@ -124,7 +179,9 @@ const createSubscriptionAwareness = (): {
   return { document, awareness };
 };
 
-const inspectLiveAwarenessClientIds = (update: Uint8Array): readonly number[] => {
+const inspectLiveAwarenessClientIds = (
+  update: Uint8Array,
+): readonly number[] => {
   const probe = createSubscriptionAwareness();
   try {
     applyAwarenessUpdate(probe.awareness, update, "document-sync-probe");
@@ -143,19 +200,110 @@ const copyApplyRequest = (
   update: request.update.slice(),
 });
 
+const relocationFailure = <T>(
+  code: RelocationCommandError["code"],
+  message: string,
+  options: {
+    readonly retryable?: boolean;
+    readonly reloadRequired?: boolean;
+    readonly relocationId?: string;
+  } = {},
+): RelocationCommandResult<T> => ({
+  ok: false,
+  error: {
+    code,
+    message,
+    retryable: options.retryable ?? false,
+    reloadRequired: options.reloadRequired ?? false,
+    ...(options.relocationId ? { relocationId: options.relocationId } : {}),
+  },
+});
+
+const unknownRelocationBackendFailure = <T>(
+  relocationId: string,
+): RelocationCommandResult<T> =>
+  relocationFailure("unknown", "The durable relocation writer is unavailable", {
+    retryable: true,
+    relocationId,
+  });
+
+const leasePreparationFailure = <T>(
+  failure: DocumentRelocationLeaseFailure,
+  relocationId: string,
+): RelocationCommandResult<T> =>
+  relocationFailure(
+    failure.code === "invalid_request" || failure.code === "lease_id_collision"
+      ? "invalid_relocation_request"
+      : "relocation_lease_timeout",
+    failure.message,
+    {
+      retryable:
+        failure.code !== "invalid_request" &&
+        failure.code !== "lease_id_collision",
+      relocationId,
+    },
+  );
+
+const copyRelocationIntent = (intent: RelocationIntent): RelocationIntent => ({
+  ...intent,
+  rootBlockIds: [...intent.rootBlockIds],
+  target: { ...intent.target },
+});
+
+const preparedCommandMatchesIntent = (
+  intent: RelocationIntent,
+  command: RelocateBlocks,
+): boolean => {
+  if (
+    command.relocationId !== intent.relocationId ||
+    command.projectId !== intent.projectId ||
+    command.storeEpoch !== intent.storeEpoch ||
+    command.sourceDocumentId !== intent.sourceDocumentId ||
+    command.sourceGeneration !== intent.sourceGeneration ||
+    command.target.kind !== "document" ||
+    command.target.documentId !== intent.target.documentId ||
+    command.target.generation !== intent.target.generation ||
+    command.target.parentBlockId !== intent.target.parentBlockId ||
+    command.target.beforeBlockId !== intent.target.beforeBlockId ||
+    command.rootBlockIds.length !== intent.rootBlockIds.length
+  ) {
+    return false;
+  }
+  return command.rootBlockIds.every((blockId) =>
+    intent.rootBlockIds.includes(blockId),
+  );
+};
+
 export class DocumentSyncHub {
   private readonly backend: DocumentSyncDurableBackend;
+  private readonly relocationLeaseCoordinator: DocumentRelocationLeaseCoordinator;
   private readonly subscriptions = new Map<string, DocumentSubscription>();
   private readonly subscriptionKeysByDocument = new Map<string, Set<string>>();
+  private readonly subscriptionKeysByParticipantSession = new Map<
+    string,
+    Set<string>
+  >();
   private readonly boundTargetIds = new Set<number>();
   private readonly sessionOwnerTargetIds = new Map<string, number>();
   private readonly awarenessClientOwnersByDocument = new Map<
     string,
     Map<number, string>
   >();
+  private readonly relocationLeaseBoundaries = new Map<
+    string,
+    HubRelocationLeaseBoundary
+  >();
+  private relocationLeaseSequence = 0;
 
-  constructor(backend: DocumentSyncDurableBackend) {
+  constructor(
+    backend: DocumentSyncDurableBackend,
+    options: DocumentSyncHubOptions = {},
+  ) {
     this.backend = backend;
+    this.relocationLeaseCoordinator = new DocumentRelocationLeaseCoordinator({
+      ...options.relocationLease,
+      publishEvent: (event) => this.publishRelocationLeaseEvent(event),
+    });
   }
 
   subscribe = (
@@ -167,7 +315,10 @@ export class DocumentSyncHub {
     }
     if (!hasIdentity(request)) {
       return commandFailure(
-        commandError("invalid_document_update", "Document subscription identity is required"),
+        commandError(
+          "invalid_document_update",
+          "Document subscription identity is required",
+        ),
       );
     }
     if (!this.bindSessionOwner(target, request.clientSessionId)) {
@@ -177,19 +328,50 @@ export class DocumentSyncHub {
     this.bindTargetLifecycle(target);
     const key = subscriptionKey(target.id, request);
     if (!this.subscriptions.has(key)) {
+      const participantKey = participantSessionKey(
+        target.id,
+        request.clientSessionId,
+      );
+      const leaseSubscription = this.relocationLeaseCoordinator.subscribe(
+        participantKey,
+        request.documentId,
+      );
+      if (!leaseSubscription.ok) {
+        return commandFailure(
+          commandError(
+            leaseSubscription.error.code === "document_busy"
+              ? "request_cancelled"
+              : "invalid_response",
+            leaseSubscription.error.message,
+            {
+              retryable: leaseSubscription.error.code === "document_busy",
+            },
+          ),
+        );
+      }
       const awarenessState = createSubscriptionAwareness();
       this.subscriptions.set(key, {
         key,
         documentId: request.documentId,
         clientSessionId: request.clientSessionId,
+        participantSessionKey: participantKey,
         target,
         awarenessDocument: awarenessState.document,
         awareness: awarenessState.awareness,
       });
-      const documentKeys = this.subscriptionKeysByDocument.get(request.documentId)
-        ?? new Set<string>();
+      const documentKeys =
+        this.subscriptionKeysByDocument.get(request.documentId) ??
+        new Set<string>();
       documentKeys.add(key);
       this.subscriptionKeysByDocument.set(request.documentId, documentKeys);
+      const participantKeys =
+        this.subscriptionKeysByParticipantSession.get(participantKey) ??
+        new Set<string>();
+      participantKeys.add(key);
+      this.subscriptionKeysByParticipantSession.set(
+        participantKey,
+        participantKeys,
+      );
     }
 
     safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [
@@ -208,7 +390,10 @@ export class DocumentSyncHub {
   ): DocumentSyncCommandResult<DocumentSyncUnsubscribeAck> => {
     if (!hasIdentity(request)) {
       return commandFailure(
-        commandError("invalid_document_update", "Document subscription identity is required"),
+        commandError(
+          "invalid_document_update",
+          "Document subscription identity is required",
+        ),
       );
     }
     const key = subscriptionKey(target.id, request);
@@ -246,7 +431,9 @@ export class DocumentSyncHub {
       return result;
     }
     if (result.value.documentId !== request.documentId) {
-      return invalidResponse("The durable backend returned a different document");
+      return invalidResponse(
+        "The durable backend returned a different document",
+      );
     }
 
     this.adoptSubscriptionBoundary(
@@ -289,10 +476,16 @@ export class DocumentSyncHub {
       ack.updateId !== request.updateId ||
       ack.generation !== request.generation
     ) {
-      return invalidResponse("The durable document ACK does not match its command");
+      return invalidResponse(
+        "The durable document ACK does not match its command",
+      );
     }
 
-    this.adoptSubscriptionBoundary(subscription, ack.storeEpoch, ack.generation);
+    this.adoptSubscriptionBoundary(
+      subscription,
+      ack.storeEpoch,
+      ack.generation,
+    );
     if (!ack.duplicate) {
       this.fanout(request.documentId, {
         kind: "document-update",
@@ -328,7 +521,10 @@ export class DocumentSyncHub {
       request.update.byteLength > MAX_DOCUMENT_AWARENESS_UPDATE_BYTES
     ) {
       return commandFailure(
-        commandError("invalid_awareness_update", "Awareness update exceeds the size limit"),
+        commandError(
+          "invalid_awareness_update",
+          "Awareness update exceeds the size limit",
+        ),
       );
     }
     if (
@@ -351,7 +547,10 @@ export class DocumentSyncHub {
       liveClientIds = inspectLiveAwarenessClientIds(request.update);
     } catch {
       return commandFailure(
-        commandError("invalid_awareness_update", "Awareness update is malformed"),
+        commandError(
+          "invalid_awareness_update",
+          "Awareness update is malformed",
+        ),
       );
     }
 
@@ -376,8 +575,12 @@ export class DocumentSyncHub {
         ...changes.updated,
         ...changes.removed,
       ];
-      changes.added.forEach((clientId) => owners.set(clientId, subscription.key));
-      changes.updated.forEach((clientId) => owners.set(clientId, subscription.key));
+      changes.added.forEach((clientId) =>
+        owners.set(clientId, subscription.key),
+      );
+      changes.updated.forEach((clientId) =>
+        owners.set(clientId, subscription.key),
+      );
       changes.removed.forEach((clientId) => {
         if (owners.get(clientId) === subscription.key) {
           owners.delete(clientId);
@@ -394,7 +597,10 @@ export class DocumentSyncHub {
       );
     } catch {
       return commandFailure(
-        commandError("invalid_awareness_update", "Awareness update is malformed"),
+        commandError(
+          "invalid_awareness_update",
+          "Awareness update is malformed",
+        ),
       );
     } finally {
       subscription.awareness.off("update", captureChanges);
@@ -413,13 +619,505 @@ export class DocumentSyncHub {
     return { ok: true, value: { accepted: true } };
   };
 
+  relocate = async (
+    target: DocumentSyncClientTarget,
+    rawIntent: RelocationIntent,
+    clientSessionId?: string,
+  ): Promise<RelocationCommandResult> => {
+    let intent: RelocationIntent;
+    try {
+      intent = parseRelocationIntent(rawIntent);
+    } catch (error) {
+      return relocationFailure(
+        "invalid_relocation_request",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const sourceSubscription = [...this.subscriptions.values()].find(
+      (subscription) =>
+        subscription.target === target &&
+        subscription.documentId === intent.sourceDocumentId &&
+        (clientSessionId === undefined ||
+          subscription.clientSessionId === clientSessionId),
+    );
+    if (!sourceSubscription || target.isDestroyed()) {
+      return relocationFailure(
+        "invalid_relocation_request",
+        "Relocation requires a source Document subscription owned by the caller",
+        { relocationId: intent.relocationId },
+      );
+    }
+
+    let committedLookup: RelocationCommandResult<RelocationResult | null>;
+    try {
+      committedLookup = await this.backend.lookupCommittedRelocation(
+        copyRelocationIntent(intent),
+      );
+    } catch {
+      return unknownRelocationBackendFailure(intent.relocationId);
+    }
+    if (!committedLookup.ok) return committedLookup;
+    if (committedLookup.value) {
+      this.fanoutRelocationResync(committedLookup.value);
+      return { ok: true, value: committedLookup.value };
+    }
+
+    let initialPreparation: RelocationCommandResult<RelocateBlocks>;
+    try {
+      initialPreparation = await this.backend.prepareRelocationCommand(
+        copyRelocationIntent(intent),
+      );
+    } catch {
+      return unknownRelocationBackendFailure(intent.relocationId);
+    }
+    if (!initialPreparation.ok) return initialPreparation;
+    if (!preparedCommandMatchesIntent(intent, initialPreparation.value)) {
+      return relocationFailure(
+        "invalid_relocation_request",
+        "The durable writer prepared a different relocation intent",
+        { relocationId: intent.relocationId },
+      );
+    }
+    const initialCommand = initialPreparation.value;
+    if (initialCommand.target.kind !== "document") {
+      return relocationFailure(
+        "invalid_relocation_target",
+        "DocumentSyncHub only coordinates Document relocation",
+        { relocationId: intent.relocationId },
+      );
+    }
+    const leaseId = this.createRelocationLeaseId();
+    this.setRelocationLeaseBoundary(leaseId, initialCommand);
+
+    let leasePreparation;
+    try {
+      leasePreparation = await this.relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: [
+          {
+            documentId: initialCommand.sourceDocumentId,
+            generation: initialCommand.sourceGeneration,
+            expectedHeadSeq: initialCommand.expectedSourceHeadSeq,
+          },
+          {
+            documentId: initialCommand.target.documentId,
+            generation: initialCommand.target.generation,
+            expectedHeadSeq: initialCommand.target.expectedHeadSeq,
+          },
+        ],
+      });
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return relocationFailure(
+        "relocation_lease_timeout",
+        "Relocation lease preparation failed",
+        { retryable: true, relocationId: intent.relocationId },
+      );
+    }
+    if (!leasePreparation.ok) {
+      this.relocationLeaseBoundaries.delete(leaseId);
+      return leasePreparationFailure(
+        leasePreparation.error,
+        intent.relocationId,
+      );
+    }
+
+    let flushedPreparation: RelocationCommandResult<RelocateBlocks>;
+    try {
+      flushedPreparation = await this.backend.prepareRelocationCommand(
+        copyRelocationIntent(intent),
+      );
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return unknownRelocationBackendFailure(intent.relocationId);
+    }
+    if (!flushedPreparation.ok) {
+      this.cancelRelocationLease(leaseId);
+      return flushedPreparation;
+    }
+    if (!preparedCommandMatchesIntent(intent, flushedPreparation.value)) {
+      this.cancelRelocationLease(leaseId);
+      return relocationFailure(
+        "invalid_relocation_request",
+        "The flushed relocation preparation changed logical intent",
+        { relocationId: intent.relocationId },
+      );
+    }
+    const command = flushedPreparation.value;
+    if (command.target.kind !== "document") {
+      this.cancelRelocationLease(leaseId);
+      return relocationFailure(
+        "invalid_relocation_target",
+        "The flushed relocation target is not a Document",
+        { relocationId: intent.relocationId },
+      );
+    }
+    const targetCommand = command.target;
+    const resolvedSource = leasePreparation.value.resolvedHeads.find(
+      (head) => head.documentId === command.sourceDocumentId,
+    );
+    const resolvedTarget = leasePreparation.value.resolvedHeads.find(
+      (head) => head.documentId === targetCommand.documentId,
+    );
+    if (
+      !resolvedSource ||
+      !resolvedTarget ||
+      command.expectedSourceHeadSeq < resolvedSource.headSeq ||
+      targetCommand.expectedHeadSeq < resolvedTarget.headSeq
+    ) {
+      this.cancelRelocationLease(leaseId);
+      return relocationFailure(
+        "source_head_mismatch",
+        "The writer did not observe every lease participant's durable head",
+        { reloadRequired: true, relocationId: intent.relocationId },
+      );
+    }
+    this.setRelocationLeaseBoundary(leaseId, command);
+
+    let relocation: RelocationCommandResult;
+    try {
+      relocation = await this.backend.relocateBlocks(command);
+    } catch {
+      this.cancelRelocationLease(leaseId);
+      return unknownRelocationBackendFailure(intent.relocationId);
+    }
+    if (!relocation.ok) {
+      this.cancelRelocationLease(leaseId);
+      return relocation;
+    }
+
+    const durableResult = relocation.value;
+    this.setRelocationResultBoundary(leaseId, durableResult);
+    try {
+      this.fanoutRelocationResult(durableResult);
+    } catch {
+      this.fanoutRelocationResync(durableResult);
+    }
+    const released = this.relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      this.publishRelocationReleaseFallback(leaseId, durableResult);
+      this.fanoutRelocationResync(durableResult);
+    }
+    this.relocationLeaseBoundaries.delete(leaseId);
+    return { ok: true, value: durableResult };
+  };
+
+  respondToRelocationLease = (
+    target: DocumentSyncClientTarget,
+    rawRequest: DocumentRelocationLeaseResponseRequest,
+  ): DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck> => {
+    let request: DocumentRelocationLeaseResponseRequest;
+    try {
+      request = parseDocumentRelocationLeaseResponseRequest(rawRequest);
+    } catch (error) {
+      return commandFailure(
+        commandError(
+          "invalid_document_update",
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+    const subscription = this.requireSubscription(target, request);
+    if (!subscription) return documentSyncUnauthorized();
+    const lease = this.relocationLeaseBoundaries.get(request.leaseId);
+    const boundary = lease?.documents.get(request.documentId);
+    if (!lease || !boundary) {
+      return commandFailure(
+        commandError(
+          "request_cancelled",
+          "Relocation lease is no longer active",
+        ),
+      );
+    }
+    if (
+      subscription.storeEpoch !== request.storeEpoch ||
+      subscription.generation !== request.generation ||
+      boundary.storeEpoch !== request.storeEpoch ||
+      boundary.generation !== request.generation ||
+      !isNonNegativeInteger(request.headSeq) ||
+      (request.response === "ack" && request.headSeq < boundary.headSeq)
+    ) {
+      const code: DocumentSyncCommandError["code"] =
+        subscription.storeEpoch !== request.storeEpoch ||
+        boundary.storeEpoch !== request.storeEpoch
+          ? "store_epoch_mismatch"
+          : subscription.generation !== request.generation ||
+              boundary.generation !== request.generation
+            ? "document_generation_mismatch"
+            : "invalid_response";
+      return commandFailure(
+        commandError(
+          code,
+          "Relocation lease response crossed its Document boundary",
+          { resetRequired: true },
+        ),
+      );
+    }
+
+    const coordinatorResult =
+      request.response === "ack"
+        ? this.relocationLeaseCoordinator.acknowledge({
+            leaseId: request.leaseId,
+            participantSessionKey: subscription.participantSessionKey,
+            documentId: request.documentId,
+            generation: request.generation,
+            headSeq: request.headSeq,
+          })
+        : this.relocationLeaseCoordinator.nack({
+            leaseId: request.leaseId,
+            participantSessionKey: subscription.participantSessionKey,
+            documentId: request.documentId,
+            message: request.message,
+          });
+    if (!coordinatorResult.ok) {
+      if (coordinatorResult.error.code === "participant_not_expected") {
+        return documentSyncUnauthorized();
+      }
+      return commandFailure(
+        commandError(
+          coordinatorResult.error.code === "document_generation_mismatch"
+            ? "document_generation_mismatch"
+            : "invalid_response",
+          coordinatorResult.error.message,
+          {
+            resetRequired:
+              coordinatorResult.error.code === "document_generation_mismatch",
+          },
+        ),
+      );
+    }
+    return {
+      ok: true,
+      value: {
+        accepted: true,
+        leaseId: request.leaseId,
+        documentId: request.documentId,
+        status: request.response === "ack" ? "frozen" : "cancelled",
+      },
+    };
+  };
+
   handleTargetDestroyed = (targetId: number): void => {
     const subscriptions = [...this.subscriptions.values()].filter(
       (subscription) => subscription.target.id === targetId,
     );
-    subscriptions.forEach((subscription) => this.removeSubscription(subscription));
+    subscriptions.forEach((subscription) =>
+      this.removeSubscription(subscription),
+    );
     this.boundTargetIds.delete(targetId);
   };
+
+  private createRelocationLeaseId(): string {
+    this.relocationLeaseSequence += 1;
+    return `document-relocation-lease:${this.relocationLeaseSequence.toString(36)}`;
+  }
+
+  private setRelocationLeaseBoundary(
+    leaseId: string,
+    command: RelocateBlocks,
+  ): void {
+    if (command.target.kind !== "document") return;
+    this.relocationLeaseBoundaries.set(leaseId, {
+      leaseId,
+      documents: new Map([
+        [
+          command.sourceDocumentId,
+          {
+            documentId: command.sourceDocumentId,
+            storeEpoch: command.storeEpoch,
+            generation: command.sourceGeneration,
+            headSeq: command.expectedSourceHeadSeq,
+          },
+        ],
+        [
+          command.target.documentId,
+          {
+            documentId: command.target.documentId,
+            storeEpoch: command.storeEpoch,
+            generation: command.target.generation,
+            headSeq: command.target.expectedHeadSeq,
+          },
+        ],
+      ]),
+    });
+  }
+
+  private setRelocationResultBoundary(
+    leaseId: string,
+    result: RelocationResult,
+  ): void {
+    const targetCommit = result.targetCommit;
+    const documents = new Map<string, HubRelocationDocumentBoundary>([
+      [
+        result.sourceCommit.documentId,
+        {
+          documentId: result.sourceCommit.documentId,
+          storeEpoch: result.storeEpoch,
+          generation: result.sourceCommit.generation,
+          headSeq: result.sourceCommit.headSeq,
+        },
+      ],
+    ]);
+    if (targetCommit) {
+      documents.set(targetCommit.documentId, {
+        documentId: targetCommit.documentId,
+        storeEpoch: result.storeEpoch,
+        generation: targetCommit.generation,
+        headSeq: targetCommit.headSeq,
+      });
+    }
+    this.relocationLeaseBoundaries.set(leaseId, {
+      leaseId,
+      documents,
+    });
+  }
+
+  private publishRelocationLeaseEvent(
+    event: DocumentRelocationLeaseEvent,
+  ): void {
+    const lease = this.relocationLeaseBoundaries.get(event.leaseId);
+    if (!lease) return;
+    const subscriptionKeys = this.subscriptionKeysByParticipantSession.get(
+      event.participantSessionKey,
+    );
+    if (!subscriptionKeys) return;
+    const documentIds =
+      event.kind === "prepare"
+        ? event.documents.map((document) => document.documentId)
+        : event.documentIds;
+    for (const documentId of documentIds) {
+      const boundary = lease.documents.get(documentId);
+      if (!boundary) continue;
+      const subscription = [...subscriptionKeys]
+        .map((key) => this.subscriptions.get(key))
+        .find((candidate) => candidate?.documentId === documentId);
+      if (!subscription) continue;
+      const realtimeEvent: DocumentSyncRealtimeEvent =
+        event.kind === "prepare"
+          ? {
+              kind: "relocation-lease-prepare",
+              leaseId: event.leaseId,
+              documentId,
+              clientSessionId: subscription.clientSessionId,
+              storeEpoch: boundary.storeEpoch,
+              generation: boundary.generation,
+              expectedHeadSeq: boundary.headSeq,
+              deadlineAt: event.deadlineAt,
+            }
+          : event.kind === "release"
+            ? {
+                kind: "relocation-lease-release",
+                leaseId: event.leaseId,
+                documentId,
+                clientSessionId: subscription.clientSessionId,
+                storeEpoch: boundary.storeEpoch,
+                generation: boundary.generation,
+                headSeq: boundary.headSeq,
+              }
+            : {
+                kind: "relocation-lease-cancel",
+                leaseId: event.leaseId,
+                documentId,
+                clientSessionId: subscription.clientSessionId,
+                storeEpoch: boundary.storeEpoch,
+                generation: boundary.generation,
+                headSeq: boundary.headSeq,
+                reason: event.reason,
+              };
+      safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
+        realtimeEvent,
+      ]);
+    }
+  }
+
+  private cancelRelocationLease(leaseId: string): void {
+    this.relocationLeaseCoordinator.cancel(leaseId);
+    this.relocationLeaseBoundaries.delete(leaseId);
+  }
+
+  private fanoutRelocationResult(result: RelocationResult): void {
+    this.fanoutRelocationCommit(result.storeEpoch, result.sourceCommit);
+    if (result.targetCommit) {
+      this.fanoutRelocationCommit(result.storeEpoch, result.targetCommit);
+    }
+  }
+
+  private fanoutRelocationCommit(
+    storeEpoch: string,
+    commit: RelocationResult["sourceCommit"],
+  ): void {
+    if (commit.update === null) {
+      this.fanout(commit.documentId, {
+        kind: "resync-required",
+        documentId: commit.documentId,
+        storeEpoch,
+        generation: commit.generation,
+        headSeq: commit.headSeq,
+        reason: "history-compacted",
+      });
+      return;
+    }
+    this.fanout(commit.documentId, {
+      kind: "document-update",
+      documentId: commit.documentId,
+      storeEpoch,
+      generation: commit.generation,
+      headSeq: commit.headSeq,
+      updateId: commit.updateId,
+      clientSessionId: "sqlite:block-relocation",
+      update: commit.update.slice(),
+    });
+  }
+
+  private fanoutRelocationResync(result: RelocationResult): void {
+    const commits = [result.sourceCommit, result.targetCommit].filter(
+      (commit): commit is RelocationResult["sourceCommit"] =>
+        commit !== undefined,
+    );
+    for (const commit of commits) {
+      this.fanout(commit.documentId, {
+        kind: "resync-required",
+        documentId: commit.documentId,
+        storeEpoch: result.storeEpoch,
+        generation: commit.generation,
+        headSeq: commit.headSeq,
+        reason: "event-gap",
+      });
+    }
+  }
+
+  private publishRelocationReleaseFallback(
+    leaseId: string,
+    result: RelocationResult,
+  ): void {
+    const commits = [result.sourceCommit, result.targetCommit].filter(
+      (commit): commit is RelocationResult["sourceCommit"] =>
+        commit !== undefined,
+    );
+    for (const commit of commits) {
+      const keys = this.subscriptionKeysByDocument.get(commit.documentId);
+      if (!keys) continue;
+      for (const key of keys) {
+        const subscription = this.subscriptions.get(key);
+        if (!subscription) continue;
+        safeSendToWebContents(
+          subscription.target,
+          DOCUMENT_SYNC_EVENT_CHANNEL,
+          [
+            {
+              kind: "relocation-lease-release",
+              leaseId,
+              documentId: commit.documentId,
+              clientSessionId: subscription.clientSessionId,
+              storeEpoch: result.storeEpoch,
+              generation: commit.generation,
+              headSeq: commit.headSeq,
+            } satisfies DocumentSyncRealtimeEvent,
+          ],
+        );
+      }
+    }
+  }
 
   private bindTargetLifecycle(target: DocumentSyncClientTarget): void {
     if (this.boundTargetIds.has(target.id)) {
@@ -448,7 +1146,9 @@ export class DocumentSyncHub {
     if (target.isDestroyed() || !hasIdentity(request)) {
       return null;
     }
-    const subscription = this.subscriptions.get(subscriptionKey(target.id, request));
+    const subscription = this.subscriptions.get(
+      subscriptionKey(target.id, request),
+    );
     if (!subscription || subscription.target !== target) {
       return null;
     }
@@ -488,7 +1188,9 @@ export class DocumentSyncHub {
     }
 
     removeAwarenessStates(subscription.awareness, clientIds, subscription.key);
-    const owners = this.awarenessClientOwnersByDocument.get(subscription.documentId);
+    const owners = this.awarenessClientOwnersByDocument.get(
+      subscription.documentId,
+    );
     clientIds.forEach((clientId) => {
       if (owners?.get(clientId) === subscription.key) {
         owners.delete(clientId);
@@ -507,6 +1209,10 @@ export class DocumentSyncHub {
   }
 
   private removeSubscription(subscription: DocumentSubscription): void {
+    this.relocationLeaseCoordinator.unsubscribe(
+      subscription.participantSessionKey,
+      subscription.documentId,
+    );
     this.clearSubscriptionAwareness(subscription);
     subscription.awareness.destroy();
     subscription.awarenessDocument.destroy();
@@ -519,6 +1225,16 @@ export class DocumentSyncHub {
     if (documentKeys?.size === 0) {
       this.subscriptionKeysByDocument.delete(subscription.documentId);
       this.awarenessClientOwnersByDocument.delete(subscription.documentId);
+    }
+
+    const participantKeys = this.subscriptionKeysByParticipantSession.get(
+      subscription.participantSessionKey,
+    );
+    participantKeys?.delete(subscription.key);
+    if (participantKeys?.size === 0) {
+      this.subscriptionKeysByParticipantSession.delete(
+        subscription.participantSessionKey,
+      );
     }
 
     const ownsAnotherSubscription = [...this.subscriptions.values()].some(

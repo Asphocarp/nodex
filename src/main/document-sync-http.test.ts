@@ -19,6 +19,16 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
 } from "../shared/block-documents/document-sync";
+import type {
+  RelocationIntent,
+  RelocationResult,
+} from "../shared/block-documents/contracts";
+import {
+  decodeRelocationHttpError,
+  decodeRelocationHttpResult,
+  encodeRelocationHttpRequest,
+  RELOCATION_HTTP_CONTENT_TYPE,
+} from "../shared/block-documents/relocation-transport";
 import { DocumentSyncHub } from "./document-sync-hub";
 import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 
@@ -34,7 +44,9 @@ const createApp = (options?: {
   const syncCalls: DocumentSyncRequest[] = [];
   const applyCalls: DocumentSyncApplyRequest[] = [];
   const hub = new DocumentSyncHub({
-    sync: async (request): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> => {
+    sync: async (
+      request,
+    ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> => {
       syncCalls.push(request);
       return success({
         documentId: request.documentId,
@@ -59,6 +71,13 @@ const createApp = (options?: {
         stateVector: new Uint8Array([3]),
         duplicate: options?.duplicate === true,
       });
+    },
+    lookupCommittedRelocation: async () => ({ ok: true, value: null }),
+    prepareRelocationCommand: async () => {
+      throw new Error("Relocation is not configured in HTTP sync tests");
+    },
+    relocateBlocks: async () => {
+      throw new Error("Relocation is not configured in HTTP sync tests");
     },
   });
   const app = new Hono();
@@ -110,10 +129,13 @@ const createApp = (options?: {
             },
           },
   });
-  return { app, syncCalls, applyCalls };
+  return { app, hub, syncCalls, applyCalls };
 };
 
-const binaryRequest = (body: Uint8Array, signal?: AbortSignal): RequestInit => ({
+const binaryRequest = (
+  body: Uint8Array,
+  signal?: AbortSignal,
+): RequestInit => ({
   method: "POST",
   headers: { "Content-Type": DOCUMENT_HTTP_CONTENT_TYPE },
   body: body.slice().buffer,
@@ -131,9 +153,7 @@ const readSseData = async (
     buffered += decoder.decode(next.value, { stream: true });
   }
   const frame = buffered.slice(0, buffered.indexOf("\n\n"));
-  const dataLine = frame
-    .split("\n")
-    .find((line) => line.startsWith("data: "));
+  const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
   if (!dataLine) throw new Error(`SSE frame has no data: ${frame}`);
   return dataLine.slice("data: ".length);
 };
@@ -237,7 +257,9 @@ describe("Document sync HTTP routes", () => {
     );
     expect(ack.committedSeq).toBe(1);
     expect(applyCalls.length).toBe(1);
-    const updateEvent = decodeDocumentRealtimeSseEvent(await readSseData(reader));
+    const updateEvent = decodeDocumentRealtimeSseEvent(
+      await readSseData(reader),
+    );
     expect(updateEvent.kind).toBe("document-update");
     if (updateEvent.kind === "document-update") {
       expect(Array.from(updateEvent.update).join(",")).toBe("4,5");
@@ -325,6 +347,186 @@ describe("Document sync HTTP routes", () => {
       new Promise<string>((resolve) => setTimeout(() => resolve("quiet"), 20)),
     ]);
     expect(outcome).toBe("quiet");
+    await reader.cancel();
+  });
+
+  test("strictly scopes relocation lease responses to route and live browser session", async () => {
+    const { app, hub } = createApp();
+    const eventResponse = await app.request(
+      "/api/projects/project-1/documents/document-1/events?clientSessionId=client-1",
+    );
+    const reader = eventResponse.body?.getReader();
+    if (!reader) throw new Error("Missing SSE response body");
+    await readSseData(reader);
+    await app.request(
+      "/api/projects/project-1/documents/document-1/sync",
+      binaryRequest(
+        encodeDocumentSyncHttpRequest({
+          documentId: "document-1",
+          clientSessionId: "client-1",
+          stateVector: new Uint8Array([0]),
+        }),
+      ),
+    );
+
+    let capturedLeaseId = "";
+    hub.respondToRelocationLease = (_target, request) => {
+      capturedLeaseId = request.leaseId;
+      return success({
+        accepted: true,
+        leaseId: request.leaseId,
+        documentId: request.documentId,
+        status: request.response === "ack" ? "frozen" : "cancelled",
+      });
+    };
+    const body = {
+      response: "ack",
+      leaseId: "lease-1",
+      documentId: "document-1",
+      clientSessionId: "client-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: 0,
+    } as const;
+    const accepted = await app.request(
+      "/api/projects/project-1/documents/document-1/relocation-leases/lease-1/responses",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    expect(accepted.status).toBe(200);
+    expect(capturedLeaseId).toBe("lease-1");
+
+    const wrongRoute = await app.request(
+      "/api/projects/project-1/documents/document-1/relocation-leases/lease-other/responses",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    expect(wrongRoute.status).toBe(400);
+    const unknownField = await app.request(
+      "/api/projects/project-1/documents/document-1/relocation-leases/lease-1/responses",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, unexpected: true }),
+      },
+    );
+    expect(unknownField.status).toBe(400);
+
+    await reader.cancel();
+    const afterStreamClosed = await app.request(
+      "/api/projects/project-1/documents/document-1/relocation-leases/lease-1/responses",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    expect(afterStreamClosed.status).toBe(404);
+  });
+
+  test("relocates through the caller's live source session and returns binary commits", async () => {
+    const { app, hub } = createApp();
+    const eventResponse = await app.request(
+      "/api/projects/project-1/documents/document-1/events?clientSessionId=client-1",
+    );
+    const reader = eventResponse.body?.getReader();
+    if (!reader) throw new Error("Missing SSE response body");
+    await readSseData(reader);
+
+    const intent: RelocationIntent = {
+      relocationId: "move-http-1",
+      projectId: "project-1",
+      storeEpoch: "store-1",
+      rootBlockIds: ["block-1"],
+      sourceDocumentId: "document-1",
+      sourceGeneration: 1,
+      target: {
+        kind: "document",
+        documentId: "document-2",
+        generation: 1,
+      },
+    };
+    const relocationResult: RelocationResult = {
+      relocationId: intent.relocationId,
+      projectId: intent.projectId,
+      storeEpoch: intent.storeEpoch,
+      duplicate: false,
+      rootBlockIds: ["block-1"],
+      movedBlockIds: ["block-1"],
+      finalLocations: {
+        "block-1": { kind: "document", documentId: "document-2" },
+      },
+      finalLocationRevisions: { "block-1": 2 },
+      sourceCommit: {
+        documentId: "document-1",
+        generation: 1,
+        baseHeadSeq: 0,
+        headSeq: 1,
+        updateId: "relocation:source",
+        update: new Uint8Array([1]),
+        stateVector: new Uint8Array([2]),
+      },
+      targetCommit: {
+        documentId: "document-2",
+        generation: 1,
+        baseHeadSeq: 3,
+        headSeq: 4,
+        updateId: "relocation:target",
+        update: new Uint8Array([3]),
+        stateVector: new Uint8Array([4]),
+      },
+      changeLogSeq: 5,
+      committedAt: "2026-07-11T00:00:00.000Z",
+    };
+    let capturedClientSessionId = "";
+    hub.relocate = async (_target, receivedIntent, clientSessionId) => {
+      capturedClientSessionId = clientSessionId ?? "";
+      expect(receivedIntent.relocationId).toBe(intent.relocationId);
+      return { ok: true, value: relocationResult };
+    };
+
+    const response = await app.request(
+      "/api/projects/project-1/documents/document-1/relocations",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: RELOCATION_HTTP_CONTENT_TYPE,
+        },
+        body: encodeRelocationHttpRequest("client-1", intent),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(
+      RELOCATION_HTTP_CONTENT_TYPE,
+    );
+    expect(capturedClientSessionId).toBe("client-1");
+    const decoded = decodeRelocationHttpResult(
+      new Uint8Array(await response.arrayBuffer()),
+      intent,
+    );
+    expect(decoded.sourceCommit.update?.join(",")).toBe("1");
+    expect(decoded.targetCommit?.stateVector.join(",")).toBe("4");
+
+    const unauthorized = await app.request(
+      "/api/projects/project-1/documents/document-1/relocations",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: encodeRelocationHttpRequest("client-other", intent),
+      },
+    );
+    expect(unauthorized.status).toBe(400);
+    expect(decodeRelocationHttpError(await unauthorized.text()).code).toBe(
+      "invalid_relocation_request",
+    );
+
     await reader.cancel();
   });
 });

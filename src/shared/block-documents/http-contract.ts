@@ -587,6 +587,7 @@ export const decodeDocumentRealtimeSseEvent = (
       storeEpoch,
       generation,
       leaseId: readString(record, "leaseId"),
+      clientSessionId: readString(record, "clientSessionId"),
       expectedHeadSeq: readInteger(record, "expectedHeadSeq", 0),
       deadlineAt: readInteger(record, "deadlineAt", 0),
     };
@@ -633,6 +634,7 @@ export const decodeDocumentRealtimeSseEvent = (
       generation,
       headSeq,
       leaseId: readString(record, "leaseId"),
+      clientSessionId: readString(record, "clientSessionId"),
     };
   }
   if (kind === "relocation-lease-cancel") {
@@ -643,6 +645,7 @@ export const decodeDocumentRealtimeSseEvent = (
       generation,
       headSeq,
       leaseId: readString(record, "leaseId"),
+      clientSessionId: readString(record, "clientSessionId"),
       reason: readString(record, "reason"),
     };
   }

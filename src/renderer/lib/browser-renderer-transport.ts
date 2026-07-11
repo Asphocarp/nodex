@@ -23,6 +23,14 @@ import {
   decodeDocumentHttpError,
   decodeOwnedBlockDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
+import type { RelocationCommandResult } from "../../shared/block-documents/contracts";
+import {
+  decodeRelocationHttpError,
+  decodeRelocationHttpResult,
+  encodeRelocationHttpRequest,
+  RELOCATION_HTTP_CONTENT_TYPE,
+  type DocumentRelocationRequest,
+} from "../../shared/block-documents/relocation-transport";
 import {
   decodeCardReferenceReadModelHttp,
   decodeDatabaseViewReadModelHttp,
@@ -695,37 +703,49 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "block-reference:card:resolve": {
-      const [input] = args as [{
-        requestingProjectId: string;
-        targetBlockId: string;
-      }];
-      const res = await fetch(toApiUrl(
-        `/api/projects/${encodeURIComponent(input.requestingProjectId)}`
-        + `/references/cards/${encodeURIComponent(input.targetBlockId)}`,
-      ));
+      const [input] = args as [
+        {
+          requestingProjectId: string;
+          targetBlockId: string;
+        },
+      ];
+      const res = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(input.requestingProjectId)}` +
+            `/references/cards/${encodeURIComponent(input.targetBlockId)}`,
+        ),
+      );
       if (res.status === 404) return null;
       if (!res.ok) {
-        throw new Error(`Card reference lookup failed with status ${res.status}`);
+        throw new Error(
+          `Card reference lookup failed with status ${res.status}`,
+        );
       }
       return decodeCardReferenceReadModelHttp(await res.json());
     }
     case "database-view:reference:get": {
-      const [input] = args as [{
-        requestingProjectId: string;
-        databaseViewId: string;
-        hostBlockId?: string;
-      }];
+      const [input] = args as [
+        {
+          requestingProjectId: string;
+          databaseViewId: string;
+          hostBlockId?: string;
+        },
+      ];
       const hostQuery = input.hostBlockId
         ? `?hostBlockId=${encodeURIComponent(input.hostBlockId)}`
         : "";
-      const res = await fetch(toApiUrl(
-        `/api/projects/${encodeURIComponent(input.requestingProjectId)}`
-        + `/references/database-views/${encodeURIComponent(input.databaseViewId)}`
-        + hostQuery,
-      ));
+      const res = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(input.requestingProjectId)}` +
+            `/references/database-views/${encodeURIComponent(input.databaseViewId)}` +
+            hostQuery,
+        ),
+      );
       if (res.status === 404) return null;
       if (!res.ok) {
-        throw new Error(`Database View lookup failed with status ${res.status}`);
+        throw new Error(
+          `Database View lookup failed with status ${res.status}`,
+        );
       }
       return decodeDatabaseViewReadModelHttp(await res.json());
     }
@@ -2298,14 +2318,19 @@ function subscribePersistedAtomUpdates(
 }
 
 function subscribeCrossWindowDragActiveChanges(
-  callback: (preview: import("../../shared/cross-window-drag").CrossWindowDragPreview | null) => void,
+  callback: (
+    preview:
+      import("../../shared/cross-window-drag").CrossWindowDragPreview | null,
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
 }
 
 function subscribeCrossWindowDragSourceResults(
-  callback: (result: import("../../shared/cross-window-drag").CrossWindowDragSourceResult) => void,
+  callback: (
+    result: import("../../shared/cross-window-drag").CrossWindowDragSourceResult,
+  ) => void,
 ): () => void {
   void callback;
   return () => {};
@@ -2341,7 +2366,10 @@ function subscribeWindowFocusChanges(
 
 export const browserRendererTransport = {
   kind: "browser" as const,
-  async getOwnedBlockDocumentDescriptor(projectId: string, ownerBlockId: string) {
+  async getOwnedBlockDocumentDescriptor(
+    projectId: string,
+    ownerBlockId: string,
+  ) {
     const response = await fetch(
       toApiUrl(
         `/api/projects/${encodeURIComponent(projectId)}/blocks/${encodeURIComponent(ownerBlockId)}/document`,
@@ -2349,7 +2377,9 @@ export const browserRendererTransport = {
       { headers: { Accept: "application/json" } },
     );
     if (!response.ok) {
-      throw new Error(`Owned Document lookup failed with status ${response.status}`);
+      throw new Error(
+        `Owned Document lookup failed with status ${response.status}`,
+      );
     }
     return decodeOwnedBlockDocumentDescriptorHttp(await response.text());
   },
@@ -2365,7 +2395,10 @@ export const browserRendererTransport = {
     );
     if (!response.ok) {
       try {
-        return { ok: false as const, error: decodeDocumentHttpError(await response.text()) };
+        return {
+          ok: false as const,
+          error: decodeDocumentHttpError(await response.text()),
+        };
       } catch {
         return {
           ok: false as const,
@@ -2385,6 +2418,81 @@ export const browserRendererTransport = {
   },
   createDocumentSyncAdapter(projectId: string) {
     return createHttpDocumentSyncAdapter({ projectId });
+  },
+  async relocateBlocks(
+    request: DocumentRelocationRequest,
+  ): Promise<RelocationCommandResult> {
+    const { intent } = request;
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(intent.projectId)}/documents/${encodeURIComponent(intent.sourceDocumentId)}/relocations`,
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: RELOCATION_HTTP_CONTENT_TYPE,
+        },
+        body: encodeRelocationHttpRequest(request.clientSessionId, intent),
+      },
+    );
+    if (!response.ok) {
+      try {
+        return {
+          ok: false,
+          error: decodeRelocationHttpError(await response.text()),
+        };
+      } catch {
+        return {
+          ok: false,
+          error: {
+            code: "unknown",
+            message: `Block relocation failed with status ${response.status}`,
+            retryable: response.status >= 500,
+            reloadRequired: false,
+            relocationId: intent.relocationId,
+          },
+        };
+      }
+    }
+    if (
+      response.headers.get("content-type")?.split(";", 1)[0] !==
+      RELOCATION_HTTP_CONTENT_TYPE
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "unknown",
+          message: "Block relocation response has an invalid Content-Type",
+          retryable: false,
+          reloadRequired: true,
+          relocationId: intent.relocationId,
+        },
+      };
+    }
+    try {
+      return {
+        ok: true,
+        value: decodeRelocationHttpResult(
+          new Uint8Array(await response.arrayBuffer()),
+          intent,
+        ),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: {
+          code: "unknown",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Block relocation response was invalid",
+          retryable: false,
+          reloadRequired: true,
+          relocationId: intent.relocationId,
+        },
+      };
+    }
   },
   invoke,
   subscribeBoardChanges,

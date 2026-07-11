@@ -644,6 +644,7 @@ export class NodexYProvider {
   ): void {
     const eventIsValid =
       event.leaseId.trim().length > 0 &&
+      event.clientSessionId.trim().length > 0 &&
       event.storeEpoch.trim().length > 0 &&
       Number.isInteger(event.generation) &&
       event.generation >= 1 &&
@@ -654,6 +655,15 @@ export class NodexYProvider {
         relocationBoundaryError(
           "Relocation lease prepare event is invalid",
           event.leaseId || "invalid-relocation-lease",
+        ),
+      );
+      return;
+    }
+    if (event.clientSessionId !== this.clientSessionId) {
+      this.enterReset(
+        relocationBoundaryError(
+          "Relocation lease was addressed to another Document session",
+          event.leaseId,
         ),
       );
       return;
@@ -869,6 +879,7 @@ export class NodexYProvider {
     if (
       !lease ||
       lease.leaseId !== event.leaseId ||
+      event.clientSessionId !== this.clientSessionId ||
       lease.storeEpoch !== event.storeEpoch ||
       lease.generation !== event.generation ||
       !isNonNegativeInteger(event.headSeq) ||

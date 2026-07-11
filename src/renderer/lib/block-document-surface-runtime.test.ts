@@ -261,6 +261,65 @@ describe("BlockDocumentSurfaceRuntime", () => {
     await Promise.all([first.close(), second.close()]);
   });
 
+  test("runs only surface-local relocation preparers and exposes the write fence", async () => {
+    const providers: FakeSurfaceProvider[] = [];
+    const first = new BlockDocumentSurfaceRuntime({
+      descriptor: descriptor(),
+      adapter: unusedAdapter,
+      createProvider: createFactory(providers, []),
+      localCheckpointStore: null,
+    });
+    const second = new BlockDocumentSurfaceRuntime({
+      descriptor: descriptor({ ownerBlockId: "card-2" }),
+      adapter: unusedAdapter,
+      createProvider: createFactory(providers, []),
+      localCheckpointStore: null,
+    });
+    const firstProvider = providers[0];
+    const secondProvider = providers[1];
+    if (!firstProvider || !secondProvider) throw new Error("Expected providers");
+    const preparations: string[] = [];
+    const unregister = first.registerRelocationPreparer(async (event) => {
+      preparations.push(`${event.leaseId}:${event.clientSessionId}`);
+      await Promise.resolve();
+      preparations.push("first-ready");
+    });
+    second.registerRelocationPreparer(() => {
+      preparations.push("wrong-surface");
+    });
+    const event = {
+      kind: "relocation-lease-prepare" as const,
+      leaseId: "lease-1",
+      documentId: descriptor().documentId,
+      clientSessionId: first.clientSessionId,
+      storeEpoch: "store-1",
+      generation: 1,
+      expectedHeadSeq: 2,
+      deadlineAt: Date.now() + 10_000,
+    };
+
+    firstProvider.emit({ phase: "relocating" });
+    expect(first.getStatus().phase).toBe("relocating");
+    expect(first.getStatus().writeFrozen).toBeTrue();
+    expect(first.getWriteFrozen()).toBeTrue();
+    await firstProvider.options.prepareSurfaceForRelocation?.(event);
+    expect(preparations.join(",")).toBe(
+      `lease-1:${first.clientSessionId},first-ready`,
+    );
+
+    firstProvider.emit({ phase: "frozen" });
+    expect(first.getStatus().phase).toBe("frozen");
+    unregister();
+    await firstProvider.options.prepareSurfaceForRelocation?.({
+      ...event,
+      leaseId: "lease-2",
+    });
+    expect(preparations.includes("wrong-surface")).toBeFalse();
+    firstProvider.emit({ phase: "synced" });
+    expect(first.getWriteFrozen()).toBeFalse();
+    await Promise.all([first.close(), second.close()]);
+  });
+
   test("rejects a non-Card owner before allocating a collaborative surface", () => {
     let providersCreated = 0;
     let errorMessage = "";

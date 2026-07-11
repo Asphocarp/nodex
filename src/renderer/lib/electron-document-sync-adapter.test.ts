@@ -42,6 +42,22 @@ class FakeBridge {
     if (channel === "document-sync:unsubscribe") {
       return { ok: true, value: { unsubscribed: true } };
     }
+    if (channel === "document-sync:relocation-lease:respond") {
+      const request = args[0] as {
+        leaseId: string;
+        documentId: string;
+        response: "ack" | "nack";
+      };
+      return {
+        ok: true,
+        value: {
+          accepted: true,
+          leaseId: request.leaseId,
+          documentId: request.documentId,
+          status: request.response === "ack" ? "frozen" : "cancelled",
+        },
+      };
+    }
     return {
       ok: false,
       error: {
@@ -179,5 +195,53 @@ describe("createElectronDocumentSyncAdapter", () => {
       expect(result.error.code).toBe("store_not_initialized");
       expect(result.error.retryable).toBeTrue();
     }
+  });
+
+  test("targets lease events by client session and invokes the response seam", async () => {
+    const bridge = new FakeBridge();
+    const adapter = createElectronDocumentSyncAdapter(
+      bridge as unknown as ElectronRendererBridge,
+    );
+    const events: DocumentSyncRealtimeEvent[] = [];
+    adapter.subscribe(
+      { documentId: "doc-1", clientSessionId: "session-1" },
+      (event) => events.push(event),
+    );
+    bridge.subscription.resolve({ ok: true, value: { subscribed: true } });
+    await Promise.resolve();
+
+    const base = {
+      kind: "relocation-lease-prepare" as const,
+      leaseId: "lease-1",
+      documentId: "doc-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      expectedHeadSeq: 0,
+      deadlineAt: 2_000,
+    };
+    bridge.emit("document-sync:event", {
+      ...base,
+      clientSessionId: "session-other",
+    });
+    bridge.emit("document-sync:event", {
+      ...base,
+      clientSessionId: "session-1",
+    });
+    expect(events.length).toBe(1);
+    expect(events[0]?.kind).toBe("relocation-lease-prepare");
+
+    const response = await adapter.respondToRelocationLease({
+      response: "ack",
+      leaseId: "lease-1",
+      documentId: "doc-1",
+      clientSessionId: "session-1",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      headSeq: 0,
+    });
+    expect(response.ok).toBeTrue();
+    expect(bridge.calls.at(-1)?.channel).toBe(
+      "document-sync:relocation-lease:respond",
+    );
   });
 });

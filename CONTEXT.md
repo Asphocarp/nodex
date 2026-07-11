@@ -110,6 +110,10 @@ A relocation is an atomic move of one or more Block subtrees between Documents o
 
 Cross-Document relocation uses short-lived write fences and an ephemeral lease so active editors flush composition and pending updates before the writer validates and commits source and target changes together.
 
+The renderer submits only a logical relocation intent: stable root Block IDs, source Document generation, and the target parent/anchor. It never supplies a guessed SQL head or location revision. The realtime Hub prepares once to establish the lease boundary, waits for every mounted source/target surface to commit IME, flush, and freeze, then prepares again so the SQLite writer receives the latest durable heads and Block location revisions. A response retry reuses the same relocation ID; the immutable ledger returns the committed result or a resync receipt after update compaction.
+
+Schema v64 stores the immutable relocation request/result, moved-member set, source pre-relocation state, per-Document update receipts, recovery artifacts, and shared change-log cursor. A stale binary update that overlaps moved Blocks is never applied blindly: safe remaining edits may commit, while inseparable moved content becomes a durable recovery artifact and forces a typed reload boundary.
+
 ### Store epoch and Document generation
 
 `storeEpoch` identifies one restored lifetime of the local SQLite store. It rotates after restore. `generation` identifies one reset/replacement lifetime of a Document. Durable updates and disposable client caches must match both values; old caches and outboxes are rejected rather than replayed into a restored state.

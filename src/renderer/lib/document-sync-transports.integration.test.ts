@@ -65,6 +65,19 @@ class MemoryDurableBackend implements DocumentSyncDurableBackend {
     return success(ack);
   };
 
+  lookupCommittedRelocation = async () => ({
+    ok: true as const,
+    value: null,
+  });
+
+  prepareRelocationCommand = async () => {
+    throw new Error("Relocation is not exercised by this sync transport test");
+  };
+
+  relocateBlocks = async () => {
+    throw new Error("Relocation is not exercised by this sync transport test");
+  };
+
   destroy(): void {
     this.document.destroy();
   }

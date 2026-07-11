@@ -1,5 +1,8 @@
 import { browserRendererTransport } from "./browser-renderer-transport";
-import { createElectronRendererTransport, type ElectronRendererBridge } from "./electron-renderer-transport";
+import {
+  createElectronRendererTransport,
+  type ElectronRendererBridge,
+} from "./electron-renderer-transport";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type {
@@ -12,47 +15,85 @@ export interface RendererTransport {
   getOwnedBlockDocumentDescriptor: (
     projectId: string,
     ownerBlockId: string,
-  ) => Promise<import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor>;
+  ) => Promise<
+    import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor
+  >;
   prepareOwnedBlockDocument: (
     projectId: string,
     ownerBlockId: string,
-  ) => Promise<import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
-    import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor
-  >>;
+  ) => Promise<
+    import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
+      import("../../shared/block-documents/contracts").OwnedBlockDocumentDescriptor
+    >
+  >;
+  relocateBlocks: (
+    request: import("../../shared/block-documents/relocation-transport").DocumentRelocationRequest,
+  ) => Promise<
+    import("../../shared/block-documents/contracts").RelocationCommandResult
+  >;
   createDocumentSyncAdapter?: (
     projectId: string,
   ) => import("./nodex-y-provider").DocumentSyncAdapter;
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-  subscribeBoardChanges: (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
+  subscribeBoardChanges: (
+    projectId: string,
+    callback: (event: BoardChangeEvent) => void,
+  ) => () => void;
   subscribeProjectSessionChanges: (
     projectId: string | null,
-    callback: (event: import("../../shared/ipc-api").ProjectSessionsChangeEvent) => void,
+    callback: (
+      event: import("../../shared/ipc-api").ProjectSessionsChangeEvent,
+    ) => void,
   ) => () => void;
-  subscribeProjectChanges: (callback: (event: import("../../shared/ipc-api").ProjectsChangeEvent) => void) => () => void;
-  subscribeCodexHostMessages: (callback: (message: import("./types").CodexHostMessage) => void) => () => void;
+  subscribeProjectChanges: (
+    callback: (
+      event: import("../../shared/ipc-api").ProjectsChangeEvent,
+    ) => void,
+  ) => () => void;
+  subscribeCodexHostMessages: (
+    callback: (message: import("./types").CodexHostMessage) => void,
+  ) => () => void;
   subscribeCodexRendererClientRequests: (
-    callback: (message: import("./types").CodexRendererClientRequestMessage) => void,
+    callback: (
+      message: import("./types").CodexRendererClientRequestMessage,
+    ) => void,
   ) => () => void;
   subscribeDesktopNotificationActions: (
-    callback: (payload: import("./types").DesktopNotificationActionPayload & {
-      conversationId: string | null;
-      requestId: string | null;
-    }) => void,
+    callback: (
+      payload: import("./types").DesktopNotificationActionPayload & {
+        conversationId: string | null;
+        requestId: string | null;
+      },
+    ) => void,
   ) => () => void;
-  subscribeGitBranchChanges: (callback: (event: { cwd: string }) => void) => () => void;
-  subscribeAppUpdateStatus: (callback: (status: import("./types").AppUpdateStatus) => void) => () => void;
-  subscribeCommandKeymapChanges: (callback: (state: CommandKeymapState) => void) => () => void;
+  subscribeGitBranchChanges: (
+    callback: (event: { cwd: string }) => void,
+  ) => () => void;
+  subscribeAppUpdateStatus: (
+    callback: (status: import("./types").AppUpdateStatus) => void,
+  ) => () => void;
+  subscribeCommandKeymapChanges: (
+    callback: (state: CommandKeymapState) => void,
+  ) => () => void;
   subscribeCommandPaletteThreadIndexUpdates: (
-    callback: (event: import("../../shared/types").CommandPaletteThreadIndexUpdatedEvent) => void,
+    callback: (
+      event: import("../../shared/types").CommandPaletteThreadIndexUpdatedEvent,
+    ) => void,
   ) => () => void;
   subscribeCodexScheduledAutomationChanges: (
-    callback: (event: import("../../shared/types").CodexScheduledAutomationChangedEvent) => void,
+    callback: (
+      event: import("../../shared/types").CodexScheduledAutomationChangedEvent,
+    ) => void,
   ) => () => void;
   subscribeCodexAutomationRunsUpdates: (
-    callback: (event: import("../../shared/types").CodexAutomationRunsUpdatedEvent) => void,
+    callback: (
+      event: import("../../shared/types").CodexAutomationRunsUpdatedEvent,
+    ) => void,
   ) => () => void;
   subscribePersistedAtomUpdates: (
-    callback: (update: import("../../shared/ipc-api").PersistedAtomUpdate) => void,
+    callback: (
+      update: import("../../shared/ipc-api").PersistedAtomUpdate,
+    ) => void,
   ) => () => void;
   subscribeCrossWindowDragActiveChanges: (
     callback: (preview: CrossWindowDragPreview | null) => void,
@@ -61,12 +102,12 @@ export interface RendererTransport {
     callback: (result: CrossWindowDragSourceResult) => void,
   ) => () => void;
   getWindowFocusState: () => Promise<boolean>;
-  subscribeWindowFocusChanges: (callback: (isFocused: boolean) => void) => () => void;
+  subscribeWindowFocusChanges: (
+    callback: (isFocused: boolean) => void,
+  ) => () => void;
 }
 
-const BROWSER_ONLY_INVOKE_CHANNELS = new Set<string>([
-  "asset:resolve-path",
-]);
+const BROWSER_ONLY_INVOKE_CHANNELS = new Set<string>(["asset:resolve-path"]);
 
 function readElectronBridge(): ElectronRendererBridge | null {
   if (typeof window === "undefined") return null;

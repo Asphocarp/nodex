@@ -184,7 +184,7 @@ import {
 } from "./thread-mention-chip";
 import { isBlockWithinOwnerTree } from "./block-tree-ancestry";
 import type { CardStageLinkedThread } from "@/components/kanban/card-stage/types";
-import { invoke } from "@/lib/api";
+import { invoke, prepareOwnedBlockDocument, relocateBlocks } from "@/lib/api";
 import { EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS } from "@/lib/timing";
 import {
   parseNfm,
@@ -220,6 +220,8 @@ import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
+import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
+import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import {
   useCodexAppServerControl,
   useProjectThreadSummaries,
@@ -233,6 +235,15 @@ import {
   routeNfmEditorDocumentChange,
   type NfmEditorSource,
 } from "./nfm-editor-source";
+import {
+  applyNfmEditorWriteFence,
+  prepareNfmEditorForRelocation,
+  type NfmEditorRelocationRuntime,
+} from "./nfm-editor-relocation";
+import {
+  buildCardBlockRelocationRequest,
+  executeCardBlockRelocation,
+} from "./nfm-editor-card-relocation";
 
 interface ActiveChipEdit {
   propertyType: Exclude<MetaChipPropertyType, "tag">;
@@ -249,7 +260,7 @@ interface ExternalSyncActivity {
   hasActiveLocalEdit: boolean;
 }
 
-interface NfmEditorFocusRuntime {
+interface NfmEditorFocusRuntime extends NfmEditorRelocationRuntime {
   isFocused?: () => boolean;
   isWithinEditor?: (element: Element) => boolean;
 }
@@ -292,6 +303,7 @@ interface NfmEditorCommonProps {
   };
   placeholder?: string;
   className?: string;
+  surfaceWriteFence?: BlockDocumentSurfaceWriteFence;
 }
 
 export interface NfmEditorProps extends NfmEditorCommonProps {
@@ -631,7 +643,9 @@ function NfmEditorInstance({
   headingRail,
   placeholder = "Add a description...",
   className,
+  surfaceWriteFence,
 }: NfmEditorInstanceProps) {
+  const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const parentBlockReferenceRuntime = useBlockReferenceHostRuntime();
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
@@ -1886,7 +1900,6 @@ function NfmEditorInstance({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (source.kind !== "legacy-snapshot") return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -1895,7 +1908,9 @@ function NfmEditorInstance({
     };
     const handleCompositionEnd = () => {
       isComposingRef.current = false;
-      queueMicrotask(reconcileDeferredExternalContentSync);
+      if (source.kind === "legacy-snapshot") {
+        queueMicrotask(reconcileDeferredExternalContentSync);
+      }
     };
     const handleBeforeInput = (event: InputEvent) => {
       if (event.isComposing) {
@@ -1912,6 +1927,23 @@ function NfmEditorInstance({
       el.removeEventListener("beforeinput", handleBeforeInput, true);
     };
   }, [reconcileDeferredExternalContentSync, source.kind]);
+
+  useEffect(() => {
+    if (source.kind !== "collaborative-document" || !surfaceWriteFence) return;
+    return surfaceWriteFence.registerRelocationPreparer(async () => {
+      const container = containerRef.current;
+      if (!container) return;
+      await prepareNfmEditorForRelocation(
+        editor as unknown as NfmEditorRelocationRuntime,
+        container,
+      );
+    });
+  }, [editor, source.kind, surfaceWriteFence]);
+
+  useEffect(() => {
+    const runtimeEditor = editor as unknown as NfmEditorFocusRuntime;
+    applyNfmEditorWriteFence(runtimeEditor, writeFrozen);
+  }, [editor, writeFrozen]);
 
   useEffect(() => {
     if (source.kind !== "legacy-snapshot") return;
@@ -2363,11 +2395,6 @@ function NfmEditorInstance({
         cardId: string;
       },
     ) => {
-      if (sourceRef.current.kind !== "legacy-snapshot") {
-        throw new Error(
-          "Moving blocks between Cards is not available for collaborative documents yet.",
-        );
-      }
       if (!sourceCardContext) {
         throw new Error("No blocks selected.");
       }
@@ -2376,6 +2403,48 @@ function NfmEditorInstance({
         targetCardId === sourceCardContext.cardId
       ) {
         throw new Error("Choose a different destination card.");
+      }
+
+      const activeSource = sourceRef.current;
+      if (activeSource.kind === "collaborative-document") {
+        if (targetProjectId !== projectId) {
+          throw new Error(
+            "Moving Blocks between Cards in different Projects is not available yet.",
+          );
+        }
+        if (!surfaceWriteFence) {
+          throw new Error(
+            "The collaborative Card surface changed; reopen it before moving Blocks.",
+          );
+        }
+        if (surfaceWriteFence.getWriteFrozen()) {
+          throw new Error(
+            "This Card is already completing another Block move.",
+          );
+        }
+
+        const preparedTarget = await prepareOwnedBlockDocument(
+          targetProjectId,
+          targetCardId,
+        );
+        if (!preparedTarget.ok) {
+          throw new Error(preparedTarget.error.message);
+        }
+        const request = buildCardBlockRelocationRequest({
+          projectId,
+          source: activeSource,
+          sourceCardId: sourceCardContext.cardId,
+          rootBlockIds: selection.blockIds,
+          targetCardId,
+          target: preparedTarget.value,
+          createRelocationId: () => crypto.randomUUID(),
+        });
+        const relocation = await executeCardBlockRelocation(
+          request,
+          relocateBlocks,
+        );
+        if (!relocation.ok) throw new Error(relocation.error.message);
+        return;
       }
 
       const boardResult = await invoke("board:summary:get", targetProjectId);
@@ -2475,6 +2544,7 @@ function NfmEditorInstance({
       projectId,
       serializeEditorToNfm,
       sourceCardContext,
+      surfaceWriteFence,
     ],
   );
 
@@ -3423,6 +3493,7 @@ function NfmEditorInstance({
                 <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
                   <BlockNoteView
                     editor={editor}
+                    editable={!writeFrozen}
                     onChange={handleChange}
                     theme={themeMode}
                     formattingToolbar={false}
@@ -3431,6 +3502,9 @@ function NfmEditorInstance({
                     sideMenu={false}
                     tableHandles={false}
                     data-theming-css-variables-demo
+                    data-relocation-write-frozen={
+                      writeFrozen ? "true" : "false"
+                    }
                   >
                     <NfmSideMenuOpenProvider>
                       <NfmSideMenuShortcutController />
