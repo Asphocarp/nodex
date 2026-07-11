@@ -1075,6 +1075,11 @@ nodex ls [column]                # List cards (all or by column)
 nodex get <card-id>              # Get card details (auto-resolves column)
 nodex add <column> <title>       # Create card
 nodex update <card-id> [opts]    # Update card (minimal output; -v for full details)
+nodex block descriptor <card-id> # Read Document id/epoch/generation/head
+nodex block apply <card-id> <json|@file|@-> # Stable-ID operation batch
+nodex block replace <card-id> <nfm|@file|@-> # Explicit NFM CAS import
+nodex block title <card-id> <text> # Collaborative title replacement
+nodex block export <card-id>      # Export title + materialized NFM
 nodex rm <card-id>               # Delete card (auto-resolves column)
 nodex mv <card-id> <from> <to> [order] [opts] # Move card (atomic claim)
 nodex history [--card <id>]      # View edit history
@@ -1113,6 +1118,8 @@ Agent command options:
 - `--full` - Include full card fields in `ls`
 - `--description-chars <n>` - Truncate `ls --full` descriptions to `n` chars (default: 240)
 - `--description-full` - Include full description in `ls --full`
+- `--mutation-id <id>` - Stable identity for an exact-retry Document mutation
+- `--expected-head <seq>` - Explicit Document CAS head (obtain it with `nodex block descriptor`)
 
 CLI parsing is strict: unknown options and invalid enum/date values fail fast with actionable errors.
 
@@ -1290,6 +1297,9 @@ nodex backups restore <backup-id> --yes
 | Get card | `nodex get <id>` | GET `/api/projects/[projectId]/card?cardId=Y` |
 | Create card | `nodex add <status> <title>` | POST `/api/projects/[projectId]/board` |
 | Update card | `nodex update <id> [opts]` | PUT `/api/projects/[projectId]/card` |
+| Read Card Document boundary | `nodex block descriptor <id>` | POST `/api/projects/[projectId]/blocks/[cardId]/document/prepare` |
+| Apply stable-ID Block operations | `nodex block apply <id> <json>` | POST `/api/projects/[projectId]/documents/[documentId]/mutations` |
+| Import/export collaborative body | `nodex block replace/export ...` | Document mutation API / authoritative Card read projection |
 | Delete card | `nodex rm <id>` | DELETE `/api/projects/[projectId]/card?cardId=Y` |
 | Move card | `nodex mv <id> <from> <to> [opts]` | PUT `/api/projects/[projectId]/move` (atomic: 409 if card not in `fromStatus`) + optional PUT `/api/projects/[projectId]/card` (property updates) |
 | History | `nodex history` | GET `/api/projects/[projectId]/history` |
@@ -1300,7 +1310,7 @@ nodex backups restore <backup-id> --yes
 | Create backup | `nodex backups create` | POST `/api/backups` |
 | Restore backup | `nodex backups restore <id> --yes` | POST `/api/backups/[backupId]/restore` |
 
-The server auto-resolves `status` for get/update/delete, so agents only need the card ID. `mv` requires explicit `<from> <to>` statuses for atomic claim semantics (409 if the card already moved). Each CLI command issues a single HTTP request (no pre-lookup), eliminating TOCTOU races when multiple agents operate concurrently.
+The server auto-resolves `status` for get/update/delete, so agents only need the card ID. `mv` requires explicit `<from> <to>` statuses for atomic claim semantics (409 if the card already moved). Metadata claims remain one server-side transaction. Title/body commands first resolve the Card's owned Document boundary, then send an exact generation/head CAS mutation; callers that need retry after a lost response supply both `--mutation-id` and the original `--expected-head`. `nodex update --title/--description` uses this same Y.Doc path and never writes those fields through the compatibility Card endpoint.
 
 ### Output Format
 

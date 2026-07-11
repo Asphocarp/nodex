@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { homedir } from "os";
+import { randomUUID } from "crypto";
 import TOML from "smol-toml";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,7 +34,7 @@ const ESTIMATES = new Set(["xs", "s", "m", "l", "xl"]);
 const DEFAULT_LS_DESCRIPTION_CHARS = 240;
 
 const COMMANDS = new Set([
-  "serve", "ls", "get", "add", "update", "rm", "mv",
+  "serve", "ls", "get", "add", "update", "rm", "mv", "block",
   "history", "undo", "redo", "query", "schema", "backups", "help", "projects", "config",
 ]);
 
@@ -385,7 +386,12 @@ async function apiFetch(path, options = {}) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    const message = typeof body.error === "string"
+      ? body.error
+      : typeof body.error?.message === "string"
+        ? body.error.message
+        : `HTTP ${res.status}`;
+    throw new Error(message);
   }
   return res.json();
 }
@@ -418,6 +424,112 @@ function apiDelete(path) {
 
 function apiPrefix(config) {
   return `/api/projects/${encodeURIComponent(config.project)}`;
+}
+
+function requireCanonicalMutationId(value) {
+  const mutationId = value ?? randomUUID();
+  if (
+    typeof mutationId !== "string" ||
+    mutationId.length === 0 ||
+    mutationId.length > 512 ||
+    mutationId !== mutationId.trim()
+  ) {
+    throw new Error("--mutation-id must be a canonical non-empty identity up to 512 characters");
+  }
+  return mutationId;
+}
+
+function scopedMutationId(baseMutationId, suffix, hasMultipleMutations) {
+  if (!hasMultipleMutations) return baseMutationId;
+  const mutationId = `${baseMutationId}:${suffix}`;
+  if (mutationId.length <= 512) return mutationId;
+  throw new Error("--mutation-id is too long for a multi-part content update");
+}
+
+async function prepareCardDocument(config, cardId) {
+  const descriptor = await apiPost(
+    `${apiPrefix(config)}/blocks/${encodeURIComponent(cardId)}/document/prepare`,
+    {},
+  );
+  if (
+    descriptor?.projectId !== config.project ||
+    descriptor?.ownerBlockId !== cardId ||
+    typeof descriptor?.documentId !== "string" ||
+    typeof descriptor?.storeEpoch !== "string" ||
+    !Number.isSafeInteger(descriptor?.generation) ||
+    !Number.isSafeInteger(descriptor?.headSeq)
+  ) {
+    throw new Error("Server returned an invalid Card Document descriptor");
+  }
+  return descriptor;
+}
+
+async function sendDocumentMutation(config, descriptor, request) {
+  const result = await apiPost(
+    `${apiPrefix(config)}/documents/${encodeURIComponent(descriptor.documentId)}/mutations`,
+    request,
+  );
+  if (result?.ok !== true || !Number.isSafeInteger(result?.value?.headSeq)) {
+    throw new Error(result?.error?.message || "Server returned an invalid Document mutation receipt");
+  }
+  return result.value;
+}
+
+function documentMutationEnvelope(config, descriptor, input) {
+  return {
+    version: 1,
+    mutationId: input.mutationId,
+    projectId: config.project,
+    storeEpoch: descriptor.storeEpoch,
+    ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
+    actor: { kind: "nodex_cli" },
+    documentId: descriptor.documentId,
+    generation: descriptor.generation,
+    expectedHeadSeq: input.expectedHeadSeq,
+  };
+}
+
+async function mutateCardContent(config, cardId, input) {
+  const descriptor = await prepareCardDocument(config, cardId);
+  const current = input.skipUnchanged
+    ? await apiGet(
+        `${apiPrefix(config)}/card?cardId=${encodeURIComponent(cardId)}`,
+      )
+    : null;
+  const hasNfm = input.nfm !== undefined &&
+    (!current || current.description !== input.nfm);
+  const hasTitle = input.title !== undefined &&
+    (!current || current.title !== input.title);
+  if (!hasNfm && !hasTitle) return { descriptor, receipts: [] };
+
+  const baseMutationId = requireCanonicalMutationId(input.mutationId);
+  const hasMultipleMutations = hasNfm && hasTitle;
+  let expectedHeadSeq = input.expectedHeadSeq ?? descriptor.headSeq;
+  const receipts = [];
+
+  if (hasNfm) {
+    const receipt = await sendDocumentMutation(config, descriptor, {
+      ...documentMutationEnvelope(config, descriptor, {
+        mutationId: scopedMutationId(baseMutationId, "body", hasMultipleMutations),
+        expectedHeadSeq,
+      }),
+      nfm: input.nfm,
+    });
+    receipts.push(receipt);
+    expectedHeadSeq = receipt.headSeq;
+  }
+
+  if (hasTitle) {
+    const receipt = await sendDocumentMutation(config, descriptor, {
+      ...documentMutationEnvelope(config, descriptor, {
+        mutationId: scopedMutationId(baseMutationId, "title", hasMultipleMutations),
+        expectedHeadSeq,
+      }),
+      operations: [{ kind: "set_title", title: input.title }],
+    });
+    receipts.push(receipt);
+  }
+  return { descriptor, receipts };
 }
 
 // ─── Status Helpers ───
@@ -555,6 +667,8 @@ const OPTION_ALIASES = {
   "--limit": "limit",
   "--offset": "offset",
   "--description-chars": "descriptionChars",
+  "--mutation-id": "mutationId",
+  "--expected-head": "expectedHead",
 };
 
 const BOOLEAN_OPTION_ALIASES = {
@@ -602,6 +716,8 @@ const FLAG_DISPLAY = {
   limit: "--limit",
   offset: "--offset",
   descriptionChars: "--description-chars",
+  mutationId: "--mutation-id",
+  expectedHead: "--expected-head",
   help: "--help",
   json: "--json",
   jsonl: "--jsonl",
@@ -633,14 +749,18 @@ const COMMAND_ALLOWED_FLAGS = {
     "help", "json", "jsonl", "csv", "pretty", "table", "verbose", "project", "url", "sessionId",
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
     "assignee", "clearAssignee", "due", "clearDue", "agentStatus", "clearAgentStatus",
-    "agentBlocked",
+    "agentBlocked", "mutationId", "expectedHead",
   ]),
   rm: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
   mv: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "verbose", "project", "url", "sessionId",
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
     "assignee", "clearAssignee", "due", "clearDue", "agentStatus", "clearAgentStatus",
-    "agentBlocked",
+    "agentBlocked", "mutationId", "expectedHead",
+  ]),
+  block: new Set([
+    "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
+    "sessionId", "mutationId", "expectedHead",
   ]),
   history: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "card", "limit", "offset"]),
   undo: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
@@ -977,6 +1097,86 @@ async function cmdGet(positional, flags, config) {
   }
 }
 
+// ─── Command: block ───
+
+async function cmdBlock(positional, flags, config) {
+  const action = positional[0];
+  const cardId = positional[1];
+  if (!action || !cardId) {
+    throw new Error(
+      "Usage: nodex block <descriptor|export|apply|replace|title> <card-id> [value]",
+    );
+  }
+
+  if (action === "descriptor") {
+    keyValueOut(await prepareCardDocument(config, cardId), flags);
+    return;
+  }
+  if (action === "export") {
+    const card = await apiGet(
+      `${apiPrefix(config)}/card?cardId=${encodeURIComponent(cardId)}`,
+    );
+    keyValueOut(
+      { cardId, title: card.title ?? "", nfm: card.description ?? "" },
+      flags,
+    );
+    return;
+  }
+
+  const value = positional[2];
+  if (value === undefined) {
+    throw new Error(`nodex block ${action} requires a value or @file/@- input`);
+  }
+  const resolvedValue = await resolveValue(value);
+  const expectedHeadSeq = flags.expectedHead === undefined
+    ? undefined
+    : parseNonNegativeInt(flags.expectedHead, "--expected-head");
+
+  if (action === "replace" || action === "title") {
+    const result = await mutateCardContent(config, cardId, {
+      ...(action === "replace"
+        ? { nfm: resolvedValue }
+        : { title: resolvedValue }),
+      mutationId: flags.mutationId,
+      expectedHeadSeq,
+    });
+    keyValueOut(
+      {
+        cardId,
+        documentId: result.descriptor.documentId,
+        mutation: result.receipts[0],
+      },
+      flags,
+    );
+    return;
+  }
+
+  if (action !== "apply") {
+    throw new Error(`Unknown block action: ${action}`);
+  }
+  let operations;
+  try {
+    operations = JSON.parse(resolvedValue);
+  } catch {
+    throw new Error("Block operations must be valid JSON");
+  }
+  if (!Array.isArray(operations) || operations.length === 0) {
+    throw new Error("Block operations must be a non-empty JSON array");
+  }
+  const descriptor = await prepareCardDocument(config, cardId);
+  const receipt = await sendDocumentMutation(config, descriptor, {
+    ...documentMutationEnvelope(config, descriptor, {
+      mutationId: requireCanonicalMutationId(flags.mutationId),
+      expectedHeadSeq: expectedHeadSeq ?? descriptor.headSeq,
+    }),
+    operations,
+  });
+  keyValueOut(
+    { cardId, documentId: descriptor.documentId, mutation: receipt },
+    flags,
+  );
+}
+
 // ─── Command: add ───
 
 async function cmdAdd(positional, flags, config) {
@@ -1024,13 +1224,14 @@ async function cmdUpdate(positional, flags, config) {
   const body = { cardId };
   if (config.sessionId) body.sessionId = config.sessionId;
 
-  if (flags.title !== undefined) body.title = await resolveValue(flags.title);
-
-  if (flags.clearDescription) {
-    body.description = "";
-  } else if (flags.description !== undefined) {
-    body.description = await resolveValue(flags.description);
-  }
+  const title = flags.title === undefined
+    ? undefined
+    : await resolveValue(flags.title);
+  const nfm = flags.clearDescription
+    ? ""
+    : flags.description === undefined
+      ? undefined
+      : await resolveValue(flags.description);
 
   if (flags.priority !== undefined) {
     assertValidPriority(flags.priority);
@@ -1068,11 +1269,41 @@ async function cmdUpdate(positional, flags, config) {
 
   if (flags.agentBlocked !== undefined) body.agentBlocked = flags.agentBlocked;
 
-  const card = await apiPut(`${prefix}/card`, body);
+  const metadataChanged = Object.keys(body).some(
+    (key) => key !== "cardId" && key !== "sessionId",
+  );
+  if (!metadataChanged && title === undefined && nfm === undefined) {
+    throw new Error("No Card update was specified");
+  }
+  const metadataResult = metadataChanged
+    ? await apiPut(`${prefix}/card`, body)
+    : null;
+  const contentResult = title !== undefined || nfm !== undefined
+    ? await mutateCardContent(config, cardId, {
+        title,
+        nfm,
+        mutationId: flags.mutationId,
+        expectedHeadSeq: flags.expectedHead === undefined
+          ? undefined
+          : parseNonNegativeInt(flags.expectedHead, "--expected-head"),
+        skipUnchanged:
+          flags.mutationId === undefined && flags.expectedHead === undefined,
+      })
+    : null;
 
   if (flags.json) {
-    jsonOut(card, flags);
+    jsonOut({
+      status: "updated",
+      cardId,
+      ...(metadataResult ? { metadata: metadataResult } : {}),
+      ...(contentResult
+        ? { documentMutations: contentResult.receipts }
+        : {}),
+    }, flags);
   } else if (flags.verbose) {
+    const card = await apiGet(
+      `${prefix}/card?cardId=${encodeURIComponent(cardId)}`,
+    );
     keyValueOut(cardToKV(card, card.status || "unknown"), flags);
   } else {
     rowsOut(["status", "cardId"], [{ status: "updated", cardId }], flags);
@@ -1118,13 +1349,14 @@ async function cmdMv(positional, flags, config) {
   const moveResult = await apiPut(`${prefix}/move`, body);
   const cardUpdates = {};
 
-  if (flags.title !== undefined) cardUpdates.title = await resolveValue(flags.title);
-
-  if (flags.clearDescription) {
-    cardUpdates.description = "";
-  } else if (flags.description !== undefined) {
-    cardUpdates.description = await resolveValue(flags.description);
-  }
+  const title = flags.title === undefined
+    ? undefined
+    : await resolveValue(flags.title);
+  const nfm = flags.clearDescription
+    ? ""
+    : flags.description === undefined
+      ? undefined
+      : await resolveValue(flags.description);
 
   if (flags.priority !== undefined) {
     assertValidPriority(flags.priority);
@@ -1163,15 +1395,30 @@ async function cmdMv(positional, flags, config) {
   if (flags.agentBlocked !== undefined) cardUpdates.agentBlocked = flags.agentBlocked;
 
   const hasCardUpdates = Object.keys(cardUpdates).length > 0;
+  const hasContentUpdates = title !== undefined || nfm !== undefined;
   let cardAfterMove = null;
+  let contentResult = null;
 
   if (hasCardUpdates) {
-    cardAfterMove = await apiPut(`${prefix}/card`, {
+    await apiPut(`${prefix}/card`, {
       cardId,
       ...(config.sessionId ? { sessionId: config.sessionId } : {}),
       ...cardUpdates,
     });
-  } else if (flags.verbose || flags.json) {
+  }
+  if (hasContentUpdates) {
+    contentResult = await mutateCardContent(config, cardId, {
+      title,
+      nfm,
+      mutationId: flags.mutationId,
+      expectedHeadSeq: flags.expectedHead === undefined
+        ? undefined
+        : parseNonNegativeInt(flags.expectedHead, "--expected-head"),
+      skipUnchanged:
+        flags.mutationId === undefined && flags.expectedHead === undefined,
+    });
+  }
+  if (flags.verbose) {
     cardAfterMove = await apiGet(
       `${prefix}/card?cardId=${encodeURIComponent(cardId)}`
     );
@@ -1182,8 +1429,11 @@ async function cmdMv(positional, flags, config) {
       success: moveResult.success !== false,
       cardId,
       toStatus,
-      card: cardAfterMove || undefined,
-      updated: hasCardUpdates,
+      ...(cardAfterMove ? { card: cardAfterMove } : {}),
+      updated: hasCardUpdates || hasContentUpdates,
+      ...(contentResult
+        ? { documentMutations: contentResult.receipts }
+        : {}),
     }, flags);
     return;
   }
@@ -1572,6 +1822,7 @@ Agent Commands:
   nodex get <card-id>            Get card details
   nodex add <status> <title>     Create card
   nodex update <card-id>         Update card
+  nodex block <action> <card-id> Apply/export stable-ID Document operations
   nodex rm <card-id>             Delete card
   nodex mv <card-id> <from> <to> Move card (supports update opts)
   nodex history                  View edit history
@@ -1676,6 +1927,8 @@ function printCommandHelp(cmd) {
     --clear-assignee            Clear assignee
     --clear-due                 Clear due date
     --clear-agent-status        Clear status
+    --mutation-id <id>          Stable exact-retry identity for title/body changes
+    --expected-head <seq>       Explicit Document CAS head for exact retry
     --agent-blocked             Set blocked
     --no-agent-blocked          Clear blocked
     -v, --verbose               Show full card details
@@ -1683,6 +1936,26 @@ function printCommandHelp(cmd) {
     --json                      JSON object output
     --csv                       CSV output
     --table                     Print aligned text table`,
+
+    block: `Usage: nodex block <action> <card-id> [value] [options]
+
+  Operate on the Card's Y.Doc through stable application Block IDs.
+
+  Actions:
+    descriptor                 Print the current Document id/epoch/generation/head
+    export                     Export current title and NFM projection
+    apply <json|@file|@->      Apply an ordered stable-ID operation array
+    replace <nfm|@file|@->     Explicit CAS-gated whole-body NFM import
+    title <text|@file|@->      Replace the collaborative title
+
+  Options:
+    -p, --project <id>         Project (default: "default")
+    --mutation-id <id>         Stable identity; reuse with the original head after response loss
+    --expected-head <seq>      Explicit current-head CAS (read it with descriptor)
+    --jsonl                    JSON Lines output (default)
+    --json                     JSON object output
+    --csv                      CSV output
+    --table                    Print aligned text table`,
 
     rm: `Usage: nodex rm <card-id>
 
@@ -1708,6 +1981,8 @@ function printCommandHelp(cmd) {
     --clear-assignee            Clear assignee
     --clear-due                 Clear due date
     --clear-agent-status        Clear status
+    --mutation-id <id>          Stable exact-retry identity for title/body changes
+    --expected-head <seq>       Explicit Document CAS head for exact retry
     --agent-blocked             Set blocked
     --no-agent-blocked          Clear blocked
     -v, --verbose               Show full card details
@@ -2055,6 +2330,7 @@ async function main() {
     update: cmdUpdate,
     rm: cmdRm,
     mv: cmdMv,
+    block: cmdBlock,
     history: cmdHistory,
     undo: cmdUndo,
     redo: cmdRedo,

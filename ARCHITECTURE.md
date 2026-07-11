@@ -59,6 +59,10 @@ Nodex is a local-first, block-based agent orchestrator for coordinating coding-a
 ### Preload Boundary (`src/preload`)
 - `index.ts`: minimal `window.api` bridge that exposes `invoke`, event subscription, runtime server URL, cached Electron asset-path prefix, and the `window.electronBridge.showContextMenu` native-menu bridge used by desktop-only row menus.
 
+### CLI (`bin`)
+
+- `nodex.mjs`: Card remains the user-facing alias for list/get/add/update/move commands. Title and body updates resolve the Card's owned Document descriptor and use exact-head stable-ID/NFM mutations rather than the compatibility Card content writer. `nodex block descriptor/apply/replace/title/export` exposes the same Document contract directly for Agents; explicit mutation ID plus original head provides lost-response retry.
+
 ### Renderer Application (`src/renderer`)
 - `app.tsx`: workbench orchestration, window-session bootstrap/layout persistence, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.
 - `styles/theme-source.css`: author-maintained renderer token source, including Tailwind theme declarations, window-type/theme-scoped root tokens, and the CSS-side `--vscode-*` contract consumed by renderer surfaces.
