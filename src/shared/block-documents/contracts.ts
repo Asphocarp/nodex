@@ -97,6 +97,23 @@ export interface RelocateBlocks {
       };
 }
 
+/** Stable logical move request captured before editors enter the lease fence. */
+export interface RelocationIntent {
+  readonly relocationId: string;
+  readonly projectId: string;
+  readonly storeEpoch: string;
+  readonly rootBlockIds: readonly BlockId[];
+  readonly sourceDocumentId: DocumentId;
+  readonly sourceGeneration: number;
+  readonly target: {
+    readonly kind: "document";
+    readonly documentId: DocumentId;
+    readonly generation: number;
+    readonly parentBlockId?: BlockId;
+    readonly beforeBlockId?: BlockId;
+  };
+}
+
 export interface RelocationDocumentCommit {
   readonly documentId: DocumentId;
   readonly generation: number;
@@ -156,6 +173,6 @@ export interface RelocationCommandError {
   readonly recoveryArtifactId?: string;
 }
 
-export type RelocationCommandResult =
-  | { readonly ok: true; readonly value: RelocationResult }
+export type RelocationCommandResult<T = RelocationResult> =
+  | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: RelocationCommandError };

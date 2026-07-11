@@ -19,7 +19,7 @@ import {
   createCardDocumentGenesis,
   materializeCardDocument,
 } from "../src/shared/block-documents/block-document-codec";
-import type { RelocateBlocks } from "../src/shared/block-documents";
+import type { RelocationIntent } from "../src/shared/block-documents";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
@@ -179,22 +179,54 @@ const run = async (): Promise<void> => {
       "Could not warm worker cache",
     );
 
-    const request: RelocateBlocks = {
+    const sourceReplica = new Y.Doc({ guid: source.documentId });
+    Y.applyUpdate(sourceReplica, sourceBefore.value.update, "prepare-probe");
+    const sourceVector = Y.encodeStateVector(sourceReplica);
+    sourceReplica.getText("title").insert(
+      sourceReplica.getText("title").length,
+      " flushed",
+    );
+    const flushed = await writer.applyBlockDocumentUpdate({
+      documentId: source.documentId,
+      storeEpoch,
+      generation: sourceBefore.value.generation,
+      updateId: "prepare-probe-flush",
+      clientSessionId: "source-before",
+      baseHeadSeq: sourceBefore.value.headSeq,
+      touchedBlockIds: [],
+      update: Y.encodeStateAsUpdate(sourceReplica, sourceVector),
+    });
+    sourceReplica.destroy();
+    invariant(flushed.ok, "Could not flush source before preparation");
+
+    const intent: RelocationIntent = {
       relocationId: "worker-relocation",
       projectId: project.id,
       storeEpoch,
       rootBlockIds: ["move"],
       sourceDocumentId: source.documentId,
       sourceGeneration: sourceBefore.value.generation,
-      expectedSourceHeadSeq: sourceBefore.value.headSeq,
-      expectedLocationRevisions: { move: 1 },
       target: {
         kind: "document",
         documentId: target.documentId,
         generation: targetBefore.value.generation,
-        expectedHeadSeq: targetBefore.value.headSeq,
       },
     };
+    const beforeCommit = await writer.readCommittedRelocation(intent);
+    invariant(
+      beforeCommit.ok && beforeCommit.value === null,
+      "Uncommitted intent unexpectedly had a durable result",
+    );
+    const prepared = await writer.prepareRelocationCommand(intent);
+    invariant(prepared.ok, "Worker could not prepare relocation intent");
+    const request = prepared.value;
+    invariant(
+      request.expectedSourceHeadSeq === flushed.value.headSeq &&
+        request.target.kind === "document" &&
+        request.target.expectedHeadSeq === targetBefore.value.headSeq &&
+        request.expectedLocationRevisions.move === 1,
+      "Preparation did not capture the latest flushed fence boundaries",
+    );
 
     // All three requests are accepted synchronously. The worker's single FIFO
     // must commit relocation before either subsequent sync observes a head.
@@ -258,7 +290,30 @@ const run = async (): Promise<void> => {
       "Worker did not preserve typed relocation reload semantics",
     );
 
-    await writer.barrier();
+    await writer.shutdown();
+    writer = undefined;
+
+    const restartedWriter = new CardMutationWriter();
+    writer = restartedWriter;
+    const restartedLookup = await restartedWriter.readCommittedRelocation(
+      intent,
+    );
+    invariant(
+      restartedLookup.ok &&
+        restartedLookup.value?.duplicate &&
+        restartedLookup.value.sourceCommit.update instanceof Uint8Array,
+      "Restarted worker did not recover the committed intent",
+    );
+    const collision = await restartedWriter.readCommittedRelocation({
+      ...intent,
+      target: { ...intent.target, beforeBlockId: "target" },
+    });
+    invariant(
+      !collision.ok && collision.error.code === "relocation_id_collision",
+      "Logical target mismatch did not produce a typed ID collision",
+    );
+
+    await restartedWriter.barrier();
     const database = new Database(getDatabasePath(), { readonly: false });
     database.pragma("foreign_keys = ON");
     try {
@@ -267,19 +322,16 @@ const run = async (): Promise<void> => {
     } finally {
       database.close();
     }
-    const duplicate = await writer.relocateBlocks(request);
+    const duplicate = await restartedWriter.readCommittedRelocation(intent);
+    if (!duplicate.ok || !duplicate.value) {
+      throw new Error("Compacted worker replay did not return a result");
+    }
     invariant(
-      duplicate.ok &&
-        duplicate.value.duplicate &&
+      duplicate.value.duplicate &&
         duplicate.value.sourceCommit.update === null &&
         duplicate.value.targetCommit?.update === null,
       "Compacted worker replay did not return typed null updates",
     );
-    await writer.shutdown();
-    writer = undefined;
-
-    const restartedWriter = new CardMutationWriter();
-    writer = restartedWriter;
     const restartSync = await restartedWriter.syncBlockDocument({
       documentId: target.documentId,
       clientSessionId: "target-restart",
@@ -300,6 +352,9 @@ const run = async (): Promise<void> => {
         cacheInvalidation: true,
         binaryStructuredClone: true,
         compactedNullReplay: true,
+        latestFlushedPreparation: true,
+        restartIntentLookup: true,
+        logicalCollision: true,
         typedStaleError: true,
         projectionFanoutBestEffort: true,
         restart: true,

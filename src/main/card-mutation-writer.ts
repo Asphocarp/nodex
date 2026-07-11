@@ -14,6 +14,8 @@ import type {
   OwnedBlockDocumentDescriptor,
   RelocateBlocks,
   RelocationCommandResult,
+  RelocationIntent,
+  RelocationResult,
 } from "../shared/block-documents";
 import type {
   CutoverCardDocumentInput,
@@ -441,6 +443,30 @@ export class CardMutationWriter {
     const envelope = await this.executeTyped<RelocationCommandResult>({
       type: "relocateBlocks",
       payload: request,
+    });
+    return envelope.result;
+  }
+
+  async prepareRelocationCommand(
+    intent: RelocationIntent,
+  ): Promise<RelocationCommandResult<RelocateBlocks>> {
+    const envelope = await this.executeTyped<
+      RelocationCommandResult<RelocateBlocks>
+    >({
+      type: "prepareRelocationCommand",
+      payload: intent,
+    });
+    return envelope.result;
+  }
+
+  async readCommittedRelocation(
+    intent: RelocationIntent,
+  ): Promise<RelocationCommandResult<RelocationResult | null>> {
+    const envelope = await this.executeTyped<
+      RelocationCommandResult<RelocationResult | null>
+    >({
+      type: "readCommittedRelocation",
+      payload: intent,
     });
     return envelope.result;
   }

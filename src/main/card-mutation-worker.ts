@@ -34,6 +34,8 @@ import {
 import { toDocumentSyncCommandError } from "./local-store/block-document-store";
 import {
   BlockRelocationStoreError,
+  prepareRelocationCommand,
+  readCommittedRelocation,
   relocateBlocksAtomically,
 } from "./local-store/block-relocations";
 import {
@@ -169,6 +171,8 @@ const isLegacyAuthorityMutation = (
     case "cutoverEligibleCardDocuments":
     case "applyBlockDocumentUpdate":
     case "relocateBlocks":
+    case "prepareRelocationCommand":
+    case "readCommittedRelocation":
     case "writerBarrier":
     case "shutdown":
       return false;
@@ -783,9 +787,9 @@ const toRelocationCommandError = (error: unknown): RelocationCommandError => {
   };
 };
 
-const runRelocationCommand = (
-  operation: () => RelocationResult,
-): RelocationCommandResult => {
+const runRelocationCommand = <T>(
+  operation: () => T,
+): RelocationCommandResult<T> => {
   try {
     return { ok: true, value: operation() };
   } catch (error) {
@@ -1249,6 +1253,26 @@ async function runRequest(
       ];
       invalidateRelocatedDocumentCaches(documentIds, result.value.relocationId);
       publishRelocationCardSummaries(result.value);
+      return result;
+    }
+    case "prepareRelocationCommand":
+      return runRelocationCommand(() =>
+        prepareRelocationCommand(getDb(), request.payload),
+      );
+    case "readCommittedRelocation": {
+      const result = runRelocationCommand(() =>
+        readCommittedRelocation(getDb(), request.payload),
+      );
+      if (!result.ok || result.value === null) return result;
+      invalidateRelocatedDocumentCaches(
+        [
+          result.value.sourceCommit.documentId,
+          ...(result.value.targetCommit
+            ? [result.value.targetCommit.documentId]
+            : []),
+        ],
+        result.value.relocationId,
+      );
       return result;
     }
     case "writerBarrier":

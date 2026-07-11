@@ -12,6 +12,8 @@ import type {
   OwnedBlockDocumentDescriptor,
   RelocateBlocks,
   RelocationCommandResult,
+  RelocationIntent,
+  RelocationResult,
 } from "../shared/block-documents";
 import type {
   CutoverCardDocumentInput,
@@ -265,9 +267,17 @@ export type CardMutationWorkerRequest =
       payload: DocumentSyncApplyRequest;
     })
   | (CardMutationWorkerRequestBase & {
-      type: "relocateBlocks";
-      payload: RelocateBlocks;
-    })
+    type: "relocateBlocks";
+    payload: RelocateBlocks;
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "prepareRelocationCommand";
+    payload: RelocationIntent;
+  })
+  | (CardMutationWorkerRequestBase & {
+    type: "readCommittedRelocation";
+    payload: RelocationIntent;
+  })
   | (CardMutationWorkerRequestBase & {
       type: "writerBarrier";
     })
@@ -280,7 +290,9 @@ export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
   | DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
   | DocumentSyncCommandResult<string>
-  | RelocationCommandResult;
+  | RelocationCommandResult
+  | RelocationCommandResult<RelocateBlocks>
+  | RelocationCommandResult<RelocationResult | null>;
 
 export type CardMutationWorkerResult =
   | Card

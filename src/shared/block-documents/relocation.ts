@@ -7,11 +7,13 @@ import {
   MAX_RELOCATION_ROOT_BLOCKS,
   type BlockLocation,
   type RelocateBlocks,
+  type RelocationIntent,
   type RelocationDocumentCommit,
   type RelocationResult,
 } from "./contracts";
 
 const RELOCATION_CONTRACT_VERSION = 1;
+const RELOCATION_INTENT_CONTRACT_VERSION = 1;
 const MAX_SCOPE_ID_LENGTH = 512;
 
 export class RelocationContractError extends Error {
@@ -312,6 +314,99 @@ export const parseRelocateBlocks = (value: unknown): RelocateBlocks => {
   };
 };
 
+export const parseRelocationIntent = (value: unknown): RelocationIntent => {
+  const intent = readRecord(value, "relocationIntent");
+  assertExactKeys(intent, "relocationIntent", [
+    "relocationId",
+    "projectId",
+    "storeEpoch",
+    "rootBlockIds",
+    "sourceDocumentId",
+    "sourceGeneration",
+    "target",
+  ]);
+  const rootBlockIds = readRootBlockIds(intent);
+  const sourceDocumentId = readBoundedString(
+    intent,
+    "sourceDocumentId",
+    "relocationIntent",
+  );
+  const target = readRecord(intent.target, "relocationIntent.target");
+  assertExactKeys(
+    target,
+    "relocationIntent.target",
+    ["kind", "documentId", "generation"],
+    ["parentBlockId", "beforeBlockId"],
+  );
+  if (target.kind !== "document") {
+    throw new RelocationContractError(
+      "relocationIntent.target.kind must be document",
+    );
+  }
+  const targetDocumentId = readBoundedString(
+    target,
+    "documentId",
+    "relocationIntent.target",
+  );
+  if (targetDocumentId === sourceDocumentId) {
+    throw new RelocationContractError(
+      "cross-Document relocation requires a different target Document",
+    );
+  }
+  const parentBlockId = readOptionalBoundedString(
+    target,
+    "parentBlockId",
+    "relocationIntent.target",
+  );
+  const beforeBlockId = readOptionalBoundedString(
+    target,
+    "beforeBlockId",
+    "relocationIntent.target",
+  );
+  if (
+    (parentBlockId !== undefined && rootBlockIds.includes(parentBlockId)) ||
+    (beforeBlockId !== undefined && rootBlockIds.includes(beforeBlockId))
+  ) {
+    throw new RelocationContractError(
+      "relocation intent anchors cannot be among the moved roots",
+    );
+  }
+  return {
+    relocationId: readBoundedString(
+      intent,
+      "relocationId",
+      "relocationIntent",
+      MAX_RELOCATION_ID_LENGTH,
+    ),
+    projectId: readBoundedString(intent, "projectId", "relocationIntent"),
+    storeEpoch: readBoundedString(
+      intent,
+      "storeEpoch",
+      "relocationIntent",
+    ),
+    rootBlockIds,
+    sourceDocumentId,
+    sourceGeneration: readInteger(
+      intent,
+      "sourceGeneration",
+      "relocationIntent",
+      1,
+    ),
+    target: {
+      kind: "document",
+      documentId: targetDocumentId,
+      generation: readInteger(
+        target,
+        "generation",
+        "relocationIntent.target",
+        1,
+      ),
+      ...(parentBlockId === undefined ? {} : { parentBlockId }),
+      ...(beforeBlockId === undefined ? {} : { beforeBlockId }),
+    },
+  };
+};
+
 const stableStringify = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -324,6 +419,22 @@ const stableStringify = (value: unknown): string => {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
     .join(",")}}`;
+};
+
+export const canonicalizeRelocationIntent = (value: unknown): string => {
+  const intent = parseRelocationIntent(value);
+  return stableStringify({
+    contractVersion: RELOCATION_INTENT_CONTRACT_VERSION,
+    ...intent,
+    rootBlockIds: [...intent.rootBlockIds].sort(),
+    target: {
+      kind: intent.target.kind,
+      documentId: intent.target.documentId,
+      generation: intent.target.generation,
+      parentBlockId: intent.target.parentBlockId ?? null,
+      beforeBlockId: intent.target.beforeBlockId ?? null,
+    },
+  });
 };
 
 /**

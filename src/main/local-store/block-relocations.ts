@@ -4,6 +4,7 @@ import * as Y from "yjs";
 import {
   assertValidBlockDocument,
   assertValidCardDocumentRoots,
+  canonicalizeRelocationIntent,
   canonicalizeRelocationRequest,
   makeRelocationDocumentUpdateId,
   MAX_CARD_DOCUMENT_BLOCKS,
@@ -12,6 +13,7 @@ import {
   MAX_CARD_DOCUMENT_UPDATE_BYTES,
   MAX_CARD_DOCUMENT_XML_PATH_DEPTH,
   parseRelocateBlocks,
+  parseRelocationIntent,
   parseRelocationResult,
   relocateBlockSubtrees,
   BlockSubtreeOperationError,
@@ -21,6 +23,7 @@ import {
   type RelocateBlocks,
   type RelocationDocumentCommit,
   type RelocationErrorCode,
+  type RelocationIntent,
   type RelocationResult,
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
@@ -106,6 +109,10 @@ interface StoredRelocationRow {
   readonly target_document_id: string | null;
   readonly target_generation: number | null;
   readonly target_base_head_seq: number | null;
+  readonly target_parent_block_id: string | null;
+  readonly target_before_block_id: string | null;
+  readonly root_block_ids_json: string;
+  readonly expected_location_revisions_json: string;
   readonly source_update_id: string;
   readonly source_committed_seq: number;
   readonly target_update_id: string | null;
@@ -165,7 +172,7 @@ const readCurrentStoreEpoch = (database: Database.Database): string => {
 
 const assertStoreEpoch = (
   database: Database.Database,
-  input: RelocateBlocks,
+  input: Pick<RelocateBlocks, "storeEpoch" | "relocationId">,
 ): string => {
   const current = readCurrentStoreEpoch(database);
   if (current === input.storeEpoch) return current;
@@ -253,6 +260,41 @@ const assertDocumentBoundary = (
     side === "source" ? "source_head_mismatch" : "target_head_changed",
     `${side === "source" ? "Source" : "Target"} Document head is ${row.head_seq}; expected ${expectedHeadSeq}`,
     { relocationId: input.relocationId },
+  );
+};
+
+const assertIntentDocumentBoundary = (
+  row: RelocationDocumentRow,
+  intent: RelocationIntent,
+  side: "source" | "target",
+): void => {
+  const expectedGeneration = side === "source"
+    ? intent.sourceGeneration
+    : intent.target.generation;
+  if (row.project_id !== intent.projectId) {
+    throw new BlockRelocationStoreError(
+      "invalid_relocation_target",
+      `${side === "source" ? "Source" : "Target"} Document belongs to another Project`,
+      { relocationId: intent.relocationId },
+    );
+  }
+  if (
+    row.readiness !== "ready" ||
+    row.authority !== "ydoc_primary" ||
+    row.owner_type !== "card" ||
+    row.owner_lifecycle !== "active"
+  ) {
+    throw new BlockRelocationStoreError(
+      "document_not_ready",
+      `${side === "source" ? "Source" : "Target"} Document is not an active Y.Doc-primary Card`,
+      { relocationId: intent.relocationId },
+    );
+  }
+  if (row.generation === expectedGeneration) return;
+  throw new BlockRelocationStoreError(
+    "document_generation_mismatch",
+    `${side === "source" ? "Source" : "Target"} Document generation is ${row.generation}; expected ${expectedGeneration}`,
+    { relocationId: intent.relocationId },
   );
 };
 
@@ -875,7 +917,9 @@ const readStoredRelocation = (
       id, project_id, target_project_id, store_epoch, request_hash,
       request_json, source_document_id, source_generation,
       source_base_head_seq, target_kind, target_document_id,
-      target_generation, target_base_head_seq, source_update_id,
+      target_generation, target_base_head_seq, target_parent_block_id,
+      target_before_block_id, root_block_ids_json,
+      expected_location_revisions_json, source_update_id,
       source_committed_seq, target_update_id, target_committed_seq,
       result_json, change_log_seq
       , committed_at
@@ -884,6 +928,100 @@ const readStoredRelocation = (
   `,
     )
     .get(relocationId) as StoredRelocationRow | undefined;
+
+const parseStoredRelocationIntent = (
+  row: StoredRelocationRow,
+): RelocationIntent => {
+  if (
+    row.target_kind !== "document" ||
+    row.target_document_id === null ||
+    row.target_generation === null
+  ) {
+    throw new BlockRelocationStoreError(
+      "document_state_corrupt",
+      `Relocation ${row.id} has no Document target intent`,
+      { relocationId: row.id },
+    );
+  }
+  try {
+    return parseRelocationIntent({
+      relocationId: row.id,
+      projectId: row.project_id,
+      storeEpoch: row.store_epoch,
+      rootBlockIds: JSON.parse(row.root_block_ids_json),
+      sourceDocumentId: row.source_document_id,
+      sourceGeneration: row.source_generation,
+      target: {
+        kind: "document",
+        documentId: row.target_document_id,
+        generation: row.target_generation,
+        ...(row.target_parent_block_id === null
+          ? {}
+          : { parentBlockId: row.target_parent_block_id }),
+        ...(row.target_before_block_id === null
+          ? {}
+          : { beforeBlockId: row.target_before_block_id }),
+      },
+    });
+  } catch (error) {
+    throw new BlockRelocationStoreError(
+      "document_state_corrupt",
+      `Relocation ${row.id} has an invalid durable intent`,
+      { cause: error, relocationId: row.id },
+    );
+  }
+};
+
+const assertStoredIntentMatches = (
+  row: StoredRelocationRow,
+  intent: RelocationIntent,
+): void => {
+  const storedIntent = parseStoredRelocationIntent(row);
+  if (
+    row.target_project_id === intent.projectId &&
+    canonicalizeRelocationIntent(storedIntent) ===
+      canonicalizeRelocationIntent(intent)
+  ) {
+    return;
+  }
+  throw new BlockRelocationStoreError(
+    "relocation_id_collision",
+    `Relocation ID ${intent.relocationId} is already committed with a different logical intent`,
+    { relocationId: intent.relocationId },
+  );
+};
+
+const makeStoredRelocationCommand = (
+  row: StoredRelocationRow,
+): RelocateBlocks => {
+  const intent = parseStoredRelocationIntent(row);
+  if (row.target_base_head_seq === null) {
+    throw new BlockRelocationStoreError(
+      "document_state_corrupt",
+      `Relocation ${row.id} has no target head boundary`,
+      { relocationId: row.id },
+    );
+  }
+  try {
+    return parseRelocateBlocks({
+      ...intent,
+      expectedSourceHeadSeq: row.source_base_head_seq,
+      expectedLocationRevisions: JSON.parse(
+        row.expected_location_revisions_json,
+      ),
+      target: {
+        ...intent.target,
+        expectedHeadSeq: row.target_base_head_seq,
+      },
+    });
+  } catch (error) {
+    throw new BlockRelocationStoreError(
+      "document_state_corrupt",
+      `Relocation ${row.id} has invalid durable commit boundaries`,
+      { cause: error, relocationId: row.id },
+    );
+  }
+};
 
 const moveRegistryMembers = (
   database: Database.Database,
@@ -1127,6 +1265,179 @@ const parseInput = (value: RelocateBlocks): RelocateBlocks => {
     }
     throw error;
   }
+};
+
+const parseIntentInput = (value: RelocationIntent): RelocationIntent => {
+  try {
+    return parseRelocationIntent(value);
+  } catch (error) {
+    if (error instanceof RelocationContractError) {
+      throw new BlockRelocationStoreError(
+        "invalid_relocation_request",
+        error.message,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+};
+
+const readPreparedRootRevisions = (
+  database: Database.Database,
+  rootBlockIds: readonly BlockId[],
+  sourceBlocks: readonly ScannedDocumentBlock[],
+  intent: RelocationIntent,
+): Readonly<Record<BlockId, number>> => {
+  const rows = readMemberRows(database, rootBlockIds, intent.relocationId);
+  const sourceTypes = new Map(
+    sourceBlocks.map((block) => [block.id, block.blockType]),
+  );
+  for (const row of rows) {
+    if (
+      row.project_id !== intent.projectId ||
+      row.lifecycle !== "active" ||
+      row.location_kind !== "document" ||
+      row.containing_document_id !== intent.sourceDocumentId ||
+      row.type !== sourceTypes.get(row.id)
+    ) {
+      throw new BlockRelocationStoreError(
+        "block_location_mismatch",
+        `Root Block ${row.id} is not an active member of source Document ${intent.sourceDocumentId}`,
+        { relocationId: intent.relocationId },
+      );
+    }
+    if (
+      Number.isSafeInteger(row.location_revision) &&
+      row.location_revision >= 1
+    ) {
+      continue;
+    }
+    throw new BlockRelocationStoreError(
+      "document_state_corrupt",
+      `Root Block ${row.id} has an invalid location revision`,
+      { relocationId: intent.relocationId },
+    );
+  }
+  return Object.fromEntries(
+    rows.map((row) => [row.id, row.location_revision]),
+  );
+};
+
+/**
+ * Resolve a logical intent against the latest writer-fenced Document heads.
+ * Lease coordinators call this only after every participant has flushed.
+ */
+export const prepareRelocationCommand = (
+  database: Database.Database,
+  rawIntent: RelocationIntent,
+): RelocateBlocks => {
+  const intent = parseIntentInput(rawIntent);
+  const prepare = database.transaction((): RelocateBlocks => {
+    assertStoreEpoch(database, intent);
+    const existing = readStoredRelocation(database, intent.relocationId);
+    if (existing) {
+      assertStoredIntentMatches(existing, intent);
+      throw new BlockRelocationStoreError(
+        "relocation_id_collision",
+        `Relocation ${intent.relocationId} is already committed; read its durable result instead`,
+        { relocationId: intent.relocationId },
+      );
+    }
+
+    const sourceRow = readRelocationDocumentRow(
+      database,
+      intent.sourceDocumentId,
+      "source",
+      intent.relocationId,
+    );
+    const targetRow = readRelocationDocumentRow(
+      database,
+      intent.target.documentId,
+      "target",
+      intent.relocationId,
+    );
+    assertIntentDocumentBoundary(sourceRow, intent, "source");
+    assertIntentDocumentBoundary(targetRow, intent, "target");
+    const sourceDocument = loadWorkingDocument(
+      database,
+      sourceRow,
+      "source",
+      intent.relocationId,
+    );
+    const targetDocument = loadWorkingDocument(
+      database,
+      targetRow,
+      "target",
+      intent.relocationId,
+    );
+    try {
+      const sourceBlocks = assertValidBlockDocument(
+        assertValidCardDocumentRoots(sourceDocument).body,
+      );
+      let operation;
+      try {
+        operation = relocateBlockSubtrees({
+          sourceDocument,
+          targetDocument,
+          rootBlockIds: intent.rootBlockIds,
+          target: {
+            ...(intent.target.parentBlockId === undefined
+              ? {}
+              : { parentBlockId: intent.target.parentBlockId }),
+            ...(intent.target.beforeBlockId === undefined
+              ? {}
+              : { beforeBlockId: intent.target.beforeBlockId }),
+          },
+          transactionOrigin: `relocation-prepare:${intent.relocationId}`,
+        });
+      } catch (error) {
+        if (error instanceof BlockSubtreeOperationError) {
+          throw mapSubtreeOperationError(error, intent.relocationId);
+        }
+        throw error;
+      }
+      const expectedLocationRevisions = readPreparedRootRevisions(
+        database,
+        operation.forest.rootBlockIds,
+        sourceBlocks,
+        intent,
+      );
+      return parseRelocateBlocks({
+        ...intent,
+        rootBlockIds: operation.forest.rootBlockIds,
+        expectedSourceHeadSeq: sourceRow.head_seq,
+        expectedLocationRevisions,
+        target: {
+          ...intent.target,
+          expectedHeadSeq: targetRow.head_seq,
+        },
+      });
+    } finally {
+      sourceDocument.destroy();
+      targetDocument.destroy();
+    }
+  });
+  return prepare.immediate();
+};
+
+/** Read a committed logical intent without reconstructing state from live heads. */
+export const readCommittedRelocation = (
+  database: Database.Database,
+  rawIntent: RelocationIntent,
+): RelocationResult | null => {
+  const intent = parseIntentInput(rawIntent);
+  const read = database.transaction((): RelocationResult | null => {
+    assertStoreEpoch(database, intent);
+    const stored = readStoredRelocation(database, intent.relocationId);
+    if (!stored) return null;
+    assertStoredIntentMatches(stored, intent);
+    return loadDuplicateResult(
+      database,
+      stored,
+      makeStoredRelocationCommand(stored),
+    );
+  });
+  return read.immediate();
 };
 
 /**

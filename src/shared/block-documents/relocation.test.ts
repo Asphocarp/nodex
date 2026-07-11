@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { RelocateBlocks } from "./contracts";
+import type { RelocateBlocks, RelocationIntent } from "./contracts";
 import {
+  canonicalizeRelocationIntent,
   canonicalizeRelocationRequest,
   encodeRelocationRequestHashInput,
   isRelocationRequestHash,
   makeRelocationDocumentUpdateId,
   parseRelocateBlocks,
+  parseRelocationIntent,
   parseRelocationResult,
 } from "./relocation";
 
@@ -43,6 +45,39 @@ const rejects = (run: () => unknown): boolean => {
 };
 
 describe("atomic Block relocation contracts", () => {
+  test("parses head-free intents and canonicalizes root sets", () => {
+    const intent: RelocationIntent = {
+      relocationId: "intent-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      rootBlockIds: ["block-b", "block-a"],
+      sourceDocumentId: "document-source",
+      sourceGeneration: 2,
+      target: {
+        kind: "document",
+        documentId: "document-target",
+        generation: 3,
+        parentBlockId: "target-parent",
+      },
+    };
+    const parsed = parseRelocationIntent(intent);
+    expect(parsed.target.generation).toBe(3);
+    expect(
+      canonicalizeRelocationIntent({
+        ...intent,
+        rootBlockIds: ["block-a", "block-b"],
+      }),
+    ).toBe(canonicalizeRelocationIntent(intent));
+    expect(
+      rejects(() =>
+        parseRelocationIntent({
+          ...intent,
+          expectedSourceHeadSeq: 4,
+        }),
+      ),
+    ).toBeTrue();
+  });
+
   test("parses every source and target concurrency boundary", () => {
     const request = parseRelocateBlocks(makeRequest());
     expect(request.projectId).toBe("project-1");
