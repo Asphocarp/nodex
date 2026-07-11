@@ -11,6 +11,15 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import {
+  createCardDocument,
+  openCardDocument,
+} from "../../shared/block-documents";
+import type {
+  DocumentCheckpointBoundary,
+  DocumentLocalCheckpoint,
+  DocumentLocalCheckpointStore,
+} from "./document-local-checkpoint";
+import {
   NodexYProvider,
   type DocumentSyncAdapter,
   type NodexYProviderRetryScheduler,
@@ -62,6 +71,68 @@ const captureUpdate = (document: Y.Doc, mutate: () => void): Uint8Array => {
     throw new Error("Mutation did not produce a Yjs update");
   }
   return captured;
+};
+
+const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
+  JSON.stringify([
+    boundary.documentId,
+    boundary.storeEpoch,
+    boundary.generation,
+  ]);
+
+class MemoryDocumentLocalCheckpointStore
+implements DocumentLocalCheckpointStore {
+  private readonly checkpoints = new Map<string, DocumentLocalCheckpoint>();
+  writeGate: Promise<void> | null = null;
+
+  read = async (
+    boundary: DocumentCheckpointBoundary,
+  ): Promise<DocumentLocalCheckpoint | null> => {
+    const checkpoint = this.checkpoints.get(checkpointKey(boundary));
+    return checkpoint
+      ? { ...checkpoint, state: checkpoint.state.slice() }
+      : null;
+  };
+
+  write = async (checkpoint: DocumentLocalCheckpoint): Promise<void> => {
+    await this.writeGate;
+    const key = checkpointKey(checkpoint);
+    const existing = this.checkpoints.get(key);
+    this.checkpoints.set(key, {
+      ...checkpoint,
+      headSeq: Math.max(existing?.headSeq ?? 0, checkpoint.headSeq),
+      state: existing
+        ? Y.mergeUpdates([existing.state, checkpoint.state])
+        : checkpoint.state.slice(),
+    });
+  };
+
+  clearDocument = async (documentId: string): Promise<void> => {
+    for (const [key, checkpoint] of this.checkpoints) {
+      if (checkpoint.documentId === documentId) {
+        this.checkpoints.delete(key);
+      }
+    }
+  };
+}
+
+const seedCanonicalCardDocument = (
+  adapter: MemoryDocumentSyncAdapter,
+  title: string,
+): void => {
+  const genesis = createCardDocument({
+    documentId: "document-1",
+    initialTitle: title,
+  });
+  try {
+    Y.applyUpdate(
+      adapter.serverDocument,
+      Y.encodeStateAsUpdate(genesis.document),
+    );
+    adapter.headSeq = 1;
+  } finally {
+    genesis.document.destroy();
+  }
 };
 
 class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
@@ -537,6 +608,91 @@ describe("NodexYProvider", () => {
       generationProvider.destroy();
       generationDocument.destroy();
       generationAdapter.destroy();
+    }
+  });
+
+  test("recovers disconnected edits from the exact IndexedDB-style boundary after restart", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const checkpoints = new MemoryDocumentLocalCheckpointStore();
+    seedCanonicalCardDocument(adapter, "Base");
+    const firstDocument = new Y.Doc({ guid: "document-1" });
+    const first = new NodexYProvider({
+      documentId: "document-1",
+      document: firstDocument,
+      adapter,
+      clientSessionId: "window-before-restart",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await first.connect();
+      first.disconnect();
+      openCardDocument(firstDocument).title.insert(4, " offline");
+      await first.checkpoint();
+    } finally {
+      first.destroy();
+      firstDocument.destroy();
+    }
+
+    const restartedDocument = new Y.Doc({ guid: "document-1" });
+    const restarted = new NodexYProvider({
+      documentId: "document-1",
+      document: restartedDocument,
+      adapter,
+      clientSessionId: "window-after-restart",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await restarted.connect();
+      expect(openCardDocument(restartedDocument).title.toString()).toBe(
+        "Base offline",
+      );
+      await restarted.flush();
+      expect(openCardDocument(adapter.serverDocument).title.toString()).toBe(
+        "Base offline",
+      );
+      expect(adapter.headSeq).toBe(2);
+    } finally {
+      restarted.destroy();
+      restartedDocument.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("checkpoints local state before sending its durable update", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const checkpoints = new MemoryDocumentLocalCheckpointStore();
+    seedCanonicalCardDocument(adapter, "Base");
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-1",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      await provider.checkpoint();
+      const gate = deferred<void>();
+      checkpoints.writeGate = gate.promise;
+      openCardDocument(document).title.insert(4, " pending");
+      const flushing = provider.flush();
+      await waitUntil(() => provider.getStatus().pendingUpdateCount === 1);
+      expect(adapter.applyCalls.length).toBe(0);
+
+      gate.resolve(undefined);
+      await flushing;
+      expect(adapter.applyCalls.length).toBe(1);
+      expect(openCardDocument(adapter.serverDocument).title.toString()).toBe(
+        "Base pending",
+      );
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
     }
   });
 

@@ -18,6 +18,13 @@ import type {
   DocumentSyncResponse,
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
+import {
+  captureDocumentLocalCheckpoint,
+  createDefaultDocumentLocalCheckpointStore,
+  hasDocumentUpdateContent,
+  restoreDocumentLocalCheckpoint,
+  type DocumentLocalCheckpointStore,
+} from "./document-local-checkpoint";
 
 export interface DocumentSyncAdapter {
   sync: (
@@ -81,6 +88,8 @@ export interface NodexYProviderOptions {
     update: Uint8Array,
   ) => readonly BlockId[];
   readonly scheduleRetry?: NodexYProviderRetryScheduler;
+  /** Disposable local recovery state. SQLite remains the durable authority. */
+  readonly localCheckpointStore?: DocumentLocalCheckpointStore | null;
 }
 
 interface PendingDurableUpdate {
@@ -100,6 +109,9 @@ const REMOTE_DOCUMENT_ORIGIN = Object.freeze({
 });
 const REMOTE_AWARENESS_ORIGIN = Object.freeze({
   source: "nodex-y-provider-remote-awareness",
+});
+const LOCAL_CHECKPOINT_ORIGIN = Object.freeze({
+  source: "nodex-y-provider-local-checkpoint",
 });
 
 let fallbackSessionSequence = 0;
@@ -196,6 +208,7 @@ export class NodexYProvider {
     NodexYProviderOptions["resolveTouchedBlockIds"]
   >;
   private readonly scheduleRetry: NodexYProviderRetryScheduler;
+  private readonly localCheckpointStore: DocumentLocalCheckpointStore | null;
   private readonly statusListeners = new Set<() => void>();
   private readonly flushWaiters = new Set<FlushWaiter>();
 
@@ -226,6 +239,9 @@ export class NodexYProvider {
   private terminalError: DocumentSyncCommandError | undefined;
   private resetRequired = false;
   private destroyed = false;
+  private checkpointHydrated = false;
+  private checkpointDisabled = false;
+  private checkpointChain: Promise<void> = Promise.resolve();
 
   private readonly handleDocumentUpdate = (
     update: Uint8Array,
@@ -234,13 +250,15 @@ export class NodexYProvider {
     if (
       this.destroyed ||
       this.terminalError ||
-      origin === REMOTE_DOCUMENT_ORIGIN
+      origin === REMOTE_DOCUMENT_ORIGIN ||
+      origin === LOCAL_CHECKPOINT_ORIGIN
     ) {
       return;
     }
 
     this.queuedUpdates.push(copyBytes(update));
     this.scheduleBatch();
+    void this.queueLocalCheckpoint();
     this.refreshStatus();
   };
 
@@ -290,6 +308,9 @@ export class NodexYProvider {
     this.createUpdateId = options.createUpdateId ?? defaultUpdateId;
     this.resolveTouchedBlockIds = options.resolveTouchedBlockIds ?? (() => []);
     this.scheduleRetry = options.scheduleRetry ?? defaultRetryScheduler;
+    this.localCheckpointStore = options.localCheckpointStore === undefined
+      ? createDefaultDocumentLocalCheckpointStore()
+      : options.localCheckpointStore;
     this.awareness = new Awareness(this.document);
     this.status = this.buildStatus();
 
@@ -386,11 +407,19 @@ export class NodexYProvider {
     });
   };
 
+  checkpoint = async (): Promise<void> => {
+    if (this.destroyed) {
+      throw providerDestroyedError();
+    }
+    await this.queueLocalCheckpoint();
+  };
+
   destroy = (): void => {
     if (this.destroyed) {
       return;
     }
 
+    void this.queueLocalCheckpoint();
     if (this.awareness.getLocalState() !== null) {
       this.awareness.setLocalState(null);
     }
@@ -587,11 +616,17 @@ export class NodexYProvider {
       return;
     }
 
+    await this.hydrateLocalCheckpoint(response);
+    if (this.destroyed || this.terminalError || !this.connected) {
+      return;
+    }
+
     this.headSeq = response.headSeq;
     this.transientError = undefined;
     this.syncRetryAttempt = 0;
     this.drainBufferedEvents();
     this.publishLocalAwareness();
+    void this.queueLocalCheckpoint();
     this.refreshStatus();
   }
 
@@ -722,6 +757,7 @@ export class NodexYProvider {
     }
     this.headSeq = event.headSeq;
     this.transientError = undefined;
+    void this.queueLocalCheckpoint();
     this.refreshStatus();
   }
 
@@ -835,6 +871,11 @@ export class NodexYProvider {
   private async applyDurableUpdate(
     pending: PendingDurableUpdate,
   ): Promise<void> {
+    await this.queueLocalCheckpoint();
+    if (this.inFlight !== pending || this.destroyed || this.terminalError) {
+      return;
+    }
+
     let result: DocumentSyncCommandResult<DocumentSyncApplyAck>;
     try {
       result = await this.adapter.applyUpdate(pending.request);
@@ -865,6 +906,7 @@ export class NodexYProvider {
     } else if (ack.headSeq > previousHeadSeq) {
       this.requestResync();
     }
+    void this.queueLocalCheckpoint();
     this.refreshStatus();
   }
 
@@ -894,6 +936,99 @@ export class NodexYProvider {
       return false;
     }
     return true;
+  }
+
+  private async hydrateLocalCheckpoint(
+    response: DocumentSyncResponse,
+  ): Promise<void> {
+    if (
+      this.checkpointHydrated ||
+      this.checkpointDisabled ||
+      !this.localCheckpointStore
+    ) {
+      return;
+    }
+    this.checkpointHydrated = true;
+
+    try {
+      const checkpoint = await this.localCheckpointStore.read({
+        documentId: this.documentId,
+        storeEpoch: response.storeEpoch,
+        generation: response.generation,
+      });
+      if (
+        this.destroyed ||
+        this.terminalError
+      ) {
+        return;
+      }
+      if (!this.connected) {
+        this.checkpointHydrated = false;
+        return;
+      }
+      if (!checkpoint) return;
+      if (checkpoint.headSeq > response.headSeq) {
+        await this.localCheckpointStore.clearDocument(this.documentId);
+        return;
+      }
+
+      const missingOnServer = restoreDocumentLocalCheckpoint(
+        this.document,
+        response.stateVector,
+        checkpoint,
+        LOCAL_CHECKPOINT_ORIGIN,
+      );
+      this.queuedUpdates = hasDocumentUpdateContent(missingOnServer)
+        ? [copyBytes(missingOnServer)]
+        : [];
+    } catch {
+      // The cache is disposable. Corruption or quota failure must not block
+      // the SQLite-backed state-vector handshake.
+      try {
+        await this.localCheckpointStore.clearDocument(this.documentId);
+      } catch {
+        // A failed best-effort cleanup does not change durable authority.
+      }
+    }
+  }
+
+  private queueLocalCheckpoint(): Promise<void> {
+    if (
+      this.checkpointDisabled ||
+      !this.localCheckpointStore ||
+      !this.storeEpoch ||
+      this.generation === undefined
+    ) {
+      return this.checkpointChain;
+    }
+
+    let checkpoint;
+    try {
+      checkpoint = captureDocumentLocalCheckpoint(this.document, {
+        documentId: this.documentId,
+        storeEpoch: this.storeEpoch,
+        generation: this.generation,
+        headSeq: this.headSeq,
+      });
+    } catch {
+      return this.checkpointChain;
+    }
+
+    this.checkpointChain = this.checkpointChain
+      .then(() => this.localCheckpointStore?.write(checkpoint))
+      .then(() => undefined)
+      .catch(() => undefined);
+    return this.checkpointChain;
+  }
+
+  private clearLocalCheckpoints(): void {
+    if (this.checkpointDisabled) return;
+    this.checkpointDisabled = true;
+    if (!this.localCheckpointStore) return;
+    this.checkpointChain = this.checkpointChain
+      .then(() => this.localCheckpointStore?.clearDocument(this.documentId))
+      .then(() => undefined)
+      .catch(() => undefined);
   }
 
   private handleCommandError(
@@ -1028,6 +1163,7 @@ export class NodexYProvider {
     this.resetRequired = true;
     this.terminalError = error;
     this.connected = false;
+    this.clearLocalCheckpoints();
     this.cancelRetry();
     this.clearRealtimeSubscription();
     this.queuedUpdates = [];
