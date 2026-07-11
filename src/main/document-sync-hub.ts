@@ -160,7 +160,9 @@ const documentMutationResultMatchesRequest = (
   result.mutationKind ===
     ("operations" in request
       ? "document_operation_batch"
-      : "replace_document_from_nfm");
+      : "nfm" in request
+        ? "replace_document_from_nfm"
+        : "document_version_restore");
 
 export const documentSyncUnavailable = <T>(): DocumentSyncCommandResult<T> =>
   commandFailure(

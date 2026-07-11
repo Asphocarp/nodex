@@ -346,6 +346,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Drag handles, formatting toolbar, block selection
 - Delete card action
 - View history button opens an app-shell version-history modal for the currently open Card Stage card
+- Primary Card Document history is exposed through Project/Document-scoped list, get, checkpoint, and restore commands over both Electron IPC and loopback HTTP. A checkpoint stores title, body, stable Block IDs, schema and audit metadata as immutable evidence. Restore requires the selected version identity plus current generation/head, briefly flushes and freezes every mounted surface, creates a `before_restore` checkpoint, and appends one new forward Yjs update; it never rewinds the update log. Retrying the same restore mutation ID returns the original durable result.
 - History modal supports operation filters, keyboard/list navigation, a full reconstructed snapshot preview for the selected version rendered through a read-only BlockNote/NFM surface, and entry-level detailed views (update before/after field diffs, move from/to columns, create/delete snapshots)
 
 #### 8. Edit History & Undo/Redo

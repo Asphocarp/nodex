@@ -131,7 +131,9 @@ const documentMutationCommitted = (
     mutationKind:
       "operations" in request
         ? "document_operation_batch"
-        : "replace_document_from_nfm",
+        : "nfm" in request
+          ? "replace_document_from_nfm"
+          : "document_version_restore",
     mutationId: request.mutationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -881,6 +883,50 @@ describe("DocumentSyncHub", () => {
           "resync-required",
       ),
     ).toBeTrue();
+  });
+
+  test("coordinates checkpoint restore as a first-class fenced mutation", async () => {
+    const request: DocumentMutationRequest = {
+      version: 1,
+      mutationId: "document-version-restore-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: { kind: "test" },
+      clientSessionId: "agent-session",
+      documentId: "doc-source",
+      versionId: `document-version:${"a".repeat(64)}`,
+      generation: 1,
+      expectedHeadSeq: 0,
+    };
+    const proofs: Array<DocumentWriteFenceProof | undefined> = [];
+    const hub = new DocumentSyncHub({
+      ...createBackend(),
+      applyDocumentMutation: async (received, writeFence) => {
+        proofs.push(writeFence);
+        if (!writeFence) {
+          return {
+            ok: false,
+            error: {
+              code: "write_fence_required",
+              message: "restore fence required",
+              retryable: true,
+              mutationId: received.mutationId,
+              expectedGeneration: received.generation,
+              expectedHeadSeq: received.expectedHeadSeq,
+            },
+          };
+        }
+        return documentMutationCommitted(received, { fenced: true });
+      },
+    });
+
+    const result = await hub.applyDocumentMutation(request);
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.value.mutationKind).toBe("document_version_restore");
+    expect(proofs.length).toBe(2);
+    expect(proofs[0] === undefined).toBeTrue();
+    expect(proofs[1]?.headSeq).toBe(0);
   });
 
   test("structural Document mutation flushes and freezes every mounted surface", async () => {

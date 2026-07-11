@@ -41,6 +41,37 @@ import {
   type DocumentMutationRequest,
   type DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
+import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+  PrepareDocumentVersionRestore,
+} from "../../shared/block-documents/document-history";
+import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
+
+const decodeDocumentHistoryResponse = <T>(
+  value: unknown,
+): DocumentHistoryCommandResult<T> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Document history response must be an object");
+  }
+  const result = value as Readonly<Record<string, unknown>>;
+  if (result.ok === true && Object.hasOwn(result, "value")) {
+    return { ok: true, value: result.value as T };
+  }
+  if (
+    result.ok === false &&
+    typeof result.error === "object" &&
+    result.error !== null &&
+    !Array.isArray(result.error)
+  ) {
+    return value as DocumentHistoryCommandResult<T>;
+  }
+  throw new Error("Document history response has an invalid result envelope");
+};
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -2532,6 +2563,72 @@ export const browserRendererTransport = {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
+        body: JSON.stringify(request),
+      },
+    );
+    return parseDocumentOperationCommandResult(await response.json());
+  },
+  async createDocumentVersionCheckpoint(
+    projectId: string,
+    documentId: string,
+    request: CreateDocumentVersionCheckpoint,
+  ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>> {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/versions/checkpoints`,
+      ),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(request),
+      },
+    );
+    return decodeDocumentHistoryResponse(await response.json());
+  },
+  async listDocumentVersions(
+    request: ListDocumentVersions,
+  ): Promise<
+    DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>
+  > {
+    const query = new URLSearchParams();
+    if (request.limit !== undefined) query.set("limit", String(request.limit));
+    if (request.before) {
+      query.set("beforeHeadSeq", String(request.before.baseHeadSeq));
+      query.set("beforeCreatedAt", request.before.createdAt);
+      query.set("beforeVersionId", request.before.versionId);
+    }
+    const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(request.projectId)}/documents/${encodeURIComponent(request.documentId)}/versions${suffix}`,
+      ),
+      { headers: { Accept: "application/json" } },
+    );
+    return decodeDocumentHistoryResponse(await response.json());
+  },
+  async getDocumentVersion(
+    request: GetDocumentVersion,
+  ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>> {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(request.projectId)}/documents/${encodeURIComponent(request.documentId)}/versions/${encodeURIComponent(request.versionId)}`,
+      ),
+      { headers: { Accept: "application/json" } },
+    );
+    return decodeDocumentHistoryResponse(await response.json());
+  },
+  async restoreDocumentVersion(
+    projectId: string,
+    documentId: string,
+    request: PrepareDocumentVersionRestore,
+  ): Promise<DocumentOperationCommandResult> {
+    const response = await fetch(
+      toApiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/versions/${encodeURIComponent(request.versionId)}/restore`,
+      ),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(request),
       },
     );

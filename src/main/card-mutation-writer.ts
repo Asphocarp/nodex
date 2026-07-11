@@ -21,6 +21,15 @@ import type {
   RelocationResult,
 } from "../shared/block-documents";
 import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+} from "../shared/block-documents/document-history";
+import type { DocumentHistoryCommandResult } from "../shared/block-documents/document-history-transport";
+import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
@@ -472,6 +481,42 @@ export class CardMutationWriter {
         request,
         ...(writeFence ? { writeFence } : {}),
       },
+    });
+    return envelope.result;
+  }
+
+  async createDocumentVersionCheckpoint(
+    request: CreateDocumentVersionCheckpoint,
+  ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>> {
+    const envelope = await this.executeTyped<
+      DocumentHistoryCommandResult<CreatedDocumentVersionSummary>
+    >({
+      type: "createDocumentVersionCheckpoint",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
+  async listDocumentVersions(
+    request: ListDocumentVersions,
+  ): Promise<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>> {
+    const envelope = await this.executeTyped<
+      DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>
+    >({
+      type: "listDocumentVersions",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
+  async getDocumentVersion(
+    request: GetDocumentVersion,
+  ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>> {
+    const envelope = await this.executeTyped<
+      DocumentHistoryCommandResult<DocumentVersionDetail>
+    >({
+      type: "getDocumentVersion",
+      payload: request,
     });
     return envelope.result;
   }

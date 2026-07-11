@@ -192,6 +192,7 @@ import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runti
 import { parseDocumentRelocationRequest } from "../shared/block-documents/relocation-transport";
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
+import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -834,6 +835,61 @@ export function registerIpcHandlers(
       };
     },
     applyMutation: (request) =>
+      documentSyncHub.applyDocumentMutation(request),
+  });
+
+  registerDocumentHistoryIpcHandlers({
+    registerHandle: (channel, listener) => {
+      if (channel === "block-documents:history:checkpoint") {
+        registerHandle(channel, (event, projectId, documentId, request) =>
+          listener(event, projectId, documentId, request) as
+            | IpcApi["block-documents:history:checkpoint"]["result"]
+            | Promise<IpcApi["block-documents:history:checkpoint"]["result"]>,
+        );
+        return;
+      }
+      if (channel === "block-documents:history:list") {
+        registerHandle(
+          channel,
+          (event, request) =>
+            listener(event, request) as
+              | IpcApi["block-documents:history:list"]["result"]
+              | Promise<IpcApi["block-documents:history:list"]["result"]>,
+        );
+        return;
+      }
+      if (channel === "block-documents:history:get") {
+        registerHandle(
+          channel,
+          (event, request) =>
+            listener(event, request) as
+              | IpcApi["block-documents:history:get"]["result"]
+              | Promise<IpcApi["block-documents:history:get"]["result"]>,
+        );
+        return;
+      }
+      registerHandle(channel, (event, projectId, documentId, request) =>
+        listener(event, projectId, documentId, request) as
+          | IpcApi["block-documents:history:restore"]["result"]
+          | Promise<IpcApi["block-documents:history:restore"]["result"]>,
+      );
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: { kind: "electron_renderer", clientId },
+      };
+    },
+    createCheckpoint: (request) =>
+      cardMutationWriter.createDocumentVersionCheckpoint(request),
+    listVersions: (request) => cardMutationWriter.listDocumentVersions(request),
+    getVersion: (request) => cardMutationWriter.getDocumentVersion(request),
+    restoreVersion: (request) =>
       documentSyncHub.applyDocumentMutation(request),
   });
 

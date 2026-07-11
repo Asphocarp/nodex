@@ -31,7 +31,9 @@ const committed = (
     mutationKind:
       "operations" in bound
         ? "document_operation_batch"
-        : "replace_document_from_nfm",
+        : "nfm" in bound
+          ? "replace_document_from_nfm"
+          : "document_version_restore",
     mutationId: bound.mutationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,

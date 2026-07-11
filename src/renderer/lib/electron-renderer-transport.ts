@@ -30,6 +30,16 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
+import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+  PrepareDocumentVersionRestore,
+} from "../../shared/block-documents/document-history";
+import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -69,6 +79,44 @@ export function createElectronRendererTransport(
     ) {
       return bridge.invoke(
         "block-documents:mutate",
+        projectId,
+        documentId,
+        request,
+      ) as Promise<DocumentOperationCommandResult>;
+    },
+    createDocumentVersionCheckpoint(
+      projectId: string,
+      documentId: string,
+      request: CreateDocumentVersionCheckpoint,
+    ) {
+      return bridge.invoke(
+        "block-documents:history:checkpoint",
+        projectId,
+        documentId,
+        request,
+      ) as Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
+    },
+    listDocumentVersions(request: ListDocumentVersions) {
+      return bridge.invoke(
+        "block-documents:history:list",
+        request,
+      ) as Promise<
+        DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>
+      >;
+    },
+    getDocumentVersion(request: GetDocumentVersion) {
+      return bridge.invoke(
+        "block-documents:history:get",
+        request,
+      ) as Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
+    },
+    restoreDocumentVersion(
+      projectId: string,
+      documentId: string,
+      request: PrepareDocumentVersionRestore,
+    ) {
+      return bridge.invoke(
+        "block-documents:history:restore",
         projectId,
         documentId,
         request,

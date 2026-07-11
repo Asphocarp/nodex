@@ -2,6 +2,7 @@ import type { BlockTreeValue } from "./block-document-codec";
 import {
   DocumentOperationContractError,
   parseDocumentOperationBatch,
+  parseDocumentVersionRestore,
   parseReplaceDocumentFromNfm,
   type DocumentMutationRequest,
   type DocumentOperationCommandError,
@@ -61,8 +62,11 @@ export const parseDocumentMutationRequest = (
   if (Object.hasOwn(value, "nfm")) {
     return parseReplaceDocumentFromNfm(value);
   }
+  if (Object.hasOwn(value, "versionId")) {
+    return parseDocumentVersionRestore(value);
+  }
   throw new DocumentOperationContractError(
-    "Document mutation request must contain operations or nfm",
+    "Document mutation request must contain operations, nfm, or versionId",
   );
 };
 
@@ -115,10 +119,11 @@ export const bindTrustedDocumentMutation = (
   try {
     return {
       ok: true,
-      value:
-        "operations" in request
-          ? parseDocumentOperationBatch(bound)
-          : parseReplaceDocumentFromNfm(bound),
+      value: "operations" in request
+        ? parseDocumentOperationBatch(bound)
+        : "nfm" in request
+          ? parseReplaceDocumentFromNfm(bound)
+          : parseDocumentVersionRestore(bound),
     };
   } catch (error) {
     return {
@@ -137,7 +142,11 @@ export const bindTrustedDocumentMutation = (
 export const documentMutationHttpStatus = (
   error: DocumentOperationCommandError,
 ): 400 | 404 | 409 | 500 | 503 => {
-  if (error.code === "document_not_found" || error.code === "block_not_found") {
+  if (
+    error.code === "document_not_found" ||
+    error.code === "document_version_not_found" ||
+    error.code === "block_not_found"
+  ) {
     return 404;
   }
   if (

@@ -24,6 +24,15 @@ import type {
   DocumentOperationCommandResult,
 } from "./block-documents/document-operations";
 import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+} from "./block-documents/document-history";
+import type { DocumentHistoryCommandResult } from "./block-documents/document-history-transport";
+import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "./block-property-mutations";
@@ -532,6 +541,30 @@ export interface RendererDiagnosticsLogInput {
 
 export interface IpcApi {
   "block-documents:mutate": {
+    args: [
+      projectId: string,
+      documentId: string,
+      request: DocumentMutationRequest,
+    ];
+    result: DocumentOperationCommandResult;
+  };
+  "block-documents:history:checkpoint": {
+    args: [
+      projectId: string,
+      documentId: string,
+      request: CreateDocumentVersionCheckpoint,
+    ];
+    result: DocumentHistoryCommandResult<CreatedDocumentVersionSummary>;
+  };
+  "block-documents:history:list": {
+    args: [request: ListDocumentVersions];
+    result: DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>;
+  };
+  "block-documents:history:get": {
+    args: [request: GetDocumentVersion];
+    result: DocumentHistoryCommandResult<DocumentVersionDetail>;
+  };
+  "block-documents:history:restore": {
     args: [
       projectId: string,
       documentId: string,

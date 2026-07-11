@@ -2,15 +2,18 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
   canonicalizeDocumentOperationIntent,
+  canonicalizeDocumentVersionRestoreIntent,
   canonicalizeReplaceDocumentFromNfmIntent,
   DOCUMENT_OPERATION_CONTRACT_VERSION,
   DocumentOperationContractError,
   parseDocumentOperationBatch,
   parseDocumentOperationCommandError,
   parseDocumentOperationResult,
+  parseDocumentVersionRestore,
   parseReplaceDocumentFromNfm,
   type DocumentBlockOperation,
   type DocumentMutationKind,
+  type DocumentMutationRequest,
   type DocumentOperationBatch,
   type DocumentOperationCommandError,
   type DocumentOperationCommandResult,
@@ -18,6 +21,7 @@ import {
   type DocumentWriteFenceProof,
   type ReplaceDocumentFromNfm,
 } from "../../shared/block-documents/document-operations";
+import type { PrepareDocumentVersionRestore } from "../../shared/block-documents/document-history";
 import {
   compileBlockTreeReplacementOperations,
   DocumentOperationEngineError,
@@ -35,6 +39,11 @@ import {
   loadPrimaryBlockDocument,
   type StrictDocumentUpdateCommitContext,
 } from "./block-document-store";
+import {
+  createDocumentVersionCheckpoint,
+  DocumentVersionStoreError,
+  prepareDocumentVersionRestore,
+} from "./document-versions";
 
 const CHANGE_LOG_KIND = "block_mutation";
 const EMPTY_ARRAY_JSON = "[]";
@@ -256,7 +265,7 @@ const collectBlockIds = (
 ];
 
 const requestedTargetBlockIds = (
-  request: DocumentOperationBatch | ReplaceDocumentFromNfm,
+  request: DocumentMutationRequest,
 ): readonly string[] => {
   if (!("operations" in request)) return [];
   return uniqueSorted(
@@ -276,11 +285,14 @@ const requestedTargetBlockIds = (
 };
 
 const fieldIntents = (
-  request: DocumentOperationBatch | ReplaceDocumentFromNfm,
+  request: DocumentMutationRequest,
 ): readonly Readonly<{
   readonly path: string;
   readonly operation: string;
 }>[] => {
+  if ("versionId" in request) {
+    return [{ path: "document", operation: "restore_version" }];
+  }
   if (!("operations" in request)) {
     return [{ path: "document.body", operation: "replace_from_nfm" }];
   }
@@ -313,7 +325,7 @@ const fieldIntents = (
 };
 
 const makeEvidence = (
-  request: DocumentOperationBatch | ReplaceDocumentFromNfm,
+  request: DocumentMutationRequest,
   mutationKind: DocumentMutationKind,
   canonicalRequest: string,
 ): MutationEvidence => {
@@ -614,6 +626,49 @@ const mapStoreError = (
   }
 };
 
+const mapVersionStoreError = (
+  error: DocumentVersionStoreError,
+  request: MutationRequestBase,
+): DocumentOperationCommandError => {
+  switch (error.code) {
+    case "store_epoch_mismatch":
+      return makeError("store_epoch_mismatch", error.message, request);
+    case "document_not_found":
+      return makeError("document_not_found", error.message, request);
+    case "document_version_not_found":
+      return makeError("document_version_not_found", error.message, request);
+    case "document_not_ready":
+      return makeError("document_not_ready", error.message, request);
+    case "project_scope_mismatch":
+      return makeError("project_scope_mismatch", error.message, request);
+    case "document_generation_conflict":
+      return makeError("document_generation_conflict", error.message, request, {
+        ...(error.expectedGeneration === undefined
+          ? {}
+          : { expectedGeneration: error.expectedGeneration }),
+        ...(error.actualGeneration === undefined
+          ? {}
+          : { actualGeneration: error.actualGeneration }),
+      });
+    case "document_head_conflict":
+      return makeError("document_head_conflict", error.message, request, {
+        ...(error.expectedHeadSeq === undefined
+          ? {}
+          : { expectedHeadSeq: error.expectedHeadSeq }),
+        ...(error.actualHeadSeq === undefined
+          ? {}
+          : { actualHeadSeq: error.actualHeadSeq }),
+      });
+    case "document_version_schema_mismatch":
+      return makeError("invalid_operation", error.message, request);
+    case "invalid_document_version_request":
+      return makeError("invalid_document_operation_request", error.message, request);
+    case "document_version_collision":
+    case "document_version_corrupt":
+      return makeError("document_state_corrupt", error.message, request);
+  }
+};
+
 type CardMaterialization = ReturnType<typeof materializeCardDocument>;
 type MaterializedBlock = CardMaterialization["blockTree"][number];
 
@@ -752,10 +807,63 @@ const assertCreatedIdsNeverExisted = (
   }
 };
 
+const flattenTargetBlockTypes = (
+  blocks: readonly MaterializedBlock[],
+): ReadonlyMap<string, string> =>
+  new Map(
+    blocks.flatMap((block): readonly (readonly [string, string])[] => [
+      [block.id, block.type] as const,
+      ...flattenTargetBlockTypes(block.children),
+    ]),
+  );
+
+const assertRestoreIdsAreRetainedTombstones = (
+  database: Database.Database,
+  request: MutationRequestBase,
+  createdBlockIds: readonly string[],
+  targetBlocks: readonly MaterializedBlock[],
+): void => {
+  if (createdBlockIds.length === 0) return;
+  const targetTypes = flattenTargetBlockTypes(targetBlocks);
+  const read = database.prepare(`
+    SELECT project_id, type, lifecycle, location_kind, containing_document_id
+    FROM blocks
+    WHERE id = ?
+  `);
+  for (const blockId of createdBlockIds) {
+    const stored = read.get(blockId) as
+      | {
+          readonly project_id: string;
+          readonly type: string;
+          readonly lifecycle: string;
+          readonly location_kind: string;
+          readonly containing_document_id: string | null;
+        }
+      | undefined;
+    const targetType = targetTypes.get(blockId);
+    if (
+      stored?.project_id === request.projectId &&
+      stored.type === targetType &&
+      stored.lifecycle === "deleted" &&
+      stored.location_kind === "document" &&
+      stored.containing_document_id === request.documentId
+    ) {
+      continue;
+    }
+    reject(
+      "duplicate_block_id",
+      `History restore may only reactivate a retained tombstone from the same Document: ${blockId}`,
+      request,
+      { blockId },
+    );
+  }
+};
+
 const prepareOperationBatch = (
   request: DocumentOperationBatch,
   document: Parameters<typeof materializeCardDocument>[0],
   ownerBlockId: string,
+  forceWriteFence = false,
 ): PreparedMutation => {
   const before = materializeCardDocument(document);
   const prepared = prepareDocumentOperationUpdate({
@@ -769,7 +877,7 @@ const prepareOperationBatch = (
       before,
       prepared.materialization,
       prepared.writeFenceBlockIds,
-      false,
+      forceWriteFence,
       ownerBlockId,
       prepared.titleWriteFenceRequired,
     ),
@@ -950,6 +1058,7 @@ const applyPreparedMutation = (
   evidence: MutationEvidence,
   prepared: PreparedMutation,
   options: ApplyDocumentOperationOptions,
+  beforeApply?: () => void,
 ): DocumentOperationCommandResult => {
   const inject = (point: DocumentOperationFaultPoint): void => {
     options.faultInjector?.(point);
@@ -986,6 +1095,7 @@ const applyPreparedMutation = (
   const clientSessionId =
     request.clientSessionId ?? `document-mutation:${evidence.requestHash}`;
   try {
+    beforeApply?.();
     const ack = applyStrictBlockDocumentUpdate(
       database,
       {
@@ -1084,7 +1194,7 @@ const applyPreparedMutation = (
 
 const applyMutationInTransaction = (
   database: Database.Database,
-  request: DocumentOperationBatch | ReplaceDocumentFromNfm,
+  request: DocumentMutationRequest,
   evidence: MutationEvidence,
   options: ApplyDocumentOperationOptions,
 ): DocumentOperationCommandResult => {
@@ -1184,20 +1294,65 @@ const applyMutationInTransaction = (
     }
 
     let prepared: PreparedMutation;
+    let beforeApply: (() => void) | undefined;
     try {
-      prepared =
-        evidence.mutationKind === "document_operation_batch"
-          ? prepareOperationBatch(
-              request as DocumentOperationBatch,
-              loaded.document,
-              loaded.head.ownerBlockId,
-            )
-          : prepareNfmReplacement(
-              request as ReplaceDocumentFromNfm,
-              loaded.document,
-              evidence.requestHash,
-            );
-      assertCreatedIdsNeverExisted(database, request, prepared.createdBlockIds);
+      if (evidence.mutationKind === "document_operation_batch") {
+        prepared = prepareOperationBatch(
+          request as DocumentOperationBatch,
+          loaded.document,
+          loaded.head.ownerBlockId,
+        );
+        assertCreatedIdsNeverExisted(database, request, prepared.createdBlockIds);
+      } else if (evidence.mutationKind === "replace_document_from_nfm") {
+        prepared = prepareNfmReplacement(
+          request as ReplaceDocumentFromNfm,
+          loaded.document,
+          evidence.requestHash,
+        );
+        assertCreatedIdsNeverExisted(database, request, prepared.createdBlockIds);
+      } else {
+        const restoreRequest = request as PrepareDocumentVersionRestore;
+        const restore = prepareDocumentVersionRestore(database, restoreRequest);
+        if (restore.kind !== "operation_plan") {
+          return reject(
+            "no_change",
+            `Document is already equal to version ${restore.sourceVersion.versionId}`,
+            request,
+          );
+        }
+        prepared = prepareOperationBatch(
+          {
+            ...restoreRequest,
+            operations: restore.plan.operations,
+          },
+          loaded.document,
+          loaded.head.ownerBlockId,
+          true,
+        );
+        assertRestoreIdsAreRetainedTombstones(
+          database,
+          request,
+          prepared.createdBlockIds,
+          restore.plan.targetBlockTree,
+        );
+        beforeApply = () => {
+          createDocumentVersionCheckpoint(database, {
+            version: DOCUMENT_OPERATION_CONTRACT_VERSION,
+            projectId: restoreRequest.projectId,
+            storeEpoch: restoreRequest.storeEpoch,
+            documentId: restoreRequest.documentId,
+            expectedGeneration: restoreRequest.generation,
+            expectedHeadSeq: restoreRequest.expectedHeadSeq,
+            cause: "before_restore",
+            label: `Before restore ${restoreRequest.versionId}`,
+            actor: {
+              ...restoreRequest.actor,
+              restoreMutationId: restoreRequest.mutationId,
+              sourceVersionId: restoreRequest.versionId,
+            },
+          });
+        };
+      }
     } catch (error) {
       if (error instanceof DocumentMutationRejection) {
         return rejectAndPersist(database, request, evidence, error.error);
@@ -1218,6 +1373,14 @@ const applyMutationInTransaction = (
           makeError("invalid_block", error.message, request),
         );
       }
+      if (error instanceof DocumentVersionStoreError) {
+        return rejectAndPersist(
+          database,
+          request,
+          evidence,
+          mapVersionStoreError(error, request),
+        );
+      }
       throw error;
     }
     options.faultInjector?.("after_update_prepared");
@@ -1227,6 +1390,7 @@ const applyMutationInTransaction = (
       evidence,
       prepared,
       options,
+      beforeApply,
     );
   } finally {
     loaded.document.destroy();
@@ -1235,7 +1399,7 @@ const applyMutationInTransaction = (
 
 const applyMutation = (
   database: Database.Database,
-  request: DocumentOperationBatch | ReplaceDocumentFromNfm,
+  request: DocumentMutationRequest,
   evidence: MutationEvidence,
   options: ApplyDocumentOperationOptions,
 ): DocumentOperationCommandResult => {
@@ -1274,6 +1438,22 @@ export const replaceDocumentFromNfm = (
   const evidence = makeEvidence(
     request,
     "replace_document_from_nfm",
+    canonicalRequest,
+  );
+  return applyMutation(database, request, evidence, options);
+};
+
+/** Restore an immutable checkpoint as one forward update through the writer. */
+export const restoreDocumentVersion = (
+  database: Database.Database,
+  rawRequest: PrepareDocumentVersionRestore,
+  options: ApplyDocumentOperationOptions = {},
+): DocumentOperationCommandResult => {
+  const request = parseDocumentVersionRestore(rawRequest);
+  const canonicalRequest = canonicalizeDocumentVersionRestoreIntent(request);
+  const evidence = makeEvidence(
+    request,
+    "document_version_restore",
     canonicalRequest,
   );
   return applyMutation(database, request, evidence, options);

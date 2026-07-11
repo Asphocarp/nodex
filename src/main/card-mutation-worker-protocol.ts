@@ -19,6 +19,15 @@ import type {
   RelocationResult,
 } from "../shared/block-documents";
 import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+} from "../shared/block-documents/document-history";
+import type { DocumentHistoryCommandResult } from "../shared/block-documents/document-history-transport";
+import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
@@ -289,6 +298,18 @@ export type CardMutationWorkerRequest =
       };
     })
   | (CardMutationWorkerRequestBase & {
+      type: "createDocumentVersionCheckpoint";
+      payload: CreateDocumentVersionCheckpoint;
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "listDocumentVersions";
+      payload: ListDocumentVersions;
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "getDocumentVersion";
+      payload: GetDocumentVersion;
+    })
+  | (CardMutationWorkerRequestBase & {
     type: "relocateBlocks";
     payload: RelocateBlocks;
   })
@@ -313,6 +334,9 @@ export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
   | DocumentSyncCommandResult<string>
   | DocumentOperationCommandResult
+  | DocumentHistoryCommandResult<CreatedDocumentVersionSummary>
+  | DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>
+  | DocumentHistoryCommandResult<DocumentVersionDetail>
   | RelocationCommandResult
   | RelocationCommandResult<RelocateBlocks>
   | RelocationCommandResult<RelocationResult | null>;

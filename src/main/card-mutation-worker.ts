@@ -43,7 +43,14 @@ import { applyBlockPropertyMutation } from "./local-store/block-property-mutatio
 import {
   applyDocumentOperationBatch,
   replaceDocumentFromNfm,
+  restoreDocumentVersion,
 } from "./local-store/block-document-operations";
+import {
+  createDocumentVersionSummaryCheckpoint,
+  DocumentVersionStoreError,
+  getDocumentVersionDetail,
+  listDocumentVersions,
+} from "./local-store/document-versions";
 import { readAuthoritativeCardSummaryById } from "./local-store/card-read-store";
 import {
   BlockDocumentRuntime,
@@ -57,6 +64,10 @@ import type {
   RelocationCommandResult,
   RelocationResult,
 } from "../shared/block-documents";
+import type {
+  DocumentHistoryCommandError,
+  DocumentHistoryCommandResult,
+} from "../shared/block-documents/document-history-transport";
 import type { Card, CardSummary } from "../shared/types";
 import type {
   BlockDocumentShadowInitializationResult,
@@ -173,6 +184,9 @@ const isLegacyAuthorityMutation = (
     case "repairDocumentSecondaryProjections":
     case "applyBlockPropertyMutation":
     case "applyDocumentMutation":
+    case "createDocumentVersionCheckpoint":
+    case "listDocumentVersions":
+    case "getDocumentVersion":
     case "syncBlockDocument":
     case "getBlockDocumentProjectId":
     case "getOwnedBlockDocumentDescriptor":
@@ -749,6 +763,63 @@ function runDocumentCommand<T>(
   }
 }
 
+const toDocumentHistoryCommandError = (
+  error: unknown,
+): DocumentHistoryCommandError => {
+  if (!(error instanceof DocumentVersionStoreError)) {
+    return {
+      code: "unknown",
+      message: toErrorMessage(error),
+      retryable: false,
+    };
+  }
+  const code = (() => {
+    switch (error.code) {
+      case "invalid_document_version_request":
+        return "invalid_document_history_request" as const;
+      case "store_epoch_mismatch":
+      case "document_not_found":
+      case "document_not_ready":
+      case "project_scope_mismatch":
+      case "document_generation_conflict":
+      case "document_head_conflict":
+      case "document_version_not_found":
+      case "document_version_schema_mismatch":
+        return error.code;
+      case "document_version_collision":
+      case "document_version_corrupt":
+        return "document_history_corrupt" as const;
+    }
+  })();
+  return {
+    code,
+    message: error.message,
+    retryable: error.code === "document_not_ready",
+    ...(error.expectedGeneration === undefined
+      ? {}
+      : { expectedGeneration: error.expectedGeneration }),
+    ...(error.actualGeneration === undefined
+      ? {}
+      : { actualGeneration: error.actualGeneration }),
+    ...(error.expectedHeadSeq === undefined
+      ? {}
+      : { expectedHeadSeq: error.expectedHeadSeq }),
+    ...(error.actualHeadSeq === undefined
+      ? {}
+      : { actualHeadSeq: error.actualHeadSeq }),
+  };
+};
+
+const runDocumentHistoryCommand = <T>(
+  operation: () => T,
+): DocumentHistoryCommandResult<T> => {
+  try {
+    return { ok: true, value: operation() };
+  } catch (error) {
+    return { ok: false, error: toDocumentHistoryCommandError(error) };
+  }
+};
+
 const relocationErrorRetryable = (
   error: RelocationCommandError["code"],
 ): boolean =>
@@ -1293,10 +1364,11 @@ async function runRequest(
       const options = request.payload.writeFence
         ? { writeFence: request.payload.writeFence }
         : {};
-      const result =
-        "operations" in mutation
-          ? applyDocumentOperationBatch(getDb(), mutation, options)
-          : replaceDocumentFromNfm(getDb(), mutation, options);
+      const result = "operations" in mutation
+        ? applyDocumentOperationBatch(getDb(), mutation, options)
+        : "nfm" in mutation
+          ? replaceDocumentFromNfm(getDb(), mutation, options)
+          : restoreDocumentVersion(getDb(), mutation, options);
       if (!result.ok) return result;
       if (result.value.duplicate) return result;
 
@@ -1332,6 +1404,18 @@ async function runRequest(
       }
       return result;
     }
+    case "createDocumentVersionCheckpoint":
+      return runDocumentHistoryCommand(() =>
+        createDocumentVersionSummaryCheckpoint(getDb(), request.payload),
+      );
+    case "listDocumentVersions":
+      return runDocumentHistoryCommand(() =>
+        listDocumentVersions(getDb(), request.payload),
+      );
+    case "getDocumentVersion":
+      return runDocumentHistoryCommand(() =>
+        getDocumentVersionDetail(getDb(), request.payload),
+      );
     case "relocateBlocks": {
       const result = runRelocationCommand(() =>
         relocateBlocksAtomically(getDb(), request.payload),

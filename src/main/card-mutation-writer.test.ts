@@ -108,6 +108,33 @@ function makeMetrics(mutationId: string): CardMutationMetrics {
 }
 
 describe("CardMutationWriter", () => {
+  test("serializes Document history reads through the same FIFO worker", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const pending = writer.listDocumentVersions({
+      projectId: "project-1",
+      documentId: "document-1",
+      limit: 20,
+    });
+    const request = worker.messages[0];
+    expect(request?.type).toBe("listDocumentVersions");
+    if (!request || request.type !== "listDocumentVersions") return;
+    expect(request.payload.limit).toBe(20);
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: { ok: true, value: [] },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    const result = await pending;
+    expect(result.ok).toBeTrue();
+    if (result.ok) expect(result.value.length).toBe(0);
+  });
+
   test("preserves the property mutation envelope and typed receipt through the FIFO", async () => {
     const worker = new FakeWorker();
     const writer = new CardMutationWriter({

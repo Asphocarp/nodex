@@ -27,6 +27,16 @@ import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
+import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+  PrepareDocumentVersionRestore,
+} from "../../shared/block-documents/document-history";
+import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 
 const BROWSER_CODEX_INVOKE_CHANNELS = new Set<string>([
   "codex:thread:archive",
@@ -101,6 +111,42 @@ export function mutateDocument(
   request: DocumentMutationRequest,
 ): Promise<DocumentOperationCommandResult> {
   return resolveRendererTransport().mutateDocument(
+    projectId,
+    documentId,
+    request,
+  );
+}
+
+export function createDocumentVersionCheckpoint(
+  projectId: string,
+  documentId: string,
+  request: CreateDocumentVersionCheckpoint,
+): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>> {
+  return resolveRendererTransport().createDocumentVersionCheckpoint(
+    projectId,
+    documentId,
+    request,
+  );
+}
+
+export function listDocumentVersions(
+  request: ListDocumentVersions,
+): Promise<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>> {
+  return resolveRendererTransport().listDocumentVersions(request);
+}
+
+export function getDocumentVersion(
+  request: GetDocumentVersion,
+): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>> {
+  return resolveRendererTransport().getDocumentVersion(request);
+}
+
+export function restoreDocumentVersion(
+  projectId: string,
+  documentId: string,
+  request: PrepareDocumentVersionRestore,
+): Promise<DocumentOperationCommandResult> {
+  return resolveRendererTransport().restoreDocumentVersion(
     projectId,
     documentId,
     request,

@@ -3,6 +3,7 @@ import {
   MAX_CARD_TITLE_LENGTH,
 } from "../card-limits";
 import type { BlockTreeNode, BlockTreeValue } from "./block-document-codec";
+import type { PrepareDocumentVersionRestore } from "./document-history";
 import {
   MAX_BLOCK_ID_LENGTH,
   type BlockId,
@@ -90,10 +91,13 @@ export interface ReplaceDocumentFromNfm {
 
 export type DocumentMutationRequest =
   | DocumentOperationBatch
-  | ReplaceDocumentFromNfm;
+  | ReplaceDocumentFromNfm
+  | PrepareDocumentVersionRestore;
 
 export type DocumentMutationKind =
-  "document_operation_batch" | "replace_document_from_nfm";
+  | "document_operation_batch"
+  | "replace_document_from_nfm"
+  | "document_version_restore";
 
 export type DocumentMutationCoordination = "merge_friendly" | "write_fence";
 
@@ -134,6 +138,7 @@ export type DocumentOperationErrorCode =
   | "store_epoch_mismatch"
   | "mutation_id_collision"
   | "document_not_found"
+  | "document_version_not_found"
   | "document_not_ready"
   | "document_generation_conflict"
   | "document_head_conflict"
@@ -693,6 +698,37 @@ export const parseReplaceDocumentFromNfm = (
   };
 };
 
+export const parseDocumentVersionRestore = (
+  value: unknown,
+): PrepareDocumentVersionRestore => {
+  const budget: ParseBudget = { remaining: MAX_OPERATION_REQUEST_UNITS };
+  const envelope = parseMutationEnvelope(
+    value,
+    "documentVersionRestore",
+    ["versionId"],
+    budget,
+  );
+  return {
+    version: DOCUMENT_OPERATION_CONTRACT_VERSION,
+    mutationId: envelope.mutationId,
+    projectId: envelope.projectId,
+    storeEpoch: envelope.storeEpoch,
+    documentId: envelope.documentId,
+    versionId: readBoundedString(
+      envelope.record,
+      "versionId",
+      "documentVersionRestore",
+      MAX_SCOPE_ID_LENGTH,
+    ),
+    generation: envelope.generation,
+    expectedHeadSeq: envelope.expectedHeadSeq,
+    ...(envelope.clientSessionId === undefined
+      ? {}
+      : { clientSessionId: envelope.clientSessionId }),
+    actor: envelope.actor,
+  };
+};
+
 const readTouchedBlockIds = (
   value: unknown,
   label: string,
@@ -751,7 +787,8 @@ export const parseDocumentOperationResult = (
   }
   if (
     result.mutationKind !== "document_operation_batch" &&
-    result.mutationKind !== "replace_document_from_nfm"
+    result.mutationKind !== "replace_document_from_nfm" &&
+    result.mutationKind !== "document_version_restore"
   ) {
     throw new DocumentOperationContractError(
       `${label}.mutationKind is not supported`,
@@ -838,6 +875,7 @@ const DOCUMENT_OPERATION_ERROR_CODES: readonly DocumentOperationErrorCode[] = [
   "store_epoch_mismatch",
   "mutation_id_collision",
   "document_not_found",
+  "document_version_not_found",
   "document_not_ready",
   "document_generation_conflict",
   "document_head_conflict",
@@ -981,6 +1019,9 @@ export const canonicalizeDocumentOperationBatch = (value: unknown): string =>
 export const canonicalizeReplaceDocumentFromNfm = (value: unknown): string =>
   stableStringify(parseReplaceDocumentFromNfm(value));
 
+export const canonicalizeDocumentVersionRestore = (value: unknown): string =>
+  stableStringify(parseDocumentVersionRestore(value));
+
 const withoutMutationAuditIdentity = <
   T extends { readonly actor: unknown; readonly clientSessionId?: string },
 >(
@@ -1009,4 +1050,12 @@ export const canonicalizeReplaceDocumentFromNfmIntent = (
 ): string =>
   stableStringify(
     withoutMutationAuditIdentity(parseReplaceDocumentFromNfm(value)),
+  );
+
+/** See {@link canonicalizeDocumentOperationIntent}. */
+export const canonicalizeDocumentVersionRestoreIntent = (
+  value: unknown,
+): string =>
+  stableStringify(
+    withoutMutationAuditIdentity(parseDocumentVersionRestore(value)),
   );

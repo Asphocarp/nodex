@@ -38,6 +38,36 @@ export interface RendererTransport {
   ) => Promise<
     import("../../shared/block-documents/document-operations").DocumentOperationCommandResult
   >;
+  createDocumentVersionCheckpoint: (
+    projectId: string,
+    documentId: string,
+    request: import("../../shared/block-documents/document-history").CreateDocumentVersionCheckpoint,
+  ) => Promise<
+    import("../../shared/block-documents/document-history-transport").DocumentHistoryCommandResult<
+      import("../../shared/block-documents/document-history").CreatedDocumentVersionSummary
+    >
+  >;
+  listDocumentVersions: (
+    request: import("../../shared/block-documents/document-history").ListDocumentVersions,
+  ) => Promise<
+    import("../../shared/block-documents/document-history-transport").DocumentHistoryCommandResult<
+      readonly import("../../shared/block-documents/document-history").DocumentVersionSummary[]
+    >
+  >;
+  getDocumentVersion: (
+    request: import("../../shared/block-documents/document-history").GetDocumentVersion,
+  ) => Promise<
+    import("../../shared/block-documents/document-history-transport").DocumentHistoryCommandResult<
+      import("../../shared/block-documents/document-history").DocumentVersionDetail
+    >
+  >;
+  restoreDocumentVersion: (
+    projectId: string,
+    documentId: string,
+    request: import("../../shared/block-documents/document-history").PrepareDocumentVersionRestore,
+  ) => Promise<
+    import("../../shared/block-documents/document-operations").DocumentOperationCommandResult
+  >;
   createDocumentSyncAdapter?: (
     projectId: string,
   ) => import("./nodex-y-provider").DocumentSyncAdapter;
