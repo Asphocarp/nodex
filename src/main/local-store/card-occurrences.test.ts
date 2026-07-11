@@ -2,18 +2,69 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CardInput } from "../../shared/types";
-import { closeDatabase, initializeDatabase } from "./database";
-import { createCard, getCard } from "./cards";
+import type {
+  CardInput,
+  CardOccurrenceActionInput,
+  CardOccurrenceUpdateInput,
+} from "../../shared/types";
+import { cutoverCardDocumentToPrimary, getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
+import { closeDatabase, getDb, initializeDatabase } from "./database";
+import { listBlockChangeHistory } from "./document-versions";
+import { createCard as createLegacyCard, getCard } from "./cards";
+import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
 import { createProject } from "./projects";
 import { executeReadOnlyQuery } from "./sql-inspection";
-import { redoLatest, undoLatest } from "./history";
 import {
-  completeCardOccurrence,
+  completeCardOccurrence as completeStoredCardOccurrence,
   listCalendarOccurrences,
-  skipCardOccurrence,
-  updateCardOccurrence,
+  skipCardOccurrence as skipStoredCardOccurrence,
+  updateCardOccurrence as updateStoredCardOccurrence,
 } from "./card-occurrences";
+
+type TestOccurrenceAction = Omit<CardOccurrenceActionInput, "operationId"> & {
+  readonly operationId?: string;
+};
+type TestOccurrenceUpdate = Omit<CardOccurrenceUpdateInput, "operationId"> & {
+  readonly operationId?: string;
+};
+
+let testOperationSequence = 0;
+
+const nextTestOperationId = (): string =>
+  `card-occurrence-test:${++testOperationSequence}`;
+
+const completeCardOccurrence = (
+  targetProjectId: string,
+  input: TestOccurrenceAction,
+  sessionId?: string,
+) =>
+  completeStoredCardOccurrence(
+    targetProjectId,
+    { ...input, operationId: input.operationId ?? nextTestOperationId() },
+    sessionId,
+  );
+
+const skipCardOccurrence = (
+  targetProjectId: string,
+  input: TestOccurrenceAction,
+  sessionId?: string,
+) =>
+  skipStoredCardOccurrence(
+    targetProjectId,
+    { ...input, operationId: input.operationId ?? nextTestOperationId() },
+    sessionId,
+  );
+
+const updateCardOccurrence = (
+  targetProjectId: string,
+  input: TestOccurrenceUpdate,
+  sessionId?: string,
+) =>
+  updateStoredCardOccurrence(
+    targetProjectId,
+    { ...input, operationId: input.operationId ?? nextTestOperationId() },
+    sessionId,
+  );
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -81,6 +132,22 @@ function allDayInput(startIso: string, endIso: string): CardInput {
   };
 }
 
+async function createCard(targetProjectId: string, status: "in_progress", input: CardInput) {
+  const created = await createLegacyCard(targetProjectId, status, input);
+  const database = getDb();
+  runLegacyCardShadowProcessorProbe(database);
+  const descriptor = getOwnedBlockDocumentDescriptor(database, targetProjectId, created.id);
+  cutoverCardDocumentToPrimary(database, {
+    projectId: targetProjectId,
+    ownerBlockId: created.id,
+    expectedGeneration: descriptor.generation,
+    expectedHeadSeq: descriptor.headSeq,
+  });
+  const primary = await getCard(targetProjectId, created.id);
+  if (!primary) throw new Error("Primary Card disappeared after cutover");
+  return primary;
+}
+
 function recurringInputWithUntilDate(startIso: string, endIso: string, untilDate: string): CardInput {
   return {
     title: "Recurring event",
@@ -96,14 +163,33 @@ function recurringInputWithUntilDate(startIso: string, endIso: string, untilDate
   };
 }
 
-function archiveRows() {
+function authorityRows(lifecycle: "active" | "archived", status: "in_progress" | "done") {
   return executeReadOnlyQuery(
-    `SELECT id, scheduled_start, scheduled_end, recurrence_json, reminders_json
-     FROM cards
-     WHERE project_id = ? AND status = 'done' AND archived = 1
-     ORDER BY created DESC`,
-    [projectId],
+    `SELECT block.id,
+            schedule.scheduled_start,
+            schedule.scheduled_end,
+            schedule.recurrence_json,
+            schedule.reminders_json
+     FROM blocks block
+     INNER JOIN database_memberships membership
+       ON membership.card_block_id = block.id
+       AND membership.project_id = block.project_id
+       AND membership.removed_at IS NULL
+     INNER JOIN database_property_values status_value
+       ON status_value.membership_id = membership.id
+       AND status_value.property_id = membership.database_block_id || ':property:status'
+     LEFT JOIN scheduled_card_index schedule
+       ON schedule.card_block_id = block.id
+       AND schedule.project_id = block.project_id
+     WHERE block.project_id = ? AND block.type = 'card'
+       AND block.lifecycle = ? AND status_value.value_json = json_quote(?)
+     ORDER BY block.created_at DESC, block.id DESC`,
+    [projectId, lifecycle, status],
   ).rows;
+}
+
+function archiveRows() {
+  return authorityRows("archived", "done");
 }
 
 describe("occurrence actions", () => {
@@ -133,7 +219,7 @@ describe("occurrence actions", () => {
       expect(archives.length).toBe(1);
       expect(toIso(archives[0]?.scheduled_start)).toBe(startIso);
       expect(toIso(archives[0]?.scheduled_end)).toBe(endIso);
-      expect(archives[0]?.recurrence_json).toBe(null);
+      expect(archives[0]?.recurrence_json).toBe("null");
       expect(archives[0]?.reminders_json).toBe("[]");
     });
 
@@ -150,14 +236,11 @@ describe("occurrence actions", () => {
       const futureEndIso = "2026-03-05T11:00:00.000Z";
       const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
-      const result = await completeCardOccurrence(
-        projectId,
-        {
-          cardId: card.id,
-          occurrenceStart: new Date(futureIso),
-          source: "calendar",
-        },
-      );
+      const result = await completeCardOccurrence(projectId, {
+        cardId: card.id,
+        occurrenceStart: new Date(futureIso),
+        source: "calendar",
+      });
 
       expect(result.success).toBeTrue();
 
@@ -196,14 +279,11 @@ describe("occurrence actions", () => {
         scheduledEnd: new Date(endIso),
       });
 
-      const result = await completeCardOccurrence(
-        projectId,
-        {
-          cardId: card.id,
-          occurrenceStart: new Date(startIso),
-          source: "calendar",
-        },
-      );
+      const result = await completeCardOccurrence(projectId, {
+        cardId: card.id,
+        occurrenceStart: new Date(startIso),
+        source: "calendar",
+      });
 
       expect(result.success).toBeTrue();
 
@@ -228,14 +308,11 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
-      const result = await skipCardOccurrence(
-        projectId,
-        {
-          cardId: card.id,
-          occurrenceStart: new Date(startIso),
-          source: "calendar",
-        },
-      );
+      const result = await skipCardOccurrence(projectId, {
+        cardId: card.id,
+        occurrenceStart: new Date(startIso),
+        source: "calendar",
+      });
 
       expect(result.success).toBeTrue();
 
@@ -284,19 +361,13 @@ describe("occurrence actions", () => {
       expect(exceptions[0]?.override_start).toBe(null);
       expect(exceptions[0]?.override_end).toBe(null);
 
-      const rows = executeReadOnlyQuery(
-        `SELECT id, scheduled_start, scheduled_end, recurrence_json
-         FROM cards
-         WHERE project_id = ? AND status = ? AND archived = 0
-         ORDER BY "order" ASC`,
-        [projectId, "in_progress"],
-      ).rows;
+      const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(2);
       const detachedRow = rows.find((row) => row.id !== card.id);
       expect(Boolean(detachedRow)).toBeTrue();
       expect(toIso(detachedRow?.scheduled_start)).toBe(detachedStartIso);
       expect(toIso(detachedRow?.scheduled_end)).toBe(detachedEndIso);
-      expect(detachedRow?.recurrence_json).toBe(null);
+      expect(detachedRow?.recurrence_json).toBe("null");
 
       const occurrences = await listCalendarOccurrences(
         projectId,
@@ -334,8 +405,7 @@ describe("occurrence actions", () => {
       const first = occurrences.find((occurrence) => occurrence.cardId === card.id);
       const second = occurrences.find(
         (occurrence) =>
-          occurrence.cardId === card.id &&
-          occurrence.occurrenceStart.toISOString() === "2026-03-02T10:00:00.000Z",
+          occurrence.cardId === card.id && occurrence.occurrenceStart.toISOString() === "2026-03-02T10:00:00.000Z",
       );
 
       expect(first?.occurrenceStart.toISOString()).toBe(startIso);
@@ -350,11 +420,7 @@ describe("occurrence actions", () => {
 
   test("calendar occurrences return explicit all-day flag", async () => {
     const ran = await withTempDatabase(async () => {
-      await createCard(
-        projectId,
-        "in_progress",
-        allDayInput("2026-03-10T00:00:00.000Z", "2026-03-11T00:00:00.000Z"),
-      );
+      await createCard(projectId, "in_progress", allDayInput("2026-03-10T00:00:00.000Z", "2026-03-11T00:00:00.000Z"));
 
       const occurrences = await listCalendarOccurrences(
         projectId,
@@ -400,22 +466,15 @@ describe("occurrence actions", () => {
         expect(master.recurrence.endCondition.untilDate).toBe("2026-03-02");
       }
 
-      const rows = executeReadOnlyQuery(
-        `SELECT id, scheduled_start, scheduled_end, recurrence_json
-         FROM cards
-         WHERE project_id = ? AND status = ? AND archived = 0
-         ORDER BY "order" ASC`,
-        [projectId, "in_progress"],
-      ).rows;
+      const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(2);
 
       const splitRow = rows.find((row) => row.id !== card.id);
       expect(Boolean(splitRow)).toBeTrue();
       expect(toIso(splitRow?.scheduled_start)).toBe(splitStartIso);
       expect(toIso(splitRow?.scheduled_end)).toBe(splitEndIso);
-      const splitRecurrence = typeof splitRow?.recurrence_json === "string"
-        ? JSON.parse(splitRow.recurrence_json)
-        : null;
+      const splitRecurrence =
+        typeof splitRow?.recurrence_json === "string" ? JSON.parse(splitRow.recurrence_json) : null;
       expect(splitRecurrence?.frequency).toBe("daily");
       expect(splitRecurrence?.interval).toBe(1);
 
@@ -451,20 +510,12 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBeTrue();
 
-      const rows = executeReadOnlyQuery(
-        `SELECT id, scheduled_start, scheduled_end, recurrence_json
-         FROM cards
-         WHERE project_id = ? AND status = ? AND archived = 0
-         ORDER BY "order" ASC`,
-        [projectId, "in_progress"],
-      ).rows;
+      const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(1);
       expect(rows[0]?.id).toBe(card.id);
       expect(toIso(rows[0]?.scheduled_start)).toBe(updatedStartIso);
       expect(toIso(rows[0]?.scheduled_end)).toBe(updatedEndIso);
-      const recurrence = typeof rows[0]?.recurrence_json === "string"
-        ? JSON.parse(rows[0].recurrence_json)
-        : null;
+      const recurrence = typeof rows[0]?.recurrence_json === "string" ? JSON.parse(rows[0].recurrence_json) : null;
       expect(recurrence?.frequency).toBe("daily");
     });
 
@@ -572,23 +623,13 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBeTrue();
 
-      const rows = executeReadOnlyQuery(
-        `SELECT id, recurrence_json
-         FROM cards
-         WHERE project_id = ? AND status = ? AND archived = 0
-         ORDER BY "order" ASC`,
-        [projectId, "in_progress"],
-      ).rows;
+      const rows = authorityRows("active", "in_progress");
       expect(rows.length).toBe(2);
 
       const oldRow = rows.find((row) => row.id === card.id);
       const splitRow = rows.find((row) => row.id !== card.id);
-      const oldRecurrence = typeof oldRow?.recurrence_json === "string"
-        ? JSON.parse(oldRow.recurrence_json)
-        : null;
-      const newRecurrence = typeof splitRow?.recurrence_json === "string"
-        ? JSON.parse(splitRow.recurrence_json)
-        : null;
+      const oldRecurrence = typeof oldRow?.recurrence_json === "string" ? JSON.parse(oldRow.recurrence_json) : null;
+      const newRecurrence = typeof splitRow?.recurrence_json === "string" ? JSON.parse(splitRow.recurrence_json) : null;
 
       expect(oldRecurrence?.endCondition?.untilDate).toBe("2026-03-04");
       expect(newRecurrence?.endCondition?.untilDate).toBe("2026-03-12");
@@ -599,41 +640,176 @@ describe("occurrence actions", () => {
     }
   });
 
-  test("undo/redo restores master schedule and archive snapshot for done occurrence", async () => {
+  test("complete writes schedule and archive through Block authorities without rewriting cards", async () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const sessionId = "session-recurring-undo-redo";
       const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const legacyBefore = executeReadOnlyQuery("SELECT scheduled_start, scheduled_end FROM cards WHERE id = ?", [
+        card.id,
+      ]).rows[0];
 
-      const completeResult = await completeCardOccurrence(
+      const completeResult = await completeCardOccurrence(projectId, {
+        cardId: card.id,
+        occurrenceStart: new Date(startIso),
+        source: "calendar",
+      });
+      expect(completeResult.success).toBeTrue();
+
+      const master = await getCard(projectId, card.id);
+      expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
+      expect(archiveRows().length).toBe(1);
+      const archiveId = archiveRows()[0]?.id;
+      expect(typeof archiveId).toBe("string");
+      if (typeof archiveId !== "string") {
+        throw new Error("Completed occurrence has no archived Card identity");
+      }
+      expect(executeReadOnlyQuery("SELECT COUNT(*) AS count FROM cards WHERE id = ?", [archiveId]).rows[0]?.count).toBe(
+        0,
+      );
+      const legacyAfter = executeReadOnlyQuery("SELECT scheduled_start, scheduled_end FROM cards WHERE id = ?", [
+        card.id,
+      ]).rows[0];
+      expect(legacyAfter?.scheduled_start).toBe(legacyBefore?.scheduled_start);
+      expect(legacyAfter?.scheduled_end).toBe(legacyBefore?.scheduled_end);
+    });
+
+    if (!ran) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("complete exact-retries across restart without cloning twice and preserves first attribution", async () => {
+    const ran = await withTempDatabase(async () => {
+      const startIso = "2026-03-01T10:00:00.000Z";
+      const endIso = "2026-03-01T11:00:00.000Z";
+      const operationId = "occurrence-complete-restart-test";
+      const card = await createCard(
+        projectId,
+        "in_progress",
+        recurringInput(startIso, endIso),
+      );
+
+      const first = await completeCardOccurrence(
         projectId,
         {
+          operationId,
           cardId: card.id,
           occurrenceStart: new Date(startIso),
           source: "calendar",
         },
-        sessionId,
+        "first-session",
       );
-      expect(completeResult.success).toBeTrue();
+      expect(first.success).toBeTrue();
+      expect(first.duplicate).toBeFalse();
+      const countAfterFirst = executeReadOnlyQuery(
+        "SELECT COUNT(*) AS count FROM blocks WHERE project_id = ? AND type = 'card'",
+        [projectId],
+      ).rows[0]?.count;
 
-      let master = await getCard(projectId, card.id);
-      expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
-      expect(archiveRows().length).toBe(1);
+      closeDatabase();
+      await initializeDatabase();
+      const retry = await completeCardOccurrence(
+        projectId,
+        {
+          operationId,
+          cardId: card.id,
+          occurrenceStart: new Date(startIso),
+          source: "api",
+        },
+        "retry-session",
+      );
+      expect(retry.success).toBeTrue();
+      expect(retry.duplicate).toBeTrue();
+      expect(retry.createdCardId).toBe(first.createdCardId);
+      expect(retry.changeLogSeq).toBe(first.changeLogSeq);
+      expect(
+        executeReadOnlyQuery(
+          "SELECT COUNT(*) AS count FROM blocks WHERE project_id = ? AND type = 'card'",
+          [projectId],
+        ).rows[0]?.count,
+      ).toBe(countAfterFirst);
 
-      const undoResult = undoLatest(projectId, sessionId);
-      expect(undoResult.success).toBeTrue();
+      const collision = await completeCardOccurrence(projectId, {
+        operationId,
+        cardId: card.id,
+        occurrenceStart: new Date("2026-03-02T10:00:00.000Z"),
+        source: "notification",
+      });
+      expect(collision.success).toBeFalse();
+      expect(collision.code).toBe("operation_id_collision");
 
-      master = await getCard(projectId, card.id);
-      expect(master?.scheduledStart?.toISOString()).toBe(startIso);
-      expect(archiveRows().length).toBe(0);
+      const history = listBlockChangeHistory(getDb(), {
+        projectId,
+        blockId: card.id,
+      }).find((entry) => entry.operationId === operationId);
+      expect(history?.mutationKind).toBe("card_occurrence_complete");
+      expect(history?.clientSessionId).toBe("first-session");
+      expect(history?.actor.source).toBe("calendar");
+    });
 
-      const redoResult = redoLatest(projectId, sessionId);
-      expect(redoResult.success).toBeTrue();
+    if (!ran) {
+      expect(true).toBeTrue();
+    }
+  });
 
-      master = await getCard(projectId, card.id);
-      expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
-      expect(archiveRows().length).toBe(1);
+  test("precondition rejection is durable, exact-retryable, and has no change cursor", async () => {
+    const ran = await withTempDatabase(async () => {
+      const operationId = "occurrence-rejected-restart-test";
+      const missingCardId = "019bc123-4567-7000-8000-000000000001";
+      const first = await completeCardOccurrence(
+        projectId,
+        {
+          operationId,
+          cardId: missingCardId,
+          occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
+          source: "calendar",
+        },
+        "rejected-first-session",
+      );
+      expect(first.success).toBeFalse();
+      expect(first.duplicate).toBeFalse();
+      expect(first.code).toBe("card_not_found");
+      const ledger = executeReadOnlyQuery(
+        `SELECT outcome, change_log_seq
+         FROM block_mutations
+         WHERE mutation_id = ?`,
+        [operationId],
+      ).rows[0];
+      expect(ledger?.outcome).toBe("rejected");
+      expect(ledger?.change_log_seq).toBe(null);
+      expect(
+        executeReadOnlyQuery(
+          "SELECT COUNT(*) AS count FROM change_log WHERE operation_id = ?",
+          [operationId],
+        ).rows[0]?.count,
+      ).toBe(0);
+
+      closeDatabase();
+      await initializeDatabase();
+      const retry = await completeCardOccurrence(
+        projectId,
+        {
+          operationId,
+          cardId: missingCardId,
+          occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
+          source: "api",
+        },
+        "rejected-retry-session",
+      );
+      expect(retry.success).toBeFalse();
+      expect(retry.duplicate).toBeTrue();
+      expect(retry.code).toBe(first.code);
+      expect(retry.error).toBe(first.error);
+
+      const collision = await skipCardOccurrence(projectId, {
+        operationId,
+        cardId: missingCardId,
+        occurrenceStart: new Date("2026-03-01T10:00:00.000Z"),
+        source: "notification",
+      });
+      expect(collision.success).toBeFalse();
+      expect(collision.code).toBe("operation_id_collision");
     });
 
     if (!ran) {

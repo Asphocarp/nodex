@@ -46,6 +46,15 @@ interface UseKanbanOptions {
   onMutation?: () => void;
 }
 
+type NewCardOccurrenceAction = Omit<
+  CardOccurrenceActionInput,
+  "operationId"
+>;
+type NewCardOccurrenceUpdate = Omit<
+  CardOccurrenceUpdateInput,
+  "operationId"
+>;
+
 function asDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
@@ -431,15 +440,19 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const completeOccurrence = useCallback(
-    async (input: CardOccurrenceActionInput): Promise<boolean> => {
+    async (input: NewCardOccurrenceAction): Promise<boolean> => {
+      const command: CardOccurrenceActionInput = {
+        ...input,
+        operationId: createUuidV7(),
+      };
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
         kind: "card:occurrence:complete",
-        conflictKeys: [conflictKeyForCard(input.cardId)],
-        apply: buildCompleteOrSkipOccurrenceTransform(input.cardId),
+        conflictKeys: [conflictKeyForCard(command.cardId)],
+        apply: buildCompleteOrSkipOccurrenceTransform(command.cardId),
         runRemote: async () => (await invoke(
           "card:occurrence:complete",
           projectId,
-          input,
+          command,
           sessionId,
         )) as { success: boolean; error?: string },
       });
@@ -456,15 +469,19 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const skipOccurrence = useCallback(
-    async (input: CardOccurrenceActionInput): Promise<boolean> => {
+    async (input: NewCardOccurrenceAction): Promise<boolean> => {
+      const command: CardOccurrenceActionInput = {
+        ...input,
+        operationId: createUuidV7(),
+      };
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
         kind: "card:occurrence:skip",
-        conflictKeys: [conflictKeyForCard(input.cardId)],
-        apply: buildCompleteOrSkipOccurrenceTransform(input.cardId),
+        conflictKeys: [conflictKeyForCard(command.cardId)],
+        apply: buildCompleteOrSkipOccurrenceTransform(command.cardId),
         runRemote: async () => (await invoke(
           "card:occurrence:skip",
           projectId,
-          input,
+          command,
           sessionId,
         )) as { success: boolean; error?: string },
       });
@@ -481,16 +498,20 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const updateOccurrence = useCallback(
-    async (input: CardOccurrenceUpdateInput): Promise<boolean> => {
-      const optimisticPatch = normalizeOccurrenceUpdatesToCardPatch(input);
+    async (input: NewCardOccurrenceUpdate): Promise<boolean> => {
+      const command: CardOccurrenceUpdateInput = {
+        ...input,
+        operationId: createUuidV7(),
+      };
+      const optimisticPatch = normalizeOccurrenceUpdatesToCardPatch(command);
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
         kind: "card:occurrence:update",
-        conflictKeys: conflictKeysForPatch(input.cardId, optimisticPatch),
-        apply: buildPatchCardTransform(undefined, input.cardId, optimisticPatch),
+        conflictKeys: conflictKeysForPatch(command.cardId, optimisticPatch),
+        apply: buildPatchCardTransform(undefined, command.cardId, optimisticPatch),
         runRemote: async () => (await invoke(
           "card:occurrence:update",
           projectId,
-          input,
+          command,
           sessionId,
         )) as { success: boolean; error?: string },
       });

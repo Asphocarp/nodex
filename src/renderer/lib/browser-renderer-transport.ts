@@ -1047,7 +1047,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "card:occurrence:complete": {
       const [projectId, input, sessionId] = args as [
         string,
-        { cardId: string; occurrenceStart: Date; source: string },
+        {
+          operationId: string;
+          cardId: string;
+          occurrenceStart: Date;
+          source: string;
+        },
         string?,
       ];
       const res = await fetch(
@@ -1067,7 +1072,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "card:occurrence:skip": {
       const [projectId, input, sessionId] = args as [
         string,
-        { cardId: string; occurrenceStart: Date; source: string },
+        {
+          operationId: string;
+          cardId: string;
+          occurrenceStart: Date;
+          source: string;
+        },
         string?,
       ];
       const res = await fetch(
@@ -1088,8 +1098,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const [projectId, input, sessionId] = args as [
         string,
         {
+          operationId: string;
           cardId: string;
           occurrenceStart: Date;
+          source: string;
           scope: string;
           updates: Record<string, unknown>;
         },

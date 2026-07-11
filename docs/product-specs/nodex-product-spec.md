@@ -415,7 +415,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Calendar event cards display a repeat indicator on occurrences derived from recurring cards, with a distinct icon for the first occurrence in each series.
 - Card Stage exposes repeat settings (frequency, interval, weekly weekdays, inclusive end date), reminder offsets, and schedule timezone.
 - Users can complete or skip a specific occurrence from Calendar quick actions and from Card Stage.
-- Completing an occurrence creates a new snapshot card with status `done` and `archived=true`; archived events remain visible on Calendar with muted styling.
+- Completing an occurrence creates a new current-content Card with status `done` and `archived=true`; archived events remain visible on Calendar with muted styling.
+- Complete, skip, and scoped update are idempotent logical commands. Every caller supplies and retains an `operationId`; retrying the same command after a lost response, app restart, or IPC/HTTP switch returns the first committed or rejected result without cloning or advancing again. Reusing that ID for a different Card, occurrence, scope, update, or command kind returns a typed collision.
+- Missing/unscheduled targets and invalid occurrence updates are durable rejections: an exact retry returns the same error, but no Card, schedule, exception, projection, or change-log entry is written. Cards created by complete/detach/split use a deterministic command-derived UUID-v7 and clone the source's current collaborative title/body and relational properties without creating a legacy compatibility row.
 - Recurrence logs are not exposed in product UI or API.
 - Occurrence schedule edits support scope: `this`, `this-and-future` (series split), and `all`.
 - For recurring event drag/resize from Calendar, the app prompts with explicit scope choices before persisting. On the first occurrence in the current series, it shows `Only this occurrence` and `All occurrences`; on non-first occurrences, it shows `Only this occurrence` and `This and future`.
@@ -732,9 +734,9 @@ nodex/
 | PUT | `/api/projects/[projectId]/card` | Update card properties (`status` optional and server-resolved when omitted; optional `expectedRevision` enables stale-write detection; stale writes return `409` with `{status:\"conflict\", card}`; request body capped at 2MB; oversized requests return 413) |
 | DELETE | `/api/projects/[projectId]/card` | Delete card (query: `?cardId=Y` or `?status=X&cardId=Y`, optional `&sessionId=Z`) |
 | GET | `/api/projects/[projectId]/calendar/occurrences` | List calendar occurrences in a time window (`?start=ISO&end=ISO&search=...`) |
-| POST | `/api/projects/[projectId]/card-occurrence/complete` | Complete one occurrence (body: `{cardId, occurrenceStart, source, sessionId?}`) |
-| POST | `/api/projects/[projectId]/card-occurrence/skip` | Skip one occurrence (body: `{cardId, occurrenceStart, source, sessionId?}`) |
-| PUT | `/api/projects/[projectId]/card-occurrence` | Update occurrence timing with scope (body: `{cardId, occurrenceStart, scope, updates, sessionId?}`) |
+| POST | `/api/projects/[projectId]/card-occurrence/complete` | Complete one occurrence (body: `{operationId, cardId, occurrenceStart, source, sessionId?}`) |
+| POST | `/api/projects/[projectId]/card-occurrence/skip` | Skip one occurrence (body: `{operationId, cardId, occurrenceStart, source, sessionId?}`) |
+| PUT | `/api/projects/[projectId]/card-occurrence` | Update occurrence timing with scope (body: `{operationId, cardId, occurrenceStart, source, scope, updates, sessionId?}`) |
 | PUT | `/api/projects/[projectId]/move` | Move card between statuses (`fromStatus` optional — server resolves; when provided, returns 409 if card not in expected status; supports optional `newOrder`; omit to append to end) |
 | POST | `/api/projects/[projectId]/card-import-block-drop` | Atomic block-drop import: source updates + target card creates in one grouped transaction |
 | GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |

@@ -54,6 +54,8 @@ import { resolveAssetPath } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
 import type {
+  CardOccurrenceActionInput,
+  CardOccurrenceUpdateInput,
   CodexBackgroundProcessRunActionInput,
   CodexHeartbeatAutomationThreadStateChangedInput,
   CodexHeartbeatAutomationsEnabledChangedInput,
@@ -476,6 +478,56 @@ interface RegisterIpcHandlersOptions {
   onHeartbeatAutomationThreadStateChanged?: (
     input: CodexHeartbeatAutomationThreadStateChangedInput,
   ) => void;
+}
+
+function assertValidOccurrenceIpcInput(
+  input: CardOccurrenceActionInput,
+): void {
+  if (
+    typeof input?.operationId !== "string" ||
+    input.operationId.length === 0 ||
+    input.operationId.length > 512 ||
+    input.operationId !== input.operationId.trim()
+  ) {
+    throw new Error("Missing or invalid occurrence operationId");
+  }
+  if (typeof input.cardId !== "string" || input.cardId.length === 0) {
+    throw new Error("Missing or invalid occurrence cardId");
+  }
+  if (
+    !(input.occurrenceStart instanceof Date) ||
+    !Number.isFinite(input.occurrenceStart.getTime())
+  ) {
+    throw new Error("Missing or invalid occurrenceStart");
+  }
+  if (
+    input.source !== "calendar" &&
+    input.source !== "card-stage" &&
+    input.source !== "notification" &&
+    input.source !== "api"
+  ) {
+    throw new Error("Missing or invalid occurrence source");
+  }
+}
+
+function assertValidOccurrenceUpdateIpcInput(
+  input: CardOccurrenceUpdateInput,
+): void {
+  assertValidOccurrenceIpcInput(input);
+  if (
+    input.scope !== "this" &&
+    input.scope !== "this-and-future" &&
+    input.scope !== "all"
+  ) {
+    throw new Error("Missing or invalid occurrence scope");
+  }
+  if (
+    typeof input.updates !== "object" ||
+    input.updates === null ||
+    Array.isArray(input.updates)
+  ) {
+    throw new Error("Missing or invalid occurrence updates");
+  }
 }
 
 export function registerIpcHandlers(
@@ -1563,6 +1615,7 @@ export function registerIpcHandlers(
   registerHandle(
     "card:occurrence:complete",
     async (_, projectId: string, input, sessionId?: string) => {
+      assertValidOccurrenceIpcInput(input);
       const envelope = await cardMutationWriter.completeCardOccurrence(
         projectId,
         input,
@@ -1575,6 +1628,7 @@ export function registerIpcHandlers(
   registerHandle(
     "card:occurrence:skip",
     async (_, projectId: string, input, sessionId?: string) => {
+      assertValidOccurrenceIpcInput(input);
       const envelope = await cardMutationWriter.skipCardOccurrence(
         projectId,
         input,
@@ -1587,6 +1641,7 @@ export function registerIpcHandlers(
   registerHandle(
     "card:occurrence:update",
     async (_, projectId: string, input, sessionId?: string) => {
+      assertValidOccurrenceUpdateIpcInput(input);
       const envelope = await cardMutationWriter.updateCardOccurrence(
         projectId,
         input,

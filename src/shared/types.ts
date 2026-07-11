@@ -98,6 +98,8 @@ export interface CalendarOccurrence extends Card {
 }
 
 export interface CardOccurrenceActionInput {
+  /** Stable logical identity for exact retry across transport/session loss. */
+  operationId: string;
   cardId: string;
   occurrenceStart: Date;
   source: OccurrenceActionSource;

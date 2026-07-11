@@ -110,6 +110,10 @@ NFM is Nodex's public text interchange format. It is used for genesis import, ex
 
 A mutation is a durable user or agent intent applied by the single SQLite writer. Document updates, property edits, membership changes, and placements are different mutation families but share idempotency, project scoping, durable acknowledgement, history, and change-log rules.
 
+Every logical operation that may be retried after losing its response has a caller-generated operation identity. Canonical intent, not the transport attempt, determines equality: actor and client session are immutable first-seen audit fields and never participate in the logical hash. A committed operation records one canonical Block change; a deterministic precondition rejection records only an immutable rejected receipt and no authority change. Exact retry returns the same result after restart or transport switching, while any semantic reuse of the identity is a typed collision.
+
+Occurrence complete/skip/update is one such operation family. It mutates schedule/recurrence through typed Block/Database property authority and, when it creates an archived, detached, or future Card, clones the current source Y.Doc plus relational properties without reading or writing a compatibility Card row. The created Card UUID-v7 is derived from the logical operation, so a pre-commit retry also targets the same identity.
+
 A Document operation batch addresses application Block IDs, not Yjs struct IDs. It may set the title or insert, update, delete, and move Blocks in order. The writer validates the entire batch on a detached current-head clone before committing one relative Yjs update and its registry, projections, mutation receipt, and change-log evidence atomically. Operations that replace or remove existing Yjs structs require a short trusted write fence and record every invalidated Block/subtree ID; an offline update that crosses such a barrier may merge only when its derived touched IDs are disjoint. Otherwise Nodex persists a recovery artifact and requires reload. A tombstoned Block ID is never a valid create/import identity.
 
 ### Relocation
@@ -156,6 +160,7 @@ Schema v64 stores the immutable relocation request/result, moved-member set, sou
 10. Deletion first tombstones identity. Ordinary create/import never reuses it; explicit history restore may reactivate the same Block and owned Document. Physical garbage collection waits until reference and history retention permits it.
 11. Cross-Document relocation commits source update, target update, registry changes, indexes, ledger, history, and change log in one SQLite transaction.
 12. NFM and all other projections can be rebuilt from authority. Authority is never rebuilt from an existing projection except during one-time genesis migration.
+13. A retryable logical operation ID is required at its calling boundary. Transport actor/session changes do not change semantic equality; exact retry cannot advance authority twice, and a durable rejection has no change-log cursor.
 
 ## Operation semantics
 

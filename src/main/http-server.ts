@@ -511,6 +511,41 @@ function parseRequiredDate(fieldName: string, value: unknown): Date {
   return parsed;
 }
 
+function parseOccurrenceOperationId(value: unknown): string {
+  if (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    value === value.trim()
+  ) {
+    return value;
+  }
+  throw new Error("Missing or invalid operationId");
+}
+
+function parseOccurrenceSource(
+  value: unknown,
+): CardOccurrenceActionInput["source"] {
+  if (
+    value === "calendar" ||
+    value === "card-stage" ||
+    value === "notification" ||
+    value === "api"
+  ) {
+    return value;
+  }
+  throw new Error("Missing or invalid occurrence source");
+}
+
+function parseOccurrenceScope(
+  value: unknown,
+): CardOccurrenceUpdateInput["scope"] {
+  if (value === "this" || value === "this-and-future" || value === "all") {
+    return value;
+  }
+  throw new Error("Missing or invalid occurrence scope");
+}
+
 function normalizeCardBody(body: Record<string, unknown>): Record<string, unknown> {
   return HttpCardBodySchema.parse(body);
 }
@@ -1438,11 +1473,11 @@ app.post("/api/projects/:projectId/card-occurrence/complete", async (c) => {
   try {
     if (!isRecord(body)) throw new Error("Invalid request body");
     if (typeof body.cardId !== "string") throw new Error("Missing cardId");
-    if (typeof body.source !== "string") throw new Error("Missing source");
     const input: CardOccurrenceActionInput = {
+      operationId: parseOccurrenceOperationId(body.operationId),
       cardId: body.cardId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
-      source: body.source as CardOccurrenceActionInput["source"],
+      source: parseOccurrenceSource(body.source),
     };
     const { result } = await cardMutationWriter.completeCardOccurrence(
       projectId,
@@ -1462,11 +1497,11 @@ app.post("/api/projects/:projectId/card-occurrence/skip", async (c) => {
   try {
     if (!isRecord(body)) throw new Error("Invalid request body");
     if (typeof body.cardId !== "string") throw new Error("Missing cardId");
-    if (typeof body.source !== "string") throw new Error("Missing source");
     const input: CardOccurrenceActionInput = {
+      operationId: parseOccurrenceOperationId(body.operationId),
       cardId: body.cardId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
-      source: body.source as CardOccurrenceActionInput["source"],
+      source: parseOccurrenceSource(body.source),
     };
     const { result } = await cardMutationWriter.skipCardOccurrence(
       projectId,
@@ -1490,10 +1525,11 @@ app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c
     if (!isRecord(body.updates)) throw new Error("Missing updates");
     const updates = normalizeCardBody(body.updates);
     const input: CardOccurrenceUpdateInput = {
+      operationId: parseOccurrenceOperationId(body.operationId),
       cardId: body.cardId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
-      source: "api",
-      scope: body.scope as CardOccurrenceUpdateInput["scope"],
+      source: parseOccurrenceSource(body.source),
+      scope: parseOccurrenceScope(body.scope),
       updates: updates as CardOccurrenceUpdateInput["updates"],
     };
     const { result } = await cardMutationWriter.updateCardOccurrence(

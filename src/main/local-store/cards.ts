@@ -1,6 +1,10 @@
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
-import { assertUuidV7, createUuidV7 } from "../../shared/card-id";
+import {
+  assertUuidV7,
+  createUuidV7,
+  createUuidV7FromTimestamp,
+} from "../../shared/card-id";
 import {
   type BlockDropImportInput,
   type BlockDropImportResult,
@@ -47,7 +51,6 @@ import * as historyService from "./history";
 import * as descriptionRevisionService from "./description-revisions";
 import { assertValidCardInput } from "./card-input-validation";
 import {
-  expandCardOccurrences,
   nextOccurrenceAfter,
   shiftUntilDateByDays,
   type RecurrenceException,
@@ -64,6 +67,20 @@ import {
   readAuthoritativeProjectCards,
 } from "./card-read-store";
 import { searchAuthoritativeCards } from "./card-search-store";
+import {
+  cloneAuthoritativeCardInTransaction,
+  type AuthoritativeCardClonePropertyOverrides,
+} from "./authoritative-card-clone";
+import { applyAuthoritativeCardSchedulePatchInTransaction } from "./card-schedule-authority";
+import {
+  persistCardOccurrenceOperation,
+  persistCardOccurrenceRejection,
+  prepareCardOccurrenceOperation,
+  type CardOccurrenceMutationResult,
+  type PreparedCardOccurrenceOperation,
+} from "./card-occurrence-receipts";
+import { AuthoritativeOperationReceiptError } from "./authoritative-operation-receipts";
+import { listAuthoritativeCalendarOccurrences } from "./scheduled-card-store";
 
 interface DbCard {
   id: string;
@@ -2048,10 +2065,6 @@ export function getCardSync(
   return row ?? null;
 }
 
-function resolveColumnName(columnId: string): string {
-  return COLUMNS.find((column) => column.id === columnId)?.name ?? columnId;
-}
-
 function dateKeyInTimezone(date: Date, timezone?: string): string {
   const resolved = timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -2142,134 +2155,338 @@ function upsertSkipRecurrenceException(
   );
 }
 
-function normalizeSearchTokens(query: string): string[] {
-  return query
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((token) => token.length > 0);
-}
-
-function cardSearchText(card: Card): string {
-  return [
-    card.title,
-    card.description,
-    card.priority ?? "",
-    card.estimate ?? "",
-    card.assignee ?? "",
-    card.agentStatus ?? "",
-    card.tags.join(" "),
-  ]
-    .join(" ")
-    .toLowerCase();
-}
-
 export async function listCalendarOccurrences(
   projectId: string,
   windowStart: Date,
   windowEnd: Date,
   searchQuery?: string,
 ): Promise<CalendarOccurrence[]> {
-  projectId = requireProjectId(projectId);
-  const database = getDb();
-  const rows = database.prepare(`
-    SELECT * FROM cards
-    WHERE project_id = ?
-      AND scheduled_start IS NOT NULL
-      AND scheduled_end IS NOT NULL
-  `).all(projectId) as DbCard[];
+  return listAuthoritativeCalendarOccurrences(getDb(), {
+    projectId: requireProjectId(projectId),
+    windowStart,
+    windowEnd,
+    searchQuery,
+  });
+}
 
-  const tokens = normalizeSearchTokens(searchQuery ?? "");
-  const occurrences: CalendarOccurrence[] = [];
+function nextScheduleAfterOccurrence(
+  database: Database.Database,
+  projectId: string,
+  card: Card,
+  occurrenceStart: Date,
+): {
+  readonly scheduledStart: Date | null;
+  readonly scheduledEnd: Date | null;
+} | null {
+  if (!card.scheduledStart || !card.scheduledEnd) return null;
+  const shouldAdvance = occurrenceStart.getTime() <= card.scheduledStart.getTime();
+  if (!shouldAdvance) return null;
+  if (!card.recurrence) return { scheduledStart: null, scheduledEnd: null };
+  const exceptions = queryRecurrenceExceptions(database, projectId, card.id);
+  const next = nextOccurrenceAfter(card, occurrenceStart, { exceptions });
+  return {
+    scheduledStart: next?.occurrenceStart ?? null,
+    scheduledEnd: next?.occurrenceEnd ?? null,
+  };
+}
 
-  for (const row of rows) {
-    const card = rowToCard(row);
-    if (tokens.length > 0) {
-      const searchText = cardSearchText(card);
-      if (!tokens.every((token) => searchText.includes(token))) continue;
-    }
+interface OccurrenceClonePlacement {
+  readonly primaryRankKey: string;
+  readonly topLevelRankKey: string;
+}
 
-    const exceptions = queryRecurrenceExceptions(database, projectId, card.id);
-    const expanded = expandCardOccurrences(card, windowStart, windowEnd, {
-      exceptions,
-    });
-    const thisAndFutureEquivalentToAllThresholdTs = card.scheduledStart?.getTime() ?? null;
+interface OccurrenceAuthorityScope {
+  readonly documentIds: readonly string[];
+  readonly databaseBlockIds: readonly string[];
+}
 
-    for (const occurrence of expanded) {
-      const thisAndFutureEquivalentToAll = Boolean(card.recurrence) &&
-        thisAndFutureEquivalentToAllThresholdTs !== null &&
-        occurrence.occurrenceStart.getTime() <= thisAndFutureEquivalentToAllThresholdTs;
-      occurrences.push({
-        ...card,
-        id: `${card.id}:${occurrence.occurrenceStart.toISOString()}`,
-        cardId: card.id,
-        statusName: resolveColumnName(row.status),
-        occurrenceStart: occurrence.occurrenceStart,
-        occurrenceEnd: occurrence.occurrenceEnd,
-        scheduledStart: occurrence.occurrenceStart,
-        scheduledEnd: occurrence.occurrenceEnd,
-        reminders: occurrence.reminders,
-        isRecurring: Boolean(card.recurrence),
-        thisAndFutureEquivalentToAll,
-      });
-    }
+interface OccurrenceCreatedScope {
+  readonly cardId: string;
+  readonly documentId: string;
+  readonly databaseBlockId: string;
+}
+
+type OccurrenceReceiptPreparation =
+  | { readonly prepared: PreparedCardOccurrenceOperation }
+  | { readonly failure: CardOccurrenceMutationResult };
+
+type OccurrenceRejectionCode =
+  | "card_not_found"
+  | "card_not_scheduled"
+  | "card_not_recurring"
+  | "invalid_occurrence_request";
+
+const OCCURRENCE_UPDATE_SCOPES = new Set([
+  "this",
+  "this-and-future",
+  "all",
+]);
+const OCCURRENCE_UPDATE_KEYS = new Set([
+  "scheduledStart",
+  "scheduledEnd",
+  "isAllDay",
+  "recurrence",
+  "reminders",
+  "scheduleTimezone",
+]);
+
+function prepareOccurrenceReceipt(
+  database: Database.Database,
+  operationKind: "complete" | "skip" | "update",
+  projectId: string,
+  input: CardOccurrenceActionInput | CardOccurrenceUpdateInput,
+  sessionId?: string,
+): OccurrenceReceiptPreparation {
+  try {
+    return {
+      prepared: prepareCardOccurrenceOperation(database, {
+        operationKind,
+        projectId,
+        request: input,
+        clientSessionId: sessionId,
+      }),
+    };
+  } catch (error) {
+    if (!(error instanceof AuthoritativeOperationReceiptError)) throw error;
+    return {
+      failure: {
+        success: false,
+        operationId: input.operationId ?? "invalid-operation",
+        duplicate: false,
+        code: error.code,
+        error: error.message,
+      },
+    };
   }
+}
 
-  return occurrences.sort(
-    (left, right) => left.occurrenceStart.getTime() - right.occurrenceStart.getTime(),
+function validateOccurrenceRequest(
+  operationKind: "complete" | "skip" | "update",
+  input: CardOccurrenceActionInput | CardOccurrenceUpdateInput,
+): string | null {
+  if (
+    !(input.occurrenceStart instanceof Date) ||
+    !Number.isFinite(input.occurrenceStart.getTime())
+  ) {
+    return "occurrenceStart must be a valid Date";
+  }
+  if (operationKind !== "update") return null;
+  if (!("scope" in input) || !OCCURRENCE_UPDATE_SCOPES.has(input.scope)) {
+    return "scope must be this, this-and-future, or all";
+  }
+  if (
+    typeof input.updates !== "object" ||
+    input.updates === null ||
+    Array.isArray(input.updates)
+  ) {
+    return "updates must be an object";
+  }
+  const updateKeys = Object.keys(input.updates);
+  if (
+    updateKeys.length === 0 ||
+    updateKeys.every((key) => input.updates[key as keyof typeof input.updates] === undefined)
+  ) {
+    return "updates must contain a defined schedule field";
+  }
+  if (updateKeys.some((key) => !OCCURRENCE_UPDATE_KEYS.has(key))) {
+    return "updates contains an unsupported schedule field";
+  }
+  try {
+    assertValidCardInput(input.updates, "update");
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  return null;
+}
+
+function rejectOccurrenceOperation(
+  database: Database.Database,
+  prepared: Extract<PreparedCardOccurrenceOperation, { kind: "new" }>,
+  cardId: string,
+  code: OccurrenceRejectionCode,
+  error: string,
+): CardOccurrenceMutationResult {
+  const rejectedAt = new Date().toISOString();
+  return database.transaction(() =>
+    persistCardOccurrenceRejection(database, {
+      prepared,
+      cardId,
+      code,
+      error,
+      rejectedAt,
+    }),
+  )();
+}
+
+function readOccurrenceAuthorityScope(
+  database: Database.Database,
+  projectId: string,
+  cardId: string,
+): OccurrenceAuthorityScope {
+  const row = database.prepare(`
+    SELECT ownership.document_id, membership.database_block_id
+    FROM blocks card
+    INNER JOIN block_documents ownership
+      ON ownership.block_id = card.id
+      AND ownership.project_id = card.project_id
+    LEFT JOIN database_memberships membership
+      ON membership.card_block_id = card.id
+      AND membership.project_id = card.project_id
+      AND membership.removed_at IS NULL
+    WHERE card.id = ? AND card.project_id = ? AND card.type = 'card'
+  `).get(cardId, projectId) as {
+    readonly document_id: string;
+    readonly database_block_id: string | null;
+  } | undefined;
+  if (!row) throw new Error(`Card ${cardId} has no authoritative Document`);
+  return {
+    documentIds: [row.document_id],
+    databaseBlockIds: row.database_block_id
+      ? [row.database_block_id]
+      : [],
+  };
+}
+
+function occurrenceNestedOperationId(
+  operationKind: string,
+  operationId: string,
+): string {
+  const digest = createHash("sha256").update(operationId).digest("hex");
+  return `card-occurrence-${operationKind}:${digest}`;
+}
+
+function deriveOccurrenceCardId(
+  operationKind: string,
+  operationId: string,
+  occurrenceStart: Date,
+): string {
+  const digest = createHash("sha256")
+    .update(operationKind)
+    .update("\0")
+    .update(operationId)
+    .digest();
+  return createUuidV7FromTimestamp(
+    occurrenceStart.getTime(),
+    digest.readUInt32BE(0),
+    digest,
   );
 }
 
+function persistOccurrenceReceipt(
+  database: Database.Database,
+  prepared: Extract<PreparedCardOccurrenceOperation, { kind: "new" }>,
+  cardId: string,
+  scope: OccurrenceAuthorityScope,
+  committedAt: string,
+  created?: OccurrenceCreatedScope,
+): CardOccurrenceMutationResult {
+  return persistCardOccurrenceOperation(database, {
+    prepared,
+    cardId,
+    ...(created ? { createdCardId: created.cardId } : {}),
+    documentIds: [
+      ...scope.documentIds,
+      ...(created ? [created.documentId] : []),
+    ],
+    databaseBlockIds: [
+      ...scope.databaseBlockIds,
+      ...(created ? [created.databaseBlockId] : []),
+    ],
+    fieldIntents: [
+      {
+        path: `cards.${cardId}.occurrences`,
+        operation: prepared.operationKind,
+      },
+      ...(created
+        ? [{ path: `blocks.${created.cardId}`, operation: "create" }]
+        : []),
+    ],
+    committedAt,
+  });
+}
 
-async function updateCardScheduleForNextOccurrence(
+function readOccurrenceClonePlacement(
+  database: Database.Database,
   projectId: string,
-  columnId: CardStatus,
-  card: Card,
-  occurrenceStart: Date,
-  sessionId?: string,
-): Promise<void> {
-  if (!card.scheduledStart || !card.scheduledEnd) return;
-  const shouldAdvance = occurrenceStart.getTime() <= card.scheduledStart.getTime();
-
-  if (!card.recurrence) {
-    if (!shouldAdvance) return;
-    await updateCard(projectId, columnId, card.id, {
-      scheduledStart: null,
-      scheduledEnd: null,
-    }, sessionId);
-    return;
-  }
-
-  if (!shouldAdvance) return;
-
-  const database = getDb();
-  const exceptions = queryRecurrenceExceptions(database, projectId, card.id);
-  const next = nextOccurrenceAfter(card, occurrenceStart, { exceptions });
-
-  if (!next) {
-    await updateCard(projectId, columnId, card.id, {
-      scheduledStart: null,
-      scheduledEnd: null,
-    }, sessionId);
-    return;
-  }
-
-  await updateCard(projectId, columnId, card.id, {
-    scheduledStart: next.occurrenceStart,
-    scheduledEnd: next.occurrenceEnd,
-  }, sessionId);
+  cardId: string,
+  newCardId: string,
+): OccurrenceClonePlacement {
+  const row = database.prepare(`
+    SELECT position.rank_key AS primary_rank_key,
+           placement.rank_key AS top_level_rank_key
+    FROM blocks card
+    INNER JOIN database_memberships membership
+      ON membership.card_block_id = card.id
+      AND membership.project_id = card.project_id
+      AND membership.removed_at IS NULL
+    INNER JOIN database_views view
+      ON view.database_block_id = membership.database_block_id
+      AND view.project_id = membership.project_id
+      AND view.is_primary = 1
+    INNER JOIN database_view_positions position
+      ON position.view_id = view.id
+      AND position.block_id = card.id
+      AND position.project_id = card.project_id
+    INNER JOIN top_level_block_placements placement
+      ON placement.block_id = card.id
+      AND placement.project_id = card.project_id
+    WHERE card.id = ? AND card.project_id = ? AND card.type = 'card'
+  `).get(cardId, projectId) as {
+    readonly primary_rank_key: string;
+    readonly top_level_rank_key: string;
+  } | undefined;
+  if (!row) throw new Error(`Card ${cardId} has no authoritative placement`);
+  return {
+    primaryRankKey: `${row.primary_rank_key}~${newCardId}`,
+    topLevelRankKey: `${row.top_level_rank_key}~${newCardId}`,
+  };
 }
 
 export async function completeCardOccurrence(
   projectId: string,
   input: CardOccurrenceActionInput,
   sessionId?: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<CardOccurrenceMutationResult> {
   projectId = requireProjectId(projectId);
+  const database = getDb();
+  const receipt = prepareOccurrenceReceipt(
+    database,
+    "complete",
+    projectId,
+    input,
+    sessionId,
+  );
+  if ("failure" in receipt) return receipt.failure;
+  if (receipt.prepared.kind === "replay") return receipt.prepared.result;
+  const prepared = receipt.prepared;
+  const invalidRequest = validateOccurrenceRequest("complete", input);
+  if (invalidRequest) {
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "invalid_occurrence_request",
+      invalidRequest,
+    );
+  }
   const target = await getCard(projectId, input.cardId);
-  if (!target) return { success: false, error: "Card not found" };
+  if (!target) {
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "card_not_found",
+      "Card not found",
+    );
+  }
   if (!target.scheduledStart || !target.scheduledEnd) {
-    return { success: false, error: "Card is not scheduled" };
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "card_not_scheduled",
+      "Card is not scheduled",
+    );
   }
 
   const durationMs = Math.max(
@@ -2279,81 +2496,49 @@ export async function completeCardOccurrence(
   const occurrenceStart = input.occurrenceStart;
   const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
   const shouldAdvance = occurrenceStart.getTime() <= target.scheduledStart.getTime();
-  const database = getDb();
-  const groupId = resolveGroupId();
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const archiveCardId = createUuidV7();
+  const nowIso = new Date().toISOString();
+  const archiveCardId = deriveOccurrenceCardId(
+    "complete",
+    prepared.operationId,
+    occurrenceStart,
+  );
+  const sourceScope = readOccurrenceAuthorityScope(
+    database,
+    projectId,
+    target.id,
+  );
+  const cloneOverrides: AuthoritativeCardClonePropertyOverrides = {
+    database: {
+      status: "done",
+      scheduled_start: occurrenceStart.toISOString(),
+      scheduled_end: occurrenceEnd.toISOString(),
+    },
+    intrinsic: {
+      "schedule.isAllDay": Boolean(target.isAllDay),
+      "schedule.timezone": target.scheduleTimezone ?? null,
+      "recurrence.config": null,
+      "reminders.config": [],
+    },
+  };
 
-  database.transaction(() => {
-    const maxArchiveOrderRow = database
-      .prepare('SELECT MAX("order") as maxOrder FROM cards WHERE project_id = ? AND archived = 1 AND status = ?')
-      .get(projectId, "done") as { maxOrder: number | null } | undefined;
-    const archiveOrder = (maxArchiveOrderRow?.maxOrder ?? -1) + 1;
-    const archiveDescriptionRevisionId = descriptionRevisionService.createInitialDescriptionRevision(
-      database,
-      archiveCardId,
-      target.description,
-      nowIso,
-    );
-
-    database.prepare(`
-      INSERT INTO cards (
-        id, project_id, status, archived, title, description, description_revision_id, priority, estimate,
-        tags, due_date, scheduled_start, scheduled_end, is_all_day, recurrence_json, reminders_json, schedule_timezone,
-        assignee, agent_blocked, agent_status, run_in_target, run_in_local_path, run_in_base_branch, run_in_worktree_path, run_in_environment_path, created, "order"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      archiveCardId,
+  const result = database.transaction(() => {
+    const clone = cloneAuthoritativeCardInTransaction(database, {
       projectId,
-      "done",
-      1,
-      target.title,
-      target.description,
-      archiveDescriptionRevisionId,
-      target.priority,
-      target.estimate ?? null,
-      JSON.stringify(target.tags),
-      target.dueDate?.toISOString().split("T")[0] ?? null,
-      occurrenceStart.toISOString(),
-      occurrenceEnd.toISOString(),
-      target.isAllDay ? 1 : 0,
-      null,
-      "[]",
-      target.scheduleTimezone?.trim() || null,
-      target.assignee ?? null,
-      target.agentBlocked ? 1 : 0,
-      target.agentStatus ?? null,
-      toRunInTargetDbValue(target.runInTarget),
-      target.runInLocalPath?.trim() || null,
-      target.runInBaseBranch?.trim() || null,
-      target.runInWorktreePath?.trim() || null,
-      target.runInEnvironmentPath?.trim() || null,
-      nowIso,
-      archiveOrder,
-    );
-
-    historyService.clearRedoStack(projectId, sessionId);
-    historyService.recordCreate(
-      {
-        ...target,
-        id: archiveCardId,
-        status: "done",
-        archived: true,
-        recurrence: undefined,
-        reminders: [],
-        isAllDay: target.isAllDay,
-        scheduledStart: occurrenceStart,
-        scheduledEnd: occurrenceEnd,
-        created: now,
-        order: archiveOrder,
-      },
-      projectId,
-      "done",
-      archiveDescriptionRevisionId,
-      sessionId,
-      groupId,
-    );
+      sourceCardId: target.id,
+      newCardId: archiveCardId,
+      lifecycle: "archived",
+      status: "done",
+      primaryViewRankKey: `~archive:${nowIso}:${archiveCardId}`,
+      topLevelRankKey: `~archive:${nowIso}:${archiveCardId}`,
+      propertyOverrides: cloneOverrides,
+      operationId: occurrenceNestedOperationId(
+        "complete-clone",
+        prepared.operationId,
+      ),
+      clientSessionId: sessionId,
+      actor: { source: input.source, operation: "complete" },
+      createdAt: nowIso,
+    });
 
     if (target.recurrence && !shouldAdvance) {
       upsertSkipRecurrenceException(
@@ -2365,78 +2550,101 @@ export async function completeCardOccurrence(
       );
     }
 
-    const isOneTime = !target.recurrence;
-    if (!isOneTime && !shouldAdvance) return;
-
-    let nextScheduledStart: Date | null = null;
-    let nextScheduledEnd: Date | null = null;
-
-    if (!isOneTime) {
-      const exceptions = queryRecurrenceExceptions(database, projectId, target.id);
-      const next = nextOccurrenceAfter(target, occurrenceStart, { exceptions });
-      nextScheduledStart = next?.occurrenceStart ?? null;
-      nextScheduledEnd = next?.occurrenceEnd ?? null;
-    }
-
-    const prevStartIso = target.scheduledStart?.toISOString() ?? null;
-    const prevEndIso = target.scheduledEnd?.toISOString() ?? null;
-    const nextStartIso = nextScheduledStart?.toISOString() ?? null;
-    const nextEndIso = nextScheduledEnd?.toISOString() ?? null;
-
-    if (prevStartIso === nextStartIso && prevEndIso === nextEndIso) return;
-
-    database.prepare(`
-      UPDATE cards
-      SET scheduled_start = ?, scheduled_end = ?
-      WHERE id = ? AND project_id = ?
-    `).run(
-      nextStartIso,
-      nextEndIso,
-      target.id,
+    const nextSchedule = nextScheduleAfterOccurrence(
+      database,
       projectId,
+      target,
+      occurrenceStart,
     );
-
-    historyService.recordUpdate(
+    if (nextSchedule) {
+      applyAuthoritativeCardSchedulePatchInTransaction(database, {
+        projectId,
+        cardId: target.id,
+        operationId: `occurrence-complete-advance:${randomUUID()}`,
+        clientSessionId: sessionId,
+        patch: nextSchedule,
+      });
+    }
+    return persistOccurrenceReceipt(
+      database,
+      prepared,
       target.id,
-      projectId,
-      target.status,
+      sourceScope,
+      nowIso,
       {
-        scheduledStart: target.scheduledStart,
-        scheduledEnd: target.scheduledEnd,
+        cardId: clone.cardId,
+        documentId: clone.documentId,
+        databaseBlockId: clone.databaseBlockId,
       },
-      {
-        scheduledStart: nextScheduledStart ?? undefined,
-        scheduledEnd: nextScheduledEnd ?? undefined,
-      },
-      null,
-      null,
-      sessionId,
-      groupId,
     );
   })();
 
   dbNotifier.notifyChange(projectId, "update", target.status, input.cardId);
-  dbNotifier.notifyChange(projectId, "create", "done", archiveCardId);
-  return { success: true };
+  dbNotifier.notifyChange(
+    projectId,
+    "create",
+    "done",
+    result.createdCardId ?? archiveCardId,
+  );
+  return result;
 }
 
 export async function skipCardOccurrence(
   projectId: string,
   input: CardOccurrenceActionInput,
   sessionId?: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<CardOccurrenceMutationResult> {
   projectId = requireProjectId(projectId);
+  const database = getDb();
+  const receipt = prepareOccurrenceReceipt(
+    database,
+    "skip",
+    projectId,
+    input,
+    sessionId,
+  );
+  if ("failure" in receipt) return receipt.failure;
+  if (receipt.prepared.kind === "replay") return receipt.prepared.result;
+  const prepared = receipt.prepared;
+  const invalidRequest = validateOccurrenceRequest("skip", input);
+  if (invalidRequest) {
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "invalid_occurrence_request",
+      invalidRequest,
+    );
+  }
   const target = await getCard(projectId, input.cardId);
-  if (!target) return { success: false, error: "Card not found" };
+  if (!target) {
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "card_not_found",
+      "Card not found",
+    );
+  }
   if (!target.scheduledStart || !target.scheduledEnd) {
-    return { success: false, error: "Card is not scheduled" };
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "card_not_scheduled",
+      "Card is not scheduled",
+    );
   }
 
   const occurrenceStart = input.occurrenceStart;
-  const database = getDb();
   const nowIso = new Date().toISOString();
+  const sourceScope = readOccurrenceAuthorityScope(
+    database,
+    projectId,
+    target.id,
+  );
 
-  database.transaction(() => {
+  const result = database.transaction(() => {
     if (target.recurrence) {
       upsertSkipRecurrenceException(
         database,
@@ -2446,22 +2654,32 @@ export async function skipCardOccurrence(
         nowIso,
       );
     }
+    const nextSchedule = nextScheduleAfterOccurrence(
+      database,
+      projectId,
+      target,
+      occurrenceStart,
+    );
+    if (nextSchedule) {
+      applyAuthoritativeCardSchedulePatchInTransaction(database, {
+        projectId,
+        cardId: target.id,
+        operationId: `occurrence-skip-advance:${randomUUID()}`,
+        clientSessionId: sessionId,
+        patch: nextSchedule,
+      });
+    }
+    return persistOccurrenceReceipt(
+      database,
+      prepared,
+      target.id,
+      sourceScope,
+      nowIso,
+    );
   })();
 
-  await updateCardScheduleForNextOccurrence(
-    projectId,
-    target.status,
-    target,
-    occurrenceStart,
-    sessionId,
-  );
-
   dbNotifier.notifyChange(projectId, "update", target.status, input.cardId);
-  return { success: true };
-}
-
-function resolveGroupId(): string {
-  return randomUUID();
+  return result;
 }
 
 function normalizeOccurrenceTiming(
@@ -2487,11 +2705,46 @@ export async function updateCardOccurrence(
   projectId: string,
   input: CardOccurrenceUpdateInput,
   sessionId?: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<CardOccurrenceMutationResult> {
   projectId = requireProjectId(projectId);
+  const database = getDb();
+  const receipt = prepareOccurrenceReceipt(
+    database,
+    "update",
+    projectId,
+    input,
+    sessionId,
+  );
+  if ("failure" in receipt) return receipt.failure;
+  if (receipt.prepared.kind === "replay") return receipt.prepared.result;
+  const prepared = receipt.prepared;
+  const invalidRequest = validateOccurrenceRequest("update", input);
+  if (invalidRequest) {
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "invalid_occurrence_request",
+      invalidRequest,
+    );
+  }
   const target = await getCard(projectId, input.cardId);
-  if (!target) return { success: false, error: "Card not found" };
+  if (!target) {
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "card_not_found",
+      "Card not found",
+    );
+  }
   const card = target;
+  const nowIso = new Date().toISOString();
+  const sourceScope = readOccurrenceAuthorityScope(
+    database,
+    projectId,
+    target.id,
+  );
   const dragShiftRecurrence = shiftRecurringUntilDateWithDraggedDate(
     card.recurrence,
     input.occurrenceStart,
@@ -2500,97 +2753,112 @@ export async function updateCardOccurrence(
   );
 
   if (input.scope === "all") {
-    const result = await updateCard(projectId, target.status, input.cardId, {
-      scheduledStart: input.updates.scheduledStart,
-      scheduledEnd: input.updates.scheduledEnd,
-      isAllDay: input.updates.isAllDay,
-      recurrence: input.updates.recurrence === undefined
-        ? dragShiftRecurrence
-        : input.updates.recurrence,
-      reminders: input.updates.reminders,
-      scheduleTimezone:
-        input.updates.scheduleTimezone === undefined ? undefined : input.updates.scheduleTimezone,
-    }, sessionId);
-    return result.status === "updated"
-      ? { success: true }
-      : { success: false, error: "Failed to update card" };
+    const result = database.transaction(() => {
+      applyAuthoritativeCardSchedulePatchInTransaction(database, {
+        projectId,
+        cardId: target.id,
+        operationId: `occurrence-update-all:${randomUUID()}`,
+        clientSessionId: sessionId,
+        patch: {
+          scheduledStart: input.updates.scheduledStart,
+          scheduledEnd: input.updates.scheduledEnd,
+          isAllDay: input.updates.isAllDay,
+          recurrence: input.updates.recurrence === undefined
+            ? dragShiftRecurrence
+            : (input.updates.recurrence ?? null),
+          reminders: input.updates.reminders,
+          scheduleTimezone: input.updates.scheduleTimezone,
+        },
+      });
+      return persistOccurrenceReceipt(
+        database,
+        prepared,
+        target.id,
+        sourceScope,
+        nowIso,
+      );
+    })();
+    dbNotifier.notifyChange(projectId, "update", target.status, target.id);
+    return result;
   }
 
   if (input.scope === "this") {
     if (!card.recurrence) {
-      const result = await updateCard(projectId, target.status, input.cardId, {
-        scheduledStart: input.updates.scheduledStart,
-        scheduledEnd: input.updates.scheduledEnd,
-        isAllDay: input.updates.isAllDay,
-        reminders: input.updates.reminders,
-        scheduleTimezone:
-          input.updates.scheduleTimezone === undefined ? undefined : input.updates.scheduleTimezone,
-      }, sessionId);
-      return result.status === "updated"
-        ? { success: true }
-        : { success: false, error: "Failed to update card" };
+      const result = database.transaction(() => {
+        applyAuthoritativeCardSchedulePatchInTransaction(database, {
+          projectId,
+          cardId: target.id,
+          operationId: `occurrence-update-one-time:${randomUUID()}`,
+          clientSessionId: sessionId,
+          patch: {
+            scheduledStart: input.updates.scheduledStart,
+            scheduledEnd: input.updates.scheduledEnd,
+            isAllDay: input.updates.isAllDay,
+            reminders: input.updates.reminders,
+            scheduleTimezone: input.updates.scheduleTimezone,
+          },
+        });
+        return persistOccurrenceReceipt(
+          database,
+          prepared,
+          target.id,
+          sourceScope,
+          nowIso,
+        );
+      })();
+      dbNotifier.notifyChange(projectId, "update", target.status, target.id);
+      return result;
     }
 
-    const database = getDb();
-    const existing = database
-      .prepare("SELECT * FROM cards WHERE id = ? AND project_id = ? AND archived = 0 AND status = ?")
-      .get(input.cardId, projectId, target.status) as DbCard | undefined;
-    if (!existing) return { success: false, error: "Card no longer exists" };
-
     const timing = normalizeOccurrenceTiming(card, input.occurrenceStart, input.updates);
-    const detachedCardId = createUuidV7();
-    const nowIso = new Date().toISOString();
-    const detachedReminders = input.updates.reminders ?? card.reminders;
+    const detachedCardId = deriveOccurrenceCardId(
+      "detach",
+      prepared.operationId,
+      input.occurrenceStart,
+    );
+    const detachedReminders = input.updates.reminders ?? card.reminders ?? [];
     const detachedTimezone = input.updates.scheduleTimezone === undefined
       ? card.scheduleTimezone
       : (input.updates.scheduleTimezone ?? undefined);
+    const placement = readOccurrenceClonePlacement(
+      database,
+      projectId,
+      target.id,
+      detachedCardId,
+    );
 
-    database.transaction(() => {
-      const detachedDescriptionRevisionId = descriptionRevisionService.createInitialDescriptionRevision(
+    const result = database.transaction(() => {
+      const clone = cloneAuthoritativeCardInTransaction(
         database,
-        detachedCardId,
-        card.description,
-        nowIso,
-      );
-      database.prepare(
-        `UPDATE cards SET "order" = "order" + 1
-         WHERE project_id = ? AND archived = 0 AND status = ? AND "order" > ?`
-      ).run(projectId, target.status, existing.order);
-
-      database.prepare(`
-        INSERT INTO cards (
-          id, project_id, status, archived, title, description, description_revision_id, priority, estimate,
-          tags, due_date, scheduled_start, scheduled_end, is_all_day, recurrence_json, reminders_json, schedule_timezone,
-          assignee, agent_blocked, agent_status, run_in_target, run_in_local_path, run_in_base_branch, run_in_worktree_path, run_in_environment_path, created, "order"
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        detachedCardId,
-        projectId,
-        target.status,
-        0,
-        card.title,
-        card.description,
-        detachedDescriptionRevisionId,
-        card.priority ?? null,
-        card.estimate ?? null,
-        JSON.stringify(card.tags),
-        card.dueDate?.toISOString().split("T")[0] ?? null,
-        timing.start.toISOString(),
-        timing.end.toISOString(),
-        (input.updates.isAllDay ?? card.isAllDay) ? 1 : 0,
-        null,
-        JSON.stringify(detachedReminders),
-        detachedTimezone ?? null,
-        card.assignee ?? null,
-        card.agentBlocked ? 1 : 0,
-        card.agentStatus ?? null,
-        toRunInTargetDbValue(card.runInTarget),
-        card.runInLocalPath?.trim() || null,
-        card.runInBaseBranch?.trim() || null,
-        card.runInWorktreePath?.trim() || null,
-        card.runInEnvironmentPath?.trim() || null,
-        nowIso,
-        existing.order + 1,
+        {
+          projectId,
+          sourceCardId: target.id,
+          newCardId: detachedCardId,
+          lifecycle: "active",
+          status: target.status,
+          primaryViewRankKey: placement.primaryRankKey,
+          topLevelRankKey: placement.topLevelRankKey,
+          propertyOverrides: {
+            database: {
+              status: target.status,
+              scheduled_start: timing.start.toISOString(),
+              scheduled_end: timing.end.toISOString(),
+            },
+            intrinsic: {
+              "schedule.isAllDay": input.updates.isAllDay ?? Boolean(card.isAllDay),
+              "schedule.timezone": detachedTimezone ?? null,
+              "recurrence.config": null,
+              "reminders.config": detachedReminders,
+            },
+          },
+          operationId: occurrenceNestedOperationId(
+            "detach-clone",
+            prepared.operationId,
+          ),
+          clientSessionId: sessionId,
+          actor: { source: input.source, operation: "update-this" },
+          createdAt: nowIso,
+        },
       );
 
       upsertSkipRecurrenceException(
@@ -2600,58 +2868,96 @@ export async function updateCardOccurrence(
         input.occurrenceStart,
         nowIso,
       );
+      return persistOccurrenceReceipt(
+        database,
+        prepared,
+        target.id,
+        sourceScope,
+        nowIso,
+        {
+          cardId: clone.cardId,
+          documentId: clone.documentId,
+          databaseBlockId: clone.databaseBlockId,
+        },
+      );
     })();
 
     dbNotifier.notifyChange(projectId, "update", target.status, input.cardId);
     dbNotifier.notifyChange(projectId, "create", target.status, detachedCardId);
-    return { success: true };
+    return result;
   }
 
   if (!card.recurrence) {
-    const result = await updateCard(projectId, target.status, input.cardId, {
-      scheduledStart: input.updates.scheduledStart,
-      scheduledEnd: input.updates.scheduledEnd,
-      isAllDay: input.updates.isAllDay,
-      reminders: input.updates.reminders,
-      scheduleTimezone:
-        input.updates.scheduleTimezone === undefined ? undefined : input.updates.scheduleTimezone,
-    }, sessionId);
-    return result.status === "updated"
-      ? { success: true }
-      : { success: false, error: "Failed to update card" };
+    const result = database.transaction(() => {
+      applyAuthoritativeCardSchedulePatchInTransaction(database, {
+        projectId,
+        cardId: target.id,
+        operationId: `occurrence-update-nonrecurring:${randomUUID()}`,
+        clientSessionId: sessionId,
+        patch: {
+          scheduledStart: input.updates.scheduledStart,
+          scheduledEnd: input.updates.scheduledEnd,
+          isAllDay: input.updates.isAllDay,
+          reminders: input.updates.reminders,
+          scheduleTimezone: input.updates.scheduleTimezone,
+        },
+      });
+      return persistOccurrenceReceipt(
+        database,
+        prepared,
+        target.id,
+        sourceScope,
+        nowIso,
+      );
+    })();
+    dbNotifier.notifyChange(projectId, "update", target.status, target.id);
+    return result;
   }
 
   // this-and-future: split the series into a new card from occurrence start onward
-  const database = getDb();
-  const existing = database
-    .prepare("SELECT * FROM cards WHERE id = ? AND project_id = ? AND archived = 0 AND status = ?")
-    .get(input.cardId, projectId, target.status) as DbCard | undefined;
-  if (!existing) return { success: false, error: "Card no longer exists" };
-
-  const oldCard = rowToCard(existing);
+  const oldCard = card;
   const oldRecurrence = oldCard.recurrence;
   if (!oldRecurrence) {
-    return { success: false, error: "Card is not recurring" };
+    return rejectOccurrenceOperation(
+      database,
+      prepared,
+      input.cardId,
+      "card_not_recurring",
+      "Card is not recurring",
+    );
   }
 
   const oldScheduledStart = oldCard.scheduledStart;
   const isEquivalentToAll = oldScheduledStart !== undefined &&
     input.occurrenceStart.getTime() <= oldScheduledStart.getTime();
   if (isEquivalentToAll) {
-    const result = await updateCard(projectId, target.status, input.cardId, {
-      scheduledStart: input.updates.scheduledStart,
-      scheduledEnd: input.updates.scheduledEnd,
-      isAllDay: input.updates.isAllDay,
-      recurrence: input.updates.recurrence === undefined
-        ? dragShiftRecurrence
-        : input.updates.recurrence,
-      reminders: input.updates.reminders,
-      scheduleTimezone:
-        input.updates.scheduleTimezone === undefined ? undefined : input.updates.scheduleTimezone,
-    }, sessionId);
-    return result.status === "updated"
-      ? { success: true }
-      : { success: false, error: "Failed to update card" };
+    const result = database.transaction(() => {
+      applyAuthoritativeCardSchedulePatchInTransaction(database, {
+        projectId,
+        cardId: target.id,
+        operationId: `occurrence-update-equivalent-all:${randomUUID()}`,
+        clientSessionId: sessionId,
+        patch: {
+          scheduledStart: input.updates.scheduledStart,
+          scheduledEnd: input.updates.scheduledEnd,
+          isAllDay: input.updates.isAllDay,
+          recurrence: input.updates.recurrence === undefined
+            ? dragShiftRecurrence
+            : (input.updates.recurrence ?? null),
+          reminders: input.updates.reminders,
+          scheduleTimezone: input.updates.scheduleTimezone,
+        },
+      });
+      return persistOccurrenceReceipt(
+        database,
+        prepared,
+        target.id,
+        sourceScope,
+        nowIso,
+      );
+    })();
+    dbNotifier.notifyChange(projectId, "update", target.status, target.id);
+    return result;
   }
 
   const timezone = oldCard.scheduleTimezone ?? input.updates.scheduleTimezone ?? undefined;
@@ -2665,9 +2971,12 @@ export async function updateCardOccurrence(
   };
 
   const splitTiming = normalizeOccurrenceTiming(oldCard, input.occurrenceStart, input.updates);
-  const nextCardId = createUuidV7();
-  const groupId = resolveGroupId();
-  const nextReminders = input.updates.reminders ?? oldCard.reminders;
+  const nextCardId = deriveOccurrenceCardId(
+    "split",
+    prepared.operationId,
+    input.occurrenceStart,
+  );
+  const nextReminders = input.updates.reminders ?? oldCard.reminders ?? [];
   const nextTimezone = input.updates.scheduleTimezone === undefined
     ? oldCard.scheduleTimezone
     : (input.updates.scheduleTimezone ?? undefined);
@@ -2680,109 +2989,70 @@ export async function updateCardOccurrence(
   const nextRecurrence = input.updates.recurrence === undefined
     ? (shiftedFutureRecurrence ?? oldRecurrence)
     : (input.updates.recurrence ?? undefined);
-  const nowIso = new Date().toISOString();
+  const placement = readOccurrenceClonePlacement(
+    database,
+    projectId,
+    target.id,
+    nextCardId,
+  );
 
-  database.transaction(() => {
-    database.prepare(`
-      UPDATE cards
-      SET recurrence_json = ?
-      WHERE id = ? AND project_id = ?
-    `).run(
-      JSON.stringify(endedRecurrence),
-      input.cardId,
-      projectId,
-    );
-
-    historyService.clearRedoStack(projectId, sessionId);
-    historyService.recordUpdate(
-      input.cardId,
-      projectId,
-      target.status,
-      {
-        recurrence: oldCard.recurrence,
-      },
-      {
-        recurrence: endedRecurrence,
-      },
-      null,
-      null,
-      sessionId,
-      groupId,
-    );
-
-    database.prepare(
-      `UPDATE cards SET "order" = "order" + 1
-       WHERE project_id = ? AND archived = 0 AND status = ? AND "order" > ?`
-    ).run(projectId, target.status, existing.order);
-    const nextDescriptionRevisionId = descriptionRevisionService.createInitialDescriptionRevision(
+  const result = database.transaction(() => {
+    const clone = cloneAuthoritativeCardInTransaction(
       database,
-      nextCardId,
-      oldCard.description,
+      {
+        projectId,
+        sourceCardId: target.id,
+        newCardId: nextCardId,
+        lifecycle: "active",
+        status: target.status,
+        primaryViewRankKey: placement.primaryRankKey,
+        topLevelRankKey: placement.topLevelRankKey,
+        propertyOverrides: {
+          database: {
+            status: target.status,
+            scheduled_start: splitTiming.start.toISOString(),
+            scheduled_end: splitTiming.end.toISOString(),
+          },
+          intrinsic: {
+            "schedule.isAllDay": input.updates.isAllDay ?? Boolean(oldCard.isAllDay),
+            "schedule.timezone": nextTimezone ?? null,
+            "recurrence.config": nextRecurrence ?? null,
+            "reminders.config": nextReminders,
+          },
+        },
+        operationId: occurrenceNestedOperationId(
+          "split-clone",
+          prepared.operationId,
+        ),
+        clientSessionId: sessionId,
+        actor: { source: input.source, operation: "update-this-and-future" },
+        createdAt: nowIso,
+      },
+    );
+    applyAuthoritativeCardSchedulePatchInTransaction(database, {
+      projectId,
+      cardId: target.id,
+      operationId: `occurrence-split-source:${randomUUID()}`,
+      clientSessionId: sessionId,
+      patch: { recurrence: endedRecurrence },
+    });
+    return persistOccurrenceReceipt(
+      database,
+      prepared,
+      target.id,
+      sourceScope,
       nowIso,
-    );
-
-    database.prepare(`
-      INSERT INTO cards (
-        id, project_id, status, archived, title, description, description_revision_id, priority, estimate,
-        tags, due_date, scheduled_start, scheduled_end, is_all_day, recurrence_json, reminders_json, schedule_timezone,
-        assignee, agent_blocked, agent_status, run_in_target, run_in_local_path, run_in_base_branch, run_in_worktree_path, run_in_environment_path, created, "order"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      nextCardId,
-      projectId,
-      target.status,
-      0,
-      oldCard.title,
-      oldCard.description,
-      nextDescriptionRevisionId,
-      oldCard.priority,
-      oldCard.estimate ?? null,
-      JSON.stringify(oldCard.tags),
-      oldCard.dueDate?.toISOString().split("T")[0] ?? null,
-      splitTiming.start.toISOString(),
-      splitTiming.end.toISOString(),
-      (input.updates.isAllDay ?? oldCard.isAllDay) ? 1 : 0,
-      nextRecurrence ? JSON.stringify(nextRecurrence) : null,
-      JSON.stringify(nextReminders),
-      nextTimezone ?? null,
-      oldCard.assignee ?? null,
-      oldCard.agentBlocked ? 1 : 0,
-      oldCard.agentStatus ?? null,
-      toRunInTargetDbValue(oldCard.runInTarget),
-      oldCard.runInLocalPath?.trim() || null,
-      oldCard.runInBaseBranch?.trim() || null,
-      oldCard.runInWorktreePath?.trim() || null,
-      oldCard.runInEnvironmentPath?.trim() || null,
-      new Date().toISOString(),
-      existing.order + 1,
-    );
-
-    const createdCard: Card = {
-      ...oldCard,
-      id: nextCardId,
-      scheduledStart: splitTiming.start,
-      scheduledEnd: splitTiming.end,
-      isAllDay: input.updates.isAllDay ?? oldCard.isAllDay,
-      recurrence: nextRecurrence,
-      reminders: nextReminders,
-      scheduleTimezone: nextTimezone,
-      created: new Date(),
-      order: existing.order + 1,
-    };
-
-    historyService.recordCreate(
-      createdCard,
-      projectId,
-      target.status,
-      nextDescriptionRevisionId,
-      sessionId,
-      groupId,
+      {
+        cardId: clone.cardId,
+        documentId: clone.documentId,
+        databaseBlockId: clone.databaseBlockId,
+      },
     );
   })();
 
   dbNotifier.notifyChange(projectId, "update", target.status, input.cardId);
   dbNotifier.notifyChange(projectId, "create", target.status, nextCardId);
-  return { success: true };
+  return result;
 }
 
 export { COLUMNS };
