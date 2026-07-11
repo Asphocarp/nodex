@@ -151,6 +151,32 @@ describe("Document HTTP contract", () => {
         headSeq: 2,
         reason: "event-gap",
       },
+      {
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-1",
+        documentId: "document-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        expectedHeadSeq: 2,
+        deadlineAt: 2_000,
+      },
+      {
+        kind: "relocation-lease-release",
+        leaseId: "lease-1",
+        documentId: "document-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 3,
+      },
+      {
+        kind: "relocation-lease-cancel",
+        leaseId: "lease-2",
+        documentId: "document-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 3,
+        reason: "lease timeout",
+      },
     ] as const;
     const decodedKinds = events.map(
       (event) =>
@@ -158,7 +184,7 @@ describe("Document HTTP contract", () => {
           .kind,
     );
     expect(decodedKinds.join(",")).toBe(
-      "connection,document-update,awareness,resync-required",
+      "connection,document-update,awareness,resync-required,relocation-lease-prepare,relocation-lease-release,relocation-lease-cancel",
     );
 
     const error = {

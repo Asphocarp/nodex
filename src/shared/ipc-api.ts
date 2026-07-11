@@ -2,6 +2,8 @@ import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
+  DocumentRelocationLeaseResponseAck,
+  DocumentRelocationLeaseResponseRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -552,6 +554,10 @@ export interface IpcApi {
   "document-sync:awareness:publish": {
     args: [request: DocumentAwarenessPublishRequest];
     result: DocumentSyncCommandResult<DocumentAwarenessPublishAck>;
+  };
+  "document-sync:relocation-lease:respond": {
+    args: [request: DocumentRelocationLeaseResponseRequest];
+    result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
   };
   "diagnostics:renderer-log": {
     args: [input: RendererDiagnosticsLogInput];

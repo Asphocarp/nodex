@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import * as Y from "yjs";
 import type {
   DocumentAwarenessPublishRequest,
+  DocumentRelocationLeaseResponseAck,
+  DocumentRelocationLeaseResponseRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -202,6 +204,7 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
   readonly syncCalls: DocumentSyncRequest[] = [];
   readonly applyCalls: DocumentSyncApplyRequest[] = [];
   readonly awarenessCalls: DocumentAwarenessPublishRequest[] = [];
+  readonly relocationLeaseCalls: DocumentRelocationLeaseResponseRequest[] = [];
   readonly listeners = new Set<(event: DocumentSyncRealtimeEvent) => void>();
   readonly committedAcks = new Map<string, DocumentSyncApplyAck>();
   storeEpoch = "store-1";
@@ -214,6 +217,13 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
     | ((
         request: DocumentSyncApplyRequest,
       ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>)
+    | null = null;
+  relocationLeaseHandler:
+    | ((
+        request: DocumentRelocationLeaseResponseRequest,
+      ) => Promise<
+        DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>
+      >)
     | null = null;
 
   sync = async (
@@ -270,6 +280,23 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
       update: request.update,
     });
     return success({ accepted: true });
+  };
+
+  respondToRelocationLease = async (
+    request: DocumentRelocationLeaseResponseRequest,
+  ): Promise<
+    DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>
+  > => {
+    this.relocationLeaseCalls.push(request);
+    if (this.relocationLeaseHandler) {
+      return this.relocationLeaseHandler(request);
+    }
+    return success({
+      accepted: true,
+      leaseId: request.leaseId,
+      documentId: request.documentId,
+      status: request.response === "ack" ? "frozen" : "cancelled",
+    });
   };
 
   commit = (
@@ -1036,6 +1063,335 @@ describe("NodexYProvider", () => {
       reply.resolve(adapter.commit(request));
       await waitUntil(() => adapter.activeApplyCalls === 0);
     } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("freezes the surface and durably flushes pending edits before lease ACK", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const applyReply = deferred<DocumentSyncCommandResult<DocumentSyncApplyAck>>();
+    adapter.applyHandler = () => applyReply.promise;
+    let surfacePrepared = false;
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "lease-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+      prepareSurfaceForRelocation: async () => {
+        surfacePrepared = true;
+      },
+    });
+    try {
+      await provider.connect();
+      document.getText("title").insert(0, "pending edit");
+      await waitUntil(() => adapter.applyCalls.length === 1);
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-flush",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: adapter.headSeq,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => provider.getStatus().phase === "relocating");
+      expect(surfacePrepared).toBeTrue();
+      expect(adapter.relocationLeaseCalls.length).toBe(0);
+
+      const pendingRequest = adapter.applyCalls[0];
+      if (!pendingRequest) throw new Error("Missing pending durable update");
+      applyReply.resolve(adapter.commit(pendingRequest));
+      await waitUntil(() => provider.getStatus().phase === "frozen");
+      expect(adapter.relocationLeaseCalls.length).toBe(1);
+      expect(adapter.relocationLeaseCalls[0]?.response).toBe("ack");
+      expect(adapter.relocationLeaseCalls[0]?.headSeq).toBe(adapter.headSeq);
+      expect(openCardDocument(adapter.serverDocument).title.toString()).toBe(
+        "pending edit",
+      );
+      expect(provider.getStatus().pendingUpdateCount).toBe(0);
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("NACKs and requires reset when local state changes after a lease ACK", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "frozen-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+    });
+    try {
+      await provider.connect();
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-frozen",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: adapter.headSeq,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => provider.getStatus().phase === "frozen");
+      document.getText("title").insert(0, "ghost edit");
+      await waitUntil(() => provider.getStatus().phase === "reset-required");
+      expect(adapter.relocationLeaseCalls.length).toBe(2);
+      const nack = adapter.relocationLeaseCalls[1];
+      expect(nack?.response).toBe("nack");
+      if (nack?.response === "nack") {
+        expect(nack.reason).toBe("local_update_after_freeze");
+      }
+      expect(adapter.applyCalls.length).toBe(0);
+      expect(adapter.serverDocument.getText("title").toString()).toBe("");
+      expect(provider.getStatus().error?.resetRequired).toBeTrue();
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("release and cancel terminal events unfreeze and resync the exact lease", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "terminal-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+    });
+    const prepareLease = async (leaseId: string): Promise<void> => {
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId,
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: adapter.headSeq,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => provider.getStatus().phase === "frozen");
+    };
+    try {
+      await provider.connect();
+      await prepareLease("lease-cancel");
+      const syncCallsBeforeCancel = adapter.syncCalls.length;
+      adapter.emit({
+        kind: "relocation-lease-cancel",
+        leaseId: "lease-cancel",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        headSeq: adapter.headSeq,
+        reason: "caller cancelled",
+      });
+      await waitUntil(() => adapter.syncCalls.length > syncCallsBeforeCancel);
+      await waitUntil(() => provider.getStatus().phase === "synced");
+      expect(provider.getStatus().relocationLease).toBe(undefined);
+
+      await prepareLease("lease-release");
+      const syncCallsBeforeRelease = adapter.syncCalls.length;
+      adapter.emit({
+        kind: "relocation-lease-release",
+        leaseId: "lease-release",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        headSeq: adapter.headSeq,
+      });
+      await waitUntil(() => adapter.syncCalls.length > syncCallsBeforeRelease);
+      await waitUntil(() => provider.getStatus().phase === "synced");
+      expect(provider.getStatus().relocationLease).toBe(undefined);
+      adapter.emit({
+        kind: "relocation-lease-release",
+        leaseId: "lease-release",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        headSeq: adapter.headSeq,
+      });
+      await waitUntil(() => provider.getStatus().phase === "reset-required");
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("deadline and surface errors NACK without ever entering frozen state", async () => {
+    const timeoutAdapter = new MemoryDocumentSyncAdapter();
+    const timeoutDocument = new Y.Doc({ guid: "document-1" });
+    let fireDeadline: (() => void) | null = null;
+    const surfaceGate = deferred<void>();
+    const timeoutProvider = new NodexYProvider({
+      documentId: "document-1",
+      document: timeoutDocument,
+      adapter: timeoutAdapter,
+      clientSessionId: "timeout-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+      now: () => 1_000,
+      scheduleRelocationDeadline: (callback) => {
+        fireDeadline = callback;
+        return () => {
+          fireDeadline = null;
+        };
+      },
+      prepareSurfaceForRelocation: () => surfaceGate.promise,
+    });
+    try {
+      await timeoutProvider.connect();
+      timeoutAdapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-timeout",
+        documentId: "document-1",
+        storeEpoch: timeoutAdapter.storeEpoch,
+        generation: timeoutAdapter.generation,
+        expectedHeadSeq: timeoutAdapter.headSeq,
+        deadlineAt: 2_000,
+      });
+      await waitUntil(() => timeoutProvider.getStatus().phase === "relocating");
+      const deadlineCallback = fireDeadline as (() => void) | null;
+      if (!deadlineCallback) throw new Error("Missing relocation deadline");
+      deadlineCallback();
+      await waitUntil(
+        () => timeoutProvider.getStatus().phase === "reset-required",
+      );
+      const timeoutNack = timeoutAdapter.relocationLeaseCalls[0];
+      expect(timeoutNack?.response).toBe("nack");
+      if (timeoutNack?.response === "nack") {
+        expect(timeoutNack.reason).toBe("deadline_elapsed");
+      }
+    } finally {
+      surfaceGate.resolve(undefined);
+      timeoutProvider.destroy();
+      timeoutDocument.destroy();
+      timeoutAdapter.destroy();
+    }
+
+    const errorAdapter = new MemoryDocumentSyncAdapter();
+    const errorDocument = new Y.Doc({ guid: "document-1" });
+    const errorProvider = new NodexYProvider({
+      documentId: "document-1",
+      document: errorDocument,
+      adapter: errorAdapter,
+      clientSessionId: "error-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+      prepareSurfaceForRelocation: () =>
+        Promise.reject(new Error("IME composition is still active")),
+    });
+    try {
+      await errorProvider.connect();
+      errorAdapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-error",
+        documentId: "document-1",
+        storeEpoch: errorAdapter.storeEpoch,
+        generation: errorAdapter.generation,
+        expectedHeadSeq: errorAdapter.headSeq,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => errorProvider.getStatus().phase === "reset-required");
+      const errorNack = errorAdapter.relocationLeaseCalls[0];
+      expect(errorNack?.response).toBe("nack");
+      if (errorNack?.response === "nack") {
+        expect(errorNack.reason).toBe("surface_prepare_failed");
+      }
+    } finally {
+      errorProvider.destroy();
+      errorDocument.destroy();
+      errorAdapter.destroy();
+    }
+  });
+
+  test("destroy NACKs a pending relocation lease best effort", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const surfaceGate = deferred<void>();
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "destroy-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+      prepareSurfaceForRelocation: () => surfaceGate.promise,
+    });
+    try {
+      await provider.connect();
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-destroy",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: adapter.headSeq,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => provider.getStatus().phase === "relocating");
+      provider.destroy();
+      expect(provider.getStatus().phase).toBe("destroyed");
+      const nack = adapter.relocationLeaseCalls[0];
+      expect(nack?.response).toBe("nack");
+      if (nack?.response === "nack") {
+        expect(nack.reason).toBe("provider_destroyed");
+      }
+    } finally {
+      surfaceGate.resolve(undefined);
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
+  test("disconnect NACKs an active lease and requires a fresh provider", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const surfaceGate = deferred<void>();
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "disconnect-window",
+      autoConnect: false,
+      localCheckpointStore: null,
+      prepareSurfaceForRelocation: () => surfaceGate.promise,
+    });
+    try {
+      await provider.connect();
+      adapter.emit({
+        kind: "relocation-lease-prepare",
+        leaseId: "lease-disconnect",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        expectedHeadSeq: adapter.headSeq,
+        deadlineAt: Date.now() + 10_000,
+      });
+      await waitUntil(() => provider.getStatus().phase === "relocating");
+      provider.disconnect();
+      expect(provider.getStatus().phase).toBe("reset-required");
+      const nack = adapter.relocationLeaseCalls[0];
+      expect(nack?.response).toBe("nack");
+      if (nack?.response === "nack") {
+        expect(nack.reason).toBe("provider_disconnected");
+      }
+    } finally {
+      surfaceGate.resolve(undefined);
       provider.destroy();
       document.destroy();
       adapter.destroy();

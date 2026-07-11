@@ -10,6 +10,8 @@ import {
 } from "../../shared/block-documents/http-contract";
 import type {
   DocumentAwarenessPublishAck,
+  DocumentRelocationLeaseResponseAck,
+  DocumentRelocationLeaseResponseRequest,
   DocumentSyncApplyAck,
   DocumentSyncCommandError,
   DocumentSyncCommandResult,
@@ -283,6 +285,67 @@ export const createHttpDocumentSyncAdapter = ({
         // Return the typed protocol failure below.
       }
       return failure(invalidResponse("Document Awareness ACK is invalid"));
+    },
+    respondToRelocationLease: async (
+      request: DocumentRelocationLeaseResponseRequest,
+    ): Promise<
+      DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>
+    > => {
+      const blocked =
+        await requireOpenSubscription<DocumentRelocationLeaseResponseAck>(
+          request,
+        );
+      if (blocked) return blocked;
+      let response: Response;
+      try {
+        response = await fetchImplementation(
+          toUrl(
+            `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/relocation-leases/${encodeURIComponent(request.leaseId)}/responses`,
+          ),
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(request),
+          },
+        );
+      } catch (error) {
+        return failure(transportError(error));
+      }
+      if (!response.ok) return failure(await parseHttpError(response));
+      try {
+        const value = (await response.json()) as unknown;
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          "accepted" in value &&
+          value.accepted === true &&
+          "leaseId" in value &&
+          value.leaseId === request.leaseId &&
+          "documentId" in value &&
+          value.documentId === request.documentId &&
+          "status" in value &&
+          (value.status === "preparing" ||
+            value.status === "frozen" ||
+            value.status === "released" ||
+            value.status === "cancelled")
+        ) {
+          return {
+            ok: true,
+            value: {
+              accepted: true,
+              leaseId: request.leaseId,
+              documentId: request.documentId,
+              status: value.status,
+            },
+          };
+        }
+      } catch {
+        // Return the typed protocol failure below.
+      }
+      return failure(invalidResponse("Relocation lease response is invalid"));
     },
     subscribe: (request, listener) => {
       const key = subscriptionKey(request);

@@ -53,6 +53,9 @@ const unusedAdapter: DocumentSyncAdapter = {
   publishAwareness: async () => {
     throw new Error("Fake provider owns awareness");
   },
+  respondToRelocationLease: async () => {
+    throw new Error("Fake provider owns relocation leases");
+  },
 };
 
 const providerError = (

@@ -101,7 +101,10 @@ interface EncodedRealtimeEvent {
   readonly updateId?: string;
   readonly clientSessionId?: string;
   readonly update?: string;
-  readonly reason?: "event-gap" | "history-compacted" | "transport-reconnected";
+  readonly leaseId?: string;
+  readonly expectedHeadSeq?: number;
+  readonly deadlineAt?: number;
+  readonly reason?: string;
 }
 
 interface EncodedOwnedBlockDocumentDescriptor extends VersionedMetadata {
@@ -577,6 +580,17 @@ export const decodeDocumentRealtimeSseEvent = (
       ),
     };
   }
+  if (kind === "relocation-lease-prepare") {
+    return {
+      kind,
+      documentId,
+      storeEpoch,
+      generation,
+      leaseId: readString(record, "leaseId"),
+      expectedHeadSeq: readInteger(record, "expectedHeadSeq", 0),
+      deadlineAt: readInteger(record, "deadlineAt", 0),
+    };
+  }
   const headSeq = readInteger(record, "headSeq", 0);
   if (kind === "document-update") {
     return {
@@ -609,6 +623,27 @@ export const decodeDocumentRealtimeSseEvent = (
       generation,
       headSeq,
       reason,
+    };
+  }
+  if (kind === "relocation-lease-release") {
+    return {
+      kind,
+      documentId,
+      storeEpoch,
+      generation,
+      headSeq,
+      leaseId: readString(record, "leaseId"),
+    };
+  }
+  if (kind === "relocation-lease-cancel") {
+    return {
+      kind,
+      documentId,
+      storeEpoch,
+      generation,
+      headSeq,
+      leaseId: readString(record, "leaseId"),
+      reason: readString(record, "reason"),
     };
   }
   throw new DocumentHttpWireError(

@@ -101,6 +101,17 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
     return { ok: true as const, value: { accepted: true as const } };
   };
 
+  respondToRelocationLease: DocumentSyncAdapter["respondToRelocationLease"] =
+    async (request) => ({
+      ok: true,
+      value: {
+        accepted: true,
+        leaseId: request.leaseId,
+        documentId: request.documentId,
+        status: request.response === "ack" ? "frozen" : "cancelled",
+      },
+    });
+
   destroy = (): void => this.server.document.destroy();
 }
 

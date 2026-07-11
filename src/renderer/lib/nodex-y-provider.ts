@@ -12,6 +12,10 @@ import type {
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
+  DocumentRelocationLeaseNackReason,
+  DocumentRelocationLeaseResponseAck,
+  DocumentRelocationLeaseResponseRequest,
+  DocumentRelocationLeaseParticipantStatus,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandError,
@@ -43,6 +47,9 @@ export interface DocumentSyncAdapter {
   publishAwareness: (
     request: DocumentAwarenessPublishRequest,
   ) => Promise<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
+  respondToRelocationLease: (
+    request: DocumentRelocationLeaseResponseRequest,
+  ) => Promise<DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>>;
 }
 
 export type NodexYProviderPhase =
@@ -50,6 +57,8 @@ export type NodexYProviderPhase =
   | "connecting"
   | "synced"
   | "saving"
+  | "relocating"
+  | "frozen"
   | "offline"
   | "error"
   | "reset-required"
@@ -66,11 +75,24 @@ export interface NodexYProviderStatus {
   readonly pendingUpdateCount: number;
   readonly inFlightUpdateId?: string;
   readonly error?: DocumentSyncCommandError;
+  readonly relocationLease?: {
+    readonly leaseId: string;
+    readonly status: Extract<
+      DocumentRelocationLeaseParticipantStatus,
+      "preparing" | "frozen"
+    >;
+    readonly deadlineAt: number;
+  };
 }
 
 export type NodexYProviderRetryScheduler = (
   callback: () => void,
   attempt: number,
+) => () => void;
+
+export type NodexYProviderRelocationDeadlineScheduler = (
+  callback: () => void,
+  delayMs: number,
 ) => () => void;
 
 export interface NodexYProviderOptions {
@@ -89,6 +111,15 @@ export interface NodexYProviderOptions {
   /** touchedBlockIds are diagnostics until the writer derives them itself. */
   readonly resolveTouchedBlockIds?: (update: Uint8Array) => readonly BlockId[];
   readonly scheduleRetry?: NodexYProviderRetryScheduler;
+  /** Blur/commit IME and disable the writable surface before durable flush. */
+  readonly prepareSurfaceForRelocation?: (
+    event: Extract<
+      DocumentSyncRealtimeEvent,
+      { kind: "relocation-lease-prepare" }
+    >,
+  ) => Promise<void>;
+  readonly now?: () => number;
+  readonly scheduleRelocationDeadline?: NodexYProviderRelocationDeadlineScheduler;
   /** Disposable local recovery state. SQLite remains the durable authority. */
   readonly localCheckpointStore?: DocumentLocalCheckpointStore | null;
 }
@@ -101,6 +132,17 @@ interface PendingDurableUpdate {
 interface FlushWaiter {
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
+}
+
+interface ActiveProviderRelocationLease {
+  readonly leaseId: string;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly expectedHeadSeq: number;
+  readonly deadlineAt: number;
+  readonly sequence: number;
+  status: "preparing" | "frozen";
+  cancelDeadline: (() => void) | null;
 }
 
 type RetryKind = "sync" | "apply";
@@ -141,6 +183,14 @@ const defaultRetryScheduler: NodexYProviderRetryScheduler = (
   return () => globalThis.clearTimeout(timeout);
 };
 
+const defaultRelocationDeadlineScheduler: NodexYProviderRelocationDeadlineScheduler = (
+  callback,
+  delayMs,
+) => {
+  const timeout = globalThis.setTimeout(callback, delayMs);
+  return () => globalThis.clearTimeout(timeout);
+};
+
 const thrownTransportError = (error: unknown): DocumentSyncCommandError => ({
   code: "transport_unavailable",
   message: error instanceof Error ? error.message : String(error),
@@ -169,6 +219,17 @@ const generationBoundaryError = (
   message,
   retryable: false,
   resetRequired: true,
+});
+
+const relocationBoundaryError = (
+  message: string,
+  relocationId: string,
+): DocumentSyncCommandError => ({
+  code: "invalid_response",
+  message,
+  retryable: false,
+  resetRequired: true,
+  relocationId,
 });
 
 const providerDestroyedError = (): Error =>
@@ -211,6 +272,11 @@ export class NodexYProvider {
     NodexYProviderOptions["resolveTouchedBlockIds"]
   >;
   private readonly scheduleRetry: NodexYProviderRetryScheduler;
+  private readonly prepareSurfaceForRelocation: NonNullable<
+    NodexYProviderOptions["prepareSurfaceForRelocation"]
+  >;
+  private readonly now: () => number;
+  private readonly scheduleRelocationDeadline: NodexYProviderRelocationDeadlineScheduler;
   private readonly localCheckpointStore: DocumentLocalCheckpointStore | null;
   private readonly statusListeners = new Set<() => void>();
   private readonly flushWaiters = new Set<FlushWaiter>();
@@ -245,6 +311,9 @@ export class NodexYProvider {
   private checkpointHydrated = false;
   private checkpointDisabled = false;
   private checkpointChain: Promise<void> = Promise.resolve();
+  private activeRelocationLease: ActiveProviderRelocationLease | null = null;
+  private relocationSequence = 0;
+  private localUpdateSequence = 0;
 
   private readonly handleDocumentUpdate = (
     update: Uint8Array,
@@ -256,6 +325,24 @@ export class NodexYProvider {
       origin === REMOTE_DOCUMENT_ORIGIN ||
       origin === LOCAL_CHECKPOINT_ORIGIN
     ) {
+      return;
+    }
+
+    this.localUpdateSequence += 1;
+    if (this.activeRelocationLease?.status === "frozen") {
+      const lease = this.activeRelocationLease;
+      this.nackRelocationLeaseBestEffort(
+        lease,
+        "local_update_after_freeze",
+        `Document ${this.documentId} changed after relocation lease ${lease.leaseId} froze the surface`,
+      );
+      this.clearActiveRelocationLease();
+      this.enterReset(
+        relocationBoundaryError(
+          `Document ${this.documentId} changed after relocation freeze; reload is required`,
+          lease.leaseId,
+        ),
+      );
       return;
     }
 
@@ -311,6 +398,11 @@ export class NodexYProvider {
     this.createUpdateId = options.createUpdateId ?? defaultUpdateId;
     this.resolveTouchedBlockIds = options.resolveTouchedBlockIds ?? (() => []);
     this.scheduleRetry = options.scheduleRetry ?? defaultRetryScheduler;
+    this.prepareSurfaceForRelocation =
+      options.prepareSurfaceForRelocation ?? (() => Promise.resolve());
+    this.now = options.now ?? (() => Date.now());
+    this.scheduleRelocationDeadline =
+      options.scheduleRelocationDeadline ?? defaultRelocationDeadlineScheduler;
     this.localCheckpointStore =
       options.localCheckpointStore === undefined
         ? createDefaultDocumentLocalCheckpointStore()
@@ -377,6 +469,23 @@ export class NodexYProvider {
       return;
     }
 
+    if (this.activeRelocationLease) {
+      const lease = this.activeRelocationLease;
+      this.nackRelocationLeaseBestEffort(
+        lease,
+        "provider_disconnected",
+        `Document provider disconnected during relocation lease ${lease.leaseId}`,
+      );
+      this.clearActiveRelocationLease();
+      this.enterReset(
+        relocationBoundaryError(
+          "Document provider disconnected during relocation; reload is required",
+          lease.leaseId,
+        ),
+      );
+      return;
+    }
+
     this.clearRealtimeSubscription();
     this.connected = false;
     this.cancelRetry();
@@ -423,6 +532,15 @@ export class NodexYProvider {
       return;
     }
 
+    if (this.activeRelocationLease) {
+      this.nackRelocationLeaseBestEffort(
+        this.activeRelocationLease,
+        "provider_destroyed",
+        `Document provider was destroyed during relocation lease ${this.activeRelocationLease.leaseId}`,
+      );
+      this.clearActiveRelocationLease();
+    }
+
     void this.queueLocalCheckpoint();
     if (this.awareness.getLocalState() !== null) {
       this.awareness.setLocalState(null);
@@ -462,6 +580,17 @@ export class NodexYProvider {
       this.handleConnectionEvent(event.state);
       return;
     }
+    if (event.kind === "relocation-lease-prepare") {
+      this.handleRelocationLeasePrepare(event);
+      return;
+    }
+    if (
+      event.kind === "relocation-lease-release" ||
+      event.kind === "relocation-lease-cancel"
+    ) {
+      this.handleRelocationLeaseTerminalEvent(event);
+      return;
+    }
     if (event.kind === "awareness") {
       this.handleRemoteAwareness(event);
       return;
@@ -483,6 +612,14 @@ export class NodexYProvider {
 
   private handleConnectionEvent(state: "connected" | "disconnected"): void {
     if (state === "disconnected") {
+      if (this.activeRelocationLease) {
+        this.failActiveRelocationLease(
+          this.activeRelocationLease,
+          "provider_disconnected",
+          "Document transport disconnected during relocation preparation",
+        );
+        return;
+      }
       this.connected = false;
       this.cancelRetry();
       this.removeRemoteAwarenessStates();
@@ -497,6 +634,306 @@ export class NodexYProvider {
     if (!wasConnected) {
       void this.requestSync();
     }
+  }
+
+  private handleRelocationLeasePrepare(
+    event: Extract<
+      DocumentSyncRealtimeEvent,
+      { kind: "relocation-lease-prepare" }
+    >,
+  ): void {
+    const eventIsValid =
+      event.leaseId.trim().length > 0 &&
+      event.storeEpoch.trim().length > 0 &&
+      Number.isInteger(event.generation) &&
+      event.generation >= 1 &&
+      isNonNegativeInteger(event.expectedHeadSeq) &&
+      Number.isFinite(event.deadlineAt);
+    if (!eventIsValid) {
+      this.enterReset(
+        relocationBoundaryError(
+          "Relocation lease prepare event is invalid",
+          event.leaseId || "invalid-relocation-lease",
+        ),
+      );
+      return;
+    }
+
+    const incomingLease: ActiveProviderRelocationLease = {
+      leaseId: event.leaseId,
+      storeEpoch: event.storeEpoch,
+      generation: event.generation,
+      expectedHeadSeq: event.expectedHeadSeq,
+      deadlineAt: event.deadlineAt,
+      sequence: this.relocationSequence + 1,
+      status: "preparing",
+      cancelDeadline: null,
+    };
+    const activeLease = this.activeRelocationLease;
+    if (activeLease) {
+      const exactDuplicate =
+        activeLease.leaseId === incomingLease.leaseId &&
+        activeLease.storeEpoch === incomingLease.storeEpoch &&
+        activeLease.generation === incomingLease.generation &&
+        activeLease.expectedHeadSeq === incomingLease.expectedHeadSeq &&
+        activeLease.deadlineAt === incomingLease.deadlineAt;
+      if (exactDuplicate) return;
+      this.nackRelocationLeaseBestEffort(
+        incomingLease,
+        "foreign_lease_event",
+        `Document ${this.documentId} received overlapping relocation lease ${event.leaseId}`,
+      );
+      this.enterReset(
+        relocationBoundaryError(
+          "Overlapping relocation lease events require a fresh Document sync",
+          event.leaseId,
+        ),
+      );
+      return;
+    }
+    if (
+      !this.storeEpoch ||
+      this.generation === undefined ||
+      event.storeEpoch !== this.storeEpoch ||
+      event.generation !== this.generation
+    ) {
+      this.nackRelocationLeaseBestEffort(
+        incomingLease,
+        "boundary_mismatch",
+        "Relocation lease does not match the active Document boundary",
+      );
+      this.enterReset(
+        relocationBoundaryError(
+          "Relocation lease crossed the active Document boundary",
+          event.leaseId,
+        ),
+      );
+      return;
+    }
+    const delayMs = event.deadlineAt - this.now();
+    if (delayMs <= 0) {
+      this.nackRelocationLeaseBestEffort(
+        incomingLease,
+        "deadline_elapsed",
+        "Relocation lease arrived after its preparation deadline",
+      );
+      this.enterReset(
+        relocationBoundaryError(
+          "Relocation lease preparation deadline already elapsed",
+          event.leaseId,
+        ),
+      );
+      return;
+    }
+
+    this.relocationSequence = incomingLease.sequence;
+    incomingLease.cancelDeadline = this.scheduleRelocationDeadline(() => {
+      if (
+        this.activeRelocationLease?.sequence !== incomingLease.sequence ||
+        this.activeRelocationLease.status === "frozen"
+      ) {
+        return;
+      }
+      this.failActiveRelocationLease(
+        incomingLease,
+        "deadline_elapsed",
+        "Relocation lease preparation exceeded its deadline",
+      );
+    }, delayMs);
+    this.activeRelocationLease = incomingLease;
+    this.refreshStatus();
+    void this.prepareRelocationLease(event, incomingLease);
+  }
+
+  private async prepareRelocationLease(
+    event: Extract<
+      DocumentSyncRealtimeEvent,
+      { kind: "relocation-lease-prepare" }
+    >,
+    lease: ActiveProviderRelocationLease,
+  ): Promise<void> {
+    try {
+      await this.prepareSurfaceForRelocation(event);
+    } catch (error) {
+      this.failActiveRelocationLease(
+        lease,
+        "surface_prepare_failed",
+        `Could not freeze the Document surface: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+    if (!this.isCurrentRelocationLease(lease)) return;
+
+    try {
+      await this.requestSync();
+      await this.flush();
+      await this.requestSync();
+    } catch (error) {
+      this.failActiveRelocationLease(
+        lease,
+        "durable_flush_failed",
+        `Could not durably flush before relocation: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+    if (!this.isCurrentRelocationLease(lease)) return;
+    if (
+      this.now() >= lease.deadlineAt ||
+      !this.isDurablyIdle() ||
+      this.headSeq < lease.expectedHeadSeq
+    ) {
+      this.failActiveRelocationLease(
+        lease,
+        this.now() >= lease.deadlineAt
+          ? "deadline_elapsed"
+          : "durable_flush_failed",
+        "Document did not reach the relocation lease durable head",
+      );
+      return;
+    }
+
+    const updateSequenceBeforeAck = this.localUpdateSequence;
+    let response: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
+    try {
+      response = await this.adapter.respondToRelocationLease({
+        response: "ack",
+        leaseId: lease.leaseId,
+        documentId: this.documentId,
+        clientSessionId: this.clientSessionId,
+        storeEpoch: lease.storeEpoch,
+        generation: lease.generation,
+        headSeq: this.headSeq,
+      });
+    } catch (error) {
+      this.failActiveRelocationLease(
+        lease,
+        "durable_flush_failed",
+        `Could not ACK relocation lease: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+    if (!this.isCurrentRelocationLease(lease)) return;
+    if (!response.ok) {
+      this.failActiveRelocationLease(
+        lease,
+        "durable_flush_failed",
+        `Relocation lease ACK failed: ${response.error.message}`,
+      );
+      return;
+    }
+    const ack = response.value;
+    if (
+      ack.accepted !== true ||
+      ack.leaseId !== lease.leaseId ||
+      ack.documentId !== this.documentId ||
+      ack.status !== "frozen"
+    ) {
+      this.failActiveRelocationLease(
+        lease,
+        "foreign_lease_event",
+        "Relocation lease ACK response does not match its request",
+      );
+      return;
+    }
+    if (
+      updateSequenceBeforeAck !== this.localUpdateSequence ||
+      !this.isDurablyIdle()
+    ) {
+      this.failActiveRelocationLease(
+        lease,
+        "local_update_after_freeze",
+        "Document changed while the relocation ACK was in flight",
+      );
+      return;
+    }
+
+    lease.status = "frozen";
+    lease.cancelDeadline?.();
+    lease.cancelDeadline = null;
+    this.refreshStatus();
+  }
+
+  private handleRelocationLeaseTerminalEvent(
+    event: Extract<
+      DocumentSyncRealtimeEvent,
+      { kind: "relocation-lease-release" | "relocation-lease-cancel" }
+    >,
+  ): void {
+    const lease = this.activeRelocationLease;
+    if (
+      !lease ||
+      lease.leaseId !== event.leaseId ||
+      lease.storeEpoch !== event.storeEpoch ||
+      lease.generation !== event.generation ||
+      !isNonNegativeInteger(event.headSeq) ||
+      event.headSeq < lease.expectedHeadSeq
+    ) {
+      this.enterReset(
+        relocationBoundaryError(
+          "Foreign or late relocation lease terminal event requires reload",
+          event.leaseId,
+        ),
+      );
+      return;
+    }
+    this.clearActiveRelocationLease();
+    this.refreshStatus();
+    this.requestResync();
+  }
+
+  private isCurrentRelocationLease(
+    lease: ActiveProviderRelocationLease,
+  ): boolean {
+    return (
+      !this.destroyed &&
+      !this.terminalError &&
+      this.activeRelocationLease?.sequence === lease.sequence
+    );
+  }
+
+  private failActiveRelocationLease(
+    lease: ActiveProviderRelocationLease,
+    reason: DocumentRelocationLeaseNackReason,
+    message: string,
+  ): void {
+    if (!this.isCurrentRelocationLease(lease)) return;
+    this.nackRelocationLeaseBestEffort(lease, reason, message);
+    this.clearActiveRelocationLease();
+    this.enterReset(relocationBoundaryError(message, lease.leaseId));
+  }
+
+  private nackRelocationLeaseBestEffort(
+    lease: ActiveProviderRelocationLease,
+    reason: DocumentRelocationLeaseNackReason,
+    message: string,
+  ): void {
+    const request: DocumentRelocationLeaseResponseRequest = {
+      response: "nack",
+      leaseId: lease.leaseId,
+      documentId: this.documentId,
+      clientSessionId: this.clientSessionId,
+      storeEpoch: lease.storeEpoch,
+      generation: lease.generation,
+      headSeq: this.headSeq,
+      reason,
+      message,
+    };
+    try {
+      void this.adapter.respondToRelocationLease(request).catch(() => undefined);
+    } catch {
+      // The lease coordinator also observes transport disconnect and timeout.
+    }
+  }
+
+  private clearActiveRelocationLease(): void {
+    this.activeRelocationLease?.cancelDeadline?.();
+    this.activeRelocationLease = null;
   }
 
   private handleRemoteAwareness(
@@ -786,7 +1223,8 @@ export class NodexYProvider {
       this.syncing ||
       this.retryCancel ||
       !this.storeEpoch ||
-      this.generation === undefined
+      this.generation === undefined ||
+      this.activeRelocationLease?.status === "frozen"
     ) {
       this.refreshStatus();
       return;
@@ -1159,6 +1597,15 @@ export class NodexYProvider {
       return;
     }
 
+    if (this.activeRelocationLease) {
+      this.nackRelocationLeaseBestEffort(
+        this.activeRelocationLease,
+        "boundary_mismatch",
+        error.message,
+      );
+      this.clearActiveRelocationLease();
+    }
+
     if (this.awareness.getLocalState() !== null) {
       this.awareness.setLocalState(null);
     }
@@ -1180,6 +1627,15 @@ export class NodexYProvider {
   private enterFatal(error: DocumentSyncCommandError): void {
     if (this.destroyed || this.terminalError) {
       return;
+    }
+
+    if (this.activeRelocationLease) {
+      this.nackRelocationLeaseBestEffort(
+        this.activeRelocationLease,
+        "durable_flush_failed",
+        error.message,
+      );
+      this.clearActiveRelocationLease();
     }
 
     if (this.awareness.getLocalState() !== null) {
@@ -1206,6 +1662,10 @@ export class NodexYProvider {
       phase = "reset-required";
     } else if (this.terminalError) {
       phase = "error";
+    } else if (this.activeRelocationLease?.status === "frozen") {
+      phase = "frozen";
+    } else if (this.activeRelocationLease) {
+      phase = "relocating";
     } else if (!this.unsubscribeRealtime && !this.connected) {
       phase = "idle";
     } else if (!this.connected) {
@@ -1233,6 +1693,13 @@ export class NodexYProvider {
       pendingUpdateCount,
       inFlightUpdateId: this.inFlight?.request.updateId,
       error: this.terminalError ?? this.transientError,
+      relocationLease: this.activeRelocationLease
+        ? {
+            leaseId: this.activeRelocationLease.leaseId,
+            status: this.activeRelocationLease.status,
+            deadlineAt: this.activeRelocationLease.deadlineAt,
+          }
+        : undefined,
     };
   }
 
@@ -1247,6 +1714,9 @@ export class NodexYProvider {
       current.headSeq === next.headSeq &&
       current.pendingUpdateCount === next.pendingUpdateCount &&
       current.inFlightUpdateId === next.inFlightUpdateId &&
+      current.relocationLease?.leaseId === next.relocationLease?.leaseId &&
+      current.relocationLease?.status === next.relocationLease?.status &&
+      current.relocationLease?.deadlineAt === next.relocationLease?.deadlineAt &&
       sameError(current.error, next.error)
     ) {
       return;

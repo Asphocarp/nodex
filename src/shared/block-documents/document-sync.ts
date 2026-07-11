@@ -104,6 +104,48 @@ export interface DocumentAwarenessPublishAck {
   readonly accepted: true;
 }
 
+export type DocumentRelocationLeaseParticipantStatus =
+  | "preparing"
+  | "frozen"
+  | "released"
+  | "cancelled";
+
+export type DocumentRelocationLeaseNackReason =
+  | "surface_prepare_failed"
+  | "durable_flush_failed"
+  | "deadline_elapsed"
+  | "boundary_mismatch"
+  | "foreign_lease_event"
+  | "local_update_after_freeze"
+  | "provider_disconnected"
+  | "provider_destroyed";
+
+interface DocumentRelocationLeaseResponseBoundary {
+  readonly leaseId: string;
+  readonly documentId: DocumentId;
+  readonly clientSessionId: string;
+  readonly storeEpoch: string;
+  readonly generation: number;
+  readonly headSeq: number;
+}
+
+export type DocumentRelocationLeaseResponseRequest =
+  | (DocumentRelocationLeaseResponseBoundary & {
+      readonly response: "ack";
+    })
+  | (DocumentRelocationLeaseResponseBoundary & {
+      readonly response: "nack";
+      readonly reason: DocumentRelocationLeaseNackReason;
+      readonly message: string;
+    });
+
+export interface DocumentRelocationLeaseResponseAck {
+  readonly accepted: true;
+  readonly leaseId: string;
+  readonly documentId: DocumentId;
+  readonly status: DocumentRelocationLeaseParticipantStatus;
+}
+
 export type DocumentSyncRealtimeEvent =
   | {
       readonly kind: "connection";
@@ -136,4 +178,30 @@ export type DocumentSyncRealtimeEvent =
       readonly headSeq: number;
       readonly reason:
         "event-gap" | "history-compacted" | "transport-reconnected";
+    }
+  | {
+      readonly kind: "relocation-lease-prepare";
+      readonly leaseId: string;
+      readonly documentId: DocumentId;
+      readonly storeEpoch: string;
+      readonly generation: number;
+      readonly expectedHeadSeq: number;
+      readonly deadlineAt: number;
+    }
+  | {
+      readonly kind: "relocation-lease-release";
+      readonly leaseId: string;
+      readonly documentId: DocumentId;
+      readonly storeEpoch: string;
+      readonly generation: number;
+      readonly headSeq: number;
+    }
+  | {
+      readonly kind: "relocation-lease-cancel";
+      readonly leaseId: string;
+      readonly documentId: DocumentId;
+      readonly storeEpoch: string;
+      readonly generation: number;
+      readonly headSeq: number;
+      readonly reason: string;
     };
