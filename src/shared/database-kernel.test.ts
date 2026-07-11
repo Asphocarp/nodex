@@ -142,6 +142,96 @@ describe("general Database mutation contract", () => {
     ).toBeTrue();
   });
 
+  test("compresses a bounded ordered multi-Card drag without weakening field conflicts", () => {
+    const entries = Array.from({ length: 40 }, (_, index) => ({
+      cardBlockId: `card-${index}`,
+      propertyId: "status-property",
+      expectedValueRevision: index + 1,
+      value: "done",
+    }));
+    const cards = entries.map((entry, index) => ({
+      cardBlockId: entry.cardBlockId,
+      expectedPositionRevision: index + 2,
+    }));
+    const parsed = parseDatabaseMutationRequest({
+      ...request(),
+      operations: [
+        {
+          kind: "set_values",
+          databaseBlockId: "database-1",
+          entries,
+        },
+        {
+          kind: "position_cards",
+          viewId: "view-1",
+          cards,
+          groupKey: "done",
+          beforeCardBlockId: "external-anchor",
+        },
+      ],
+    });
+    expect(parsed.operations.length).toBe(2);
+    expect(parsed.operations[0]?.kind).toBe("set_values");
+    expect(parsed.operations[1]?.kind).toBe("position_cards");
+    if (parsed.operations[1]?.kind !== "position_cards") {
+      throw new Error("Expected bulk position operation");
+    }
+    expect(
+      parsed.operations[1].cards.map((entry) => entry.cardBlockId).join(","),
+    ).toBe(cards.map((entry) => entry.cardBlockId).join(","));
+
+    expect(
+      fails(() =>
+        parseDatabaseMutationRequest({
+          ...request(),
+          operations: [
+            {
+              kind: "set_values",
+              databaseBlockId: "database-1",
+              entries: [entries[0], entries[0]],
+            },
+          ],
+        }),
+      ),
+    ).toBeTrue();
+    expect(
+      fails(() =>
+        parseDatabaseMutationRequest({
+          ...request(),
+          operations: [
+            {
+              kind: "position_cards",
+              viewId: "view-1",
+              cards,
+              groupKey: "done",
+              beforeCardBlockId: cards[0]?.cardBlockId,
+            },
+          ],
+        }),
+      ),
+    ).toBeTrue();
+    expect(
+      fails(() =>
+        parseDatabaseMutationRequest({
+          ...request(),
+          operations: [
+            {
+              kind: "position_cards",
+              viewId: "view-1",
+              cards,
+              groupKey: "done",
+            },
+            {
+              kind: "set_values",
+              databaseBlockId: "database-1",
+              entries,
+            },
+          ],
+        }),
+      ),
+    ).toBeTrue();
+  });
+
   test("requires strict versioned View configs and stable option identities", () => {
     const looseConfig = {
       ...request(),

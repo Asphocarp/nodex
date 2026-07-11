@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
   DATABASE_MUTATION_CONTRACT_VERSION,
-  databaseMutationOperationPath,
+  databaseMutationOperationPaths,
   canonicalizeDatabaseMutationIntent,
   normalizeDatabasePropertyValue,
   parseDatabaseMutationCommandError,
@@ -63,7 +63,11 @@ export type DatabaseMutationFaultPoint =
   | "after_change_log"
   | "after_ledger"
   | "before_commit"
-  | "after_commit";
+  | "after_commit"
+  | "bulk_after_validation"
+  | "bulk_after_values"
+  | "bulk_after_rank_plan"
+  | "bulk_after_positions";
 
 export interface ApplyDatabaseMutationOptions {
   readonly faultInjector?: (point: DatabaseMutationFaultPoint) => void;
@@ -258,9 +262,16 @@ const requestTargetBlockIds = (
       ]);
     case "position_card":
       return [operation.cardBlockId];
+    case "position_cards":
+      return uniqueSorted(operation.cards.map((entry) => entry.cardBlockId));
     case "set_value":
     case "add_remove_value":
       return uniqueSorted([operation.cardBlockId, operation.databaseBlockId]);
+    case "set_values":
+      return uniqueSorted([
+        operation.databaseBlockId,
+        ...operation.entries.map((entry) => entry.cardBlockId),
+      ]);
   }
 };
 
@@ -274,11 +285,14 @@ const requestDatabaseBlockIds = (
     case "put_view":
     case "delete_view":
     case "set_value":
+    case "set_values":
     case "add_remove_value":
       return [operation.databaseBlockId];
     case "transfer_membership":
       return operation.target ? [operation.target.databaseBlockId] : [];
     case "position_card":
+      return [];
+    case "position_cards":
       return [];
   }
 };
@@ -302,8 +316,22 @@ const expectedRevisions = (
       return { view: operation.expectedRevision };
     case "position_card":
       return { position: operation.expectedPositionRevision };
+    case "position_cards":
+      return Object.fromEntries(
+        operation.cards.map((entry, index) => [
+          `positions[${index}]`,
+          entry.expectedPositionRevision,
+        ]),
+      );
     case "set_value":
       return { value: operation.expectedValueRevision };
+    case "set_values":
+      return Object.fromEntries(
+        operation.entries.map((entry, index) => [
+          `values[${index}]`,
+          entry.expectedValueRevision,
+        ]),
+      );
     case "create_database":
     case "add_remove_value":
       return {};
@@ -323,10 +351,12 @@ const makeEvidence = (request: DatabaseMutationRequest): MutationEvidence => {
       request.operations.flatMap(requestDatabaseBlockIds),
     ),
     fieldIntentsJson: stableStringifyDatabaseJson(
-      request.operations.map((operation) => ({
-        path: databaseMutationOperationPath(operation),
-        operation: operation.kind,
-      })),
+      request.operations.flatMap((operation) =>
+        databaseMutationOperationPaths(operation).map((path) => ({
+          path,
+          operation: operation.kind,
+        })),
+      ),
     ),
     expectedRevisionsJson: stableStringifyDatabaseJson(
       Object.fromEntries(
@@ -2018,6 +2048,286 @@ const positionCard = (
   };
 };
 
+const compareRankedItems = (
+  left: DatabaseRankedItem,
+  right: DatabaseRankedItem,
+): number =>
+  left.rankKey === right.rankKey
+    ? compareStrings(left.id, right.id)
+    : compareStrings(left.rankKey, right.rankKey);
+
+const planBulkPositionRanks = (
+  request: DatabaseMutationRequest,
+  input: {
+    readonly items: readonly DatabaseRankedItem[];
+    readonly cardBlockIds: readonly string[];
+    readonly beforeCardBlockId?: string;
+  },
+): {
+  readonly selectedRankKeys: ReadonlyMap<string, string>;
+  readonly rebalancedRemainingRankKeys: ReadonlyMap<string, string>;
+} => {
+  const selected = new Set(input.cardBlockIds);
+  const originalRemaining = new Map(
+    input.items
+      .filter((item) => !selected.has(item.id))
+      .map((item) => [item.id, item.rankKey] as const),
+  );
+  let virtualItems = [...originalRemaining].map(([id, rankKey]) => ({
+    id,
+    rankKey,
+  }));
+  const selectedRankKeys = new Map<string, string>();
+  const effectiveRanks = new Map(originalRemaining);
+
+  try {
+    for (const cardBlockId of input.cardBlockIds) {
+      const plan = planDatabaseFractionalRank({
+        items: virtualItems,
+        targetId: cardBlockId,
+        ...(input.beforeCardBlockId === undefined
+          ? {}
+          : { beforeId: input.beforeCardBlockId }),
+      });
+      for (const [id, rankKey] of plan.rebalancedRankKeys) {
+        effectiveRanks.set(id, rankKey);
+        if (selected.has(id)) selectedRankKeys.set(id, rankKey);
+      }
+      effectiveRanks.set(cardBlockId, plan.rankKey);
+      selectedRankKeys.set(cardBlockId, plan.rankKey);
+      virtualItems = [...effectiveRanks]
+        .map(([id, rankKey]) => ({ id, rankKey }))
+        .sort(compareRankedItems);
+    }
+  } catch (error) {
+    if (!(error instanceof DatabaseFractionalRankError)) throw error;
+    if (error.code === "anchor_not_found") {
+      return reject("position_anchor_not_found", error.message, request);
+    }
+    return reject("rank_rebalance_limit", error.message, request);
+  }
+
+  const rebalancedRemainingRankKeys = new Map<string, string>();
+  for (const [id, originalRankKey] of originalRemaining) {
+    const effectiveRankKey = effectiveRanks.get(id);
+    if (!effectiveRankKey || effectiveRankKey === originalRankKey) continue;
+    rebalancedRemainingRankKeys.set(id, effectiveRankKey);
+  }
+  return { selectedRankKeys, rebalancedRemainingRankKeys };
+};
+
+const positionCards = (
+  database: Database.Database,
+  request: DatabaseMutationRequest & {
+    readonly operation: Extract<
+      DatabaseMutationOperation,
+      { readonly kind: "position_cards" }
+    >;
+  },
+  now: string,
+  inject: (point: DatabaseMutationFaultPoint) => void,
+): AuthorityCommit => {
+  const operation = request.operation;
+  const view = readView(database, operation.viewId);
+  if (
+    !view ||
+    view.project_id !== request.projectId ||
+    view.lifecycle !== "active"
+  ) {
+    return reject(
+      "view_not_found",
+      `Active Database View not found: ${operation.viewId}`,
+      request,
+    );
+  }
+  readActiveDatabase(database, request, view.database_block_id);
+  const selected = new Set(operation.cards.map((entry) => entry.cardBlockId));
+  if (
+    operation.beforeCardBlockId !== undefined &&
+    selected.has(operation.beforeCardBlockId)
+  ) {
+    return reject(
+      "position_anchor_not_found",
+      "Bulk position anchor must be external to the moved Card set",
+      request,
+    );
+  }
+
+  const validated = operation.cards.map((entry) => {
+    readCard(database, request, entry.cardBlockId);
+    const membership = readActiveMembership(
+      database,
+      request.projectId,
+      entry.cardBlockId,
+    );
+    if (!membership || membership.database_block_id !== view.database_block_id) {
+      return reject(
+        "membership_conflict",
+        `Card ${entry.cardBlockId} is not a member of View ${operation.viewId}'s Database`,
+        request,
+      );
+    }
+    validatePositionGroup(
+      database,
+      request,
+      view,
+      membership.id,
+      operation.groupKey,
+    );
+    const current = readPosition(
+      database,
+      operation.viewId,
+      entry.cardBlockId,
+    );
+    const currentRevision = current?.revision ?? 0;
+    if (currentRevision !== entry.expectedPositionRevision) {
+      return reject(
+        "position_conflict",
+        `View position revision changed for Card ${entry.cardBlockId}`,
+        request,
+        {
+          expectedRevision: entry.expectedPositionRevision,
+          actualRevision: currentRevision,
+        },
+      );
+    }
+    return { entry, current };
+  });
+
+  if (operation.beforeCardBlockId !== undefined) {
+    const anchor = readPosition(
+      database,
+      operation.viewId,
+      operation.beforeCardBlockId,
+    );
+    if (!anchor) {
+      return reject(
+        "position_anchor_not_found",
+        `View position anchor does not exist: ${operation.beforeCardBlockId}`,
+        request,
+      );
+    }
+    if (anchor.group_key !== operation.groupKey) {
+      return reject(
+        "position_anchor_group_mismatch",
+        `View position anchor ${operation.beforeCardBlockId} belongs to another group`,
+        request,
+      );
+    }
+  }
+  inject("bulk_after_validation");
+
+  const items = database
+    .prepare(
+      `
+      SELECT block_id AS id, rank_key AS rankKey
+      FROM database_view_positions
+      WHERE view_id = ? AND group_key IS ?
+      ORDER BY rank_key, block_id
+    `,
+    )
+    .all(operation.viewId, operation.groupKey) as DatabaseRankedItem[];
+  const rankPlan = planBulkPositionRanks(request, {
+    items,
+    cardBlockIds: operation.cards.map((entry) => entry.cardBlockId),
+    ...(operation.beforeCardBlockId === undefined
+      ? {}
+      : { beforeCardBlockId: operation.beforeCardBlockId }),
+  });
+  inject("bulk_after_rank_plan");
+
+  for (const [cardBlockId, rankKey] of rankPlan.rebalancedRemainingRankKeys) {
+    database
+      .prepare(
+        `UPDATE database_view_positions
+         SET rank_key = ?, updated_at = ?
+         WHERE view_id = ? AND block_id = ? AND project_id = ?`,
+      )
+      .run(rankKey, now, operation.viewId, cardBlockId, request.projectId);
+  }
+
+  const positions = validated.map(({ entry, current }) => {
+    const rankKey = rankPlan.selectedRankKeys.get(entry.cardBlockId);
+    if (!rankKey) {
+      throw new Error(`Bulk rank plan omitted Card ${entry.cardBlockId}`);
+    }
+    const revision = entry.expectedPositionRevision + 1;
+    if (!current) {
+      database
+        .prepare(
+          `
+          INSERT INTO database_view_positions (
+            view_id, block_id, project_id, group_key, rank_key,
+            revision, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        `,
+        )
+        .run(
+          operation.viewId,
+          entry.cardBlockId,
+          request.projectId,
+          operation.groupKey,
+          rankKey,
+          now,
+          now,
+        );
+    } else {
+      const updated = database
+        .prepare(
+          `
+          UPDATE database_view_positions
+          SET group_key = ?, rank_key = ?, revision = revision + 1,
+              updated_at = ?
+          WHERE view_id = ? AND block_id = ? AND project_id = ?
+            AND revision = ?
+        `,
+        )
+        .run(
+          operation.groupKey,
+          rankKey,
+          now,
+          operation.viewId,
+          entry.cardBlockId,
+          request.projectId,
+          entry.expectedPositionRevision,
+        );
+      if (updated.changes !== 1) {
+        throw new Error(
+          `Bulk View position changed during commit for ${entry.cardBlockId}`,
+        );
+      }
+    }
+    return {
+      cardBlockId: entry.cardBlockId,
+      positionRankKey: rankKey,
+      positionRevision: revision,
+    };
+  });
+  inject("bulk_after_positions");
+
+  return {
+    payload: {
+      viewId: operation.viewId,
+      databaseBlockId: view.database_block_id,
+      groupKey: operation.groupKey,
+      positions,
+      rebalancedPositions: rankPlan.rebalancedRemainingRankKeys.size,
+    },
+    targetBlockIds: uniqueSorted([
+      view.database_block_id,
+      ...operation.cards.map((entry) => entry.cardBlockId),
+    ]),
+    databaseBlockIds: [view.database_block_id],
+    committedRevisions: Object.fromEntries(
+      positions.map((position, index) => [
+        `positions[${index}]`,
+        position.positionRevision,
+      ]),
+    ),
+    projectionCardIds: [],
+  };
+};
+
 const requireValueAuthority = (
   database: Database.Database,
   request: DatabaseMutationRequest,
@@ -2174,6 +2484,9 @@ const explicitPositionViewIdsForCard = (
       operation.kind === "position_card" &&
       operation.cardBlockId === cardBlockId
         ? [operation.viewId]
+        : operation.kind === "position_cards" &&
+            operation.cards.some((entry) => entry.cardBlockId === cardBlockId)
+          ? [operation.viewId]
         : [],
     ),
   );
@@ -2288,6 +2601,88 @@ const setValue = (
       cardMetadata: metadata[operation.cardBlockId] ?? 0,
     },
     projectionCardIds: [operation.cardBlockId],
+  };
+};
+
+const setValues = (
+  database: Database.Database,
+  request: DatabaseMutationRequest & {
+    readonly operation: Extract<
+      DatabaseMutationOperation,
+      { readonly kind: "set_values" }
+    >;
+  },
+  now: string,
+  inject: (point: DatabaseMutationFaultPoint) => void,
+): AuthorityCommit => {
+  const operation = request.operation;
+  const scalarOperations = operation.entries.map((entry) => ({
+    kind: "set_value" as const,
+    cardBlockId: entry.cardBlockId,
+    databaseBlockId: operation.databaseBlockId,
+    propertyId: entry.propertyId,
+    expectedValueRevision: entry.expectedValueRevision,
+    value: entry.value,
+  }));
+
+  for (const scalarOperation of scalarOperations) {
+    const authority = requireValueAuthority(database, request, scalarOperation);
+    if (authority.property.value_type === "multi_select") {
+      return reject(
+        "property_value_invalid",
+        `multi_select property ${scalarOperation.propertyId} requires add_remove_value intent`,
+        request,
+      );
+    }
+    const currentRevision = authority.current?.revision ?? 0;
+    if (currentRevision !== scalarOperation.expectedValueRevision) {
+      return reject(
+        "property_value_conflict",
+        `Property value revision changed for ${scalarOperation.propertyId} on Card ${scalarOperation.cardBlockId}`,
+        request,
+        {
+          expectedRevision: scalarOperation.expectedValueRevision,
+          actualRevision: currentRevision,
+        },
+      );
+    }
+    normalizePropertyValue(request, authority.property, scalarOperation.value);
+  }
+  inject("bulk_after_validation");
+
+  const commits = scalarOperations.map((scalarOperation) =>
+    setValue(
+      database,
+      { ...request, operation: scalarOperation },
+      now,
+    ),
+  );
+  inject("bulk_after_values");
+  return {
+    payload: {
+      databaseBlockId: operation.databaseBlockId,
+      values: commits.map((commit, index) => ({
+        index,
+        payload: commit.payload,
+      })),
+    },
+    targetBlockIds: uniqueSorted(
+      commits.flatMap((commit) => commit.targetBlockIds),
+    ),
+    databaseBlockIds: uniqueSorted(
+      commits.flatMap((commit) => commit.databaseBlockIds),
+    ),
+    committedRevisions: Object.fromEntries(
+      commits.flatMap((commit, index) =>
+        Object.entries(commit.committedRevisions).map(([key, value]) => [
+          `values[${index}].${key}`,
+          value,
+        ]),
+      ),
+    ),
+    projectionCardIds: uniqueSorted(
+      commits.flatMap((commit) => commit.projectionCardIds),
+    ),
   };
 };
 
@@ -2420,6 +2815,7 @@ const executeOperationAuthority = (
   database: Database.Database,
   request: DatabaseOperationRequest,
   now: string,
+  inject: (point: DatabaseMutationFaultPoint) => void,
 ): AuthorityCommit => {
   switch (request.operation.kind) {
     case "create_database":
@@ -2499,6 +2895,18 @@ const executeOperationAuthority = (
         },
         now,
       );
+    case "position_cards":
+      return positionCards(
+        database,
+        request as DatabaseMutationRequest & {
+          readonly operation: Extract<
+            DatabaseMutationOperation,
+            { readonly kind: "position_cards" }
+          >;
+        },
+        now,
+        inject,
+      );
     case "set_value":
       return setValue(
         database,
@@ -2509,6 +2917,18 @@ const executeOperationAuthority = (
           >;
         },
         now,
+      );
+    case "set_values":
+      return setValues(
+        database,
+        request as DatabaseMutationRequest & {
+          readonly operation: Extract<
+            DatabaseMutationOperation,
+            { readonly kind: "set_values" }
+          >;
+        },
+        now,
+        inject,
       );
     case "add_remove_value":
       return addRemoveValue(
@@ -2528,9 +2948,15 @@ const executeBatchAuthority = (
   database: Database.Database,
   request: DatabaseMutationRequest,
   now: string,
+  inject: (point: DatabaseMutationFaultPoint) => void,
 ): AuthorityCommit => {
   const commits = request.operations.map((operation) =>
-    executeOperationAuthority(database, { ...request, operation }, now),
+    executeOperationAuthority(
+      database,
+      { ...request, operation },
+      now,
+      inject,
+    ),
   );
   return {
     payload: {
@@ -2784,7 +3210,7 @@ export const applyDatabaseMutation = (
     let commit: AuthorityCommit;
     try {
       commit = database.transaction(() =>
-        executeBatchAuthority(database, request, now),
+        executeBatchAuthority(database, request, now, inject),
       )();
     } catch (error) {
       if (!(error instanceof DatabaseMutationRejection)) throw error;

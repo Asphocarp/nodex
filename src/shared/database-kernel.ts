@@ -5,6 +5,7 @@ import {
 
 export const DATABASE_MUTATION_CONTRACT_VERSION = 1 as const;
 export const MAX_DATABASE_MUTATION_OPERATIONS = 64;
+export const MAX_DATABASE_MUTATION_BULK_ENTRIES = 4_096;
 
 const MAX_ID_LENGTH = 512;
 const MAX_KEY_LENGTH = 128;
@@ -177,6 +178,37 @@ export interface SetDatabasePropertyValueOperation {
   readonly value: DatabaseJsonValue;
 }
 
+export interface SetDatabasePropertyValueEntry {
+  readonly cardBlockId: string;
+  readonly propertyId: string;
+  /** Zero means that this membership has no value for the property yet. */
+  readonly expectedValueRevision: number;
+  readonly value: DatabaseJsonValue;
+}
+
+/** One ordered, bounded field batch in a single Database. */
+export interface SetDatabasePropertyValuesOperation {
+  readonly kind: "set_values";
+  readonly databaseBlockId: string;
+  readonly entries: readonly SetDatabasePropertyValueEntry[];
+}
+
+export interface PositionDatabaseViewCardEntry {
+  readonly cardBlockId: string;
+  /** Zero means that this View has no explicit position for the Card yet. */
+  readonly expectedPositionRevision: number;
+}
+
+/** Move an ordered Card set as one contiguous run before one external anchor. */
+export interface PositionDatabaseViewCardsOperation {
+  readonly kind: "position_cards";
+  readonly viewId: string;
+  readonly cards: readonly PositionDatabaseViewCardEntry[];
+  readonly groupKey: string | null;
+  /** Missing appends the run to the selected group. */
+  readonly beforeCardBlockId?: string;
+}
+
 export interface UpdateDatabaseSetValueOperation {
   readonly kind: "add_remove_value";
   readonly cardBlockId: string;
@@ -194,7 +226,9 @@ export type DatabaseMutationOperation =
   | PutDatabaseViewOperation
   | DeleteDatabaseViewOperation
   | PositionDatabaseViewCardOperation
+  | PositionDatabaseViewCardsOperation
   | SetDatabasePropertyValueOperation
+  | SetDatabasePropertyValuesOperation
   | UpdateDatabaseSetValueOperation;
 
 export interface DatabaseMutationRequest {
@@ -1161,6 +1195,62 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
           }),
     };
   }
+  if (operation.kind === "position_cards") {
+    assertExactKeys(
+      operation,
+      label,
+      ["kind", "viewId", "cards", "groupKey"],
+      ["beforeCardBlockId"],
+    );
+    if (
+      !Array.isArray(operation.cards) ||
+      operation.cards.length < 1 ||
+      operation.cards.length > MAX_DATABASE_MUTATION_BULK_ENTRIES
+    ) {
+      throw new DatabaseMutationContractError(
+        `${label}.cards must contain 1-${MAX_DATABASE_MUTATION_BULK_ENTRIES} entries`,
+      );
+    }
+    const cards = operation.cards.map((candidate, index) => {
+      const entryLabel = `${label}.cards[${index}]`;
+      const entry = readRecord(candidate, entryLabel);
+      assertExactKeys(entry, entryLabel, [
+        "cardBlockId",
+        "expectedPositionRevision",
+      ]);
+      return {
+        cardBlockId: readString(entry, "cardBlockId", entryLabel),
+        expectedPositionRevision: readRevision(
+          entry,
+          "expectedPositionRevision",
+          entryLabel,
+        ),
+      };
+    });
+    const cardIds = new Set(cards.map((entry) => entry.cardBlockId));
+    if (cardIds.size !== cards.length) {
+      throw new DatabaseMutationContractError(
+        `${label}.cards must use unique Card IDs`,
+      );
+    }
+    const beforeCardBlockId = readOptionalString(
+      operation,
+      "beforeCardBlockId",
+      label,
+    );
+    if (beforeCardBlockId && cardIds.has(beforeCardBlockId)) {
+      throw new DatabaseMutationContractError(
+        `${label}.beforeCardBlockId must be external to the moved Card set`,
+      );
+    }
+    return {
+      kind: "position_cards",
+      viewId: readString(operation, "viewId", label),
+      cards,
+      groupKey: readNullableString(operation, "groupKey", label),
+      ...(beforeCardBlockId === undefined ? {} : { beforeCardBlockId }),
+    };
+  }
   if (operation.kind === "set_value") {
     assertExactKeys(operation, label, [
       "kind",
@@ -1181,6 +1271,46 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
         label,
       ),
       value: canonicalizeJson(operation.value, `${label}.value`),
+    };
+  }
+  if (operation.kind === "set_values") {
+    assertExactKeys(operation, label, [
+      "kind",
+      "databaseBlockId",
+      "entries",
+    ]);
+    if (
+      !Array.isArray(operation.entries) ||
+      operation.entries.length < 1 ||
+      operation.entries.length > MAX_DATABASE_MUTATION_BULK_ENTRIES
+    ) {
+      throw new DatabaseMutationContractError(
+        `${label}.entries must contain 1-${MAX_DATABASE_MUTATION_BULK_ENTRIES} entries`,
+      );
+    }
+    return {
+      kind: "set_values",
+      databaseBlockId: readString(operation, "databaseBlockId", label),
+      entries: operation.entries.map((candidate, index) => {
+        const entryLabel = `${label}.entries[${index}]`;
+        const entry = readRecord(candidate, entryLabel);
+        assertExactKeys(entry, entryLabel, [
+          "cardBlockId",
+          "propertyId",
+          "expectedValueRevision",
+          "value",
+        ]);
+        return {
+          cardBlockId: readString(entry, "cardBlockId", entryLabel),
+          propertyId: readString(entry, "propertyId", entryLabel),
+          expectedValueRevision: readRevision(
+            entry,
+            "expectedValueRevision",
+            entryLabel,
+          ),
+          value: canonicalizeJson(entry.value, `${entryLabel}.value`),
+        };
+      }),
     };
   }
   if (operation.kind === "add_remove_value") {
@@ -1233,25 +1363,43 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
   throw new DatabaseMutationContractError(`${label}.kind is unsupported`);
 };
 
-export const databaseMutationOperationPath = (
+export const databaseMutationOperationPaths = (
   operation: DatabaseMutationOperation,
-): string => {
+): readonly string[] => {
   switch (operation.kind) {
     case "create_database":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}`;
+      return [`database/${encodeURIComponent(operation.databaseBlockId)}`];
     case "put_property":
     case "delete_property":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}/property/${encodeURIComponent(operation.propertyId)}`;
+      return [
+        `database/${encodeURIComponent(operation.databaseBlockId)}/property/${encodeURIComponent(operation.propertyId)}`,
+      ];
     case "transfer_membership":
-      return `card/${encodeURIComponent(operation.cardBlockId)}/membership`;
+      return [`card/${encodeURIComponent(operation.cardBlockId)}/membership`];
     case "put_view":
     case "delete_view":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}/view/${encodeURIComponent(operation.viewId)}`;
+      return [
+        `database/${encodeURIComponent(operation.databaseBlockId)}/view/${encodeURIComponent(operation.viewId)}`,
+      ];
     case "position_card":
-      return `view/${encodeURIComponent(operation.viewId)}/position/${encodeURIComponent(operation.cardBlockId)}`;
+      return [
+        `view/${encodeURIComponent(operation.viewId)}/position/${encodeURIComponent(operation.cardBlockId)}`,
+      ];
+    case "position_cards":
+      return operation.cards.map(
+        (entry) =>
+          `view/${encodeURIComponent(operation.viewId)}/position/${encodeURIComponent(entry.cardBlockId)}`,
+      );
     case "set_value":
     case "add_remove_value":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}/card/${encodeURIComponent(operation.cardBlockId)}/property/${encodeURIComponent(operation.propertyId)}`;
+      return [
+        `database/${encodeURIComponent(operation.databaseBlockId)}/card/${encodeURIComponent(operation.cardBlockId)}/property/${encodeURIComponent(operation.propertyId)}`,
+      ];
+    case "set_values":
+      return operation.entries.map(
+        (entry) =>
+          `database/${encodeURIComponent(operation.databaseBlockId)}/card/${encodeURIComponent(entry.cardBlockId)}/property/${encodeURIComponent(entry.propertyId)}`,
+      );
   }
 };
 
@@ -1292,14 +1440,75 @@ const operationEntities = (
       add("view", operation.viewId);
       add("card", operation.cardBlockId);
       break;
+    case "position_cards":
+      add("view", operation.viewId);
+      for (const entry of operation.cards) add("card", entry.cardBlockId);
+      break;
     case "set_value":
     case "add_remove_value":
       add("database", operation.databaseBlockId);
       add("card", operation.cardBlockId);
       add("property", operation.propertyId);
       break;
+    case "set_values":
+      add("database", operation.databaseBlockId);
+      for (const entry of operation.entries) {
+        add("card", entry.cardBlockId);
+        add("property", entry.propertyId);
+      }
+      break;
   }
   return entities;
+};
+
+type DatabaseCardMutationTarget =
+  | {
+      readonly kind: "position";
+      readonly cardBlockId: string;
+      readonly viewId: string;
+    }
+  | {
+      readonly kind: "value";
+      readonly cardBlockId: string;
+      readonly databaseBlockId: string;
+    };
+
+const databaseCardMutationTargets = (
+  operation: DatabaseMutationOperation,
+): readonly DatabaseCardMutationTarget[] => {
+  switch (operation.kind) {
+    case "position_card":
+      return [
+        {
+          kind: "position",
+          cardBlockId: operation.cardBlockId,
+          viewId: operation.viewId,
+        },
+      ];
+    case "position_cards":
+      return operation.cards.map((entry) => ({
+        kind: "position" as const,
+        cardBlockId: entry.cardBlockId,
+        viewId: operation.viewId,
+      }));
+    case "set_value":
+    case "add_remove_value":
+      return [
+        {
+          kind: "value",
+          cardBlockId: operation.cardBlockId,
+          databaseBlockId: operation.databaseBlockId,
+        },
+      ];
+    case "set_values":
+      return operation.entries.map((entry) => ({
+        kind: "value" as const,
+        cardBlockId: entry.cardBlockId,
+        databaseBlockId: operation.databaseBlockId,
+      }));
+    default:
+      return [];
+  }
 };
 
 const validateDatabaseMutationOperations = (
@@ -1323,13 +1532,14 @@ const validateDatabaseMutationOperations = (
   const positionedCards = new Set<string>();
 
   operations.forEach((operation, index) => {
-    const path = databaseMutationOperationPath(operation);
-    if (paths.has(path)) {
-      throw new DatabaseMutationContractError(
-        `databaseMutation.operations contains conflicting writes to ${path}`,
-      );
+    for (const path of databaseMutationOperationPaths(operation)) {
+      if (paths.has(path)) {
+        throw new DatabaseMutationContractError(
+          `databaseMutation.operations contains conflicting writes to ${path}`,
+        );
+      }
+      paths.add(path);
     }
-    paths.add(path);
 
     const entities = operationEntities(operation);
     if (
@@ -1346,53 +1556,44 @@ const validateDatabaseMutationOperations = (
       membershipTransfers.set(operation.cardBlockId, operation);
       return;
     }
-    if (
-      operation.kind !== "position_card" &&
-      operation.kind !== "set_value" &&
-      operation.kind !== "add_remove_value"
-    ) {
-      return;
-    }
-    if (operation.kind === "position_card") {
-      positionedCards.add(operation.cardBlockId);
-    } else if (positionedCards.has(operation.cardBlockId)) {
-      throw new DatabaseMutationContractError(
-        `databaseMutation.operations must update Card ${operation.cardBlockId} property values before positioning it`,
-      );
+    for (const target of databaseCardMutationTargets(operation)) {
+      if (target.kind === "position") {
+        positionedCards.add(target.cardBlockId);
+        continue;
+      }
+      if (positionedCards.has(target.cardBlockId)) {
+        throw new DatabaseMutationContractError(
+          `databaseMutation.operations must update Card ${target.cardBlockId} property values before positioning it`,
+        );
+      }
     }
   });
 
   for (const [cardBlockId, transfer] of membershipTransfers) {
     for (const operation of operations) {
-      if (
-        operation.kind !== "position_card" &&
-        operation.kind !== "set_value" &&
-        operation.kind !== "add_remove_value"
-      ) {
-        continue;
-      }
-      if (operation.cardBlockId !== cardBlockId) continue;
-      if (transfer.target === null) {
-        throw new DatabaseMutationContractError(
-          `databaseMutation.operations cannot mutate Card ${cardBlockId} while removing its Database membership`,
-        );
-      }
-      if (
-        operation.kind === "position_card" &&
-        operation.viewId === transfer.target.viewId
-      ) {
-        throw new DatabaseMutationContractError(
-          `databaseMutation.operations must express the initial View position on transfer_membership.target`,
-        );
-      }
-      if (
-        (operation.kind === "set_value" ||
-          operation.kind === "add_remove_value") &&
-        operation.databaseBlockId !== transfer.target.databaseBlockId
-      ) {
-        throw new DatabaseMutationContractError(
-          `databaseMutation.operations cannot write Card ${cardBlockId} in a Database other than its transfer target`,
-        );
+      for (const target of databaseCardMutationTargets(operation)) {
+        if (target.cardBlockId !== cardBlockId) continue;
+        if (transfer.target === null) {
+          throw new DatabaseMutationContractError(
+            `databaseMutation.operations cannot mutate Card ${cardBlockId} while removing its Database membership`,
+          );
+        }
+        if (
+          target.kind === "position" &&
+          target.viewId === transfer.target.viewId
+        ) {
+          throw new DatabaseMutationContractError(
+            `databaseMutation.operations must express the initial View position on transfer_membership.target`,
+          );
+        }
+        if (
+          target.kind === "value" &&
+          target.databaseBlockId !== transfer.target.databaseBlockId
+        ) {
+          throw new DatabaseMutationContractError(
+            `databaseMutation.operations cannot write Card ${cardBlockId} in a Database other than its transfer target`,
+          );
+        }
       }
     }
   }
@@ -1557,7 +1758,9 @@ export const parseDatabaseMutationReceipt = (
     "put_view",
     "delete_view",
     "position_card",
+    "position_cards",
     "set_value",
+    "set_values",
     "add_remove_value",
   ]);
   if (
