@@ -301,6 +301,16 @@ const normalizeRealtimeEvent = (
       state: value.state,
     };
   }
+  if (value.kind === "store-reset") {
+    if (typeof value.storeEpoch !== "string" || value.storeEpoch.length === 0) {
+      return null;
+    }
+    return {
+      kind: "store-reset",
+      documentId: value.documentId,
+      storeEpoch: value.storeEpoch,
+    };
+  }
   if (value.kind === "document-update") {
     const update = copyBytes(value.update);
     if (

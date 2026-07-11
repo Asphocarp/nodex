@@ -586,6 +586,14 @@ export class NodexYProvider {
       this.handleConnectionEvent(event.state);
       return;
     }
+    if (event.kind === "store-reset") {
+      this.enterReset(
+        resetBoundaryError(
+          `The local store was restored as epoch ${event.storeEpoch}; Document ${this.documentId} must reload`,
+        ),
+      );
+      return;
+    }
     if (event.kind === "relocation-lease-prepare") {
       this.handleRelocationLeasePrepare(event);
       return;

@@ -239,6 +239,12 @@ export type DocumentSyncRealtimeEvent =
       readonly state: "connected" | "disconnected";
     }
   | {
+      /** The entire SQLite authority was replaced; no old client state may replay. */
+      readonly kind: "store-reset";
+      readonly documentId: DocumentId;
+      readonly storeEpoch: string;
+    }
+  | {
       readonly kind: "document-update";
       readonly documentId: DocumentId;
       readonly storeEpoch: string;

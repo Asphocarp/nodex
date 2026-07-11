@@ -101,6 +101,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
+- Whole-store backup and restore now freeze collaborative and managed-asset writes at one consistent boundary, recover interrupted database/assets swaps without mixing snapshots, and automatically reload open Cards without replaying pre-restore edits.
 - Card title and body edits now synchronize through the Card's collaborative document, so two windows can edit the same Card without delayed whole-Card overwrites; reconnect and restart preserve the merged result.
 - Fixed Card delete undo and create redo failing while restoring the persisted Card row.
 - Fixed Scheduled edit navigation so valid pending detail edits save before switching tabs, opening another scheduled task, running toolbar actions, or opening a previous run chat.

@@ -112,6 +112,10 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
       },
     });
 
+  emit = (event: DocumentSyncRealtimeEvent): void => {
+    this.listeners.forEach((listener) => listener(event));
+  };
+
   destroy = (): void => this.server.document.destroy();
 }
 
@@ -205,6 +209,50 @@ describe("BlockDocumentSurface", () => {
       expect(view.getByRole("alert").textContent?.includes("Reload")).toBeTrue();
     });
     expect(adapter.subscriptions).toBe(0);
+    adapter.destroy();
+  });
+
+  test("automatically recreates a mounted surface after a whole-store reset", async () => {
+    const adapter = new SurfaceTestAdapter();
+    let reloads = 0;
+    const dependencies: BlockDocumentSurfaceDependencies = {
+      createAdapter: () => adapter,
+      createRuntime: (options) =>
+        new BlockDocumentSurfaceRuntime({
+          ...options,
+          localCheckpointStore: null,
+          closeTimeoutMs: 100,
+        }),
+    };
+    const view = render(
+      <BlockDocumentSurface
+        projectId="project-1"
+        descriptor={descriptor()}
+        isActive
+        dependencies={dependencies}
+        onReload={async () => {
+          reloads += 1;
+        }}
+      >
+        {(surface) => <div>{surface.title.toString()}</div>}
+      </BlockDocumentSurface>,
+    );
+    await waitFor(() => {
+      expect(view.getByText("Synced title").textContent).toBe("Synced title");
+    });
+
+    await act(async () => {
+      adapter.emit({
+        kind: "store-reset",
+        documentId: "document:card-1",
+        storeEpoch: "store-restored",
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(reloads).toBe(1));
+    await waitFor(() => expect(adapter.unsubscriptions > 0).toBeTrue());
+
+    view.unmount();
     adapter.destroy();
   });
 });

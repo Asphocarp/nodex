@@ -48,9 +48,12 @@
 - Project rename updates linked Codex rows transactionally with project metadata updates.
 
 ## Backup and Restore
-- Whole-store backups include `nodex.db` and asset files.
-- Manual and scheduled backups are managed by `local-store/backups.ts`.
-- Restore requires explicit confirmation and supports pre-restore safety backup.
+- Whole-store backups include `nodex.db` and managed asset files from one quiesced boundary. The asset gate first drains accepted uploads/materialization and rejects new mutations; the FIFO writer then crosses a barrier, destroys its Y.Doc cache, and closes the worker SQLite connection. The main connection also closes and fails lazy access until a standalone read-only backup source finishes.
+- Manual and scheduled backups are managed by `local-store/backups.ts` and use SQLite's online backup API. The staged DB and every asset file/directory are fsynced before the backup directory rename is published.
+- Restore requires explicit confirmation. Its optional pre-restore safety backup is created after the same asset/writer fence is acquired and before replacement, without reopening a write window between those operations.
+- Before swap, the staged DB must pass current schema, `quick_check`, `foreign_key_check`, Block store metadata, Card-owned-Document, and primary projection/head checks. Its managed asset root may contain only flat regular files with safe names: directories/symlinks are rejected, and every exact-head `nodex://assets/*` projection must resolve to an existing file (unreferenced files may remain).
+- Cross-file DB/WAL/assets replacement is protected by an atomically written and fsynced restore journal. Rename parents and staged/live files are fsynced. Startup before schema migration restores the complete rollback for every pre-commit phase; a durable `committed` phase keeps the complete installed store and removes recovery artifacts. The journal records source/installed schema versions, so an app upgrade can recover a previous Block-first schema before normal migrations run.
+- The installed DB rotates `storeEpoch` transactionally before `committed`. Only then does the Hub best-effort broadcast `store-reset`, cancel leases, and remove old subscriptions. Missing fanout cannot turn a durable restore into an apparent failure: old-epoch IPC/HTTP updates still fail closed, while providers clear checkpoints/outboxes and automatically reload through a fresh descriptor/state-vector handshake.
 
 ## Sync and Event Delivery
 - Electron path: DB change notifier -> main-process fanout to all open windows -> IPC event -> hook refresh.

@@ -175,10 +175,15 @@ describe("createHttpDocumentSyncAdapter", () => {
       clientSessionId: "client-2",
       update: new Uint8Array([6, 7]),
     });
+    source?.message({
+      kind: "store-reset",
+      documentId: "document-1",
+      storeEpoch: "store-restored",
+    });
     source?.disconnect();
     source?.open();
     expect(events.map((event) => `${event.kind}:${event.kind === "connection" ? event.state : "data"}`).join(",")).toBe(
-      "connection:connected,document-update:data,connection:disconnected,connection:connected",
+      "connection:connected,document-update:data,store-reset:data,connection:disconnected,connection:connected",
     );
 
     const awareness = await adapter.publishAwareness({

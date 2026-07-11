@@ -566,6 +566,9 @@ export const decodeDocumentRealtimeSseEvent = (
     return { kind, documentId, state };
   }
   const storeEpoch = readString(record, "storeEpoch");
+  if (kind === "store-reset") {
+    return { kind, documentId, storeEpoch };
+  }
   const generation = readInteger(record, "generation", 1);
   if (kind === "awareness") {
     return {

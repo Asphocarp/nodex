@@ -1,5 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
+import { randomUUID } from "node:crypto";
+import type Database from "better-sqlite3";
 import type {
   BackupRecord,
   BackupTrigger,
@@ -7,10 +9,30 @@ import type {
   RestoreBackupInput,
   RestoreBackupResult,
 } from "../../shared/types";
-import { closeDatabase, dbNotifier, getDatabasePath, getDb, getLocalStoreDir, listProjects } from "./backups-deps";
+import {
+  dbNotifier,
+  getDatabasePath,
+  getLocalStoreDir,
+  listProjects,
+  openStandaloneBackupDatabase,
+} from "./backups-deps";
 import { getLogger } from "../logging/logger";
+import { wholeStoreMaintenance } from "../whole-store-maintenance-runtime";
+import {
+  rotateBackupStoreEpoch,
+  validateBackupStore,
+} from "./backup-store-validation";
+import {
+  advanceStoreRestoreJournal,
+  cleanupCommittedStoreRestore,
+  createStoreRestoreJournal,
+  fsyncDirectory,
+  fsyncPathRecursively,
+  rollbackStoreRestore,
+  type StoreRestoreJournal,
+} from "./store-restore-journal";
 
-const BACKUP_SCHEMA_VERSION = 1;
+const BACKUP_SCHEMA_VERSION = 2;
 const BACKUP_DB_FILE_NAME = "nodex.db";
 const BACKUP_MANIFEST_FILE_NAME = "manifest.json";
 const BACKUP_ASSETS_DIR_NAME = "assets";
@@ -26,6 +48,8 @@ interface BackupManifest {
   dbBytes: number;
   assetsBytes: number;
   totalBytes: number;
+  storeSchemaVersion?: number;
+  storeEpoch?: string;
 }
 
 interface AutoBackupSchedulerOptions {
@@ -85,6 +109,13 @@ function getRollbackPath(): string {
   return path.join(getBackupsRootPath(), `.rollback-${Date.now()}-${randomSuffix}`);
 }
 
+function getRestoreStagingPath(): string {
+  return path.join(
+    getBackupsRootPath(),
+    `.restore-${Date.now()}-${randomUUID().slice(0, 8)}`,
+  );
+}
+
 function getBackupId(): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const randomSuffix = Math.random().toString(36).slice(2, 8);
@@ -103,6 +134,12 @@ function removePathIfExists(targetPath: string): void {
 function movePathIfExists(sourcePath: string, destinationPath: string): void {
   if (!fs.existsSync(sourcePath)) return;
   fs.renameSync(sourcePath, destinationPath);
+  const sourceParent = path.dirname(sourcePath);
+  const destinationParent = path.dirname(destinationPath);
+  fsyncDirectory(sourceParent);
+  if (destinationParent !== sourceParent) {
+    fsyncDirectory(destinationParent);
+  }
 }
 
 function copyPathIfExists(sourcePath: string, destinationPath: string): void {
@@ -167,6 +204,8 @@ function readManifest(backupDirectoryPath: string): BackupManifest {
     dbBytes: parsedValue.dbBytes ?? 0,
     assetsBytes: parsedValue.assetsBytes ?? 0,
     totalBytes: parsedValue.totalBytes ?? 0,
+    storeSchemaVersion: parsedValue.storeSchemaVersion,
+    storeEpoch: parsedValue.storeEpoch,
   };
 }
 
@@ -182,7 +221,10 @@ function notifyAllProjects(): void {
   }
 }
 
-async function createBackupInternal(input: CreateBackupInput): Promise<BackupRecord> {
+async function createBackupInternal(
+  input: CreateBackupInput,
+  sourceDatabase: Pick<Database.Database, "backup">,
+): Promise<BackupRecord> {
   const trigger = input.trigger ?? "manual";
   const label = input.label?.trim() || null;
 
@@ -198,8 +240,9 @@ async function createBackupInternal(input: CreateBackupInput): Promise<BackupRec
   ensureDirectory(tempDirectoryPath);
 
   try {
-    await getDb().backup(backupDatabasePath);
+    await sourceDatabase.backup(backupDatabasePath);
     copyPathIfExists(sourceAssetsPath, backupAssetsPath);
+    const validatedStore = validateBackupStore(backupDatabasePath);
 
     const dbBytes = fs.statSync(backupDatabasePath).size;
     const assetsBytes = getDirectorySize(backupAssetsPath);
@@ -213,6 +256,8 @@ async function createBackupInternal(input: CreateBackupInput): Promise<BackupRec
       dbBytes,
       assetsBytes,
       totalBytes: dbBytes + assetsBytes,
+      storeSchemaVersion: validatedStore.schemaVersion,
+      storeEpoch: validatedStore.storeEpoch,
     };
 
     fs.writeFileSync(
@@ -221,7 +266,9 @@ async function createBackupInternal(input: CreateBackupInput): Promise<BackupRec
       "utf8"
     );
 
+    fsyncPathRecursively(tempDirectoryPath);
     fs.renameSync(tempDirectoryPath, backupDirectoryPath);
+    fsyncDirectory(getBackupsRootPath());
     logger.info("Created backup", {
       backupId,
       trigger,
@@ -242,24 +289,70 @@ async function createBackupInternal(input: CreateBackupInput): Promise<BackupRec
   }
 }
 
-function restoreRollbackSnapshot(rollbackDirectoryPath: string): void {
+function prepareRestoreStaging(
+  backupDatabasePath: string,
+  backupAssetsPath: string,
+): string {
+  const stagingDirectoryPath = getRestoreStagingPath();
+  const stagingDatabasePath = path.join(
+    stagingDirectoryPath,
+    BACKUP_DB_FILE_NAME,
+  );
+  const stagingAssetsPath = path.join(
+    stagingDirectoryPath,
+    BACKUP_ASSETS_DIR_NAME,
+  );
+  ensureDirectory(stagingDirectoryPath);
+  try {
+    fs.copyFileSync(backupDatabasePath, stagingDatabasePath);
+    ensureDirectory(stagingAssetsPath);
+    copyPathIfExists(backupAssetsPath, stagingAssetsPath);
+    validateBackupStore(stagingDatabasePath);
+    fsyncPathRecursively(stagingDirectoryPath);
+    fsyncDirectory(getBackupsRootPath());
+    return stagingDirectoryPath;
+  } catch (error) {
+    removePathIfExists(stagingDirectoryPath);
+    throw error;
+  }
+}
+
+function installStagedStore(
+  stagingDirectoryPath: string,
+  rollbackDirectoryPath: string,
+): void {
   const databasePath = getDatabasePath();
   const databaseWalPath = `${databasePath}-wal`;
   const databaseShmPath = `${databasePath}-shm`;
   const assetsPath = getAssetsRootPath();
 
-  removePathIfExists(databasePath);
-  removePathIfExists(databaseWalPath);
-  removePathIfExists(databaseShmPath);
-  removePathIfExists(assetsPath);
+  movePathIfExists(databasePath, path.join(rollbackDirectoryPath, "nodex.db"));
+  movePathIfExists(
+    databaseWalPath,
+    path.join(rollbackDirectoryPath, "nodex.db-wal"),
+  );
+  movePathIfExists(
+    databaseShmPath,
+    path.join(rollbackDirectoryPath, "nodex.db-shm"),
+  );
+  movePathIfExists(
+    assetsPath,
+    path.join(rollbackDirectoryPath, BACKUP_ASSETS_DIR_NAME),
+  );
 
-  movePathIfExists(path.join(rollbackDirectoryPath, "nodex.db"), databasePath);
-  movePathIfExists(path.join(rollbackDirectoryPath, "nodex.db-wal"), databaseWalPath);
-  movePathIfExists(path.join(rollbackDirectoryPath, "nodex.db-shm"), databaseShmPath);
-  movePathIfExists(path.join(rollbackDirectoryPath, BACKUP_ASSETS_DIR_NAME), assetsPath);
+  movePathIfExists(
+    path.join(stagingDirectoryPath, BACKUP_DB_FILE_NAME),
+    databasePath,
+  );
+  movePathIfExists(
+    path.join(stagingDirectoryPath, BACKUP_ASSETS_DIR_NAME),
+    assetsPath,
+  );
 }
 
-async function restoreBackupInternal(input: RestoreBackupInput): Promise<RestoreBackupResult> {
+async function restoreBackupInternal(
+  input: RestoreBackupInput,
+): Promise<RestoreBackupResult> {
   if (!input.confirm) {
     throw new Error("Restore requires explicit confirm=true");
   }
@@ -281,72 +374,94 @@ async function restoreBackupInternal(input: RestoreBackupInput): Promise<Restore
 
   const backupAssetsPath = path.join(backupDirectoryPath, BACKUP_ASSETS_DIR_NAME);
   const rollbackDirectoryPath = getRollbackPath();
-  const databasePath = getDatabasePath();
-  const databaseWalPath = `${databasePath}-wal`;
-  const databaseShmPath = `${databasePath}-shm`;
-  const assetsPath = getAssetsRootPath();
   const createSafetyBackup = input.createSafetyBackup !== false;
 
   let safetyBackupId: string | undefined;
-  let rollbackPrepared = false;
-
   ensureDirectory(getBackupsRootPath());
-  ensureDirectory(rollbackDirectoryPath);
 
-  if (createSafetyBackup) {
-    const safetyBackup = await createBackupInternal({
-      trigger: "pre-restore",
-      label: `Auto safety backup before restoring ${input.backupId}`,
-    });
-    safetyBackupId = safetyBackup.id;
-  }
-
+  let stagingDirectoryPath: string | null = null;
+  let restoreJournal: StoreRestoreJournal | null = null;
   try {
-    closeDatabase();
-    rollbackPrepared = true;
+    stagingDirectoryPath = prepareRestoreStaging(
+      backupDatabasePath,
+      backupAssetsPath,
+    );
+    const restoreResult = await wholeStoreMaintenance.restore(async () => {
+      if (createSafetyBackup) {
+        const sourceDatabase = openStandaloneBackupDatabase(getDatabasePath());
+        try {
+          const safetyBackup = await createBackupInternal(
+            {
+              trigger: "pre-restore",
+              label: `Auto safety backup before restoring ${input.backupId}`,
+            },
+            sourceDatabase,
+          );
+          safetyBackupId = safetyBackup.id;
+        } finally {
+          sourceDatabase.close();
+        }
+      }
+      restoreJournal = createStoreRestoreJournal({
+        backupId: input.backupId,
+        stagingDirectoryPath: stagingDirectoryPath!,
+        rollbackDirectoryPath,
+      });
+      ensureDirectory(rollbackDirectoryPath);
+      let journal = restoreJournal!;
+      let committed = false;
+      try {
+        journal = advanceStoreRestoreJournal(journal, "rollback_started");
+        installStagedStore(stagingDirectoryPath!, rollbackDirectoryPath);
+        journal = advanceStoreRestoreJournal(journal, "install_started");
+        journal = advanceStoreRestoreJournal(journal, "epoch_rotating");
+        const validated = rotateBackupStoreEpoch(getDatabasePath());
+        journal = advanceStoreRestoreJournal(journal, "committed");
+        committed = true;
+        try {
+          cleanupCommittedStoreRestore(journal);
+          restoreJournal = null;
+        } catch (error) {
+          logger.warn("Committed restore cleanup will resume at next startup", {
+            backupId: input.backupId,
+            error,
+          });
+        }
+        return {
+          value: {
+            success: true,
+            restoredBackupId: input.backupId,
+            safetyBackupId,
+          } satisfies RestoreBackupResult,
+          storeEpoch: validated.storeEpoch,
+        };
+      } catch (error) {
+        if (!committed) {
+          rollbackStoreRestore(journal);
+          restoreJournal = null;
+        }
+        throw error;
+      }
+    });
 
-    movePathIfExists(databasePath, path.join(rollbackDirectoryPath, "nodex.db"));
-    movePathIfExists(databaseWalPath, path.join(rollbackDirectoryPath, "nodex.db-wal"));
-    movePathIfExists(databaseShmPath, path.join(rollbackDirectoryPath, "nodex.db-shm"));
-    movePathIfExists(assetsPath, path.join(rollbackDirectoryPath, BACKUP_ASSETS_DIR_NAME));
-
-    fs.copyFileSync(backupDatabasePath, databasePath);
-    copyPathIfExists(backupAssetsPath, assetsPath);
-
-    const validationRow = getDb()
-      .prepare("SELECT COUNT(*) as count FROM projects")
-      .get() as { count: number } | undefined;
-    if (!validationRow || typeof validationRow.count !== "number") {
-      throw new Error("Restore validation failed");
-    }
+    notifyAllProjects();
+    logger.warn("Backup restore completed", {
+      backupId: input.backupId,
+      safetyBackupId,
+    });
+    return restoreResult;
   } catch (error) {
-    if (rollbackPrepared) {
-      closeDatabase();
-      restoreRollbackSnapshot(rollbackDirectoryPath);
-      getDb();
-    }
     logger.error("Backup restore failed", {
       backupId: input.backupId,
-      rollbackPrepared,
       error,
     });
     throw error;
   } finally {
-    removePathIfExists(rollbackDirectoryPath);
+    if (stagingDirectoryPath && !restoreJournal) {
+      removePathIfExists(stagingDirectoryPath);
+    }
+    if (!restoreJournal) removePathIfExists(rollbackDirectoryPath);
   }
-
-  notifyAllProjects();
-
-  logger.warn("Backup restore completed", {
-    backupId: input.backupId,
-    safetyBackupId,
-  });
-
-  return {
-    success: true,
-    restoredBackupId: input.backupId,
-    safetyBackupId,
-  };
 }
 
 export async function createBackup(input: CreateBackupInput = {}): Promise<BackupRecord> {
@@ -354,7 +469,14 @@ export async function createBackup(input: CreateBackupInput = {}): Promise<Backu
     trigger: input.trigger ?? "manual",
     hasLabel: Boolean(input.label?.trim()),
   });
-  return enqueueBackupOperation(() => createBackupInternal(input));
+  return enqueueBackupOperation(() => wholeStoreMaintenance.snapshot(async () => {
+    const sourceDatabase = openStandaloneBackupDatabase(getDatabasePath());
+    try {
+      return await createBackupInternal(input, sourceDatabase);
+    } finally {
+      sourceDatabase.close();
+    }
+  }));
 }
 
 export async function listBackups(): Promise<BackupRecord[]> {

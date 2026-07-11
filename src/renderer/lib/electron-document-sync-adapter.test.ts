@@ -157,13 +157,19 @@ describe("createElectronDocumentSyncAdapter", () => {
       clientSessionId: "session-2",
       update: new Uint8Array([4, 5]),
     });
+    bridge.emit("document-sync:event", {
+      kind: "store-reset",
+      documentId: "doc-1",
+      storeEpoch: "epoch-restored",
+    });
 
-    expect(events.length).toBe(1);
+    expect(events.length).toBe(2);
     const event = events[0];
     expect(event?.kind).toBe("document-update");
     if (event?.kind === "document-update") {
       expect(Array.from(event.update).join(",")).toBe("4,5");
     }
+    expect(events[1]?.kind).toBe("store-reset");
   });
 
   test("returns typed subscription errors without parsing Error messages", async () => {

@@ -1083,4 +1083,59 @@ describe("DocumentSyncHub", () => {
       ),
     ).toBeTrue();
   });
+
+  test("store replacement resets every surface and invalidates old Hub authorization", async () => {
+    let durableApplyCalls = 0;
+    const hub = new DocumentSyncHub(
+      createBackend(async (request) => {
+        durableApplyCalls += 1;
+        return applyAck(request);
+      }),
+    );
+    const left = new FakeTarget(61);
+    const right = new FakeTarget(62);
+    subscribe(hub, left, "doc-source", "surface-left");
+    subscribe(hub, right, "doc-source", "surface-right");
+    await syncSubscription(hub, left, "doc-source", "surface-left");
+    await syncSubscription(hub, right, "doc-source", "surface-right");
+    clearSent(left, right);
+
+    hub.resetForStoreReplacement("epoch-restored");
+    for (const target of [left, right]) {
+      expect(target.sent.length).toBe(1);
+      const event = target.sent[0]?.value as DocumentSyncRealtimeEvent;
+      expect(event.kind).toBe("store-reset");
+      if (event.kind === "store-reset") {
+        expect(event.storeEpoch).toBe("epoch-restored");
+      }
+    }
+
+    const staleSync = await hub.sync(left, {
+      documentId: "doc-source",
+      clientSessionId: "surface-left",
+      stateVector: new Uint8Array([0]),
+    });
+    expect(staleSync.ok).toBeFalse();
+    if (!staleSync.ok) expect(staleSync.error.code).toBe("unauthorized");
+    const staleApply = await hub.applyUpdate(left, {
+      documentId: "doc-source",
+      storeEpoch: "epoch-1",
+      generation: 1,
+      updateId: "stale-after-restore",
+      clientSessionId: "surface-left",
+      baseHeadSeq: 0,
+      touchedBlockIds: [],
+      update: new Uint8Array([0]),
+    });
+    expect(staleApply.ok).toBeFalse();
+    expect(durableApplyCalls).toBe(0);
+
+    subscribe(hub, left, "doc-source", "surface-left");
+    const freshSync = await hub.sync(left, {
+      documentId: "doc-source",
+      clientSessionId: "surface-left",
+      stateVector: new Uint8Array([0]),
+    });
+    expect(freshSync.ok).toBeTrue();
+  });
 });

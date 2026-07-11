@@ -10,6 +10,8 @@ const liveAssetsPath = path.join(fixtureRoot, "assets");
 const state = {
   projects: [{ id: "default" }],
   notifications: [] as Array<[string, string, string]>,
+  maintenanceEvents: [] as string[],
+  failEpochRotation: false,
 };
 
 mock.module("./backups-deps", () => ({
@@ -40,6 +42,63 @@ mock.module("./backups-deps", () => ({
       },
     }),
   }),
+  openStandaloneBackupDatabase: () => ({
+    backup: async (destinationPath: string) => {
+      fs.copyFileSync(liveDbPath, destinationPath);
+      return { totalPages: 1, remainingPages: 0 };
+    },
+    close: () => undefined,
+  }),
+}));
+
+mock.module("./config", () => ({
+  getLocalStoreDir: () => fixtureRoot,
+  getDatabasePath: () => liveDbPath,
+}));
+
+mock.module("../whole-store-maintenance-runtime", () => ({
+  wholeStoreMaintenance: {
+    snapshot: async <T>(operation: () => Promise<T>) => {
+      state.maintenanceEvents.push("snapshot:start");
+      try {
+        return await operation();
+      } finally {
+        state.maintenanceEvents.push("snapshot:end");
+      }
+    },
+    restore: async <T>(
+      operation: () => Promise<{ value: T; storeEpoch: string }>,
+    ) => {
+      state.maintenanceEvents.push("restore:start");
+      const result = await operation();
+      state.maintenanceEvents.push(`reset:${result.storeEpoch}`);
+      return result.value;
+    },
+  },
+}));
+
+mock.module("./backup-store-validation", () => ({
+  validateBackupStore: (databasePath: string) => {
+    const content = fs.readFileSync(databasePath, "utf8");
+    if (content.startsWith("invalid")) throw new Error("invalid database");
+    return {
+      schemaVersion: 66,
+      storeEpoch: "epoch-before",
+      projectCount: 1,
+      documentCount: 1,
+    };
+  },
+  rotateBackupStoreEpoch: (databasePath: string) => {
+    if (state.failEpochRotation) throw new Error("injected epoch rotation failure");
+    const content = fs.readFileSync(databasePath, "utf8");
+    if (content.startsWith("invalid")) throw new Error("invalid database");
+    return {
+      schemaVersion: 66,
+      storeEpoch: "epoch-restored",
+      projectCount: 1,
+      documentCount: 1,
+    };
+  },
 }));
 
 const backupService = await import("./backups");
@@ -49,6 +108,8 @@ function resetState(): void {
   fs.mkdirSync(fixtureRoot, { recursive: true });
   fs.writeFileSync(liveDbPath, "live-db", "utf8");
   state.notifications = [];
+  state.maintenanceEvents = [];
+  state.failEpochRotation = false;
 }
 
 function writeAsset(fileName: string, content: string): void {
@@ -79,6 +140,9 @@ describe("backup service", () => {
     expect(fs.existsSync(path.join(backupDir, "manifest.json"))).toBeTrue();
     expect(fs.existsSync(path.join(backupDir, "nodex.db"))).toBeTrue();
     expect(fs.existsSync(path.join(backupDir, "assets", "a.txt"))).toBeTrue();
+    expect(state.maintenanceEvents.join(",")).toBe(
+      "snapshot:start,snapshot:end",
+    );
   });
 
   test("lists backups newest first", async () => {
@@ -115,6 +179,7 @@ describe("backup service", () => {
     resetState();
     const target = await backupService.createBackup({ trigger: "manual", label: "target" });
     fs.writeFileSync(liveDbPath, "live-db-updated", "utf8");
+    state.maintenanceEvents = [];
 
     const result = await backupService.restoreBackup({
       backupId: target.id,
@@ -125,6 +190,9 @@ describe("backup service", () => {
     expect(result.restoredBackupId).toBe(target.id);
     expect(Boolean(result.safetyBackupId)).toBeTrue();
     expect(state.notifications.length > 0).toBeTrue();
+    expect(state.maintenanceEvents.join(",")).toBe(
+      "restore:start,reset:epoch-restored",
+    );
 
     const allBackups = await backupService.listBackups();
     const safety = allBackups.find((item) => item.id === result.safetyBackupId);
@@ -187,6 +255,29 @@ describe("backup service", () => {
 
     expect(failed).toBeTrue();
     expect(fs.readFileSync(liveDbPath, "utf8")).toBe("baseline-live-db");
+  });
+
+  test("restore rolls back an installed store when epoch rotation fails", async () => {
+    resetState();
+    const backup = await backupService.createBackup({ trigger: "manual" });
+    fs.writeFileSync(liveDbPath, "newer-live-db", "utf8");
+    state.maintenanceEvents = [];
+    state.failEpochRotation = true;
+
+    let failed = false;
+    try {
+      await backupService.restoreBackup({
+        backupId: backup.id,
+        confirm: true,
+        createSafetyBackup: false,
+      });
+    } catch {
+      failed = true;
+    }
+
+    expect(failed).toBeTrue();
+    expect(fs.readFileSync(liveDbPath, "utf8")).toBe("newer-live-db");
+    expect(state.maintenanceEvents.join(",")).toBe("restore:start");
   });
 
   test("restore rejects unsafe backup ids", async () => {

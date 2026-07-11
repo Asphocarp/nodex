@@ -379,7 +379,11 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 #### 9. Whole-Store Backups
 - Manual backup creation via CLI/API (`nodex.db` + `assets/`)
 - Automatic backups every 6 hours with retention of latest 28 auto backups
-- Restore requires explicit confirmation and creates a pre-restore safety backup by default
+- Backup briefly freezes managed asset and content writes so the database and referenced files come from one consistent point
+- Restore requires explicit confirmation and creates a pre-restore safety backup by default; that safety snapshot and replacement share one uninterrupted write fence
+- Restore either installs the complete selected database/assets snapshot or keeps the complete previous store, including after an interruption between file moves
+- Restore rejects snapshots with missing referenced managed assets, nested asset directories, symlinks, or unsafe asset filenames
+- Successful restore automatically reloads every open collaborative Card against a new store epoch; edits and local recovery data from before restore cannot replay into the restored snapshot
 - Backup artifacts are stored under `~/.nodex/backups/<backup-id>/` with a versioned `manifest.json`
 
 #### 10. Canvas View (Excalidraw)
@@ -1390,7 +1394,7 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 ### Why SQLite Online Backup API for Backups?
 - **WAL-safe snapshots**: `db.backup(...)` captures consistent state from a live WAL database
 - **Atomic backup directories**: Stage in temp dir and rename into place
-- **Restore safety**: Auto pre-restore safety backup and rollback staging protect against failed restores
+- **Restore safety**: A continuous maintenance fence, auto safety backup, integrity validation, and durable DB/WAL/assets restore journal protect against failed or interrupted restores
 - **Whole-store recovery**: Backups include both `nodex.db` and `assets/`
 
 ### Why Stable Asset URIs?

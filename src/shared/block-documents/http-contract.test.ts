@@ -126,6 +126,11 @@ describe("Document HTTP contract", () => {
     const events = [
       { kind: "connection", documentId: "document-1", state: "connected" },
       {
+        kind: "store-reset",
+        documentId: "document-1",
+        storeEpoch: "store-restored",
+      },
+      {
         kind: "document-update",
         documentId: "document-1",
         storeEpoch: "store-1",
@@ -187,7 +192,7 @@ describe("Document HTTP contract", () => {
           .kind,
     );
     expect(decodedKinds.join(",")).toBe(
-      "connection,document-update,awareness,resync-required,relocation-lease-prepare,relocation-lease-release,relocation-lease-cancel",
+      "connection,store-reset,document-update,awareness,resync-required,relocation-lease-prepare,relocation-lease-release,relocation-lease-cancel",
     );
 
     const error = {

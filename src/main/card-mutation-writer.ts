@@ -127,9 +127,11 @@ interface PendingRequest {
 
 export class CardMutationWriter {
   private worker: Worker | null = null;
-  private lifecycle: "accepting" | "draining" | "stopped" = "accepting";
+  private lifecycle: "accepting" | "draining" | "suspended" | "stopped" =
+    "accepting";
   private gracefulExitExpected = false;
   private shutdownPromise: Promise<void> | null = null;
+  private maintenanceSuspendPromise: Promise<void> | null = null;
   private cancelShutdownDeadline: (() => void) | null = null;
   private nextRequestId = 1;
   private pending = new Map<number, PendingRequest>();
@@ -556,11 +558,11 @@ export class CardMutationWriter {
   }
 
   async barrier(): Promise<void> {
-    if (this.lifecycle === "stopped") {
+    if (this.lifecycle === "stopped" || this.lifecycle === "suspended") {
       return;
     }
     if (this.lifecycle === "draining") {
-      await this.shutdownPromise;
+      await (this.shutdownPromise ?? this.maintenanceSuspendPromise);
       return;
     }
     if (!this.worker) {
@@ -570,12 +572,108 @@ export class CardMutationWriter {
     await this.executeTyped<void>({ type: "writerBarrier" });
   }
 
+  /**
+   * Drains accepted commands and closes the worker-owned SQLite connection.
+   * Unlike shutdown(), this is reversible and intentionally leaves the writer
+   * rejecting commands until resumeAfterMaintenance() is called.
+   */
+  suspendForMaintenance(): Promise<void> {
+    if (this.maintenanceSuspendPromise) {
+      return this.maintenanceSuspendPromise;
+    }
+    if (this.lifecycle === "suspended") {
+      return Promise.resolve();
+    }
+    if (this.lifecycle === "stopped" || this.shutdownPromise) {
+      return Promise.reject(new Error("Card mutation writer is stopped"));
+    }
+
+    this.lifecycle = "draining";
+    const worker = this.worker;
+    if (!worker) {
+      this.lifecycle = "suspended";
+      this.maintenanceSuspendPromise = Promise.resolve();
+      return this.maintenanceSuspendPromise;
+    }
+
+    let cancelDeadline: (() => void) | null = null;
+    let workerDetached = false;
+    const detachWorker = async (): Promise<void> => {
+      if (workerDetached) return;
+      workerDetached = true;
+      worker.removeAllListeners();
+      if (this.worker === worker) this.worker = null;
+      await Promise.resolve(worker.terminate());
+    };
+    const suspend = this.executeTyped<void>(
+      { type: "shutdown" },
+      { allowDuringDrain: true },
+    )
+      .then(async () => {
+        // The shutdown ACK is emitted only after the worker destroys its Y.Doc
+        // cache and closes its SQLite connection. Detach it before a future
+        // command is allowed to create the replacement worker.
+        await detachWorker();
+        this.gracefulExitExpected = false;
+        this.lifecycle = "suspended";
+      })
+      .catch(async (error: unknown) => {
+        // A failed suspend must not strand the process in maintenance mode.
+        // The failed worker is never reused; the next accepted command starts
+        // a clean connection after the coordinator releases its outer gate.
+        await detachWorker();
+        this.gracefulExitExpected = false;
+        this.maintenanceSuspendPromise = null;
+        this.lifecycle = "accepting";
+        throw error;
+      })
+      .finally(() => {
+        cancelDeadline?.();
+      });
+    cancelDeadline = this.scheduleShutdownDeadline(() => {
+      const timeoutMs = this.shutdownTimeoutMs();
+      const error = new Error(
+        `Card mutation writer did not suspend within ${timeoutMs}ms`,
+      );
+      logger.error("Card mutation writer maintenance suspend timed out", {
+        pendingCount: this.pending.size,
+        timeoutMs,
+      });
+      this.handleWorkerFailure(error);
+      void detachWorker();
+    });
+    this.maintenanceSuspendPromise = suspend;
+    return suspend;
+  }
+
+  resumeAfterMaintenance(): void {
+    if (this.lifecycle === "stopped") return;
+    if (this.lifecycle !== "suspended") {
+      throw new Error("Card mutation writer is not suspended for maintenance");
+    }
+    this.maintenanceSuspendPromise = null;
+    this.lifecycle = "accepting";
+  }
+
   shutdown(): Promise<void> {
     if (this.shutdownPromise) {
       return this.shutdownPromise;
     }
     if (this.lifecycle === "stopped") {
       return Promise.resolve();
+    }
+    if (this.lifecycle === "suspended") {
+      this.lifecycle = "stopped";
+      this.shutdownPromise = Promise.resolve();
+      return this.shutdownPromise;
+    }
+    if (this.maintenanceSuspendPromise) {
+      this.shutdownPromise = this.maintenanceSuspendPromise
+        .catch(() => undefined)
+        .then(() => {
+          this.lifecycle = "stopped";
+        });
+      return this.shutdownPromise;
     }
 
     this.lifecycle = "draining";

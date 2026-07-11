@@ -182,7 +182,9 @@ Moving within one Document is one Yjs transaction. Moving across Documents uses 
 
 ### Restore and backup
 
-A backup is copied only after a writer barrier flushes durable mutations. Restore rotates `storeEpoch`, invalidates Document caches/providers, and rejects pre-restore IndexedDB data. Snapshot compaction and user-visible history checkpoints have separate retention policies.
+A backup is copied only while one whole-store maintenance fence has drained managed asset writes, flushed the writer FIFO, and closed both worker and main SQLite connections. A standalone read-only source performs the SQLite backup while ordinary main access fails closed. A pre-restore safety backup and the replacement happen under that same uninterrupted fence, so no accepted write can fall between them.
+
+Restore treats SQLite, WAL state, and managed assets as one authority even though the filesystem cannot rename them atomically as a group. An fsynced restore journal makes every phase recoverable: startup rolls any pre-commit interruption back to the complete old store and finishes cleanup only after the installed DB has passed integrity/ownership/projection checks, every exact-head managed asset URI resolves to a flat regular file, and `storeEpoch` has durably rotated. The Hub then invalidates every live subscription. Old IPC/HTTP commands, Yjs outboxes, Awareness, and IndexedDB checkpoints fail closed; mounted surfaces fetch a new descriptor and state-vector sync instead of replaying old-epoch state. Snapshot compaction and user-visible history checkpoints have separate retention policies.
 
 ## Non-domain state
 

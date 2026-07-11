@@ -231,6 +231,7 @@ function ReadySurface({
     runtime.getStatus,
   );
   const [reloading, setReloading] = useState(false);
+  const reloadInFlightRef = useRef(false);
   useSurfaceAwareness(
     runtime,
     projectId,
@@ -240,7 +241,8 @@ function ReadySurface({
   );
 
   const reload = async (): Promise<void> => {
-    if (reloading) return;
+    if (reloadInFlightRef.current) return;
+    reloadInFlightRef.current = true;
     setReloading(true);
     try {
       if (status.reloadRequired) {
@@ -252,6 +254,18 @@ function ReadySurface({
       await onReload();
     }
   };
+
+  useEffect(() => {
+    if (status.phase !== "reset-required" || reloadInFlightRef.current) return;
+    reloadInFlightRef.current = true;
+    setReloading(true);
+    void runtime.reload()
+      .finally(onReload)
+      .catch(() => {
+        reloadInFlightRef.current = false;
+        setReloading(false);
+      });
+  }, [onReload, runtime, status.phase]);
 
   const failure = startupError ?? status.error;
   if (failure) {

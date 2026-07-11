@@ -2,6 +2,10 @@ import { describe, expect, mock, test } from "bun:test";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import {
+  storeMaintenanceGate,
+  StoreMaintenanceInProgressError,
+} from "./store-maintenance-gate";
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-assets-"));
 
@@ -28,6 +32,26 @@ async function withFixture<T>(run: () => Promise<T> | T): Promise<T> {
 }
 
 describe("asset service", () => {
+  test("rejects managed asset writes while a whole-store snapshot is frozen", async () => {
+    await withFixture(async () => {
+      const maintenance = await storeMaintenanceGate.beginMaintenance();
+      try {
+        let rejected = false;
+        try {
+          await assetService.saveUploadedResource(
+            new File(["late"], "late.txt", { type: "text/plain" }),
+          );
+        } catch (error) {
+          rejected = error instanceof StoreMaintenanceInProgressError;
+        }
+        expect(rejected).toBeTrue();
+        expect(fs.existsSync(path.join(fixtureRoot, "assets"))).toBeFalse();
+      } finally {
+        maintenance.release();
+      }
+    });
+  });
+
   test("saveUploadedImage stores files in the flat assets root", async () => {
     await withFixture(async () => {
       const file = new File([Buffer.from("png")], "diagram.png", {

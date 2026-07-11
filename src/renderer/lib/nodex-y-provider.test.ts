@@ -147,6 +147,7 @@ const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
 
 class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore {
   private readonly checkpoints = new Map<string, DocumentLocalCheckpoint>();
+  readonly clearedDocuments: string[] = [];
   writeGate: Promise<void> | null = null;
 
   read = async (
@@ -172,6 +173,7 @@ class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore
   };
 
   clearDocument = async (documentId: string): Promise<void> => {
+    this.clearedDocuments.push(documentId);
     for (const [key, checkpoint] of this.checkpoints) {
       if (checkpoint.documentId === documentId) {
         this.checkpoints.delete(key);
@@ -899,6 +901,40 @@ describe("NodexYProvider", () => {
       generationProvider.destroy();
       generationDocument.destroy();
       generationAdapter.destroy();
+    }
+  });
+
+  test("drops old-epoch outbox and checkpoint state on an explicit store reset", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const checkpoints = new MemoryDocumentLocalCheckpointStore();
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-before-restore",
+      localCheckpointStore: checkpoints,
+      autoConnect: false,
+    });
+    try {
+      await provider.connect();
+      document.getText("title").insert(0, "must not cross restore");
+      adapter.emit({
+        kind: "store-reset",
+        documentId: "document-1",
+        storeEpoch: "store-restored",
+      });
+
+      await waitUntil(() => checkpoints.clearedDocuments.length === 1);
+      expect(provider.getStatus().phase).toBe("reset-required");
+      expect(provider.getStatus().pendingUpdateCount).toBe(0);
+      expect(provider.getStatus().error?.code).toBe("store_epoch_mismatch");
+      expect(adapter.applyCalls.length).toBe(0);
+      expect(checkpoints.clearedDocuments[0]).toBe("document-1");
+    } finally {
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
     }
   });
 

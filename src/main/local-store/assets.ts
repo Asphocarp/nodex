@@ -6,6 +6,7 @@ import {
   getAssetSource,
   isSafeAssetFileName,
 } from "../../shared/assets";
+import { storeMaintenanceGate } from "./store-maintenance-gate";
 
 export const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const MAX_RESOURCE_UPLOAD_BYTES = 64 * 1024 * 1024;
@@ -236,94 +237,109 @@ function buildFolderManifest(
 }
 
 export async function saveUploadedImage(file: File): Promise<{ source: string; fileName: string }> {
-  if (!isSupportedImageMimeType(file.type)) {
-    throw new Error(`Unsupported image type: ${file.type || "unknown"}`);
+  const mutation = storeMaintenanceGate.beginMutation();
+  try {
+    if (!isSupportedImageMimeType(file.type)) {
+      throw new Error(`Unsupported image type: ${file.type || "unknown"}`);
+    }
+
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+      throw new Error("Image exceeds 10MB upload limit");
+    }
+
+    const extension = IMAGE_MIME_TO_EXTENSION[file.type] ?? "";
+    const fileName = `${crypto.randomUUID()}${extension}`;
+    const absolutePath = resolveFlatAssetPath(fileName);
+
+    fs.mkdirSync(getAssetsRootPath(), { recursive: true });
+
+    const fileBytes = Buffer.from(await file.arrayBuffer());
+    fs.writeFileSync(absolutePath, fileBytes);
+
+    return {
+      source: getAssetSource(fileName),
+      fileName,
+    };
+  } finally {
+    mutation.release();
   }
-
-  if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
-    throw new Error("Image exceeds 10MB upload limit");
-  }
-
-  const extension = IMAGE_MIME_TO_EXTENSION[file.type] ?? "";
-  const fileName = `${crypto.randomUUID()}${extension}`;
-  const absolutePath = resolveFlatAssetPath(fileName);
-
-  fs.mkdirSync(getAssetsRootPath(), { recursive: true });
-
-  const fileBytes = Buffer.from(await file.arrayBuffer());
-  fs.writeFileSync(absolutePath, fileBytes);
-
-  return {
-    source: getAssetSource(fileName),
-    fileName,
-  };
 }
 
 export async function saveUploadedResource(
   file: File,
 ): Promise<{ source: string; fileName: string; name: string; mimeType: string; bytes: number }> {
-  if (file.size > MAX_RESOURCE_UPLOAD_BYTES) {
-    throw new Error("Resource exceeds 64MB upload limit");
+  const mutation = storeMaintenanceGate.beginMutation();
+  try {
+    if (file.size > MAX_RESOURCE_UPLOAD_BYTES) {
+      throw new Error("Resource exceeds 64MB upload limit");
+    }
+
+    const normalizedMimeType = normalizeMimeType(file.type || inferMimeTypeFromLocalPath(file.name));
+    const extension = resolveStoredExtension(file.name, normalizedMimeType);
+    const fileName = `${crypto.randomUUID()}${extension}`;
+    const fileBytes = Buffer.from(await file.arrayBuffer());
+    writeAssetBytes(fileName, fileBytes);
+
+    return {
+      source: getAssetSource(fileName),
+      fileName,
+      name: file.name || fileName,
+      mimeType: normalizedMimeType,
+      bytes: fileBytes.byteLength,
+    };
+  } finally {
+    mutation.release();
   }
-
-  const normalizedMimeType = normalizeMimeType(file.type || inferMimeTypeFromLocalPath(file.name));
-  const extension = resolveStoredExtension(file.name, normalizedMimeType);
-  const fileName = `${crypto.randomUUID()}${extension}`;
-  const fileBytes = Buffer.from(await file.arrayBuffer());
-  writeAssetBytes(fileName, fileBytes);
-
-  return {
-    source: getAssetSource(fileName),
-    fileName,
-    name: file.name || fileName,
-    mimeType: normalizedMimeType,
-    bytes: fileBytes.byteLength,
-  };
 }
 
 export function materializeLocalResource(
   localPath: string,
 ): { source: string; fileName: string; name: string; mimeType: string; bytes: number } {
-  const normalizedLocalPath = path.resolve(localPath.trim());
-  if (!path.isAbsolute(normalizedLocalPath)) {
-    throw new Error("Local resource path must be absolute");
-  }
-  if (!fs.existsSync(normalizedLocalPath)) {
-    throw new Error("Local resource not found");
-  }
+  const mutation = storeMaintenanceGate.beginMutation();
+  try {
+    const normalizedLocalPath = path.resolve(localPath.trim());
+    if (!path.isAbsolute(normalizedLocalPath)) {
+      throw new Error("Local resource path must be absolute");
+    }
+    if (!fs.existsSync(normalizedLocalPath)) {
+      throw new Error("Local resource not found");
+    }
 
-  const stats = fs.statSync(normalizedLocalPath);
-  if (stats.isDirectory()) {
-    const manifest = buildFolderManifest(normalizedLocalPath);
-    const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
-    const fileName = `${crypto.randomUUID()}.json`;
-    writeAssetBytes(fileName, manifestBytes);
+    const stats = fs.statSync(normalizedLocalPath);
+    if (stats.isDirectory()) {
+      const manifest = buildFolderManifest(normalizedLocalPath);
+      const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
+      const fileName = `${crypto.randomUUID()}.json`;
+      writeAssetBytes(fileName, manifestBytes);
+      return {
+        source: getAssetSource(fileName),
+        fileName,
+        name: path.basename(normalizedLocalPath),
+        mimeType: "application/json",
+        bytes: manifestBytes.byteLength,
+      };
+    }
+
+    if (stats.size > MAX_RESOURCE_UPLOAD_BYTES) {
+      throw new Error("Resource exceeds 64MB upload limit");
+    }
+
+    const mimeType = inferMimeTypeFromLocalPath(normalizedLocalPath);
+    const extension = resolveStoredExtension(normalizedLocalPath, mimeType);
+    const fileName = `${crypto.randomUUID()}${extension}`;
+    const fileBytes = fs.readFileSync(normalizedLocalPath);
+    writeAssetBytes(fileName, fileBytes);
+
     return {
       source: getAssetSource(fileName),
       fileName,
       name: path.basename(normalizedLocalPath),
-      mimeType: "application/json",
-      bytes: manifestBytes.byteLength,
+      mimeType,
+      bytes: stats.size,
     };
+  } finally {
+    mutation.release();
   }
-
-  if (stats.size > MAX_RESOURCE_UPLOAD_BYTES) {
-    throw new Error("Resource exceeds 64MB upload limit");
-  }
-
-  const mimeType = inferMimeTypeFromLocalPath(normalizedLocalPath);
-  const extension = resolveStoredExtension(normalizedLocalPath, mimeType);
-  const fileName = `${crypto.randomUUID()}${extension}`;
-  const fileBytes = fs.readFileSync(normalizedLocalPath);
-  writeAssetBytes(fileName, fileBytes);
-
-  return {
-    source: getAssetSource(fileName),
-    fileName,
-    name: path.basename(normalizedLocalPath),
-    mimeType,
-    bytes: stats.size,
-  };
 }
 
 export function readAssetFile(fileName: string): { bytes: Buffer; mimeType: string } {

@@ -926,6 +926,110 @@ describe("CardMutationWriter", () => {
     worker.emitExit(0);
   });
 
+  test("suspends the worker connection for maintenance and resumes on a fresh worker", async () => {
+    const firstWorker = new FakeWorker();
+    const secondWorker = new FakeWorker();
+    const workers = [firstWorker, secondWorker];
+    const writer = new CardMutationWriter({
+      createWorker: () => workers.shift() ?? secondWorker,
+      publishBoardEvent: () => undefined,
+    });
+
+    const accepted = writer.getBlockDocumentProjectId("document:card-1");
+    const suspended = writer.suspendForMaintenance();
+    expect(firstWorker.messages[0]?.type).toBe("getBlockDocumentProjectId");
+    expect(firstWorker.messages[1]?.type).toBe("shutdown");
+
+    let rejectedMessage = "";
+    try {
+      await writer.getBlockDocumentProjectId("document:card-2");
+    } catch (error) {
+      rejectedMessage = error instanceof Error ? error.message : String(error);
+    }
+    expect(rejectedMessage).toBe("Card mutation writer is shutting down");
+
+    const acceptedRequest = firstWorker.messages[0];
+    const suspendRequest = firstWorker.messages[1];
+    if (!acceptedRequest || !suspendRequest) return;
+    firstWorker.emitMessage({
+      id: acceptedRequest.id,
+      ok: true,
+      result: { ok: true, value: "project-1" },
+      events: [],
+      metrics: makeMetrics(acceptedRequest.mutationId),
+    });
+    expect((await accepted).ok).toBeTrue();
+    firstWorker.emitMessage({
+      id: suspendRequest.id,
+      ok: true,
+      result: undefined,
+      events: [],
+      metrics: makeMetrics(suspendRequest.mutationId),
+    });
+    await suspended;
+    expect(firstWorker.terminated).toBeTrue();
+
+    writer.resumeAfterMaintenance();
+    const resumed = writer.getBlockDocumentProjectId("document:card-3");
+    expect(secondWorker.messages[0]?.type).toBe("getBlockDocumentProjectId");
+    const resumedRequest = secondWorker.messages[0];
+    if (!resumedRequest) return;
+    secondWorker.emitMessage({
+      id: resumedRequest.id,
+      ok: true,
+      result: { ok: true, value: "project-1" },
+      events: [],
+      metrics: makeMetrics(resumedRequest.mutationId),
+    });
+    expect((await resumed).ok).toBeTrue();
+
+    const finalShutdown = writer.shutdown();
+    const shutdownRequest = secondWorker.messages[1];
+    if (!shutdownRequest) return;
+    secondWorker.emitMessage({
+      id: shutdownRequest.id,
+      ok: true,
+      result: undefined,
+      events: [],
+      metrics: makeMetrics(shutdownRequest.mutationId),
+    });
+    await finalShutdown;
+  });
+
+  test("recovers to a fresh accepting worker when maintenance suspend fails", async () => {
+    const firstWorker = new FakeWorker();
+    const secondWorker = new FakeWorker();
+    const workers = [firstWorker, secondWorker];
+    const writer = new CardMutationWriter({
+      createWorker: () => workers.shift() ?? secondWorker,
+      publishBoardEvent: () => undefined,
+    });
+
+    const first = writer.getBlockDocumentProjectId("document:card-1");
+    const firstSettled = first.catch(() => undefined);
+    const suspended = writer.suspendForMaintenance().then(
+      () => "resolved",
+      (error: unknown) => error instanceof Error ? error.message : String(error),
+    );
+    firstWorker.emitError(new Error("injected worker failure"));
+    expect(await suspended).toBe("injected worker failure");
+    await firstSettled;
+    expect(firstWorker.terminated).toBeTrue();
+
+    const resumed = writer.getBlockDocumentProjectId("document:card-2");
+    const request = secondWorker.messages[0];
+    expect(request?.type).toBe("getBlockDocumentProjectId");
+    if (!request) return;
+    secondWorker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: { ok: true, value: "project-1" },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    expect((await resumed).ok).toBeTrue();
+  });
+
   test("uses forced termination only after the graceful shutdown deadline", async () => {
     const worker = new FakeWorker();
     const scheduled: { deadline?: () => void } = {};

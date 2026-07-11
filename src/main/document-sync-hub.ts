@@ -1076,6 +1076,34 @@ export class DocumentSyncHub {
     this.boundTargetIds.delete(targetId);
   };
 
+  /**
+   * Invalidates every live transport identity after a whole-store restore.
+   * The notification is sent before subscriptions are removed so mounted
+   * surfaces can clear disposable state and recreate themselves. Once this
+   * returns, an old target can no longer sync or apply through the Hub.
+   */
+  resetForStoreReplacement(storeEpoch: string): void {
+    for (const leaseId of [...this.relocationLeaseBoundaries.keys()]) {
+      this.cancelRelocationLease(leaseId);
+    }
+
+    const subscriptions = [...this.subscriptions.values()];
+    for (const subscription of subscriptions) {
+      safeSendToWebContents(subscription.target, DOCUMENT_SYNC_EVENT_CHANNEL, [
+        {
+          kind: "store-reset",
+          documentId: subscription.documentId,
+          storeEpoch,
+        } satisfies DocumentSyncRealtimeEvent,
+      ]);
+    }
+    subscriptions.forEach((subscription) => {
+      if (this.subscriptions.has(subscription.key)) {
+        this.removeSubscription(subscription);
+      }
+    });
+  }
+
   private createRelocationLeaseId(): string {
     this.relocationLeaseSequence += 1;
     return `document-relocation-lease:${this.relocationLeaseSequence.toString(36)}`;
