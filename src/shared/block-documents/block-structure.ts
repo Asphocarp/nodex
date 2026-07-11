@@ -57,6 +57,11 @@ export interface BlockStructureScan {
   readonly issues: readonly BlockStructureIssue[];
 }
 
+export interface ChildlessReferenceBlockViolation {
+  readonly blockId: BlockId | null;
+  readonly blockType: "cardRef" | "databaseViewRef";
+}
+
 export class BlockDocumentValidationError extends Error {
   readonly issues: readonly BlockStructureIssue[];
 
@@ -82,9 +87,76 @@ const readBlockType = (container: Y.XmlElement): string => {
     .toArray()
     .find(
       (child): child is Y.XmlElement =>
-        child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
+        child instanceof Y.XmlElement &&
+        child.nodeName !== BLOCK_GROUP_NODE_NAME,
     );
   return content?.nodeName ?? "unknown";
+};
+
+const readContentElement = (
+  container: Y.XmlElement,
+): Y.XmlElement | undefined =>
+  container
+    .toArray()
+    .find(
+      (child): child is Y.XmlElement =>
+        child instanceof Y.XmlElement &&
+        child.nodeName !== BLOCK_GROUP_NODE_NAME,
+    );
+
+const isCanonicalChildlessReferenceContent = (
+  content: Y.XmlElement | undefined,
+): content is Y.XmlElement & {
+  readonly nodeName: "cardRef" | "databaseViewRef";
+} => {
+  if (!content) return false;
+  if (content.nodeName === "databaseViewRef") return true;
+  if (content.nodeName !== "cardRef") return false;
+  const targetBlockId = content.getAttribute("targetBlockId");
+  return typeof targetBlockId === "string" && targetBlockId.trim().length > 0;
+};
+
+export const isChildlessReferenceBlockContainer = (
+  container: Y.XmlElement,
+): boolean =>
+  isCanonicalChildlessReferenceContent(readContentElement(container));
+
+export const collectChildlessReferenceBlockViolations = (
+  body: Y.XmlFragment,
+): readonly ChildlessReferenceBlockViolation[] => {
+  const violations: ChildlessReferenceBlockViolation[] = [];
+  const visit = (parent: Y.XmlFragment | Y.XmlElement): void => {
+    for (const child of parent.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      if (child.nodeName !== BLOCK_CONTAINER_NODE_NAME) {
+        visit(child);
+        continue;
+      }
+
+      const content = readContentElement(child);
+      const childGroup = child
+        .toArray()
+        .find(
+          (candidate): candidate is Y.XmlElement =>
+            candidate instanceof Y.XmlElement &&
+            candidate.nodeName === BLOCK_GROUP_NODE_NAME,
+        );
+      if (
+        isCanonicalChildlessReferenceContent(content) &&
+        (childGroup?.length ?? 0) > 0
+      ) {
+        const blockId = child.getAttribute(BLOCK_ID_ATTRIBUTE);
+        violations.push({
+          blockId: typeof blockId === "string" ? blockId : null,
+          blockType: content.nodeName,
+        });
+      }
+      if (childGroup) visit(childGroup);
+    }
+  };
+
+  visit(body);
+  return violations;
 };
 
 const readPlainText = (container: Y.XmlElement): string => {
@@ -92,7 +164,8 @@ const readPlainText = (container: Y.XmlElement): string => {
     .toArray()
     .find(
       (child): child is Y.XmlElement =>
-        child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
+        child instanceof Y.XmlElement &&
+        child.nodeName !== BLOCK_GROUP_NODE_NAME,
     );
   if (!content) {
     return "";
@@ -111,9 +184,7 @@ const readPlainText = (container: Y.XmlElement): string => {
   return parts.join("");
 };
 
-export const scanBlockDocument = (
-  body: Y.XmlFragment,
-): BlockStructureScan => {
+export const scanBlockDocument = (body: Y.XmlFragment): BlockStructureScan => {
   const blocks: ScannedDocumentBlock[] = [];
   const issues: BlockStructureIssue[] = [];
   const seenBlockIds = new Set<BlockId>();
@@ -143,7 +214,8 @@ export const scanBlockDocument = (
         if (context !== "content") {
           issues.push({
             code: "unexpected_xml_node",
-            expected: context === "block_group" ? BLOCK_CONTAINER_NODE_NAME : "element",
+            expected:
+              context === "block_group" ? BLOCK_CONTAINER_NODE_NAME : "element",
             actual: "XmlText",
             path,
           });
@@ -182,7 +254,8 @@ export const scanBlockDocument = (
       }
 
       let descendantParentId = parentBlockId;
-      let childContext: "block_group" | "block_container" | "content" = "content";
+      let childContext: "block_group" | "block_container" | "content" =
+        "content";
       if (context === "body") {
         if (child.nodeName !== BLOCK_GROUP_NODE_NAME) {
           issues.push({
@@ -192,7 +265,8 @@ export const scanBlockDocument = (
             path,
           });
         }
-        childContext = child.nodeName === BLOCK_GROUP_NODE_NAME ? "block_group" : "content";
+        childContext =
+          child.nodeName === BLOCK_GROUP_NODE_NAME ? "block_group" : "content";
       } else if (context === "block_group") {
         if (child.nodeName !== BLOCK_CONTAINER_NODE_NAME) {
           issues.push({
@@ -202,9 +276,10 @@ export const scanBlockDocument = (
             path,
           });
         }
-        childContext = child.nodeName === BLOCK_CONTAINER_NODE_NAME
-          ? "block_container"
-          : "content";
+        childContext =
+          child.nodeName === BLOCK_CONTAINER_NODE_NAME
+            ? "block_container"
+            : "content";
       } else if (child.nodeName === BLOCK_GROUP_NODE_NAME) {
         if (context !== "block_container") {
           issues.push({

@@ -11,6 +11,7 @@ import { serializeNfm } from "../nfm/serializer";
 import {
   assertValidBlockDocument,
   BLOCK_GROUP_NODE_NAME,
+  collectChildlessReferenceBlockViolations,
   type ScannedDocumentBlock,
 } from "./block-structure";
 import {
@@ -225,41 +226,11 @@ const assertMaterializationMatchesScan = (
 const assertCanonicalReferenceBlocksAreChildless = (
   body: Y.XmlFragment,
 ): void => {
-  const visitGroup = (group: Y.XmlFragment | Y.XmlElement): void => {
-    for (const candidate of group.toArray()) {
-      if (!(candidate instanceof Y.XmlElement)) continue;
-      if (candidate.nodeName !== "blockContainer") continue;
-      const children = candidate.toArray();
-      const content = children.find(
-        (child): child is Y.XmlElement =>
-          child instanceof Y.XmlElement &&
-          child.nodeName !== BLOCK_GROUP_NODE_NAME,
-      );
-      const childGroup = children.find(
-        (child): child is Y.XmlElement =>
-          child instanceof Y.XmlElement &&
-          child.nodeName === BLOCK_GROUP_NODE_NAME,
-      );
-      const canonicalCardReference =
-        content?.nodeName === "cardRef" &&
-        typeof content.getAttribute("targetBlockId") === "string" &&
-        String(content.getAttribute("targetBlockId")).trim().length > 0;
-      const canonicalDatabaseViewReference =
-        content?.nodeName === "databaseViewRef";
-      if (
-        (canonicalCardReference || canonicalDatabaseViewReference) &&
-        (childGroup?.length ?? 0) > 0
-      ) {
-        throw new BlockDocumentCodecError(
-          `Canonical reference Block ${candidate.getAttribute("id") ?? "unknown"} must not contain child Blocks`,
-        );
-      }
-      if (childGroup) visitGroup(childGroup);
-    }
-  };
-
-  const root = body.get(0);
-  if (root instanceof Y.XmlElement) visitGroup(root);
+  const violation = collectChildlessReferenceBlockViolations(body)[0];
+  if (!violation) return;
+  throw new BlockDocumentCodecError(
+    `Canonical reference Block ${violation.blockId ?? "unknown"} must not contain child Blocks`,
+  );
 };
 
 const buildPreview = (plainText: string): string => {

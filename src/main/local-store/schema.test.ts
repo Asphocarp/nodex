@@ -63,6 +63,7 @@ describe("schema initialization", () => {
       61,
       62,
       63,
+      64,
     ];
     const expectedTargetsAfter = (version: number) => JSON.stringify(
       supportedTargets.filter((target) => target > version),
@@ -103,6 +104,7 @@ describe("schema initialization", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(60))).toBe(expectedTargetsAfter(60));
     expect(JSON.stringify(getSchemaMigrationTargets(61))).toBe(expectedTargetsAfter(61));
     expect(JSON.stringify(getSchemaMigrationTargets(62))).toBe(expectedTargetsAfter(62));
+    expect(JSON.stringify(getSchemaMigrationTargets(63))).toBe(expectedTargetsAfter(63));
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });

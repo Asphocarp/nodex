@@ -23,10 +23,10 @@ import {
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 63;
+export const CURRENT_SCHEMA_VERSION = 64;
 const MIGRATION_TARGETS = [
   31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+  51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
 ] as const;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
@@ -39,6 +39,11 @@ const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 const DEFAULT_NO_THREAD_FALLBACK_TITLE = "New thread";
 
 const RESETTABLE_TABLES = [
+  "block_relocation_members",
+  "block_relocation_source_states",
+  "document_recovery_artifacts",
+  "block_relocations",
+  "change_log",
   "foreign_reference_migrations",
   "legacy_card_shadow_jobs",
   "legacy_card_shadow_heads",
@@ -482,6 +487,514 @@ function createForeignReferenceMigrationSchema(db: Database.Database): void {
       )
       BEGIN
         SELECT RAISE(ABORT, 'foreign reference migration scope is invalid');
+      END;
+  `);
+}
+
+function createAtomicBlockRelocationSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS change_log (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      store_epoch TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      operation_id TEXT,
+      block_ids_json TEXT NOT NULL DEFAULT '[]',
+      document_ids_json TEXT NOT NULL DEFAULT '[]',
+      database_block_ids_json TEXT NOT NULL DEFAULT '[]',
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      committed_at TEXT NOT NULL,
+      CHECK (length(store_epoch) BETWEEN 1 AND 512),
+      CHECK (length(kind) BETWEEN 1 AND 128),
+      CHECK (operation_id IS NULL OR length(operation_id) BETWEEN 1 AND 512),
+      CHECK (json_valid(block_ids_json) AND json_type(block_ids_json) = 'array'),
+      CHECK (json_valid(document_ids_json) AND json_type(document_ids_json) = 'array'),
+      CHECK (
+        json_valid(database_block_ids_json)
+        AND json_type(database_block_ids_json) = 'array'
+      ),
+      CHECK (json_valid(payload_json) AND json_type(payload_json) = 'object'),
+      CHECK (length(committed_at) > 0)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_change_log_project_seq
+      ON change_log(project_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_change_log_kind_seq
+      ON change_log(kind, seq);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_change_log_operation
+      ON change_log(project_id, kind, operation_id)
+      WHERE operation_id IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS block_relocations (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      target_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      store_epoch TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      source_document_id TEXT NOT NULL,
+      source_generation INTEGER NOT NULL CHECK (source_generation >= 1),
+      source_base_head_seq INTEGER NOT NULL CHECK (source_base_head_seq >= 0),
+      target_kind TEXT NOT NULL,
+      target_document_id TEXT,
+      target_generation INTEGER,
+      target_base_head_seq INTEGER,
+      target_parent_block_id TEXT,
+      target_before_block_id TEXT,
+      root_block_ids_json TEXT NOT NULL,
+      expected_location_revisions_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'committed',
+      source_update_id TEXT NOT NULL,
+      source_committed_seq INTEGER NOT NULL CHECK (source_committed_seq >= 1),
+      target_update_id TEXT,
+      target_committed_seq INTEGER,
+      final_location_revisions_json TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      change_log_seq INTEGER NOT NULL UNIQUE
+        REFERENCES change_log(seq) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+      committed_at TEXT NOT NULL,
+      UNIQUE (id, project_id),
+      UNIQUE (
+        id, source_document_id, project_id, source_generation,
+        source_base_head_seq
+      ),
+      FOREIGN KEY (source_document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (target_document_id, target_project_id)
+        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (target_parent_block_id, target_project_id)
+        REFERENCES blocks(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (target_before_block_id, target_project_id)
+        REFERENCES blocks(id, project_id) ON DELETE RESTRICT,
+      FOREIGN KEY (source_document_id, source_generation, source_committed_seq)
+        REFERENCES document_update_receipts(document_id, generation, seq)
+        ON DELETE RESTRICT,
+      FOREIGN KEY (target_document_id, target_generation, target_committed_seq)
+        REFERENCES document_update_receipts(document_id, generation, seq)
+        ON DELETE RESTRICT,
+      CHECK (length(id) BETWEEN 1 AND 512),
+      CHECK (length(store_epoch) BETWEEN 1 AND 512),
+      CHECK (
+        length(request_hash) = 64
+        AND request_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      CHECK (json_valid(request_json) AND json_type(request_json) = 'object'),
+      CHECK (
+        json_valid(root_block_ids_json)
+        AND json_type(root_block_ids_json) = 'array'
+        AND json_array_length(root_block_ids_json) > 0
+      ),
+      CHECK (
+        json_valid(expected_location_revisions_json)
+        AND json_type(expected_location_revisions_json) = 'object'
+      ),
+      CHECK (
+        json_valid(final_location_revisions_json)
+        AND json_type(final_location_revisions_json) = 'object'
+      ),
+      CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
+      CHECK (status = 'committed'),
+      CHECK (target_kind IN ('document', 'space')),
+      CHECK (
+        (target_kind = 'document'
+          AND target_project_id = project_id
+          AND target_document_id IS NOT NULL
+          AND target_document_id <> source_document_id
+          AND target_generation IS NOT NULL
+          AND target_generation >= 1
+          AND target_base_head_seq IS NOT NULL
+          AND target_base_head_seq >= 0
+          AND target_update_id IS NOT NULL
+          AND target_committed_seq = target_base_head_seq + 1)
+        OR (target_kind = 'space'
+          AND target_document_id IS NULL
+          AND target_generation IS NULL
+          AND target_base_head_seq IS NULL
+          AND target_parent_block_id IS NULL
+          AND target_update_id IS NULL
+          AND target_committed_seq IS NULL)
+      ),
+      CHECK (source_committed_seq = source_base_head_seq + 1),
+      CHECK (source_update_id = 'relocation:' || request_hash || ':source'),
+      CHECK (
+        target_update_id IS NULL
+        OR target_update_id = 'relocation:' || request_hash || ':target'
+      ),
+      CHECK (length(committed_at) > 0)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_block_relocations_project_committed
+      ON block_relocations(project_id, committed_at, id);
+    CREATE INDEX IF NOT EXISTS idx_block_relocations_source
+      ON block_relocations(
+        source_document_id, source_generation, source_base_head_seq, id
+      );
+    CREATE INDEX IF NOT EXISTS idx_block_relocations_target
+      ON block_relocations(target_document_id, target_generation, id)
+      WHERE target_document_id IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS block_relocation_members (
+      relocation_id TEXT NOT NULL,
+      block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE RESTRICT,
+      tree_ordinal INTEGER NOT NULL CHECK (tree_ordinal >= 0),
+      is_root INTEGER NOT NULL CHECK (is_root IN (0, 1)),
+      source_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      final_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      source_location_revision INTEGER NOT NULL CHECK (source_location_revision >= 1),
+      final_location_revision INTEGER NOT NULL CHECK (final_location_revision >= 2),
+      PRIMARY KEY (relocation_id, block_id),
+      UNIQUE (relocation_id, tree_ordinal),
+      FOREIGN KEY (relocation_id, source_project_id)
+        REFERENCES block_relocations(id, project_id) ON DELETE CASCADE,
+      CHECK (final_location_revision = source_location_revision + 1)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_block_relocation_members_block
+      ON block_relocation_members(block_id, relocation_id);
+    CREATE INDEX IF NOT EXISTS idx_block_relocation_members_roots
+      ON block_relocation_members(relocation_id, tree_ordinal)
+      WHERE is_root = 1;
+
+    CREATE TABLE IF NOT EXISTS block_relocation_source_states (
+      relocation_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      head_seq INTEGER NOT NULL CHECK (head_seq >= 0),
+      pre_state_vector BLOB NOT NULL,
+      pre_full_update BLOB NOT NULL,
+      pre_full_update_byte_length INTEGER NOT NULL
+        CHECK (pre_full_update_byte_length > 0),
+      pre_state_hash TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      FOREIGN KEY (
+        relocation_id, document_id, project_id, generation, head_seq
+      ) REFERENCES block_relocations(
+        id, source_document_id, project_id, source_generation,
+        source_base_head_seq
+      ) ON DELETE CASCADE,
+      CHECK (length(pre_state_vector) > 0),
+      CHECK (length(pre_full_update) = pre_full_update_byte_length),
+      CHECK (
+        length(pre_state_hash) = 64
+        AND pre_state_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      CHECK (length(captured_at) > 0)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_block_relocation_source_states_document
+      ON block_relocation_source_states(document_id, generation, head_seq);
+
+    CREATE TABLE IF NOT EXISTS document_recovery_artifacts (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      store_epoch TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      generation INTEGER NOT NULL CHECK (generation >= 1),
+      update_id TEXT NOT NULL,
+      client_session_id TEXT NOT NULL,
+      base_head_seq INTEGER NOT NULL CHECK (base_head_seq >= 0),
+      touched_block_ids_json TEXT NOT NULL DEFAULT '[]',
+      derived_touched_block_ids_json TEXT,
+      update_blob BLOB NOT NULL,
+      update_hash TEXT NOT NULL,
+      update_byte_length INTEGER NOT NULL CHECK (update_byte_length > 0),
+      reason TEXT NOT NULL,
+      relocation_ids_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      resolved_at TEXT,
+      UNIQUE (document_id, generation, update_id),
+      FOREIGN KEY (document_id, project_id)
+        REFERENCES documents(id, project_id) ON DELETE RESTRICT,
+      CHECK (length(id) BETWEEN 1 AND 512),
+      CHECK (length(store_epoch) BETWEEN 1 AND 512),
+      CHECK (length(update_id) BETWEEN 1 AND 512),
+      CHECK (length(client_session_id) BETWEEN 1 AND 512),
+      CHECK (
+        json_valid(touched_block_ids_json)
+        AND json_type(touched_block_ids_json) = 'array'
+      ),
+      CHECK (
+        derived_touched_block_ids_json IS NULL
+        OR (json_valid(derived_touched_block_ids_json)
+          AND json_type(derived_touched_block_ids_json) = 'array')
+      ),
+      CHECK (
+        json_valid(relocation_ids_json)
+        AND json_type(relocation_ids_json) = 'array'
+      ),
+      CHECK (length(update_blob) = update_byte_length),
+      CHECK (
+        length(update_hash) = 64
+        AND update_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      CHECK (reason IN ('block_relocated', 'unsafe_stale_update')),
+      CHECK (status IN ('pending', 'resolved', 'discarded')),
+      CHECK (length(created_at) > 0),
+      CHECK (length(expires_at) > 0 AND expires_at > created_at),
+      CHECK (
+        (status = 'pending' AND resolved_at IS NULL)
+        OR (status IN ('resolved', 'discarded') AND resolved_at IS NOT NULL)
+      )
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_document_recovery_artifacts_document
+      ON document_recovery_artifacts(
+        document_id, generation, status, created_at, id
+      );
+    CREATE INDEX IF NOT EXISTS idx_document_recovery_artifacts_expiry
+      ON document_recovery_artifacts(status, expires_at, id);
+
+    CREATE TRIGGER IF NOT EXISTS block_relocations_validate_insert
+      BEFORE INSERT ON block_relocations
+      WHEN EXISTS (
+        SELECT 1
+        FROM json_each(NEW.root_block_ids_json) root
+        WHERE root.type <> 'text'
+          OR length(root.value) < 1
+          OR length(root.value) > 512
+      ) OR (
+        SELECT COUNT(*) FROM json_each(NEW.root_block_ids_json)
+      ) <> (
+        SELECT COUNT(DISTINCT root.value)
+        FROM json_each(NEW.root_block_ids_json) root
+      ) OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.expected_location_revisions_json) revision
+        WHERE revision.type <> 'integer' OR revision.value < 1
+      ) OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.root_block_ids_json) root
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM json_each(NEW.expected_location_revisions_json) revision
+          WHERE revision.key = root.value
+        )
+      ) OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.expected_location_revisions_json) revision
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM json_each(NEW.root_block_ids_json) root
+          WHERE root.value = revision.key
+        )
+      ) OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.final_location_revisions_json) revision
+        WHERE revision.type <> 'integer' OR revision.value < 2
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM change_log change
+        WHERE change.seq = NEW.change_log_seq
+          AND change.project_id = NEW.project_id
+          AND change.store_epoch = NEW.store_epoch
+          AND change.kind = 'block_relocation'
+          AND change.operation_id = NEW.id
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM document_update_receipts receipt
+        WHERE receipt.document_id = NEW.source_document_id
+          AND receipt.generation = NEW.source_generation
+          AND receipt.seq = NEW.source_committed_seq
+          AND receipt.update_id = NEW.source_update_id
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM documents document
+        WHERE document.id = NEW.source_document_id
+          AND document.project_id = NEW.project_id
+          AND document.generation = NEW.source_generation
+          AND document.head_seq = NEW.source_committed_seq
+          AND document.readiness = 'ready'
+      ) OR (
+        NEW.target_kind = 'document'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM document_update_receipts receipt
+          WHERE receipt.document_id = NEW.target_document_id
+            AND receipt.generation = NEW.target_generation
+            AND receipt.seq = NEW.target_committed_seq
+            AND receipt.update_id = NEW.target_update_id
+        )
+      ) OR (
+        NEW.target_kind = 'document'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM documents document
+          WHERE document.id = NEW.target_document_id
+            AND document.project_id = NEW.target_project_id
+            AND document.generation = NEW.target_generation
+            AND document.head_seq = NEW.target_committed_seq
+            AND document.readiness = 'ready'
+        )
+      ) OR (
+        NEW.target_parent_block_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM blocks parent
+          WHERE parent.id = NEW.target_parent_block_id
+            AND parent.project_id = NEW.target_project_id
+            AND parent.location_kind = 'document'
+            AND parent.containing_document_id = NEW.target_document_id
+        )
+      ) OR (
+        NEW.target_before_block_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM blocks anchor
+          WHERE anchor.id = NEW.target_before_block_id
+            AND anchor.project_id = NEW.target_project_id
+            AND (
+              (NEW.target_kind = 'document'
+                AND anchor.location_kind = 'document'
+                AND anchor.containing_document_id = NEW.target_document_id)
+              OR (NEW.target_kind = 'space'
+                AND anchor.location_kind = 'space')
+            )
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'block relocation ledger is invalid');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_relocations_are_immutable
+      BEFORE UPDATE ON block_relocations
+      BEGIN
+        SELECT RAISE(ABORT, 'committed block relocations are immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_relocation_members_validate_insert
+      BEFORE INSERT ON block_relocation_members
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM block_relocations relocation
+        WHERE relocation.id = NEW.relocation_id
+          AND relocation.project_id = NEW.source_project_id
+          AND relocation.target_project_id = NEW.final_project_id
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM blocks block
+        WHERE block.id = NEW.block_id
+          AND block.project_id = NEW.final_project_id
+          AND block.location_revision = NEW.final_location_revision
+      ) OR NEW.is_root <> EXISTS (
+        SELECT 1
+        FROM block_relocations relocation,
+          json_each(relocation.root_block_ids_json) root
+        WHERE relocation.id = NEW.relocation_id
+          AND root.value = NEW.block_id
+      ) OR NOT EXISTS (
+        SELECT 1
+        FROM block_relocations relocation,
+          json_each(relocation.final_location_revisions_json) revision
+        WHERE relocation.id = NEW.relocation_id
+          AND revision.key = NEW.block_id
+          AND revision.value = NEW.final_location_revision
+      ) OR (
+        NEW.is_root = 1
+        AND NOT EXISTS (
+          SELECT 1
+          FROM block_relocations relocation,
+            json_each(relocation.expected_location_revisions_json) revision
+          WHERE relocation.id = NEW.relocation_id
+            AND revision.key = NEW.block_id
+            AND revision.value = NEW.source_location_revision
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'block relocation member is invalid');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_relocation_members_are_immutable
+      BEFORE UPDATE ON block_relocation_members
+      BEGIN
+        SELECT RAISE(ABORT, 'committed block relocation members are immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS block_relocation_source_states_are_immutable
+      BEFORE UPDATE ON block_relocation_source_states
+      BEGIN
+        SELECT RAISE(ABORT, 'committed block relocation source states are immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_recovery_artifacts_validate_insert
+      BEFORE INSERT ON document_recovery_artifacts
+      WHEN EXISTS (
+        SELECT 1
+        FROM json_each(NEW.touched_block_ids_json) touched
+        WHERE touched.type <> 'text'
+          OR length(touched.value) < 1
+          OR length(touched.value) > 512
+      ) OR (
+        SELECT COUNT(*) FROM json_each(NEW.touched_block_ids_json)
+      ) <> (
+        SELECT COUNT(DISTINCT touched.value)
+        FROM json_each(NEW.touched_block_ids_json) touched
+      ) OR EXISTS (
+        SELECT 1
+        FROM json_each(COALESCE(NEW.derived_touched_block_ids_json, '[]')) touched
+        WHERE touched.type <> 'text'
+          OR length(touched.value) < 1
+          OR length(touched.value) > 512
+      ) OR (
+        SELECT COUNT(*)
+        FROM json_each(COALESCE(NEW.derived_touched_block_ids_json, '[]'))
+      ) <> (
+        SELECT COUNT(DISTINCT touched.value)
+        FROM json_each(COALESCE(NEW.derived_touched_block_ids_json, '[]')) touched
+      ) OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.relocation_ids_json) relocation_id
+        WHERE relocation_id.type <> 'text'
+          OR length(relocation_id.value) < 1
+          OR length(relocation_id.value) > 512
+          OR NOT EXISTS (
+          SELECT 1
+          FROM block_relocations relocation
+          WHERE relocation.id = relocation_id.value
+            AND relocation.project_id = NEW.project_id
+        )
+      ) OR (
+        SELECT COUNT(*) FROM json_each(NEW.relocation_ids_json)
+      ) <> (
+        SELECT COUNT(DISTINCT relocation_id.value)
+        FROM json_each(NEW.relocation_ids_json) relocation_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'document recovery artifact is invalid');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS document_recovery_artifacts_validate_update
+      BEFORE UPDATE ON document_recovery_artifacts
+      WHEN NEW.id <> OLD.id
+        OR NEW.project_id <> OLD.project_id
+        OR NEW.store_epoch <> OLD.store_epoch
+        OR NEW.document_id <> OLD.document_id
+        OR NEW.generation <> OLD.generation
+        OR NEW.update_id <> OLD.update_id
+        OR NEW.client_session_id <> OLD.client_session_id
+        OR NEW.base_head_seq <> OLD.base_head_seq
+        OR NEW.touched_block_ids_json <> OLD.touched_block_ids_json
+        OR COALESCE(NEW.derived_touched_block_ids_json, '') <>
+          COALESCE(OLD.derived_touched_block_ids_json, '')
+        OR NEW.update_blob <> OLD.update_blob
+        OR NEW.update_hash <> OLD.update_hash
+        OR NEW.update_byte_length <> OLD.update_byte_length
+        OR NEW.reason <> OLD.reason
+        OR NEW.relocation_ids_json <> OLD.relocation_ids_json
+        OR NEW.created_at <> OLD.created_at
+        OR NEW.expires_at <> OLD.expires_at
+        OR OLD.status <> 'pending'
+        OR NEW.status = 'pending'
+      BEGIN
+        SELECT RAISE(ABORT, 'document recovery artifact payload is immutable');
+      END;
+
+    CREATE TRIGGER IF NOT EXISTS change_log_is_immutable
+      BEFORE UPDATE ON change_log
+      BEGIN
+        SELECT RAISE(ABORT, 'change log entries are immutable');
       END;
   `);
 }
@@ -2086,6 +2599,7 @@ function createLatestSchema(db: Database.Database): void {
   createBlockFoundationSchema(db);
   createLegacyCardShadowOutboxSchema(db);
   createForeignReferenceMigrationSchema(db);
+  createAtomicBlockRelocationSchema(db);
 }
 
 function ensureBlockStoreMetadata(db: Database.Database, now: string): void {
@@ -5017,6 +5531,14 @@ function migrateSchema62To63(db: Database.Database): void {
   migrate();
 }
 
+function migrateSchema63To64(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    createAtomicBlockRelocationSchema(db);
+    setUserVersion(db, 64);
+  });
+  migrate();
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -5348,6 +5870,16 @@ function runMigrations(
       }
       migrateSchema62To63(db);
       fromVersion = 63;
+      continue;
+    }
+    if (target === 64) {
+      if (fromVersion !== 63) {
+        throw new Error(
+          `Unsupported Nodex database migration target 64 from ${fromVersion}`,
+        );
+      }
+      migrateSchema63To64(db);
+      fromVersion = 64;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
