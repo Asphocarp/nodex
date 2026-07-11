@@ -37,6 +37,14 @@ import {
 } from "../../shared/reference-read-http-contract";
 import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
 import {
+  parseDatabaseMutationCommandResult,
+  parseDatabaseReadCommandResult,
+} from "../../shared/database-transport";
+import type {
+  GeneralDatabaseDescriptor,
+  GeneralDatabaseViewQuery,
+} from "../../shared/database-query";
+import {
   parseDocumentOperationCommandResult,
   type DocumentMutationRequest,
   type DocumentOperationCommandResult,
@@ -755,6 +763,47 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         },
       );
       return parseBlockPropertyMutationCommandResult(await response.json());
+    }
+    case "databases:mutate": {
+      const [projectId, request] = args as [string, unknown];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-mutations`,
+        ),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(request),
+        },
+      );
+      return parseDatabaseMutationCommandResult(await response.json());
+    }
+    case "databases:descriptor:get": {
+      const [projectId, databaseBlockId] = args as [string, string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseBlockId)}`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseDatabaseReadCommandResult<GeneralDatabaseDescriptor>(
+        await response.json(),
+      );
+    }
+    case "database-views:query": {
+      const [projectId, viewId] = args as [string, string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/database-views/${encodeURIComponent(viewId)}/query`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseDatabaseReadCommandResult<GeneralDatabaseViewQuery>(
+        await response.json(),
+      );
     }
     case "block-reference:card:resolve": {
       const [input] = args as [

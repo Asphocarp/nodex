@@ -34,6 +34,15 @@ import type {
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
 import type {
+  DatabaseMutationCommandResult,
+  DatabaseMutationRequest,
+} from "../shared/database-kernel";
+import type {
+  DatabaseReadCommandResult,
+  GeneralDatabaseDescriptor,
+  GeneralDatabaseViewQuery,
+} from "../shared/database-query";
+import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
@@ -393,6 +402,43 @@ export class CardMutationWriter {
     return await this.executeTyped<BlockPropertyMutationCommandResult>({
       type: "applyBlockPropertyMutation",
       payload: request,
+    });
+  }
+
+  async applyDatabaseMutation(
+    request: DatabaseMutationRequest,
+  ): Promise<CardMutationEnvelope<DatabaseMutationCommandResult>> {
+    return await this.executeTyped<DatabaseMutationCommandResult>({
+      type: "applyDatabaseMutation",
+      payload: request,
+    });
+  }
+
+  async readDatabaseDescriptor(
+    projectId: string,
+    databaseBlockId: string,
+  ): Promise<
+    CardMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
+  > {
+    return await this.executeTyped<
+      DatabaseReadCommandResult<GeneralDatabaseDescriptor>
+    >({
+      type: "readDatabaseDescriptor",
+      payload: { projectId, databaseBlockId },
+    });
+  }
+
+  async queryDatabaseView(
+    projectId: string,
+    viewId: string,
+  ): Promise<
+    CardMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseViewQuery>>
+  > {
+    return await this.executeTyped<
+      DatabaseReadCommandResult<GeneralDatabaseViewQuery>
+    >({
+      type: "queryDatabaseView",
+      payload: { projectId, viewId },
     });
   }
 

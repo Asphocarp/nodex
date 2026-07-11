@@ -9,6 +9,7 @@ import type {
   RelocateBlocks,
 } from "../shared/block-documents";
 import type { BlockPropertyMutationRequest } from "../shared/block-property-mutations";
+import type { DatabaseMutationRequest } from "../shared/database-kernel";
 
 class FakeWorker implements CardMutationWorkerLike {
   readonly messages: CardMutationWorkerRequest[] = [];
@@ -203,6 +204,74 @@ describe("CardMutationWriter", () => {
     if (!envelope.result.ok) return;
     expect(envelope.result.value.mutationId).toBe("property-mutation-1");
     expect(envelope.result.value.changeLogSeq).toBe(7);
+  });
+
+  test("preserves an atomic Database operation batch through the FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const input: DatabaseMutationRequest = {
+      version: 1,
+      operationId: "database-operation-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      clientSessionId: "trusted-window-1",
+      actor: { kind: "electron_renderer" },
+      operations: [
+        {
+          kind: "set_value",
+          cardBlockId: "card-1",
+          databaseBlockId: "database-1",
+          propertyId: "status-property",
+          expectedValueRevision: 1,
+          value: "done",
+        },
+        {
+          kind: "position_card",
+          viewId: "view-1",
+          cardBlockId: "card-1",
+          expectedPositionRevision: 1,
+          groupKey: "done",
+        },
+      ],
+    };
+
+    const pending = writer.applyDatabaseMutation(input);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("applyDatabaseMutation");
+    if (!request || request.type !== "applyDatabaseMutation") return;
+    expect(request.payload.operationId).toBe("database-operation-1");
+    expect(request.payload.operations.length).toBe(2);
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          operationId: "database-operation-1",
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          operationKinds: ["set_value", "position_card"],
+          duplicate: false,
+          payload: { operationResults: [] },
+          changeLogSeq: 9,
+          committedAt: "2026-07-11T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.ok).toBeTrue();
+    if (!envelope.result.ok) return;
+    expect(envelope.result.value.operationKinds.join(",")).toBe(
+      "set_value,position_card",
+    );
+    expect(envelope.result.value.changeLogSeq).toBe(9);
   });
 
   test("keeps trusted Document write-fence evidence inside the FIFO boundary", async () => {

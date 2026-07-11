@@ -1,0 +1,202 @@
+import { describe, expect, test } from "bun:test";
+import { Hono } from "hono";
+import type {
+  DatabaseMutationCommandResult,
+  DatabaseMutationRequest,
+} from "../shared/database-kernel";
+import type {
+  DatabaseReadCommandResult,
+  GeneralDatabaseDescriptor,
+  GeneralDatabaseViewQuery,
+} from "../shared/database-query";
+import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
+import {
+  DATABASE_DESCRIPTOR_IPC_CHANNEL,
+  DATABASE_MUTATION_IPC_CHANNEL,
+  DATABASE_VIEW_QUERY_IPC_CHANNEL,
+  registerDatabaseKernelIpcHandlers,
+} from "./database-kernel-ipc";
+
+const request = (
+  session: string,
+  actorKind: string,
+): DatabaseMutationRequest => ({
+  version: 1,
+  operationId: "database-transport-retry",
+  projectId: "project-1",
+  storeEpoch: "epoch-1",
+  clientSessionId: session,
+  actor: { kind: actorKind },
+  operations: [
+    {
+      kind: "position_card",
+      viewId: "view-1",
+      cardBlockId: "card-1",
+      expectedPositionRevision: 1,
+      groupKey: null,
+    },
+  ],
+});
+
+const descriptor =
+  (): DatabaseReadCommandResult<GeneralDatabaseDescriptor> => ({
+    ok: true,
+    value: {
+      version: 1,
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      changeLogSeq: 7,
+      value: null,
+    },
+  });
+
+const viewQuery = (): DatabaseReadCommandResult<GeneralDatabaseViewQuery> => ({
+  ok: true,
+  value: {
+    version: 1,
+    projectId: "project-1",
+    storeEpoch: "epoch-1",
+    changeLogSeq: 7,
+    value: null,
+  },
+});
+
+describe("Database IPC/HTTP transport", () => {
+  test("rebinds spoofable audit identity and preserves exact retry semantics across IPC and HTTP", async () => {
+    const received: DatabaseMutationRequest[] = [];
+    const apply = async (
+      input: DatabaseMutationRequest,
+    ): Promise<DatabaseMutationCommandResult> => {
+      received.push(input);
+      return {
+        ok: true,
+        value: {
+          version: 1,
+          operationId: input.operationId,
+          projectId: input.projectId,
+          storeEpoch: input.storeEpoch,
+          operationKinds: input.operations.map((operation) => operation.kind),
+          duplicate: received.length > 1,
+          payload: { operationResults: [] },
+          changeLogSeq: 7,
+          committedAt: "2026-07-11T00:00:00.000Z",
+        },
+      };
+    };
+
+    const handlers = new Map<
+      string,
+      (event: unknown, projectId: string, value: unknown) => Promise<unknown>
+    >();
+    registerDatabaseKernelIpcHandlers({
+      registerHandle: (channel, listener) => handlers.set(channel, listener),
+      resolveTrustedIdentity: (event) =>
+        event === "trusted"
+          ? {
+              clientSessionId: "trusted-electron-window",
+              actor: { kind: "electron_renderer", clientId: "window-1" },
+            }
+          : null,
+      applyMutation: apply,
+      readDescriptor: async () => descriptor(),
+      queryView: async () => viewQuery(),
+    });
+
+    const ipc = (await handlers.get(DATABASE_MUTATION_IPC_CHANNEL)?.(
+      "trusted",
+      "project-1",
+      request("electron-window-1", "electron_actor"),
+    )) as DatabaseMutationCommandResult;
+    expect(ipc.ok && ipc.value.duplicate).toBeFalse();
+    const untrusted = (await handlers.get(DATABASE_MUTATION_IPC_CHANNEL)?.(
+      "untrusted-subframe",
+      "project-1",
+      request("spoofed-session", "spoofed-actor"),
+    )) as DatabaseMutationCommandResult;
+    expect(
+      !untrusted.ok &&
+        untrusted.error.code === "invalid_database_mutation_request",
+    ).toBeTrue();
+    expect(received.length).toBe(1);
+
+    const app = new Hono();
+    registerDatabaseKernelHttpRoutes(app, {
+      applyMutation: apply,
+      readDescriptor: async () => descriptor(),
+      queryView: async () => viewQuery(),
+    });
+    const response = await app.request(
+      "/api/projects/project-1/database-mutations",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request("cli-session-2", "nodex_cli")),
+      },
+    );
+    const http = (await response.json()) as DatabaseMutationCommandResult;
+    expect(response.status).toBe(200);
+    expect(http.ok && http.value.duplicate).toBeTrue();
+    expect(received[0]?.clientSessionId).toBe("trusted-electron-window");
+    expect(received[1]?.clientSessionId).toBe("http-loopback");
+    expect(received[0]?.actor.kind).toBe("electron_renderer");
+    expect(received[1]?.actor.kind).toBe("http_loopback");
+
+    const mismatch = await app.request(
+      "/api/projects/other-project/database-mutations",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request("cli-session-3", "nodex_cli")),
+      },
+    );
+    expect(mismatch.status).toBe(400);
+    expect(received.length).toBe(2);
+  });
+
+  test("returns the same JSON-only descriptor and View snapshots over IPC and HTTP", async () => {
+    const handlers = new Map<
+      string,
+      (event: unknown, projectId: string, value: unknown) => Promise<unknown>
+    >();
+    registerDatabaseKernelIpcHandlers({
+      registerHandle: (channel, listener) => handlers.set(channel, listener),
+      resolveTrustedIdentity: () => ({
+        clientSessionId: "trusted-electron-window",
+        actor: { kind: "electron_renderer" },
+      }),
+      applyMutation: async () => {
+        throw new Error("not used");
+      },
+      readDescriptor: async () => descriptor(),
+      queryView: async () => viewQuery(),
+    });
+    const app = new Hono();
+    registerDatabaseKernelHttpRoutes(app, {
+      applyMutation: async () => {
+        throw new Error("not used");
+      },
+      readDescriptor: async () => descriptor(),
+      queryView: async () => viewQuery(),
+    });
+
+    const ipcDescriptor = await handlers.get(DATABASE_DESCRIPTOR_IPC_CHANNEL)?.(
+      "trusted",
+      "project-1",
+      "database-1",
+    );
+    const httpDescriptor = await (
+      await app.request("/api/projects/project-1/databases/database-1")
+    ).json();
+    expect(JSON.stringify(ipcDescriptor)).toBe(JSON.stringify(httpDescriptor));
+
+    const ipcQuery = await handlers.get(DATABASE_VIEW_QUERY_IPC_CHANNEL)?.(
+      "trusted",
+      "project-1",
+      "view-1",
+    );
+    const httpQuery = await (
+      await app.request("/api/projects/project-1/database-views/view-1/query")
+    ).json();
+    expect(JSON.stringify(ipcQuery)).toBe(JSON.stringify(httpQuery));
+  });
+});

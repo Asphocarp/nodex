@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
   DATABASE_MUTATION_CONTRACT_VERSION,
+  databaseMutationOperationPath,
   canonicalizeDatabaseMutationIntent,
   normalizeDatabasePropertyValue,
   parseDatabaseMutationCommandError,
@@ -28,10 +29,18 @@ import {
   type DatabaseRankedItem,
 } from "./database-fractional-rank";
 import {
+  GeneralDatabaseQueryError,
+  queryGeneralDatabaseView,
   readCardContentSummary,
   readGeneralDatabaseDescriptor,
-  type GeneralDatabaseDescriptor,
 } from "./database-query";
+import {
+  DATABASE_QUERY_CONTRACT_VERSION,
+  type DatabaseReadCommandResult,
+  type DatabaseReadSnapshot,
+  type GeneralDatabaseDescriptor,
+  type GeneralDatabaseViewQuery,
+} from "../../shared/database-query";
 import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
 
 const MUTATION_KIND = "database_operation";
@@ -273,26 +282,6 @@ const requestDatabaseBlockIds = (
   }
 };
 
-const operationPath = (operation: DatabaseMutationOperation): string => {
-  switch (operation.kind) {
-    case "create_database":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}`;
-    case "put_property":
-    case "delete_property":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}/property/${encodeURIComponent(operation.propertyId)}`;
-    case "transfer_membership":
-      return `card/${encodeURIComponent(operation.cardBlockId)}/membership`;
-    case "put_view":
-    case "delete_view":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}/view/${encodeURIComponent(operation.viewId)}`;
-    case "position_card":
-      return `view/${encodeURIComponent(operation.viewId)}/position/${encodeURIComponent(operation.cardBlockId)}`;
-    case "set_value":
-    case "add_remove_value":
-      return `database/${encodeURIComponent(operation.databaseBlockId)}/card/${encodeURIComponent(operation.cardBlockId)}/property/${encodeURIComponent(operation.propertyId)}`;
-  }
-};
-
 const expectedRevisions = (
   operation: DatabaseMutationOperation,
 ): Readonly<Record<string, number>> => {
@@ -326,16 +315,27 @@ const makeEvidence = (request: DatabaseMutationRequest): MutationEvidence => {
     canonicalRequest,
     requestHash: sha256(canonicalRequest),
     actorJson: stableStringifyDatabaseJson(request.actor),
-    requestedTargetBlockIds: requestTargetBlockIds(request.operation),
-    requestedDatabaseBlockIds: requestDatabaseBlockIds(request.operation),
-    fieldIntentsJson: stableStringifyDatabaseJson([
-      {
-        path: operationPath(request.operation),
-        operation: request.operation.kind,
-      },
-    ]),
+    requestedTargetBlockIds: uniqueSorted(
+      request.operations.flatMap(requestTargetBlockIds),
+    ),
+    requestedDatabaseBlockIds: uniqueSorted(
+      request.operations.flatMap(requestDatabaseBlockIds),
+    ),
+    fieldIntentsJson: stableStringifyDatabaseJson(
+      request.operations.map((operation) => ({
+        path: databaseMutationOperationPath(operation),
+        operation: operation.kind,
+      })),
+    ),
     expectedRevisionsJson: stableStringifyDatabaseJson(
-      expectedRevisions(request.operation),
+      Object.fromEntries(
+        request.operations.flatMap((operation, index) =>
+          Object.entries(expectedRevisions(operation)).map(([key, value]) => [
+            `operations[${index}].${key}`,
+            value,
+          ]),
+        ),
+      ),
     ),
   };
 };
@@ -2078,6 +2078,7 @@ const reconcileGroupedViewPositions = (
     readonly propertyId: string;
     readonly value: DatabaseJsonValue;
     readonly now: string;
+    readonly deferredViewIds: ReadonlySet<string>;
   },
 ): Readonly<Record<string, number>> => {
   const views = database
@@ -2094,6 +2095,7 @@ const reconcileGroupedViewPositions = (
     .all(input.membership.database_block_id, request.projectId) as ViewRow[];
   const revisions: Record<string, number> = {};
   for (const view of views) {
+    if (input.deferredViewIds.has(view.id)) continue;
     let rawConfig: unknown;
     try {
       rawConfig = JSON.parse(view.config_json) as unknown;
@@ -2157,6 +2159,23 @@ const reconcileGroupedViewPositions = (
   }
   return revisions;
 };
+
+const explicitPositionViewIdsForCard = (
+  request: DatabaseMutationRequest,
+  cardBlockId: string,
+): ReadonlySet<string> =>
+  // Keep the selected View on its caller-observed revision until the explicit
+  // position_card operation applies the requested logical anchor. Other Views
+  // grouped by this property still reconcile as a declared derived revision in
+  // the set-value operation result; no primary Database/View is special-cased.
+  new Set(
+    request.operations.flatMap((operation) =>
+      operation.kind === "position_card" &&
+      operation.cardBlockId === cardBlockId
+        ? [operation.viewId]
+        : [],
+    ),
+  );
 
 const setValue = (
   database: Database.Database,
@@ -2227,6 +2246,10 @@ const setValue = (
       propertyId: operation.propertyId,
       value,
       now,
+      deferredViewIds: explicitPositionViewIdsForCard(
+        request,
+        operation.cardBlockId,
+      ),
     },
   );
   const metadata = advanceBlockMetadata(
@@ -2344,6 +2367,10 @@ const addRemoveValue = (
       propertyId: operation.propertyId,
       value,
       now,
+      deferredViewIds: explicitPositionViewIdsForCard(
+        request,
+        operation.cardBlockId,
+      ),
     },
   );
   const metadata = advanceBlockMetadata(
@@ -2384,9 +2411,13 @@ const addRemoveValue = (
   };
 };
 
-const executeAuthority = (
+type DatabaseOperationRequest = DatabaseMutationRequest & {
+  readonly operation: DatabaseMutationOperation;
+};
+
+const executeOperationAuthority = (
   database: Database.Database,
-  request: DatabaseMutationRequest,
+  request: DatabaseOperationRequest,
   now: string,
 ): AuthorityCommit => {
   switch (request.operation.kind) {
@@ -2492,6 +2523,42 @@ const executeAuthority = (
   }
 };
 
+const executeBatchAuthority = (
+  database: Database.Database,
+  request: DatabaseMutationRequest,
+  now: string,
+): AuthorityCommit => {
+  const commits = request.operations.map((operation) =>
+    executeOperationAuthority(database, { ...request, operation }, now),
+  );
+  return {
+    payload: {
+      operationResults: commits.map((commit, index) => ({
+        index,
+        kind: request.operations[index]?.kind ?? "unknown",
+        payload: commit.payload,
+      })),
+    },
+    targetBlockIds: uniqueSorted(
+      commits.flatMap((commit) => commit.targetBlockIds),
+    ),
+    databaseBlockIds: uniqueSorted(
+      commits.flatMap((commit) => commit.databaseBlockIds),
+    ),
+    committedRevisions: Object.fromEntries(
+      commits.flatMap((commit, index) =>
+        Object.entries(commit.committedRevisions).map(([key, value]) => [
+          `operations[${index}].${key}`,
+          value,
+        ]),
+      ),
+    ),
+    projectionCardIds: uniqueSorted(
+      commits.flatMap((commit) => commit.projectionCardIds),
+    ),
+  };
+};
+
 const persistChangeLog = (
   database: Database.Database,
   request: DatabaseMutationRequest,
@@ -2502,7 +2569,7 @@ const persistChangeLog = (
   const payload = stableStringifyDatabaseJson({
     version: DATABASE_MUTATION_CONTRACT_VERSION,
     mutationKind: MUTATION_KIND,
-    operationKind: request.operation.kind,
+    operationKinds: request.operations.map((operation) => operation.kind),
     requestHash: evidence.requestHash,
     committedRevisions: commit.committedRevisions,
     payload: commit.payload,
@@ -2639,12 +2706,15 @@ const validateStoredChangeLog = (
   }
   const payload = JSON.parse(change.payload_json) as {
     readonly mutationKind?: unknown;
-    readonly operationKind?: unknown;
+    readonly operationKinds?: unknown;
     readonly requestHash?: unknown;
   };
   if (
     payload.mutationKind !== MUTATION_KIND ||
-    payload.operationKind !== request.operation.kind ||
+    stableStringifyDatabaseJson(payload.operationKinds) !==
+      stableStringifyDatabaseJson(
+        request.operations.map((operation) => operation.kind),
+      ) ||
     payload.requestHash !== evidence.requestHash
   ) {
     throw new Error(
@@ -2713,7 +2783,7 @@ export const applyDatabaseMutation = (
     let commit: AuthorityCommit;
     try {
       commit = database.transaction(() =>
-        executeAuthority(database, request, now),
+        executeBatchAuthority(database, request, now),
       )();
     } catch (error) {
       if (!(error instanceof DatabaseMutationRejection)) throw error;
@@ -2749,7 +2819,7 @@ export const applyDatabaseMutation = (
       operationId: request.operationId,
       projectId: request.projectId,
       storeEpoch: request.storeEpoch,
-      operationKind: request.operation.kind,
+      operationKinds: request.operations.map((operation) => operation.kind),
       duplicate: false,
       payload: commit.payload,
       changeLogSeq,
@@ -2785,3 +2855,79 @@ export const readDatabaseKernelCardSummary = (
   projectId: string,
   cardBlockId: string,
 ) => readCardContentSummary(projectId, cardBlockId, database);
+
+const readDatabaseSnapshot = <T>(
+  database: Database.Database,
+  projectId: string,
+  read: () => T | null,
+): DatabaseReadCommandResult<T> => {
+  const storeEpoch = readStoreEpoch(database);
+  if (!storeEpoch) {
+    return {
+      ok: false,
+      error: {
+        code: "store_not_initialized",
+        message: "The Block store has no active epoch",
+        retryable: false,
+      },
+    };
+  }
+  const project = database
+    .prepare("SELECT 1 AS present FROM projects WHERE id = ?")
+    .get(projectId);
+  if (!project) {
+    return {
+      ok: false,
+      error: {
+        code: "project_not_found",
+        message: `Project does not exist: ${projectId}`,
+        retryable: false,
+      },
+    };
+  }
+  try {
+    const change = database
+      .prepare(
+        "SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log WHERE project_id = ?",
+      )
+      .get(projectId) as { readonly seq: number };
+    const snapshot: DatabaseReadSnapshot<T> = {
+      version: DATABASE_QUERY_CONTRACT_VERSION,
+      projectId,
+      storeEpoch,
+      changeLogSeq: change.seq,
+      value: read(),
+    };
+    return { ok: true, value: snapshot };
+  } catch (error) {
+    if (error instanceof GeneralDatabaseQueryError) {
+      return {
+        ok: false,
+        error: {
+          code: "database_state_corrupt",
+          message: error.message,
+          retryable: false,
+        },
+      };
+    }
+    throw error;
+  }
+};
+
+export const readDatabaseDescriptorSnapshot = (
+  database: Database.Database,
+  projectId: string,
+  databaseBlockId: string,
+): DatabaseReadCommandResult<GeneralDatabaseDescriptor> =>
+  readDatabaseSnapshot(database, projectId, () =>
+    readGeneralDatabaseDescriptor(projectId, databaseBlockId, database),
+  );
+
+export const queryDatabaseViewSnapshot = (
+  database: Database.Database,
+  projectId: string,
+  viewId: string,
+): DatabaseReadCommandResult<GeneralDatabaseViewQuery> =>
+  readDatabaseSnapshot(database, projectId, () =>
+    queryGeneralDatabaseView(projectId, viewId, database),
+  );

@@ -26,18 +26,20 @@ const request = (): DatabaseMutationRequest => ({
   storeEpoch: "epoch-1",
   clientSessionId: "session-1",
   actor: { kind: "test" },
-  operation: {
-    kind: "create_database",
-    databaseBlockId: "database-1",
-    name: "Tasks",
-    isPrimary: false,
-    initialView: {
-      viewId: "view-1",
-      name: "Table",
-      viewKind: "list",
-      config: viewConfig(),
+  operations: [
+    {
+      kind: "create_database",
+      databaseBlockId: "database-1",
+      name: "Tasks",
+      isPrimary: false,
+      initialView: {
+        viewId: "view-1",
+        name: "Table",
+        viewKind: "list",
+        config: viewConfig(),
+      },
     },
-  },
+  ],
 });
 
 const fails = (operation: () => void): boolean => {
@@ -52,7 +54,7 @@ const fails = (operation: () => void): boolean => {
 describe("general Database mutation contract", () => {
   test("uses logical anchors and excludes transport attribution from retry identity", () => {
     const parsed = parseDatabaseMutationRequest(request());
-    expect(parsed.operation.kind).toBe("create_database");
+    expect(parsed.operations[0]?.kind).toBe("create_database");
     const retry = {
       ...request(),
       clientSessionId: "session-2",
@@ -64,44 +66,119 @@ describe("general Database mutation contract", () => {
 
     const untrustedRank = {
       ...request(),
-      operation: { ...request().operation, rankKey: "client-owned" },
+      operations: [{ ...request().operations[0], rankKey: "client-owned" }],
     };
     expect(fails(() => parseDatabaseMutationRequest(untrustedRank))).toBeTrue();
+  });
+
+  test("accepts one connected Board intent and rejects duplicate, reversed, or unrelated writes", () => {
+    const value = {
+      kind: "set_value" as const,
+      cardBlockId: "card-1",
+      databaseBlockId: "database-1",
+      propertyId: "status-property",
+      expectedValueRevision: 1,
+      value: "done",
+    };
+    const position = {
+      kind: "position_card" as const,
+      viewId: "view-1",
+      cardBlockId: "card-1",
+      expectedPositionRevision: 2,
+      groupKey: "done",
+      beforeCardBlockId: "card-2",
+    };
+    const boardDrag = parseDatabaseMutationRequest({
+      ...request(),
+      operations: [value, position],
+    });
+    expect(boardDrag.operations.length).toBe(2);
+    expect(
+      fails(() =>
+        parseDatabaseMutationRequest({
+          ...request(),
+          operations: [value, { ...value, value: "backlog" }],
+        }),
+      ),
+    ).toBeTrue();
+    expect(
+      fails(() =>
+        parseDatabaseMutationRequest({
+          ...request(),
+          operations: [position, value],
+        }),
+      ),
+    ).toBeTrue();
+    expect(
+      fails(() =>
+        parseDatabaseMutationRequest({
+          ...request(),
+          operations: [
+            value,
+            {
+              kind: "put_view",
+              databaseBlockId: "unrelated-database",
+              viewId: "unrelated-view",
+              expectedRevision: 0,
+              name: "Unrelated",
+              viewKind: "list",
+              config: viewConfig(),
+              isPrimary: false,
+            },
+          ],
+        }),
+      ),
+    ).toBeTrue();
+    expect(
+      fails(() =>
+        parseDatabaseMutationRequest({
+          ...request(),
+          operations: Array.from({ length: 65 }, (_, index) => ({
+            ...value,
+            propertyId: `property-${index}`,
+          })),
+        }),
+      ),
+    ).toBeTrue();
   });
 
   test("requires strict versioned View configs and stable option identities", () => {
     const looseConfig = {
       ...request(),
-      operation: {
-        ...request().operation,
-        initialView: {
-          viewId: "view-1",
-          name: "Loose",
-          viewKind: "list",
-          config: {},
+      operations: [
+        {
+          ...request().operations[0],
+          initialView: {
+            viewId: "view-1",
+            name: "Loose",
+            viewKind: "list",
+            config: {},
+          },
         },
-      },
+      ],
     };
     expect(fails(() => parseDatabaseMutationRequest(looseConfig))).toBeTrue();
 
     const duplicateOptions = {
       ...request(),
-      operation: {
-        kind: "put_property",
-        databaseBlockId: "database-1",
-        propertyId: "property-1",
-        expectedDatabaseSchemaRevision: 1,
-        expectedPropertyRevision: 0,
-        key: "stage",
-        name: "Stage",
-        valueType: "select",
-        config: {
-          options: [
-            { id: "stable", name: "First" },
-            { id: "stable", name: "Renamed" },
-          ],
+      operations: [
+        {
+          kind: "put_property",
+          databaseBlockId: "database-1",
+          propertyId: "property-1",
+          expectedDatabaseSchemaRevision: 1,
+          expectedPropertyRevision: 0,
+          key: "stage",
+          name: "Stage",
+          valueType: "select",
+          config: {
+            options: [
+              { id: "stable", name: "First" },
+              { id: "stable", name: "Renamed" },
+            ],
+          },
         },
-      },
+      ],
     };
     expect(
       fails(() => parseDatabaseMutationRequest(duplicateOptions)),
@@ -110,11 +187,13 @@ describe("general Database mutation contract", () => {
       fails(() =>
         parseDatabaseMutationRequest({
           ...duplicateOptions,
-          operation: {
-            ...duplicateOptions.operation,
-            valueType: "text",
-            config: { optons: [] },
-          },
+          operations: [
+            {
+              ...duplicateOptions.operations[0],
+              valueType: "text",
+              config: { optons: [] },
+            },
+          ],
         }),
       ),
     ).toBeTrue();
@@ -122,10 +201,12 @@ describe("general Database mutation contract", () => {
       fails(() =>
         parseDatabaseMutationRequest({
           ...duplicateOptions,
-          operation: {
-            ...duplicateOptions.operation,
-            config: {},
-          },
+          operations: [
+            {
+              ...duplicateOptions.operations[0],
+              config: {},
+            },
+          ],
         }),
       ),
     ).toBeTrue();
@@ -251,26 +332,29 @@ describe("general Database mutation contract", () => {
   test("canonicalizes set intent and rejects overlapping set deltas", () => {
     const delta = {
       ...request(),
-      operation: {
-        kind: "add_remove_value",
-        cardBlockId: "card-1",
-        databaseBlockId: "database-1",
-        propertyId: "property-1",
-        add: ["b", "a", "a"],
-        remove: ["c"],
-      },
+      operations: [
+        {
+          kind: "add_remove_value",
+          cardBlockId: "card-1",
+          databaseBlockId: "database-1",
+          propertyId: "property-1",
+          add: ["b", "a", "a"],
+          remove: ["c"],
+        },
+      ],
     };
     const parsed = parseDatabaseMutationRequest(delta);
-    if (parsed.operation.kind !== "add_remove_value") {
+    const operation = parsed.operations[0];
+    if (operation?.kind !== "add_remove_value") {
       throw new Error("Expected add_remove_value operation");
     }
-    expect(parsed.operation.add.join(",")).toBe("a,b");
-    expect(parsed.operation.remove.join(",")).toBe("c");
+    expect(operation.add.join(",")).toBe("a,b");
+    expect(operation.remove.join(",")).toBe("c");
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
           ...delta,
-          operation: { ...delta.operation, remove: ["a"] },
+          operations: [{ ...delta.operations[0], remove: ["a"] }],
         }),
       ),
     ).toBeTrue();

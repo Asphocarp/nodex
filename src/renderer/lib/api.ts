@@ -24,6 +24,15 @@ import type {
   BlockPropertyMutationRequest,
 } from "../../shared/block-property-mutations";
 import type {
+  DatabaseMutationCommandResult,
+  DatabaseMutationRequest,
+} from "../../shared/database-kernel";
+import type {
+  DatabaseReadCommandResult,
+  GeneralDatabaseDescriptor,
+  GeneralDatabaseViewQuery,
+} from "../../shared/database-query";
+import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
@@ -170,6 +179,27 @@ export function mutateBlockProperties(
   request: BlockPropertyMutationRequest,
 ): Promise<BlockPropertyMutationCommandResult> {
   return invoke("block-properties:mutate", projectId, request);
+}
+
+export function mutateDatabase(
+  projectId: string,
+  request: DatabaseMutationRequest,
+): Promise<DatabaseMutationCommandResult> {
+  return invoke("databases:mutate", projectId, request);
+}
+
+export function readDatabaseDescriptor(
+  projectId: string,
+  databaseBlockId: string,
+): Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>> {
+  return invoke("databases:descriptor:get", projectId, databaseBlockId);
+}
+
+export function queryDatabaseView(
+  projectId: string,
+  viewId: string,
+): Promise<DatabaseReadCommandResult<GeneralDatabaseViewQuery>> {
+  return invoke("database-views:query", projectId, viewId);
 }
 
 const CARD_DESCRIPTION_UPDATE_CHUNK_SIZE = 16 * 1024;

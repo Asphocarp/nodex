@@ -41,6 +41,11 @@ import {
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
 import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
 import {
+  applyDatabaseMutation,
+  queryDatabaseViewSnapshot,
+  readDatabaseDescriptorSnapshot,
+} from "./local-store/database-kernel";
+import {
   applyDocumentOperationBatch,
   replaceDocumentFromNfm,
   restoreDocumentVersion,
@@ -183,6 +188,9 @@ const isLegacyAuthorityMutation = (
     case "migrateLegacyForeignReferences":
     case "repairDocumentSecondaryProjections":
     case "applyBlockPropertyMutation":
+    case "applyDatabaseMutation":
+    case "readDatabaseDescriptor":
+    case "queryDatabaseView":
     case "applyDocumentMutation":
     case "createDocumentVersionCheckpoint":
     case "listDocumentVersions":
@@ -1266,6 +1274,66 @@ async function runRequest(
       }
       return result;
     }
+    case "applyDatabaseMutation": {
+      const result = applyDatabaseMutation(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+
+      const cardIds = [
+        ...new Set(
+          request.payload.operations.flatMap((operation) => {
+            if (
+              operation.kind === "transfer_membership" ||
+              operation.kind === "position_card" ||
+              operation.kind === "set_value" ||
+              operation.kind === "add_remove_value"
+            ) {
+              return [operation.cardBlockId];
+            }
+            return [];
+          }),
+        ),
+      ].sort();
+      for (const cardId of cardIds) {
+        try {
+          const summary = readAuthoritativeCardSummaryById(getDb(), cardId);
+          if (!summary) {
+            postLog("error", "Committed Database mutation has no Card read model", {
+              projectId: request.payload.projectId,
+              cardId,
+              operationId: request.payload.operationId,
+            });
+            continue;
+          }
+          dbNotifier.notifyChange(
+            request.payload.projectId,
+            "update",
+            summary.status,
+            cardId,
+            { summary, mutationId: request.payload.operationId },
+          );
+        } catch (error) {
+          postLog("error", "Committed Database mutation fanout failed", {
+            projectId: request.payload.projectId,
+            cardId,
+            operationId: request.payload.operationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return result;
+    }
+    case "readDatabaseDescriptor":
+      return readDatabaseDescriptorSnapshot(
+        getDb(),
+        request.payload.projectId,
+        request.payload.databaseBlockId,
+      );
+    case "queryDatabaseView":
+      return queryDatabaseViewSnapshot(
+        getDb(),
+        request.payload.projectId,
+        request.payload.viewId,
+      );
     case "syncBlockDocument":
       return runDocumentCommand(() =>
         blockDocumentRuntime.sync(request.payload),

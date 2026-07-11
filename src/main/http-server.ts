@@ -78,6 +78,7 @@ import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
 import { registerReferenceReadHttpRoutes } from "./reference-read-http";
 import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutation-http";
+import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import { registerDocumentMutationHttpRoute } from "./document-operation-http";
 import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
 import {
@@ -249,6 +250,20 @@ registerReferenceReadHttpRoutes(app, {
 registerBlockPropertyMutationHttpRoute(app, {
   applyMutation: async (request) =>
     (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
+});
+
+registerDatabaseKernelHttpRoutes(app, {
+  applyMutation: async (request) =>
+    (await cardMutationWriter.applyDatabaseMutation(request)).result,
+  readDescriptor: async (projectId, databaseBlockId) =>
+    (
+      await cardMutationWriter.readDatabaseDescriptor(
+        projectId,
+        databaseBlockId,
+      )
+    ).result,
+  queryView: async (projectId, viewId) =>
+    (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
 });
 
 registerDocumentMutationHttpRoute(app, {

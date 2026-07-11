@@ -34,7 +34,7 @@ const ESTIMATES = new Set(["xs", "s", "m", "l", "xl"]);
 const DEFAULT_LS_DESCRIPTION_CHARS = 240;
 
 const COMMANDS = new Set([
-  "serve", "ls", "get", "add", "update", "rm", "mv", "block",
+  "serve", "ls", "get", "add", "update", "rm", "mv", "block", "database",
   "history", "undo", "redo", "query", "schema", "backups", "help", "projects", "config",
 ]);
 
@@ -762,6 +762,10 @@ const COMMAND_ALLOWED_FLAGS = {
     "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
     "sessionId", "mutationId", "expectedHead",
   ]),
+  database: new Set([
+    "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
+    "sessionId", "mutationId",
+  ]),
   history: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "card", "limit", "offset"]),
   undo: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
   redo: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
@@ -1175,6 +1179,99 @@ async function cmdBlock(positional, flags, config) {
     { cardId, documentId: descriptor.documentId, mutation: receipt },
     flags,
   );
+}
+
+// ─── Command: database ───
+
+async function readDatabaseDescriptorSnapshot(config, databaseBlockId) {
+  const result = await apiGet(
+    `${apiPrefix(config)}/databases/${encodeURIComponent(databaseBlockId)}`,
+  );
+  if (
+    result?.ok !== true ||
+    result?.value?.projectId !== config.project ||
+    typeof result?.value?.storeEpoch !== "string" ||
+    !Number.isSafeInteger(result?.value?.changeLogSeq)
+  ) {
+    throw new Error(result?.error?.message || "Server returned an invalid Database descriptor snapshot");
+  }
+  return result.value;
+}
+
+async function cmdDatabase(positional, flags, config) {
+  const action = positional[0];
+  const stableId = positional[1];
+  if (!action || !stableId) {
+    throw new Error(
+      "Usage: nodex database <descriptor|query|apply> <database-or-view-id> [operations]",
+    );
+  }
+
+  if (action === "descriptor") {
+    keyValueOut(await readDatabaseDescriptorSnapshot(config, stableId), flags);
+    return;
+  }
+  if (action === "query") {
+    const result = await apiGet(
+      `${apiPrefix(config)}/database-views/${encodeURIComponent(stableId)}/query`,
+    );
+    if (result?.ok !== true) {
+      throw new Error(result?.error?.message || "Database View query failed");
+    }
+    if (flags.json) {
+      jsonOut(result.value, flags);
+      return;
+    }
+    rowsOut(
+      ["cardBlockId", "title", "groupKey", "positionRevision", "membershipRevision"],
+      (result.value.value?.rows ?? []).map((row) => ({
+        cardBlockId: row.card.blockId,
+        title: row.card.content?.title ?? "",
+        groupKey: row.effectiveGroupKey ?? "",
+        positionRevision: row.position?.revision ?? 0,
+        membershipRevision: row.membership.revision,
+      })),
+      flags,
+    );
+    return;
+  }
+  if (action !== "apply") {
+    throw new Error(`Unknown database action: ${action}`);
+  }
+
+  const input = positional[2];
+  if (input === undefined) {
+    throw new Error("nodex database apply requires an operation array or @file/@- input");
+  }
+  const resolved = await resolveValue(input);
+  let parsed;
+  try {
+    parsed = JSON.parse(resolved);
+  } catch {
+    throw new Error("Database operations must be valid JSON");
+  }
+  const snapshot = await readDatabaseDescriptorSnapshot(config, stableId);
+  const request = Array.isArray(parsed)
+    ? {
+        version: 1,
+        operationId: requireCanonicalMutationId(flags.mutationId),
+        projectId: config.project,
+        storeEpoch: snapshot.storeEpoch,
+        ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
+        actor: { kind: "nodex_cli" },
+        operations: parsed,
+      }
+    : parsed;
+  if (flags.mutationId && !Array.isArray(parsed)) {
+    if (parsed?.operationId !== flags.mutationId) {
+      throw new Error("--mutation-id must match the operationId in a full Database request envelope");
+    }
+  }
+  const result = await apiPost(`${apiPrefix(config)}/database-mutations`, request);
+  if (result?.ok !== true) {
+    throw new Error(result?.error?.message || "Database mutation failed");
+  }
+  keyValueOut(result.value, flags);
 }
 
 // ─── Command: add ───
@@ -1823,6 +1920,7 @@ Agent Commands:
   nodex add <status> <title>     Create card
   nodex update <card-id>         Update card
   nodex block <action> <card-id> Apply/export stable-ID Document operations
+  nodex database <action> <id>   Query/mutate a Database by stable IDs
   nodex rm <card-id>             Delete card
   nodex mv <card-id> <from> <to> Move card (supports update opts)
   nodex history                  View edit history
@@ -1956,6 +2054,30 @@ function printCommandHelp(cmd) {
     --json                     JSON object output
     --csv                      CSV output
     --table                    Print aligned text table`,
+
+    database: `Usage: nodex database <action> <stable-id> [value] [options]
+
+  Operate on general Databases and Views using stable application identities.
+
+  Actions:
+    descriptor <database-id>       Read schema, Views, store epoch, and cursor
+    query <view-id>                Evaluate the View's durable nested filter/sort/group
+    apply <database-id> <json|@file|@->
+                                   Atomically apply a bounded operation array
+
+  An apply value may also be a full request envelope. The operation ID, Project,
+  store epoch, and operation intent are retained for exact retries; the local
+  host derives trusted audit attribution for every transport.
+  Rank keys are never accepted; use beforeBlockId/beforePropertyId/beforeViewId/
+  beforeCardBlockId logical anchors.
+
+  Options:
+    -p, --project <id>             Project (default: "default")
+    --mutation-id <id>             Stable exact-retry identity for array input
+    --jsonl                        JSON Lines output (default)
+    --json                         JSON object output
+    --csv                          CSV output
+    --table                        Print aligned text table`,
 
     rm: `Usage: nodex rm <card-id>
 
@@ -2331,6 +2453,7 @@ async function main() {
     rm: cmdRm,
     mv: cmdMv,
     block: cmdBlock,
+    database: cmdDatabase,
     history: cmdHistory,
     undo: cmdUndo,
     redo: cmdRedo,

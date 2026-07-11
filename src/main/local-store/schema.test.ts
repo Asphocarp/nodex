@@ -66,6 +66,7 @@ describe("schema initialization", () => {
       64,
       65,
       66,
+      67,
     ];
     const expectedTargetsAfter = (version: number) => JSON.stringify(
       supportedTargets.filter((target) => target > version),

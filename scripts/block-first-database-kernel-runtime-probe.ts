@@ -56,7 +56,7 @@ const request = (
   storeEpoch,
   clientSessionId: "runtime-probe",
   actor: { kind: "runtime_probe" },
-  operation,
+  operations: [operation],
 });
 
 const downgradeToV66 = (database: Database.Database): void => {

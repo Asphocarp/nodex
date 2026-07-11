@@ -4,6 +4,7 @@ import {
 } from "./block-property-mutations";
 
 export const DATABASE_MUTATION_CONTRACT_VERSION = 1 as const;
+export const MAX_DATABASE_MUTATION_OPERATIONS = 64;
 
 const MAX_ID_LENGTH = 512;
 const MAX_KEY_LENGTH = 128;
@@ -203,7 +204,13 @@ export interface DatabaseMutationRequest {
   readonly storeEpoch: string;
   readonly clientSessionId?: string;
   readonly actor: Readonly<Record<string, DatabaseJsonValue>>;
-  readonly operation: DatabaseMutationOperation;
+  /**
+   * One ordered semantic intent. Operations commit together and may depend on
+   * authority written by an earlier operation in this array (for example a
+   * grouped Board drag sets the grouping property before positioning the Card
+   * in that group). The server, never the caller, allocates every rank key.
+   */
+  readonly operations: readonly DatabaseMutationOperation[];
 }
 
 export interface DatabaseMutationReceipt {
@@ -211,7 +218,7 @@ export interface DatabaseMutationReceipt {
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
-  readonly operationKind: DatabaseMutationOperation["kind"];
+  readonly operationKinds: readonly DatabaseMutationOperation["kind"][];
   readonly duplicate: boolean;
   readonly payload: Readonly<Record<string, DatabaseJsonValue>>;
   readonly changeLogSeq: number;
@@ -250,6 +257,40 @@ export type DatabaseMutationErrorCode =
   | "position_group_mismatch"
   | "rank_rebalance_limit"
   | "unknown";
+
+const DATABASE_MUTATION_ERROR_CODES = new Set<DatabaseMutationErrorCode>([
+  "invalid_database_mutation_request",
+  "store_epoch_mismatch",
+  "operation_id_collision",
+  "project_not_found",
+  "block_identity_collision",
+  "database_not_found",
+  "database_not_active",
+  "database_schema_conflict",
+  "property_not_found",
+  "property_conflict",
+  "property_key_collision",
+  "property_type_change_with_values",
+  "property_option_in_use",
+  "property_in_use",
+  "property_value_invalid",
+  "property_value_conflict",
+  "card_not_found",
+  "card_not_active",
+  "membership_conflict",
+  "membership_identity_collision",
+  "membership_unchanged",
+  "view_not_found",
+  "view_conflict",
+  "view_identity_collision",
+  "primary_view_required",
+  "position_conflict",
+  "position_anchor_not_found",
+  "position_anchor_group_mismatch",
+  "position_group_mismatch",
+  "rank_rebalance_limit",
+  "unknown",
+]);
 
 export interface DatabaseMutationCommandError {
   readonly code: DatabaseMutationErrorCode;
@@ -1168,6 +1209,171 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
   throw new DatabaseMutationContractError(`${label}.kind is unsupported`);
 };
 
+export const databaseMutationOperationPath = (
+  operation: DatabaseMutationOperation,
+): string => {
+  switch (operation.kind) {
+    case "create_database":
+      return `database/${encodeURIComponent(operation.databaseBlockId)}`;
+    case "put_property":
+    case "delete_property":
+      return `database/${encodeURIComponent(operation.databaseBlockId)}/property/${encodeURIComponent(operation.propertyId)}`;
+    case "transfer_membership":
+      return `card/${encodeURIComponent(operation.cardBlockId)}/membership`;
+    case "put_view":
+    case "delete_view":
+      return `database/${encodeURIComponent(operation.databaseBlockId)}/view/${encodeURIComponent(operation.viewId)}`;
+    case "position_card":
+      return `view/${encodeURIComponent(operation.viewId)}/position/${encodeURIComponent(operation.cardBlockId)}`;
+    case "set_value":
+    case "add_remove_value":
+      return `database/${encodeURIComponent(operation.databaseBlockId)}/card/${encodeURIComponent(operation.cardBlockId)}/property/${encodeURIComponent(operation.propertyId)}`;
+  }
+};
+
+const operationEntities = (
+  operation: DatabaseMutationOperation,
+): ReadonlySet<string> => {
+  const entities = new Set<string>();
+  const add = (kind: string, id: string): void => {
+    entities.add(`${kind}:${id}`);
+  };
+  switch (operation.kind) {
+    case "create_database":
+      add("database", operation.databaseBlockId);
+      add("view", operation.initialView.viewId);
+      break;
+    case "put_property":
+    case "delete_property":
+      add("database", operation.databaseBlockId);
+      add("property", operation.propertyId);
+      break;
+    case "transfer_membership":
+      add("card", operation.cardBlockId);
+      if (operation.expectedMembership) {
+        add("membership", operation.expectedMembership.membershipId);
+      }
+      if (operation.target) {
+        add("database", operation.target.databaseBlockId);
+        add("membership", operation.target.membershipId);
+        add("view", operation.target.viewId);
+      }
+      break;
+    case "put_view":
+    case "delete_view":
+      add("database", operation.databaseBlockId);
+      add("view", operation.viewId);
+      break;
+    case "position_card":
+      add("view", operation.viewId);
+      add("card", operation.cardBlockId);
+      break;
+    case "set_value":
+    case "add_remove_value":
+      add("database", operation.databaseBlockId);
+      add("card", operation.cardBlockId);
+      add("property", operation.propertyId);
+      break;
+  }
+  return entities;
+};
+
+const validateDatabaseMutationOperations = (
+  operations: readonly DatabaseMutationOperation[],
+): void => {
+  if (
+    operations.length < 1 ||
+    operations.length > MAX_DATABASE_MUTATION_OPERATIONS
+  ) {
+    throw new DatabaseMutationContractError(
+      `databaseMutation.operations must contain 1-${MAX_DATABASE_MUTATION_OPERATIONS} operations`,
+    );
+  }
+
+  const paths = new Set<string>();
+  const connectedEntities = new Set<string>();
+  const membershipTransfers = new Map<
+    string,
+    Extract<DatabaseMutationOperation, { readonly kind: "transfer_membership" }>
+  >();
+  const positionedCards = new Set<string>();
+
+  operations.forEach((operation, index) => {
+    const path = databaseMutationOperationPath(operation);
+    if (paths.has(path)) {
+      throw new DatabaseMutationContractError(
+        `databaseMutation.operations contains conflicting writes to ${path}`,
+      );
+    }
+    paths.add(path);
+
+    const entities = operationEntities(operation);
+    if (
+      index > 0 &&
+      ![...entities].some((entity) => connectedEntities.has(entity))
+    ) {
+      throw new DatabaseMutationContractError(
+        `databaseMutation.operations[${index}] is not connected to the same semantic intent`,
+      );
+    }
+    for (const entity of entities) connectedEntities.add(entity);
+
+    if (operation.kind === "transfer_membership") {
+      membershipTransfers.set(operation.cardBlockId, operation);
+      return;
+    }
+    if (
+      operation.kind !== "position_card" &&
+      operation.kind !== "set_value" &&
+      operation.kind !== "add_remove_value"
+    ) {
+      return;
+    }
+    if (operation.kind === "position_card") {
+      positionedCards.add(operation.cardBlockId);
+    } else if (positionedCards.has(operation.cardBlockId)) {
+      throw new DatabaseMutationContractError(
+        `databaseMutation.operations must update Card ${operation.cardBlockId} property values before positioning it`,
+      );
+    }
+  });
+
+  for (const [cardBlockId, transfer] of membershipTransfers) {
+    for (const operation of operations) {
+      if (
+        operation.kind !== "position_card" &&
+        operation.kind !== "set_value" &&
+        operation.kind !== "add_remove_value"
+      ) {
+        continue;
+      }
+      if (operation.cardBlockId !== cardBlockId) continue;
+      if (transfer.target === null) {
+        throw new DatabaseMutationContractError(
+          `databaseMutation.operations cannot mutate Card ${cardBlockId} while removing its Database membership`,
+        );
+      }
+      if (
+        operation.kind === "position_card" &&
+        operation.viewId === transfer.target.viewId
+      ) {
+        throw new DatabaseMutationContractError(
+          `databaseMutation.operations must express the initial View position on transfer_membership.target`,
+        );
+      }
+      if (
+        (operation.kind === "set_value" ||
+          operation.kind === "add_remove_value") &&
+        operation.databaseBlockId !== transfer.target.databaseBlockId
+      ) {
+        throw new DatabaseMutationContractError(
+          `databaseMutation.operations cannot write Card ${cardBlockId} in a Database other than its transfer target`,
+        );
+      }
+    }
+  }
+};
+
 export const parseDatabaseMutationRequest = (
   value: unknown,
 ): DatabaseMutationRequest => {
@@ -1175,7 +1381,14 @@ export const parseDatabaseMutationRequest = (
   assertExactKeys(
     request,
     "databaseMutation",
-    ["version", "operationId", "projectId", "storeEpoch", "actor", "operation"],
+    [
+      "version",
+      "operationId",
+      "projectId",
+      "storeEpoch",
+      "actor",
+      "operations",
+    ],
     ["clientSessionId"],
   );
   if (request.version !== DATABASE_MUTATION_CONTRACT_VERSION) {
@@ -1183,6 +1396,15 @@ export const parseDatabaseMutationRequest = (
       `databaseMutation.version must be ${DATABASE_MUTATION_CONTRACT_VERSION}`,
     );
   }
+  if (!Array.isArray(request.operations)) {
+    throw new DatabaseMutationContractError(
+      "databaseMutation.operations must be an array",
+    );
+  }
+  const operations = request.operations.map((operation) =>
+    parseOperation(operation),
+  );
+  validateDatabaseMutationOperations(operations);
   const parsed: DatabaseMutationRequest = {
     version: DATABASE_MUTATION_CONTRACT_VERSION,
     operationId: readString(request, "operationId", "databaseMutation"),
@@ -1198,7 +1420,7 @@ export const parseDatabaseMutationRequest = (
           ),
         }),
     actor: readJsonRecord(request.actor, "databaseMutation.actor"),
-    operation: parseOperation(request.operation),
+    operations,
   };
   if (
     canonicalizeDatabaseMutationIntent(parsed).length <=
@@ -1278,7 +1500,7 @@ export const canonicalizeDatabaseMutationIntent = (value: unknown): string => {
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
-    operation: request.operation,
+    operations: request.operations,
   });
 };
 
@@ -1291,7 +1513,7 @@ export const parseDatabaseMutationReceipt = (
     "operationId",
     "projectId",
     "storeEpoch",
-    "operationKind",
+    "operationKinds",
     "duplicate",
     "payload",
     "changeLogSeq",
@@ -1302,28 +1524,39 @@ export const parseDatabaseMutationReceipt = (
       `databaseMutationReceipt.version must be ${DATABASE_MUTATION_CONTRACT_VERSION}`,
     );
   }
-  const operationKind = receipt.operationKind;
+  const supportedKinds = new Set<DatabaseMutationOperation["kind"]>([
+    "create_database",
+    "put_property",
+    "delete_property",
+    "transfer_membership",
+    "put_view",
+    "delete_view",
+    "position_card",
+    "set_value",
+    "add_remove_value",
+  ]);
   if (
-    operationKind !== "create_database" &&
-    operationKind !== "put_property" &&
-    operationKind !== "delete_property" &&
-    operationKind !== "transfer_membership" &&
-    operationKind !== "put_view" &&
-    operationKind !== "delete_view" &&
-    operationKind !== "position_card" &&
-    operationKind !== "set_value" &&
-    operationKind !== "add_remove_value"
+    !Array.isArray(receipt.operationKinds) ||
+    receipt.operationKinds.length < 1 ||
+    receipt.operationKinds.length > MAX_DATABASE_MUTATION_OPERATIONS ||
+    !receipt.operationKinds.every(
+      (kind) =>
+        typeof kind === "string" &&
+        supportedKinds.has(kind as DatabaseMutationOperation["kind"]),
+    )
   ) {
     throw new DatabaseMutationContractError(
-      "databaseMutationReceipt.operationKind is unsupported",
+      "databaseMutationReceipt.operationKinds is unsupported",
     );
   }
+  const operationKinds =
+    receipt.operationKinds as DatabaseMutationOperation["kind"][];
   return {
     version: DATABASE_MUTATION_CONTRACT_VERSION,
     operationId: readString(receipt, "operationId", "databaseMutationReceipt"),
     projectId: readString(receipt, "projectId", "databaseMutationReceipt"),
     storeEpoch: readString(receipt, "storeEpoch", "databaseMutationReceipt"),
-    operationKind,
+    operationKinds,
     duplicate: readBoolean(receipt, "duplicate", "databaseMutationReceipt"),
     payload: readJsonRecord(receipt.payload, "databaseMutationReceipt.payload"),
     changeLogSeq: readRevision(
@@ -1346,7 +1579,10 @@ export const parseDatabaseMutationCommandError = (
     ["code", "message", "retryable"],
     ["operationId", "expectedRevision", "actualRevision"],
   );
-  if (typeof error.code !== "string") {
+  if (
+    typeof error.code !== "string" ||
+    !DATABASE_MUTATION_ERROR_CODES.has(error.code as DatabaseMutationErrorCode)
+  ) {
     throw new DatabaseMutationContractError(
       "databaseMutationError.code is invalid",
     );

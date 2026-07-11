@@ -193,6 +193,7 @@ import {
 import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
 import { parseDocumentRelocationRequest } from "../shared/block-documents/relocation-transport";
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
+import { registerDatabaseKernelIpcHandlers } from "./database-kernel-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 
@@ -864,6 +865,38 @@ export function registerIpcHandlers(
     },
     applyMutation: async (request) =>
       (await cardMutationWriter.applyBlockPropertyMutation(request)).result,
+  });
+
+  registerDatabaseKernelIpcHandlers({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, value) =>
+        listener(event, projectId, value) as
+          | IpcApi[typeof channel]["result"]
+          | Promise<IpcApi[typeof channel]["result"]>,
+      );
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: { kind: "electron_renderer", clientId },
+      };
+    },
+    applyMutation: async (request) =>
+      (await cardMutationWriter.applyDatabaseMutation(request)).result,
+    readDescriptor: async (projectId, databaseBlockId) =>
+      (
+        await cardMutationWriter.readDatabaseDescriptor(
+          projectId,
+          databaseBlockId,
+        )
+      ).result,
+    queryView: async (projectId, viewId) =>
+      (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
   });
 
   registerDocumentMutationIpcHandler({

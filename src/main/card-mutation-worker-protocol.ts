@@ -32,6 +32,15 @@ import type {
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
 import type {
+  DatabaseMutationCommandResult,
+  DatabaseMutationRequest,
+} from "../shared/database-kernel";
+import type {
+  DatabaseReadCommandResult,
+  GeneralDatabaseDescriptor,
+  GeneralDatabaseViewQuery,
+} from "../shared/database-query";
+import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
@@ -257,6 +266,18 @@ export type CardMutationWorkerRequest =
       payload: BlockPropertyMutationRequest;
     })
   | (CardMutationWorkerRequestBase & {
+      type: "applyDatabaseMutation";
+      payload: DatabaseMutationRequest;
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "readDatabaseDescriptor";
+      payload: { readonly projectId: string; readonly databaseBlockId: string };
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "queryDatabaseView";
+      payload: { readonly projectId: string; readonly viewId: string };
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "syncBlockDocument";
       payload: DocumentSyncRequest;
     })
@@ -364,6 +385,9 @@ export type CardMutationWorkerResult =
   | ForeignReferenceMigrationBatchResult
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResult
+  | DatabaseMutationCommandResult
+  | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
+  | DatabaseReadCommandResult<GeneralDatabaseViewQuery>
   | DocumentOperationCommandResult
   | undefined;
 

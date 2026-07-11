@@ -104,7 +104,21 @@ const request = (
   storeEpoch: fixture.storeEpoch,
   clientSessionId: audit.session ?? "test-session",
   actor: { kind: audit.actor ?? "test" },
-  operation,
+  operations: [operation],
+});
+
+const batchRequest = (
+  fixture: Fixture,
+  operationId: string,
+  operations: readonly DatabaseMutationOperation[],
+): DatabaseMutationRequest => ({
+  version: 1,
+  operationId,
+  projectId: fixture.projectId,
+  storeEpoch: fixture.storeEpoch,
+  clientSessionId: "test-session",
+  actor: { kind: "test" },
+  operations,
 });
 
 const createDatabaseOperation = (
@@ -236,13 +250,15 @@ describe("general Database kernel", () => {
           resultCode(
             applyDatabaseMutation(fixture.database, {
               ...create,
-              operation: {
-                ...createDatabaseOperation(
-                  "database-research",
-                  "view-research",
-                ),
-                name: "Collision",
-              },
+              operations: [
+                {
+                  ...createDatabaseOperation(
+                    "database-research",
+                    "view-research",
+                  ),
+                  name: "Collision",
+                },
+              ],
             }),
           ),
         ).toBe("operation_id_collision");
@@ -838,6 +854,70 @@ describe("general Database kernel", () => {
           )?.rows.find((row) => row.card.blockId === first.id)
             ?.effectiveGroupKey,
         ).toBe("select-b");
+
+        expect(
+          resultCode(
+            applyDatabaseMutation(
+              fixture.database,
+              request(fixture, "set-second-group", {
+                kind: "set_value",
+                cardBlockId: second.id,
+                databaseBlockId: "database-custom",
+                propertyId: "property-select",
+                expectedValueRevision: 0,
+                value: "select-a",
+              }),
+            ),
+          ),
+        ).toBe("ok");
+        expect(
+          resultCode(
+            applyDatabaseMutation(
+              fixture.database,
+              request(fixture, "position-second-group", {
+                kind: "position_card",
+                viewId: "view-custom-grouped",
+                cardBlockId: second.id,
+                expectedPositionRevision: 0,
+                groupKey: "select-a",
+              }),
+            ),
+          ),
+        ).toBe("ok");
+        const boardDrag = applyDatabaseMutation(
+          fixture.database,
+          batchRequest(fixture, "board-drag", [
+            {
+              kind: "set_value",
+              cardBlockId: first.id,
+              databaseBlockId: "database-custom",
+              propertyId: "property-select",
+              expectedValueRevision: 2,
+              value: "select-a",
+            },
+            {
+              kind: "position_card",
+              viewId: "view-custom-grouped",
+              cardBlockId: first.id,
+              expectedPositionRevision: 2,
+              groupKey: "select-a",
+              beforeCardBlockId: second.id,
+            },
+          ]),
+        );
+        expect(resultCode(boardDrag)).toBe("ok");
+        expect(
+          boardDrag.ok ? boardDrag.value.operationKinds.join(",") : "rejected",
+        ).toBe("set_value,position_card");
+        const groupedRows = queryGeneralDatabaseView(
+          fixture.projectId,
+          "view-custom-grouped",
+          fixture.database,
+        )?.rows;
+        expect(groupedRows?.map((row) => row.card.blockId).join(",")).toBe(
+          `${first.id},${second.id}`,
+        );
+        expect(groupedRows?.[0]?.position?.revision).toBe(3);
 
         const invalidFilter = applyDatabaseMutation(
           fixture.database,

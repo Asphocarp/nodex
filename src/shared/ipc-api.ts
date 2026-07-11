@@ -37,6 +37,15 @@ import type {
   BlockPropertyMutationRequest,
 } from "./block-property-mutations";
 import type {
+  DatabaseMutationCommandResult,
+  DatabaseMutationRequest,
+} from "./database-kernel";
+import type {
+  DatabaseReadCommandResult,
+  GeneralDatabaseDescriptor,
+  GeneralDatabaseViewQuery,
+} from "./database-query";
+import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
 } from "./block-references";
@@ -575,6 +584,18 @@ export interface IpcApi {
   "block-properties:mutate": {
     args: [projectId: string, request: BlockPropertyMutationRequest];
     result: BlockPropertyMutationCommandResult;
+  };
+  "databases:mutate": {
+    args: [projectId: string, request: DatabaseMutationRequest];
+    result: DatabaseMutationCommandResult;
+  };
+  "databases:descriptor:get": {
+    args: [projectId: string, databaseBlockId: string];
+    result: DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
+  };
+  "database-views:query": {
+    args: [projectId: string, viewId: string];
+    result: DatabaseReadCommandResult<GeneralDatabaseViewQuery>;
   };
   "block-reference:card:resolve": {
     args: [input: ResolveCardReferenceInput];
