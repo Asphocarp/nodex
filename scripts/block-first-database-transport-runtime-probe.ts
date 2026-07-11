@@ -7,6 +7,7 @@ import { CardMutationWriter } from "../src/main/card-mutation-writer";
 import { registerDatabaseKernelHttpRoutes } from "../src/main/database-kernel-http";
 import {
   DATABASE_MUTATION_IPC_CHANNEL,
+  PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
   registerDatabaseKernelIpcHandlers,
 } from "../src/main/database-kernel-ipc";
 import { createCard } from "../src/main/local-store/cards";
@@ -23,6 +24,7 @@ import type {
   DatabaseMutationRequest,
 } from "../src/shared/database-kernel";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
+import type { DatabaseChangeEvent } from "../src/shared/database-events";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -179,12 +181,14 @@ const run = async (): Promise<void> => {
     closeDatabase();
 
     const events: BoardChangeEvent[] = [];
+    const databaseEvents: DatabaseChangeEvent[] = [];
     writer = new CardMutationWriter({
       publishBoardEvent: (event) => events.push(event),
+      publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
     const ipcHandlers = new Map<
       string,
-      (event: unknown, projectId: string, value: unknown) => Promise<unknown>
+      (event: unknown, projectId: string, value?: unknown) => Promise<unknown>
     >();
     registerDatabaseKernelIpcHandlers({
       registerHandle: (channel, listener) => ipcHandlers.set(channel, listener),
@@ -203,6 +207,8 @@ const run = async (): Promise<void> => {
       readDescriptor: async (projectId, databaseBlockId) =>
         (await writer!.readDatabaseDescriptor(projectId, databaseBlockId))
           .result,
+      readPrimaryDescriptor: async (projectId) =>
+        (await writer!.readPrimaryDatabaseDescriptor(projectId)).result,
       queryView: async (projectId, viewId) =>
         (await writer!.queryDatabaseView(projectId, viewId)).result,
     });
@@ -213,6 +219,8 @@ const run = async (): Promise<void> => {
       readDescriptor: async (projectId, databaseBlockId) =>
         (await writer!.readDatabaseDescriptor(projectId, databaseBlockId))
           .result,
+      readPrimaryDescriptor: async (projectId) =>
+        (await writer!.readPrimaryDatabaseDescriptor(projectId)).result,
       queryView: async (projectId, viewId) =>
         (await writer!.queryDatabaseView(projectId, viewId)).result,
     });
@@ -249,12 +257,21 @@ const run = async (): Promise<void> => {
     invariant(
       committed.ok &&
         !committed.value.duplicate &&
-        committed.value.operationKinds.join(",") === "set_value,position_card",
+        committed.value.operationKinds.join(",") === "set_value,position_card" &&
+        committed.value.affectedDatabaseBlockIds.join(",") ===
+          primary.database_block_id,
       "Writer did not commit the atomic Board drag",
     );
     invariant(
       events.length === 1 && events[0]?.summary?.status === "done",
       "First Board drag did not publish exactly one authoritative summary",
+    );
+    invariant(
+      databaseEvents.length === 1 &&
+        databaseEvents[0]?.operationId === boardDrag.operationId &&
+        databaseEvents[0]?.sourceKind === "database_mutation" &&
+        databaseEvents[0]?.changeLogSeq === committed.value.changeLogSeq,
+      "First Board drag did not publish one project-scoped Database invalidation",
     );
 
     const retryRequest = {
@@ -277,7 +294,8 @@ const run = async (): Promise<void> => {
       retryResponse.status === 200 &&
         duplicate.ok &&
         duplicate.value.duplicate &&
-        events.length === 1,
+        events.length === 1 &&
+        databaseEvents.length === 1,
       "Exact retry across a session switch duplicated the Board event",
     );
 
@@ -308,6 +326,22 @@ const run = async (): Promise<void> => {
           primary.database_block_id,
       "Writer descriptor read did not preserve the exact store head",
     );
+    const ipcPrimary = (await ipcHandlers.get(
+      PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
+    )?.("trusted-window", project.id)) as Awaited<
+      ReturnType<CardMutationWriter["readPrimaryDatabaseDescriptor"]>
+    >["result"];
+    const httpPrimaryResponse = await http.request(
+      `/api/projects/${encodeURIComponent(project.id)}/databases/primary`,
+    );
+    const httpPrimary = (await httpPrimaryResponse.json()) as typeof ipcPrimary;
+    invariant(
+      ipcPrimary.ok &&
+        httpPrimary.ok &&
+        ipcPrimary.value.value?.database.blockId === primary.database_block_id &&
+        JSON.stringify(ipcPrimary) === JSON.stringify(httpPrimary),
+      "Primary Database descriptor diverged between IPC and HTTP",
+    );
 
     const stale = await writer.applyDatabaseMutation(
       request({
@@ -320,7 +354,8 @@ const run = async (): Promise<void> => {
     invariant(
       !stale.result.ok &&
         stale.result.error.code === "property_value_conflict" &&
-        events.length === 1,
+        events.length === 1 &&
+        databaseEvents.length === 1,
       "Stale Board drag did not return a typed conflict",
     );
 
@@ -367,7 +402,8 @@ const run = async (): Promise<void> => {
         afterRollback.result.value.value?.rows.find(
           (row) => row.card.blockId === first.id,
         )?.effectiveGroupKey === "done" &&
-        events.length === 1,
+        events.length === 1 &&
+        databaseEvents.length === 1,
       "Failed batch leaked its first property write or emitted a Board event",
     );
 
@@ -426,6 +462,7 @@ const run = async (): Promise<void> => {
         exactRetryAcrossSession: true,
         trustedAuditBinding: true,
         oneBoardNotification: true,
+        oneDatabaseInvalidation: true,
         typedConflict: true,
         rollback: true,
         descriptorAndQuery: true,

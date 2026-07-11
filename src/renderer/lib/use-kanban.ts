@@ -39,6 +39,7 @@ import type {
 import { invoke, updateCardDescription } from "./api";
 import { getKanbanProjectStore } from "./kanban-store";
 import { getCardDetail, setCardDetail } from "./card-detail-store";
+import { commitPrimaryDatabaseCardDrag } from "./primary-database-card-drag-runtime";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -284,15 +285,17 @@ export function useKanban(options: UseKanbanOptions) {
 
   const moveCard = useCallback(
     async (input: MoveCardInput): Promise<boolean> => {
+      const operationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "card:move",
         conflictKeys: conflictKeysForMove(input),
         apply: buildMoveCardTransform(input),
-        runRemote: async () => (await invoke("card:move", {
-          ...input,
+        runRemote: async () => await commitPrimaryDatabaseCardDrag({
           projectId,
-          sessionId,
-        })) as boolean,
+          clientSessionId: sessionId,
+          operationId,
+          move: input,
+        }),
       });
       if (!outcome.ok) return false;
       if (!outcome.result) {

@@ -18,6 +18,7 @@ import type {
   ProjectSessionsChangeEvent,
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
+import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
 import {
   decodeDocumentHttpError,
@@ -786,6 +787,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const response = await fetch(
         toApiUrl(
           `/api/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseBlockId)}`,
+        ),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseDatabaseReadCommandResult<GeneralDatabaseDescriptor>(
+        await response.json(),
+      );
+    }
+    case "databases:primary:get": {
+      const [projectId] = args as [string];
+      const response = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(projectId)}/databases/primary`,
         ),
         { headers: { Accept: "application/json" } },
       );
@@ -2266,30 +2279,125 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   }
 }
 
+type ProjectEventName =
+  | "board-changed"
+  | "database-changed"
+  | "project-sessions-changed";
+
+type ProjectEventListener = (
+  event: Readonly<Record<string, unknown>>,
+) => void;
+
+interface BrowserProjectEventStream {
+  readonly source: EventSource;
+  readonly listeners: Map<ProjectEventName, Set<ProjectEventListener>>;
+}
+
+const browserProjectEventStreams = new Map<
+  string,
+  BrowserProjectEventStream
+>();
+
+const isEventRecord = (
+  value: unknown,
+): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const ensureBrowserProjectEventStream = (
+  projectId: string,
+): BrowserProjectEventStream | null => {
+  const existing = browserProjectEventStreams.get(projectId);
+  if (existing) return existing;
+  if (typeof EventSource === "undefined") return null;
+
+  const source = new EventSource(
+    toApiUrl(
+      `/api/projects/${encodeURIComponent(projectId)}/events`,
+    ),
+  );
+  const stream: BrowserProjectEventStream = {
+    source,
+    listeners: new Map(),
+  };
+  browserProjectEventStreams.set(projectId, stream);
+  source.onmessage = (message) => {
+    try {
+      const event = JSON.parse(message.data) as unknown;
+      if (!isEventRecord(event)) return;
+      if (
+        typeof event.projectId === "string" &&
+        event.projectId !== projectId
+      ) {
+        return;
+      }
+      const eventName = event.event;
+      if (
+        eventName !== "board-changed" &&
+        eventName !== "database-changed" &&
+        eventName !== "project-sessions-changed"
+      ) {
+        return;
+      }
+      for (const listener of [...(stream.listeners.get(eventName) ?? [])]) {
+        try {
+          listener(event);
+        } catch {
+          // One consumer cannot starve the other Project event consumers.
+        }
+      }
+    } catch {
+      // Ignore malformed or unrelated SSE payloads.
+    }
+  };
+  return stream;
+};
+
+const subscribeBrowserProjectEvent = (
+  projectId: string,
+  eventName: ProjectEventName,
+  listener: ProjectEventListener,
+): (() => void) => {
+  const stream = ensureBrowserProjectEventStream(projectId);
+  if (!stream) return () => {};
+  const listeners = stream.listeners.get(eventName) ?? new Set();
+  listeners.add(listener);
+  stream.listeners.set(eventName, listeners);
+
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    const current = browserProjectEventStreams.get(projectId);
+    if (current !== stream) return;
+    const currentListeners = stream.listeners.get(eventName);
+    currentListeners?.delete(listener);
+    if (currentListeners?.size === 0) {
+      stream.listeners.delete(eventName);
+    }
+    if (stream.listeners.size > 0) return;
+    browserProjectEventStreams.delete(projectId);
+    stream.source.close();
+  };
+};
+
 function subscribeBoardChanges(
   projectId: string,
   callback: (event: BoardChangeEvent) => void,
 ): () => void {
-  if (typeof EventSource === "undefined") {
-    return () => {};
-  }
+  return subscribeBrowserProjectEvent(projectId, "board-changed", (event) => {
+    callback(event as unknown as BoardChangeEvent);
+  });
+}
 
-  const es = new EventSource(toApiUrl(`/api/projects/${projectId}/events`));
-
-  es.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data) as BoardChangeEvent & {
-        event?: string;
-      };
-      if (data.event === "board-changed") {
-        callback(data);
-      }
-    } catch {
-      // ignore parse errors
-    }
-  };
-
-  return () => es.close();
+function subscribeDatabaseChanges(
+  projectId: string,
+  callback: (event: DatabaseChangeEvent) => void,
+): () => void {
+  return subscribeBrowserProjectEvent(
+    projectId,
+    "database-changed",
+    (event) => callback(event as unknown as DatabaseChangeEvent),
+  );
 }
 
 function subscribeProjectSessionChanges(
@@ -2300,24 +2408,11 @@ function subscribeProjectSessionChanges(
     void callback;
     return () => {};
   }
-  if (typeof EventSource === "undefined") {
-    return () => {};
-  }
-
-  const es = new EventSource(toApiUrl(`/api/projects/${projectId}/events`));
-
-  es.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data) as { event?: string };
-      if (data.event === "project-sessions-changed") {
-        callback({ projectId, changeType: "update" });
-      }
-    } catch {
-      // ignore parse errors
-    }
-  };
-
-  return () => es.close();
+  return subscribeBrowserProjectEvent(
+    projectId,
+    "project-sessions-changed",
+    () => callback({ projectId, changeType: "update" }),
+  );
 }
 
 function subscribeProjectChanges(
@@ -2697,6 +2792,7 @@ export const browserRendererTransport = {
   },
   invoke,
   subscribeBoardChanges,
+  subscribeDatabaseChanges,
   subscribeProjectSessionChanges,
   subscribeProjectChanges,
   subscribeCodexHostMessages,

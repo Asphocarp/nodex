@@ -195,6 +195,12 @@ export function readDatabaseDescriptor(
   return invoke("databases:descriptor:get", projectId, databaseBlockId);
 }
 
+export function readPrimaryDatabaseDescriptor(
+  projectId: string,
+): Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>> {
+  return invoke("databases:primary:get", projectId);
+}
+
 export function queryDatabaseView(
   projectId: string,
   viewId: string,
@@ -260,6 +266,16 @@ export function subscribeBoardChanges(
   callback: (event: import("../../shared/ipc-api").BoardChangeEvent) => void,
 ): () => void {
   return resolveRendererTransport().subscribeBoardChanges(projectId, callback);
+}
+
+export function subscribeDatabaseChanges(
+  projectId: string,
+  callback: (event: import("../../shared/database-events").DatabaseChangeEvent) => void,
+): () => void {
+  return resolveRendererTransport().subscribeDatabaseChanges(
+    projectId,
+    callback,
+  );
 }
 
 export function subscribeProjectSessionChanges(

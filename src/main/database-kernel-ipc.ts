@@ -19,6 +19,8 @@ import {
 export const DATABASE_MUTATION_IPC_CHANNEL = "databases:mutate" as const;
 export const DATABASE_DESCRIPTOR_IPC_CHANNEL =
   "databases:descriptor:get" as const;
+export const PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL =
+  "databases:primary:get" as const;
 export const DATABASE_VIEW_QUERY_IPC_CHANNEL = "database-views:query" as const;
 
 export interface DatabaseKernelIpcDependencies {
@@ -26,11 +28,12 @@ export interface DatabaseKernelIpcDependencies {
     channel:
       | typeof DATABASE_MUTATION_IPC_CHANNEL
       | typeof DATABASE_DESCRIPTOR_IPC_CHANNEL
+      | typeof PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL
       | typeof DATABASE_VIEW_QUERY_IPC_CHANNEL,
     listener: (
       event: unknown,
       projectId: string,
-      value: unknown,
+      value?: unknown,
     ) => Promise<unknown>,
   ) => void;
   readonly resolveTrustedIdentity: (
@@ -42,6 +45,9 @@ export interface DatabaseKernelIpcDependencies {
   readonly readDescriptor: (
     projectId: string,
     databaseBlockId: string,
+  ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
+  readonly readPrimaryDescriptor: (
+    projectId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
   readonly queryView: (
     projectId: string,
@@ -83,6 +89,31 @@ export const registerDatabaseKernelIpcHandlers = (
         return await dependencies.applyMutation(bound.value);
       } catch (error) {
         return databaseTransportFailure(bound.value, error);
+      }
+    },
+  );
+
+  dependencies.registerHandle(
+    PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
+    async (event, projectId) => {
+      if (!dependencies.resolveTrustedIdentity(event)) {
+        return untrustedRead<GeneralDatabaseDescriptor>();
+      }
+      const bound = bindDatabaseReadIdentity(projectId, "primary");
+      if (!bound.ok) return bound;
+      try {
+        return await dependencies.readPrimaryDescriptor(bound.value.projectId);
+      } catch (error) {
+        return {
+          ok: false,
+          error: databaseReadFailure(
+            "unknown",
+            error instanceof Error
+              ? error.message
+              : "The primary Database reader is unavailable",
+            true,
+          ),
+        } satisfies DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
       }
     },
   );

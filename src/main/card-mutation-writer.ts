@@ -37,11 +37,23 @@ import type {
   DatabaseMutationCommandResult,
   DatabaseMutationRequest,
 } from "../shared/database-kernel";
+import {
+  DATABASE_CHANGE_EVENT_VERSION,
+  type DatabaseChangeEvent,
+} from "../shared/database-events";
 import type {
   DatabaseReadCommandResult,
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
 } from "../shared/database-query";
+import type {
+  CardLifecycleMutationCommandResult,
+  CardLifecycleMutationRequest,
+} from "../shared/card-lifecycle";
+import type {
+  CompactEligibleBlockDocumentsInput,
+  CompactEligibleBlockDocumentsResult,
+} from "./local-store/block-document-compaction";
 import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
@@ -121,6 +133,10 @@ export interface CardMutationWriterOptions {
   createWorker?: () => CardMutationWorkerLike;
   publishBoardEvent?: (
     event: BoardChangeEvent,
+    metrics: CardMutationMetrics,
+  ) => void;
+  publishDatabaseEvent?: (
+    event: DatabaseChangeEvent,
     metrics: CardMutationMetrics,
   ) => void;
   scheduleShutdownDeadline?: CardMutationWriterShutdownDeadline;
@@ -408,9 +424,60 @@ export class CardMutationWriter {
   async applyDatabaseMutation(
     request: DatabaseMutationRequest,
   ): Promise<CardMutationEnvelope<DatabaseMutationCommandResult>> {
-    return await this.executeTyped<DatabaseMutationCommandResult>({
+    const envelope = await this.executeTyped<DatabaseMutationCommandResult>({
       type: "applyDatabaseMutation",
       payload: request,
+    });
+    if (envelope.result.ok && !envelope.result.value.duplicate) {
+      this.publishDatabaseEvent(
+        {
+          version: DATABASE_CHANGE_EVENT_VERSION,
+          projectId: envelope.result.value.projectId,
+          storeEpoch: envelope.result.value.storeEpoch,
+          operationId: envelope.result.value.operationId,
+          sourceKind: "database_mutation",
+          affectedDatabaseBlockIds:
+            envelope.result.value.affectedDatabaseBlockIds,
+          changeLogSeq: envelope.result.value.changeLogSeq,
+        },
+        envelope.metrics,
+      );
+    }
+    return envelope;
+  }
+
+  async applyCardLifecycleMutation(
+    request: CardLifecycleMutationRequest,
+  ): Promise<CardMutationEnvelope<CardLifecycleMutationCommandResult>> {
+    const envelope =
+      await this.executeTyped<CardLifecycleMutationCommandResult>({
+        type: "applyCardLifecycleMutation",
+        payload: request,
+      });
+    const result = envelope.result;
+    if (result.ok && !result.value.duplicate && result.value.databaseBlockId) {
+      this.publishDatabaseEvent(
+        {
+          version: DATABASE_CHANGE_EVENT_VERSION,
+          projectId: result.value.projectId,
+          storeEpoch: result.value.storeEpoch,
+          operationId: result.value.operationId,
+          sourceKind: "card_lifecycle",
+          affectedDatabaseBlockIds: [result.value.databaseBlockId],
+          changeLogSeq: result.value.changeLogSeq,
+        },
+        envelope.metrics,
+      );
+    }
+    return envelope;
+  }
+
+  async compactEligibleBlockDocuments(
+    input: CompactEligibleBlockDocumentsInput,
+  ): Promise<CardMutationEnvelope<CompactEligibleBlockDocumentsResult>> {
+    return await this.executeTyped<CompactEligibleBlockDocumentsResult>({
+      type: "compactEligibleBlockDocuments",
+      payload: input,
     });
   }
 
@@ -425,6 +492,19 @@ export class CardMutationWriter {
     >({
       type: "readDatabaseDescriptor",
       payload: { projectId, databaseBlockId },
+    });
+  }
+
+  async readPrimaryDatabaseDescriptor(
+    projectId: string,
+  ): Promise<
+    CardMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
+  > {
+    return await this.executeTyped<
+      DatabaseReadCommandResult<GeneralDatabaseDescriptor>
+    >({
+      type: "readPrimaryDatabaseDescriptor",
+      payload: { projectId },
     });
   }
 
@@ -974,6 +1054,26 @@ export class CardMutationWriter {
           cardId: event.cardId,
         });
       }
+    }
+  }
+
+  private publishDatabaseEvent(
+    event: DatabaseChangeEvent,
+    metrics: CardMutationMetrics,
+  ): void {
+    try {
+      if (this.options.publishDatabaseEvent) {
+        this.options.publishDatabaseEvent(event, metrics);
+        return;
+      }
+      dbNotifier.notifyDatabaseChanged(event);
+    } catch (error) {
+      logger.warn("Failed to publish committed Database event", {
+        error: error instanceof Error ? error.message : String(error),
+        mutationId: metrics.mutationId,
+        operationId: event.operationId,
+        projectId: event.projectId,
+      });
     }
   }
 }

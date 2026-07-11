@@ -45,6 +45,7 @@ import type {
   GeneralDatabaseDescriptor,
   GeneralDatabaseViewQuery,
 } from "./database-query";
+import type { DatabaseChangeEvent } from "./database-events";
 import type {
   CardReferenceReadModel,
   ResolveCardReferenceInput,
@@ -591,6 +592,10 @@ export interface IpcApi {
   };
   "databases:descriptor:get": {
     args: [projectId: string, databaseBlockId: string];
+    result: DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
+  };
+  "databases:primary:get": {
+    args: [projectId: string];
     result: DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
   };
   "database-views:query": {
@@ -1667,6 +1672,7 @@ export interface IpcEvents {
   "cross-window-drag:source-result": CrossWindowDragSourceResult;
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;
+  "database-changed": DatabaseChangeEvent;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;
   "reminder:open": {

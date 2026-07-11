@@ -21,6 +21,117 @@ const request: DatabaseMutationRequest = {
 };
 
 describe("Database renderer transport", () => {
+  test("multiplexes one Project SSE across Board, Database, sessions, and two windows", () => {
+    const originalEventSource = globalThis.EventSource;
+    class FakeEventSource {
+      static readonly instances: FakeEventSource[] = [];
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      closed = false;
+
+      constructor(readonly url: string | URL) {
+        FakeEventSource.instances.push(this);
+      }
+
+      close(): void {
+        this.closed = true;
+      }
+    }
+    globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
+    let firstWindowEvents = 0;
+    let secondWindowEvents = 0;
+    let boardEvents = 0;
+    let sessionEvents = 0;
+    let unsubscribeFirst = () => {};
+    let unsubscribeSecond = () => {};
+    let unsubscribeBoard = () => {};
+    let unsubscribeSessions = () => {};
+    try {
+      unsubscribeFirst =
+        browserRendererTransport.subscribeDatabaseChanges(
+          "project-1",
+          () => {
+            firstWindowEvents += 1;
+          },
+        );
+      unsubscribeSecond =
+        browserRendererTransport.subscribeDatabaseChanges(
+          "project-1",
+          () => {
+            secondWindowEvents += 1;
+          },
+        );
+      unsubscribeBoard = browserRendererTransport.subscribeBoardChanges(
+        "project-1",
+        () => {
+          boardEvents += 1;
+        },
+      );
+      unsubscribeSessions =
+        browserRendererTransport.subscribeProjectSessionChanges(
+          "project-1",
+          () => {
+            sessionEvents += 1;
+          },
+        );
+      expect(FakeEventSource.instances.length).toBe(1);
+      const payload = JSON.stringify({
+        event: "database-changed",
+        version: 1,
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        operationId: "operation-1",
+        sourceKind: "database_mutation",
+        affectedDatabaseBlockIds: ["database-1"],
+        changeLogSeq: 4,
+      });
+      for (const source of FakeEventSource.instances) {
+        source.onmessage?.({ data: payload } as MessageEvent<string>);
+      }
+      expect(firstWindowEvents).toBe(1);
+      expect(secondWindowEvents).toBe(1);
+      expect(boardEvents).toBe(0);
+      expect(sessionEvents).toBe(0);
+
+      FakeEventSource.instances[0]?.onmessage?.({
+        data: JSON.stringify({
+          event: "board-changed",
+          projectId: "project-1",
+          changeType: "update",
+          columnId: "done",
+          status: "done",
+          cardId: "card-1",
+        }),
+      } as MessageEvent<string>);
+      FakeEventSource.instances[0]?.onmessage?.({
+        data: JSON.stringify({ event: "project-sessions-changed" }),
+      } as MessageEvent<string>);
+      expect(boardEvents).toBe(1);
+      expect(sessionEvents).toBe(1);
+
+      const wrongProject = JSON.stringify({
+        ...JSON.parse(payload),
+        projectId: "project-2",
+      });
+      for (const source of FakeEventSource.instances) {
+        source.onmessage?.({ data: wrongProject } as MessageEvent<string>);
+      }
+      expect(firstWindowEvents).toBe(1);
+      expect(secondWindowEvents).toBe(1);
+      unsubscribeFirst();
+      unsubscribeSecond();
+      expect(FakeEventSource.instances[0]?.closed).toBeFalse();
+      unsubscribeBoard();
+      unsubscribeSessions();
+      expect(FakeEventSource.instances.every((source) => source.closed)).toBeTrue();
+    } finally {
+      unsubscribeFirst();
+      unsubscribeSecond();
+      unsubscribeBoard();
+      unsubscribeSessions();
+      globalThis.EventSource = originalEventSource;
+    }
+  });
+
   test("maps typed mutation and read commands to encoded browser routes", async () => {
     const originalFetch = globalThis.fetch;
     const urls: string[] = [];
@@ -34,10 +145,21 @@ describe("Database renderer transport", () => {
           projectId: request.projectId,
           storeEpoch: request.storeEpoch,
           operationKinds: ["position_card"],
+          affectedDatabaseBlockIds: ["database-1"],
           duplicate: false,
           payload: { operationResults: [] },
           changeLogSeq: 4,
           committedAt: "2026-07-11T00:00:00.000Z",
+        },
+      },
+      {
+        ok: true,
+        value: {
+          version: 1,
+          projectId: request.projectId,
+          storeEpoch: request.storeEpoch,
+          changeLogSeq: 4,
+          value: null,
         },
       },
       {
@@ -85,6 +207,11 @@ describe("Database renderer transport", () => {
         "database/one",
       )) as { readonly ok: boolean };
       expect(descriptor.ok).toBeTrue();
+      const primary = (await browserRendererTransport.invoke(
+        "databases:primary:get",
+        request.projectId,
+      )) as { readonly ok: boolean };
+      expect(primary.ok).toBeTrue();
       const query = (await browserRendererTransport.invoke(
         "database-views:query",
         request.projectId,
@@ -103,7 +230,10 @@ describe("Database renderer transport", () => {
         ),
       ).toBeTrue();
       expect(
-        urls[2]?.endsWith(
+        urls[2]?.endsWith("/api/projects/project%2Fone/databases/primary"),
+      ).toBeTrue();
+      expect(
+        urls[3]?.endsWith(
           "/api/projects/project%2Fone/database-views/view%2Fone/query",
         ),
       ).toBeTrue();

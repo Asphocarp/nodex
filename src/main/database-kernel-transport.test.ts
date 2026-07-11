@@ -13,6 +13,7 @@ import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
 import {
   DATABASE_DESCRIPTOR_IPC_CHANNEL,
   DATABASE_MUTATION_IPC_CHANNEL,
+  PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
   DATABASE_VIEW_QUERY_IPC_CHANNEL,
   registerDatabaseKernelIpcHandlers,
 } from "./database-kernel-ipc";
@@ -76,6 +77,7 @@ describe("Database IPC/HTTP transport", () => {
           projectId: input.projectId,
           storeEpoch: input.storeEpoch,
           operationKinds: input.operations.map((operation) => operation.kind),
+          affectedDatabaseBlockIds: ["database-1"],
           duplicate: received.length > 1,
           payload: { operationResults: [] },
           changeLogSeq: 7,
@@ -86,7 +88,7 @@ describe("Database IPC/HTTP transport", () => {
 
     const handlers = new Map<
       string,
-      (event: unknown, projectId: string, value: unknown) => Promise<unknown>
+      (event: unknown, projectId: string, value?: unknown) => Promise<unknown>
     >();
     registerDatabaseKernelIpcHandlers({
       registerHandle: (channel, listener) => handlers.set(channel, listener),
@@ -99,6 +101,7 @@ describe("Database IPC/HTTP transport", () => {
           : null,
       applyMutation: apply,
       readDescriptor: async () => descriptor(),
+      readPrimaryDescriptor: async () => descriptor(),
       queryView: async () => viewQuery(),
     });
 
@@ -123,6 +126,7 @@ describe("Database IPC/HTTP transport", () => {
     registerDatabaseKernelHttpRoutes(app, {
       applyMutation: apply,
       readDescriptor: async () => descriptor(),
+      readPrimaryDescriptor: async () => descriptor(),
       queryView: async () => viewQuery(),
     });
     const response = await app.request(
@@ -156,7 +160,7 @@ describe("Database IPC/HTTP transport", () => {
   test("returns the same JSON-only descriptor and View snapshots over IPC and HTTP", async () => {
     const handlers = new Map<
       string,
-      (event: unknown, projectId: string, value: unknown) => Promise<unknown>
+      (event: unknown, projectId: string, value?: unknown) => Promise<unknown>
     >();
     registerDatabaseKernelIpcHandlers({
       registerHandle: (channel, listener) => handlers.set(channel, listener),
@@ -168,6 +172,7 @@ describe("Database IPC/HTTP transport", () => {
         throw new Error("not used");
       },
       readDescriptor: async () => descriptor(),
+      readPrimaryDescriptor: async () => descriptor(),
       queryView: async () => viewQuery(),
     });
     const app = new Hono();
@@ -176,6 +181,7 @@ describe("Database IPC/HTTP transport", () => {
         throw new Error("not used");
       },
       readDescriptor: async () => descriptor(),
+      readPrimaryDescriptor: async () => descriptor(),
       queryView: async () => viewQuery(),
     });
 
@@ -188,6 +194,14 @@ describe("Database IPC/HTTP transport", () => {
       await app.request("/api/projects/project-1/databases/database-1")
     ).json();
     expect(JSON.stringify(ipcDescriptor)).toBe(JSON.stringify(httpDescriptor));
+
+    const ipcPrimary = await handlers.get(
+      PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
+    )?.("trusted", "project-1");
+    const httpPrimary = await (
+      await app.request("/api/projects/project-1/databases/primary")
+    ).json();
+    expect(JSON.stringify(ipcPrimary)).toBe(JSON.stringify(httpPrimary));
 
     const ipcQuery = await handlers.get(DATABASE_VIEW_QUERY_IPC_CHANNEL)?.(
       "trusted",

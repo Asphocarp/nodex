@@ -119,6 +119,32 @@ export class GeneralDatabaseQueryError extends Error {
   }
 }
 
+const readPrimaryDatabaseBlockId = (
+  database: Database.Database,
+  projectId: string,
+): string | null => {
+  const rows = database
+    .prepare(
+      `
+      SELECT capability.block_id
+      FROM database_capabilities capability
+      INNER JOIN blocks block
+        ON block.id = capability.block_id
+       AND block.project_id = capability.project_id
+       AND block.type = 'database'
+       AND block.lifecycle = 'active'
+      WHERE capability.project_id = ? AND capability.is_primary = 1
+      ORDER BY capability.block_id
+      LIMIT 2
+    `,
+    )
+    .all(projectId) as readonly { readonly block_id: string }[];
+  if (rows.length < 2) return rows[0]?.block_id ?? null;
+  throw new GeneralDatabaseQueryError(
+    `Project ${projectId} has more than one active primary Database`,
+  );
+};
+
 const parseJson = (value: string, label: string): DatabaseJsonValue => {
   try {
     return JSON.parse(value) as DatabaseJsonValue;
@@ -276,6 +302,15 @@ export const readGeneralDatabaseDescriptor = (
     ),
     views: readViewRows(database, projectId, databaseBlockId).map(rowToView),
   };
+};
+
+export const readPrimaryGeneralDatabaseDescriptor = (
+  projectId: string,
+  database: Database.Database = getDb(),
+): GeneralDatabaseDescriptor | null => {
+  const databaseBlockId = readPrimaryDatabaseBlockId(database, projectId);
+  if (!databaseBlockId) return null;
+  return readGeneralDatabaseDescriptor(projectId, databaseBlockId, database);
 };
 
 const readCardSummaryRows = (

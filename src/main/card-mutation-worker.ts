@@ -44,7 +44,10 @@ import {
   applyDatabaseMutation,
   queryDatabaseViewSnapshot,
   readDatabaseDescriptorSnapshot,
+  readPrimaryDatabaseDescriptorSnapshot,
 } from "./local-store/database-kernel";
+import { applyCardLifecycleMutation } from "./local-store/card-block-lifecycle";
+import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
 import {
   applyDocumentOperationBatch,
   replaceDocumentFromNfm,
@@ -189,7 +192,10 @@ const isLegacyAuthorityMutation = (
     case "repairDocumentSecondaryProjections":
     case "applyBlockPropertyMutation":
     case "applyDatabaseMutation":
+    case "applyCardLifecycleMutation":
+    case "compactEligibleBlockDocuments":
     case "readDatabaseDescriptor":
+    case "readPrimaryDatabaseDescriptor":
     case "queryDatabaseView":
     case "applyDocumentMutation":
     case "createDocumentVersionCheckpoint":
@@ -1322,11 +1328,76 @@ async function runRequest(
       }
       return result;
     }
+    case "applyCardLifecycleMutation": {
+      let previousSummary: CardSummary | null = null;
+      if (request.payload.operation.kind === "delete_card") {
+        try {
+          previousSummary = readAuthoritativeCardSummaryById(
+            getDb(),
+            request.payload.operation.cardId,
+          );
+        } catch (error) {
+          postLog("warn", "Card lifecycle pre-commit summary read failed", {
+            projectId: request.payload.projectId,
+            cardId: request.payload.operation.cardId,
+            operationId: request.payload.operationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      const result = applyCardLifecycleMutation(getDb(), request.payload);
+      if (!result.ok || result.value.duplicate) return result;
+
+      try {
+        if (result.value.operationKind === "delete_card") {
+          if (previousSummary) {
+            dbNotifier.notifyChange(
+              request.payload.projectId,
+              "delete",
+              previousSummary.status,
+              result.value.cardId,
+              { mutationId: request.payload.operationId },
+            );
+          }
+          return result;
+        }
+
+        const summary = readAuthoritativeCardSummaryById(
+          getDb(),
+          result.value.cardId,
+        );
+        if (!summary) return result;
+        dbNotifier.notifyChange(
+          request.payload.projectId,
+          result.value.operationKind === "create_card" ? "create" : "update",
+          summary.status,
+          result.value.cardId,
+          { summary, mutationId: request.payload.operationId },
+        );
+      } catch (error) {
+        postLog("error", "Committed Card lifecycle fanout failed", {
+          projectId: request.payload.projectId,
+          cardId: result.value.cardId,
+          operationId: request.payload.operationId,
+          operationKind: result.value.operationKind,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return result;
+    }
+    case "compactEligibleBlockDocuments":
+      return compactEligibleBlockDocuments(getDb(), request.payload);
     case "readDatabaseDescriptor":
       return readDatabaseDescriptorSnapshot(
         getDb(),
         request.payload.projectId,
         request.payload.databaseBlockId,
+      );
+    case "readPrimaryDatabaseDescriptor":
+      return readPrimaryDatabaseDescriptorSnapshot(
+        getDb(),
+        request.payload.projectId,
       );
     case "queryDatabaseView":
       return queryDatabaseViewSnapshot(

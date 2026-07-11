@@ -30,6 +30,9 @@ export interface DatabaseKernelHttpDependencies {
     projectId: string,
     databaseBlockId: string,
   ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
+  readonly readPrimaryDescriptor: (
+    projectId: string,
+  ) => Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>;
   readonly queryView: (
     projectId: string,
     viewId: string,
@@ -101,6 +104,31 @@ export const registerDatabaseKernelHttpRoutes = (
         result,
         result.ok ? 200 : databaseMutationHttpStatus(result.error),
       );
+    },
+  );
+
+  app.get(
+    "/api/projects/:projectId/databases/primary",
+    async (context) => {
+      context.header("Cache-Control", "no-store");
+      const bound = bindDatabaseReadIdentity(
+        context.req.param("projectId"),
+        "primary",
+      );
+      if (!bound.ok) {
+        const result: DatabaseReadCommandResult<GeneralDatabaseDescriptor> =
+          bound;
+        return context.json(result, databaseReadHttpStatus(result));
+      }
+      let result: DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
+      try {
+        result = await dependencies.readPrimaryDescriptor(
+          bound.value.projectId,
+        );
+      } catch (error) {
+        result = readFailure(error);
+      }
+      return context.json(result, databaseReadHttpStatus(result));
     },
   );
 

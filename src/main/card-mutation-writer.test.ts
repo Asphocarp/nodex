@@ -10,6 +10,8 @@ import type {
 } from "../shared/block-documents";
 import type { BlockPropertyMutationRequest } from "../shared/block-property-mutations";
 import type { DatabaseMutationRequest } from "../shared/database-kernel";
+import type { DatabaseChangeEvent } from "../shared/database-events";
+import type { CardLifecycleMutationRequest } from "../shared/card-lifecycle";
 
 class FakeWorker implements CardMutationWorkerLike {
   readonly messages: CardMutationWorkerRequest[] = [];
@@ -208,9 +210,11 @@ describe("CardMutationWriter", () => {
 
   test("preserves an atomic Database operation batch through the FIFO", async () => {
     const worker = new FakeWorker();
+    const databaseEvents: DatabaseChangeEvent[] = [];
     const writer = new CardMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
+      publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
     const input: DatabaseMutationRequest = {
       version: 1,
@@ -255,6 +259,7 @@ describe("CardMutationWriter", () => {
           projectId: "project-1",
           storeEpoch: "epoch-1",
           operationKinds: ["set_value", "position_card"],
+          affectedDatabaseBlockIds: ["database-1"],
           duplicate: false,
           payload: { operationResults: [] },
           changeLogSeq: 9,
@@ -272,6 +277,276 @@ describe("CardMutationWriter", () => {
       "set_value,position_card",
     );
     expect(envelope.result.value.changeLogSeq).toBe(9);
+    expect(databaseEvents.length).toBe(1);
+    expect(databaseEvents[0]?.affectedDatabaseBlockIds.join(",")).toBe(
+      "database-1",
+    );
+
+    const duplicatePending = writer.applyDatabaseMutation(input);
+    const duplicateRequest = worker.messages[1];
+    if (!duplicateRequest || duplicateRequest.type !== "applyDatabaseMutation") {
+      throw new Error("Expected duplicate Database request");
+    }
+    worker.emitMessage({
+      id: duplicateRequest.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          ...envelope.result.value,
+          duplicate: true,
+        },
+      },
+      events: [],
+      metrics: makeMetrics(duplicateRequest.mutationId),
+    });
+    const duplicate = await duplicatePending;
+    expect(duplicate.result.ok && duplicate.result.value.duplicate).toBeTrue();
+    expect(databaseEvents.length).toBe(1);
+
+  });
+
+  test("publishes schema-only Database receipts without inventing Card summary events", async () => {
+    const worker = new FakeWorker();
+    const boardEvents: BoardChangeEvent[] = [];
+    const databaseEvents: DatabaseChangeEvent[] = [];
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: (event) => boardEvents.push(event),
+      publishDatabaseEvent: (event) => databaseEvents.push(event),
+    });
+    const input: DatabaseMutationRequest = {
+      version: 1,
+      operationId: "database-schema-operation-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: { kind: "test" },
+      operations: [
+        {
+          kind: "put_property",
+          databaseBlockId: "database-1",
+          propertyId: "property-1",
+          expectedDatabaseSchemaRevision: 1,
+          expectedPropertyRevision: 0,
+          key: "owner",
+          name: "Owner",
+          valueType: "person",
+          config: {},
+        },
+      ],
+    };
+    const pending = writer.applyDatabaseMutation(input);
+    const request = worker.messages[0];
+    if (!request || request.type !== "applyDatabaseMutation") {
+      throw new Error("Expected Database schema request");
+    }
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          operationId: input.operationId,
+          projectId: input.projectId,
+          storeEpoch: input.storeEpoch,
+          operationKinds: ["put_property"],
+          affectedDatabaseBlockIds: ["database-1"],
+          duplicate: false,
+          payload: {},
+          changeLogSeq: 10,
+          committedAt: "2026-07-11T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    await pending;
+
+    expect(boardEvents.length).toBe(0);
+    expect(databaseEvents.length).toBe(1);
+    expect(databaseEvents[0]?.sourceKind).toBe("database_mutation");
+  });
+
+  test("preserves the trusted Card lifecycle identity and typed receipt through the FIFO", async () => {
+    const worker = new FakeWorker();
+    const databaseEvents: DatabaseChangeEvent[] = [];
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+      publishDatabaseEvent: (event) => databaseEvents.push(event),
+    });
+    const input: CardLifecycleMutationRequest = {
+      version: 1,
+      operationId: "card-lifecycle-operation-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      clientSessionId: "trusted-window-1",
+      actor: { kind: "electron_renderer", windowId: "window-1" },
+      operation: {
+        kind: "archive_card",
+        cardId: "card-1",
+        expectedMetadataRevision: 3,
+      },
+    };
+
+    const pending = writer.applyCardLifecycleMutation(input);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("applyCardLifecycleMutation");
+    if (!request || request.type !== "applyCardLifecycleMutation") return;
+    expect(request.payload.operationId).toBe(input.operationId);
+    expect(request.payload.storeEpoch).toBe(input.storeEpoch);
+    expect(request.payload.clientSessionId).toBe(input.clientSessionId);
+    expect(request.payload.actor.windowId).toBe("window-1");
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          version: 1,
+          operationId: input.operationId,
+          projectId: input.projectId,
+          storeEpoch: input.storeEpoch,
+          operationKind: "archive_card",
+          cardId: "card-1",
+          duplicate: false,
+          metadataRevision: 4,
+          locationRevision: 1,
+          lifecycle: "archived",
+          documentId: "document:card-1",
+          documentGeneration: 1,
+          documentHeadSeq: 1,
+          databaseBlockId: "database-1",
+          membershipId: "membership-1",
+          viewId: "view-1",
+          topLevelRankKey: "a0",
+          viewRankKey: "a0",
+          createdBlockIds: [],
+          changeLogSeq: 10,
+          committedAt: "2026-07-11T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.ok).toBeTrue();
+    if (!envelope.result.ok) return;
+    expect(envelope.result.value.operationId).toBe(input.operationId);
+    expect(envelope.result.value.lifecycle).toBe("archived");
+    expect(envelope.result.value.changeLogSeq).toBe(10);
+    expect(databaseEvents.length).toBe(1);
+    expect(databaseEvents[0]?.sourceKind).toBe("card_lifecycle");
+    expect(databaseEvents[0]?.affectedDatabaseBlockIds.join(",")).toBe(
+      "database-1",
+    );
+
+    const duplicatePending = writer.applyCardLifecycleMutation(input);
+    const duplicateRequest = worker.messages[1];
+    if (
+      !duplicateRequest ||
+      duplicateRequest.type !== "applyCardLifecycleMutation"
+    ) {
+      throw new Error("Expected duplicate lifecycle request");
+    }
+    worker.emitMessage({
+      id: duplicateRequest.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: { ...envelope.result.value, duplicate: true },
+      },
+      events: [],
+      metrics: makeMetrics(duplicateRequest.mutationId),
+    });
+    const duplicate = await duplicatePending;
+    expect(duplicate.result.ok && duplicate.result.value.duplicate).toBeTrue();
+    expect(databaseEvents.length).toBe(1);
+
+    const rejectedPending = writer.applyCardLifecycleMutation({
+      ...input,
+      operationId: "card-lifecycle-operation-rejected",
+    });
+    const rejectedRequest = worker.messages[2];
+    if (
+      !rejectedRequest ||
+      rejectedRequest.type !== "applyCardLifecycleMutation"
+    ) {
+      throw new Error("Expected rejected lifecycle request");
+    }
+    worker.emitMessage({
+      id: rejectedRequest.id,
+      ok: true,
+      result: {
+        ok: false,
+        error: {
+          code: "metadata_revision_conflict",
+          message: "metadata changed",
+          retryable: false,
+          operationId: "card-lifecycle-operation-rejected",
+          cardId: "card-1",
+          expectedRevision: 3,
+          actualRevision: 4,
+        },
+      },
+      events: [],
+      metrics: makeMetrics(rejectedRequest.mutationId),
+    });
+    const rejected = await rejectedPending;
+    expect(rejected.result.ok).toBeFalse();
+    expect(databaseEvents.length).toBe(1);
+  });
+
+  test("serializes bounded Document compaction through the mutation FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const input = {
+      storeEpoch: "epoch-1",
+      policy: {
+        minimumUpdateCount: 4,
+        maximumDocuments: 2,
+        scanLimit: 8,
+      },
+    };
+
+    const pending = writer.compactEligibleBlockDocuments(input);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("compactEligibleBlockDocuments");
+    if (!request || request.type !== "compactEligibleBlockDocuments") return;
+    expect(request.payload.storeEpoch).toBe("epoch-1");
+    expect(request.payload.policy?.maximumDocuments).toBe(2);
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        storeEpoch: "epoch-1",
+        selectedDocumentCount: 1,
+        selectedUpdateCount: 4,
+        selectedUpdateBytes: 128,
+        documents: [
+          {
+            documentId: "document:card-1",
+            generation: 1,
+            snapshotSeq: 5,
+            snapshotBytes: 96,
+            prunedUpdateCount: 4,
+            retainedReceiptCount: 4,
+          },
+        ],
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+
+    const envelope = await pending;
+    expect(envelope.result.selectedDocumentCount).toBe(1);
+    expect(envelope.result.documents[0]?.snapshotSeq).toBe(5);
+    expect(envelope.events.length).toBe(0);
   });
 
   test("keeps trusted Document write-fence evidence inside the FIFO boundary", async () => {

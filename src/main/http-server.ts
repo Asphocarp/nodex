@@ -262,6 +262,8 @@ registerDatabaseKernelHttpRoutes(app, {
         databaseBlockId,
       )
     ).result,
+  readPrimaryDescriptor: async (projectId) =>
+    (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
   queryView: async (projectId, viewId) =>
     (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
 });
@@ -1783,8 +1785,14 @@ app.get("/api/projects/:projectId/events", (c) => {
           send(JSON.stringify({ event: "project-sessions-changed" }));
         }
       };
+      const databaseHandler = (event: { projectId: string }) => {
+        if (event.projectId === projectId) {
+          send(JSON.stringify({ event: "database-changed", ...event }));
+        }
+      };
 
       dbNotifier.on("board-changed", handler);
+      dbNotifier.on("database-changed", databaseHandler);
       dbNotifier.on("project-sessions-changed", sessionHandler);
 
       // Keep-alive ping
@@ -1799,6 +1807,7 @@ app.get("/api/projects/:projectId/events", (c) => {
       // Cleanup when stream is cancelled
       c.req.raw.signal.addEventListener("abort", () => {
         dbNotifier.removeListener("board-changed", handler);
+        dbNotifier.removeListener("database-changed", databaseHandler);
         dbNotifier.removeListener("project-sessions-changed", sessionHandler);
         clearInterval(pingInterval);
       });

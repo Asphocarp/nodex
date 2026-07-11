@@ -103,6 +103,7 @@ describe("Database transport codecs", () => {
         projectId: "project-1",
         storeEpoch: "epoch-1",
         operationKinds: ["set_value", "position_card"],
+        affectedDatabaseBlockIds: ["database-1"],
         duplicate: false,
         payload: { operationResults: [] },
         changeLogSeq: 4,

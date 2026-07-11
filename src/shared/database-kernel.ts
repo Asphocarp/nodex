@@ -219,6 +219,8 @@ export interface DatabaseMutationReceipt {
   readonly projectId: string;
   readonly storeEpoch: string;
   readonly operationKinds: readonly DatabaseMutationOperation["kind"][];
+  /** Active Database authorities touched by this atomic receipt. */
+  readonly affectedDatabaseBlockIds: readonly string[];
   readonly duplicate: boolean;
   readonly payload: Readonly<Record<string, DatabaseJsonValue>>;
   readonly changeLogSeq: number;
@@ -368,6 +370,28 @@ const readOptionalString = (
 ): string | undefined => {
   if (record[key] === undefined) return undefined;
   return readString(record, key, label, maximumLength);
+};
+
+const readCanonicalStringArray = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  label: string,
+): readonly string[] => {
+  const value = record[key];
+  if (!Array.isArray(value) || value.length > MAX_OPTIONS) {
+    throw new DatabaseMutationContractError(
+      `${label}.${key} must be a bounded string array`,
+    );
+  }
+  const entries = value.map((entry, index) =>
+    readString({ value: entry }, "value", `${label}.${key}[${index}]`),
+  );
+  if (new Set(entries).size !== entries.length) {
+    throw new DatabaseMutationContractError(
+      `${label}.${key} must not contain duplicate IDs`,
+    );
+  }
+  return entries;
 };
 
 const readNullableString = (
@@ -1514,6 +1538,7 @@ export const parseDatabaseMutationReceipt = (
     "projectId",
     "storeEpoch",
     "operationKinds",
+    "affectedDatabaseBlockIds",
     "duplicate",
     "payload",
     "changeLogSeq",
@@ -1557,6 +1582,11 @@ export const parseDatabaseMutationReceipt = (
     projectId: readString(receipt, "projectId", "databaseMutationReceipt"),
     storeEpoch: readString(receipt, "storeEpoch", "databaseMutationReceipt"),
     operationKinds,
+    affectedDatabaseBlockIds: readCanonicalStringArray(
+      receipt,
+      "affectedDatabaseBlockIds",
+      "databaseMutationReceipt",
+    ),
     duplicate: readBoolean(receipt, "duplicate", "databaseMutationReceipt"),
     payload: readJsonRecord(receipt.payload, "databaseMutationReceipt.payload"),
     changeLogSeq: readRevision(

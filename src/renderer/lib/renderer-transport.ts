@@ -5,6 +5,7 @@ import {
 } from "./electron-renderer-transport";
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
+import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type {
   CrossWindowDragPreview,
   CrossWindowDragSourceResult,
@@ -75,6 +76,10 @@ export interface RendererTransport {
   subscribeBoardChanges: (
     projectId: string,
     callback: (event: BoardChangeEvent) => void,
+  ) => () => void;
+  subscribeDatabaseChanges: (
+    projectId: string,
+    callback: (event: DatabaseChangeEvent) => void,
   ) => () => void;
   subscribeProjectSessionChanges: (
     projectId: string | null,

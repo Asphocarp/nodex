@@ -41,6 +41,14 @@ import type {
   GeneralDatabaseViewQuery,
 } from "../shared/database-query";
 import type {
+  CardLifecycleMutationCommandResult,
+  CardLifecycleMutationRequest,
+} from "../shared/card-lifecycle";
+import type {
+  CompactEligibleBlockDocumentsInput,
+  CompactEligibleBlockDocumentsResult,
+} from "./local-store/block-document-compaction";
+import type {
   CutoverCardDocumentInput,
   CutoverEligibleCardDocumentsResult,
 } from "./local-store/block-document-cutover";
@@ -270,8 +278,20 @@ export type CardMutationWorkerRequest =
       payload: DatabaseMutationRequest;
     })
   | (CardMutationWorkerRequestBase & {
+      type: "applyCardLifecycleMutation";
+      payload: CardLifecycleMutationRequest;
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "compactEligibleBlockDocuments";
+      payload: CompactEligibleBlockDocumentsInput;
+    })
+  | (CardMutationWorkerRequestBase & {
       type: "readDatabaseDescriptor";
       payload: { readonly projectId: string; readonly databaseBlockId: string };
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "readPrimaryDatabaseDescriptor";
+      payload: { readonly projectId: string };
     })
   | (CardMutationWorkerRequestBase & {
       type: "queryDatabaseView";
@@ -386,6 +406,8 @@ export type CardMutationWorkerResult =
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResult
   | DatabaseMutationCommandResult
+  | CardLifecycleMutationCommandResult
+  | CompactEligibleBlockDocumentsResult
   | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
   | DatabaseReadCommandResult<GeneralDatabaseViewQuery>
   | DocumentOperationCommandResult

@@ -193,7 +193,10 @@ import {
 import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
 import { parseDocumentRelocationRequest } from "../shared/block-documents/relocation-transport";
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
-import { registerDatabaseKernelIpcHandlers } from "./database-kernel-ipc";
+import {
+  PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
+  registerDatabaseKernelIpcHandlers,
+} from "./database-kernel-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 
@@ -869,6 +872,14 @@ export function registerIpcHandlers(
 
   registerDatabaseKernelIpcHandlers({
     registerHandle: (channel, listener) => {
+      if (channel === PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL) {
+        registerHandle(channel, (event, projectId) =>
+          listener(event, projectId) as
+            | IpcApi[typeof channel]["result"]
+            | Promise<IpcApi[typeof channel]["result"]>,
+        );
+        return;
+      }
       registerHandle(channel, (event, projectId, value) =>
         listener(event, projectId, value) as
           | IpcApi[typeof channel]["result"]
@@ -895,6 +906,9 @@ export function registerIpcHandlers(
           databaseBlockId,
         )
       ).result,
+    readPrimaryDescriptor: async (projectId) =>
+      (await cardMutationWriter.readPrimaryDatabaseDescriptor(projectId))
+        .result,
     queryView: async (projectId, viewId) =>
       (await cardMutationWriter.queryDatabaseView(projectId, viewId)).result,
   });

@@ -12,6 +12,7 @@ import { createCard } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   applyDatabaseMutation,
+  readPrimaryDatabaseDescriptorSnapshot,
   type DatabaseMutationFaultPoint,
 } from "./database-kernel";
 import {
@@ -220,6 +221,29 @@ const addProperty = (
 };
 
 describe("general Database kernel", () => {
+  sqliteTest("reads the current primary Database without assuming its ID", async () => {
+    await withFixture((fixture) => {
+      const secondary = applyDatabaseMutation(
+        fixture.database,
+        request(
+          fixture,
+          "create-secondary",
+          createDatabaseOperation("database-secondary", "view-secondary"),
+        ),
+      );
+      expect(resultCode(secondary)).toBe("ok");
+      const primary = readPrimaryDatabaseDescriptorSnapshot(
+        fixture.database,
+        fixture.projectId,
+      );
+      expect(primary.ok).toBeTrue();
+      if (!primary.ok || !primary.value.value) return;
+      expect(primary.value.value.database.isPrimary).toBeTrue();
+      expect(primary.value.value.database.blockId === "database-secondary").toBeFalse();
+      expect(primary.value.storeEpoch).toBe(fixture.storeEpoch);
+    });
+  });
+
   sqliteTest(
     "commits creation, canonical replay, rejection, and fault boundaries",
     async () => {

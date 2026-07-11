@@ -15,6 +15,7 @@ import type {
   ProjectSessionsChangeEvent,
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
+import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type {
   CrossWindowDragPreview,
   CrossWindowDragSourceResult,
@@ -131,6 +132,16 @@ export function createElectronRendererTransport(
     ) {
       return bridge.on("board-changed", (...args: unknown[]) => {
         const payload = args[0] as BoardChangeEvent | undefined;
+        if (!payload || payload.projectId !== projectId) return;
+        callback(payload);
+      });
+    },
+    subscribeDatabaseChanges(
+      projectId: string,
+      callback: (event: DatabaseChangeEvent) => void,
+    ) {
+      return bridge.on("database-changed", (...args: unknown[]) => {
+        const payload = args[0] as DatabaseChangeEvent | undefined;
         if (!payload || payload.projectId !== projectId) return;
         callback(payload);
       });

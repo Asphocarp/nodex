@@ -33,6 +33,7 @@ import {
   queryGeneralDatabaseView,
   readCardContentSummary,
   readGeneralDatabaseDescriptor,
+  readPrimaryGeneralDatabaseDescriptor,
 } from "./database-query";
 import {
   DATABASE_QUERY_CONTRACT_VERSION,
@@ -2820,6 +2821,7 @@ export const applyDatabaseMutation = (
       projectId: request.projectId,
       storeEpoch: request.storeEpoch,
       operationKinds: request.operations.map((operation) => operation.kind),
+      affectedDatabaseBlockIds: uniqueSorted(commit.databaseBlockIds),
       duplicate: false,
       payload: commit.payload,
       changeLogSeq,
@@ -2921,6 +2923,14 @@ export const readDatabaseDescriptorSnapshot = (
 ): DatabaseReadCommandResult<GeneralDatabaseDescriptor> =>
   readDatabaseSnapshot(database, projectId, () =>
     readGeneralDatabaseDescriptor(projectId, databaseBlockId, database),
+  );
+
+export const readPrimaryDatabaseDescriptorSnapshot = (
+  database: Database.Database,
+  projectId: string,
+): DatabaseReadCommandResult<GeneralDatabaseDescriptor> =>
+  readDatabaseSnapshot(database, projectId, () =>
+    readPrimaryGeneralDatabaseDescriptor(projectId, database),
   );
 
 export const queryDatabaseViewSnapshot = (

@@ -18,6 +18,7 @@ import type {
 import { createKanbanStoreRegistry } from "./kanban-store";
 import { toCardSummary } from "../../shared/card-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
+import type { DatabaseChangeEvent } from "../../shared/database-events";
 
 function createCardSummary(title = "Initial title"): CardSummary {
   return {
@@ -86,10 +87,52 @@ function createDeferred<T>() {
 }
 
 describe("kanban store", () => {
+  test("invalidates two window stores from one project-scoped Database receipt", async () => {
+    const callbacks: Array<(event: DatabaseChangeEvent) => void> = [];
+    let fetchCount = 0;
+    const makeRegistry = () =>
+      createKanbanStoreRegistry({
+        invoke: async () => {
+          fetchCount += 1;
+          return createBoard();
+        },
+        subscribeBoardChanges: () => () => {},
+        subscribeDatabaseChanges: (_projectId, callback) => {
+          callbacks.push(callback);
+          return () => {};
+        },
+      });
+    const firstStore = makeRegistry().getStore("project-1");
+    const secondStore = makeRegistry().getStore("project-1");
+    const unsubscribeFirst = firstStore.subscribe(() => {});
+    const unsubscribeSecond = secondStore.subscribe(() => {});
+    await waitForMicrotasks();
+    expect(fetchCount).toBe(2);
+
+    const event: DatabaseChangeEvent = {
+      version: 1,
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      operationId: "database-operation-1",
+      sourceKind: "database_mutation",
+      affectedDatabaseBlockIds: ["database-1"],
+      changeLogSeq: 8,
+    };
+    for (const callback of callbacks) callback(event);
+    await waitForMicrotasks();
+    await waitForMicrotasks();
+
+    expect(fetchCount).toBe(4);
+    unsubscribeFirst();
+    unsubscribeSecond();
+  });
+
   test("registers a single board-change subscription for multiple listeners", async () => {
     const board = createBoard();
     let subscribeCalls = 0;
     let unsubscribeCalls = 0;
+    let databaseSubscribeCalls = 0;
+    let databaseUnsubscribeCalls = 0;
 
     const registry = createKanbanStoreRegistry({
       invoke: async () => board,
@@ -97,6 +140,12 @@ describe("kanban store", () => {
         subscribeCalls += 1;
         return () => {
           unsubscribeCalls += 1;
+        };
+      },
+      subscribeDatabaseChanges: () => {
+        databaseSubscribeCalls += 1;
+        return () => {
+          databaseUnsubscribeCalls += 1;
         };
       },
     });
@@ -107,12 +156,15 @@ describe("kanban store", () => {
     await waitForMicrotasks();
 
     expect(subscribeCalls).toBe(1);
+    expect(databaseSubscribeCalls).toBe(1);
 
     unsubscribeFirst();
     expect(unsubscribeCalls).toBe(0);
+    expect(databaseUnsubscribeCalls).toBe(0);
 
     unsubscribeSecond();
     expect(unsubscribeCalls).toBe(1);
+    expect(databaseUnsubscribeCalls).toBe(1);
   });
 
   test("dedupes in-flight board fetches", async () => {

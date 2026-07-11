@@ -943,6 +943,9 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   dbNotifier.on("board-changed", (event) => {
     broadcastToWindows("board-changed", event);
   });
+  dbNotifier.on("database-changed", (event) => {
+    broadcastToWindows("database-changed", event);
+  });
   dbNotifier.on("project-sessions-changed", (event) => {
     recordDevRuntimeMetricCounter(
       "db.project_sessions_changed.broadcast",

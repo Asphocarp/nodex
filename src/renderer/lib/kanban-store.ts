@@ -1,6 +1,7 @@
 import {
   invoke,
   subscribeBoardChanges,
+  subscribeDatabaseChanges,
 } from "./api";
 import type { BoardSummary, Card, CardInput, CardSummary } from "./types";
 import {
@@ -12,6 +13,7 @@ import {
 import { toCardSummary } from "../../shared/card-summary";
 import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
+import type { DatabaseChangeEvent } from "../../shared/database-events";
 
 const MUTATION_COOLDOWN_MS = 500;
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
@@ -43,11 +45,13 @@ type StoreListener = () => void;
 
 type InvokeFn = (channel: string, ...args: unknown[]) => Promise<unknown>;
 type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
+type SubscribeDatabaseChangesFn = (projectId: string, callback: (event: DatabaseChangeEvent) => void) => () => void;
 type NowFn = () => number;
 
 export interface KanbanStoreDependencies {
   invoke: InvokeFn;
   subscribeBoardChanges: SubscribeBoardChangesFn;
+  subscribeDatabaseChanges: SubscribeDatabaseChangesFn;
   now: NowFn;
 }
 
@@ -92,6 +96,7 @@ interface OptimisticEntry {
 const defaultDependencies: KanbanStoreDependencies = {
   invoke,
   subscribeBoardChanges,
+  subscribeDatabaseChanges,
   now: () => Date.now(),
 };
 
@@ -146,6 +151,8 @@ class KanbanProjectStore {
   private inFlightFetch: Promise<void> | null = null;
 
   private unsubscribeBoardChanges: (() => void) | null = null;
+
+  private unsubscribeDatabaseChanges: (() => void) | null = null;
 
   private lastMutationAt = 0;
 
@@ -517,31 +524,42 @@ class KanbanProjectStore {
   }
 
   private ensureRealtimeSubscription(): void {
-    if (this.unsubscribeBoardChanges) return;
-
-    this.unsubscribeBoardChanges = this.dependencies.subscribeBoardChanges(
-      this.projectId,
-      (event) => {
-        const nextBoard = applyBoardChangeEventToBoard(this.baseBoard ?? undefined, event);
-        if (nextBoard) {
-          if (nextBoard !== this.baseBoard) {
-            this.baseBoard = nextBoard;
-            this.lastFetchedAt = this.dependencies.now();
-            this.stale = false;
-            this.recomputeSnapshot();
+    if (!this.unsubscribeBoardChanges) {
+      this.unsubscribeBoardChanges = this.dependencies.subscribeBoardChanges(
+        this.projectId,
+        (event) => {
+          const nextBoard = applyBoardChangeEventToBoard(
+            this.baseBoard ?? undefined,
+            event,
+          );
+          if (nextBoard) {
+            if (nextBoard !== this.baseBoard) {
+              this.baseBoard = nextBoard;
+              this.lastFetchedAt = this.dependencies.now();
+              this.stale = false;
+              this.recomputeSnapshot();
+            }
+            return;
           }
-          return;
-        }
-        if (this.shouldSkipRealtimeRefresh()) return;
-        void this.fetchBoard();
-      },
-    );
+          if (this.shouldSkipRealtimeRefresh()) return;
+          void this.fetchBoard();
+        },
+      );
+    }
+    if (!this.unsubscribeDatabaseChanges) {
+      this.unsubscribeDatabaseChanges =
+        this.dependencies.subscribeDatabaseChanges(this.projectId, () => {
+          this.stale = true;
+          void this.refreshBoard();
+        });
+    }
   }
 
   private teardownRealtimeSubscription(): void {
-    if (!this.unsubscribeBoardChanges) return;
-    this.unsubscribeBoardChanges();
+    this.unsubscribeBoardChanges?.();
+    this.unsubscribeDatabaseChanges?.();
     this.unsubscribeBoardChanges = null;
+    this.unsubscribeDatabaseChanges = null;
   }
 }
 
