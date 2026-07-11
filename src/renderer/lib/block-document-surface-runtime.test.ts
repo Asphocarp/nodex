@@ -2,6 +2,9 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness.js";
 import {
+  CANVAS_BLOCK_TYPE,
+  CANVAS_DOCUMENT_SCHEMA_KEY,
+  CANVAS_DOCUMENT_SCHEMA_VERSION,
   CARD_DOCUMENT_SCHEMA_KEY,
   CARD_DOCUMENT_SCHEMA_VERSION,
   assertValidCardDocumentRoots,
@@ -267,6 +270,33 @@ describe("BlockDocumentSurfaceRuntime", () => {
     expect(providers[0]?.options.autoConnect).toBe(false);
     expect(providers[1]?.options.autoConnect).toBe(false);
     await Promise.all([first.close(), second.close()]);
+  });
+
+  test("passes the descriptor schema identity to local checkpoint recovery", async () => {
+    const providers: FakeSurfaceProvider[] = [];
+    const runtime = new BlockDocumentSurfaceRuntime({
+      descriptor: descriptor({
+        ownerBlockId: "canvas-1",
+        ownerType: CANVAS_BLOCK_TYPE,
+        documentId: "document:canvas-1",
+        schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+      }),
+      adapter: unusedAdapter,
+      createProvider: createFactory(providers, []),
+      localCheckpointStore: null,
+    });
+    const provider = providers[0];
+    if (!provider) throw new Error("Expected provider");
+
+    expect(provider.options.documentSchema?.ownerType).toBe(CANVAS_BLOCK_TYPE);
+    expect(provider.options.documentSchema?.schemaKey).toBe(
+      CANVAS_DOCUMENT_SCHEMA_KEY,
+    );
+    expect(provider.options.documentSchema?.schemaVersion).toBe(
+      CANVAS_DOCUMENT_SCHEMA_VERSION,
+    );
+    await runtime.close();
   });
 
   test("runs only surface-local relocation preparers and exposes the write fence", async () => {

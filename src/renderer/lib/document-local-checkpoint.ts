@@ -1,9 +1,11 @@
 import * as Y from "yjs";
 import {
+  CARD_DOCUMENT_SCHEMA_KEY,
+  CARD_DOCUMENT_SCHEMA_VERSION,
   MAX_CARD_DOCUMENT_STATE_BYTES,
-  assertValidBlockDocument,
-  assertValidCardDocumentRoots,
+  getRegisteredBlockDocumentSchemaAdapter,
   type DocumentId,
+  type RegisteredBlockDocumentSchemaAdapter,
 } from "../../shared/block-documents";
 
 const DATABASE_NAME = "nodex-document-cache";
@@ -23,11 +25,24 @@ export interface DocumentLocalCheckpoint extends DocumentCheckpointBoundary {
   readonly updatedAt: string;
 }
 
+export interface DocumentLocalCheckpointStateConstraints {
+  readonly maxStateBytes: number;
+}
+
+export type DocumentLocalCheckpointSchemaAdapter = Pick<
+  RegisteredBlockDocumentSchemaAdapter,
+  "inspect" | "limits"
+>;
+
 export interface DocumentLocalCheckpointStore {
   read: (
     boundary: DocumentCheckpointBoundary,
+    constraints?: DocumentLocalCheckpointStateConstraints,
   ) => Promise<DocumentLocalCheckpoint | null>;
-  write: (checkpoint: DocumentLocalCheckpoint) => Promise<void>;
+  write: (
+    checkpoint: DocumentLocalCheckpoint,
+    constraints?: DocumentLocalCheckpointStateConstraints,
+  ) => Promise<void>;
   clearDocument: (documentId: DocumentId) => Promise<void>;
 }
 
@@ -78,21 +93,52 @@ const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
     boundary.generation,
   ]);
 
-const copyState = (state: Uint8Array): Uint8Array => {
+const DEFAULT_STATE_CONSTRAINTS: DocumentLocalCheckpointStateConstraints = {
+  maxStateBytes: MAX_CARD_DOCUMENT_STATE_BYTES,
+};
+
+const DEFAULT_CARD_SCHEMA_ADAPTER = getRegisteredBlockDocumentSchemaAdapter({
+  ownerType: "card",
+  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+});
+
+const validateStateConstraints = (
+  constraints: DocumentLocalCheckpointStateConstraints | undefined,
+): DocumentLocalCheckpointStateConstraints => {
+  const resolved = constraints ?? DEFAULT_STATE_CONSTRAINTS;
+  if (
+    Number.isSafeInteger(resolved.maxStateBytes) &&
+    resolved.maxStateBytes > 0
+  ) {
+    return resolved;
+  }
+  throw new DocumentLocalCheckpointError(
+    "maxStateBytes must be a positive integer",
+  );
+};
+
+const copyState = (
+  state: Uint8Array,
+  input?: DocumentLocalCheckpointStateConstraints,
+): Uint8Array => {
+  const constraints = validateStateConstraints(input);
   if (state.byteLength === 0) {
     throw new DocumentLocalCheckpointError("checkpoint state must not be empty");
   }
-  if (state.byteLength > MAX_CARD_DOCUMENT_STATE_BYTES) {
+  if (state.byteLength > constraints.maxStateBytes) {
     throw new DocumentLocalCheckpointError(
-      `checkpoint state exceeds ${MAX_CARD_DOCUMENT_STATE_BYTES} bytes`,
+      `checkpoint state exceeds ${constraints.maxStateBytes} bytes`,
     );
   }
   return state.slice();
 };
 
-const assertValidCardState = (document: Y.Doc): void => {
-  const { body } = assertValidCardDocumentRoots(document);
-  assertValidBlockDocument(body);
+const assertValidDocumentState = (
+  document: Y.Doc,
+  adapter: DocumentLocalCheckpointSchemaAdapter,
+): void => {
+  adapter.inspect(document);
 };
 
 const requestResult = <T>(request: IDBRequest<T>): Promise<T> =>
@@ -131,9 +177,10 @@ const openCheckpointDatabase = (factory: IDBFactory): Promise<IDBDatabase> =>
 
 const toStoredCheckpoint = (
   checkpoint: DocumentLocalCheckpoint,
+  constraints?: DocumentLocalCheckpointStateConstraints,
 ): StoredDocumentLocalCheckpoint => {
   const boundary = validateBoundary(checkpoint);
-  const state = copyState(checkpoint.state);
+  const state = copyState(checkpoint.state, constraints);
   const updatedAt = requireIdentity(checkpoint.updatedAt, "updatedAt");
   if (!Number.isFinite(Date.parse(updatedAt))) {
     throw new DocumentLocalCheckpointError("updatedAt must be an ISO timestamp");
@@ -153,6 +200,7 @@ const toStoredCheckpoint = (
 const fromStoredCheckpoint = (
   stored: StoredDocumentLocalCheckpoint,
   expected: DocumentCheckpointBoundary,
+  constraints?: DocumentLocalCheckpointStateConstraints,
 ): DocumentLocalCheckpoint => {
   const checkpoint: DocumentLocalCheckpoint = {
     documentId: stored.documentId,
@@ -171,7 +219,7 @@ const fromStoredCheckpoint = (
   return {
     ...checkpoint,
     headSeq: requireHeadSeq(checkpoint.headSeq),
-    state: copyState(checkpoint.state),
+    state: copyState(checkpoint.state, constraints),
   };
 };
 
@@ -183,6 +231,7 @@ implements DocumentLocalCheckpointStore {
 
   read = async (
     input: DocumentCheckpointBoundary,
+    constraints?: DocumentLocalCheckpointStateConstraints,
   ): Promise<DocumentLocalCheckpoint | null> => {
     const boundary = validateBoundary(input);
     const database = await this.getDatabase();
@@ -191,11 +240,14 @@ implements DocumentLocalCheckpointStore {
       transaction.objectStore(CHECKPOINT_STORE).get(checkpointKey(boundary)),
     ) as StoredDocumentLocalCheckpoint | undefined;
     await transactionComplete(transaction);
-    return stored ? fromStoredCheckpoint(stored, boundary) : null;
+    return stored ? fromStoredCheckpoint(stored, boundary, constraints) : null;
   };
 
-  write = async (checkpoint: DocumentLocalCheckpoint): Promise<void> => {
-    let stored = toStoredCheckpoint(checkpoint);
+  write = async (
+    checkpoint: DocumentLocalCheckpoint,
+    constraints?: DocumentLocalCheckpointStateConstraints,
+  ): Promise<void> => {
+    let stored = toStoredCheckpoint(checkpoint, constraints);
     const database = await this.getDatabase();
     const transaction = database.transaction(CHECKPOINT_STORE, "readwrite");
     const store = transaction.objectStore(CHECKPOINT_STORE);
@@ -208,6 +260,7 @@ implements DocumentLocalCheckpointStore {
           new Uint8Array(existing.state),
           new Uint8Array(stored.state),
         ]),
+        constraints,
       );
       stored = {
         ...stored,
@@ -276,13 +329,15 @@ export const createDefaultDocumentLocalCheckpointStore = (
 export const captureDocumentLocalCheckpoint = (
   document: Y.Doc,
   input: DocumentCheckpointBoundary & { readonly headSeq: number },
+  schemaAdapter: DocumentLocalCheckpointSchemaAdapter =
+    DEFAULT_CARD_SCHEMA_ADAPTER,
 ): DocumentLocalCheckpoint => {
   const boundary = validateBoundary(input);
-  assertValidCardState(document);
+  assertValidDocumentState(document, schemaAdapter);
   return {
     ...boundary,
     headSeq: requireHeadSeq(input.headSeq),
-    state: copyState(Y.encodeStateAsUpdate(document)),
+    state: copyState(Y.encodeStateAsUpdate(document), schemaAdapter.limits),
     updatedAt: new Date().toISOString(),
   };
 };
@@ -292,15 +347,17 @@ export const restoreDocumentLocalCheckpoint = (
   serverStateVector: Uint8Array,
   checkpoint: DocumentLocalCheckpoint,
   origin: unknown,
+  schemaAdapter: DocumentLocalCheckpointSchemaAdapter =
+    DEFAULT_CARD_SCHEMA_ADAPTER,
 ): Uint8Array => {
   const boundary = validateBoundary(checkpoint);
   requireHeadSeq(checkpoint.headSeq);
-  const checkpointState = copyState(checkpoint.state);
+  const checkpointState = copyState(checkpoint.state, schemaAdapter.limits);
   const candidate = new Y.Doc({ guid: boundary.documentId });
   try {
     Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document), "checkpoint-current");
     Y.applyUpdate(candidate, checkpointState, "checkpoint-candidate");
-    assertValidCardState(candidate);
+    assertValidDocumentState(candidate, schemaAdapter);
     const missingOnServer = Y.encodeStateAsUpdate(candidate, serverStateVector);
     Y.applyUpdate(document, checkpointState, origin);
     return missingOnServer.slice();

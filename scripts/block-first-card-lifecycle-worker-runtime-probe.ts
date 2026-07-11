@@ -315,11 +315,11 @@ const main = async (): Promise<void> => {
 
     await initializeDatabase();
     const database = getDb();
-    const compatibilityRows = (
-      database.prepare("SELECT COUNT(*) AS count FROM cards").get() as {
-        readonly count: number;
-      }
-    ).count;
+    const compatibilityTable = database
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
+      )
+      .get();
     const storedIdentity = database
       .prepare(
         `
@@ -344,7 +344,7 @@ const main = async (): Promise<void> => {
     const quickCheck = database.pragma("quick_check", { simple: true });
     const foreignKeys = database.pragma("foreign_key_check") as unknown[];
     invariant(
-      compatibilityRows === 0,
+      compatibilityTable === undefined,
       "Lifecycle worker wrote a compatibility cards row",
     );
     invariant(

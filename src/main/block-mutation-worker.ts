@@ -428,41 +428,6 @@ function approximatePayloadBytes(value: unknown): number {
   }
 }
 
-function descriptionBytesForRequest(
-  request: CardMutationWorkerRequest,
-): number | undefined {
-  if (request.type === "importBlockDropAsCards") {
-    const descriptions = [
-      ...request.payload.input.cards.map((card) => card.description),
-      ...request.payload.input.sourceUpdates.map(
-        (update) => update.updates.description,
-      ),
-    ].filter(
-      (description): description is string => typeof description === "string",
-    );
-    if (descriptions.length === 0) return undefined;
-    return descriptions.reduce(
-      (sum, description) => sum + Buffer.byteLength(description, "utf8"),
-      0,
-    );
-  }
-
-  if (request.type === "applyCardEditorDrop") {
-    const descriptions = request.payload.input.targetUpdates
-      .map((update) => update.updates.description)
-      .filter(
-        (description): description is string => typeof description === "string",
-      );
-    if (descriptions.length === 0) return undefined;
-    return descriptions.reduce(
-      (sum, description) => sum + Buffer.byteLength(description, "utf8"),
-      0,
-    );
-  }
-
-  return undefined;
-}
-
 function shouldReadSummary(event: BoardChangeEvent): boolean {
   if (!event.cardId) return false;
   if (event.changeType === "delete") return false;
@@ -520,46 +485,6 @@ async function runRequest(
   request: CardMutationWorkerRequest,
 ): Promise<CardMutationWorkerResult> {
   switch (request.type) {
-    case "createCard":
-      return await cardsStore.createCard(
-        request.payload.projectId,
-        request.payload.columnId,
-        request.payload.input,
-        request.payload.sessionId,
-        request.payload.placement,
-      );
-    case "updateCard":
-      return await cardsStore.updateCard(
-        request.payload.projectId,
-        request.payload.columnId,
-        request.payload.cardId,
-        request.payload.updates,
-        request.payload.sessionId,
-        request.payload.expectedRevision,
-      );
-    case "deleteCard":
-      return await cardsStore.deleteCard(
-        request.payload.projectId,
-        request.payload.columnId,
-        request.payload.cardId,
-        request.payload.sessionId,
-      );
-    case "moveCard":
-      return await cardsStore.moveCard(request.payload);
-    case "moveCards":
-      return await cardsStore.moveCards(request.payload);
-    case "importBlockDropAsCards":
-      return await cardsStore.importBlockDropAsCards(
-        request.payload.projectId,
-        request.payload.input,
-        request.payload.sessionId,
-      );
-    case "applyCardEditorDrop":
-      return await cardsStore.applyCardEditorDrop(
-        request.payload.projectId,
-        request.payload.input,
-        request.payload.sessionId,
-      );
     case "completeCardOccurrence":
       return await cardOccurrences.completeCardOccurrence(
         request.payload.projectId,
@@ -1009,7 +934,6 @@ async function handleRequest(
       ),
       workerDurationMs: Math.round(performance.now() - workerStartedAt),
       transactionMs: Math.round(performance.now() - transactionStartedAt),
-      descriptionBytes: descriptionBytesForRequest(request),
       summaryBytes:
         result && typeof result === "object" && "summary" in result
           ? approximatePayloadBytes(result.summary)
@@ -1044,7 +968,6 @@ async function handleRequest(
         ),
         workerDurationMs: Math.round(performance.now() - workerStartedAt),
         transactionMs: Math.round(performance.now() - transactionStartedAt),
-        descriptionBytes: descriptionBytesForRequest(request),
         eventCount: capturedEvents.length,
       },
     });

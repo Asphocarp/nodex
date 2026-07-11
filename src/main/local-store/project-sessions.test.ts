@@ -276,7 +276,9 @@ describe("project session service", () => {
       const sessionError = runValidation(() => {
         createProjectSession({ projectId: projectId, noThreadFallbackTitle: tooLongTitle });
       });
-      expect(sessionError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBe(true);
+      expect(
+        sessionError?.includes(String(MAX_PROJECT_SESSION_TITLE_LENGTH)) ?? false,
+      ).toBe(true);
 
       const session = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Valid session" });
       const tabError = runValidation(() => {
@@ -289,7 +291,9 @@ describe("project session service", () => {
           config: { projectId: projectId, cardId: "card-too-long", titleSnapshot: tooLongTitle },
         });
       });
-      expect(tabError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBe(true);
+      expect(
+        tabError?.includes(String(MAX_PROJECT_SESSION_TITLE_LENGTH)) ?? false,
+      ).toBe(true);
     });
 
     if (!ran) expect(true).toBe(true);

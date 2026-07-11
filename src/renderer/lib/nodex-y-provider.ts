@@ -8,7 +8,14 @@ import {
 import type {
   BlockId,
   DocumentId,
+  OwnedBlockDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
+import {
+  CARD_DOCUMENT_SCHEMA_KEY,
+  CARD_DOCUMENT_SCHEMA_VERSION,
+  getRegisteredBlockDocumentSchemaAdapter,
+  type RegisteredBlockDocumentSchemaAdapter,
+} from "../../shared/block-documents";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -122,6 +129,11 @@ export interface NodexYProviderOptions {
   readonly scheduleRelocationDeadline?: NodexYProviderRelocationDeadlineScheduler;
   /** Disposable local recovery state. SQLite remains the durable authority. */
   readonly localCheckpointStore?: DocumentLocalCheckpointStore | null;
+  /** Registered schema identity used to validate disposable local recovery state. */
+  readonly documentSchema?: Pick<
+    OwnedBlockDocumentDescriptor,
+    "ownerType" | "schemaKey" | "schemaVersion"
+  >;
 }
 
 interface PendingDurableUpdate {
@@ -160,6 +172,11 @@ const LOCAL_CHECKPOINT_ORIGIN = Object.freeze({
   source: "nodex-y-provider-local-checkpoint",
 });
 const DOCUMENT_WRITE_LEASE_TERMINAL_TIMEOUT_MS = 10_000;
+const DEFAULT_CARD_DOCUMENT_SCHEMA = {
+  ownerType: "card",
+  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+} as const;
 
 let fallbackSessionSequence = 0;
 
@@ -282,6 +299,7 @@ export class NodexYProvider {
   private readonly now: () => number;
   private readonly scheduleRelocationDeadline: NodexYProviderRelocationDeadlineScheduler;
   private readonly localCheckpointStore: DocumentLocalCheckpointStore | null;
+  private readonly documentSchemaAdapter: RegisteredBlockDocumentSchemaAdapter;
   private readonly statusListeners = new Set<() => void>();
   private readonly flushWaiters = new Set<FlushWaiter>();
 
@@ -413,6 +431,9 @@ export class NodexYProvider {
       options.localCheckpointStore === undefined
         ? createDefaultDocumentLocalCheckpointStore()
         : options.localCheckpointStore;
+    this.documentSchemaAdapter = getRegisteredBlockDocumentSchemaAdapter(
+      options.documentSchema ?? DEFAULT_CARD_DOCUMENT_SCHEMA,
+    );
     this.awareness = new Awareness(this.document);
     this.status = this.buildStatus();
 
@@ -1481,7 +1502,7 @@ export class NodexYProvider {
         documentId: this.documentId,
         storeEpoch: response.storeEpoch,
         generation: response.generation,
-      });
+      }, this.documentSchemaAdapter.limits);
       if (this.destroyed || this.terminalError) {
         return;
       }
@@ -1500,6 +1521,7 @@ export class NodexYProvider {
         response.stateVector,
         checkpoint,
         LOCAL_CHECKPOINT_ORIGIN,
+        this.documentSchemaAdapter,
       );
       this.queuedUpdates = hasDocumentUpdateContent(missingOnServer)
         ? [copyBytes(missingOnServer)]
@@ -1532,13 +1554,16 @@ export class NodexYProvider {
         storeEpoch: this.storeEpoch,
         generation: this.generation,
         headSeq: this.headSeq,
-      });
+      }, this.documentSchemaAdapter);
     } catch {
       return this.checkpointChain;
     }
 
     this.checkpointChain = this.checkpointChain
-      .then(() => this.localCheckpointStore?.write(checkpoint))
+      .then(() => this.localCheckpointStore?.write(
+        checkpoint,
+        this.documentSchemaAdapter.limits,
+      ))
       .then(() => undefined)
       .catch(() => undefined);
     return this.checkpointChain;

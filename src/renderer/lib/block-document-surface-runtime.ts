@@ -12,6 +12,7 @@ import {
 import {
   createDefaultDocumentLocalCheckpointStore,
   type DocumentLocalCheckpoint,
+  type DocumentLocalCheckpointStateConstraints,
   type DocumentLocalCheckpointStore,
 } from "./document-local-checkpoint";
 import {
@@ -238,16 +239,20 @@ class IsolatedDocumentCheckpointStore implements DocumentLocalCheckpointStore {
 
   read = (
     boundary: Parameters<DocumentLocalCheckpointStore["read"]>[0],
+    constraints?: DocumentLocalCheckpointStateConstraints,
   ): Promise<DocumentLocalCheckpoint | null> =>
     this.enqueue(async () => {
       if (!this.active || !this.delegate) return null;
-      return await this.delegate.read(boundary);
+      return await this.delegate.read(boundary, constraints);
     });
 
-  write = (checkpoint: DocumentLocalCheckpoint): Promise<void> =>
+  write = (
+    checkpoint: DocumentLocalCheckpoint,
+    constraints?: DocumentLocalCheckpointStateConstraints,
+  ): Promise<void> =>
     this.enqueue(async () => {
       if (!this.active || !this.delegate) return;
-      await this.delegate.write(checkpoint);
+      await this.delegate.write(checkpoint, constraints);
     });
 
   clearDocument = (documentId: string): Promise<void> =>
@@ -338,6 +343,11 @@ export class BlockDocumentSurfaceRuntime {
       autoConnect: false,
       prepareSurfaceForRelocation: this.prepareSurfaceForRelocation,
       localCheckpointStore: checkpointDelegate ? this.checkpointStore : null,
+      documentSchema: {
+        ownerType: this.descriptor.ownerType,
+        schemaKey: this.descriptor.schemaKey,
+        schemaVersion: this.descriptor.schemaVersion,
+      },
     });
     if (this.provider.document !== this.document) {
       this.provider.destroy();

@@ -9,13 +9,9 @@ import {
   applyBlockDocumentUpdate,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import {
-  cutoverCardDocumentToPrimary,
-  getOwnedBlockDocumentDescriptor,
-} from "./block-document-cutover";
+import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
 import { createCard, searchCards } from "./cards";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
 import { createProject } from "./projects";
 
 const supportsBetterSqlite3 = (): boolean => {
@@ -68,19 +64,11 @@ describe("authoritative Card search", () => {
           description: "legacy-needle",
         });
         const database = getDb();
-        runLegacyCardShadowProcessorProbe(database);
         const descriptor = getOwnedBlockDocumentDescriptor(
           database,
           project.id,
           card.id,
         );
-        cutoverCardDocumentToPrimary(database, {
-          projectId: project.id,
-          ownerBlockId: card.id,
-          expectedGeneration: descriptor.generation,
-          expectedHeadSeq: descriptor.headSeq,
-        });
-
         const loaded = loadPrimaryBlockDocument(
           database,
           descriptor.documentId,
@@ -127,16 +115,6 @@ describe("authoritative Card search", () => {
       `,
           )
           .run(card.id);
-
-        const legacy = database
-          .prepare(
-            `
-        SELECT status, description FROM cards WHERE id = ?
-      `,
-          )
-          .get(card.id) as { status: string; description: string };
-        expect(legacy.status).toBe("in_progress");
-        expect(legacy.description).toBe("legacy-needle");
 
         const oldResults = await searchCards({
           projectIds: [project.id],

@@ -6,7 +6,6 @@ import path from "node:path";
 import { createCard } from "./cards";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
 import { createProject } from "./projects";
 import {
   readProjectScopedDatabaseViewReference,
@@ -50,7 +49,6 @@ describe("Project-scoped canonical reference reads", () => {
       const database = new Database(getDatabasePath());
       database.pragma("foreign_keys = ON");
       try {
-        runLegacyCardShadowProcessorProbe(database);
         const databaseBlock = database.prepare(`
           SELECT block_id
           FROM database_capabilities

@@ -7,7 +7,6 @@ import { createCard } from "./cards";
 import { closeDatabase, initializeDatabase } from "./database";
 import { getDatabasePath } from "./config";
 import { createProject } from "./projects";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
 import { resolveCardReference } from "./block-references";
 
 const supportsBetterSqlite = (() => {
@@ -45,7 +44,6 @@ describe("Block reference read model", () => {
       const database = new Database(getDatabasePath());
       database.pragma("foreign_keys = ON");
       try {
-        runLegacyCardShadowProcessorProbe(database);
         const resolved = resolveCardReference(target.id, database);
         expect(resolved.status).toBe("available");
         if (resolved.status !== "available") return;

@@ -63,19 +63,8 @@ import type {
 } from "./local-store/block-document-compaction";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
-  BlockDropImportInput,
-  BlockDropImportResult,
-  Card,
-  CardCreateInput,
-  CardCreatePlacement,
-  CardEditorDropInput,
-  CardEditorDropResult,
-  CardInput,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
-  CardUpdateResult,
-  MoveCardInput,
-  MoveCardsInput,
 } from "../shared/types";
 
 export interface CardMutationMetrics {
@@ -83,7 +72,6 @@ export interface CardMutationMetrics {
   queueWaitMs: number;
   workerDurationMs: number;
   transactionMs: number;
-  descriptionBytes?: number;
   summaryBytes?: number;
   eventCount: number;
   mainEventLoopLagMaxMs?: number;
@@ -97,60 +85,6 @@ interface CardMutationWorkerRequestBase {
 }
 
 export type CardMutationWorkerRequest =
-  | (CardMutationWorkerRequestBase & {
-      type: "createCard";
-      payload: {
-        projectId: string;
-        columnId: Card["status"];
-        input: CardCreateInput;
-        sessionId?: string;
-        placement?: CardCreatePlacement;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "updateCard";
-      payload: {
-        projectId: string;
-        columnId?: Card["status"];
-        cardId: string;
-        updates: Partial<CardInput>;
-        sessionId?: string;
-        expectedRevision?: number;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "deleteCard";
-      payload: {
-        projectId: string;
-        columnId?: Card["status"];
-        cardId: string;
-        sessionId?: string;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "moveCard";
-      payload: MoveCardInput & { projectId: string; sessionId?: string };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "moveCards";
-      payload: MoveCardsInput & { projectId: string; sessionId?: string };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "importBlockDropAsCards";
-      payload: {
-        projectId: string;
-        input: BlockDropImportInput;
-        sessionId?: string;
-      };
-    })
-  | (CardMutationWorkerRequestBase & {
-      type: "applyCardEditorDrop";
-      payload: {
-        projectId: string;
-        input: CardEditorDropInput;
-        sessionId?: string;
-      };
-    })
   | (CardMutationWorkerRequestBase & {
       type: "completeCardOccurrence";
       payload: {
@@ -323,14 +257,6 @@ export type BlockDocumentWorkerResult =
   | CardProjectTransferCommandResult<CardProjectTransferPreparation>;
 
 export type CardMutationWorkerResult =
-  | Card
-  | CardUpdateResult
-  | boolean
-  | "moved"
-  | "not_found"
-  | "wrong_column"
-  | BlockDropImportResult
-  | CardEditorDropResult
   | CardOccurrenceMutationResult
   | BlockDocumentWorkerResult
   | OwnedBlockDocumentDescriptor

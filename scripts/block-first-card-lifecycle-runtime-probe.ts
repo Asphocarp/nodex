@@ -134,8 +134,11 @@ const main = async (): Promise<void> => {
     );
     commit(scope, "runtime:create-anchor", createOperation(anchorId, "Anchor"));
     invariant(
-      getDb().prepare("SELECT 1 FROM cards WHERE id = ?").get(cardId) ===
-        undefined,
+      getDb()
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
+        )
+        .get() === undefined,
       "Authoritative create wrote a compatibility cards row",
     );
     const card = readAuthoritativeCardById(getDb(), project.id, cardId);

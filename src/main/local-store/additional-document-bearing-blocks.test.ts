@@ -363,10 +363,10 @@ describe("additional registered document-bearing Blocks", () => {
         const shellRegistry = database
           .prepare(
             `
-            SELECT owner.type AS owner_type, indexed.block_type AS shell_type,
+            SELECT owner.type AS owner_type, entry.block_type AS shell_type,
               owner.containing_document_id, ownership.document_id
             FROM blocks owner
-            INNER JOIN document_block_index indexed ON indexed.block_id = owner.id
+            INNER JOIN document_block_index entry ON entry.block_id = owner.id
             INNER JOIN block_documents ownership ON ownership.block_id = owner.id
             WHERE owner.id = 'large:document'
           `,

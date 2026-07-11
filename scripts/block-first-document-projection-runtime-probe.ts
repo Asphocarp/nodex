@@ -365,8 +365,10 @@ const run = async (): Promise<void> => {
     assertProjectionHead(document.documentId, 2);
     invariant(
       getDb()
-        .prepare("SELECT 1 FROM cards WHERE id = ?")
-        .get(document.cardBlockId) === undefined,
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
+        )
+        .get() === undefined,
       "Document projection created or required a legacy Card row",
     );
 

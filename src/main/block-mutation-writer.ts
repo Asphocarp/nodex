@@ -73,19 +73,8 @@ import type {
 } from "./local-store/block-document-compaction";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
-  BlockDropImportInput,
-  BlockDropImportResult,
-  Card,
-  CardCreateInput,
-  CardCreatePlacement,
-  CardEditorDropInput,
-  CardEditorDropResult,
-  CardInput,
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
-  CardUpdateResult,
-  MoveCardInput,
-  MoveCardsInput,
 } from "../shared/types";
 import type {
   CardMutationMetrics,
@@ -96,7 +85,6 @@ import type {
   CardMutationWorkerResult,
   CardOccurrenceMutationResult,
 } from "./card-mutation-worker-protocol";
-import { assertCardUpdateExcludesDocumentContent } from "../shared/card-content-authority";
 
 const LONG_MUTATION_WARN_MS = 1_000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -169,93 +157,6 @@ export class CardMutationWriter {
   private pending = new Map<number, PendingRequest>();
 
   constructor(private readonly options: CardMutationWriterOptions = {}) {}
-
-  async createCard(
-    projectId: string,
-    columnId: Card["status"],
-    input: CardCreateInput,
-    sessionId?: string,
-    placement?: CardCreatePlacement,
-  ): Promise<CardMutationEnvelope<Card>> {
-    return await this.executeTyped<Card>({
-      type: "createCard",
-      payload: { projectId, columnId, input, sessionId, placement },
-    });
-  }
-
-  async updateCard(
-    projectId: string,
-    columnId: Card["status"] | undefined,
-    cardId: string,
-    updates: Partial<CardInput>,
-    sessionId?: string,
-    expectedRevision?: number,
-  ): Promise<CardMutationEnvelope<CardUpdateResult>> {
-    assertCardUpdateExcludesDocumentContent(updates);
-    return await this.executeTyped<CardUpdateResult>({
-      type: "updateCard",
-      payload: {
-        projectId,
-        columnId,
-        cardId,
-        updates,
-        sessionId,
-        expectedRevision,
-      },
-    });
-  }
-
-  async deleteCard(
-    projectId: string,
-    columnId: Card["status"] | undefined,
-    cardId: string,
-    sessionId?: string,
-  ): Promise<CardMutationEnvelope<boolean>> {
-    return await this.executeTyped<boolean>({
-      type: "deleteCard",
-      payload: { projectId, columnId, cardId, sessionId },
-    });
-  }
-
-  async moveCard(
-    input: MoveCardInput & { projectId: string; sessionId?: string },
-  ): Promise<CardMutationEnvelope<"moved" | "not_found" | "wrong_column">> {
-    return await this.executeTyped<"moved" | "not_found" | "wrong_column">({
-      type: "moveCard",
-      payload: input,
-    });
-  }
-
-  async moveCards(
-    input: MoveCardsInput & { projectId: string; sessionId?: string },
-  ): Promise<CardMutationEnvelope<"moved" | "not_found" | "wrong_column">> {
-    return await this.executeTyped<"moved" | "not_found" | "wrong_column">({
-      type: "moveCards",
-      payload: input,
-    });
-  }
-
-  async importBlockDropAsCards(
-    projectId: string,
-    input: BlockDropImportInput,
-    sessionId?: string,
-  ): Promise<CardMutationEnvelope<BlockDropImportResult>> {
-    return await this.executeTyped<BlockDropImportResult>({
-      type: "importBlockDropAsCards",
-      payload: { projectId, input, sessionId },
-    });
-  }
-
-  async applyCardEditorDrop(
-    projectId: string,
-    input: CardEditorDropInput,
-    sessionId?: string,
-  ): Promise<CardMutationEnvelope<CardEditorDropResult>> {
-    return await this.executeTyped<CardEditorDropResult>({
-      type: "applyCardEditorDrop",
-      payload: { projectId, input, sessionId },
-    });
-  }
 
   async completeCardOccurrence(
     projectId: string,

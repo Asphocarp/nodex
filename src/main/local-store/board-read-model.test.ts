@@ -2,8 +2,7 @@ import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
+import { closeDatabase, initializeDatabase } from "./database";
 import { createCard } from "./cards";
 import { createProject } from "./projects";
 import { getBoardSummary, getCardsDetails, searchCards } from "./board-read-model";
@@ -99,8 +98,6 @@ describe("board summary read model", () => {
         title: "Routine card",
         description: "The body contains a rare-search-token for command palette lookup.",
       });
-      runLegacyCardShadowProcessorProbe(getDb());
-
       const results = await searchCards({
         projectIds: [projectId],
         query: "rare-search-token",

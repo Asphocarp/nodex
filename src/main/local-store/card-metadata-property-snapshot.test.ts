@@ -143,8 +143,11 @@ describe("Card metadata compatibility snapshot/compiler", () => {
         expect(snapshot.fields.length).toBe(19);
         expect(snapshot.metadataRevision).toBe(1);
         expect(
-          database.prepare("SELECT 1 FROM cards WHERE id = ?").get(fixture.cardId) ===
-            undefined,
+          database
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
+            )
+            .get() === undefined,
         ).toBe(true);
 
         const request = compileCardMetadataPropertyMutation({
@@ -161,11 +164,6 @@ describe("Card metadata compatibility snapshot/compiler", () => {
         expect(committed.ok).toBe(true);
         expect(fieldValue(fixture, "priority").value).toBe("p0-critical");
         expect(fieldValue(fixture, "agentStatus").value).toBe("running");
-        expect(
-          database.prepare("SELECT 1 FROM cards WHERE id = ?").get(fixture.cardId) ===
-            undefined,
-        ).toBe(true);
-
         const replay = applyBlockPropertyMutation(database, request);
         expect(replay.ok).toBe(true);
         expect(replay.ok ? replay.value.duplicate : false).toBe(true);

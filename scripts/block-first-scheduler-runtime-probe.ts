@@ -7,17 +7,13 @@ import {
   applyBlockDocumentUpdate,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
-import {
-  cutoverCardDocumentToPrimary,
-  getOwnedBlockDocumentDescriptor,
-} from "../src/main/local-store/block-document-cutover";
+import { getOwnedBlockDocumentDescriptor } from "../src/main/local-store/block-document-cutover";
 import { createCard } from "../src/main/local-store/cards";
 import {
   closeDatabase,
   getDb,
   initializeDatabase,
 } from "../src/main/local-store/database";
-import { runLegacyCardShadowProcessorProbe } from "../src/main/local-store/legacy-card-shadow-processor";
 import { createProject } from "../src/main/local-store/projects";
 import {
   listAuthoritativeCalendarOccurrences,
@@ -99,35 +95,15 @@ const main = async (): Promise<void> => {
       scheduleTimezone: "UTC",
     });
     const database = getDb();
-    const shadow = runLegacyCardShadowProcessorProbe(database);
-    assert(shadow.allCurrentCardsReady, "Scheduler Card shadow did not settle");
     const descriptor = getOwnedBlockDocumentDescriptor(
       database,
       project.id,
       card.id,
     );
-    let legacyAuthorityRejected = false;
-    try {
-      readAuthoritativeScheduledCards(database, {
-        projectId: project.id,
-        windowStart: new Date("2030-01-01T00:00:00.000Z"),
-        windowEnd: new Date("2030-01-02T00:00:00.000Z"),
-      });
-    } catch (error) {
-      legacyAuthorityRejected =
-        error instanceof ScheduledCardReadError &&
-        error.code === "scheduled_materialization_stale";
-    }
     assert(
-      legacyAuthorityRejected,
-      "Scheduler accepted a legacy_shadow materialization",
+      descriptor.authority === "ydoc_primary",
+      "Scheduler Card was not created with Y.Doc authority",
     );
-    cutoverCardDocumentToPrimary(database, {
-      projectId: project.id,
-      ownerBlockId: card.id,
-      expectedGeneration: descriptor.generation,
-      expectedHeadSeq: descriptor.headSeq,
-    });
     editPrimaryDocument(
       descriptor.documentId,
       "Current reminder title",
@@ -330,7 +306,7 @@ const main = async (): Promise<void> => {
         scheduledIndex: true,
         atomicProjectionRefresh: true,
         invalidRefreshRollback: true,
-        legacyAuthorityRejected: true,
+        primaryAuthority: true,
         currentDocument: true,
         relationalProperties: true,
         calendarSearch: true,

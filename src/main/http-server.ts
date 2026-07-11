@@ -38,8 +38,6 @@ import type {
 } from "../shared/types";
 import {
   CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
-  findCardDocumentPatchFields,
-  type CardMetadataPatch,
 } from "../shared/card-content-authority";
 import { MAX_CARD_WRITE_BODY_BYTES } from "../shared/card-limits";
 import {
@@ -1325,71 +1323,6 @@ app.post("/api/cards/search", async (c) => {
   return c.json(results);
 });
 
-app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = (await c.req.json()) as Record<string, unknown>;
-  try {
-    const {
-      status,
-      cardId,
-      sessionId,
-      expectedRevision,
-      ...updates
-    } = normalizeCardBody(body);
-    if (typeof cardId !== "string") {
-      return c.json({ error: "Missing cardId" }, 400);
-    }
-    const documentFields = findCardDocumentPatchFields(updates);
-    if (documentFields.length > 0) {
-      return c.json(
-        {
-          error: CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
-          rejectedFields: documentFields,
-        },
-        410,
-      );
-    }
-    const normalizedStatus = parseOptionalCardStatus(status);
-    const normalizedSessionId = typeof sessionId === "string" ? sessionId : undefined;
-    const normalizedExpectedRevision = typeof expectedRevision === "number"
-      && Number.isInteger(expectedRevision)
-      ? expectedRevision
-      : undefined;
-    const startedAt = Date.now();
-    const envelope = await cardMutationWriter.updateCard(
-      projectId,
-      normalizedStatus,
-      cardId,
-      updates as CardMetadataPatch,
-      normalizedSessionId,
-      normalizedExpectedRevision,
-    );
-    const result = envelope.result;
-    logger.info("card update ack served", {
-      route: "PUT /api/projects/:projectId/card",
-      projectId,
-      cardId,
-      status: result.status,
-      changedFields: result.status === "updated" ? result.changedFields : undefined,
-      approxPayloadBytes: approximatePayloadBytes(result),
-      durationMs: Date.now() - startedAt,
-      workerDurationMs: envelope.metrics.workerDurationMs,
-      queueWaitMs: envelope.metrics.queueWaitMs,
-      transactionMs: envelope.metrics.transactionMs,
-      mainEventLoopLagMaxMs: envelope.metrics.mainEventLoopLagMaxMs,
-    });
-    if (result.status === "not_found") {
-      return c.json(result, 404);
-    }
-    if (result.status === "conflict") {
-      return c.json(result, 409);
-    }
-    return c.json(result);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
-});
-
 app.put("/api/projects/:projectId/card/description", cardWriteBodyLimit, (c) => {
   return c.json(
     {
@@ -1512,56 +1445,6 @@ app.get("/api/projects/:projectId/column", async (c) => {
   if (!columnId) return c.json({ error: "Missing id" }, 400);
   const column = await boardReadModel.readColumn(projectId, columnId);
   return c.json(column);
-});
-
-// === Move route ===
-
-app.put("/api/projects/:projectId/move", async (c) => {
-  const projectId = c.req.param("projectId");
-  const body = await c.req.json();
-  const { result } = await cardMutationWriter.moveCard({ ...body, projectId });
-  if (result === "wrong_column") {
-    return c.json({ error: "Card is no longer in the expected column" }, 409);
-  }
-  if (result === "not_found") return c.json({ error: "Card not found" }, 404);
-  return c.json({ success: true });
-});
-
-app.post("/api/projects/:projectId/card-move-to-project", async (c) => {
-  const sourceProjectId = c.req.param("projectId");
-  const body = await c.req.json().catch(() => ({}));
-
-  try {
-    if (!isRecord(body)) throw new Error("Invalid request body");
-    if (typeof body.cardId !== "string" || body.cardId.length === 0) {
-      throw new Error("Missing cardId");
-    }
-    if (typeof body.targetProjectId !== "string" || body.targetProjectId.length === 0) {
-      throw new Error("Missing targetProjectId");
-    }
-
-    const input: MoveCardToProjectInput = {
-      cardId: body.cardId,
-      sourceProjectId,
-      sourceStatus: parseOptionalCardStatus(body.sourceStatus),
-      targetProjectId: body.targetProjectId,
-      targetStatus: parseOptionalCardStatus(body.targetStatus),
-    };
-
-    const { result } = await cardMutationWriter.moveCardToProject(input);
-    if (result === "wrong_column") {
-      return c.json({ error: "Card is no longer in the expected column" }, 409);
-    }
-    if (result === "not_found") {
-      return c.json({ error: "Card not found" }, 404);
-    }
-    if (result === "target_project_not_found") {
-      return c.json({ error: "Target project not found" }, 404);
-    }
-    return c.json(result, 201);
-  } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
-  }
 });
 
 // === SSE events ===

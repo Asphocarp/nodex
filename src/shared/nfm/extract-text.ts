@@ -11,7 +11,8 @@ export function extractPlainText(nfm: string, maxLength?: number): string {
 
   const result = parts.join(" ").replace(/\s+/g, " ").trim();
   if (maxLength && result.length > maxLength) {
-    return `${result.slice(0, maxLength).trimEnd()}...`;
+    const contentLength = Math.max(0, maxLength - 3);
+    return `${result.slice(0, contentLength).trimEnd()}...`;
   }
   return result;
 }

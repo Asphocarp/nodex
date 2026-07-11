@@ -9,10 +9,7 @@ import {
   applyBlockDocumentUpdate,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import {
-  cutoverCardDocumentToPrimary,
-  getOwnedBlockDocumentDescriptor,
-} from "./block-document-cutover";
+import { getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
 import {
   createCard,
   getBoardSummary,
@@ -23,7 +20,6 @@ import {
   getDb,
   initializeDatabase,
 } from "./database";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
 import { createProject } from "./projects";
 
 const supportsBetterSqlite3 = (): boolean => {
@@ -80,29 +76,19 @@ describe("Card summary Document authority", () => {
         assignee: "Ada",
       });
 
-      const legacyById = readCardSummaryById(card.id);
-      const legacyBoard = await readBoardCard(project.id, card.id);
-      expect(legacyById?.title).toBe("Legacy title");
-      expect(legacyById?.descriptionPreview).toBe("Legacy body");
-      expect(legacyBoard?.title).toBe(legacyById?.title);
-      expect(legacyBoard?.descriptionLength).toBe(legacyById?.descriptionLength);
+      const initialById = readCardSummaryById(card.id);
+      const initialBoard = await readBoardCard(project.id, card.id);
+      expect(initialById?.title).toBe("Legacy title");
+      expect(initialById?.descriptionPreview).toBe("Legacy body");
+      expect(initialBoard?.title).toBe(initialById?.title);
+      expect(initialBoard?.descriptionLength).toBe(initialById?.descriptionLength);
 
       const database = getDb();
-      const shadow = runLegacyCardShadowProcessorProbe(database);
-      expect(shadow.allCurrentCardsReady).toBe(true);
-      expect(shadow.allCurrentCardContentInParity).toBe(true);
       const descriptor = getOwnedBlockDocumentDescriptor(
         database,
         project.id,
         card.id,
       );
-      cutoverCardDocumentToPrimary(database, {
-        projectId: project.id,
-        ownerBlockId: card.id,
-        expectedGeneration: descriptor.generation,
-        expectedHeadSeq: descriptor.headSeq,
-      });
-
       const loaded = loadPrimaryBlockDocument(database, descriptor.documentId);
       try {
         const beforeEdit = Y.encodeStateVector(loaded.document);
@@ -132,12 +118,6 @@ describe("Card summary Document authority", () => {
       } finally {
         loaded.document.destroy();
       }
-
-      const legacyColumns = database.prepare(`
-        SELECT title, description FROM cards WHERE id = ?
-      `).get(card.id) as { title: string; description: string };
-      expect(legacyColumns.title).toBe("Legacy title");
-      expect(legacyColumns.description).toBe("Legacy body");
 
       closeDatabase();
       await initializeDatabase();

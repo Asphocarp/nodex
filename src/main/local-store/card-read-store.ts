@@ -8,6 +8,7 @@ import type {
   ReminderConfig,
 } from "../../shared/types";
 import { isCardStatus, type CardStatus } from "../../shared/card-status";
+import { summarizeCardDescription } from "../../shared/card-summary";
 import { assertValidCardInput } from "./card-input-validation";
 
 const DATABASE_PROPERTY_KEYS = [
@@ -730,9 +731,7 @@ const requireCompatibilitySummary = (assembled: AssembledCard): CardSummary => {
   void ignoredDescription;
   return {
     ...summary,
-    descriptionPreview: assembled.content.preview,
-    descriptionLength: assembled.content.length,
-    hasDescription: assembled.content.hasDescription,
+    ...summarizeCardDescription(card.description),
   };
 };
 

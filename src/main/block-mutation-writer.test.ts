@@ -229,37 +229,6 @@ describe("CardMutationWriter", () => {
     ).toBe(true);
   });
 
-  test("rejects Card title and body snapshots before creating a worker", async () => {
-    let workerCreations = 0;
-    const writer = new CardMutationWriter({
-      createWorker: () => {
-        workerCreations += 1;
-        return new FakeWorker();
-      },
-    });
-    const messages: string[] = [];
-
-    for (const patch of [
-      { title: "stale title" },
-      { description: "stale body" },
-    ]) {
-      try {
-        await writer.updateCard(
-          "project-1",
-          "draft",
-          "card-1",
-          patch,
-        );
-      } catch (error) {
-        messages.push(error instanceof Error ? error.message : String(error));
-      }
-    }
-
-    expect(workerCreations).toBe(0);
-    expect(messages.length).toBe(2);
-    expect(messages.every((message) => message.includes("Card Document"))).toBe(true);
-  });
-
   test("preserves an additional Document command and strict receipt through the FIFO", async () => {
     const worker = new FakeWorker();
     const writer = new CardMutationWriter({
@@ -872,55 +841,6 @@ describe("CardMutationWriter", () => {
     if (result.ok) expect(result.value.headSeq).toBe(5);
   });
 
-  test("resolves worker ack and republishes board events", async () => {
-    const worker = new FakeWorker();
-    const published: BoardChangeEvent[] = [];
-    const writer = new CardMutationWriter({
-      createWorker: () => worker,
-      publishBoardEvent: (event) => {
-        published.push(event);
-      },
-    });
-
-    const summary = makeSummary({ priority: "p1-high" });
-    const pending = writer.updateCard("project-1", "draft", "card-1", {
-      priority: "p1-high",
-    });
-    const request = worker.messages[0];
-    expect(request?.type).toBe("updateCard");
-    if (!request) return;
-
-    worker.emitMessage({
-      id: request.id,
-      ok: true,
-      result: {
-        status: "updated",
-        projectId: "project-1",
-        cardId: "card-1",
-        revision: 2,
-        summary,
-        changedFields: ["priority"],
-        didMutate: true,
-      },
-      events: [{
-        projectId: "project-1",
-        changeType: "update",
-        columnId: "draft",
-        status: "draft",
-        cardId: "card-1",
-        summary,
-        mutationId: request.mutationId,
-      }],
-      metrics: makeMetrics(request.mutationId),
-    });
-
-    const envelope = await pending;
-    expect(envelope.result.status).toBe("updated");
-    expect(published.length).toBe(1);
-    expect(published[0]?.summary?.id).toBe("card-1");
-    expect(envelope.metrics.mainEventLoopLagMaxMs !== undefined).toBe(true);
-  });
-
   test("publishes a committed Document summary once and never before the worker ACK", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];
@@ -1085,7 +1005,7 @@ describe("CardMutationWriter", () => {
       publishBoardEvent: () => undefined,
     });
 
-    const failed = writer.deleteCard("project-1", "draft", "card-1");
+    const failed = writer.getBlockDocumentProjectId("document:card-1");
     firstWorker.emitError(new Error("worker crashed"));
     let message = "";
     try {
@@ -1095,19 +1015,19 @@ describe("CardMutationWriter", () => {
     }
     expect(message).toBe("worker crashed");
 
-    const pending = writer.deleteCard("project-1", "draft", "card-2");
+    const pending = writer.getBlockDocumentProjectId("document:card-2");
     expect(secondWorker.messages.length).toBe(1);
     const request = secondWorker.messages[0];
     if (!request) return;
     secondWorker.emitMessage({
       id: request.id,
       ok: true,
-      result: true,
+      result: { ok: true, value: "project-1" },
       events: [],
       metrics: makeMetrics(request.mutationId),
     });
-    const envelope = await pending;
-    expect(envelope.result).toBe(true);
+    const result = await pending;
+    expect(result.ok).toBe(true);
   });
 
   test("preserves typed Document results across the worker boundary", async () => {
@@ -1355,7 +1275,7 @@ describe("CardMutationWriter", () => {
       publishBoardEvent: () => undefined,
     });
 
-    const mutationPending = writer.deleteCard("project-1", "draft", "card-1");
+    const mutationPending = writer.getBlockDocumentProjectId("document:card-1");
     const projectPending = writer.getBlockDocumentProjectId("document:card-1");
     let barrierResolved = false;
     const barrierPending = writer.barrier().then(() => {
@@ -1364,7 +1284,7 @@ describe("CardMutationWriter", () => {
     const shutdownPending = writer.shutdown();
 
     expect(worker.messages.length).toBe(4);
-    expect(worker.messages[0]?.type).toBe("deleteCard");
+    expect(worker.messages[0]?.type).toBe("getBlockDocumentProjectId");
     expect(worker.messages[1]?.type).toBe("getBlockDocumentProjectId");
     expect(worker.messages[2]?.type).toBe("writerBarrier");
     expect(worker.messages[3]?.type).toBe("shutdown");
@@ -1372,7 +1292,7 @@ describe("CardMutationWriter", () => {
 
     let rejectedMessage = "";
     try {
-      await writer.deleteCard("project-1", "draft", "card-2");
+      await writer.getBlockDocumentProjectId("document:card-2");
     } catch (error) {
       rejectedMessage = error instanceof Error ? error.message : String(error);
     }
@@ -1387,7 +1307,7 @@ describe("CardMutationWriter", () => {
     worker.emitMessage({
       id: mutationRequest.id,
       ok: true,
-      result: true,
+      result: { ok: true, value: "project-1" },
       events: [],
       metrics: makeMetrics(mutationRequest.mutationId),
     });
@@ -1553,7 +1473,7 @@ describe("CardMutationWriter", () => {
       },
     });
 
-    const mutationPending = writer.deleteCard("project-1", "draft", "card-1")
+    const mutationPending = writer.getBlockDocumentProjectId("document:card-1")
       .then(() => "resolved", (error: unknown) =>
         error instanceof Error ? error.message : String(error));
     const shutdownPending = writer.shutdown()

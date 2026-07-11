@@ -7,10 +7,7 @@ import {
   compactBlockDocument,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
-import {
-  cutoverCardDocumentToPrimary,
-  getOwnedBlockDocumentDescriptor,
-} from "../src/main/local-store/block-document-cutover";
+import { getOwnedBlockDocumentDescriptor } from "../src/main/local-store/block-document-cutover";
 import { createCard } from "../src/main/local-store/cards";
 import {
   closeDatabase,
@@ -30,7 +27,6 @@ import {
   replaceDocumentFromNfm,
   restoreDocumentVersion,
 } from "../src/main/local-store/block-document-operations";
-import { runLegacyCardShadowProcessorProbe } from "../src/main/local-store/legacy-card-shadow-processor";
 import { createProject } from "../src/main/local-store/projects";
 import { openCardDocument } from "../src/shared/block-documents";
 import { materializeCardDocument } from "../src/shared/block-documents/block-document-codec";
@@ -139,19 +135,11 @@ const main = async (): Promise<void> => {
       title: "Checkpoint title",
       description: "Checkpoint body",
     });
-    const shadow = runLegacyCardShadowProcessorProbe(getDb());
-    invariant(shadow.allCurrentCardsReady, "Card shadow did not become ready");
     const descriptor = getOwnedBlockDocumentDescriptor(
       getDb(),
       project.id,
       card.id,
     );
-    cutoverCardDocumentToPrimary(getDb(), {
-      projectId: project.id,
-      ownerBlockId: card.id,
-      expectedGeneration: descriptor.generation,
-      expectedHeadSeq: descriptor.headSeq,
-    });
     const storeEpoch = readStoreEpoch();
     const createRequest = {
       version: DOCUMENT_VERSION_CONTRACT_VERSION,
@@ -433,22 +421,11 @@ const main = async (): Promise<void> => {
       title: "Large restore",
       description: largeNfm,
     });
-    const largeShadow = runLegacyCardShadowProcessorProbe(getDb());
-    invariant(
-      largeShadow.appliedJobs === 1 && largeShadow.failedJobs === 0,
-      `Large Card shadow did not become ready: ${JSON.stringify(largeShadow)}`,
-    );
     const largeDescriptor = getOwnedBlockDocumentDescriptor(
       getDb(),
       project.id,
       largeCard.id,
     );
-    cutoverCardDocumentToPrimary(getDb(), {
-      projectId: project.id,
-      ownerBlockId: largeCard.id,
-      expectedGeneration: largeDescriptor.generation,
-      expectedHeadSeq: largeDescriptor.headSeq,
-    });
     const largeCheckpoint = createDocumentVersionCheckpoint(getDb(), {
       version: DOCUMENT_VERSION_CONTRACT_VERSION,
       projectId: project.id,

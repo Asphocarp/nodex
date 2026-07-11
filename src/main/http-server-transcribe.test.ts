@@ -47,7 +47,7 @@ describe("/transcribe route", () => {
     const response = await options.fetch(
       new Request("http://127.0.0.1:51283/transcribe", {
         method: "POST",
-        body: "YmFzZTY0LXBheWxvYWQ=",
+        body: new TextEncoder().encode("YmFzZTY0LXBheWxvYWQ="),
       }),
     );
 

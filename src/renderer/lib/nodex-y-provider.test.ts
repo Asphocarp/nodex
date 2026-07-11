@@ -13,13 +13,22 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import {
+  BLOCK_CONTAINER_NODE_NAME,
   BLOCK_GROUP_NODE_NAME,
   BLOCK_ID_ATTRIBUTE,
+  CANVAS_BLOCK_TYPE,
+  CANVAS_DOCUMENT_SCHEMA_KEY,
+  CANVAS_DOCUMENT_SCHEMA_VERSION,
+  LARGE_DOCUMENT_BLOCK_TYPE,
+  LARGE_DOCUMENT_SCHEMA_KEY,
+  LARGE_DOCUMENT_SCHEMA_VERSION,
   captureXmlSubtreeAt,
   createCardDocument,
   deleteXmlSubtreeAt,
+  getRegisteredBlockDocumentSchemaAdapter,
   insertPortableXmlSubtree,
   openCardDocument,
+  type RegisteredBlockDocumentSchemaAdapter,
 } from "../../shared/block-documents";
 import {
   createCardDocumentGenesis,
@@ -33,6 +42,7 @@ import type {
 import {
   NodexYProvider,
   type DocumentSyncAdapter,
+  type NodexYProviderOptions,
   type NodexYProviderRetryScheduler,
 } from "./nodex-y-provider";
 
@@ -198,6 +208,96 @@ const seedCanonicalCardDocument = (
     adapter.headSeq = 1;
   } finally {
     genesis.document.destroy();
+  }
+};
+
+type ProviderDocumentSchema = NonNullable<
+  NodexYProviderOptions["documentSchema"]
+>;
+
+const seedRegisteredDocument = (
+  adapter: MemoryDocumentSyncAdapter,
+  schema: ProviderDocumentSchema,
+): RegisteredBlockDocumentSchemaAdapter => {
+  const schemaAdapter = getRegisteredBlockDocumentSchemaAdapter(schema);
+  const genesis = schemaAdapter.create("document-1");
+  try {
+    Y.applyUpdate(
+      adapter.serverDocument,
+      Y.encodeStateAsUpdate(genesis.document),
+    );
+    adapter.headSeq = 1;
+  } finally {
+    genesis.document.destroy();
+  }
+  return schemaAdapter;
+};
+
+const createParagraphBlock = (id: string, value: string): Y.XmlElement => {
+  const container = new Y.XmlElement(BLOCK_CONTAINER_NODE_NAME);
+  container.setAttribute(BLOCK_ID_ATTRIBUTE, id);
+  const paragraph = new Y.XmlElement("paragraph");
+  const text = new Y.XmlText();
+  text.insert(0, value);
+  paragraph.insert(0, [text]);
+  container.insert(0, [paragraph]);
+  return container;
+};
+
+const recoverDisconnectedRegisteredDocumentEdit = async (input: {
+  readonly schema: ProviderDocumentSchema;
+  readonly mutate: (
+    document: Y.Doc,
+    adapter: RegisteredBlockDocumentSchemaAdapter,
+  ) => void;
+  readonly assertRecovered: (
+    document: Y.Doc,
+    adapter: RegisteredBlockDocumentSchemaAdapter,
+  ) => void;
+}): Promise<void> => {
+  const adapter = new MemoryDocumentSyncAdapter();
+  const checkpoints = new MemoryDocumentLocalCheckpointStore();
+  const schemaAdapter = seedRegisteredDocument(adapter, input.schema);
+  const firstDocument = new Y.Doc({ guid: "document-1" });
+  const first = new NodexYProvider({
+    documentId: "document-1",
+    document: firstDocument,
+    adapter,
+    documentSchema: input.schema,
+    clientSessionId: "window-before-generic-restart",
+    localCheckpointStore: checkpoints,
+    autoConnect: false,
+  });
+  try {
+    await first.connect();
+    first.disconnect();
+    input.mutate(firstDocument, schemaAdapter);
+    await first.checkpoint();
+  } finally {
+    first.destroy();
+    firstDocument.destroy();
+  }
+
+  const restartedDocument = new Y.Doc({ guid: "document-1" });
+  const restarted = new NodexYProvider({
+    documentId: "document-1",
+    document: restartedDocument,
+    adapter,
+    documentSchema: input.schema,
+    clientSessionId: "window-after-generic-restart",
+    localCheckpointStore: checkpoints,
+    autoConnect: false,
+  });
+  try {
+    await restarted.connect();
+    input.assertRecovered(restartedDocument, schemaAdapter);
+    await restarted.flush();
+    input.assertRecovered(adapter.serverDocument, schemaAdapter);
+    expect(adapter.headSeq).toBe(2);
+  } finally {
+    restarted.destroy();
+    restartedDocument.destroy();
+    adapter.destroy();
   }
 };
 
@@ -1030,6 +1130,63 @@ describe("NodexYProvider", () => {
       restartedDocument.destroy();
       adapter.destroy();
     }
+  });
+
+  test("recovers a body-only Document from its registered schema after restart", async () => {
+    await recoverDisconnectedRegisteredDocumentEdit({
+      schema: {
+        ownerType: LARGE_DOCUMENT_BLOCK_TYPE,
+        schemaKey: LARGE_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: LARGE_DOCUMENT_SCHEMA_VERSION,
+      },
+      mutate: (document, adapter) => {
+        if (adapter.contentModel !== "block_tree") {
+          throw new TypeError("Expected the Large Document block-tree Adapter");
+        }
+        const root = adapter.inspect(document).envelope.body.toArray()[0];
+        if (!(root instanceof Y.XmlElement)) {
+          throw new TypeError("Expected the Large Document body root");
+        }
+        root.insert(0, [
+          createParagraphBlock("offline-block", "Recovered offline body"),
+        ]);
+      },
+      assertRecovered: (document, adapter) => {
+        if (adapter.contentModel !== "block_tree") {
+          throw new TypeError("Expected the Large Document block-tree Adapter");
+        }
+        expect(adapter.inspect(document).materialization.plainText).toBe(
+          "Recovered offline body",
+        );
+      },
+    });
+  });
+
+  test("recovers a Canvas scene_graph from its registered schema after restart", async () => {
+    await recoverDisconnectedRegisteredDocumentEdit({
+      schema: {
+        ownerType: CANVAS_BLOCK_TYPE,
+        schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+      },
+      mutate: (document, adapter) => {
+        if (adapter.contentModel !== "scene_graph") {
+          throw new TypeError("Expected the Canvas scene-graph Adapter");
+        }
+        adapter.inspect(document).envelope.appState.set(
+          "gridModeEnabled",
+          true,
+        );
+      },
+      assertRecovered: (document, adapter) => {
+        if (adapter.contentModel !== "scene_graph") {
+          throw new TypeError("Expected the Canvas scene-graph Adapter");
+        }
+        expect(
+          adapter.inspect(document).materialization.appState.gridModeEnabled,
+        ).toBe(true);
+      },
+    });
   });
 
   test("checkpoints local state before sending its durable update", async () => {

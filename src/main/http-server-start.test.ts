@@ -114,16 +114,14 @@ describe("http server startup options", () => {
         ),
       ),
     ]);
-    const payloads = await Promise.all(
-      responses.map(async (response) => await response.json() as {
-        error?: string;
-        replacement?: string;
-      }),
-    );
-
-    expect(responses.every((response) => response.status === 410)).toBe(true);
-    expect(payloads.every((payload) => payload.error?.includes("Card Document"))).toBe(true);
-    expect(payloads[1]?.replacement).toBe(
+    expect(responses[0]?.status).toBe(404);
+    expect(responses[1]?.status).toBe(410);
+    const descriptionPayload = await responses[1]?.json() as {
+      error?: string;
+      replacement?: string;
+    };
+    expect(descriptionPayload.error?.includes("Card Document") ?? false).toBe(true);
+    expect(descriptionPayload.replacement).toBe(
       "POST /api/projects/:projectId/documents/:documentId/mutations",
     );
   });
