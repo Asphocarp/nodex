@@ -7,12 +7,14 @@ import type {
   CardOccurrenceActionInput,
   CardOccurrenceUpdateInput,
 } from "../../shared/types";
-import { cutoverCardDocumentToPrimary, getOwnedBlockDocumentDescriptor } from "./block-document-cutover";
+import { createUuidV7 } from "../../shared/card-id";
+import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
+import { applyCardLifecycleMutation } from "./card-block-lifecycle";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { listBlockChangeHistory } from "./document-versions";
-import { createCard as createLegacyCard, getCard } from "./cards";
-import { runLegacyCardShadowProcessorProbe } from "./legacy-card-shadow-processor";
+import { readAuthoritativeCardById } from "./card-read-store";
 import { createProject } from "./projects";
+import { readBlockStoreEpoch } from "./block-store-metadata";
 import { executeReadOnlyQuery } from "./sql-inspection";
 import {
   completeCardOccurrence as completeStoredCardOccurrence,
@@ -133,20 +135,50 @@ function allDayInput(startIso: string, endIso: string): CardInput {
 }
 
 async function createCard(targetProjectId: string, status: "in_progress", input: CardInput) {
-  const created = await createLegacyCard(targetProjectId, status, input);
   const database = getDb();
-  runLegacyCardShadowProcessorProbe(database);
-  const descriptor = getOwnedBlockDocumentDescriptor(database, targetProjectId, created.id);
-  cutoverCardDocumentToPrimary(database, {
+  const storeEpoch = readBlockStoreEpoch(database);
+  if (!storeEpoch) throw new Error("Card fixture has no Block store epoch");
+  const cardId = createUuidV7();
+  const created = applyCardLifecycleMutation(database, parseCardLifecycleMutationRequest({
+    version: 1,
+    operationId: `occurrence-fixture:create:${cardId}`,
     projectId: targetProjectId,
-    ownerBlockId: created.id,
-    expectedGeneration: descriptor.generation,
-    expectedHeadSeq: descriptor.headSeq,
-  });
-  const primary = await getCard(targetProjectId, created.id);
-  if (!primary) throw new Error("Primary Card disappeared after cutover");
+    storeEpoch,
+    actor: { kind: "test" },
+    operation: {
+      kind: "create_card",
+      cardId,
+      title: input.title,
+      nfm: input.description ?? "",
+      status,
+      priority: input.priority ?? null,
+      estimate: input.estimate ?? null,
+      tags: input.tags ?? [],
+      dueDate: input.dueDate?.toISOString().slice(0, 10) ?? null,
+      scheduledStart: input.scheduledStart?.toISOString() ?? null,
+      scheduledEnd: input.scheduledEnd?.toISOString() ?? null,
+      isAllDay: input.isAllDay ?? false,
+      recurrence: input.recurrence ?? null,
+      reminders: input.reminders ?? [],
+      scheduleTimezone: input.scheduleTimezone ?? null,
+      assignee: input.assignee ?? null,
+      agentBlocked: input.agentBlocked ?? false,
+      agentStatus: input.agentStatus ?? null,
+      runInTarget: input.runInTarget ?? "localProject",
+      runInLocalPath: input.runInLocalPath ?? null,
+      runInBaseBranch: input.runInBaseBranch ?? null,
+      runInWorktreePath: input.runInWorktreePath ?? null,
+      runInEnvironmentPath: input.runInEnvironmentPath ?? null,
+    },
+  }));
+  if (!created.ok) throw new Error(created.error.message);
+  const primary = readAuthoritativeCardById(database, targetProjectId, cardId);
+  if (!primary) throw new Error("Authoritative Card disappeared after creation");
   return primary;
 }
+
+const getCard = (targetProjectId: string, cardId: string) =>
+  readAuthoritativeCardById(getDb(), targetProjectId, cardId);
 
 function recurringInputWithUntilDate(startIso: string, endIso: string, untilDate: string): CardInput {
   return {
@@ -640,14 +672,11 @@ describe("occurrence actions", () => {
     }
   });
 
-  test("complete writes schedule and archive through Block authorities without rewriting cards", async () => {
+  test("complete uses only Block authorities for a lifecycle-created Card", async () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
       const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
-      const legacyBefore = executeReadOnlyQuery("SELECT scheduled_start, scheduled_end FROM cards WHERE id = ?", [
-        card.id,
-      ]).rows[0];
 
       const completeResult = await completeCardOccurrence(projectId, {
         cardId: card.id,
@@ -664,14 +693,6 @@ describe("occurrence actions", () => {
       if (typeof archiveId !== "string") {
         throw new Error("Completed occurrence has no archived Card identity");
       }
-      expect(executeReadOnlyQuery("SELECT COUNT(*) AS count FROM cards WHERE id = ?", [archiveId]).rows[0]?.count).toBe(
-        0,
-      );
-      const legacyAfter = executeReadOnlyQuery("SELECT scheduled_start, scheduled_end FROM cards WHERE id = ?", [
-        card.id,
-      ]).rows[0];
-      expect(legacyAfter?.scheduled_start).toBe(legacyBefore?.scheduled_start);
-      expect(legacyAfter?.scheduled_end).toBe(legacyBefore?.scheduled_end);
     });
 
     if (!ran) {

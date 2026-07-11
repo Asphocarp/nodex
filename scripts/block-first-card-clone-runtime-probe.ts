@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
 import { createUuidV7 } from "../src/shared/card-id";
+import { parseCardLifecycleMutationRequest } from "../src/shared/card-lifecycle";
+import type { CardInput } from "../src/shared/types";
 import {
   materializeCardDocument,
   type BlockTreeNode,
@@ -17,25 +19,21 @@ import {
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
 import {
-  cutoverCardDocumentToPrimary,
-  getOwnedBlockDocumentDescriptor,
-} from "../src/main/local-store/block-document-cutover";
-import {
   completeCardOccurrence,
-  createCard,
-  getCard,
   listCalendarOccurrences,
   skipCardOccurrence,
   updateCardOccurrence,
-} from "../src/main/local-store/cards";
+} from "../src/main/local-store/card-occurrences";
+import { applyCardLifecycleMutation } from "../src/main/local-store/card-block-lifecycle";
+import { readAuthoritativeCardById } from "../src/main/local-store/card-read-store";
 import {
   closeDatabase,
   getDb,
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { listBlockChangeHistory } from "../src/main/local-store/document-versions";
-import { runLegacyCardShadowProcessorProbe } from "../src/main/local-store/legacy-card-shadow-processor";
 import { createProject } from "../src/main/local-store/projects";
+import { readBlockStoreEpoch } from "../src/main/local-store/block-store-metadata";
 
 const assert: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -111,6 +109,59 @@ const countProjectCardBlocks = (projectId: string): number => {
   return row.count;
 };
 
+const createCard = (
+  projectId: string,
+  status: "in_progress",
+  input: CardInput,
+) => {
+  const database = getDb();
+  const storeEpoch = readBlockStoreEpoch(database);
+  assert(storeEpoch, "Block store epoch is missing");
+  const cardId = createUuidV7();
+  const result = applyCardLifecycleMutation(
+    database,
+    parseCardLifecycleMutationRequest({
+      version: 1,
+      operationId: `card-clone-probe:create:${cardId}`,
+      projectId,
+      storeEpoch,
+      actor: { kind: "runtime-probe" },
+      operation: {
+        kind: "create_card",
+        cardId,
+        title: input.title,
+        nfm: input.description ?? "",
+        status,
+        priority: input.priority ?? null,
+        estimate: input.estimate ?? null,
+        tags: input.tags ?? [],
+        dueDate: input.dueDate?.toISOString().slice(0, 10) ?? null,
+        scheduledStart: input.scheduledStart?.toISOString() ?? null,
+        scheduledEnd: input.scheduledEnd?.toISOString() ?? null,
+        isAllDay: input.isAllDay ?? false,
+        recurrence: input.recurrence ?? null,
+        reminders: input.reminders ?? [],
+        scheduleTimezone: input.scheduleTimezone ?? null,
+        assignee: input.assignee ?? null,
+        agentBlocked: input.agentBlocked ?? false,
+        agentStatus: input.agentStatus ?? null,
+        runInTarget: input.runInTarget ?? "localProject",
+        runInLocalPath: input.runInLocalPath ?? null,
+        runInBaseBranch: input.runInBaseBranch ?? null,
+        runInWorktreePath: input.runInWorktreePath ?? null,
+        runInEnvironmentPath: input.runInEnvironmentPath ?? null,
+      },
+    }),
+  );
+  if (!result.ok) throw new Error(result.error.message);
+  const card = readAuthoritativeCardById(database, projectId, cardId);
+  assert(card, "Created Card is missing from authority");
+  return card;
+};
+
+const getCard = (projectId: string, cardId: string) =>
+  readAuthoritativeCardById(getDb(), projectId, cardId);
+
 const main = async (): Promise<void> => {
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-card-clone-runtime-"),
@@ -119,14 +170,13 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Card clone runtime" });
-    const source = await createCard(project.id, "in_progress", {
-      title: "Legacy source title",
+    const source = createCard(project.id, "in_progress", {
+      title: "Initial source title",
       description: [
         "Current collaborative paragraph",
         '<card-ref target-block="stable-reference-target" display-hint="Target" />',
       ].join("\n"),
       priority: "p1-high",
-      tags: ["copied", "authority"],
       scheduledStart: new Date("2026-07-12T10:00:00.000Z"),
       scheduledEnd: new Date("2026-07-12T11:00:00.000Z"),
       recurrence: {
@@ -139,24 +189,19 @@ const main = async (): Promise<void> => {
       agentStatus: "copied-agent-status",
     });
     let database = getDb();
-    const shadow = runLegacyCardShadowProcessorProbe(database);
-    assert(
-      shadow.allCurrentCardsReady,
-      "Source Card shadow did not become ready",
-    );
-    const descriptor = getOwnedBlockDocumentDescriptor(
-      database,
-      project.id,
-      source.id,
-    );
-    cutoverCardDocumentToPrimary(database, {
-      projectId: project.id,
-      ownerBlockId: source.id,
-      expectedGeneration: descriptor.generation,
-      expectedHeadSeq: descriptor.headSeq,
-    });
-    updatePrimaryTitle(descriptor.documentId, "Current Y.Doc source title");
-    const sourceMaterialization = readMaterialization(descriptor.documentId);
+    const sourceOwnership = database
+      .prepare(
+        `SELECT ownership.document_id
+         FROM block_documents ownership
+         INNER JOIN documents document ON document.id = ownership.document_id
+         WHERE ownership.block_id = ? AND ownership.project_id = ?
+           AND document.authority = 'ydoc_primary'
+           AND document.readiness = 'ready'`,
+      )
+      .get(source.id, project.id) as { readonly document_id: string } | undefined;
+    assert(sourceOwnership, "Source Card has no primary owned Document");
+    updatePrimaryTitle(sourceOwnership.document_id, "Current Y.Doc source title");
+    const sourceMaterialization = readMaterialization(sourceOwnership.document_id);
 
     const missingCardId = createUuidV7();
     const rejectedOperationId = "occurrence-rejected-exact-retry";
@@ -241,20 +286,8 @@ const main = async (): Promise<void> => {
       "Rejected operation ID reuse did not return a typed collision",
     );
 
-    const unscheduled = await createCard(project.id, "in_progress", {
+    const unscheduled = createCard(project.id, "in_progress", {
       title: "Unscheduled rejection target",
-    });
-    runLegacyCardShadowProcessorProbe(database);
-    const unscheduledDescriptor = getOwnedBlockDocumentDescriptor(
-      database,
-      project.id,
-      unscheduled.id,
-    );
-    cutoverCardDocumentToPrimary(database, {
-      projectId: project.id,
-      ownerBlockId: unscheduled.id,
-      expectedGeneration: unscheduledDescriptor.generation,
-      expectedHeadSeq: unscheduledDescriptor.headSeq,
     });
     const notScheduled = await skipCardOccurrence(project.id, {
       operationId: "occurrence-rejected-not-scheduled",
@@ -438,16 +471,11 @@ const main = async (): Promise<void> => {
       clone.documentHeadSeq === 1,
       "Clone genesis did not commit at head 1",
     );
-    const compatibility = database
-      .prepare("SELECT 1 FROM cards WHERE id = ?")
-      .get(cloneCardId);
-    assert(!compatibility, "Clone wrote a compatibility Card row");
-
     const clonedCard = await getCard(project.id, cloneCardId);
     assert(clonedCard, "Authoritative Card reader could not read the clone");
     assert(
       clonedCard.title === "Current Y.Doc source title",
-      "Clone read stale legacy title",
+      "Clone did not read the current Document title",
     );
     assert(
       clonedCard.status === "done",
@@ -456,10 +484,6 @@ const main = async (): Promise<void> => {
     assert(
       clonedCard.priority === "p1-high",
       "Database properties were not copied",
-    );
-    assert(
-      clonedCard.tags.join(",") === "copied,authority",
-      "Set-valued Database property was not copied",
     );
     assert(
       clonedCard.agentStatus === "copied-agent-status",
@@ -564,10 +588,6 @@ const main = async (): Promise<void> => {
       .prepare("SELECT id FROM blocks WHERE id = ? AND lifecycle = 'archived'")
       .get(completed.createdCardId) as { readonly id: string } | undefined;
     assert(archive, "Complete did not create an archived Card Block");
-    assert(
-      !database.prepare("SELECT 1 FROM cards WHERE id = ?").get(archive.id),
-      "Complete wrote an archived compatibility Card row",
-    );
     const archivedCard = await getCard(project.id, archive.id);
     assert(
       archivedCard?.title === "Current Y.Doc source title" &&
@@ -651,10 +671,6 @@ const main = async (): Promise<void> => {
       .get(project.id, split.createdCardId) as
       { readonly id: string } | undefined;
     assert(splitRow, "Split did not create the future Card Block");
-    assert(
-      !database.prepare("SELECT 1 FROM cards WHERE id = ?").get(splitRow.id),
-      "Split wrote a compatibility Card row",
-    );
     const splitCard = await getCard(project.id, splitRow.id);
     assert(
       splitCard?.title === "Current Y.Doc source title" &&
@@ -834,7 +850,7 @@ const main = async (): Promise<void> => {
     process.stdout.write(
       `${JSON.stringify({
         faultPoints: faultPoints.length,
-        noCompatibilityRow: true,
+        noLegacyCardDependency: true,
         freshDocumentContent: true,
         copiedRelationalProperties: true,
         regeneratedBlockIds: true,

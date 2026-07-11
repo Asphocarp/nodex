@@ -243,7 +243,7 @@ export const persistCardOccurrenceRejection = (
     targetBlockIds: [input.cardId],
     fieldIntents: [
       {
-        path: `cards.${input.cardId}.occurrences`,
+        path: `blocks.${input.cardId}.occurrences`,
         operation: input.prepared.operationKind,
       },
     ],
