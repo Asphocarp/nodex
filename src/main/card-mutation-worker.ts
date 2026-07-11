@@ -3,7 +3,10 @@ import { performance } from "node:perf_hooks";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { closeDatabase, getDb } from "./local-store/database";
-import { dbNotifier, type BoardChangeEvent as LocalBoardChangeEvent } from "./local-store/notifier";
+import {
+  dbNotifier,
+  type BoardChangeEvent as LocalBoardChangeEvent,
+} from "./local-store/notifier";
 import * as cardsStore from "./local-store/cards";
 import * as cardOccurrences from "./local-store/card-occurrences";
 import * as historyStore from "./local-store/history";
@@ -30,6 +33,10 @@ import {
 } from "./local-store/foreign-reference-migration";
 import { toDocumentSyncCommandError } from "./local-store/block-document-store";
 import {
+  BlockRelocationStoreError,
+  relocateBlocksAtomically,
+} from "./local-store/block-relocations";
+import {
   BlockDocumentRuntime,
   createSqliteBlockDocumentRuntimeAuthority,
 } from "./block-document-runtime";
@@ -37,6 +44,9 @@ import type { BoardChangeEvent } from "../shared/ipc-api";
 import type {
   DocumentSyncCommandError,
   DocumentSyncCommandResult,
+  RelocationCommandError,
+  RelocationCommandResult,
+  RelocationResult,
 } from "../shared/block-documents";
 import type { Card, CardSummary } from "../shared/types";
 import type {
@@ -86,12 +96,13 @@ const EMPTY_SHADOW_DRAIN_METRICS: ShadowDrainMetrics = {
   exhausted: true,
 };
 
-const EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS: ForeignReferenceMigrationMetrics = {
-  processedDocuments: 0,
-  migratedReferences: 0,
-  failedDocuments: 0,
-  exhausted: true,
-};
+const EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS: ForeignReferenceMigrationMetrics =
+  {
+    processedDocuments: 0,
+    migratedReferences: 0,
+    failedDocuments: 0,
+    exhausted: true,
+  };
 
 let legacyShadowProcessorInitialized = false;
 
@@ -157,6 +168,7 @@ const isLegacyAuthorityMutation = (
     case "cutoverCardDocumentToPrimary":
     case "cutoverEligibleCardDocuments":
     case "applyBlockDocumentUpdate":
+    case "relocateBlocks":
     case "writerBarrier":
     case "shutdown":
       return false;
@@ -193,7 +205,8 @@ const invalidateChangedForeignReferenceDocuments = (
   }
 };
 
-type ForeignReferenceMigrationPhase = "explicit" | "pre_cutover" | "post_mutation";
+type ForeignReferenceMigrationPhase =
+  "explicit" | "pre_cutover" | "post_mutation";
 
 const logForeignReferenceMigration = (
   phase: ForeignReferenceMigrationPhase,
@@ -263,28 +276,39 @@ const safelyDrainForeignReferenceMigrations = async (
         phase,
         cutoverBlocked: true,
       });
-      return { ...aggregate, failedDocuments: aggregate.failedDocuments + 1, exhausted: false };
+      return {
+        ...aggregate,
+        failedDocuments: aggregate.failedDocuments + 1,
+        exhausted: false,
+      };
     }
     remaining -= batch.processedDocuments;
   }
 
-  postLog("warn", "Legacy foreign-reference migration reached its bounded limit", {
-    phase,
-    processedDocuments: aggregate.processedDocuments,
-    migratedReferences: aggregate.migratedReferences,
-    cutoverBlocked: true,
-  });
+  postLog(
+    "warn",
+    "Legacy foreign-reference migration reached its bounded limit",
+    {
+      phase,
+      processedDocuments: aggregate.processedDocuments,
+      migratedReferences: aggregate.migratedReferences,
+      cutoverBlocked: true,
+    },
+  );
   return { ...aggregate, exhausted: false };
 };
 
-const settleForeignReferencesBeforeCutover = async (
-): Promise<{
+const settleForeignReferencesBeforeCutover = async (): Promise<{
   readonly shadow: ShadowDrainMetrics;
   readonly foreignReferences: ForeignReferenceMigrationMetrics;
 }> => {
   let shadow = EMPTY_SHADOW_DRAIN_METRICS;
   let foreignReferences = EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS;
-  for (let round = 0; round < AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT; round += 1) {
+  for (
+    let round = 0;
+    round < AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT;
+    round += 1
+  ) {
     const migration = await safelyDrainForeignReferenceMigrations(
       "pre_cutover",
       AUTHORITY_BOUNDARY_MIGRATION_LIMIT,
@@ -316,11 +340,15 @@ const settleForeignReferencesBeforeCutover = async (
     }
   }
 
-  postLog("error", "Legacy foreign-reference migration did not reach a fixed point", {
-    phase: "pre_cutover",
-    rounds: AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT,
-    cutoverBlocked: true,
-  });
+  postLog(
+    "error",
+    "Legacy foreign-reference migration did not reach a fixed point",
+    {
+      phase: "pre_cutover",
+      rounds: AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT,
+      cutoverBlocked: true,
+    },
+  );
   return {
     shadow,
     foreignReferences: {
@@ -365,7 +393,11 @@ const settlePostMutationForeignReferences = async (): Promise<{
 }> => {
   let shadow = EMPTY_SHADOW_DRAIN_METRICS;
   let foreignReferences = EMPTY_FOREIGN_REFERENCE_MIGRATION_METRICS;
-  for (let round = 0; round < AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT; round += 1) {
+  for (
+    let round = 0;
+    round < AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT;
+    round += 1
+  ) {
     const migrationFenceStartedAt = new Date().toISOString();
     const migration = await safelyDrainForeignReferenceMigrations(
       "post_mutation",
@@ -396,10 +428,14 @@ const settlePostMutationForeignReferences = async (): Promise<{
     }
   }
 
-  postLog("error", "Post-mutation foreign-reference migration did not reach a fixed point", {
-    rounds: AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT,
-    cutoverBlocked: true,
-  });
+  postLog(
+    "error",
+    "Post-mutation foreign-reference migration did not reach a fixed point",
+    {
+      rounds: AUTHORITY_BOUNDARY_FIXED_POINT_LIMIT,
+      cutoverBlocked: true,
+    },
+  );
   return {
     shadow,
     foreignReferences: {
@@ -414,10 +450,10 @@ const summarizeShadowDrain = (
   drain: LegacyCardShadowDrainResult,
 ): ShadowDrainMetrics => ({
   processed: drain.results.length,
-  applied: drain.results.filter((result) => result.outcome === "applied").length,
-  superseded: drain.results.filter(
-    (result) => result.outcome === "superseded",
-  ).length,
+  applied: drain.results.filter((result) => result.outcome === "applied")
+    .length,
+  superseded: drain.results.filter((result) => result.outcome === "superseded")
+    .length,
   failed: drain.results.filter((result) => result.outcome === "failed").length,
   errors: 0,
   exhausted: drain.exhausted,
@@ -438,11 +474,13 @@ const mergeShadowDrainMetrics = (
 const invalidateChangedShadowDocuments = (
   drain: LegacyCardShadowDrainResult,
 ): void => {
-  const changedCardIds = Array.from(new Set(
-    drain.results
-      .filter((result) => result.documentChanged)
-      .map((result) => result.cardId),
-  ));
+  const changedCardIds = Array.from(
+    new Set(
+      drain.results
+        .filter((result) => result.documentChanged)
+        .map((result) => result.cardId),
+    ),
+  );
   if (changedCardIds.length === 0) return;
 
   const readDocumentId = getDb().prepare(`
@@ -452,8 +490,7 @@ const invalidateChangedShadowDocuments = (
   `);
   for (const cardId of changedCardIds) {
     const row = readDocumentId.get(cardId) as
-      | { readonly document_id: string }
-      | undefined;
+      { readonly document_id: string } | undefined;
     if (!row) continue;
     blockDocumentRuntime.invalidate(row.document_id);
   }
@@ -549,24 +586,32 @@ const initializeLegacyShadowProcessor = (): ShadowDrainMetrics => {
 const readShadowMutationJobs = (
   enqueuedSince: string,
 ): readonly ShadowMutationJobRow[] =>
-  getDb().prepare(`
+  getDb()
+    .prepare(
+      `
     SELECT id, card_id, source_event_seq, status
     FROM legacy_card_shadow_jobs
     WHERE enqueued_at >= ?
     ORDER BY card_id ASC, source_event_seq ASC
-  `).all(enqueuedSince) as readonly ShadowMutationJobRow[];
+  `,
+    )
+    .all(enqueuedSince) as readonly ShadowMutationJobRow[];
 
 const readShadowMutationJobsById = (
   jobIds: readonly string[],
 ): readonly ShadowMutationJobRow[] => {
   if (jobIds.length === 0) return [];
   const placeholders = jobIds.map(() => "?").join(", ");
-  return getDb().prepare(`
+  return getDb()
+    .prepare(
+      `
     SELECT id, card_id, source_event_seq, status
     FROM legacy_card_shadow_jobs
     WHERE id IN (${placeholders})
     ORDER BY card_id ASC, source_event_seq ASC
-  `).all(...jobIds) as readonly ShadowMutationJobRow[];
+  `,
+    )
+    .all(...jobIds) as readonly ShadowMutationJobRow[];
 };
 
 const isTerminalShadowJobStatus = (
@@ -635,9 +680,11 @@ const settleShadowMutationJobs = (
   );
   if (forcedFailures > 0) {
     const forcedIds = new Set(pending.map((job) => job.id));
-    results.push(...readShadowMutationJobsById([...forcedIds])
-      .filter((job) => job.status === "failed")
-      .map(makeForcedFailureResult));
+    results.push(
+      ...readShadowMutationJobsById([...forcedIds])
+        .filter((job) => job.status === "failed")
+        .map(makeForcedFailureResult),
+    );
   }
 
   const stillUnsettled = readShadowMutationJobsById(targetIds).filter(
@@ -678,13 +725,126 @@ function toErrorMessage(value: unknown): string {
   return String(value);
 }
 
-function runDocumentCommand<T>(operation: () => T): DocumentSyncCommandResult<T> {
+function runDocumentCommand<T>(
+  operation: () => T,
+): DocumentSyncCommandResult<T> {
   try {
     return { ok: true, value: operation() };
   } catch (error) {
     return { ok: false, error: toDocumentSyncCommandError(error) };
   }
 }
+
+const relocationErrorRetryable = (
+  error: RelocationCommandError["code"],
+): boolean =>
+  error === "relocation_lease_timeout" || error === "document_not_ready";
+
+const relocationErrorRequiresReload = (
+  error: RelocationCommandError["code"],
+): boolean => {
+  switch (error) {
+    case "store_epoch_mismatch":
+    case "source_document_not_found":
+    case "target_document_not_found":
+    case "document_generation_mismatch":
+    case "source_head_mismatch":
+    case "target_head_changed":
+    case "block_not_found":
+    case "block_location_mismatch":
+    case "block_location_revision_mismatch":
+    case "block_relocated":
+    case "recovery_required":
+    case "document_state_corrupt":
+      return true;
+    case "invalid_relocation_request":
+    case "relocation_id_collision":
+    case "relocation_lease_timeout":
+    case "document_not_ready":
+    case "invalid_relocation_roots":
+    case "invalid_relocation_target":
+    case "relocation_cycle":
+    case "unknown":
+      return false;
+  }
+};
+
+const toRelocationCommandError = (error: unknown): RelocationCommandError => {
+  const code =
+    error instanceof BlockRelocationStoreError ? error.code : "unknown";
+  return {
+    code,
+    message: toErrorMessage(error),
+    retryable: relocationErrorRetryable(code),
+    reloadRequired: relocationErrorRequiresReload(code),
+    ...(error instanceof BlockRelocationStoreError && error.relocationId
+      ? { relocationId: error.relocationId }
+      : {}),
+  };
+};
+
+const runRelocationCommand = (
+  operation: () => RelocationResult,
+): RelocationCommandResult => {
+  try {
+    return { ok: true, value: operation() };
+  } catch (error) {
+    return { ok: false, error: toRelocationCommandError(error) };
+  }
+};
+
+const invalidateRelocatedDocumentCaches = (
+  documentIds: readonly string[],
+  relocationId: string,
+): void => {
+  try {
+    for (const documentId of new Set(documentIds)) {
+      blockDocumentRuntime.invalidate(documentId);
+    }
+  } catch (error) {
+    blockDocumentRuntime.destroy();
+    postLog("error", "Committed relocation cache invalidation failed", {
+      relocationId,
+      error: toErrorMessage(error),
+    });
+  }
+};
+
+const publishRelocationCardSummaries = (result: RelocationResult): void => {
+  if (result.duplicate) return;
+  const documentIds = [
+    result.sourceCommit.documentId,
+    ...(result.targetCommit ? [result.targetCommit.documentId] : []),
+  ];
+  for (const documentId of new Set(documentIds)) {
+    try {
+      const projection = cardsStore.readCardDocumentBoardProjection(
+        getDb(),
+        documentId,
+      );
+      if (!projection) {
+        postLog("warn", "Committed relocation has no Card board projection", {
+          relocationId: result.relocationId,
+          documentId,
+        });
+        continue;
+      }
+      dbNotifier.notifyChange(
+        projection.projectId,
+        "update",
+        projection.status,
+        projection.cardId,
+        { summary: projection.summary },
+      );
+    } catch (error) {
+      postLog("error", "Committed relocation Card summary fanout failed", {
+        relocationId: result.relocationId,
+        documentId,
+        error: toErrorMessage(error),
+      });
+    }
+  }
+};
 
 const cutoverErrorCode = (
   error: BlockDocumentCutoverError,
@@ -719,9 +879,10 @@ const toOwnedDocumentPreparationError = (
     code,
     message: error.message,
     retryable: code === "document_not_ready" || code === "future_base_head",
-    resetRequired: code === "document_not_found"
-      || code === "document_generation_mismatch"
-      || code === "document_state_corrupt",
+    resetRequired:
+      code === "document_not_found" ||
+      code === "document_generation_mismatch" ||
+      code === "document_state_corrupt",
   };
 };
 
@@ -743,8 +904,13 @@ function approximatePayloadBytes(value: unknown): number {
   }
 }
 
-function descriptionBytesForRequest(request: CardMutationWorkerRequest): number | undefined {
-  if (request.type === "updateCard" && typeof request.payload.updates.description === "string") {
+function descriptionBytesForRequest(
+  request: CardMutationWorkerRequest,
+): number | undefined {
+  if (
+    request.type === "updateCard" &&
+    typeof request.payload.updates.description === "string"
+  ) {
     return Buffer.byteLength(request.payload.updates.description, "utf8");
   }
 
@@ -759,30 +925,48 @@ function descriptionBytesForRequest(request: CardMutationWorkerRequest): number 
   if (request.type === "importBlockDropAsCards") {
     const descriptions = [
       ...request.payload.input.cards.map((card) => card.description),
-      ...request.payload.input.sourceUpdates.map((update) => update.updates.description),
-    ].filter((description): description is string => typeof description === "string");
+      ...request.payload.input.sourceUpdates.map(
+        (update) => update.updates.description,
+      ),
+    ].filter(
+      (description): description is string => typeof description === "string",
+    );
     if (descriptions.length === 0) return undefined;
-    return descriptions.reduce((sum, description) => sum + Buffer.byteLength(description, "utf8"), 0);
+    return descriptions.reduce(
+      (sum, description) => sum + Buffer.byteLength(description, "utf8"),
+      0,
+    );
   }
 
   if (request.type === "applyCardEditorDrop") {
     const descriptions = request.payload.input.targetUpdates
       .map((update) => update.updates.description)
-      .filter((description): description is string => typeof description === "string");
+      .filter(
+        (description): description is string => typeof description === "string",
+      );
     if (descriptions.length === 0) return undefined;
-    return descriptions.reduce((sum, description) => sum + Buffer.byteLength(description, "utf8"), 0);
+    return descriptions.reduce(
+      (sum, description) => sum + Buffer.byteLength(description, "utf8"),
+      0,
+    );
   }
 
   return undefined;
 }
 
-function readLatestDescriptionRevisionKind(cardId: string): "snapshot" | "delta" | undefined {
-  const row = getDb().prepare(`
+function readLatestDescriptionRevisionKind(
+  cardId: string,
+): "snapshot" | "delta" | undefined {
+  const row = getDb()
+    .prepare(
+      `
     SELECT description_revisions.kind
     FROM cards
     LEFT JOIN description_revisions ON description_revisions.id = cards.description_revision_id
     WHERE cards.id = ?
-  `).get(cardId) as { kind: "snapshot" | "delta" | null } | undefined;
+  `,
+    )
+    .get(cardId) as { kind: "snapshot" | "delta" | null } | undefined;
 
   return row?.kind ?? undefined;
 }
@@ -793,12 +977,15 @@ function shouldReadSummary(event: BoardChangeEvent): boolean {
   return true;
 }
 
-async function readEventSummary(event: BoardChangeEvent): Promise<CardSummary | undefined> {
+async function readEventSummary(
+  event: BoardChangeEvent,
+): Promise<CardSummary | undefined> {
   if (!shouldReadSummary(event)) return undefined;
   const cardId = event.cardId;
   if (!cardId) return undefined;
-  const summary = cardsStore.syncCardReadModel(getDb(), cardId)
-    ?? cardsStore.readCardSummaryById(cardId);
+  const summary =
+    cardsStore.syncCardReadModel(getDb(), cardId) ??
+    cardsStore.readCardSummaryById(cardId);
   return summary ?? undefined;
 }
 
@@ -823,7 +1010,7 @@ async function enrichEvents(
 
   for (const event of events) {
     const normalized = normalizeEvent(event);
-    const summary = normalized.summary ?? await readEventSummary(normalized);
+    const summary = normalized.summary ?? (await readEventSummary(normalized));
     enriched.push({
       ...normalized,
       summary,
@@ -839,7 +1026,9 @@ async function enrichEvents(
   return enriched;
 }
 
-async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutationWorkerResult> {
+async function runRequest(
+  request: CardMutationWorkerRequest,
+): Promise<CardMutationWorkerResult> {
   switch (request.type) {
     case "createCard":
       return await cardsStore.createCard(
@@ -859,7 +1048,10 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.expectedRevision,
       );
     case "updateCardDescriptionFromFile": {
-      const description = await fsp.readFile(request.payload.descriptionFilePath, "utf8");
+      const description = await fsp.readFile(
+        request.payload.descriptionFilePath,
+        "utf8",
+      );
       return await cardsStore.updateCard(
         request.payload.projectId,
         request.payload.columnId,
@@ -919,9 +1111,15 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.historyId,
       );
     case "undoLatest":
-      return historyStore.undoLatest(request.payload.projectId, request.payload.sessionId);
+      return historyStore.undoLatest(
+        request.payload.projectId,
+        request.payload.sessionId,
+      );
     case "redoLatest":
-      return historyStore.redoLatest(request.payload.projectId, request.payload.sessionId);
+      return historyStore.redoLatest(
+        request.payload.projectId,
+        request.payload.sessionId,
+      );
     case "revertEntry":
       return historyStore.revertEntry(
         request.payload.projectId,
@@ -945,7 +1143,9 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
         request.payload.limit,
       );
     case "syncBlockDocument":
-      return runDocumentCommand(() => blockDocumentRuntime.sync(request.payload));
+      return runDocumentCommand(() =>
+        blockDocumentRuntime.sync(request.payload),
+      );
     case "getBlockDocumentProjectId":
       return runDocumentCommand(() =>
         blockDocumentRuntime.getProjectId(request.payload.documentId),
@@ -964,10 +1164,9 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
           request.payload.ownerBlockId,
         );
         if (current.authority === "ydoc_primary") return current;
-        const cutover = cutoverEligibleCardDocumentsToPrimary(
-          getDb(),
-          [request.payload.ownerBlockId],
-        );
+        const cutover = cutoverEligibleCardDocumentsToPrimary(getDb(), [
+          request.payload.ownerBlockId,
+        ]);
         for (const documentId of cutover.cutoverDocumentIds) {
           blockDocumentRuntime.invalidate(documentId);
         }
@@ -1036,6 +1235,22 @@ async function runRequest(request: CardMutationWorkerRequest): Promise<CardMutat
       }
       return result;
     }
+    case "relocateBlocks": {
+      const result = runRelocationCommand(() =>
+        relocateBlocksAtomically(getDb(), request.payload),
+      );
+      if (!result.ok) return result;
+
+      const documentIds = [
+        result.value.sourceCommit.documentId,
+        ...(result.value.targetCommit
+          ? [result.value.targetCommit.documentId]
+          : []),
+      ];
+      invalidateRelocatedDocumentCaches(documentIds, result.value.relocationId);
+      publishRelocationCardSummaries(result.value);
+      return result;
+    }
     case "writerBarrier":
       return undefined;
     case "shutdown":
@@ -1094,9 +1309,9 @@ const runRequestAtAuthorityBoundary = async (
     }
   }
   if (
-    request.type === "prepareOwnedBlockDocument"
-    || request.type === "cutoverCardDocumentToPrimary"
-    || request.type === "cutoverEligibleCardDocuments"
+    request.type === "prepareOwnedBlockDocument" ||
+    request.type === "cutoverCardDocumentToPrimary" ||
+    request.type === "cutoverEligibleCardDocuments"
   ) {
     const startup = initializeLegacyShadowProcessor();
     const preCutover = safelyDrainLegacyCardShadowJobs(
@@ -1112,7 +1327,8 @@ const runRequestAtAuthorityBoundary = async (
             ok: false,
             error: {
               code: "document_not_ready",
-              message: "Legacy foreign-reference migration did not reach a safe cutover boundary",
+              message:
+                "Legacy foreign-reference migration did not reach a safe cutover boundary",
               retryable: true,
               resetRequired: false,
             },
@@ -1169,7 +1385,9 @@ const runRequestAtAuthorityBoundary = async (
   };
 };
 
-async function handleRequest(request: CardMutationWorkerRequest): Promise<void> {
+async function handleRequest(
+  request: CardMutationWorkerRequest,
+): Promise<void> {
   const workerStartedAtEpochMs = Date.now();
   const workerStartedAt = performance.now();
   const transactionStartedAt = performance.now();
@@ -1180,33 +1398,39 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
 
   dbNotifier.on("board-changed", onBoardChanged);
   try {
-    const { result, shadow, foreignReferences } = await runRequestAtAuthorityBoundary(request);
+    const { result, shadow, foreignReferences } =
+      await runRequestAtAuthorityBoundary(request);
     dbNotifier.removeListener("board-changed", onBoardChanged);
 
     const metrics: CardMutationMetrics = {
       mutationId: request.mutationId,
-      queueWaitMs: Math.max(0, workerStartedAtEpochMs - request.queuedAtEpochMs),
+      queueWaitMs: Math.max(
+        0,
+        workerStartedAtEpochMs - request.queuedAtEpochMs,
+      ),
       workerDurationMs: Math.round(performance.now() - workerStartedAt),
       transactionMs: Math.round(performance.now() - transactionStartedAt),
       descriptionBytes: descriptionBytesForRequest(request),
-      summaryBytes: result && typeof result === "object" && "summary" in result
-        ? approximatePayloadBytes(result.summary)
-        : undefined,
-      revisionKind: (
-        (request.type === "updateCard" && "description" in request.payload.updates)
-        || request.type === "updateCardDescriptionFromFile"
-      )
-        ? readLatestDescriptionRevisionKind(request.payload.cardId)
-        : undefined,
+      summaryBytes:
+        result && typeof result === "object" && "summary" in result
+          ? approximatePayloadBytes(result.summary)
+          : undefined,
+      revisionKind:
+        (request.type === "updateCard" &&
+          "description" in request.payload.updates) ||
+        request.type === "updateCardDescriptionFromFile"
+          ? readLatestDescriptionRevisionKind(request.payload.cardId)
+          : undefined,
       eventCount: 0,
       shadowJobsProcessed: shadow.processed || undefined,
       shadowJobsApplied: shadow.applied || undefined,
       shadowJobsSuperseded: shadow.superseded || undefined,
       shadowJobsFailed: shadow.failed || undefined,
       shadowDrainErrors: shadow.errors || undefined,
-      shadowDrainExhausted: shadow.processed > 0 || shadow.errors > 0
-        ? shadow.exhausted
-        : undefined,
+      shadowDrainExhausted:
+        shadow.processed > 0 || shadow.errors > 0
+          ? shadow.exhausted
+          : undefined,
       foreignReferenceDocumentsProcessed:
         foreignReferences.processedDocuments || undefined,
       foreignReferencesMigrated:
@@ -1214,8 +1438,8 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
       foreignReferenceMigrationsFailed:
         foreignReferences.failedDocuments || undefined,
       foreignReferenceMigrationExhausted:
-        foreignReferences.processedDocuments > 0
-          || foreignReferences.failedDocuments > 0
+        foreignReferences.processedDocuments > 0 ||
+        foreignReferences.failedDocuments > 0
           ? foreignReferences.exhausted
           : undefined,
     };
@@ -1241,7 +1465,10 @@ async function handleRequest(request: CardMutationWorkerRequest): Promise<void> 
       error: toErrorMessage(error),
       metrics: {
         mutationId: request.mutationId,
-        queueWaitMs: Math.max(0, workerStartedAtEpochMs - request.queuedAtEpochMs),
+        queueWaitMs: Math.max(
+          0,
+          workerStartedAtEpochMs - request.queuedAtEpochMs,
+        ),
         workerDurationMs: Math.round(performance.now() - workerStartedAt),
         transactionMs: Math.round(performance.now() - transactionStartedAt),
         descriptionBytes: descriptionBytesForRequest(request),

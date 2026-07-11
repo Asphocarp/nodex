@@ -10,6 +10,8 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
   OwnedBlockDocumentDescriptor,
+  RelocateBlocks,
+  RelocationCommandResult,
 } from "../shared/block-documents";
 import type {
   CutoverCardDocumentInput,
@@ -58,7 +60,10 @@ export interface CardMutationMetrics {
 
 export type CardOccurrenceMutationResult = { success: boolean; error?: string };
 export type HistoryMutationResult = { success: boolean; error?: string };
-export type CardHistoryVersionPreviewResult = { preview: HistoryCardVersionPreview | null; error?: string };
+export type CardHistoryVersionPreviewResult = {
+  preview: HistoryCardVersionPreview | null;
+  error?: string;
+};
 export interface CardReadModelBackfillResult {
   updated: number;
   remaining: number;
@@ -81,196 +86,201 @@ interface CardMutationWorkerRequestBase {
 
 export type CardMutationWorkerRequest =
   | (CardMutationWorkerRequestBase & {
-    type: "createCard";
-    payload: {
-      projectId: string;
-      columnId: Card["status"];
-      input: CardCreateInput;
-      sessionId?: string;
-      placement?: CardCreatePlacement;
-    };
-  })
+      type: "createCard";
+      payload: {
+        projectId: string;
+        columnId: Card["status"];
+        input: CardCreateInput;
+        sessionId?: string;
+        placement?: CardCreatePlacement;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "updateCard";
-    payload: {
-      projectId: string;
-      columnId?: Card["status"];
-      cardId: string;
-      updates: Partial<CardInput>;
-      sessionId?: string;
-      expectedRevision?: number;
-    };
-  })
+      type: "updateCard";
+      payload: {
+        projectId: string;
+        columnId?: Card["status"];
+        cardId: string;
+        updates: Partial<CardInput>;
+        sessionId?: string;
+        expectedRevision?: number;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "updateCardDescriptionFromFile";
-    payload: {
-      projectId: string;
-      columnId?: Card["status"];
-      cardId: string;
-      descriptionFilePath: string;
-      sessionId?: string;
-      expectedRevision?: number;
-    };
-  })
+      type: "updateCardDescriptionFromFile";
+      payload: {
+        projectId: string;
+        columnId?: Card["status"];
+        cardId: string;
+        descriptionFilePath: string;
+        sessionId?: string;
+        expectedRevision?: number;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "deleteCard";
-    payload: {
-      projectId: string;
-      columnId?: Card["status"];
-      cardId: string;
-      sessionId?: string;
-    };
-  })
+      type: "deleteCard";
+      payload: {
+        projectId: string;
+        columnId?: Card["status"];
+        cardId: string;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "moveCard";
-    payload: MoveCardInput & { projectId: string; sessionId?: string };
-  })
+      type: "moveCard";
+      payload: MoveCardInput & { projectId: string; sessionId?: string };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "moveCards";
-    payload: MoveCardsInput & { projectId: string; sessionId?: string };
-  })
+      type: "moveCards";
+      payload: MoveCardsInput & { projectId: string; sessionId?: string };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "moveCardToProject";
-    payload: MoveCardToProjectInput & { sessionId?: string };
-  })
+      type: "moveCardToProject";
+      payload: MoveCardToProjectInput & { sessionId?: string };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "importBlockDropAsCards";
-    payload: {
-      projectId: string;
-      input: BlockDropImportInput;
-      sessionId?: string;
-    };
-  })
+      type: "importBlockDropAsCards";
+      payload: {
+        projectId: string;
+        input: BlockDropImportInput;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "applyCardEditorDrop";
-    payload: {
-      projectId: string;
-      input: CardEditorDropInput;
-      sessionId?: string;
-    };
-  })
+      type: "applyCardEditorDrop";
+      payload: {
+        projectId: string;
+        input: CardEditorDropInput;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "completeCardOccurrence";
-    payload: {
-      projectId: string;
-      input: CardOccurrenceActionInput;
-      sessionId?: string;
-    };
-  })
+      type: "completeCardOccurrence";
+      payload: {
+        projectId: string;
+        input: CardOccurrenceActionInput;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "skipCardOccurrence";
-    payload: {
-      projectId: string;
-      input: CardOccurrenceActionInput;
-      sessionId?: string;
-    };
-  })
+      type: "skipCardOccurrence";
+      payload: {
+        projectId: string;
+        input: CardOccurrenceActionInput;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "updateCardOccurrence";
-    payload: {
-      projectId: string;
-      input: CardOccurrenceUpdateInput;
-      sessionId?: string;
-    };
-  })
+      type: "updateCardOccurrence";
+      payload: {
+        projectId: string;
+        input: CardOccurrenceUpdateInput;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "getCardHistoryVersionPreview";
-    payload: {
-      projectId: string;
-      cardId: string;
-      historyId: number;
-    };
-  })
+      type: "getCardHistoryVersionPreview";
+      payload: {
+        projectId: string;
+        cardId: string;
+        historyId: number;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "undoLatest";
-    payload: {
-      projectId: string;
-      sessionId?: string;
-    };
-  })
+      type: "undoLatest";
+      payload: {
+        projectId: string;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "redoLatest";
-    payload: {
-      projectId: string;
-      sessionId?: string;
-    };
-  })
+      type: "redoLatest";
+      payload: {
+        projectId: string;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "revertEntry";
-    payload: {
-      projectId: string;
-      historyId: number;
-      sessionId?: string;
-    };
-  })
+      type: "revertEntry";
+      payload: {
+        projectId: string;
+        historyId: number;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "restoreToEntry";
-    payload: {
-      projectId: string;
-      cardId: string;
-      historyId: number;
-      sessionId?: string;
-    };
-  })
+      type: "restoreToEntry";
+      payload: {
+        projectId: string;
+        cardId: string;
+        historyId: number;
+        sessionId?: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "backfillCardReadModel";
-    payload: {
-      limit?: number;
-    };
-  })
+      type: "backfillCardReadModel";
+      payload: {
+        limit?: number;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "initializeBlockDocumentShadows";
-  })
+      type: "initializeBlockDocumentShadows";
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "migrateLegacyForeignReferences";
-    payload: { readonly limit?: number };
-  })
+      type: "migrateLegacyForeignReferences";
+      payload: { readonly limit?: number };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "syncBlockDocument";
-    payload: DocumentSyncRequest;
-  })
+      type: "syncBlockDocument";
+      payload: DocumentSyncRequest;
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "getBlockDocumentProjectId";
-    payload: { readonly documentId: string };
-  })
+      type: "getBlockDocumentProjectId";
+      payload: { readonly documentId: string };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "getOwnedBlockDocumentDescriptor";
-    payload: {
-      readonly projectId: string;
-      readonly ownerBlockId: string;
-    };
-  })
+      type: "getOwnedBlockDocumentDescriptor";
+      payload: {
+        readonly projectId: string;
+        readonly ownerBlockId: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "prepareOwnedBlockDocument";
-    payload: {
-      readonly projectId: string;
-      readonly ownerBlockId: string;
-    };
-  })
+      type: "prepareOwnedBlockDocument";
+      payload: {
+        readonly projectId: string;
+        readonly ownerBlockId: string;
+      };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "cutoverCardDocumentToPrimary";
-    payload: CutoverCardDocumentInput;
-  })
+      type: "cutoverCardDocumentToPrimary";
+      payload: CutoverCardDocumentInput;
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "cutoverEligibleCardDocuments";
-    payload: { readonly ownerBlockIds?: readonly string[] };
-  })
+      type: "cutoverEligibleCardDocuments";
+      payload: { readonly ownerBlockIds?: readonly string[] };
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "applyBlockDocumentUpdate";
-    payload: DocumentSyncApplyRequest;
-  })
+      type: "applyBlockDocumentUpdate";
+      payload: DocumentSyncApplyRequest;
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "writerBarrier";
-  })
+      type: "relocateBlocks";
+      payload: RelocateBlocks;
+    })
   | (CardMutationWorkerRequestBase & {
-    type: "shutdown";
-  });
+      type: "writerBarrier";
+    })
+  | (CardMutationWorkerRequestBase & {
+      type: "shutdown";
+    });
 
 export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<DocumentSyncResponse>
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
   | DocumentSyncCommandResult<OwnedBlockDocumentDescriptor>
-  | DocumentSyncCommandResult<string>;
+  | DocumentSyncCommandResult<string>
+  | RelocationCommandResult;
 
 export type CardMutationWorkerResult =
   | Card
@@ -297,18 +307,18 @@ export type CardMutationWorkerResult =
 
 export type CardMutationWorkerResponse =
   | {
-    id: number;
-    ok: true;
-    result: CardMutationWorkerResult;
-    events: BoardChangeEvent[];
-    metrics: CardMutationMetrics;
-  }
+      id: number;
+      ok: true;
+      result: CardMutationWorkerResult;
+      events: BoardChangeEvent[];
+      metrics: CardMutationMetrics;
+    }
   | {
-    id: number;
-    ok: false;
-    error: string;
-    metrics?: Partial<CardMutationMetrics>;
-  };
+      id: number;
+      ok: false;
+      error: string;
+      metrics?: Partial<CardMutationMetrics>;
+    };
 
 export type CardMutationWorkerEvent = {
   type: "log";
@@ -319,4 +329,5 @@ export type CardMutationWorkerEvent = {
   };
 };
 
-export type CardMutationWorkerMessage = CardMutationWorkerResponse | CardMutationWorkerEvent;
+export type CardMutationWorkerMessage =
+  CardMutationWorkerResponse | CardMutationWorkerEvent;

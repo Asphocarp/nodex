@@ -3,7 +3,10 @@ import { CardMutationWriter, type CardMutationWorkerLike } from "./card-mutation
 import type { BoardChangeEvent } from "../shared/ipc-api";
 import type { CardMutationMetrics, CardMutationWorkerMessage, CardMutationWorkerRequest } from "./card-mutation-worker-protocol";
 import type { CardSummary } from "../shared/types";
-import type { DocumentSyncApplyRequest } from "../shared/block-documents";
+import type {
+  DocumentSyncApplyRequest,
+  RelocateBlocks,
+} from "../shared/block-documents";
 
 class FakeWorker implements CardMutationWorkerLike {
   readonly messages: CardMutationWorkerRequest[] = [];
@@ -562,6 +565,109 @@ describe("CardMutationWriter", () => {
     });
     const cutover = await cutoverPending;
     expect(cutover.result.authority).toBe("ydoc_primary");
+  });
+
+  test("preserves typed relocation binaries and compacted null replay through the FIFO", async () => {
+    const worker = new FakeWorker();
+    const writer = new CardMutationWriter({
+      createWorker: () => worker,
+      publishBoardEvent: () => undefined,
+    });
+    const input: RelocateBlocks = {
+      relocationId: "relocation-1",
+      projectId: "project-1",
+      storeEpoch: "store-1",
+      rootBlockIds: ["block-1"],
+      sourceDocumentId: "document:source",
+      sourceGeneration: 1,
+      expectedSourceHeadSeq: 3,
+      expectedLocationRevisions: { "block-1": 1 },
+      target: {
+        kind: "document",
+        documentId: "document:target",
+        generation: 1,
+        expectedHeadSeq: 7,
+      },
+    };
+
+    const pending = writer.relocateBlocks(input);
+    const request = worker.messages[0];
+    expect(request?.type).toBe("relocateBlocks");
+    if (!request || request.type !== "relocateBlocks") return;
+    expect(request.payload.relocationId).toBe(input.relocationId);
+    worker.emitMessage({
+      id: request.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          relocationId: input.relocationId,
+          projectId: input.projectId,
+          storeEpoch: input.storeEpoch,
+          duplicate: false,
+          rootBlockIds: ["block-1"],
+          movedBlockIds: ["block-1"],
+          finalLocations: {
+            "block-1": { kind: "document", documentId: "document:target" },
+          },
+          finalLocationRevisions: { "block-1": 2 },
+          sourceCommit: {
+            documentId: "document:source",
+            generation: 1,
+            baseHeadSeq: 3,
+            headSeq: 4,
+            updateId: "source-update",
+            update: new Uint8Array([1, 2]),
+            stateVector: new Uint8Array([3, 4]),
+          },
+          targetCommit: {
+            documentId: "document:target",
+            generation: 1,
+            baseHeadSeq: 7,
+            headSeq: 8,
+            updateId: "target-update",
+            update: new Uint8Array([5, 6]),
+            stateVector: new Uint8Array([7, 8]),
+          },
+          changeLogSeq: 9,
+          committedAt: "2026-07-11T00:00:00.000Z",
+        },
+      },
+      events: [],
+      metrics: makeMetrics(request.mutationId),
+    });
+    const result = await pending;
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.value.sourceCommit.update?.[1]).toBe(2);
+    expect(result.value.targetCommit?.stateVector[1]).toBe(8);
+
+    const duplicatePending = writer.relocateBlocks(input);
+    const duplicateRequest = worker.messages[1];
+    if (!duplicateRequest) return;
+    worker.emitMessage({
+      id: duplicateRequest.id,
+      ok: true,
+      result: {
+        ok: true,
+        value: {
+          ...result.value,
+          duplicate: true,
+          sourceCommit: { ...result.value.sourceCommit, update: null },
+          targetCommit: result.value.targetCommit
+            ? { ...result.value.targetCommit, update: null }
+            : undefined,
+        },
+      },
+      events: [],
+      metrics: makeMetrics(duplicateRequest.mutationId),
+    });
+    const duplicate = await duplicatePending;
+    expect(duplicate.ok).toBeTrue();
+    if (!duplicate.ok) return;
+    expect(duplicate.value.duplicate).toBeTrue();
+    expect(duplicate.value.sourceCommit.update === null).toBeTrue();
+    expect(duplicate.value.targetCommit?.update === null).toBeTrue();
   });
 
   test("places barriers after accepted work and gracefully drains before shutdown", async () => {

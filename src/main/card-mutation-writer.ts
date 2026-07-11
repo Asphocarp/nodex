@@ -4,10 +4,7 @@ import { Worker } from "node:worker_threads";
 import { getLocalStoreDir } from "./local-store/config";
 import { dbNotifier, type ChangeType } from "./local-store/notifier";
 import { getLogger } from "./logging/logger";
-import type {
-  BoardChangeEvent,
-  UndoRedoResult,
-} from "../shared/ipc-api";
+import type { BoardChangeEvent, UndoRedoResult } from "../shared/ipc-api";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -15,6 +12,8 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
   OwnedBlockDocumentDescriptor,
+  RelocateBlocks,
+  RelocationCommandResult,
 } from "../shared/block-documents";
 import type {
   CutoverCardDocumentInput,
@@ -55,13 +54,17 @@ import type {
 const LONG_MUTATION_WARN_MS = 1_000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
 
-const logger = getLogger({ subsystem: "ipc", component: "card-mutation-writer" });
+const logger = getLogger({
+  subsystem: "ipc",
+  component: "card-mutation-writer",
+});
 
-type CardMutationWorkerRequestInput = CardMutationWorkerRequest extends infer Request
-  ? Request extends { id: number }
-    ? Omit<Request, "id" | "mutationId" | "queuedAtEpochMs">
-    : never
-  : never;
+type CardMutationWorkerRequestInput =
+  CardMutationWorkerRequest extends infer Request
+    ? Request extends { id: number }
+      ? Omit<Request, "id" | "mutationId" | "queuedAtEpochMs">
+      : never
+    : never;
 
 export interface CardMutationEnvelope<T> {
   result: T;
@@ -71,7 +74,10 @@ export interface CardMutationEnvelope<T> {
 
 export interface CardMutationWorkerLike {
   postMessage(message: CardMutationWorkerRequest): void;
-  on(event: "message", listener: (message: CardMutationWorkerMessage) => void): void;
+  on(
+    event: "message",
+    listener: (message: CardMutationWorkerMessage) => void,
+  ): void;
   on(event: "error", listener: (error: Error) => void): void;
   on(event: "exit", listener: (code: number) => void): void;
   removeAllListeners(): void;
@@ -85,7 +91,10 @@ export type CardMutationWriterShutdownDeadline = (
 
 export interface CardMutationWriterOptions {
   createWorker?: () => CardMutationWorkerLike;
-  publishBoardEvent?: (event: BoardChangeEvent, metrics: CardMutationMetrics) => void;
+  publishBoardEvent?: (
+    event: BoardChangeEvent,
+    metrics: CardMutationMetrics,
+  ) => void;
   scheduleShutdownDeadline?: CardMutationWriterShutdownDeadline;
   shutdownTimeoutMs?: number;
 }
@@ -131,7 +140,14 @@ export class CardMutationWriter {
   ): Promise<CardMutationEnvelope<CardUpdateResult>> {
     return await this.executeTyped<CardUpdateResult>({
       type: "updateCard",
-      payload: { projectId, columnId, cardId, updates, sessionId, expectedRevision },
+      payload: {
+        projectId,
+        columnId,
+        cardId,
+        updates,
+        sessionId,
+        expectedRevision,
+      },
     });
   }
 
@@ -145,7 +161,14 @@ export class CardMutationWriter {
   ): Promise<CardMutationEnvelope<CardUpdateResult>> {
     return await this.executeTyped<CardUpdateResult>({
       type: "updateCardDescriptionFromFile",
-      payload: { projectId, columnId, cardId, descriptionFilePath, sessionId, expectedRevision },
+      payload: {
+        projectId,
+        columnId,
+        cardId,
+        descriptionFilePath,
+        sessionId,
+        expectedRevision,
+      },
     });
   }
 
@@ -181,13 +204,23 @@ export class CardMutationWriter {
 
   async moveCardToProject(
     input: MoveCardToProjectInput & { sessionId?: string },
-  ): Promise<CardMutationEnvelope<MoveCardToProjectResult | "not_found" | "wrong_column" | "target_project_not_found">> {
-    return await this.executeTyped<MoveCardToProjectResult | "not_found" | "wrong_column" | "target_project_not_found">(
-      {
-        type: "moveCardToProject",
-        payload: input,
-      },
-    );
+  ): Promise<
+    CardMutationEnvelope<
+      | MoveCardToProjectResult
+      | "not_found"
+      | "wrong_column"
+      | "target_project_not_found"
+    >
+  > {
+    return await this.executeTyped<
+      | MoveCardToProjectResult
+      | "not_found"
+      | "wrong_column"
+      | "target_project_not_found"
+    >({
+      type: "moveCardToProject",
+      payload: input,
+    });
   }
 
   async importBlockDropAsCards(
@@ -245,14 +278,20 @@ export class CardMutationWriter {
     });
   }
 
-  async undoLatest(projectId: string, sessionId?: string): Promise<CardMutationEnvelope<UndoRedoResult>> {
+  async undoLatest(
+    projectId: string,
+    sessionId?: string,
+  ): Promise<CardMutationEnvelope<UndoRedoResult>> {
     return await this.executeTyped<UndoRedoResult>({
       type: "undoLatest",
       payload: { projectId, sessionId },
     });
   }
 
-  async redoLatest(projectId: string, sessionId?: string): Promise<CardMutationEnvelope<UndoRedoResult>> {
+  async redoLatest(
+    projectId: string,
+    sessionId?: string,
+  ): Promise<CardMutationEnvelope<UndoRedoResult>> {
     return await this.executeTyped<UndoRedoResult>({
       type: "redoLatest",
       payload: { projectId, sessionId },
@@ -293,7 +332,9 @@ export class CardMutationWriter {
     });
   }
 
-  async backfillCardReadModel(limit?: number): Promise<CardMutationEnvelope<CardReadModelBackfillResult>> {
+  async backfillCardReadModel(
+    limit?: number,
+  ): Promise<CardMutationEnvelope<CardReadModelBackfillResult>> {
     return await this.executeTyped<CardReadModelBackfillResult>({
       type: "backfillCardReadModel",
       payload: { limit },
@@ -320,7 +361,9 @@ export class CardMutationWriter {
   async syncBlockDocument(
     request: DocumentSyncRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> {
-    const envelope = await this.executeTyped<DocumentSyncCommandResult<DocumentSyncResponse>>({
+    const envelope = await this.executeTyped<
+      DocumentSyncCommandResult<DocumentSyncResponse>
+    >({
       type: "syncBlockDocument",
       payload: request,
     });
@@ -330,10 +373,12 @@ export class CardMutationWriter {
   async getBlockDocumentProjectId(
     documentId: string,
   ): Promise<DocumentSyncCommandResult<string>> {
-    const envelope = await this.executeTyped<DocumentSyncCommandResult<string>>({
-      type: "getBlockDocumentProjectId",
-      payload: { documentId },
-    });
+    const envelope = await this.executeTyped<DocumentSyncCommandResult<string>>(
+      {
+        type: "getBlockDocumentProjectId",
+        payload: { documentId },
+      },
+    );
     return envelope.result;
   }
 
@@ -381,8 +426,20 @@ export class CardMutationWriter {
   async applyBlockDocumentUpdate(
     request: DocumentSyncApplyRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>> {
-    const envelope = await this.executeTyped<DocumentSyncCommandResult<DocumentSyncApplyAck>>({
+    const envelope = await this.executeTyped<
+      DocumentSyncCommandResult<DocumentSyncApplyAck>
+    >({
       type: "applyBlockDocumentUpdate",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
+  async relocateBlocks(
+    request: RelocateBlocks,
+  ): Promise<RelocationCommandResult> {
+    const envelope = await this.executeTyped<RelocationCommandResult>({
+      type: "relocateBlocks",
       payload: request,
     });
     return envelope.result;
@@ -421,11 +478,13 @@ export class CardMutationWriter {
     this.shutdownPromise = this.executeTyped<void>(
       { type: "shutdown" },
       { allowDuringDrain: true },
-    ).then(() => undefined).finally(() => {
-      this.cancelShutdownDeadline?.();
-      this.cancelShutdownDeadline = null;
-      this.lifecycle = "stopped";
-    });
+    )
+      .then(() => undefined)
+      .finally(() => {
+        this.cancelShutdownDeadline?.();
+        this.cancelShutdownDeadline = null;
+        this.lifecycle = "stopped";
+      });
     this.cancelShutdownDeadline = this.scheduleShutdownDeadline(() => {
       const timeoutMs = this.shutdownTimeoutMs();
       const error = new Error(
@@ -457,7 +516,11 @@ export class CardMutationWriter {
 
   private shutdownTimeoutMs(): number {
     const configured = this.options.shutdownTimeoutMs;
-    if (configured !== undefined && Number.isFinite(configured) && configured > 0) {
+    if (
+      configured !== undefined &&
+      Number.isFinite(configured) &&
+      configured > 0
+    ) {
       return configured;
     }
     return GRACEFUL_SHUTDOWN_TIMEOUT_MS;
@@ -478,10 +541,7 @@ export class CardMutationWriter {
     input: CardMutationWorkerRequestInput,
     options?: { readonly allowDuringDrain?: boolean },
   ): Promise<CardMutationEnvelope<CardMutationWorkerResult>> {
-    if (
-      this.lifecycle !== "accepting"
-      && !options?.allowDuringDrain
-    ) {
+    if (this.lifecycle !== "accepting" && !options?.allowDuringDrain) {
       throw new Error("Card mutation writer is shutting down");
     }
     const worker = this.ensureWorker();
@@ -497,23 +557,25 @@ export class CardMutationWriter {
 
     const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
     eventLoopDelay.enable();
-    const response = await new Promise<CardMutationWorkerResponse>((resolve, reject) => {
-      const warnTimer = setTimeout(() => {
-        logger.warn("Card mutation still running", {
-          mutationId: request.mutationId,
-          requestType: request.type,
-          elapsedMs: Date.now() - request.queuedAtEpochMs,
-        });
-      }, LONG_MUTATION_WARN_MS);
-      this.pending.set(id, { request, resolve, reject, warnTimer });
-      try {
-        worker.postMessage(request);
-      } catch (error) {
-        clearTimeout(warnTimer);
-        this.pending.delete(id);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    }).finally(() => {
+    const response = await new Promise<CardMutationWorkerResponse>(
+      (resolve, reject) => {
+        const warnTimer = setTimeout(() => {
+          logger.warn("Card mutation still running", {
+            mutationId: request.mutationId,
+            requestType: request.type,
+            elapsedMs: Date.now() - request.queuedAtEpochMs,
+          });
+        }, LONG_MUTATION_WARN_MS);
+        this.pending.set(id, { request, resolve, reject, warnTimer });
+        try {
+          worker.postMessage(request);
+        } catch (error) {
+          clearTimeout(warnTimer);
+          this.pending.delete(id);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      },
+    ).finally(() => {
       eventLoopDelay.disable();
     });
 
@@ -521,7 +583,9 @@ export class CardMutationWriter {
       throw new Error(response.error);
     }
 
-    response.metrics.mainEventLoopLagMaxMs = Math.round(eventLoopDelay.max / 1_000_000);
+    response.metrics.mainEventLoopLagMaxMs = Math.round(
+      eventLoopDelay.max / 1_000_000,
+    );
     this.publishBoardEvents(response.events, response.metrics);
 
     return {
@@ -535,9 +599,13 @@ export class CardMutationWriter {
     if (this.worker) return this.worker;
 
     this.worker = this.createWorker();
-    this.worker.on("message", (message: CardMutationWorkerMessage) => this.handleWorkerMessage(message));
+    this.worker.on("message", (message: CardMutationWorkerMessage) =>
+      this.handleWorkerMessage(message),
+    );
     this.worker.on("error", (error) => {
-      this.handleWorkerFailure(error instanceof Error ? error : new Error(String(error)));
+      this.handleWorkerFailure(
+        error instanceof Error ? error : new Error(String(error)),
+      );
     });
     this.worker.on("exit", (code) => {
       this.worker = null;
@@ -545,9 +613,10 @@ export class CardMutationWriter {
         this.gracefulExitExpected = false;
         return;
       }
-      const message = code === 0
-        ? "Card mutation worker exited unexpectedly"
-        : `Card mutation worker exited with code ${code}`;
+      const message =
+        code === 0
+          ? "Card mutation worker exited unexpectedly"
+          : `Card mutation worker exited with code ${code}`;
       this.handleWorkerFailure(new Error(message));
     });
     logger.info("Started card mutation worker");
@@ -614,7 +683,10 @@ export class CardMutationWriter {
     });
   }
 
-  private publishBoardEvents(events: readonly BoardChangeEvent[], metrics: CardMutationMetrics): void {
+  private publishBoardEvents(
+    events: readonly BoardChangeEvent[],
+    metrics: CardMutationMetrics,
+  ): void {
     for (const event of events) {
       try {
         if (this.options.publishBoardEvent) {
